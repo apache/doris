@@ -26,6 +26,7 @@ import org.apache.doris.filesystem.Location;
 import org.apache.doris.filesystem.local.LocalFileSystem;
 import org.apache.doris.fs.SpiSwitchingFileSystem;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TS3MPUPendingUpload;
 
 import org.junit.After;
 import org.junit.Assert;
@@ -33,8 +34,12 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.io.IOException;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
@@ -254,5 +259,68 @@ public class HMSTransactionPathTest {
         @Override
         public void close() throws IOException {
         }
+    }
+
+    /**
+     * H3: Verify that {@code HmsCommitter.abortMultiUploads()} does NOT throw {@link ClassCastException}
+     * when the underlying {@link FileSystem} is a non-{@code ObjFileSystem} (e.g. HDFS / local).
+     *
+     * <p>Before the H3 fix, {@code abortMultiUploads()} unconditionally cast the resolved filesystem to
+     * {@code ObjFileSystem}, causing a {@link ClassCastException} when using HDFS-backed repositories.
+     * The fix adds an {@code instanceof ObjFileSystem} guard that logs a warning and skips the abort.
+     *
+     * <p>Because {@code HmsCommitter} and {@code UncompletedMpuPendingUpload} are package-private /
+     * private inner classes, the test uses reflection to inject the required state.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    public void testAbortMultiUploadsDoesNotThrowForNonObjFileSystem() throws Exception {
+        LocalFileSystem localFs = new LocalFileSystem(Collections.emptyMap());
+        HMSTransaction tx = createTransaction(localFs);
+
+        // Obtain the private UncompletedMpuPendingUpload class via reflection.
+        Class<?> uploadClass = Arrays.stream(HMSTransaction.class.getDeclaredClasses())
+                .filter(c -> "UncompletedMpuPendingUpload".equals(c.getSimpleName()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Could not find UncompletedMpuPendingUpload class"));
+
+        // Build a minimal TS3MPUPendingUpload (bucket/key/uploadId need not be real).
+        TS3MPUPendingUpload mpu = new TS3MPUPendingUpload();
+        mpu.setBucket("test-bucket");
+        mpu.setKey("test/key");
+        mpu.setUploadId("upload-id-0");
+
+        Constructor<?> uploadCtor = uploadClass.getDeclaredConstructor(TS3MPUPendingUpload.class, String.class);
+        uploadCtor.setAccessible(true);
+        // Use "local:///tmp/file" — will be resolved via SpiSwitchingFileSystem to LocalFileSystem.
+        Object upload = uploadCtor.newInstance(mpu, "/tmp/file");
+
+        // Inject into HMSTransaction.uncompletedMpuPendingUploads (field on outer class).
+        Field mpuField = HMSTransaction.class.getDeclaredField("uncompletedMpuPendingUploads");
+        mpuField.setAccessible(true);
+        Set<Object> uploads = (Set<Object>) mpuField.get(tx);
+        uploads.add(upload);
+
+        // stagingDirectory is only initialized inside commit(); initialize it here to avoid NPE in rollback().
+        Field stagingDirField = HMSTransaction.class.getDeclaredField("stagingDirectory");
+        stagingDirField.setAccessible(true);
+        stagingDirField.set(tx, java.util.Optional.empty());
+
+        // Instantiate HmsCommitter (package-private inner class) for this transaction.
+        Class<?> committerClass = Arrays.stream(HMSTransaction.class.getDeclaredClasses())
+                .filter(c -> "HmsCommitter".equals(c.getSimpleName()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Could not find HmsCommitter class"));
+        Constructor<?> committerCtor = committerClass.getDeclaredConstructor(HMSTransaction.class);
+        committerCtor.setAccessible(true);
+        Object committer = committerCtor.newInstance(tx);
+
+        // rollback() calls abortMultiUploads(); with the H3 fix it must skip (not cast) for LocalFileSystem.
+        // Before the fix this would throw ClassCastException.
+        Method rollback = committerClass.getMethod("rollback");
+        rollback.invoke(committer); // must NOT throw
+
+        // After rollback, uncompletedMpuPendingUploads must be cleared.
+        Assert.assertTrue("uncompletedMpuPendingUploads must be cleared after rollback", uploads.isEmpty());
     }
 }

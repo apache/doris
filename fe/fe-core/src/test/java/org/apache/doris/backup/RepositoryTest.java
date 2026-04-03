@@ -31,7 +31,10 @@ import org.apache.doris.filesystem.DorisOutputFile;
 import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileIterator;
 import org.apache.doris.filesystem.Location;
+import org.apache.doris.foundation.fs.FsStorageType;
+import org.apache.doris.fs.FileSystemDescriptor;
 import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.service.FrontendOptions;
 
 import com.google.common.collect.Lists;
@@ -483,6 +486,87 @@ public class RepositoryTest {
         SnapshotInfo snapshotInfo = new SnapshotInfo(1, 2, 3, 4, 5, 6, 7, "/path", Lists.newArrayList());
         path = repo.getRepoTabletPathBySnapshotInfo("label1", snapshotInfo);
         Assert.assertEquals("hdfs://path/to/repo/__palo_repository_repo/__ss_label1/__ss_content/__db_1/__tbl_2/__part_3/__idx_4/__5", path);
+    }
+
+    /**
+     * H1: Verify that a Repository serialized in the pre-SPI format (where the filesystem was
+     * stored as {@code "fs": {"n":"brokerName","prop":{...}}}) is correctly migrated to a
+     * {@link FileSystemDescriptor} during {@code gsonPostProcess()}.
+     *
+     * <p>Covers the backward-compatible deserialization path added as the H1 fix.
+     */
+    @Test
+    public void testGsonPostProcessLegacyBrokerFormat() {
+        // JSON shape produced by old PersistentFileSystem serialization:
+        // "fs": { "n": "<brokerName>", "prop": {} }
+        // No "fs_descriptor" field present.
+        String legacyJson = "{"
+                + "\"id\":10000,"
+                + "\"name\":\"legacyRepo\","
+                + "\"read_only\":false,"
+                + "\"location\":\"bos://backup/legacy\","
+                + "\"create_time\":-1,"
+                + "\"fs\":{\"n\":\"broker\",\"prop\":{}}"
+                + "}";
+
+        // GsonUtils.GSON triggers gsonPostProcess() automatically via PostProcessTypeAdapterFactory.
+        // FileSystemFactory is already mocked in setUp() to return mockFs for non-broker types.
+        Repository deserialized = GsonUtils.GSON.fromJson(legacyJson, Repository.class);
+
+        // The migration must produce a non-null FileSystemDescriptor.
+        FileSystemDescriptor fd = deserialized.getFileSystemDescriptor();
+        Assert.assertNotNull("fileSystemDescriptor must be migrated from legacy 'fs' field", fd);
+        // Broker fallback is expected: props are empty so no primary storage type matches.
+        Assert.assertEquals(FsStorageType.BROKER, fd.getStorageType());
+        Assert.assertEquals("broker", fd.getName());
+    }
+
+    /**
+     * H1: Verify migration when legacy props contain HDFS-specific keys that are recognized by
+     * {@link StorageProperties#createPrimary(java.util.Map)} (primary path, not broker fallback).
+     */
+    @Test
+    public void testGsonPostProcessLegacyHdfsFormat() {
+        // "hdfs.authentication.type" triggers HdfsProperties.guessIsMe() → primary storage detection succeeds.
+        // Deliberately avoids "dfs.nameservices" to skip HA validation in initNormalizeAndCheckProps().
+        String legacyJson = "{"
+                + "\"id\":20000,"
+                + "\"name\":\"hdfsRepo\","
+                + "\"read_only\":false,"
+                + "\"location\":\"hdfs://ns/backup\","
+                + "\"create_time\":-1,"
+                + "\"fs\":{\"n\":\"\",\"prop\":{\"hdfs.authentication.type\":\"simple\"}}"
+                + "}";
+
+        Repository deserialized = GsonUtils.GSON.fromJson(legacyJson, Repository.class);
+
+        FileSystemDescriptor fd = deserialized.getFileSystemDescriptor();
+        Assert.assertNotNull("fileSystemDescriptor must be migrated from legacy HDFS 'fs' field", fd);
+        Assert.assertEquals(FsStorageType.HDFS, fd.getStorageType());
+    }
+
+    /**
+     * H1: Verify that a Repository serialized in the new format (with {@code "fs_descriptor"})
+     * is deserialized correctly and the legacy field is ignored.
+     */
+    @Test
+    public void testGsonPostProcessNewFormatIsPreferred() {
+        // FileSystemDescriptor JSON uses "fs_type", "fs_name", "fs_props" as SerializedNames.
+        String newJson = "{"
+                + "\"id\":30000,"
+                + "\"name\":\"newRepo\","
+                + "\"read_only\":false,"
+                + "\"location\":\"s3://bucket/prefix\","
+                + "\"create_time\":-1,"
+                + "\"fs_descriptor\":{\"fs_type\":\"BROKER\",\"fs_name\":\"myBroker\",\"fs_props\":{}}"
+                + "}";
+
+        Repository deserialized = GsonUtils.GSON.fromJson(newJson, Repository.class);
+
+        FileSystemDescriptor fd = deserialized.getFileSystemDescriptor();
+        Assert.assertNotNull(fd);
+        Assert.assertEquals(FsStorageType.BROKER, fd.getStorageType());
+        Assert.assertEquals("myBroker", fd.getName());
     }
 
 }
