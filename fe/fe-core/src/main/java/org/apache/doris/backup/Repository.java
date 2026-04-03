@@ -137,6 +137,22 @@ public class Repository implements Writable, GsonPostProcessable {
     @SerializedName("fs_descriptor")
     private FileSystemDescriptor fileSystemDescriptor;
 
+    /**
+     * Legacy field: used by Doris versions prior to the filesystem SPI refactoring.
+     * Retained read-only for backward-compatible deserialization — never written in new code.
+     * In old JSON this was serialized as {@code "fs": {"n": "...", "prop": {...}}}.
+     */
+    @SerializedName("fs")
+    private LegacyFsRecord legacyFs;
+
+    /** Minimal POJO that captures the old {@code PersistentFileSystem} serialization shape. */
+    private static class LegacyFsRecord {
+        @SerializedName("n")
+        String name;
+        @SerializedName("prop")
+        Map<String, String> properties;
+    }
+
     /** SPI filesystem for I/O operations; transient — rebuilt in {@link #gsonPostProcess()}.
      *  Null for BROKER repositories, which resolve a live broker endpoint per I/O call. */
     private transient org.apache.doris.filesystem.FileSystem spiFs;
@@ -225,7 +241,30 @@ public class Repository implements Writable, GsonPostProcessable {
         Map<String, String> fsProps;
         if (fileSystemDescriptor != null) {
             fsProps = fileSystemDescriptor.getProperties();
+        } else if (legacyFs != null) {
+            // Backward compatibility: upgrade from pre-SPI serialization format.
+            // The old "fs" field used PersistentFileSystem with "n" (name) and "prop" (properties).
+            LOG.info("Repository '{}': migrating legacy 'fs' field to 'fs_descriptor'", name);
+            Map<String, String> props = legacyFs.properties != null ? legacyFs.properties : new HashMap<>();
+            String fsName = legacyFs.name != null ? legacyFs.name : "";
+            try {
+                StorageProperties storageProperties = StorageProperties.createPrimary(props);
+                fileSystemDescriptor = FileSystemDescriptor.fromStorageProperties(storageProperties, "");
+            } catch (RuntimeException e) {
+                LOG.warn("Repository '{}': primary storage migration failed ({}), trying broker fallback",
+                        name, e.getMessage());
+                try {
+                    BrokerProperties brokerProperties = BrokerProperties.of(fsName, props);
+                    fileSystemDescriptor = FileSystemDescriptor.fromStorageProperties(brokerProperties, fsName);
+                } catch (RuntimeException e2) {
+                    LOG.error("Repository '{}': failed to migrate legacy filesystem metadata: {}",
+                            name, e2.getMessage());
+                    return;
+                }
+            }
+            fsProps = fileSystemDescriptor.getProperties();
         } else {
+            LOG.error("Repository '{}': metadata corrupt — both 'fs' and 'fs_descriptor' fields are missing", name);
             return;
         }
         // Initialize SPI filesystem for I/O; broker resolves a live endpoint per I/O call

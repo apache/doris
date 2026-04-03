@@ -1535,8 +1535,14 @@ public class HMSTransaction implements Transaction {
             for (UncompletedMpuPendingUpload uncompletedMpuPendingUpload : uncompletedMpuPendingUploads) {
                 ObjFileSystem objFs;
                 try {
-                    objFs = (ObjFileSystem) ((SpiSwitchingFileSystem) fs)
+                    org.apache.doris.filesystem.FileSystem resolved = ((SpiSwitchingFileSystem) fs)
                             .forPath(uncompletedMpuPendingUpload.path);
+                    if (!(resolved instanceof ObjFileSystem)) {
+                        LOG.warn("Path '{}' uses non-object-storage backend ({}), skipping MPU abort",
+                                uncompletedMpuPendingUpload.path, resolved.getClass().getSimpleName());
+                        continue;
+                    }
+                    objFs = (ObjFileSystem) resolved;
                 } catch (java.io.IOException e) {
                     throw new RuntimeException("Failed to resolve filesystem for abort MPU: "
                             + uncompletedMpuPendingUpload.path, e);
@@ -1826,7 +1832,13 @@ public class HMSTransaction implements Transaction {
         }
         ObjFileSystem objFs;
         try {
-            objFs = (ObjFileSystem) ((SpiSwitchingFileSystem) fs).forPath(path);
+            org.apache.doris.filesystem.FileSystem resolved = ((SpiSwitchingFileSystem) fs).forPath(path);
+            if (!(resolved instanceof ObjFileSystem)) {
+                throw new RuntimeException("Expected ObjFileSystem for MPU commit at path '" + path
+                        + "', got: " + resolved.getClass().getSimpleName()
+                        + ". This path does not point to an object-storage backend.");
+            }
+            objFs = (ObjFileSystem) resolved;
         } catch (java.io.IOException e) {
             throw new RuntimeException("Failed to resolve filesystem for MPU commit at path: " + path, e);
         }

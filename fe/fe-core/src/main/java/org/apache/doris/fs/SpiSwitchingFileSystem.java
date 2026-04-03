@@ -30,6 +30,7 @@ import org.apache.doris.filesystem.Location;
 import com.google.common.annotations.VisibleForTesting;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -82,13 +83,17 @@ public class SpiSwitchingFileSystem implements FileSystem {
         if (sp == null) {
             throw new IOException("No StorageProperties found for path: " + uri);
         }
-        return cache.computeIfAbsent(sp, props -> {
-            try {
-                return FileSystemFactory.getFileSystem(props);
-            } catch (IOException e) {
-                throw new RuntimeException("Failed to create FileSystem for path " + uri, e);
-            }
-        });
+        try {
+            return cache.computeIfAbsent(sp, props -> {
+                try {
+                    return FileSystemFactory.getFileSystem(props);
+                } catch (IOException e) {
+                    throw new UncheckedIOException(e);
+                }
+            });
+        } catch (UncheckedIOException e) {
+            throw e.getCause();
+        }
     }
 
     /** Resolves the appropriate {@link FileSystem} for the given {@link Location}. */
