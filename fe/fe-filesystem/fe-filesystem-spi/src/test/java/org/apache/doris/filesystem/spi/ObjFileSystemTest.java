@@ -22,6 +22,7 @@ import org.apache.doris.filesystem.DorisOutputFile;
 import org.apache.doris.filesystem.FileIterator;
 import org.apache.doris.filesystem.Location;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.io.FileNotFoundException;
@@ -31,10 +32,6 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Unit tests for {@link ObjFileSystem}.
@@ -61,7 +58,7 @@ class ObjFileSystemTest {
     @Test
     void testIsNotFoundErrorForFileNotFoundException() {
         TestObjFileSystem fs = new TestObjFileSystem(new NoopObjStorage());
-        assertTrue(fs.isNotFoundError(new FileNotFoundException("key not found")),
+        Assertions.assertTrue(fs.isNotFoundError(new FileNotFoundException("key not found")),
                 "FileNotFoundException must be a not-found error");
     }
 
@@ -71,7 +68,7 @@ class ObjFileSystemTest {
     @Test
     void testIsNotFoundErrorFor404MessageIo() {
         TestObjFileSystem fs = new TestObjFileSystem(new NoopObjStorage());
-        assertTrue(fs.isNotFoundError(new IOException("HTTP 404 Not Found")),
+        Assertions.assertTrue(fs.isNotFoundError(new IOException("HTTP 404 Not Found")),
                 "IOException with '404' in message must be a not-found error");
     }
 
@@ -81,7 +78,7 @@ class ObjFileSystemTest {
     @Test
     void testIsNotFoundErrorForGenericIoException() {
         TestObjFileSystem fs = new TestObjFileSystem(new NoopObjStorage());
-        assertFalse(fs.isNotFoundError(new IOException("connection refused")),
+        Assertions.assertFalse(fs.isNotFoundError(new IOException("connection refused")),
                 "Generic IOException must not be a not-found error");
     }
 
@@ -103,7 +100,7 @@ class ObjFileSystemTest {
         };
 
         TestObjFileSystem fs = new TestObjFileSystem(storage);
-        assertFalse(fs.exists(Location.of("s3://bucket/missing")),
+        Assertions.assertFalse(fs.exists(Location.of("s3://bucket/missing")),
                 "exists() must return false when headObject() throws FileNotFoundException");
     }
 
@@ -121,7 +118,7 @@ class ObjFileSystemTest {
         };
 
         TestObjFileSystem fs = new TestObjFileSystem(storage);
-        assertFalse(fs.exists(Location.of("s3://bucket/missing")),
+        Assertions.assertFalse(fs.exists(Location.of("s3://bucket/missing")),
                 "exists() must return false when headObject() throws 404 IOException");
     }
 
@@ -139,7 +136,7 @@ class ObjFileSystemTest {
         };
 
         TestObjFileSystem fs = new TestObjFileSystem(storage);
-        assertTrue(fs.exists(Location.of("s3://bucket/present")),
+        Assertions.assertTrue(fs.exists(Location.of("s3://bucket/present")),
                 "exists() must return true when headObject() succeeds");
     }
 
@@ -157,10 +154,10 @@ class ObjFileSystemTest {
         };
 
         TestObjFileSystem fs = new TestObjFileSystem(storage);
-        IOException thrown = assertThrows(IOException.class,
+        IOException thrown = Assertions.assertThrows(IOException.class,
                 () -> fs.exists(Location.of("s3://bucket/key")),
                 "exists() must rethrow non-404 IOException");
-        assertEquals(networkError, thrown, "Rethrown exception must be the original");
+        Assertions.assertEquals(networkError, thrown, "Rethrown exception must be the original");
     }
 
     // ------------------------------------------------------------------
@@ -184,7 +181,7 @@ class ObjFileSystemTest {
         TestObjFileSystem fs = new TestObjFileSystem(storage);
         fs.close();
 
-        assertTrue(storageClosed.get(), "close() must call objStorage.close()");
+        Assertions.assertTrue(storageClosed.get(), "close() must call objStorage.close()");
     }
 
     /**
@@ -202,9 +199,9 @@ class ObjFileSystemTest {
         };
 
         TestObjFileSystem fs = new TestObjFileSystem(storage);
-        IOException thrown = assertThrows(IOException.class, fs::close,
+        IOException thrown = Assertions.assertThrows(IOException.class, fs::close,
                 "close() must propagate IOException from objStorage.close()");
-        assertEquals(storageError, thrown, "Propagated exception must be the original");
+        Assertions.assertEquals(storageError, thrown, "Propagated exception must be the original");
     }
 
     /**
@@ -223,7 +220,7 @@ class ObjFileSystemTest {
 
         TestObjFileSystem fs = new TestObjFileSystem(storage);
         fs.close();
-        assertEquals(1, callCount.get(), "close() must call objStorage.close() exactly once");
+        Assertions.assertEquals(1, callCount.get(), "close() must call objStorage.close() exactly once");
     }
 
     // ------------------------------------------------------------------

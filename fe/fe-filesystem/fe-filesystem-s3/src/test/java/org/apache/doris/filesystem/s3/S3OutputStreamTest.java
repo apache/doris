@@ -18,8 +18,8 @@
 package org.apache.doris.filesystem.s3;
 
 import org.apache.doris.filesystem.spi.RequestBody;
-import org.apache.doris.filesystem.spi.UploadPartResult;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayOutputStream;
@@ -29,11 +29,6 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Unit tests for {@link S3OutputStream}.
@@ -66,7 +61,7 @@ class S3OutputStreamTest {
         setBufferCount(stream, (int) (max - 1));
 
         // Writing 1 more byte should bring us exactly to MAX — allowed.
-        assertDoesNotThrow(() -> stream.write(new byte[1], 0, 1),
+        Assertions.assertDoesNotThrow(() -> stream.write(new byte[1], 0, 1),
                 "Writing exactly at the limit must not throw");
     }
 
@@ -83,10 +78,10 @@ class S3OutputStreamTest {
         setBufferCount(stream, (int) max);
 
         // Writing one more byte must exceed the limit.
-        IOException ex = assertThrows(IOException.class,
+        IOException ex = Assertions.assertThrows(IOException.class,
                 () -> stream.write(new byte[1], 0, 1),
                 "Writing past the limit must throw IOException");
-        assertTrue(ex.getMessage().contains("buffer limit exceeded"),
+        Assertions.assertTrue(ex.getMessage().contains("buffer limit exceeded"),
                 "Exception message must contain 'buffer limit exceeded', was: " + ex.getMessage());
     }
 
@@ -100,10 +95,10 @@ class S3OutputStreamTest {
         long max = getMaxSingleUploadBytes();
         setBufferCount(stream, (int) max);
 
-        IOException ex = assertThrows(IOException.class,
+        IOException ex = Assertions.assertThrows(IOException.class,
                 () -> stream.write(0xFF),
                 "Single-byte write past the limit must throw IOException");
-        assertTrue(ex.getMessage().contains("buffer limit exceeded"),
+        Assertions.assertTrue(ex.getMessage().contains("buffer limit exceeded"),
                 "Exception message must contain 'buffer limit exceeded'");
     }
 
@@ -121,10 +116,10 @@ class S3OutputStreamTest {
         S3OutputStream stream = new S3OutputStream("s3://bucket/key", new CapturingStorage());
         stream.close();
 
-        IOException ex = assertThrows(IOException.class,
+        IOException ex = Assertions.assertThrows(IOException.class,
                 () -> stream.write(new byte[1], 0, 1),
                 "write() after close() must throw IOException");
-        assertTrue(ex.getMessage().contains("already closed"),
+        Assertions.assertTrue(ex.getMessage().contains("already closed"),
                 "Exception message must contain 'already closed', was: " + ex.getMessage());
     }
 
@@ -153,7 +148,7 @@ class S3OutputStreamTest {
         stream.close(); // first close — must call putObject once
         stream.close(); // second close — must be a no-op (no second putObject call)
 
-        assertTrue(putObjectCalled.get(), "putObject() must have been called on first close()");
+        Assertions.assertTrue(putObjectCalled.get(), "putObject() must have been called on first close()");
     }
 
     /**
@@ -179,8 +174,8 @@ class S3OutputStreamTest {
         stream.write(payload, 0, payload.length);
         stream.close();
 
-        assertNotNull(captured.get(), "putObject() must have been called");
-        assertEquals(new String(payload), new String(captured.get()),
+        Assertions.assertNotNull(captured.get(), "putObject() must have been called");
+        Assertions.assertEquals(new String(payload), new String(captured.get()),
                 "Buffered data must match what was written");
     }
 

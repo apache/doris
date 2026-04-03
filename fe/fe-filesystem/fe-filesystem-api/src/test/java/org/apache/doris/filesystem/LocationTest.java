@@ -17,12 +17,8 @@
 
 package org.apache.doris.filesystem;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Tests for the utility methods added to {@link Location} in the L4 fix.
@@ -33,49 +29,49 @@ class LocationTest {
 
     @Test
     void testFileNameForRegularFile() {
-        assertEquals("file.parquet", Location.of("s3://bucket/dir/file.parquet").fileName());
+        Assertions.assertEquals("file.parquet", Location.of("s3://bucket/dir/file.parquet").fileName());
     }
 
     @Test
     void testFileNameForDirectory() {
-        assertEquals("dir", Location.of("s3://bucket/dir").fileName());
+        Assertions.assertEquals("dir", Location.of("s3://bucket/dir").fileName());
     }
 
     @Test
     void testFileNameForTrailingSlash() {
         // trailing slash indicates a directory marker → empty string
-        assertEquals("", Location.of("s3://bucket/dir/").fileName());
+        Assertions.assertEquals("", Location.of("s3://bucket/dir/").fileName());
     }
 
     @Test
     void testFileNameForBucketRoot() {
         // "s3://bucket" → last segment after the final '/' (part of "://") is "bucket"
-        assertEquals("bucket", Location.of("s3://bucket").fileName());
+        Assertions.assertEquals("bucket", Location.of("s3://bucket").fileName());
     }
 
     // --- parent() ---
 
     @Test
     void testParentOfFile() {
-        assertEquals(Location.of("s3://bucket/dir"),
+        Assertions.assertEquals(Location.of("s3://bucket/dir"),
                 Location.of("s3://bucket/dir/file.txt").parent());
     }
 
     @Test
     void testParentOfDirectory() {
-        assertEquals(Location.of("s3://bucket"),
+        Assertions.assertEquals(Location.of("s3://bucket"),
                 Location.of("s3://bucket/dir").parent());
     }
 
     @Test
     void testParentOfBucketRootIsNull() {
-        assertNull(Location.of("s3://bucket").parent());
+        Assertions.assertNull(Location.of("s3://bucket").parent());
     }
 
     @Test
     void testParentStripsTrailingSlash() {
         // "s3://bucket/dir/" is treated as "s3://bucket/dir" before computing parent
-        assertEquals(Location.of("s3://bucket"),
+        Assertions.assertEquals(Location.of("s3://bucket"),
                 Location.of("s3://bucket/dir/").parent());
     }
 
@@ -83,31 +79,31 @@ class LocationTest {
 
     @Test
     void testResolveChildPath() {
-        assertEquals(Location.of("s3://bucket/dir/file.txt"),
+        Assertions.assertEquals(Location.of("s3://bucket/dir/file.txt"),
                 Location.of("s3://bucket/dir").resolve("file.txt"));
     }
 
     @Test
     void testResolveNestedChild() {
-        assertEquals(Location.of("s3://bucket/dir/sub/file.txt"),
+        Assertions.assertEquals(Location.of("s3://bucket/dir/sub/file.txt"),
                 Location.of("s3://bucket/dir").resolve("sub/file.txt"));
     }
 
     @Test
     void testResolveStripsLeadingSlashFromChild() {
-        assertEquals(Location.of("s3://bucket/dir/file.txt"),
+        Assertions.assertEquals(Location.of("s3://bucket/dir/file.txt"),
                 Location.of("s3://bucket/dir").resolve("/file.txt"));
     }
 
     @Test
     void testResolveEmptyChildReturnsSelf() {
         Location loc = Location.of("s3://bucket/dir");
-        assertEquals(loc, loc.resolve(""));
+        Assertions.assertEquals(loc, loc.resolve(""));
     }
 
     @Test
     void testResolveWithTrailingSlashBase() {
-        assertEquals(Location.of("s3://bucket/dir/file.txt"),
+        Assertions.assertEquals(Location.of("s3://bucket/dir/file.txt"),
                 Location.of("s3://bucket/dir/").resolve("file.txt"));
     }
 
@@ -116,32 +112,32 @@ class LocationTest {
     @Test
     void testStartsWithExactMatch() {
         Location loc = Location.of("s3://bucket/dir");
-        assertTrue(loc.startsWith(loc));
+        Assertions.assertTrue(loc.startsWith(loc));
     }
 
     @Test
     void testStartsWithDescendant() {
-        assertTrue(Location.of("s3://bucket/dir/file.txt")
+        Assertions.assertTrue(Location.of("s3://bucket/dir/file.txt")
                 .startsWith(Location.of("s3://bucket/dir")));
     }
 
     @Test
     void testStartsWithDoesNotMatchStringPrefix() {
         // "s3://bucket/directory" must NOT match prefix "s3://bucket/dir"
-        assertFalse(Location.of("s3://bucket/directory")
+        Assertions.assertFalse(Location.of("s3://bucket/directory")
                 .startsWith(Location.of("s3://bucket/dir")));
     }
 
     @Test
     void testStartsWithDifferentBranch() {
-        assertFalse(Location.of("s3://bucket/other")
+        Assertions.assertFalse(Location.of("s3://bucket/other")
                 .startsWith(Location.of("s3://bucket/dir")));
     }
 
     @Test
     void testStartsWithPrefixHasTrailingSlash() {
         // prefix already ends with "/" — should still work correctly
-        assertTrue(Location.of("s3://bucket/dir/file.txt")
+        Assertions.assertTrue(Location.of("s3://bucket/dir/file.txt")
                 .startsWith(Location.of("s3://bucket/dir/")));
     }
 }
