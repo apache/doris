@@ -1072,11 +1072,11 @@ Status PipelineTask::_state_transition(State new_state) {
     }
     // FINISHED/FINALIZED → RUNNABLE is legal under wake_up_early (delayed wake_up() arriving
     // after the task already terminated), but we must not actually move the state backwards.
-    if ((_exec_state == State::FINISHED || _exec_state == State::FINALIZED) &&
-        new_state == State::RUNNABLE) {
-        return Status::OK();
+    bool need_move = !((_exec_state == State::FINISHED || _exec_state == State::FINALIZED) &&
+                       new_state == State::RUNNABLE);
+    if (need_move) {
+        _exec_state = new_state;
     }
-    _exec_state = new_state;
     return Status::OK();
 }
 
