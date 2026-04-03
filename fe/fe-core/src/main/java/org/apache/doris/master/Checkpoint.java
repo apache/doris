@@ -26,7 +26,6 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
-import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.common.CheckpointException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -504,11 +503,6 @@ public class Checkpoint extends MasterDaemon {
                     replica.setRowCount(servingReplica.getRowCount());
                     replica.setLocalInvertedIndexSize(servingReplica.getLocalInvertedIndexSize());
                     replica.setLocalSegmentSize(servingReplica.getLocalSegmentSize());
-                    // set last get stats time and stats interval index
-                    CloudReplica cloudReplica = (CloudReplica) replica;
-                    CloudReplica servingCloudReplica = (CloudReplica) servingReplica;
-                    cloudReplica.setStatsIntervalIndex(servingCloudReplica.getStatsIntervalIndex());
-                    cloudReplica.setLastGetTabletStatsTime(servingCloudReplica.getLastGetTabletStatsTime());
                 }
             }
         }
