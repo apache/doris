@@ -875,6 +875,11 @@ size_t PartitionedHashJoinProbeOperatorX::revocable_mem_size(RuntimeState* state
         // Or if current partition has finished build hash table.
         return 0;
     }
+    // If the current partition has reached the max repartition depth, it cannot be
+    // repartitioned further, so its data is not revocable.
+    if ((local_state._current_partition.level + 1) >= _repartition_max_depth) {
+        return 0;
+    }
 
     // Include build-side memory that has been recovered but not yet consumed by the hash table.
     // This data is revocable because we can repartition instead of building the hash table.

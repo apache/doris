@@ -24,13 +24,16 @@ import org.apache.doris.authentication.AuthenticationIntegration;
 import org.apache.doris.authentication.AuthenticationRequest;
 import org.apache.doris.authentication.AuthenticationResult;
 import org.apache.doris.authentication.CredentialType;
+import org.apache.doris.authentication.Principal;
 import org.apache.doris.authentication.handler.AuthenticationPluginManager;
 import org.apache.doris.authentication.spi.AuthenticationPlugin;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.mysql.authenticate.AuthenticateRequest;
 import org.apache.doris.mysql.authenticate.AuthenticateResponse;
+import org.apache.doris.mysql.authenticate.AuthenticationFailureSummary;
 import org.apache.doris.mysql.authenticate.Authenticator;
+import org.apache.doris.mysql.authenticate.password.AuthPacketAwarePasswordResolver;
 import org.apache.doris.mysql.authenticate.password.ClearPassword;
 import org.apache.doris.mysql.authenticate.password.ClearPasswordResolver;
 import org.apache.doris.mysql.authenticate.password.NativePassword;
@@ -40,6 +43,7 @@ import org.apache.doris.mysql.authenticate.password.PasswordResolver;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.plugin.PropertiesUtils;
 
+import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -80,14 +84,19 @@ public class AuthenticationPluginAuthenticator implements Authenticator {
                 .properties(initProps == null ? Collections.emptyMap() : initProps)
                 .build();
         plugin = resolvedPluginManager.createPlugin(integration);
-        passwordResolver = plugin.requiresClearPassword() ? new ClearPasswordResolver() : new NativePasswordResolver();
+        PasswordResolver baseResolver = plugin.requiresClearPassword()
+                ? new ClearPasswordResolver()
+                : new NativePasswordResolver();
+        passwordResolver = new AuthPacketAwarePasswordResolver(baseResolver);
     }
 
     @Override
     public AuthenticateResponse authenticate(AuthenticateRequest request) throws IOException {
         AuthenticationRequest pluginRequest = toPluginRequest(request);
         if (!plugin.supports(pluginRequest)) {
-            return AuthenticateResponse.failedResponse;
+            return AuthenticateResponse.failed(AuthenticationFailureSummary.forFailureType(
+                    AuthenticationFailureType.ACCESS_DENIED,
+                    "Authentication plugin '" + integration.getType() + "' does not support the supplied credential"));
         }
 
         AuthenticationResult result;
@@ -96,23 +105,30 @@ public class AuthenticationPluginAuthenticator implements Authenticator {
         } catch (AuthenticationException e) {
             LOG.warn("Authentication plugin '{}' failed for user '{}': {}", integration.getType(),
                     request.getUserName(), e.getMessage(), e);
-            return AuthenticateResponse.failedResponse;
+            return AuthenticateResponse.failed(AuthenticationFailureSummary.forException(e,
+                    "Authentication plugin '" + integration.getType() + "' failed"));
         }
 
         if (result.isContinue()) {
             LOG.warn("Authentication plugin '{}' returned CONTINUE for user '{}', which is not supported",
                     integration.getType(), request.getUserName());
-            return AuthenticateResponse.failedResponse;
+            return AuthenticateResponse.failed(AuthenticationFailureSummary.forFailureType(
+                    AuthenticationFailureType.INTERNAL_ERROR,
+                    "Authentication plugin '" + integration.getType() + "' returned unsupported CONTINUE result"));
         }
         if (!result.isSuccess()) {
             if (result.getException() != null) {
                 LOG.info("Authentication plugin '{}' rejected user '{}': {}", integration.getType(),
                         request.getUserName(), result.getException().getMessage());
+                return AuthenticateResponse.failed(summarizeFailure(result.getException(),
+                        "Authentication plugin '" + integration.getType() + "' rejected the credential"));
             }
-            return AuthenticateResponse.failedResponse;
+            return AuthenticateResponse.failed(AuthenticationFailureSummary.forFailureType(
+                    AuthenticationFailureType.INTERNAL_ERROR,
+                    "Authentication plugin '" + integration.getType() + "' returned a failure without reason"));
         }
 
-        return mapSuccessfulAuthentication(request.getUserName(), request.getRemoteIp());
+        return mapSuccessfulAuthentication(request.getUserName(), request.getRemoteIp(), result);
     }
 
     @Override
@@ -125,19 +141,24 @@ public class AuthenticationPluginAuthenticator implements Authenticator {
         return passwordResolver;
     }
 
-    private AuthenticateResponse mapSuccessfulAuthentication(String qualifiedUser, String remoteIp) {
+    private AuthenticateResponse mapSuccessfulAuthentication(String qualifiedUser, String remoteIp,
+            AuthenticationResult result) {
+        Principal principal = Objects.requireNonNull(result.getPrincipal(),
+                "principal is required for successful authentication");
         List<UserIdentity> userIdentities =
                 Env.getCurrentEnv().getAuth().getUserIdentityForExternalAuth(qualifiedUser, remoteIp);
         if (!userIdentities.isEmpty()) {
-            return new AuthenticateResponse(true, userIdentities.get(0), false);
+            return new AuthenticateResponse(true, userIdentities.get(0), false,
+                    principal, result.getGrantedRoles());
         }
         if (!Boolean.parseBoolean(integration.getProperty("enable_jit_user", "false"))) {
             LOG.info("Authentication plugin '{}' authenticated user '{}' but JIT is disabled",
                     integration.getType(), qualifiedUser);
             return AuthenticateResponse.failedResponse;
         }
-        UserIdentity tempUserIdentity = UserIdentity.createAnalyzedUserIdentWithIp(qualifiedUser, remoteIp);
-        return new AuthenticateResponse(true, tempUserIdentity, true);
+        UserIdentity tempUserIdentity = UserIdentity.createAnalyzedUserIdentWithIp(principal.getName(), remoteIp);
+        return new AuthenticateResponse(true, tempUserIdentity, true,
+                principal, result.getGrantedRoles());
     }
 
     private AuthenticationRequest toPluginRequest(AuthenticateRequest request) {
@@ -194,5 +215,26 @@ public class AuthenticationPluginAuthenticator implements Authenticator {
                     "No AuthenticationPluginFactory found for plugin: " + pluginType,
                     AuthenticationFailureType.MISCONFIGURED);
         }
+    }
+
+    private AuthenticationFailureSummary summarizeFailure(AuthenticationException exception, String fallbackMessage) {
+        return AuthenticationFailureSummary.forException(exception, fallbackMessage,
+                oidcClientVisibleFailureMessage(exception));
+    }
+
+    private String oidcClientVisibleFailureMessage(AuthenticationException exception) {
+        if (!"oidc".equalsIgnoreCase(integration.getType())
+                || exception.getFailureType() != AuthenticationFailureType.BAD_CREDENTIAL) {
+            return "";
+        }
+        String detailMessage = Strings.nullToEmpty(exception.getMessage());
+        if (detailMessage.startsWith("OIDC token signature validation failed")) {
+            return "OIDC token signature validation failed";
+        }
+        if (detailMessage.startsWith("OIDC token ")
+                || "Authentication request username does not match OIDC token username".equals(detailMessage)) {
+            return detailMessage;
+        }
+        return "";
     }
 }

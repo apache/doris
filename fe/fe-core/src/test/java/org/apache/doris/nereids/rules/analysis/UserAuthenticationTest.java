@@ -25,6 +25,8 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -55,6 +57,10 @@ public class UserAuthenticationTest {
     private DatabaseIf db;
     @Mocked
     private CatalogIf catalog;
+    @Mocked
+    private IcebergSysExternalTable icebergSysTable;
+    @Mocked
+    private IcebergExternalTable icebergSourceTable;
 
     private String originalMinPrivilege;
 
@@ -344,5 +350,60 @@ public class UserAuthenticationTest {
         // Admin user should be able to access in admin mode
         Assertions.assertDoesNotThrow(() ->
                 UserAuthentication.checkPermission(table, connectContext, null));
+    }
+
+    @Test
+    public void testIcebergSysTableUsesSourceTablePrivilege() throws Exception {
+        new Expectations() {
+            {
+                icebergSysTable.getSourceTable();
+                minTimes = 0;
+                result = icebergSourceTable;
+
+                connectContext.getSessionVariable();
+                minTimes = 0;
+                result = sessionVariable;
+
+                sessionVariable.isPlayNereidsDump();
+                minTimes = 0;
+                result = false;
+
+                icebergSourceTable.getName();
+                minTimes = 0;
+                result = "source_tbl";
+
+                icebergSourceTable.getDatabase();
+                minTimes = 0;
+                result = db;
+
+                db.getFullName();
+                minTimes = 0;
+                result = "test_db";
+
+                db.getCatalog();
+                minTimes = 0;
+                result = catalog;
+
+                catalog.getName();
+                minTimes = 0;
+                result = "test_ctl";
+
+                connectContext.getEnv();
+                minTimes = 0;
+                result = env;
+
+                env.getAccessManager();
+                minTimes = 0;
+                result = accessControllerManager;
+
+                accessControllerManager.checkTblPriv(connectContext, "test_ctl", "test_db",
+                        "source_tbl", PrivPredicate.SELECT);
+                minTimes = 1;
+                result = true;
+            }
+        };
+
+        Assertions.assertDoesNotThrow(() ->
+                UserAuthentication.checkPermission(icebergSysTable, connectContext, null));
     }
 }

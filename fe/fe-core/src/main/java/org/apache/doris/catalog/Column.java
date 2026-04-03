@@ -602,6 +602,7 @@ public class Column implements GsonPostProcessable {
         tColumnType.setPrecision(this.getPrecision());
         tColumnType.setScale(this.getScale());
         tColumnType.setVariantMaxSubcolumnsCount(this.getVariantMaxSubcolumnsCount());
+        tColumnType.setVariantEnableDocMode(this.getVariantEnableDocMode());
 
         tColumnType.setIndexLen(this.getOlapColumnIndexSize());
 

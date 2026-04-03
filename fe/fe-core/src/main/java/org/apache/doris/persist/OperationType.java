@@ -421,6 +421,8 @@ public class OperationType {
     public static final short OP_CREATE_AUTHENTICATION_INTEGRATION = 493;
     public static final short OP_ALTER_AUTHENTICATION_INTEGRATION = 494;
     public static final short OP_DROP_AUTHENTICATION_INTEGRATION = 495;
+    public static final short OP_CREATE_ROLE_MAPPING = 496;
+    public static final short OP_DROP_ROLE_MAPPING = 497;
 
     // For cloud.
     public static final short OP_UPDATE_CLOUD_REPLICA = 1000;

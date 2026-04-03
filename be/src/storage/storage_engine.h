@@ -41,6 +41,7 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "runtime/heartbeat_flags.h"
+#include "storage/adaptive_thread_pool_controller.h"
 #include "storage/compaction/compaction_permit_limiter.h"
 #include "storage/delete/calc_delete_bitmap_executor.h"
 #include "storage/olap_common.h"
@@ -140,6 +141,9 @@ public:
     RowsetId next_rowset_id();
 
     MemTableFlushExecutor* memtable_flush_executor() { return _memtable_flush_executor.get(); }
+    AdaptiveThreadPoolController* adaptive_thread_controller() {
+        return &_adaptive_thread_controller;
+    }
     CalcDeleteBitmapExecutor* calc_delete_bitmap_executor() {
         return _calc_delete_bitmap_executor.get();
     }
@@ -163,6 +167,7 @@ public:
     }
 
 protected:
+    void _start_adaptive_thread_controller();
     void _evict_querying_rowset();
     void _evict_quring_rowset_thread_callback();
     bool _should_delay_large_task();
@@ -176,6 +181,7 @@ protected:
 
     std::unique_ptr<RowsetIdGenerator> _rowset_id_generator;
     std::unique_ptr<MemTableFlushExecutor> _memtable_flush_executor;
+    AdaptiveThreadPoolController _adaptive_thread_controller;
     std::unique_ptr<CalcDeleteBitmapExecutor> _calc_delete_bitmap_executor;
     std::unique_ptr<CalcDeleteBitmapExecutor> _calc_delete_bitmap_executor_for_load;
     CountDownLatch _stop_background_threads_latch;

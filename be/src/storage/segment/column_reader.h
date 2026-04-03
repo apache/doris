@@ -104,6 +104,7 @@ struct ColumnIteratorOptions {
     // reader statistics
     OlapReaderStatistics* stats = nullptr; // Ref
     io::IOContext io_ctx;
+    bool only_read_offsets = false;
 
     void sanity_check() const {
         CHECK_NOTNULL(file_reader);
@@ -408,17 +409,38 @@ public:
             std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
             PrefetcherInitMethod init_method) {}
 
+    static constexpr const char* ACCESS_OFFSET = "OFFSET";
+    static constexpr const char* ACCESS_ALL = "*";
+    static constexpr const char* ACCESS_MAP_KEYS = "KEYS";
+    static constexpr const char* ACCESS_MAP_VALUES = "VALUES";
+    static constexpr const char* ACCESS_NULL = "NULL";
+
+    // Meta-only read modes:
+    // - OFFSET_ONLY: only read offset information (e.g., for array_size/map_size/string_length)
+    // - NULL_MAP_ONLY: only read null map (e.g., for IS NULL / IS NOT NULL predicates)
+    // When these modes are enabled, actual content data is skipped.
+    enum class ReadMode : int { DEFAULT, OFFSET_ONLY, NULL_MAP_ONLY };
+
+    bool read_offset_only() const { return _read_mode == ReadMode::OFFSET_ONLY; }
+    bool read_null_map_only() const { return _read_mode == ReadMode::NULL_MAP_ONLY; }
+
 protected:
+    // Checks sub access paths for OFFSET or NULL meta-only modes and
+    // updates _read_mode accordingly. Use the accessor helpers
+    // read_offset_only() / read_null_map_only() to query the current mode.
+    void _check_and_set_meta_read_mode(const TColumnAccessPaths& sub_all_access_paths);
+
     Result<TColumnAccessPaths> _get_sub_access_paths(const TColumnAccessPaths& access_paths);
     ColumnIteratorOptions _opts;
 
     ReadingFlag _reading_flag {ReadingFlag::NORMAL_READING};
+    ReadMode _read_mode = ReadMode::DEFAULT;
     std::string _column_name;
 };
 
 // This iterator is used to read column data from file
 // for scalar type
-class FileColumnIterator final : public ColumnIterator {
+class FileColumnIterator : public ColumnIterator {
 public:
     explicit FileColumnIterator(std::shared_ptr<ColumnReader> reader);
     ~FileColumnIterator() override;
@@ -472,7 +494,6 @@ private:
 
     std::shared_ptr<ColumnReader> _reader = nullptr;
 
-    // iterator owned compress codec, should NOT be shared by threads, initialized in init()
     BlockCompressionCodec* _compress_codec = nullptr;
 
     // 1. The _page represents current page.
@@ -508,6 +529,21 @@ public:
     ordinal_t get_current_ordinal() const override { return 0; }
 };
 
+// StringFileColumnIterator extends FileColumnIterator with meta-only reading
+// support for string/binary column types. When the OFFSET path is detected in
+// set_access_paths, it sets only_read_offsets on the ColumnIteratorOptions so
+// that the BinaryPlainPageDecoder skips chars memcpy and only fills offsets.
+class StringFileColumnIterator final : public FileColumnIterator {
+public:
+    explicit StringFileColumnIterator(std::shared_ptr<ColumnReader> reader);
+    ~StringFileColumnIterator() override = default;
+
+    Status init(const ColumnIteratorOptions& opts) override;
+
+    Status set_access_paths(const TColumnAccessPaths& all_access_paths,
+                            const TColumnAccessPaths& predicate_access_paths) override;
+};
+
 // This iterator make offset operation write once for
 class OffsetFileColumnIterator final : public ColumnIterator {
 public:
@@ -520,6 +556,12 @@ public:
     Status init(const ColumnIteratorOptions& opts) override;
 
     Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override;
+
+    Status next_batch(size_t* n, MutableColumnPtr& dst) {
+        bool has_null;
+        return next_batch(n, dst, &has_null);
+    }
+
     ordinal_t get_current_ordinal() const override {
         return _offset_iterator->get_current_ordinal();
     }
@@ -569,6 +611,9 @@ public:
     Status seek_to_ordinal(ordinal_t ord) override;
 
     ordinal_t get_current_ordinal() const override {
+        if (read_null_map_only() && _null_iterator) {
+            return _null_iterator->get_current_ordinal();
+        }
         return _offsets_iterator->get_current_ordinal();
     }
     Status init_prefetcher(const SegmentPrefetchParams& params) override;
@@ -603,12 +648,20 @@ public:
 
     Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override;
 
+    Status next_batch(size_t* n, MutableColumnPtr& dst) {
+        bool has_null;
+        return next_batch(n, dst, &has_null);
+    }
+
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
                           MutableColumnPtr& dst) override;
 
     Status seek_to_ordinal(ordinal_t ord) override;
 
     ordinal_t get_current_ordinal() const override {
+        if (read_null_map_only() && _null_iterator) {
+            return _null_iterator->get_current_ordinal();
+        }
         return _sub_column_iterators[0]->get_current_ordinal();
     }
 
@@ -643,12 +696,20 @@ public:
 
     Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override;
 
+    Status next_batch(size_t* n, MutableColumnPtr& dst) {
+        bool has_null;
+        return next_batch(n, dst, &has_null);
+    }
+
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
                           MutableColumnPtr& dst) override;
 
     Status seek_to_ordinal(ordinal_t ord) override;
 
     ordinal_t get_current_ordinal() const override {
+        if (read_null_map_only() && _null_iterator) {
+            return _null_iterator->get_current_ordinal();
+        }
         return _offset_iterator->get_current_ordinal();
     }
 

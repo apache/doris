@@ -56,6 +56,7 @@
 #include "cpp/sync_point.h"
 #include "io/fs/file_writer.h" // IWYU pragma: keep
 #include "io/fs/path.h"
+#include "load/memtable/memtable_flush_executor.h"
 #include "runtime/memory/cache_manager.h"
 #include "runtime/memory/global_memory_arbitrator.h"
 #include "storage/compaction/cold_data_compaction.h"
@@ -356,6 +357,8 @@ Status StorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr) {
             [this]() { this->_check_tablet_delete_bitmap_score_callback(); },
             &_check_delete_bitmap_score_thread));
     LOG(INFO) << "check tablet delete bitmap score thread started";
+
+    _start_adaptive_thread_controller();
 
     LOG(INFO) << "all storage engine's background threads are started.";
     return Status::OK();
