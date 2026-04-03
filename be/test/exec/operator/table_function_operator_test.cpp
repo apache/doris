@@ -413,7 +413,7 @@ TEST_F(TableFunctionOperatorTest, block_fast_path_explode) {
 }
 
 TEST_F(TableFunctionOperatorTest, block_fast_path_explode_batch_truncate) {
-    state->batch_size = 2;
+    state->_batch_size = 2;
     bool get_value_called = false;
     auto int_type = std::make_shared<DataTypeInt32>();
     auto arr_type = std::make_shared<DataTypeArray>(int_type);
@@ -656,7 +656,7 @@ TEST_F(TableFunctionOperatorTest, block_fast_path_explode_nullable_array_misalig
 
 TEST_F(TableFunctionOperatorTest,
        block_fast_path_explode_nullable_array_partial_gap_uses_slow_path) {
-    state->batch_size = 2;
+    state->_batch_size = 2;
     bool get_value_called = false;
     auto int_type = std::make_shared<DataTypeInt32>();
     auto arr_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeArray>(int_type));
@@ -1082,7 +1082,7 @@ struct UnnestTest : public ::testing::Test {
         obj_pool = std::make_unique<ObjectPool>();
         query_ctx = generate_one_query();
         runtime_profile = std::make_shared<RuntimeProfile>("test");
-        runtime_state->batch_size = 5;
+        runtime_state->_batch_size = 5;
         runtime_state->_query_ctx = query_ctx.get();
         runtime_state->_query_id = query_ctx->query_id();
         runtime_state->resize_op_id_to_local_state(-100);
@@ -1636,7 +1636,7 @@ TEST_F(UnnestTest, inner_with_nulls_fast_path) {
     desc_table.slotDescriptors.push_back(slot_desc_unnest_tag2);
 
     setup_exec_env();
-    runtime_state->batch_size = 4096;
+    runtime_state->_batch_size = 4096;
 
     TPlanNode tplan_node;
     setup_explode_plan_node(tplan_node, false); // inner, no conjuncts → fast path
@@ -1765,7 +1765,7 @@ TEST_F(UnnestTest, outer_with_nulls_fast_path) {
     desc_table.slotDescriptors.push_back(slot_desc_unnest_tag2);
 
     setup_exec_env();
-    runtime_state->batch_size = 4096;
+    runtime_state->_batch_size = 4096;
 
     TPlanNode tplan_node;
     setup_explode_plan_node(tplan_node, true); // outer, no conjuncts → fast path
@@ -1964,7 +1964,7 @@ TEST_F(UnnestTest, posexplode_with_nulls_fast_path) {
     desc_table.slotDescriptors.push_back(pe_slot_desc_out_proj);
 
     setup_exec_env();
-    runtime_state->batch_size = 4096;
+    runtime_state->_batch_size = 4096;
 
     // Build plan node for posexplode (inner mode, no conjuncts → fast path)
     TPlanNode tplan_node;
