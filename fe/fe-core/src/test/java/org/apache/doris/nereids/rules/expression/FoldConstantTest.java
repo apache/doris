@@ -82,6 +82,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteSecondA
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsBetween;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NextDay;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Overlay;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Power;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Radians;
@@ -200,6 +202,39 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         assertRewriteAfterTypeCoercion("3 in ('1', null, 3, 4)", "true");
         assertRewriteAfterTypeCoercion("TA in (1, null, 3, 4)", "TA in (1, null, 3, 4)");
         assertRewriteAfterTypeCoercion("IA in (IB, IC, null)", "IA in (IB, IC, null)");
+    }
+
+    @Test
+    void testNvlFoldOnFE() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(FoldConstantRuleOnFE.VISITOR_INSTANCE)));
+
+        // both literals equal -> folded to literal
+        assertRewriteAfterTypeCoercion("nvl(1, 1)", "1");
+
+        // null first -> second
+        assertRewriteAfterTypeCoercion("nvl(null, 2)", "2");
+
+        // non-null first -> first
+        assertRewriteAfterTypeCoercion("nvl(2, null)", "2");
+
+        // both null -> null
+        assertRewriteAfterTypeCoercion("nvl(null, null)", "null");
+
+        // identical slots should not be folded into slot
+        assertRewriteAfterTypeCoercion("nvl(IA, IA)", "IA");
+
+        SlotReference datetimeSlot = new SlotReference("dt", DateTimeV2Type.of(0), false);
+        // nvl(null_datetime(6), non-nullable_slot_datetime(0)) -> NonNullable(Cast(datetimeSlot, datetime(6)))
+        assertRewrite(
+                new Nvl(new NullLiteral(DateTimeV2Type.of(6)), datetimeSlot),
+                new NonNullable(new Cast(datetimeSlot, DateTimeV2Type.of(6)))
+        );
+        // nvl(non-nullable_slot_datetime(0), null_datetime(6)) -> NonNullable(Cast(datetimeSlot, datetime(6)))
+        assertRewrite(
+                new Nvl(datetimeSlot, new NullLiteral(DateTimeV2Type.of(6))),
+                new NonNullable(new Cast(datetimeSlot, DateTimeV2Type.of(6)))
+        );
     }
 
     @Test

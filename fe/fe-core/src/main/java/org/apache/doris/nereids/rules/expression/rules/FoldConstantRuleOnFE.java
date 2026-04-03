@@ -728,7 +728,8 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         } else if (first.isNullLiteral()) {
             result = second;
         }
-        return TypeCoercionUtils.ensureSameResultType(originNvl, result, context);
+        return SimplifyConditionalFunction.keepConditionalNullability(originNvl,
+                TypeCoercionUtils.ensureSameResultType(originNvl, result, context));
     }
 
     @Override

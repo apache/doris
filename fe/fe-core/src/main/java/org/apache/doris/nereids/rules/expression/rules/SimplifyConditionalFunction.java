@@ -146,7 +146,7 @@ public class SimplifyConditionalFunction implements ExpressionPatternRuleFactory
         return keepConditionalNullability(origin, rewritten);
     }
 
-    private static Expression keepConditionalNullability(Expression origin, Expression rewritten) {
+    public static Expression keepConditionalNullability(Expression origin, Expression rewritten) {
         if (!origin.nullable() && rewritten.nullable()) {
             return new NonNullable(rewritten);
         }
