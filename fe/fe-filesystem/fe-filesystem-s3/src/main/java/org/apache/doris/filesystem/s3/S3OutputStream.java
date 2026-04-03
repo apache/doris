@@ -26,9 +26,20 @@ import java.io.OutputStream;
 
 /**
  * OutputStream that buffers writes in memory and uploads to S3 on close.
- * For production large-file writes, multipart upload should be used instead.
+ *
+ * <p>This implementation is intentionally simple and suitable for small metadata files (manifests,
+ * snapshots, job info, etc.). Writes are rejected when the in-memory buffer would exceed
+ * {@link #MAX_SINGLE_UPLOAD_BYTES} to prevent OOM on large payloads.
+ * For large file writes (Hive data files, Backup archives), multipart upload must be used instead.
  */
 class S3OutputStream extends OutputStream {
+
+    /**
+     * Maximum in-memory buffer size before writes are rejected.
+     * S3 single-PUT limit is 5 GB, but we enforce a much smaller guard (256 MB) so that an
+     * accidental large-file write fails early with a clear message rather than OOMing silently.
+     */
+    private static final long MAX_SINGLE_UPLOAD_BYTES = 256L * 1024 * 1024; // 256 MB
 
     private final String remotePath;
     private final S3ObjStorage objStorage;
@@ -43,12 +54,14 @@ class S3OutputStream extends OutputStream {
     @Override
     public void write(int b) throws IOException {
         checkNotClosed();
+        checkCapacity(1);
         buffer.write(b);
     }
 
     @Override
     public void write(byte[] b, int off, int len) throws IOException {
         checkNotClosed();
+        checkCapacity(len);
         buffer.write(b, off, len);
     }
 
@@ -66,6 +79,15 @@ class S3OutputStream extends OutputStream {
     private void checkNotClosed() throws IOException {
         if (closed) {
             throw new IOException("Stream already closed: " + remotePath);
+        }
+    }
+
+    private void checkCapacity(int additionalBytes) throws IOException {
+        if ((long) buffer.size() + additionalBytes > MAX_SINGLE_UPLOAD_BYTES) {
+            throw new IOException(String.format(
+                    "S3OutputStream buffer limit exceeded (max %d MB) for path: %s. "
+                    + "Use multipart upload for large files.",
+                    MAX_SINGLE_UPLOAD_BYTES / (1024 * 1024), remotePath));
         }
     }
 }

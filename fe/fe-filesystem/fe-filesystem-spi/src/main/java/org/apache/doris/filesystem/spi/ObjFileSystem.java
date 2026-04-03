@@ -58,10 +58,16 @@ public abstract class ObjFileSystem implements FileSystem {
     }
 
     /**
-     * Subclasses may override to detect vendor-specific "not found" errors.
+     * Returns true if {@code e} represents a "not found" condition (HTTP 404 equivalent).
+     *
+     * <p>The default implementation recognizes {@link java.io.FileNotFoundException} (which
+     * all ObjStorage implementations should throw for missing keys) and falls back to a
+     * message-based "404" check for any storage backends that haven't yet been migrated.
+     * Subclasses may override to add additional SDK-specific detection.
      */
     protected boolean isNotFoundError(IOException e) {
-        return e.getMessage() != null && e.getMessage().contains("404");
+        return e instanceof java.io.FileNotFoundException
+                || (e.getMessage() != null && e.getMessage().contains("404"));
     }
 
     // -----------------------------------------------------------------------
@@ -116,6 +122,6 @@ public abstract class ObjFileSystem implements FileSystem {
 
     @Override
     public void close() throws IOException {
-        // default no-op; subclasses may override
+        objStorage.close();
     }
 }

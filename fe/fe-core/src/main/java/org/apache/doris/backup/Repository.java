@@ -322,7 +322,8 @@ public class Repository implements Writable, GsonPostProcessable {
         try {
             BrokerProperties bp = BrokerProperties.of(fileSystemDescriptor.getName(),
                     fileSystemDescriptor.getProperties());
-            FsBroker broker = Env.getCurrentEnv().getBrokerMgr().getBroker(fileSystemDescriptor.getName(), "127.0.0.1");
+            FsBroker broker = Env.getCurrentEnv().getBrokerMgr().getBroker(fileSystemDescriptor.getName(),
+                    FrontendOptions.getLocalHostAddress());
             String clientId = NetUtils.getHostPortInAccessibleFormat(
                     FrontendOptions.getLocalHostAddress(), Config.edit_log_port);
             return FileSystemFactory.getBrokerFileSystem(broker.host, broker.port, clientId,

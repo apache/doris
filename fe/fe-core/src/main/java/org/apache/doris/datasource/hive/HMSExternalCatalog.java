@@ -69,6 +69,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
 
     private static final int FILE_SYSTEM_EXECUTOR_THREAD_NUM = 16;
     private ThreadPoolExecutor fileSystemExecutor;
+    private SpiSwitchingFileSystem spiFileSystem;
 
     //for "type" = "hms" , but is iceberg table.
     private IcebergMetadataOps icebergMetadataOps;
@@ -146,6 +147,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
                 executionAuthenticator);
         SpiSwitchingFileSystem spiFileSystem =
                 new SpiSwitchingFileSystem(this.catalogProperty.getStoragePropertiesMap());
+        this.spiFileSystem = spiFileSystem;
         this.fileSystemExecutor = ThreadPoolManager.newDaemonFixedThreadPool(FILE_SYSTEM_EXECUTOR_THREAD_NUM,
                 Integer.MAX_VALUE, String.format("hms_committer_%s_file_system_executor_pool", name), true);
         transactionManager = TransactionManagerFactory.createHiveTransactionManager(hiveOps, spiFileSystem,
@@ -156,6 +158,14 @@ public class HMSExternalCatalog extends ExternalCatalog {
     @Override
     public void onClose() {
         super.onClose();
+        if (null != spiFileSystem) {
+            try {
+                spiFileSystem.close();
+            } catch (Exception e) {
+                LOG.warn("Failed to close SpiSwitchingFileSystem for catalog: {}", name, e);
+            }
+            spiFileSystem = null;
+        }
         if (null != fileSystemExecutor) {
             ThreadPoolManager.shutdownExecutorService(fileSystemExecutor);
         }

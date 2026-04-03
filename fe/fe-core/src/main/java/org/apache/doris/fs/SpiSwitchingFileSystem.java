@@ -28,13 +28,17 @@ import org.apache.doris.filesystem.GlobListing;
 import org.apache.doris.filesystem.Location;
 
 import com.google.common.annotations.VisibleForTesting;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * SPI-compatible replacement for the legacy {@code SwitchingFileSystem}.
@@ -49,6 +53,8 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class SpiSwitchingFileSystem implements FileSystem {
 
+    private static final Logger LOG = LogManager.getLogger(SpiSwitchingFileSystem.class);
+
     private final Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;
     /** Non-null only when created via the test constructor — all paths delegate here. */
     private FileSystem testDelegate;
@@ -58,6 +64,7 @@ public class SpiSwitchingFileSystem implements FileSystem {
      * objects owned by the catalog instance.
      */
     private final Map<StorageProperties, FileSystem> cache = new ConcurrentHashMap<>();
+    private final AtomicBoolean closed = new AtomicBoolean(false);
 
     public SpiSwitchingFileSystem(Map<StorageProperties.Type, StorageProperties> storagePropertiesMap) {
         this.storagePropertiesMap = storagePropertiesMap;
@@ -174,7 +181,26 @@ public class SpiSwitchingFileSystem implements FileSystem {
 
     @Override
     public void close() throws IOException {
-        // The cached FileSystem instances are shared; do not close here.
-        // Lifecycle is managed by the catalog.
+        if (!closed.compareAndSet(false, true)) {
+            return; // idempotent
+        }
+        List<FileSystem> snapshot = new ArrayList<>(cache.values());
+        cache.clear();
+        IOException firstError = null;
+        for (FileSystem fs : snapshot) {
+            try {
+                fs.close();
+            } catch (IOException e) {
+                if (firstError == null) {
+                    firstError = e;
+                } else {
+                    firstError.addSuppressed(e);
+                }
+                LOG.warn("Error closing cached FileSystem: {}", fs, e);
+            }
+        }
+        if (firstError != null) {
+            throw firstError;
+        }
     }
 }
