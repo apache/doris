@@ -411,4 +411,121 @@ suite("eager_agg") {
     ) t
     group by d_year;
     """
+
+    // =========================================================================
+    // Tests for agg(literal) on nullable side of outer joins
+    // sum(literal), min(literal), max(literal) should NOT be pushed to the
+    // nullable side of outer joins because unmatched rows lose their contribution.
+    // =========================================================================
+
+    sql """
+        drop table if exists eager_agg_t1;
+        drop table if exists eager_agg_t2;
+        drop table if exists eager_agg_t3;
+
+        CREATE TABLE eager_agg_t1 (
+            id INT NOT NULL,
+            val INT
+        ) DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ('replication_num' = '1');
+
+        CREATE TABLE eager_agg_t2 (
+            id INT NOT NULL,
+            id2 INT NOT NULL
+        ) DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ('replication_num' = '1');
+
+        CREATE TABLE eager_agg_t3 (
+            id2 INT NOT NULL,
+            val INT
+        ) DISTRIBUTED BY HASH(id2) BUCKETS 1
+        PROPERTIES ('replication_num' = '1');
+
+        INSERT INTO eager_agg_t1 VALUES (1, 10);
+        INSERT INTO eager_agg_t2 VALUES (1, 100), (2, 200);
+        INSERT INTO eager_agg_t3 VALUES (100, 10), (200, 20), (300, 30);
+    """
+
+    // sum(literal) should NOT be pushed below RIGHT JOIN to the nullable left side
+    qt_check_sum_literal_right_join_not_push """
+    explain shape plan
+    select /*+SET_VAR(eager_aggregation_mode=1, disable_join_reorder = true)*/
+        a.val, sum(2) as s
+    from eager_agg_t1 as a
+    right join eager_agg_t2 as b on a.id = b.id
+    right join eager_agg_t3 as c on b.id2 = c.id2 and a.val = c.val
+    group by a.val;
+    """
+
+    // sum(literal) should NOT be pushed below LEFT JOIN to the nullable right side
+    qt_check_sum_literal_left_join_not_push """
+    explain shape plan
+    select /*+SET_VAR(eager_aggregation_mode=1, disable_join_reorder = true)*/
+        ss_sales_price, sum(2) as s
+    from store_sales
+    left join date_dim on d_date_sk = ss_sold_date_sk
+    group by ss_sales_price;
+    """
+
+    // min(literal) should NOT be pushed to nullable side of RIGHT JOIN
+    qt_check_min_literal_right_join_not_push """
+    explain shape plan
+    select /*+SET_VAR(eager_aggregation_mode=1, disable_join_reorder = true)*/
+        a.val, min(1) as m
+    from eager_agg_t1 as a
+    right join eager_agg_t2 as b on a.id = b.id
+    right join eager_agg_t3 as c on b.id2 = c.id2 and a.val = c.val
+    group by a.val;
+    """
+
+    // max(literal) should NOT be pushed to nullable side of LEFT JOIN
+    qt_check_max_literal_left_join_not_push """
+    explain shape plan
+    select /*+SET_VAR(eager_aggregation_mode=1, disable_join_reorder = true)*/
+        ss_sales_price, max(3) as m
+    from store_sales
+    left join date_dim on d_date_sk = ss_sold_date_sk
+    group by ss_sales_price;
+    """
+
+    // Execution tests: verify eager agg produces correct results for outer join + literal agg
+    order_qt_sum_literal_right_join_eager_off """
+    select /*+SET_VAR(eager_aggregation_mode=-1)*/ /*+ leading(a b c) */
+        a.val, sum(2) as s
+    from eager_agg_t1 as a
+    right join eager_agg_t2 as b on a.id = b.id
+    right join eager_agg_t3 as c on b.id2 = c.id2 and a.val = c.val
+    group by a.val
+    order by a.val;
+    """
+
+    order_qt_sum_literal_right_join_eager_on """
+    select /*+SET_VAR(eager_aggregation_mode=1)*/ /*+ leading(a b c) */
+        a.val, sum(2) as s
+    from eager_agg_t1 as a
+    right join eager_agg_t2 as b on a.id = b.id
+    right join eager_agg_t3 as c on b.id2 = c.id2 and a.val = c.val
+    group by a.val
+    order by a.val;
+    """
+
+    order_qt_min_literal_right_join_eager_on """
+    select /*+SET_VAR(eager_aggregation_mode=1)*/ /*+ leading(a b c) */
+        a.val, min(1) as m
+    from eager_agg_t1 as a
+    right join eager_agg_t2 as b on a.id = b.id
+    right join eager_agg_t3 as c on b.id2 = c.id2 and a.val = c.val
+    group by a.val
+    order by a.val;
+    """
+
+    order_qt_max_literal_right_join_eager_on """
+    select /*+SET_VAR(eager_aggregation_mode=1)*/ /*+ leading(a b c) */
+        a.val, max(3) as m
+    from eager_agg_t1 as a
+    right join eager_agg_t2 as b on a.id = b.id
+    right join eager_agg_t3 as c on b.id2 = c.id2 and a.val = c.val
+    group by a.val
+    order by a.val;
+    """
 }
