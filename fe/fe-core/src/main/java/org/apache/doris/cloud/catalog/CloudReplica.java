@@ -116,7 +116,7 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
         this.tableId = tableId;
         this.partitionId = partitionId;
         this.indexId = indexId;
-        this.idx = (int) idx;
+        this.idx = Math.toIntExact(idx);
     }
 
     private boolean isColocated() {
