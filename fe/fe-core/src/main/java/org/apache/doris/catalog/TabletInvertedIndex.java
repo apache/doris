@@ -31,7 +31,6 @@ import com.google.common.collect.ListMultimap;
 import com.google.common.collect.SetMultimap;
 import com.google.common.collect.Table;
 import com.google.common.collect.TreeMultimap;
-import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -59,8 +58,8 @@ public abstract class TabletInvertedIndex {
 
     private StampedLock lock = new StampedLock();
 
-    // tablet id -> tablet meta
-    protected Long2ObjectOpenHashMap<TabletMeta> tabletMetaMap = new Long2ObjectOpenHashMap<>();
+    // tablet id -> tablet meta (SoA layout for memory compaction)
+    protected CompactTabletMetaStore tabletMetaStore = new CompactTabletMetaStore();
 
     public TabletInvertedIndex() {
     }
@@ -101,7 +100,7 @@ public abstract class TabletInvertedIndex {
     public TabletMeta getTabletMeta(long tabletId) {
         long stamp = readLock();
         try {
-            return tabletMetaMap.get(tabletId);
+            return tabletMetaStore.getTabletMeta(tabletId);
         } finally {
             readUnlock(stamp);
         }
@@ -112,7 +111,8 @@ public abstract class TabletInvertedIndex {
         long stamp = readLock();
         try {
             for (Long tabletId : tabletIdList) {
-                tabletMetaList.add(tabletMetaMap.getOrDefault(tabletId, NOT_EXIST_TABLET_META));
+                TabletMeta meta = tabletMetaStore.getTabletMeta(tabletId);
+                tabletMetaList.add(meta != null ? meta : NOT_EXIST_TABLET_META);
             }
             return tabletMetaList;
         } finally {
@@ -126,10 +126,10 @@ public abstract class TabletInvertedIndex {
     public void addTablet(long tabletId, TabletMeta tabletMeta) {
         long stamp = writeLock();
         try {
-            if (tabletMetaMap.containsKey(tabletId)) {
+            if (tabletMetaStore.containsKey(tabletId)) {
                 return;
             }
-            tabletMetaMap.put(tabletId, tabletMeta);
+            tabletMetaStore.add(tabletId, tabletMeta);
             if (LOG.isDebugEnabled()) {
                 LOG.debug("add tablet: {}", tabletId);
             }
@@ -186,7 +186,7 @@ public abstract class TabletInvertedIndex {
     public void clear() {
         long stamp = writeLock();
         try {
-            tabletMetaMap.clear();
+            tabletMetaStore.clear();
             innerClear();
         } finally {
             writeUnlock(stamp);
@@ -240,7 +240,7 @@ public abstract class TabletInvertedIndex {
     public Map<Long, TabletMeta> getTabletMetaMap() {
         long stamp = readLock();
         try {
-            return new HashMap(tabletMetaMap);
+            return tabletMetaStore.toMap();
         } finally {
             readUnlock(stamp);
         }
