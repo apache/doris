@@ -559,6 +559,19 @@ JUICEFS_NAME=juicefs-hadoop-1.3.1.jar
 JUICEFS_SOURCE=
 JUICEFS_MD5SUM="f374dfbfbdc4b83417cfea78a6728c54"
 
+thirdparty_juicefs_build_enabled() {
+    local disable_build_juicefs="${1:-}"
+
+    case "$(printf '%s' "${disable_build_juicefs}" | tr '[:lower:]' '[:upper:]')" in
+        OFF)
+            echo "ON"
+            ;;
+        *)
+            echo "OFF"
+            ;;
+    esac
+}
+
 # pugixml
 PUGIXML_DOWNLOAD="https://github.com/zeux/pugixml/releases/download/v1.15/pugixml-1.15.tar.gz"
 PUGIXML_NAME=pugixml-1.15.tar.gz
@@ -653,7 +666,6 @@ export TP_ARCHIVES=(
     'DRAGONBOX'
     'ICU'
     'JINDOFS'
-    'JUICEFS'
     'PUGIXML'
     'PAIMON_CPP'
 )
@@ -672,5 +684,10 @@ if [[ "$(uname -s)" == 'Darwin' ]]; then
     GETTEXT_MD5SUM='28b1cd4c94a74428723ed966c38cf479'
 
     read -r -a TP_ARCHIVES <<<"${TP_ARCHIVES[*]} BINUTILS GETTEXT"
+    export TP_ARCHIVES
+fi
+
+if [[ "$(thirdparty_juicefs_build_enabled "${DISABLE_BUILD_JUICEFS}")" == "ON" ]]; then
+    TP_ARCHIVES+=('JUICEFS')
     export TP_ARCHIVES
 fi

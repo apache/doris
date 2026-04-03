@@ -2090,7 +2090,6 @@ build_paimon_cpp() {
 if [[ "${#packages[@]}" -eq 0 ]]; then
     packages=(
         jindofs
-        juicefs
         odbc
         openssl
         libevent
@@ -2163,6 +2162,9 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         pugixml
         paimon_cpp
     )
+    if [[ "$(thirdparty_juicefs_build_enabled "${DISABLE_BUILD_JUICEFS}")" == "ON" ]]; then
+        packages=(jindofs juicefs "${packages[@]:1}")
+    fi
     if [[ "$(uname -s)" == 'Darwin' ]]; then
         read -r -a packages <<<"binutils gettext ${packages[*]}"
     elif [[ "$(uname -s)" == 'Linux' ]]; then
