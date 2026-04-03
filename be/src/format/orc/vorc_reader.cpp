@@ -555,17 +555,6 @@ Status OrcReader::_do_init_reader(ReaderInitContext* base_ctx) {
         }
     }
 
-    // Register row-position-based synthesized column handler once.
-    if (_row_id_column_iterator_pair.first != nullptr || _iceberg_rowid_params.enabled ||
-        (_row_lineage_columns != nullptr &&
-         (_row_lineage_columns->need_row_ids() ||
-          _row_lineage_columns->has_last_updated_sequence_number_column()))) {
-        register_synthesized_column_handler(
-                BeConsts::ROWID_COL, [this](Block* block, size_t rows) -> Status {
-                    return _fill_row_id_columns(block, _row_reader->getRowNumber());
-                });
-    }
-
     return Status::OK();
 }
 
@@ -585,6 +574,49 @@ Status OrcReader::on_before_init_reader(ReaderInitContext* ctx) {
     // _reader is available here because init_reader calls _create_file_reader() before this hook.
     RETURN_IF_ERROR(TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_name(
             ctx->tuple_descriptor, &_reader->getType(), ctx->table_info_node));
+
+    // Compute missing columns: columns in the table schema but not in the file.
+    // Also build _fill_missing_defaults so _do_init_reader can directly use them.
+    _fill_missing_cols.clear();
+    _fill_missing_defaults.clear();
+    for (const auto& col_name : ctx->column_names) {
+        if (!ctx->table_info_node->children_column_exists(col_name)) {
+            _fill_missing_cols.insert(col_name);
+        }
+    }
+    if (_column_descs && !_fill_missing_cols.empty()) {
+        for (const auto& desc : *_column_descs) {
+            if (_fill_missing_cols.contains(desc.name) &&
+                !_fill_partition_values.contains(desc.name)) {
+                _fill_missing_defaults[desc.name] = desc.default_expr;
+            }
+        }
+    }
+
+    // Build read-column mapping: file column ↔ table column.
+    for (const auto& table_column_name : ctx->column_names) {
+        if (_fill_missing_cols.contains(table_column_name)) {
+            continue;
+        }
+        const auto file_column_name =
+                ctx->table_info_node->children_file_column_name(table_column_name);
+        _read_file_cols.emplace_back(file_column_name);
+        _read_table_cols.emplace_back(table_column_name);
+    }
+
+    // Register row-position-based synthesized column handler once.
+    // _row_id_column_iterator_pair, _row_lineage_columns, and _iceberg_rowid_params
+    // are all set before init_reader by FileScanner.
+    if (_row_id_column_iterator_pair.first != nullptr || _iceberg_rowid_params.enabled ||
+        (_row_lineage_columns != nullptr &&
+         (_row_lineage_columns->need_row_ids() ||
+          _row_lineage_columns->has_last_updated_sequence_number_column()))) {
+        register_synthesized_column_handler(
+                BeConsts::ROWID_COL, [this](Block* block, size_t rows) -> Status {
+                    return _fill_row_id_columns(block, _row_reader->getRowNumber());
+                });
+    }
+
     return Status::OK();
 }
 
@@ -656,34 +688,6 @@ Status OrcReader::_init_read_columns() {
     } else {
         for (int i = 0; i < root_type.getSubtypeCount(); ++i) {
             _type_map.emplace(root_type.getFieldName(i), root_type.getSubtype(i));
-        }
-    }
-
-    for (size_t i = 0; i < _table_column_names.size(); ++i) {
-        const auto& table_column_name = _table_column_names[i];
-        if (!_table_info_node_ptr->children_column_exists(table_column_name)) {
-            _missing_cols.emplace_back(table_column_name);
-            LOG(INFO) << "[OrcDebug] _init_read_columns: column '" << table_column_name
-                      << "' NOT found in table_info_node → missing";
-            continue;
-        }
-        const auto file_column_name =
-                _table_info_node_ptr->children_file_column_name(table_column_name);
-        _read_file_cols.emplace_back(file_column_name);
-        _read_table_cols.emplace_back(table_column_name);
-        LOG(INFO) << "[OrcDebug] _init_read_columns: column '" << table_column_name
-                  << "' → file column '" << file_column_name << "'";
-    }
-
-    // Build _fill_missing_defaults from _column_descs.
-    // Default value expressions are pre-computed once per table scan in FileScanner.
-    _fill_missing_defaults.clear();
-    if (_column_descs && !_missing_cols.empty()) {
-        std::unordered_set<std::string> missing_set(_missing_cols.begin(), _missing_cols.end());
-        for (const auto& desc : *_column_descs) {
-            if (missing_set.contains(desc.name) && !_fill_partition_values.contains(desc.name)) {
-                _fill_missing_defaults[desc.name] = desc.default_expr;
-            }
         }
     }
 

@@ -392,8 +392,6 @@ private:
 
     std::unordered_map<int, tparquet::OffsetIndex> _col_offsets;
 
-    std::vector<std::string> _missing_cols;
-
     ReaderStatistics _reader_statistics;
     ParquetColumnReader::ColumnStatistics _column_statistics;
     ParquetProfile _parquet_profile;

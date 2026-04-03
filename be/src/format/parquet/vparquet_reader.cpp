@@ -411,10 +411,62 @@ Status ParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
     RETURN_IF_ERROR(get_file_metadata_schema(&field_desc));
     RETURN_IF_ERROR(TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_name(
             ctx->tuple_descriptor, *field_desc, ctx->table_info_node));
+
+    // Compute missing columns: columns in the table schema but not in the file.
+    // Also build _fill_missing_defaults so _do_init_reader can directly use them.
+    _fill_missing_cols.clear();
+    _fill_missing_defaults.clear();
+    for (const auto& col_name : ctx->column_names) {
+        if (!ctx->table_info_node->children_column_exists(col_name)) {
+            _fill_missing_cols.insert(col_name);
+        }
+    }
+    if (_column_descs && !_fill_missing_cols.empty()) {
+        for (const auto& desc : *_column_descs) {
+            if (_fill_missing_cols.contains(desc.name) &&
+                !_fill_partition_values.contains(desc.name)) {
+                _fill_missing_defaults[desc.name] = desc.default_expr;
+            }
+        }
+    }
+
+    // Resolve file-column ↔ table-column mapping in file-schema order.
+    // Iterating schema_desc preserves the physical column order for efficient reads.
+    auto schema_desc = _file_metadata->schema();
+    std::map<std::string, std::string> required_file_columns; // file column → table column
+    for (const auto& table_column_name : ctx->column_names) {
+        if (_fill_missing_cols.contains(table_column_name)) {
+            continue;
+        }
+        auto file_col = ctx->table_info_node->children_file_column_name(table_column_name);
+        required_file_columns.emplace(file_col, table_column_name);
+    }
+    for (int i = 0; i < schema_desc.size(); ++i) {
+        const auto& name = schema_desc.get_column(i)->name;
+        if (required_file_columns.contains(name)) {
+            _read_file_columns.emplace_back(name);
+            _read_table_columns.emplace_back(required_file_columns[name]);
+            _read_table_columns_set.insert(required_file_columns[name]);
+        }
+    }
+
+    // Register row-position-based synthesized column handler once.
+    // _row_id_column_iterator_pair and _row_lineage_columns are set before init_reader by FileScanner.
+    if (_row_id_column_iterator_pair.first != nullptr ||
+        (_row_lineage_columns != nullptr &&
+         (_row_lineage_columns->need_row_ids() ||
+          _row_lineage_columns->has_last_updated_sequence_number_column()))) {
+        register_synthesized_column_handler(
+                BeConsts::ROWID_COL, [this](Block* block, size_t rows) -> Status {
+                    if (_current_group_reader) {
+                        return _current_group_reader->fill_topn_row_id(block, rows);
+                    }
+                    return Status::OK();
+                });
+    }
+
     return Status::OK();
 }
-
-// ---- Unified init_reader(ReaderInitContext*) overrides ----
 
 Status ParquetReader::_open_file_reader(ReaderInitContext* /*ctx*/) {
     return _open_file();
@@ -422,7 +474,6 @@ Status ParquetReader::_open_file_reader(ReaderInitContext* /*ctx*/) {
 
 Status ParquetReader::_do_init_reader(ReaderInitContext* base_ctx) {
     auto* ctx = checked_context_cast<ParquetInitContext>(base_ctx);
-    const auto& all_column_names = base_ctx->column_names;
     _col_name_to_block_idx = base_ctx->col_name_to_block_idx;
     _tuple_descriptor = ctx->tuple_descriptor;
     _row_descriptor = ctx->row_descriptor;
@@ -449,38 +500,6 @@ Status ParquetReader::_do_init_reader(ReaderInitContext* base_ctx) {
         return Status::EndOfFile("init reader failed, empty parquet file: " + _scan_range.path);
     }
     _current_row_group_index = RowGroupReader::RowGroupIndex {-1, 0, 0};
-
-    auto schema_desc = _file_metadata->schema();
-
-    std::map<std::string, std::string> required_file_columns; //file column -> table column
-    for (auto table_column_name : all_column_names) {
-        if (_table_info_node_ptr->children_column_exists(table_column_name)) {
-            auto file_col = _table_info_node_ptr->children_file_column_name(table_column_name);
-            required_file_columns.emplace(file_col, table_column_name);
-        } else {
-            _missing_cols.emplace_back(table_column_name);
-        }
-    }
-    for (int i = 0; i < schema_desc.size(); ++i) {
-        const auto& name = schema_desc.get_column(i)->name;
-        if (required_file_columns.contains(name)) {
-            _read_file_columns.emplace_back(name);
-            _read_table_columns.emplace_back(required_file_columns[name]);
-            _read_table_columns_set.insert(required_file_columns[name]);
-        }
-    }
-
-    // Build _fill_missing_defaults from _column_descs.
-    // Default value expressions are pre-computed once per table scan in FileScanner.
-    _fill_missing_defaults.clear();
-    if (_column_descs && !_missing_cols.empty()) {
-        std::unordered_set<std::string> missing_set(_missing_cols.begin(), _missing_cols.end());
-        for (const auto& desc : *_column_descs) {
-            if (missing_set.contains(desc.name) && !_fill_partition_values.contains(desc.name)) {
-                _fill_missing_defaults[desc.name] = desc.default_expr;
-            }
-        }
-    }
 
     // build column predicates for column lazy read
     _lazy_read_ctx.conjuncts = *ctx->conjuncts;
@@ -512,19 +531,6 @@ Status ParquetReader::_do_init_reader(ReaderInitContext* base_ctx) {
 
     if (_filter_groups && (_total_groups == 0 || _t_metadata->num_rows == 0 || _range_size < 0)) {
         return Status::EndOfFile("No row group to read");
-    }
-    // Register row-position-based synthesized column handler once.
-    if (_row_id_column_iterator_pair.first != nullptr ||
-        (_row_lineage_columns != nullptr &&
-         (_row_lineage_columns->need_row_ids() ||
-          _row_lineage_columns->has_last_updated_sequence_number_column()))) {
-        register_synthesized_column_handler(
-                BeConsts::ROWID_COL, [this](Block* block, size_t rows) -> Status {
-                    if (_current_group_reader) {
-                        return _current_group_reader->fill_topn_row_id(block, rows);
-                    }
-                    return Status::OK();
-                });
     }
 
     return Status::OK();

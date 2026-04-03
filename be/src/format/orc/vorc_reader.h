@@ -757,9 +757,6 @@ private:
     // The columns of the table to be read (table column name)
     std::list<std::string> _read_table_cols;
 
-    // _read_table_cols + _missing_cols = _table_column_names
-    std::list<std::string> _missing_cols;
-
     // file column name to std::vector<orc::ColumnVectorBatch*> idx.
     std::unordered_map<std::string, int> _colname_to_idx;
 
