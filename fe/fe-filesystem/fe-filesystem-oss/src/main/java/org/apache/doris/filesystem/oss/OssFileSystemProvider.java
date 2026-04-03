@@ -18,8 +18,8 @@
 package org.apache.doris.filesystem.oss;
 
 import org.apache.doris.filesystem.FileSystem;
-import org.apache.doris.filesystem.FileSystemProvider;
 import org.apache.doris.filesystem.s3.S3FileSystem;
+import org.apache.doris.filesystem.spi.FileSystemProvider;
 
 import java.io.IOException;
 import java.util.HashMap;
@@ -28,7 +28,7 @@ import java.util.Map;
 /**
  * SPI provider for Alibaba Cloud OSS.
  *
- * <p>Registered via META-INF/services/org.apache.doris.filesystem.FileSystemProvider.
+ * <p>Registered via META-INF/services/org.apache.doris.filesystem.spi.FileSystemProvider.
  *
  * <p>Identified by an endpoint containing {@code aliyuncs.com}. Translates OSS-specific
  * property keys to S3-compatible keys and delegates core I/O to {@link S3FileSystem},

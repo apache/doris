@@ -15,10 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.filesystem;
+package org.apache.doris.filesystem.spi;
 
 import org.apache.doris.extension.spi.Plugin;
 import org.apache.doris.extension.spi.PluginFactory;
+import org.apache.doris.filesystem.FileSystem;
 
 import java.io.IOException;
 import java.util.Map;
@@ -33,7 +34,7 @@ import java.util.Map;
  *
  * <p>Implementations must:
  * 1. Have a public no-arg constructor.
- * 2. Register in META-INF/services/org.apache.doris.filesystem.FileSystemProvider.
+ * 2. Register in META-INF/services/org.apache.doris.filesystem.spi.FileSystemProvider.
  * 3. Have NO dependency on fe-core, fe-common, or fe-catalog.
  */
 public interface FileSystemProvider extends PluginFactory {

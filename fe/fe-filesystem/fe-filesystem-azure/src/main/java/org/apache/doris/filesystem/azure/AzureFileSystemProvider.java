@@ -18,7 +18,7 @@
 package org.apache.doris.filesystem.azure;
 
 import org.apache.doris.filesystem.FileSystem;
-import org.apache.doris.filesystem.FileSystemProvider;
+import org.apache.doris.filesystem.spi.FileSystemProvider;
 
 import java.io.IOException;
 import java.util.Map;
@@ -26,7 +26,7 @@ import java.util.Map;
 /**
  * SPI provider for Azure Blob Storage.
  *
- * <p>Registered via META-INF/services/org.apache.doris.filesystem.FileSystemProvider.
+ * <p>Registered via META-INF/services/org.apache.doris.filesystem.spi.FileSystemProvider.
  *
  * <p>Identified by the presence of {@code AZURE_ACCOUNT_NAME}, {@code azure.account_name},
  * or an endpoint containing {@code blob.core.windows.net}.

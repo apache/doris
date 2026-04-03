@@ -18,7 +18,7 @@
 package org.apache.doris.filesystem.local;
 
 import org.apache.doris.filesystem.FileSystem;
-import org.apache.doris.filesystem.FileSystemProvider;
+import org.apache.doris.filesystem.spi.FileSystemProvider;
 
 import java.io.IOException;
 import java.util.Map;

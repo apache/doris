@@ -35,22 +35,13 @@ under the License.
     <description>
         Consumer-facing API for the Doris FE filesystem abstraction layer.
         Contains the core FileSystem interface, value types (Location, FileEntry, BlockInfo),
-        streaming types (FileIterator, DorisInputFile, DorisOutputStream), utility helpers,
-        and the FileSystemProvider discovery interface.
+        streaming types (FileIterator, DorisInputFile, DorisOutputStream), and utility helpers.
 
-        Zero third-party external dependencies — only JDK and the Doris plugin registration
-        interface (fe-extension-spi). Both fe-core callers and filesystem provider
-        implementations depend on this artifact.
+        Zero third-party external dependencies — pure JDK only. Both fe-core callers and
+        filesystem provider implementations depend on this artifact.
     </description>
 
     <dependencies>
-        <!-- fe-extension-spi: pure Java interfaces required by FileSystemProvider,
-             which extends PluginFactory to enable ServiceLoader-based plugin discovery. -->
-        <dependency>
-            <groupId>${project.groupId}</groupId>
-            <artifactId>fe-extension-spi</artifactId>
-            <version>${project.version}</version>
-        </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>

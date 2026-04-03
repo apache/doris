@@ -34,13 +34,15 @@ under the License.
     <name>Doris FE Filesystem SPI</name>
     <description>
         Service Provider Interface (SPI) for Doris FE filesystem abstraction.
+        Contains FileSystemProvider (ServiceLoader SPI entry point), the ObjStorage SPI layer
+        for object-storage backends, HadoopAuthenticator, and their supporting value types.
         Zero third-party external dependencies — only JDK and Doris internal SPI interfaces.
         This is the ONLY filesystem artifact compiled into fe-core.
     </description>
 
     <dependencies>
         <!-- fe-filesystem-api: consumer-facing types (FileSystem, Location, FileEntry, etc.)
-             moved from spi to api package. ObjFileSystem extends FileSystem from api. -->
+             ObjFileSystem extends FileSystem from api. FileSystemProvider.create() returns FileSystem. -->
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>fe-filesystem-api</artifactId>
