@@ -31,7 +31,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Collections;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.ServiceLoader;
@@ -51,8 +51,15 @@ public class FileSystemPluginManager {
 
     private static final Logger LOG = LogManager.getLogger(FileSystemPluginManager.class);
 
+    // software.amazon.awssdk must be parent-first so that all AWS SDK classes
+    // (including ExecutionInterceptor from awssdk:core) are loaded by a single
+    // ClassLoader. Without this, the plugin's child-first loader loads its own
+    // awssdk:core copy, while the FE core ClassLoader's s3-transfer-manager SPI
+    // registers ApplyUserAgentInterceptor against the parent's ExecutionInterceptor.
+    // The resulting cross-ClassLoader isAssignableFrom check fails with:
+    //   "ApplyUserAgentInterceptor does not implement ExecutionInterceptor API"
     private static final List<String> FS_PARENT_FIRST_PREFIXES =
-            Collections.singletonList("org.apache.doris.filesystem.");
+            Arrays.asList("org.apache.doris.filesystem.", "software.amazon.awssdk.");
 
     private final List<FileSystemProvider> providers = new CopyOnWriteArrayList<>();
     private final DirectoryPluginRuntimeManager<FileSystemProvider> runtimeManager =
