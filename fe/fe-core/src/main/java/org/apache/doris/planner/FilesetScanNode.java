@@ -21,6 +21,8 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.FilesetTable;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.FederationBackendPolicy;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExternalScanRange;
 import org.apache.doris.thrift.TFileFormatType;
@@ -29,9 +31,11 @@ import org.apache.doris.thrift.TFileScanNode;
 import org.apache.doris.thrift.TFileScanRange;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileScanSlotInfo;
+import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TScanRange;
+import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
@@ -39,15 +43,14 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
  * Scan node for FilesetTable.
- *
- * Generates a single TFileScanRange with FORMAT_MULTIDATA format type and
- * fileset_params pointing to the table's object-storage path. The BE
- * FilesetReader is invoked via the file_scanner when table_format_type == "fileset".
+ * The BE FilesetReader is invoked via the file_scanner when
+ * table_format_type == "fileset".
  */
 public class FilesetScanNode extends ScanNode {
     private static final Logger LOG = LogManager.getLogger(FilesetScanNode.class);
@@ -78,27 +81,14 @@ public class FilesetScanNode extends ScanNode {
         FederationBackendPolicy backendPolicy = new FederationBackendPolicy();
         backendPolicy.init();
 
-        // Build fileset_params: table_path + file_type + backend S3/HDFS credentials
-        Map<String, String> filesetParams = filesetTable.getBackendProperties();
-        filesetParams.put("table_path", filesetTable.getTablePath());
-        filesetParams.put("file_type", filesetTable.getFileType().name());
-        filesetParams.put("file_pattern", filesetTable.getFilePattern());
+        int numBEs = backendPolicy.numBackends();
+        // Each shard independently lists the full directory and
+        // then keeps only its hash-partition, so too many shards on one BE
+        // cause S3 throttling (503 Slow Down) and extreme long-tail latency.
+        int parallelPerBE = Math.min(getParallelExecInstanceNum(), 4);
+        int totalShards = parallelPerBE * numBEs;
 
-        // Build TTableFormatFileDesc
-        TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
-        tableFormatFileDesc.setTableFormatType("fileset");
-        tableFormatFileDesc.setFilesetParams(filesetParams);
-
-        // Build TFileRangeDesc – one range covering the entire fileset directory
-        TFileRangeDesc rangeDesc = new TFileRangeDesc();
-        rangeDesc.setPath(filesetTable.getTablePath());
-        rangeDesc.setStartOffset(0);
-        rangeDesc.setSize(-1);
-        rangeDesc.setFileType(filesetTable.getFileType());
-        rangeDesc.setFormatType(TFileFormatType.FORMAT_MULTIDATA);
-        rangeDesc.setTableFormatParams(tableFormatFileDesc);
-
-        // Build TFileScanRangeParams
+        // Build shared TFileScanRangeParams (same for all shards)
         TFileScanRangeParams scanParams = new TFileScanRangeParams();
         scanParams.setDestTupleId(desc.getId().asInt());
         scanParams.setNumOfColumnsFromFile(desc.getTable().getBaseSchema(false).size());
@@ -110,21 +100,60 @@ public class FilesetScanNode extends ScanNode {
             scanParams.addToRequiredSlots(slotInfo);
         }
 
-        // Assemble TFileScanRange
-        TFileScanRange fileScanRange = new TFileScanRange();
-        fileScanRange.addToRanges(rangeDesc);
-        fileScanRange.setParams(scanParams);
+        scanRangeLocations = Lists.newArrayListWithCapacity(totalShards);
+        for (int shardId = 0; shardId < totalShards; shardId++) {
+            // Per-shard fileset_params with shard routing info
+            Map<String, String> filesetParams = new HashMap<>(filesetTable.getBackendProperties());
+            filesetParams.put("table_path", filesetTable.getTablePath());
+            filesetParams.put("file_type", filesetTable.getFileType().name());
+            filesetParams.put("file_pattern", filesetTable.getFilePattern());
+            filesetParams.put("shard_id", String.valueOf(shardId));
+            filesetParams.put("total_shards", String.valueOf(totalShards));
 
-        TExternalScanRange externalScanRange = new TExternalScanRange();
-        externalScanRange.setFileScanRange(fileScanRange);
+            TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
+            tableFormatFileDesc.setTableFormatType("fileset");
+            tableFormatFileDesc.setFilesetParams(filesetParams);
 
-        TScanRange scanRange = new TScanRange();
-        scanRange.setExtScanRange(externalScanRange);
+            TFileRangeDesc rangeDesc = new TFileRangeDesc();
+            rangeDesc.setPath(filesetTable.getTablePath());
+            rangeDesc.setStartOffset(0);
+            rangeDesc.setSize(-1);
+            rangeDesc.setFileType(filesetTable.getFileType());
+            rangeDesc.setFormatType(TFileFormatType.FORMAT_MULTIDATA);
+            rangeDesc.setTableFormatParams(tableFormatFileDesc);
 
-        TScanRangeLocations locations = createSingleScanRangeLocations(backendPolicy);
-        locations.setScanRange(scanRange);
+            TFileScanRange fileScanRange = new TFileScanRange();
+            fileScanRange.addToRanges(rangeDesc);
+            fileScanRange.setParams(scanParams);
 
-        scanRangeLocations = Lists.newArrayList(locations);
+            TExternalScanRange externalScanRange = new TExternalScanRange();
+            externalScanRange.setFileScanRange(fileScanRange);
+
+            TScanRange scanRange = new TScanRange();
+            scanRange.setExtScanRange(externalScanRange);
+
+            // Round-robin assignment across BEs
+            Backend be = backendPolicy.getNextBe();
+            scanBackendIds.add(be.getId());
+
+            TScanRangeLocations locations = new TScanRangeLocations();
+            TScanRangeLocation location = new TScanRangeLocation();
+            location.setServer(new TNetworkAddress(be.getHost(), be.getBePort()));
+            location.setBackendId(be.getId());
+            locations.addToLocations(location);
+            locations.setScanRange(scanRange);
+
+            scanRangeLocations.add(locations);
+        }
+    }
+
+    private int getParallelExecInstanceNum() {
+        ConnectContext context = ConnectContext.get();
+        if (context != null) {
+            return Math.max(context.getSessionVariable()
+                    .getParallelExecInstanceNum(scanContext.getClusterName()), 1);
+        }
+        return 1;
     }
 
     @Override
@@ -134,7 +163,12 @@ public class FilesetScanNode extends ScanNode {
 
     @Override
     public int getNumInstances() {
-        return 1;
+        return scanRangeLocations != null ? scanRangeLocations.size() : 1;
+    }
+
+    @Override
+    public int getScanRangeNum() {
+        return scanRangeLocations != null ? scanRangeLocations.size() : 1;
     }
 
     @Override
@@ -142,6 +176,9 @@ public class FilesetScanNode extends ScanNode {
         StringBuilder output = new StringBuilder();
         output.append(prefix).append("TABLE: ").append(filesetTable.getName()).append("\n");
         output.append(prefix).append("LOCATION: ").append(filesetTable.getLocation()).append("\n");
+        int shards = scanRangeLocations != null ? scanRangeLocations.size() : 1;
+        output.append(prefix).append("SHARDS: ").append(shards)
+                .append(" (").append(numScanBackends()).append(" BEs)").append("\n");
         output.append(prefix).append(String.format("cardinality=%s", cardinality)).append("\n");
         return output.toString();
     }

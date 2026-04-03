@@ -739,7 +739,7 @@ public abstract class DataType {
     }
 
     public boolean isOnlyMetricType() {
-        return isObjectType() || isComplexType() || isJsonType() || isVariantType();
+        return isObjectType() || isComplexType() || isJsonType() || isVariantType() || isFileType();
     }
 
     public boolean isObjectOrVariantType() {

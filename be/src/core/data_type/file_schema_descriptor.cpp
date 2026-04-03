@@ -42,31 +42,16 @@ FileSchemaDescriptor::FileSchemaDescriptor() {
         });
     };
 
-    add_field(FILE_FIELD_URI.data(), std::make_shared<DataTypeString>(4096, TYPE_VARCHAR));
-    add_field(FILE_FIELD_FILE_NAME.data(), std::make_shared<DataTypeString>(512, TYPE_VARCHAR));
-    add_field(FILE_FIELD_CONTENT_TYPE.data(), std::make_shared<DataTypeString>(128, TYPE_VARCHAR));
-    add_field(FILE_FIELD_SIZE.data(), std::make_shared<DataTypeInt64>());
-    add_field(FILE_FIELD_REGION.data(),
-              make_nullable(std::make_shared<DataTypeString>(64, TYPE_VARCHAR)));
-    add_field(FILE_FIELD_ENDPOINT.data(),
-              make_nullable(std::make_shared<DataTypeString>(256, TYPE_VARCHAR)));
-    add_field(FILE_FIELD_AK.data(),
-              make_nullable(std::make_shared<DataTypeString>(256, TYPE_VARCHAR)));
-    add_field(FILE_FIELD_SK.data(),
-              make_nullable(std::make_shared<DataTypeString>(256, TYPE_VARCHAR)));
-    add_field(FILE_FIELD_ROLE_ARN.data(),
-              make_nullable(std::make_shared<DataTypeString>(256, TYPE_VARCHAR)));
-    add_field(FILE_FIELD_EXTERNAL_ID.data(),
-              make_nullable(std::make_shared<DataTypeString>(256, TYPE_VARCHAR)));
-}
-
-std::optional<size_t> FileSchemaDescriptor::try_get_position(std::string_view name) const {
-    for (size_t i = 0; i < _fields.size(); ++i) {
-        if (name == _fields[i].name) {
-            return i;
-        }
-    }
-    return std::nullopt;
+    add_field("uri", std::make_shared<DataTypeString>(4096, TYPE_VARCHAR));
+    add_field("file_name", std::make_shared<DataTypeString>(512, TYPE_VARCHAR));
+    add_field("content_type", std::make_shared<DataTypeString>(128, TYPE_VARCHAR));
+    add_field("size", std::make_shared<DataTypeInt64>());
+    add_field("region", make_nullable(std::make_shared<DataTypeString>(64, TYPE_VARCHAR)));
+    add_field("endpoint", make_nullable(std::make_shared<DataTypeString>(256, TYPE_VARCHAR)));
+    add_field("ak", make_nullable(std::make_shared<DataTypeString>(256, TYPE_VARCHAR)));
+    add_field("sk", make_nullable(std::make_shared<DataTypeString>(256, TYPE_VARCHAR)));
+    add_field("role_arn", make_nullable(std::make_shared<DataTypeString>(256, TYPE_VARCHAR)));
+    add_field("external_id", make_nullable(std::make_shared<DataTypeString>(256, TYPE_VARCHAR)));
 }
 
 std::string FileSchemaDescriptor::extract_file_name(std::string_view uri) {
@@ -143,5 +128,34 @@ void FileSchemaDescriptor::write_jsonb_string(JsonbWriter& writer, const std::st
 
 void FileSchemaDescriptor::write_jsonb_key(JsonbWriter& writer, std::string_view key) {
     writer.writeKey(key.data(), cast_set<uint8_t>(key.size()));
+}
+
+void FileSchemaDescriptor::write_file_jsonb(JsonbWriter& writer, const FileMetadata& metadata) {
+    const auto& schema = instance();
+    auto write_nullable_str = [&](Field field, const std::string& s) {
+        write_jsonb_key(writer, schema.field_name(field));
+        if (s.empty()) {
+            writer.writeNull();
+        } else {
+            write_jsonb_string(writer, s);
+        }
+    };
+
+    writer.writeStartObject();
+    write_jsonb_key(writer, schema.field_name(Field::URI));
+    write_jsonb_string(writer, metadata.uri);
+    write_jsonb_key(writer, schema.field_name(Field::FILE_NAME));
+    write_jsonb_string(writer, metadata.file_name);
+    write_jsonb_key(writer, schema.field_name(Field::CONTENT_TYPE));
+    write_jsonb_string(writer, metadata.content_type);
+    write_jsonb_key(writer, schema.field_name(Field::SIZE));
+    writer.writeInt64(metadata.size);
+    write_nullable_str(Field::REGION, metadata.region);
+    write_nullable_str(Field::ENDPOINT, metadata.endpoint);
+    write_nullable_str(Field::AK, metadata.ak);
+    write_nullable_str(Field::SK, metadata.sk);
+    write_nullable_str(Field::ROLE_ARN, metadata.role_arn);
+    write_nullable_str(Field::EXTERNAL_ID, metadata.external_id);
+    writer.writeEndObject();
 }
 } // namespace doris

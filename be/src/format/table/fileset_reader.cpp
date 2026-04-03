@@ -34,8 +34,8 @@
 
 namespace doris {
 
-FilesetReader::FilesetReader(const std::vector<SlotDescriptor*>& file_slot_descs, RuntimeState* state,
-                             RuntimeProfile* profile,
+FilesetReader::FilesetReader(const std::vector<SlotDescriptor*>& file_slot_descs,
+                             RuntimeState* state, RuntimeProfile* profile,
                              const std::map<std::string, std::string>& fileset_params)
         : _file_slot_descs(file_slot_descs),
           _state(state),
@@ -81,15 +81,19 @@ Status FilesetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
     }
 
     const size_t batch_size = std::max<size_t>(_state->batch_size(), 1);
-    for (; _next_file_idx < _files.size() && rows < batch_size; ++_next_file_idx, ++rows) {
-        if (!need_materialize_file) {
-            continue;
-        }
-        writer.reset();
-        _write_file_jsonb(writer, _files[_next_file_idx]);
-        jsonb_column->insert_data(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());
-        if (null_map_column != nullptr) {
-            null_map_column->insert_value(0);
+    {
+        SCOPED_TIMER(_fileset_profile.serialize_time);
+        for (; _next_file_idx < _files.size() && rows < batch_size; ++_next_file_idx, ++rows) {
+            if (!need_materialize_file) {
+                continue;
+            }
+            writer.reset();
+            _write_file_jsonb(writer, _files[_next_file_idx]);
+            jsonb_column->insert_data(writer.getOutput()->getBuffer(),
+                                      writer.getOutput()->getSize());
+            if (null_map_column != nullptr) {
+                null_map_column->insert_value(0);
+            }
         }
     }
 
@@ -125,12 +129,36 @@ Status FilesetReader::_build_files() {
     io::FSPropertiesRef fs_ref(fs_properties);
     io::FileSystemSPtr fs = DORIS_TRY(FileFactory::create_fs(fs_ref, file_description));
 
-    RETURN_IF_ERROR(_list_files(fs, _fileset_params.at("table_path")));
+    {
+        SCOPED_TIMER(_fileset_profile.list_files_time);
+        RETURN_IF_ERROR(_list_files(fs, _fileset_params.at("table_path")));
+    }
     if (_files.empty()) {
         bool exists = false;
         RETURN_IF_ERROR(fs->exists(_fileset_params.at("table_path"), &exists));
         if (!exists) {
-            return Status::NotFound("fileset table path does not exist: {}", _fileset_params.at("table_path"));
+            return Status::NotFound("fileset table path does not exist: {}",
+                                    _fileset_params.at("table_path"));
+        }
+    }
+
+    int shard_id = std::stoi(_fileset_params.at("shard_id"));
+    int total_shards = std::stoi(_fileset_params.at("total_shards"));
+    if (total_shards > 1) {
+        std::vector<io::FileInfo> shard_files;
+        for (auto& file : _files) {
+            // as the file type used with AI functions, and AI function is executed slowly,
+            // so we scan parallelly by sharding the files based on the hash of file name to improve the performance,
+            // maybe use etag when FileInfo struct is extended in the future, but currently FileInfo only has file_name that can be used for sharding.
+            size_t h = std::hash<std::string> {}(file.file_name);
+            if (static_cast<int>(h % total_shards) == shard_id) {
+                shard_files.push_back(std::move(file));
+            }
+        }
+        _files = std::move(shard_files);
+        if (_profile != nullptr) {
+            _profile->add_info_string("ShardId", std::to_string(shard_id));
+            _profile->add_info_string("TotalShards", std::to_string(total_shards));
         }
     }
 
@@ -149,18 +177,11 @@ Status FilesetReader::_build_files() {
 
 // Lists files in the directory specified by table_path, then filters them
 // against the glob pattern from fileset_params["file_pattern"].
-//
-// The pattern supports POSIX glob syntax via fnmatch(3):
-//   *           — matches any sequence of characters
-//   ?           — matches any single character
-//   [abc]       — matches any character in the set
-//   [a-z]       — matches any character in the range
-//   [!abc]      — matches any character NOT in the set
 Status FilesetReader::_list_files(const io::FileSystemSPtr& fs, const std::string& table_path) {
     _files.clear();
     bool exists = false;
     std::vector<io::FileInfo> listed_entries;
-    RETURN_IF_ERROR(fs->list(table_path, false, &listed_entries, &exists));
+    RETURN_IF_ERROR(fs->list(table_path, true, &listed_entries, &exists));
     if (!exists) {
         return Status::NotFound("fileset table path does not exist: {}", table_path);
     }
@@ -181,10 +202,6 @@ Status FilesetReader::_list_files(const io::FileSystemSPtr& fs, const std::strin
     return Status::OK();
 }
 
-bool FilesetReader::_match_glob_pattern(const std::string& name, const std::string& pattern) {
-    return fnmatch(pattern.c_str(), name.c_str(), 0) == 0;
-}
-
 Result<TFileType::type> FilesetReader::_parse_file_type(const std::string& file_type) {
     if (file_type == "FILE_S3") {
         return TFileType::FILE_S3;
@@ -199,7 +216,7 @@ Result<TFileType::type> FilesetReader::_parse_file_type(const std::string& file_
 }
 
 std::string FilesetReader::_build_uri(const std::string& table_path,
-                                             const std::string& listed_name) {
+                                      const std::string& listed_name) {
     if (listed_name.find("://") != std::string::npos) {
         return listed_name;
     }
@@ -212,8 +229,10 @@ std::string FilesetReader::_build_uri(const std::string& table_path,
             return listed_name;
         }
         size_t root_end = table_path.find('/', scheme_pos + 3);
-        std::string root = root_end == std::string::npos ? table_path + "/" : table_path.substr(0, root_end + 1);
-        return root + (!listed_name.empty() && listed_name[0] == '/' ? listed_name.substr(1) : listed_name);
+        std::string root = root_end == std::string::npos ? table_path + "/"
+                                                         : table_path.substr(0, root_end + 1);
+        return root + (!listed_name.empty() && listed_name[0] == '/' ? listed_name.substr(1)
+                                                                     : listed_name);
     }
     return table_path + (table_path.ends_with("/") ? "" : "/") + listed_name;
 }
@@ -230,40 +249,33 @@ void FilesetReader::_init_profile() {
             ADD_CHILD_COUNTER(_profile, "ListedBytes", TUnit::BYTES, fileset_profile);
     _fileset_profile.emitted_rows =
             ADD_CHILD_COUNTER(_profile, "EmittedRows", TUnit::UNIT, fileset_profile);
+    _fileset_profile.list_files_time = ADD_CHILD_TIMER(_profile, "ListFilesTime", fileset_profile);
+    _fileset_profile.serialize_time = ADD_CHILD_TIMER(_profile, "SerializeTime", fileset_profile);
 }
 
 void FilesetReader::_write_file_jsonb(JsonbWriter& writer, const io::FileInfo& file) {
     using S = FileSchemaDescriptor;
     const std::string uri = _build_uri(_fileset_params.at("table_path"), file.file_name);
     const std::string file_name = S::extract_file_name(uri);
-    const std::string content_type =
-            S::extension_to_content_type(S::extract_file_extension(file_name));
-    const auto& schema = S::instance();
-
-    writer.writeStartObject();
-    S::write_jsonb_key(writer, schema.field_name(S::Field::URI));
-    S::write_jsonb_string(writer, uri);
-    S::write_jsonb_key(writer, schema.field_name(S::Field::FILE_NAME));
-    S::write_jsonb_string(writer, file_name);
-    S::write_jsonb_key(writer, schema.field_name(S::Field::CONTENT_TYPE));
-    S::write_jsonb_string(writer, content_type);
-    S::write_jsonb_key(writer, schema.field_name(S::Field::SIZE));
-    writer.writeInt64(file.file_size);
-    auto write_nullable_param = [&](S::Field field, const char* param_key) {
-        S::write_jsonb_key(writer, schema.field_name(field));
-        if (auto it = _fileset_params.find(param_key);
+    auto get_param = [&](const char* key) -> std::string {
+        if (auto it = _fileset_params.find(key);
             it != _fileset_params.end() && !it->second.empty()) {
-            S::write_jsonb_string(writer, it->second);
-        } else {
-            writer.writeNull();
+            return it->second;
         }
+        return {};
     };
-    write_nullable_param(S::Field::REGION, "AWS_REGION");
-    write_nullable_param(S::Field::ENDPOINT, "AWS_ENDPOINT");
-    write_nullable_param(S::Field::AK, "AWS_ACCESS_KEY");
-    write_nullable_param(S::Field::SK, "AWS_SECRET_KEY");
-    write_nullable_param(S::Field::ROLE_ARN, "AWS_ROLE_ARN");
-    write_nullable_param(S::Field::EXTERNAL_ID, "AWS_EXTERNAL_ID");
-    writer.writeEndObject();
+    FileMetadata metadata {
+            .uri = uri,
+            .file_name = file_name,
+            .content_type = S::extension_to_content_type(S::extract_file_extension(file_name)),
+            .size = file.file_size,
+            .region = get_param("AWS_REGION"),
+            .endpoint = get_param("AWS_ENDPOINT"),
+            .ak = get_param("AWS_ACCESS_KEY"),
+            .sk = get_param("AWS_SECRET_KEY"),
+            .role_arn = get_param("AWS_ROLE_ARN"),
+            .external_id = get_param("AWS_EXTERNAL_ID"),
+    };
+    S::write_file_jsonb(writer, metadata);
 }
 } // namespace doris

@@ -31,16 +31,18 @@ struct FileFieldDesc {
     DataTypePtr type;
 };
 
-inline constexpr std::string_view FILE_FIELD_URI = "uri";
-inline constexpr std::string_view FILE_FIELD_FILE_NAME = "file_name";
-inline constexpr std::string_view FILE_FIELD_CONTENT_TYPE = "content_type";
-inline constexpr std::string_view FILE_FIELD_SIZE = "size";
-inline constexpr std::string_view FILE_FIELD_REGION = "region";
-inline constexpr std::string_view FILE_FIELD_ENDPOINT = "endpoint";
-inline constexpr std::string_view FILE_FIELD_AK = "ak";
-inline constexpr std::string_view FILE_FIELD_SK = "sk";
-inline constexpr std::string_view FILE_FIELD_ROLE_ARN = "role_arn";
-inline constexpr std::string_view FILE_FIELD_EXTERNAL_ID = "external_id";
+struct FileMetadata {
+    std::string uri;
+    std::string file_name;
+    std::string content_type;
+    int64_t size = 0;
+    std::string region;
+    std::string endpoint;
+    std::string ak;
+    std::string sk;
+    std::string role_arn;
+    std::string external_id;
+};
 
 // now struct FileInfo only contains file_name and file_size, 
 // and if we want to get ETAG and LAST_MODIFIED_AT, need refactor FileInfo and the underlying file system client to support them.
@@ -65,7 +67,6 @@ public:
         return _fields[static_cast<size_t>(field_id)];
     }
     std::string_view field_name(Field field_id) const { return field(field_id).name; }
-    std::optional<size_t> try_get_position(std::string_view name) const;
 
     // Shared utilities for FILE type serialization.
     static std::string extract_file_name(std::string_view uri);
@@ -75,6 +76,8 @@ public:
     static std::string extension_to_content_type(const std::string& ext);
     static void write_jsonb_string(JsonbWriter& writer, const std::string& value);
     static void write_jsonb_key(JsonbWriter& writer, std::string_view key);
+    // Serializes a FileMetadata into a complete JSONB object.
+    static void write_file_jsonb(JsonbWriter& writer, const FileMetadata& metadata);
 
 private:
     FileSchemaDescriptor();

@@ -158,21 +158,24 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
         if (plan instanceof LogicalAggregate) {
             LogicalAggregate<?> agg = (LogicalAggregate<?>) plan;
             for (Expression groupBy : agg.getGroupByExpressions()) {
-                if (groupBy.getDataType().isObjectOrVariantType() || groupBy.getDataType().isVarBinaryType()) {
+                if (groupBy.getDataType().isObjectOrVariantType() || groupBy.getDataType().isVarBinaryType()
+                        || groupBy.getDataType().isFileType()) {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
             }
         } else if (plan instanceof LogicalSort) {
             LogicalSort<?> sort = (LogicalSort<?>) plan;
             for (OrderKey orderKey : sort.getOrderKeys()) {
-                if (orderKey.getExpr().getDataType().isObjectOrVariantType()) {
+                if (orderKey.getExpr().getDataType().isObjectOrVariantType()
+                        || orderKey.getExpr().getDataType().isFileType()) {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
             }
         } else if (plan instanceof LogicalTopN) {
             LogicalTopN<?> topN = (LogicalTopN<?>) plan;
             for (OrderKey orderKey : topN.getOrderKeys()) {
-                if (orderKey.getExpr().getDataType().isObjectOrVariantType()) {
+                if (orderKey.getExpr().getDataType().isObjectOrVariantType()
+                        || orderKey.getExpr().getDataType().isFileType()) {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
             }
@@ -183,11 +186,13 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
                 }
                 WindowExpression windowExpression = (WindowExpression) ((Alias) a).child();
                 if (windowExpression.getOrderKeys().stream().anyMatch((
-                        orderKey -> orderKey.getDataType().isObjectOrVariantType()))) {
+                        orderKey -> orderKey.getDataType().isObjectOrVariantType()
+                                || orderKey.getDataType().isFileType()))) {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
                 if (windowExpression.getPartitionKeys().stream().anyMatch((
-                        partitionKey -> partitionKey.getDataType().isObjectOrVariantType()))) {
+                        partitionKey -> partitionKey.getDataType().isObjectOrVariantType()
+                                || partitionKey.getDataType().isFileType()))) {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
             });
@@ -199,6 +204,9 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
                 } else if (conjunct.anyMatch(e -> ((Expression) e).getDataType().isVarBinaryType())) {
                     throw new AnalysisException(
                             "varbinary type could not in join equal conditions: " + conjunct.toSql());
+                } else if (conjunct.anyMatch(e -> ((Expression) e).getDataType().isFileType())) {
+                    throw new AnalysisException(
+                            "file type could not in join equal conditions: " + conjunct.toSql());
                 }
             }
             for (Expression conjunct : join.getMarkJoinConjuncts()) {
@@ -207,6 +215,9 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
                 } else if (conjunct.anyMatch(e -> ((Expression) e).getDataType().isVarBinaryType())) {
                     throw new AnalysisException(
                             "varbinary type could not in join equal conditions: " + conjunct.toSql());
+                } else if (conjunct.anyMatch(e -> ((Expression) e).getDataType().isFileType())) {
+                    throw new AnalysisException(
+                            "file type could not in join equal conditions: " + conjunct.toSql());
                 }
             }
         }

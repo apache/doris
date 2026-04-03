@@ -43,6 +43,7 @@ public:
 
     Field operator[](size_t n) const override { return (*_data)[n]; }
     void get(size_t n, Field& res) const override { _data->get(n, res); }
+    StringRef get_data_at(size_t n) const override { return _data->get_data_at(n); }
 
     void insert(const Field& x) override;
     void insert_from(const IColumn& src, size_t n) override;

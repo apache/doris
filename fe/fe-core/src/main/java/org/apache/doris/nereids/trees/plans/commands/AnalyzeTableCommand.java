@@ -21,6 +21,7 @@ import org.apache.doris.analysis.AnalyzeProperties;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.FilesetTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
@@ -118,6 +119,9 @@ public class AnalyzeTableCommand extends AnalyzeCommand {
     public void check() throws AnalysisException {
         if (table instanceof View) {
             throw new AnalysisException("Analyze view is not allowed");
+        }
+        if (table instanceof FilesetTable) {
+            throw new AnalysisException("Analyze fileset table is not supported");
         }
         checkAnalyzePrivilege(tableNameInfo);
         if (columnNames == null) {

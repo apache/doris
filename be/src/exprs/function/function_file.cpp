@@ -20,6 +20,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "common/cast_set.h"
 #include "common/status.h"
@@ -34,7 +35,10 @@
 #include "core/data_type/file_schema_descriptor.h"
 #include "exprs/function/function.h"
 #include "exprs/function/simple_function_factory.h"
+#include "io/fs/obj_storage_client.h"
 #include "util/jsonb_writer.h"
+#include "util/s3_uri.h"
+#include "util/s3_util.h"
 
 namespace doris {
 
@@ -48,7 +52,7 @@ public:
 
     bool is_variadic() const override { return false; }
 
-    size_t get_number_of_arguments() const override { return 4; }
+    size_t get_number_of_arguments() const override { return 5; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return std::make_shared<DataTypeFile>();
@@ -56,17 +60,19 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        DCHECK_EQ(arguments.size(), 4);
+        DCHECK_EQ(arguments.size(), 5);
 
-        ColumnPtr uri_holder, endpoint_holder, ak_holder, sk_holder;
+        ColumnPtr uri_holder, region_holder, endpoint_holder, ak_holder, sk_holder;
         const ColumnString* uri_col =
                 _unwrap_string_column(block.get_by_position(arguments[0]), uri_holder);
+        const ColumnString* region_col =
+                _unwrap_string_column(block.get_by_position(arguments[1]), region_holder);
         const ColumnString* endpoint_col =
-                _unwrap_string_column(block.get_by_position(arguments[1]), endpoint_holder);
+                _unwrap_string_column(block.get_by_position(arguments[2]), endpoint_holder);
         const ColumnString* ak_col =
-                _unwrap_string_column(block.get_by_position(arguments[2]), ak_holder);
+                _unwrap_string_column(block.get_by_position(arguments[3]), ak_holder);
         const ColumnString* sk_col =
-                _unwrap_string_column(block.get_by_position(arguments[3]), sk_holder);
+                _unwrap_string_column(block.get_by_position(arguments[4]), sk_holder);
 
         using S = FileSchemaDescriptor;
         const auto& schema = S::instance();
@@ -77,6 +83,7 @@ public:
 
         for (size_t row = 0; row < input_rows_count; ++row) {
             std::string uri = uri_col->get_data_at(row).to_string();
+            std::string region = region_col->get_data_at(row).to_string();
             std::string endpoint = endpoint_col->get_data_at(row).to_string();
             std::string ak = ak_col->get_data_at(row).to_string();
             std::string sk = sk_col->get_data_at(row).to_string();
@@ -84,8 +91,46 @@ public:
             std::string content_type =
                     S::extension_to_content_type(S::extract_file_extension(file_name));
 
+            // Ensure endpoint has http:// prefix for S3 SDK.
+            std::string normalized_endpoint = _normalize_endpoint(endpoint);
+
+            // Validate the object exists via HEAD request and get actual size.
+            S3ClientConf s3_conf;
+            s3_conf.endpoint = normalized_endpoint;
+            s3_conf.region = region;
+            s3_conf.ak = ak;
+            s3_conf.sk = sk;
+            auto s3_client = S3ClientFactory::instance().create(s3_conf);
+            if (!s3_client) {
+                return Status::InternalError(
+                        "to_file: failed to create S3 client for endpoint '{}'", endpoint);
+            }
+            // Normalize oss:// etc. to s3:// for S3URI parser and storage.
+            std::string normalized_uri = _normalize_uri_scheme(uri);
+            S3URI s3_uri(normalized_uri);
+            RETURN_IF_ERROR(s3_uri.parse());
+            auto head_resp = s3_client->head_object(
+                    {.bucket = s3_uri.get_bucket(), .key = s3_uri.get_key()});
+            if (head_resp.resp.status.code != 0) {
+                return Status::InvalidArgument("to_file: object '{}' is not accessible: {}", uri,
+                                               head_resp.resp.status.msg);
+            }
+            int64_t file_size = head_resp.file_size;
+
             writer.reset();
-            _write_file_jsonb(writer, schema, uri, file_name, content_type, endpoint, ak, sk);
+            FileMetadata metadata {
+                    .uri = normalized_uri,
+                    .file_name = file_name,
+                    .content_type = content_type,
+                    .size = file_size,
+                    .region = region,
+                    .endpoint = normalized_endpoint,
+                    .ak = ak,
+                    .sk = sk,
+                    .role_arn = {},
+                    .external_id = {},
+            };
+            S::write_file_jsonb(writer, metadata);
             jsonb_col.insert_data(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());
         }
         block.replace_by_position(result, std::move(result_col));
@@ -102,40 +147,26 @@ private:
         return &assert_cast<const ColumnString&>(*holder);
     }
 
-    static void _write_file_jsonb(JsonbWriter& writer, const FileSchemaDescriptor& schema,
-                                  const std::string& uri, const std::string& file_name,
-                                  const std::string& content_type,
-                                  const std::string& endpoint,
-                                  const std::string& ak, const std::string& sk) {
-        using S = FileSchemaDescriptor;
-        auto write_nullable_str = [&](S::Field field, const std::string& s) {
-            S::write_jsonb_key(writer, schema.field_name(field));
-            if (s.empty()) {
-                writer.writeNull();
-            } else {
-                S::write_jsonb_string(writer, s);
-            }
-        };
+    // Ensure endpoint has http:// scheme prefix.
+    static std::string _normalize_endpoint(const std::string& endpoint) {
+        if (endpoint.substr(0, 7) == "http://" || endpoint.substr(0, 8) == "https://") {
+            return endpoint;
+        }
+        return "http://" + endpoint;
+    }
 
-        writer.writeStartObject();
-        S::write_jsonb_key(writer, schema.field_name(S::Field::URI));
-        S::write_jsonb_string(writer, uri);
-        S::write_jsonb_key(writer, schema.field_name(S::Field::FILE_NAME));
-        S::write_jsonb_string(writer, file_name);
-        S::write_jsonb_key(writer, schema.field_name(S::Field::CONTENT_TYPE));
-        S::write_jsonb_string(writer, content_type);
-        S::write_jsonb_key(writer, schema.field_name(S::Field::SIZE));
-        writer.writeInt64(-1);
-        write_nullable_str(S::Field::REGION, "");
-        write_nullable_str(S::Field::ENDPOINT, endpoint);
-        write_nullable_str(S::Field::AK, ak);
-        write_nullable_str(S::Field::SK, sk);
-        // role_arn and external_id not used in to_file()
-        S::write_jsonb_key(writer, schema.field_name(S::Field::ROLE_ARN));
-        writer.writeNull();
-        S::write_jsonb_key(writer, schema.field_name(S::Field::EXTERNAL_ID));
-        writer.writeNull();
-        writer.writeEndObject();
+    // Normalize oss:// etc. to s3:// for S3URI parser and storage.
+    static std::string _normalize_uri_scheme(const std::string& uri) {
+        if (uri.substr(0, 6) == "oss://") {
+            return "s3://" + uri.substr(6);
+        }
+        if (uri.substr(0, 6) == "cos://") {
+            return "s3://" + uri.substr(6);
+        }
+        if (uri.substr(0, 6) == "obs://") {
+            return "s3://" + uri.substr(6);
+        }
+        return uri;
     }
 };
 

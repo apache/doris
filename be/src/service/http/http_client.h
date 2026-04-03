@@ -137,8 +137,6 @@ public:
 
     // Get the value of the header CONTENT-MD5. The output is empty if no such header exists.
     Status get_content_md5(std::string* md5) const;
-    // Get the value of a response header. The output is empty if no such header exists.
-    Status get_header(const std::string& name, std::string* value) const;
 
     long get_http_status() const {
         long code;

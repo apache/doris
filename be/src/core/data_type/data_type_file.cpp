@@ -65,12 +65,4 @@ void DataTypeFile::to_pb_column_meta(PColumnMeta* col_meta) const {
     _physical_type.to_pb_column_meta(col_meta);
 }
 
-std::optional<size_t> DataTypeFile::try_get_subfield(std::string_view name) const {
-    return _schema.try_get_position(name);
-}
-
-const DataTypePtr& DataTypeFile::get_subfield_type(size_t idx) const {
-    return _schema.field(idx).type;
-}
-
 } // namespace doris

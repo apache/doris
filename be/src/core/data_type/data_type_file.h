@@ -17,9 +17,6 @@
 
 #pragma once
 
-#include <optional>
-#include <string_view>
-
 #include "core/column/column_file.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_jsonb.h"
@@ -58,8 +55,6 @@ public:
     }
     void to_pb_column_meta(PColumnMeta* col_meta) const override;
 
-    std::optional<size_t> try_get_subfield(std::string_view name) const;
-    const DataTypePtr& get_subfield_type(size_t idx) const;
     const FileSchemaDescriptor& schema() const { return _schema; }
 
 private:
