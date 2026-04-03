@@ -50,7 +50,7 @@ class Arena;
 template <PrimitiveType T>
 class DataTypeNumberSerDe : public DataTypeSerDe {
     static_assert(is_int_or_bool(T) || is_ip(T) || is_date_type(T) || is_float_or_double(T) ||
-                  T == TYPE_TIME || T == TYPE_TIMEV2 || T == TYPE_TIMESTAMPTZ);
+                  T == TYPE_TIMEV2 || T == TYPE_TIMESTAMPTZ);
 
 public:
     using ColumnType = typename PrimitiveTypeTraits<T>::ColumnType;
@@ -217,7 +217,7 @@ Status DataTypeNumberSerDe<T>::read_column_from_pb(IColumn& column, const PValue
         for (int i = 0; i < arg.float_value_size(); ++i) {
             data[old_column_size + i] = arg.float_value(i);
         }
-    } else if constexpr (T == TYPE_DOUBLE || T == TYPE_TIMEV2 || T == TYPE_TIME) {
+    } else if constexpr (T == TYPE_DOUBLE || T == TYPE_TIMEV2) {
         column.resize(old_column_size + arg.double_value_size());
         auto& data = reinterpret_cast<ColumnType&>(column).get_data();
         for (int i = 0; i < arg.double_value_size(); ++i) {
@@ -301,7 +301,7 @@ Status DataTypeNumberSerDe<T>::write_column_to_pb(const IColumn& column, PValues
         auto* values = result.mutable_float_value();
         values->Reserve(row_count);
         values->Add(data.begin() + start, data.begin() + end);
-    } else if constexpr (T == TYPE_DOUBLE || T == TYPE_TIMEV2 || T == TYPE_TIME) {
+    } else if constexpr (T == TYPE_DOUBLE || T == TYPE_TIMEV2) {
         ptype->set_id(PGenericType::DOUBLE);
         auto* values = result.mutable_double_value();
         values->Reserve(row_count);

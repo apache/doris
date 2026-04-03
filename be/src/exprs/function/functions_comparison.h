@@ -601,7 +601,6 @@ public:
             return execute_num_type<TYPE_FLOAT>(block, result, col_left_ptr, col_right_ptr);
         case TYPE_DOUBLE:
             return execute_num_type<TYPE_DOUBLE>(block, result, col_left_ptr, col_right_ptr);
-        case TYPE_TIME:
         case TYPE_TIMEV2:
             return execute_num_type<TYPE_TIMEV2>(block, result, col_left_ptr, col_right_ptr);
         case TYPE_DECIMALV2:
