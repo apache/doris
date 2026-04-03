@@ -906,9 +906,15 @@ Status StreamLoadAction::_check_wal_space(const std::string& group_commit_mode,
 Status StreamLoadAction::_can_group_commit(HttpRequest* req, std::shared_ptr<StreamLoadContext> ctx,
                                            std::string& group_commit_header,
                                            bool& can_group_commit) {
-    int64_t content_length = req->header(HttpHeaders::CONTENT_LENGTH).empty()
-                                     ? 0
-                                     : std::stoll(req->header(HttpHeaders::CONTENT_LENGTH));
+    int64_t content_length = 0;
+    if (!req->header(HttpHeaders::CONTENT_LENGTH).empty()) {
+        try {
+            content_length = std::stoll(req->header(HttpHeaders::CONTENT_LENGTH));
+        } catch (const std::exception& e) {
+            return Status::InvalidArgument("invalid HTTP header CONTENT_LENGTH={}: {}",
+                                           req->header(HttpHeaders::CONTENT_LENGTH), e.what());
+        }
+    }
     if (content_length < 0) {
         std::stringstream ss;
         ss << "This stream load content length <0 (" << content_length
