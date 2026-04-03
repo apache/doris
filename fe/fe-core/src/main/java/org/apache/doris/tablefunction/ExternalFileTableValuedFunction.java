@@ -165,7 +165,17 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 S3Util.validateAndTestEndpoint(((ObjectStorageProperties) sp).getEndpoint());
             }
             try (org.apache.doris.filesystem.FileSystem fs = FileSystemFactory.getFileSystem(brokerDesc)) {
-                List<FileEntry> entries = fs.listFiles(Location.of(path));
+                List<FileEntry> entries;
+                if (hasGlobPattern(path)) {
+                    try {
+                        entries = fs.globListWithLimit(Location.of(path), "", 0, 0).getFiles();
+                    } catch (UnsupportedOperationException ex) {
+                        // fall back to non-glob listing for filesystems without glob support
+                        entries = fs.listFiles(Location.of(path));
+                    }
+                } else {
+                    entries = fs.listFiles(Location.of(path));
+                }
                 for (FileEntry e : entries) {
                     fileStatuses.add(new TBrokerFileStatus(
                             e.location().uri(), e.isDirectory(), e.length(), !e.isDirectory()));
@@ -181,6 +191,11 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 profile.addExternalTvfInitTime(System.currentTimeMillis() - startAt);
             }
         }
+    }
+
+    private static boolean hasGlobPattern(String path) {
+        return path.indexOf('*') >= 0 || path.indexOf('?') >= 0
+                || path.indexOf('[') >= 0 || path.indexOf('{') >= 0;
     }
 
     // The keys in properties map need to be lowercase.

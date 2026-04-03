@@ -113,7 +113,7 @@ public class FileSystemPluginManager {
             }
         }
         throw new IOException("No FileSystemProvider supports the given properties: "
-                + properties.get("type") + ". Registered providers: " + providerNames());
+                + properties.get("_STORAGE_TYPE_") + ". Registered providers: " + providerNames());
     }
 
     /** Registers a provider at highest priority. For testing overrides. */

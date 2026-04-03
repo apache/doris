@@ -559,6 +559,14 @@ under the License.
                 </exclusion>
             </exclusions>
         </dependency>
+        <!-- Required at runtime by paimon-s3 and iceberg-aws (both direct deps): their S3 I/O
+             paths use software.amazon.awssdk.transfer.s3.model.ObjectTransfer and related
+             classes from this jar.  Without it the FE classloader throws NoClassDefFoundError
+             when loading Paimon/Iceberg catalog metadata. -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3-transfer-manager</artifactId>
+        </dependency>
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>sts</artifactId>

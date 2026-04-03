@@ -34,6 +34,11 @@ public class HdfsFileSystemProvider implements FileSystemProvider {
 
     @Override
     public boolean supports(Map<String, String> properties) {
+        // Authoritative match: StoragePropertiesConverter always sets this key for HDFS storage,
+        // including Hive catalog properties that may not carry explicit HDFS connection keys.
+        if ("HDFS".equals(properties.get("_STORAGE_TYPE_"))) {
+            return true;
+        }
         String uri = properties.get("HDFS_URI");
         if (uri == null) {
             uri = properties.get("fs.defaultFS");

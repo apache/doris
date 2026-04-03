@@ -19,7 +19,9 @@ package org.apache.doris.filesystem.hdfs;
 
 import org.apache.doris.filesystem.DorisInputFile;
 import org.apache.doris.filesystem.DorisOutputFile;
+import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileIterator;
+import org.apache.doris.filesystem.GlobListing;
 import org.apache.doris.filesystem.Location;
 import org.apache.doris.filesystem.spi.HadoopAuthenticator;
 
@@ -30,8 +32,10 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -152,6 +156,29 @@ public class DFSFileSystem implements org.apache.doris.filesystem.FileSystem {
     public DorisOutputFile newOutputFile(Location location) throws IOException {
         Path path = new Path(location.toString());
         return new HdfsOutputFile(path, authenticator, this);
+    }
+
+    @Override
+    public GlobListing globListWithLimit(Location path, String startAfter, long maxBytes,
+            long maxFiles) throws IOException {
+        Path hadoopPath = new Path(path.toString());
+        FileStatus[] statuses = authenticator.doAs(() -> getHadoopFs(hadoopPath).globStatus(hadoopPath));
+        List<FileEntry> files = new ArrayList<>();
+        if (statuses != null) {
+            long totalBytes = 0;
+            for (FileStatus status : statuses) {
+                if ((maxFiles > 0 && files.size() >= maxFiles) || (maxBytes > 0 && totalBytes >= maxBytes)) {
+                    break;
+                }
+                if (!status.isDirectory()) {
+                    files.add(new FileEntry(Location.of(status.getPath().toUri().toString()),
+                            status.getLen(), false, status.getModificationTime(), null));
+                    totalBytes += status.getLen();
+                }
+            }
+        }
+        String maxFile = files.isEmpty() ? "" : files.get(files.size() - 1).location().uri();
+        return new GlobListing(files, "", path.toString(), maxFile);
     }
 
     @Override
