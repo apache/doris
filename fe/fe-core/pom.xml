@@ -115,6 +115,11 @@ under the License.
             <version>${project.version}</version>
         </dependency>
         <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-authentication-role-mapping</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-devtools</artifactId>
             <scope>runtime</scope>
@@ -790,7 +795,8 @@ under the License.
             <artifactId>mockito-inline</artifactId>
             <scope>test</scope>
         </dependency>
-        <!-- fastutil for memory-efficient primitive collections -->
+        <!-- fastutil-core: keep as direct dependency to ensure classpath priority
+             over the ancient unrelocated fastutil classes embedded in hive-catalog-shade -->
         <dependency>
             <groupId>it.unimi.dsi</groupId>
             <artifactId>fastutil-core</artifactId>

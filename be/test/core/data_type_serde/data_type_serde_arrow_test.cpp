@@ -392,6 +392,16 @@ std::shared_ptr<Block> create_test_block(std::vector<PrimitiveType> cols, int ro
             ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type, col_name);
             block->insert(std::move(type_and_name));
         } break;
+        case TYPE_LARGEINT: {
+            auto vec = ColumnInt128::create();
+            auto& data = vec->get_data();
+            for (int i = 0; i < row_num; ++i) {
+                data.push_back(__int128_t(i));
+            }
+            DataTypePtr data_type(std::make_shared<DataTypeInt128>());
+            ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type, col_name);
+            block->insert(std::move(type_and_name));
+        } break;
         default:
             LOG(FATAL) << "error column type";
         }
@@ -430,9 +440,9 @@ void block_converter_test(std::vector<PrimitiveType> cols, int row_num, bool is_
 
 TEST(DataTypeSerDeArrowTest, DataTypeScalaSerDeTest) {
     std::vector<PrimitiveType> cols = {
-            TYPE_INT,        TYPE_INT,       TYPE_STRING, TYPE_DECIMAL128I, TYPE_BOOLEAN,
-            TYPE_DECIMAL32,  TYPE_DECIMAL64, TYPE_IPV4,   TYPE_IPV6,        TYPE_DATETIME,
-            TYPE_DATETIMEV2, TYPE_DATE,      TYPE_DATEV2,
+            TYPE_INT,       TYPE_INT,        TYPE_STRING, TYPE_DECIMAL128I, TYPE_BOOLEAN,
+            TYPE_DECIMAL32, TYPE_DECIMAL64,  TYPE_IPV4,   TYPE_IPV6,        TYPE_LARGEINT,
+            TYPE_DATETIME,  TYPE_DATETIMEV2, TYPE_DATE,   TYPE_DATEV2,
     };
     serialize_and_deserialize_arrow_test(cols, 7, true);
     serialize_and_deserialize_arrow_test(cols, 7, false);
@@ -511,9 +521,9 @@ TEST(DataTypeSerDeArrowTest, BigStringSerDeTest) {
 
 TEST(DataTypeSerDeArrowTest, BlockConverterTest) {
     std::vector<PrimitiveType> cols = {
-            TYPE_INT,        TYPE_INT,       TYPE_STRING, TYPE_DECIMAL128I, TYPE_BOOLEAN,
-            TYPE_DECIMAL32,  TYPE_DECIMAL64, TYPE_IPV4,   TYPE_IPV6,        TYPE_DATETIME,
-            TYPE_DATETIMEV2, TYPE_DATE,      TYPE_DATEV2,
+            TYPE_INT,       TYPE_INT,        TYPE_STRING, TYPE_DECIMAL128I, TYPE_BOOLEAN,
+            TYPE_DECIMAL32, TYPE_DECIMAL64,  TYPE_IPV4,   TYPE_IPV6,        TYPE_LARGEINT,
+            TYPE_DATETIME,  TYPE_DATETIMEV2, TYPE_DATE,   TYPE_DATEV2,
     };
     block_converter_test(cols, 7, true);
     block_converter_test(cols, 7, false);

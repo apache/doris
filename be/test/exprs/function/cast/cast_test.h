@@ -182,9 +182,6 @@ struct FunctionCastTest : public testing::Test {
             return "jsonb";
         case TYPE_VARIANT: /* 32 */
             return "variant";
-        case TYPE_LAMBDA_FUNCTION: /* 33 */
-            __builtin_unreachable();
-            break;
         case TYPE_AGG_STATE: /* 34 */
             __builtin_unreachable();
             break;

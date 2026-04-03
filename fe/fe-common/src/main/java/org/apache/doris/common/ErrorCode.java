@@ -1036,6 +1036,8 @@ public enum ErrorCode {
 
     ERR_MUST_CHANGE_PASSWORD_LOGIN(1862, new byte[]{'H', 'Y', '0', '0', '0'}, "Your password has expired. To log in "
             + "you must change it using a client that supports expired passwords."),
+    ERR_SECURE_TRANSPORT_REQUIRED(3159, new byte[] {'H', 'Y', '0', '0', '0'},
+            "Connections using insecure transport are prohibited."),
     ERR_CREDENTIALS_CONTRADICT_TO_HISTORY(3638, new byte[] {'H', 'Y', '0', '0', '0'},
             "Cannot use these credentials for '%s'@'%s' because they contradict the password history policy"),
     ERR_USER_ACCESS_DENIED_FOR_USER_ACCOUNT_BLOCKED_BY_PASSWORD_LOCK(3955, new byte[] {'H', 'Y', '0', '0', '0'},

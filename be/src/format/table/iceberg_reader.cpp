@@ -107,6 +107,56 @@ private:
 
 const std::string IcebergOrcReader::ICEBERG_ORC_ATTRIBUTE = "iceberg.id";
 
+bool IcebergTableReader::_is_fully_dictionary_encoded(
+        const tparquet::ColumnMetaData& column_metadata) {
+    const auto is_dictionary_encoding = [](tparquet::Encoding::type encoding) {
+        return encoding == tparquet::Encoding::PLAIN_DICTIONARY ||
+               encoding == tparquet::Encoding::RLE_DICTIONARY;
+    };
+    const auto is_data_page = [](tparquet::PageType::type page_type) {
+        return page_type == tparquet::PageType::DATA_PAGE ||
+               page_type == tparquet::PageType::DATA_PAGE_V2;
+    };
+    const auto is_level_encoding = [](tparquet::Encoding::type encoding) {
+        return encoding == tparquet::Encoding::RLE || encoding == tparquet::Encoding::BIT_PACKED;
+    };
+
+    // A column chunk may have a dictionary page but still contain plain-encoded data pages.
+    // Only treat it as dictionary-coded when all data pages are dictionary encoded.
+    if (column_metadata.__isset.encoding_stats) {
+        bool has_data_page_stats = false;
+        for (const tparquet::PageEncodingStats& enc_stat : column_metadata.encoding_stats) {
+            if (is_data_page(enc_stat.page_type) && enc_stat.count > 0) {
+                has_data_page_stats = true;
+                if (!is_dictionary_encoding(enc_stat.encoding)) {
+                    return false;
+                }
+            }
+        }
+        if (has_data_page_stats) {
+            return true;
+        }
+    }
+
+    bool has_dict_encoding = false;
+    bool has_nondict_encoding = false;
+    for (const tparquet::Encoding::type& encoding : column_metadata.encodings) {
+        if (is_dictionary_encoding(encoding)) {
+            has_dict_encoding = true;
+        }
+
+        if (!is_dictionary_encoding(encoding) && !is_level_encoding(encoding)) {
+            has_nondict_encoding = true;
+            break;
+        }
+    }
+    if (!has_dict_encoding || has_nondict_encoding) {
+        return false;
+    }
+
+    return true;
+}
+
 IcebergTableReader::IcebergTableReader(std::unique_ptr<GenericReader> file_format_reader,
                                        RuntimeProfile* profile, RuntimeState* state,
                                        const TFileScanRangeParams& params,

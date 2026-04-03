@@ -17,8 +17,21 @@ true	1
 -- !select --
 true
 
--- !select --
-true	1
+-- !sql --
+NOT_EXISTS
 
--- !select --
-true
+-- !sql --
+EXISTS
+
+-- !sql --
+NOT_EXISTS
+
+-- !sql --
+0
+
+-- !sql --
+EXISTS
+
+-- !sql --
+0
+

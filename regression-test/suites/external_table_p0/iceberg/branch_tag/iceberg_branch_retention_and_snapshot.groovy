@@ -55,7 +55,7 @@ suite("iceberg_branch_retention_and_snapshot", "p0,external") {
     sql """ insert into ${table_name_expire} values (4, 'd') """
     sql """ insert into ${table_name_expire} values (5, 'e') """
 
-    List<List<Object>> snapshots_expire = sql """ select snapshot_id from iceberg_meta("table" = "${catalog_name}.test_db_retention.${table_name_expire}", "query_type" = "snapshots") order by committed_at; """
+    List<List<Object>> snapshots_expire = sql """ select snapshot_id from ${catalog_name}.test_db_retention.${table_name_expire}\$snapshots order by committed_at; """
     String s_expire_0 = snapshots_expire.get(0)[0]
     String s_expire_1 = snapshots_expire.get(1)[0]
     String s_expire_2 = snapshots_expire.get(2)[0]
@@ -73,7 +73,7 @@ suite("iceberg_branch_retention_and_snapshot", "p0,external") {
     sql """ insert into ${table_name_expire}@branch(b_expire_test) values (10, 'j') """
 
     // Get the current snapshot count before expire
-    def snapshot_count_before_expire = sql """ select count(*) from iceberg_meta("table" = "${catalog_name}.test_db_retention.${table_name_expire}", "query_type" = "snapshots") """
+    def snapshot_count_before_expire = sql """ select count(*) from ${catalog_name}.test_db_retention.${table_name_expire}\$snapshots """
     logger.info("Snapshot count before expire: ${snapshot_count_before_expire[0][0]}")
 
     // Get branch ref snapshot
@@ -107,7 +107,7 @@ suite("iceberg_branch_retention_and_snapshot", "p0,external") {
     sql """ create table ${table_name_retain_count} (id int, name string) """
 
     sql """ insert into ${table_name_retain_count} values (1, 'a') """
-    List<List<Object>> snapshots_retain = sql """ select snapshot_id from iceberg_meta("table" = "${catalog_name}.test_db_retention.${table_name_retain_count}", "query_type" = "snapshots") order by committed_at; """
+    List<List<Object>> snapshots_retain = sql """ select snapshot_id from ${catalog_name}.test_db_retention.${table_name_retain_count}\$snapshots order by committed_at; """
     def s_retain_0 = snapshots_retain[0][0].toString()
 
     // Create branch with snapshot retention count of 3
@@ -124,7 +124,7 @@ suite("iceberg_branch_retention_and_snapshot", "p0,external") {
     def branch_snapshot_id = sql """ select snapshot_id from ${table_name_retain_count}\$refs where name = 'b_retain_count' """
 
     // Count snapshots before expire
-    def snapshot_count_retain_before = sql """ select count(*) from iceberg_meta("table" = "${catalog_name}.test_db_retention.${table_name_retain_count}", "query_type" = "snapshots") """
+    def snapshot_count_retain_before = sql """ select count(*) from ${catalog_name}.test_db_retention.${table_name_retain_count}\$snapshots """
 
     // Call expire_snapshots - older snapshots beyond retention count may be expired, but branch snapshot should be protected
     sql """
@@ -150,11 +150,11 @@ suite("iceberg_branch_retention_and_snapshot", "p0,external") {
     sql """ insert into ${table_name_unref} values (2, 'old2') """
     sql """ insert into ${table_name_unref} values (3, 'new') """
 
-    List<List<Object>> snapshots_unref = sql """ select snapshot_id, committed_at from iceberg_meta("table" = "${catalog_name}.test_db_retention.${table_name_unref}", "query_type" = "snapshots") order by committed_at; """
+    List<List<Object>> snapshots_unref = sql """ select snapshot_id, committed_at from ${catalog_name}.test_db_retention.${table_name_unref}\$snapshots order by committed_at; """
     def old_snapshot_id = snapshots_unref[0][0]
 
     // Create a tag pointing to the newest snapshot (not the old ones)
-    List<List<Object>> latest_snapshot = sql """ select snapshot_id from iceberg_meta("table" = "${catalog_name}.test_db_retention.${table_name_unref}", "query_type" = "snapshots") order by committed_at desc limit 1; """
+    List<List<Object>> latest_snapshot = sql """ select snapshot_id from ${catalog_name}.test_db_retention.${table_name_unref}\$snapshots order by committed_at desc limit 1; """
     def latest_snap_id = latest_snapshot[0][0]
     sql """ alter table ${table_name_unref} create tag t_latest AS OF VERSION ${latest_snap_id} """
 
@@ -162,7 +162,7 @@ suite("iceberg_branch_retention_and_snapshot", "p0,external") {
     qt_unref_tag_before_expire """ select * from ${table_name_unref}@tag(t_latest) order by id """ // Should have 1, old2, 3 rows
 
     // Count snapshots before expire
-    def snapshot_count_unref_before = sql """ select count(*) from iceberg_meta("table" = "${catalog_name}.test_db_retention.${table_name_unref}", "query_type" = "snapshots") """
+    def snapshot_count_unref_before = sql """ select count(*) from ${catalog_name}.test_db_retention.${table_name_unref}\$snapshots """
     logger.info("Snapshot count before expire: ${snapshot_count_unref_before[0][0]}")
 
     // Call expire_snapshots - old unreferenced snapshots should be expired
@@ -172,7 +172,7 @@ suite("iceberg_branch_retention_and_snapshot", "p0,external") {
     """
 
     // Count snapshots after expire
-    def snapshot_count_unref_after = sql """ select count(*) from iceberg_meta("table" = "${catalog_name}.test_db_retention.${table_name_unref}", "query_type" = "snapshots") """
+    def snapshot_count_unref_after = sql """ select count(*) from ${catalog_name}.test_db_retention.${table_name_unref}\$snapshots """
 
     // Refresh catalog to ensure we see the latest state after expire_snapshots
     sql """refresh catalog ${catalog_name}"""
@@ -181,7 +181,7 @@ suite("iceberg_branch_retention_and_snapshot", "p0,external") {
     qt_unref_tag_accessible """ select * from ${table_name_unref}@tag(t_latest) order by id """ // Should have data
 
     // Verify old snapshot is no longer accessible if it was expired
-    def old_snapshot_exists = sql """ select count(*) from iceberg_meta("table" = "${catalog_name}.test_db_retention.${table_name_unref}", "query_type" = "snapshots") where snapshot_id = '${old_snapshot_id}' """
+    def old_snapshot_exists = sql """ select count(*) from ${catalog_name}.test_db_retention.${table_name_unref}\$snapshots where snapshot_id = '${old_snapshot_id}' """
     logger.info("Old snapshot exists after expire: ${old_snapshot_exists[0][0]}")
 
     // The tag-protected snapshot should still be in refs

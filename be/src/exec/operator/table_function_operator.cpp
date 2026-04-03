@@ -17,11 +17,17 @@
 
 #include "exec/operator/table_function_operator.h"
 
+#include <algorithm>
+#include <cstring>
 #include <limits>
 #include <memory>
+#include <numeric>
 
+#include "common/cast_set.h"
+#include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/block/column_numbers.h"
+#include "core/column/column_nullable.h"
 #include "core/custom_allocator.h"
 #include "exec/operator/operator.h"
 #include "exprs/table_function/table_function_factory.h"
@@ -76,6 +82,7 @@ Status TableFunctionLocalState::open(RuntimeState* state) {
         RETURN_IF_ERROR(fn->open());
     }
     _cur_child_offset = -1;
+    _reset_block_fast_path_state();
     return Status::OK();
 }
 
@@ -160,6 +167,209 @@ bool TableFunctionLocalState::_is_inner_and_empty() {
     return false;
 }
 
+bool TableFunctionLocalState::_can_use_block_fast_path() const {
+    auto& p = _parent->cast<TableFunctionOperatorX>();
+    // Fast path is only valid when:
+    // - only one table function exists
+    // - there is an active child row to expand
+    // - the child block is non-empty
+    // - the table function can expose nested/offsets via prepare_block_fast_path()
+    return p._fn_num == 1 && _cur_child_offset != -1 && _child_block->rows() > 0 &&
+           _fns[0]->support_block_fast_path();
+}
+
+void TableFunctionLocalState::_reset_block_fast_path_state() {
+    _block_fast_path_prepared = false;
+    _block_fast_path_enabled = false;
+    _block_fast_path_ctx = {};
+    _block_fast_path_row = 0;
+    _block_fast_path_in_row_offset = 0;
+}
+
+Status TableFunctionLocalState::_prepare_block_fast_path(RuntimeState* state) {
+    if (_block_fast_path_prepared) {
+        return Status::OK();
+    }
+
+    RETURN_IF_ERROR(
+            _fns[0]->prepare_block_fast_path(_child_block.get(), state, &_block_fast_path_ctx));
+    if (_block_fast_path_ctx.offsets_ptr == nullptr ||
+        _block_fast_path_ctx.nested_col.get() == nullptr) {
+        return Status::InternalError("block fast path context is invalid");
+    }
+
+    const auto child_rows = cast_set<int64_t>(_block_fast_path_ctx.offsets_ptr->size());
+    if (child_rows != cast_set<int64_t>(_child_block->rows())) {
+        return Status::InternalError("block fast path offsets size mismatch");
+    }
+
+    _block_fast_path_row = _cur_child_offset;
+    _block_fast_path_in_row_offset = 0;
+    _block_fast_path_enabled = _has_contiguous_block_fast_path_suffix();
+    _block_fast_path_prepared = true;
+    return Status::OK();
+}
+
+bool TableFunctionLocalState::_has_contiguous_block_fast_path_suffix() const {
+    const auto& offsets = *_block_fast_path_ctx.offsets_ptr;
+    const auto child_rows = cast_set<int64_t>(offsets.size());
+    int64_t child_row = _block_fast_path_row;
+    uint64_t in_row_offset = _block_fast_path_in_row_offset;
+    uint64_t expected_next_nested_idx = 0;
+    bool found_nested_range = false;
+
+    while (child_row < child_rows) {
+        if (_block_fast_path_ctx.array_nullmap_data &&
+            _block_fast_path_ctx.array_nullmap_data[child_row]) {
+            child_row++;
+            in_row_offset = 0;
+            continue;
+        }
+
+        const uint64_t prev_off = child_row == 0 ? 0 : offsets[child_row - 1];
+        const uint64_t cur_off = offsets[child_row];
+        const uint64_t nested_len = cur_off - prev_off;
+        if (in_row_offset >= nested_len) {
+            child_row++;
+            in_row_offset = 0;
+            continue;
+        }
+
+        const uint64_t nested_start = prev_off + in_row_offset;
+        if (!found_nested_range) {
+            found_nested_range = true;
+        } else if (nested_start != expected_next_nested_idx) {
+            return false;
+        }
+        expected_next_nested_idx = cur_off;
+        child_row++;
+        in_row_offset = 0;
+    }
+
+    return true;
+}
+
+Status TableFunctionLocalState::_get_expanded_block_block_fast_path(
+        RuntimeState* state, std::vector<MutableColumnPtr>& columns) {
+    auto& p = _parent->cast<TableFunctionOperatorX>();
+    DCHECK(_block_fast_path_prepared);
+    DCHECK(_block_fast_path_enabled);
+
+    const auto remaining_capacity =
+            state->batch_size() - cast_set<int>(columns[p._child_slots.size()]->size());
+    if (remaining_capacity <= 0) {
+        return Status::OK();
+    }
+
+    const auto& offsets = *_block_fast_path_ctx.offsets_ptr;
+    const auto child_rows = cast_set<int64_t>(offsets.size());
+
+    std::vector<uint32_t> row_ids;
+    row_ids.reserve(remaining_capacity);
+    uint64_t first_nested_idx = 0;
+    uint64_t expected_next_nested_idx = 0;
+    bool found_nested_range = false;
+
+    int64_t child_row = _block_fast_path_row;
+    uint64_t in_row_offset = _block_fast_path_in_row_offset;
+    int produced_rows = 0;
+
+    while (produced_rows < remaining_capacity && child_row < child_rows) {
+        if (_block_fast_path_ctx.array_nullmap_data &&
+            _block_fast_path_ctx.array_nullmap_data[child_row]) {
+            // NULL array row: skip it here. Slow path will handle output semantics if needed.
+            child_row++;
+            in_row_offset = 0;
+            continue;
+        }
+
+        const uint64_t prev_off = child_row == 0 ? 0 : offsets[child_row - 1];
+        const uint64_t cur_off = offsets[child_row];
+        const uint64_t nested_len = cur_off - prev_off;
+
+        if (in_row_offset >= nested_len) {
+            child_row++;
+            in_row_offset = 0;
+            continue;
+        }
+
+        const uint64_t remaining_in_row = nested_len - in_row_offset;
+        const int take_count =
+                std::min<int>(remaining_capacity - produced_rows, cast_set<int>(remaining_in_row));
+        const uint64_t nested_start = prev_off + in_row_offset;
+
+        DCHECK_LE(nested_start + take_count, cur_off);
+        DCHECK_LE(nested_start + take_count, _block_fast_path_ctx.nested_col->size());
+
+        if (!found_nested_range) {
+            found_nested_range = true;
+            first_nested_idx = nested_start;
+            expected_next_nested_idx = nested_start;
+        }
+        DCHECK_EQ(nested_start, expected_next_nested_idx);
+
+        // Map each produced output row back to its source child row for copying non-table-function
+        // columns via insert_indices_from().
+        for (int j = 0; j < take_count; ++j) {
+            row_ids.push_back(cast_set<uint32_t>(child_row));
+        }
+
+        produced_rows += take_count;
+        expected_next_nested_idx += take_count;
+        in_row_offset += take_count;
+        if (in_row_offset >= nested_len) {
+            child_row++;
+            in_row_offset = 0;
+        }
+    }
+
+    if (produced_rows > 0) {
+        for (auto index : p._output_slot_indexs) {
+            auto src_column = _child_block->get_by_position(index).column;
+            columns[index]->insert_indices_from(*src_column, row_ids.data(),
+                                                row_ids.data() + produced_rows);
+        }
+
+        auto& out_col = columns[p._child_slots.size()];
+        if (out_col->is_nullable()) {
+            auto* out_nullable = assert_cast<ColumnNullable*>(out_col.get());
+            out_nullable->get_nested_column_ptr()->insert_range_from(
+                    *_block_fast_path_ctx.nested_col, first_nested_idx, produced_rows);
+            auto* nullmap_column =
+                    assert_cast<ColumnUInt8*>(out_nullable->get_null_map_column_ptr().get());
+            auto& nullmap_data = nullmap_column->get_data();
+            const size_t old_size = nullmap_data.size();
+            nullmap_data.resize(old_size + produced_rows);
+            if (_block_fast_path_ctx.nested_nullmap_data != nullptr) {
+                memcpy(nullmap_data.data() + old_size,
+                       _block_fast_path_ctx.nested_nullmap_data + first_nested_idx,
+                       produced_rows * sizeof(UInt8));
+            } else {
+                memset(nullmap_data.data() + old_size, 0, produced_rows * sizeof(UInt8));
+            }
+        } else {
+            out_col->insert_range_from(*_block_fast_path_ctx.nested_col, first_nested_idx,
+                                       produced_rows);
+        }
+    }
+
+    _block_fast_path_row = child_row;
+    _block_fast_path_in_row_offset = in_row_offset;
+    _cur_child_offset = child_row >= child_rows ? -1 : child_row;
+
+    if (child_row >= child_rows) {
+        for (TableFunction* fn : _fns) {
+            fn->process_close();
+        }
+        _child_block->clear_column_data(_parent->cast<TableFunctionOperatorX>()
+                                                ._child->row_desc()
+                                                .num_materialized_slots());
+        _reset_block_fast_path_state();
+    }
+
+    return Status::OK();
+}
+
 Status TableFunctionLocalState::get_expanded_block(RuntimeState* state, Block* output_block,
                                                    bool* eos) {
     SCOPED_TIMER(_process_rows_timer);
@@ -177,15 +387,29 @@ Status TableFunctionLocalState::get_expanded_block(RuntimeState* state, Block* o
             _fns[i]->set_nullable();
         }
     }
-    while (columns[p._child_slots.size()]->size() < state->batch_size()) {
+
+    bool use_slow_path = true;
+    if (_can_use_block_fast_path()) {
         RETURN_IF_CANCELLED(state);
-
-        if (_child_block->rows() == 0) {
-            break;
+        RETURN_IF_ERROR(_prepare_block_fast_path(state));
+        if (_block_fast_path_enabled) {
+            // Only use fast path when the remaining nested suffix stays contiguous for the rest of
+            // the child block. This keeps fast-path progress entirely inside local state and avoids
+            // re-synchronizing the table function cursor when a later batch would otherwise fall
+            // back to the row-wise path.
+            RETURN_IF_ERROR(_get_expanded_block_block_fast_path(state, columns));
+            use_slow_path = false;
         }
+    }
 
+    if (use_slow_path) {
         bool skip_child_row = false;
         while (columns[p._child_slots.size()]->size() < state->batch_size()) {
+            RETURN_IF_CANCELLED(state);
+
+            if (_child_block->rows() == 0) {
+                break;
+            }
             int idx = _find_last_fn_eos_idx();
             if (idx == 0 || skip_child_row) {
                 _copy_output_slots(columns, p);
@@ -463,6 +687,7 @@ void TableFunctionLocalState::process_next_child_row() {
                                                     .num_materialized_slots());
         }
         _cur_child_offset = -1;
+        _reset_block_fast_path_state();
         return;
     }
 
