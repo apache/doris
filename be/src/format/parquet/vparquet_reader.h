@@ -30,11 +30,11 @@
 #include <vector>
 
 #include "common/status.h"
-#include "format/table/table_format_reader.h"
 #include "format/parquet/parquet_common.h"
 #include "format/parquet/parquet_predicate.h"
 #include "format/parquet/vparquet_column_reader.h"
 #include "format/parquet/vparquet_group_reader.h"
+#include "format/table/table_format_reader.h"
 #include "format/table/table_schema_change_helper.h"
 #include "io/file_factory.h"
 #include "io/fs/file_meta_cache.h"

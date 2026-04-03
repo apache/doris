@@ -90,7 +90,42 @@ public:
         }
     };
 
-    class ScalarNode : public Node {};
+    class ConstNode : public Node {
+        // If you can be sure that there has been no schema change between the table and the file,
+        // you can use constNode (of course, you need to pay attention to case sensitivity).
+    public:
+        std::shared_ptr<Node> get_children_node(std::string table_column_name) const override {
+            return get_instance();
+        };
+
+        std::shared_ptr<Node> get_children_node_by_file_column_name(
+                std::string file_column_name) const override {
+            return get_instance();
+        };
+
+        std::string children_file_column_name(std::string table_column_name) const override {
+            return table_column_name;
+        }
+
+        bool children_column_exists(std::string table_column_name) const override { return true; }
+
+        std::shared_ptr<Node> get_element_node() const override { return get_instance(); }
+
+        std::shared_ptr<Node> get_key_node() const override { return get_instance(); }
+
+        std::shared_ptr<Node> get_value_node() const override { return get_instance(); }
+
+        static const std::shared_ptr<ConstNode>& get_instance() {
+            static const std::shared_ptr<ConstNode> instance = std::make_shared<ConstNode>();
+            return instance;
+        }
+    };
+
+    // ScalarNode inherits from ConstNode so that unexpected calls to
+    // get_element_node / get_key_node / get_value_node (e.g. on schema
+    // mismatch where the file has a complex type but the table has a
+    // scalar) are handled safely instead of crashing.
+    class ScalarNode : public ConstNode {};
 
     class StructNode : public Node {
         struct StructChild {
@@ -166,37 +201,6 @@ public:
         std::shared_ptr<Node> get_key_node() const override { return _key_node; }
 
         std::shared_ptr<Node> get_value_node() const override { return _value_node; }
-    };
-
-    class ConstNode : public Node {
-        // If you can be sure that there has been no schema change between the table and the file,
-        // you can use constNode (of course, you need to pay attention to case sensitivity).
-    public:
-        std::shared_ptr<Node> get_children_node(std::string table_column_name) const override {
-            return get_instance();
-        };
-
-        std::shared_ptr<Node> get_children_node_by_file_column_name(
-                std::string file_column_name) const override {
-            return get_instance();
-        };
-
-        std::string children_file_column_name(std::string table_column_name) const override {
-            return table_column_name;
-        }
-
-        bool children_column_exists(std::string table_column_name) const override { return true; }
-
-        std::shared_ptr<Node> get_element_node() const override { return get_instance(); }
-
-        std::shared_ptr<Node> get_key_node() const override { return get_instance(); }
-
-        std::shared_ptr<Node> get_value_node() const override { return get_instance(); }
-
-        static const std::shared_ptr<ConstNode>& get_instance() {
-            static const std::shared_ptr<ConstNode> instance = std::make_shared<ConstNode>();
-            return instance;
-        }
     };
 
     static std::string debug(const std::shared_ptr<Node>& root, size_t level = 0);

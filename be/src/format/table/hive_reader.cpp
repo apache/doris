@@ -244,8 +244,8 @@ Status HiveParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
                 RETURN_IF_ERROR(BuildTableInfoUtil::by_parquet_name(
                         slot_map[table_column_name]->type(), parquet_fields_schema[file_index],
                         field_node));
-                ctx->table_info_node->add_children(table_column_name,
-                                              parquet_fields_schema[file_index].name, field_node);
+                ctx->table_info_node->add_children(
+                        table_column_name, parquet_fields_schema[file_index].name, field_node);
             }
             slot_map.erase(table_column_name);
         }
@@ -259,7 +259,8 @@ Status HiveParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
     if (get_state()->query_options().hive_parquet_use_column_names) {
         column_id_result = _create_column_ids(field_desc, ctx->tuple_descriptor);
     } else {
-        column_id_result = _create_column_ids_by_top_level_col_index(field_desc, ctx->tuple_descriptor);
+        column_id_result =
+                _create_column_ids_by_top_level_col_index(field_desc, ctx->tuple_descriptor);
     }
     ctx->column_ids = std::move(column_id_result.column_ids);
     ctx->filter_column_ids = std::move(column_id_result.filter_column_ids);

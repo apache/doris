@@ -193,8 +193,8 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
 
     // Set up partition value extraction if any partition columns need filling from path
     if (has_partition_from_path) {
-        RETURN_IF_ERROR(
-                _extract_partition_values(*ctx->range, ctx->tuple_descriptor, _fill_partition_values));
+        RETURN_IF_ERROR(_extract_partition_values(*ctx->range, ctx->tuple_descriptor,
+                                                  _fill_partition_values));
     }
 
     _all_required_col_names = ctx->column_names;
@@ -274,7 +274,7 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
         // Register in table_info_node: table_col_name → file_col_name
         ctx->column_names.push_back(table_col_name);
         ctx->table_info_node->add_children(table_col_name, file_col_name,
-                                      TableSchemaChangeHelper::ConstNode::get_instance());
+                                           TableSchemaChangeHelper::ConstNode::get_instance());
     }
     _expand_col_names = std::move(new_expand_col_names);
 
@@ -463,8 +463,8 @@ Status IcebergOrcReader::on_before_init_reader(ReaderInitContext* ctx) {
     }
 
     if (has_partition_from_path) {
-        RETURN_IF_ERROR(
-                _extract_partition_values(*ctx->range, ctx->tuple_descriptor, _fill_partition_values));
+        RETURN_IF_ERROR(_extract_partition_values(*ctx->range, ctx->tuple_descriptor,
+                                                  _fill_partition_values));
     }
 
     _all_required_col_names = ctx->column_names;
@@ -535,7 +535,7 @@ Status IcebergOrcReader::on_before_init_reader(ReaderInitContext* ctx) {
 
         ctx->column_names.push_back(table_col_name);
         ctx->table_info_node->add_children(table_col_name, file_col_name,
-                                      TableSchemaChangeHelper::ConstNode::get_instance());
+                                           TableSchemaChangeHelper::ConstNode::get_instance());
     }
     _expand_col_names = std::move(new_expand_col_names);
 
