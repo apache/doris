@@ -342,7 +342,7 @@ public class CloudRestoreJob extends RestoreJob {
                 // replicas
                 long newReplicaId = Env.getCurrentEnv().getNextId();
                 Replica replica = new CloudReplica(newReplicaId, null, Replica.ReplicaState.NORMAL,
-                        visibleVersion, schemaHash, dbId, localTbl.getId(), partitionId, remoteIdx.getId(), i);
+                        visibleVersion, schemaHash, dbId, remoteIdx.getId(), i);
                 newTablet.addReplica(replica, true /* is restore */);
             }
         }

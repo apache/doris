@@ -72,6 +72,9 @@ public class CloudTabletInvertedIndex extends TabletInvertedIndex {
         try {
             Preconditions.checkState(tabletMetaMap.containsKey(tabletId),
                     "tablet " + tabletId + " not exists, replica " + replica.getId());
+            if (replica instanceof CloudReplica) {
+                ((CloudReplica) replica).setTabletId(tabletId);
+            }
             replicaMetaMap.put(tabletId, replica);
             if (LOG.isDebugEnabled()) {
                 LOG.debug("add replica {} of tablet {}", replica.getId(), tabletId);

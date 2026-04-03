@@ -21,6 +21,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
@@ -61,10 +62,7 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
     private ConcurrentHashMap<String, Long> primaryClusterToBackend = new ConcurrentHashMap<>();
     @SerializedName(value = "dbId")
     private long dbId = -1;
-    @SerializedName(value = "tableId")
-    private long tableId = -1;
-    @SerializedName(value = "partitionId")
-    private long partitionId = -1;
+    private transient long tabletId = -1;
     @SerializedName(value = "indexId")
     private long indexId = -1;
     @SerializedName(value = "idx")
@@ -104,23 +102,38 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
 
     public CloudReplica(ReplicaContext context) {
         this(context.replicaId, context.backendId, context.state, context.version,
-                context.schemaHash, context.dbId, context.tableId, context.partitionId,
-                context.indexId,
+                context.schemaHash, context.dbId, context.indexId,
                 context.originReplica != null ? ((CloudReplica) context.originReplica).getIdx() : -1);
     }
 
     public CloudReplica(long replicaId, Long backendId, ReplicaState state, long version, int schemaHash,
-            long dbId, long tableId, long partitionId, long indexId, long idx) {
+            long dbId, long indexId, long idx) {
         super(replicaId, -1, state, version, schemaHash);
         this.dbId = dbId;
-        this.tableId = tableId;
-        this.partitionId = partitionId;
         this.indexId = indexId;
         this.idx = idx;
     }
 
+    public void setTabletId(long tabletId) {
+        this.tabletId = tabletId;
+    }
+
+    private TabletMeta getTabletMeta() {
+        return Env.getCurrentInvertedIndex().getTabletMeta(tabletId);
+    }
+
+    private long getTableIdFromMeta() {
+        TabletMeta meta = getTabletMeta();
+        return meta != null ? meta.getTableId() : -1;
+    }
+
+    private long getPartitionIdFromMeta() {
+        TabletMeta meta = getTabletMeta();
+        return meta != null ? meta.getPartitionId() : -1;
+    }
+
     private boolean isColocated() {
-        return Env.getCurrentColocateIndex().isColocateTableNoLock(tableId);
+        return Env.getCurrentColocateIndex().isColocateTableNoLock(getTableIdFromMeta());
     }
 
     public long getColocatedBeId(String clusterId) throws ComputeGroupException {
@@ -156,7 +169,7 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
                 ComputeGroupException.FailedTypeEnum.COMPUTE_GROUPS_NO_ALIVE_BE);
         }
 
-        GroupId groupId = Env.getCurrentColocateIndex().getGroupNoLock(tableId);
+        GroupId groupId = Env.getCurrentColocateIndex().getGroupNoLock(getTableIdFromMeta());
         HashCode hashCode = Hashing.murmur3_128().hashLong(groupId.grpId);
         if (availableBes.size() != bes.size()) {
             // some be is dead recently, still hash tablets on all backends.
@@ -468,13 +481,14 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
         if (idx == -1) {
             index = getId() % availableBes.size();
         } else {
-            hashCode = Hashing.murmur3_128().hashLong(partitionId);
+            long partId = getPartitionIdFromMeta();
+            hashCode = Hashing.murmur3_128().hashLong(partId);
             index = getIndexByBeNum(hashCode.asLong() + idx, availableBes.size());
         }
         long pickedBeId = availableBes.get((int) index).getId();
         LOG.info("picked clusterName {} beId {}, replicaId {}, partitionId {}, beNum {}, "
                 + "replicaIdx {}, picked Index {}, hashVal {}",
-                clusterName, pickedBeId, getId(), partitionId, availableBes.size(), idx, index,
+                clusterName, pickedBeId, getId(), getPartitionIdFromMeta(), availableBes.size(), idx, index,
                 hashCode == null ? -1 : hashCode.asLong());
 
         return pickedBeId;
@@ -549,13 +563,14 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
             if (idx == -1) {
                 index = getId() % availableBes.size();
             } else {
-                hashCode = Hashing.murmur3_128().hashLong(partitionId + i);
+                long partId = getPartitionIdFromMeta();
+                hashCode = Hashing.murmur3_128().hashLong(partId + i);
                 index = getIndexByBeNum(hashCode.asLong() + idx, availableBes.size());
             }
             long pickedBeId = availableBes.get((int) index).getId();
             availableBes.remove((int) index);
             LOG.info("picked beId {}, replicaId {}, partId {}, beNum {}, replicaIdx {}, picked Index {}, hashVal {}",
-                    pickedBeId, getId(), partitionId, availableBes.size(), idx, index,
+                    pickedBeId, getId(), getPartitionIdFromMeta(), availableBes.size(), idx, index,
                     hashCode == null ? -1 : hashCode.asLong());
             // save to memClusterToBackends map
             bes.add(pickedBeId);
@@ -579,11 +594,11 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
     }
 
     public long getTableId() {
-        return tableId;
+        return getTableIdFromMeta();
     }
 
     public long getPartitionId() {
-        return partitionId;
+        return getPartitionIdFromMeta();
     }
 
     public long getIndexId() {
