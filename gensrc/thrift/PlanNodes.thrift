@@ -1090,8 +1090,9 @@ struct TAggregationNode {
 struct TBucketedAggregationNode {
   1: optional list<Exprs.TExpr> grouping_exprs
   2: optional list<Exprs.TExpr> aggregate_functions
-  3: optional Types.TTupleId intermediate_tuple_id
-  4: optional Types.TTupleId output_tuple_id
+  // Single tuple ID — bucketed agg is one-phase (raw input → final result),
+  // so intermediate and output tuples are always identical.
+  3: optional Types.TTupleId tuple_id
   5: optional bool need_finalize
 }
 

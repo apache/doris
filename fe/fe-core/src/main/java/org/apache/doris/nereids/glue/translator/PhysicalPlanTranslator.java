@@ -1324,7 +1324,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<SlotReference> groupSlots = collectGroupBySlots(groupByExpressions, outputExpressions);
         ArrayList<Expr> execGroupingExpressions = translateGroupByExprs(groupByExpressions, context);
 
-        // 2. collect agg expressions
+        // 2. collect agg expressions and generate agg function to slot reference map
+        // Mirror SessionVarGuardExpr handling from visitPhysicalHashAggregate: if an aggregate
+        // output is wrapped by SessionVarGuardExpr, translate the guard (which preserves
+        // session-sensitive type behavior) rather than the inner AggregateExpression directly.
         List<Slot> aggFunctionOutput = Lists.newArrayList();
         ArrayList<FunctionCallExpr> execAggregateFunctions = Lists.newArrayListWithCapacity(outputExpressions.size());
         Set<AggregateExpression> processedAggregateExpressions = Sets.newIdentityHashSet();
@@ -1333,6 +1336,18 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 aggFunctionOutput.add(o.toSlot());
 
                 o.foreach(c -> {
+                    if (c instanceof SessionVarGuardExpr) {
+                        SessionVarGuardExpr guardExpr = (SessionVarGuardExpr) c;
+                        if (guardExpr.child() instanceof AggregateExpression) {
+                            AggregateExpression aggregateExpression = (AggregateExpression) guardExpr.child();
+                            if (processedAggregateExpressions.add(aggregateExpression)) {
+                                execAggregateFunctions.add(
+                                        (FunctionCallExpr) ExpressionTranslator.translate(guardExpr, context)
+                                );
+                            }
+                        }
+                        return true;
+                    }
                     if (c instanceof AggregateExpression) {
                         AggregateExpression aggregateExpression = (AggregateExpression) c;
                         if (processedAggregateExpressions.add(aggregateExpression)) {

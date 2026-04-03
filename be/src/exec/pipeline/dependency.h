@@ -529,10 +529,11 @@ public:
     std::atomic<uint64_t> state_generation {0};
 
     /// Initialize per-instance data and optionally run a metadata init callback.
-    /// The callback runs exactly once (under std::call_once) and should populate
-    /// shared metadata like probe_expr_ctxs, aggregate_evaluators, etc.
+    /// The callback runs exactly once (under std::call_once), must return Status,
+    /// and should populate shared metadata like probe_expr_ctxs, aggregate_evaluators, etc.
+    /// All threads observe the same init status via _init_status.
     template <typename Func>
-    void init_instances(int num_instances, Func&& metadata_init) {
+    Status init_instances(int num_instances, Func&& metadata_init) {
         std::call_once(_init_once, [&]() {
             num_sink_instances = num_instances;
             per_instance_data.resize(num_instances);
@@ -543,12 +544,14 @@ public:
             for (auto& bs : bucket_states) {
                 bs.merged_instances.resize(num_instances, false);
             }
-            std::forward<Func>(metadata_init)();
+            _init_status = std::forward<Func>(metadata_init)();
         });
+        return _init_status;
     }
 
 private:
     std::once_flag _init_once;
+    Status _init_status;
 
     void _close() {
         for (auto& inst : per_instance_data) {

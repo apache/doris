@@ -23,14 +23,15 @@ import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
@@ -53,6 +54,8 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
+import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.ImmutableList;
 
@@ -204,6 +207,16 @@ public class SplitAggWithoutDistinct extends OneImplementationRuleFactory {
         if (beNumber != 1) {
             return ImmutableList.of();
         }
+        // Skip during smooth upgrade: old BE processes do not recognize the
+        // BUCKETED_AGGREGATION_NODE plan node type, so sending such plans would
+        // cause execution failures. Check all alive BEs for the upgrade flag.
+        SystemInfoService clusterInfo = ctx.getEnv().getClusterInfo();
+        for (Long beId : clusterInfo.getAllBackendByCurrentCluster(true)) {
+            Backend be = clusterInfo.getBackend(beId);
+            if (be != null && be.isSmoothUpgradeSrc()) {
+                return ImmutableList.of();
+            }
+        }
         // Without-key aggregation not supported in initial version
         if (aggregate.getGroupByExpressions().isEmpty()) {
             return ImmutableList.of();
@@ -228,11 +241,10 @@ public class SplitAggWithoutDistinct extends OneImplementationRuleFactory {
                 return ImmutableList.of();
             }
         }
-        // Skip aggregates whose child group contains a LogicalAggregate.
-        // This detects the top aggregate in a DISTINCT decomposition (e.g.,
-        // COUNT(DISTINCT a) GROUP BY b is rewritten to COUNT(a) GROUP BY b
-        // on top of GROUP BY a,b dedup). Bucketed agg does not support
-        // DISTINCT aggregation in the initial version.
+        // Skip aggregates whose child group contains a LogicalAggregate, indicating
+        // a multi-phase decomposition (e.g., COUNT(DISTINCT a) GROUP BY b is rewritten
+        // to COUNT(a) GROUP BY b on top of GROUP BY a,b dedup). These stacked
+        // aggregates require cross-phase coordination that bucketed agg does not support.
         if (childGroupContainsAggregate(aggregate)) {
             return ImmutableList.of();
         }
@@ -295,7 +307,7 @@ public class SplitAggWithoutDistinct extends OneImplementationRuleFactory {
         //    the combined NDV is at least that high.
         // 2. Aggregation ratio check: if estimated output rows > rows * threshold,
         //    merge cost dominates.
-        double highCardThreshold = 0.3;
+        double highCardThreshold = ctx.getSessionVariable().bucketedAggHighCardThreshold;
         for (Expression groupByKey : aggregate.getGroupByExpressions()) {
             ColumnStatistic colStat = childStats.findColumnStatistics(groupByKey);
             if (colStat != null && !colStat.isUnKnown() && colStat.ndv > rows * highCardThreshold) {
@@ -360,32 +372,21 @@ public class SplitAggWithoutDistinct extends OneImplementationRuleFactory {
         for (GroupExpression parentGE : ownerGroup.getParentGroupExpressions()) {
             Plan parentPlan = parentGE.getPlan();
             if (parentPlan instanceof LogicalTopN
-                    && orderKeysMatchGroupKeys((LogicalTopN<?>) parentPlan, groupByKeys)) {
+                    && AggregateUtils.isOrderKeysMatchGroupKeys(
+                            ((LogicalTopN<?>) parentPlan).getOrderKeys(), groupByKeys)) {
                 return true;
             }
             if (parentPlan instanceof LogicalProject && parentGE.getOwnerGroup() != null) {
                 for (GroupExpression gpGE : parentGE.getOwnerGroup().getParentGroupExpressions()) {
                     if (gpGE.getPlan() instanceof LogicalTopN
-                            && orderKeysMatchGroupKeys((LogicalTopN<?>) gpGE.getPlan(), groupByKeys)) {
+                            && AggregateUtils.isOrderKeysMatchGroupKeys(
+                                    ((LogicalTopN<?>) gpGE.getPlan()).getOrderKeys(), groupByKeys)) {
                         return true;
                     }
                 }
             }
         }
         return false;
-    }
-
-    private boolean orderKeysMatchGroupKeys(LogicalTopN<?> topN, List<Expression> groupByKeys) {
-        List<OrderKey> orderKeys = topN.getOrderKeys();
-        if (orderKeys.size() != groupByKeys.size()) {
-            return false;
-        }
-        for (int i = 0; i < groupByKeys.size(); i++) {
-            if (!groupByKeys.get(i).equals(orderKeys.get(i).getExpr())) {
-                return false;
-            }
-        }
-        return true;
     }
 
     /**
@@ -396,7 +397,10 @@ public class SplitAggWithoutDistinct extends OneImplementationRuleFactory {
      * than bucketed agg (no 256-bucket overhead, no merge phase).
      *
      * Traverses the child group in the Memo to find a LogicalOlapScan,
-     * walking through LogicalProject and LogicalFilter transparently.
+     * then uses ExprId-based matching (consistent with
+     * {@link LogicalOlapScanToPhysicalOlapScan#convertDistribution}) to check
+     * whether the hash distribution columns are a subset of the GROUP BY keys.
+     * For non-OlapTable children, returns false (skip this gating, allow bucketed agg).
      */
     private boolean groupByKeysSatisfyDistribution(LogicalAggregate<? extends Plan> aggregate) {
         if (!aggregate.getGroupExpression().isPresent()) {
@@ -406,10 +410,11 @@ public class SplitAggWithoutDistinct extends OneImplementationRuleFactory {
         if (groupExpr.arity() == 0) {
             return false;
         }
-        OlapTable table = findOlapTableInGroup(groupExpr.child(0), 5);
-        if (table == null) {
+        LogicalOlapScan olapScan = findLogicalOlapScanInGroup(groupExpr.child(0), 5);
+        if (olapScan == null) {
             return false;
         }
+        OlapTable table = olapScan.getTable();
         DistributionInfo distributionInfo = table.getDefaultDistributionInfo();
         if (!(distributionInfo instanceof HashDistributionInfo)) {
             return false;
@@ -418,42 +423,52 @@ public class SplitAggWithoutDistinct extends OneImplementationRuleFactory {
         if (distributionColumns.isEmpty()) {
             return false;
         }
-        // Collect GROUP BY column names (only direct SlotReference with original column info)
-        Set<String> groupByColumnNames = new HashSet<>();
-        for (Expression expr : aggregate.getGroupByExpressions()) {
-            if (expr instanceof SlotReference) {
-                SlotReference slot = (SlotReference) expr;
-                if (slot.getOriginalColumn().isPresent()) {
-                    groupByColumnNames.add(slot.getOriginalColumn().get().getName().toLowerCase());
+        // Map distribution columns to ExprIds via the scan's output slots
+        List<Slot> output = olapScan.getOutput();
+        Set<ExprId> distributionExprIds = new HashSet<>();
+        for (Column column : distributionColumns) {
+            boolean found = false;
+            for (Slot slot : output) {
+                if (slot instanceof SlotReference
+                        && ((SlotReference) slot).getOriginalColumn().isPresent()
+                        && ((SlotReference) slot).getOriginalColumn().get().getName()
+                                .equalsIgnoreCase(column.getName())) {
+                    distributionExprIds.add(slot.getExprId());
+                    found = true;
+                    break;
                 }
             }
-        }
-        // All distribution columns must appear in the GROUP BY keys
-        for (Column column : distributionColumns) {
-            if (!groupByColumnNames.contains(column.getName().toLowerCase())) {
+            if (!found) {
                 return false;
             }
         }
-        return true;
+        // Collect GROUP BY ExprIds
+        Set<ExprId> groupByExprIds = new HashSet<>();
+        for (Expression expr : aggregate.getGroupByExpressions()) {
+            if (expr instanceof SlotReference) {
+                groupByExprIds.add(((SlotReference) expr).getExprId());
+            }
+        }
+        return groupByExprIds.containsAll(distributionExprIds);
     }
 
     /**
      * Recursively search through a Memo Group to find a LogicalOlapScan,
      * walking through LogicalProject and LogicalFilter nodes.
-     * Returns the OlapTable if found, null otherwise.
+     * Returns the LogicalOlapScan if found, null otherwise.
      * maxDepth prevents infinite recursion.
      */
-    private OlapTable findOlapTableInGroup(Group group, int maxDepth) {
+    private LogicalOlapScan findLogicalOlapScanInGroup(Group group, int maxDepth) {
         if (maxDepth <= 0) {
             return null;
         }
         for (GroupExpression ge : group.getLogicalExpressions()) {
             Plan plan = ge.getPlan();
             if (plan instanceof LogicalOlapScan) {
-                return ((LogicalOlapScan) plan).getTable();
+                return (LogicalOlapScan) plan;
             }
             if ((plan instanceof LogicalProject || plan instanceof LogicalFilter) && ge.arity() > 0) {
-                OlapTable result = findOlapTableInGroup(ge.child(0), maxDepth - 1);
+                LogicalOlapScan result = findLogicalOlapScanInGroup(ge.child(0), maxDepth - 1);
                 if (result != null) {
                     return result;
                 }

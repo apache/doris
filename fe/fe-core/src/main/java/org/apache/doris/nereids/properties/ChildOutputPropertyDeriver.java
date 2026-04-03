@@ -228,6 +228,11 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
     public PhysicalProperties visitPhysicalBucketedHashAggregate(
             PhysicalBucketedHashAggregate<? extends Plan> agg, PlanContext context) {
         Preconditions.checkState(childrenOutputProperties.size() == 1);
+        // Although bucketed agg internally re-distributes data into 256 buckets by
+        // group-by keys (so the output is "complete" per group), we cannot claim
+        // EXECUTION_BUCKETED distribution because the 256-bucket hash function differs
+        // from the shuffle hash function. Downstream operators expecting shuffle-compatible
+        // distribution would be incorrect. Preserve child distribution instead.
         PhysicalProperties childOutputProperty = childrenOutputProperties.get(0);
         return new PhysicalProperties(childOutputProperty.getDistributionSpec());
     }

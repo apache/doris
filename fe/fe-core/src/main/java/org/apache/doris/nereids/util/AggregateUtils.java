@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
@@ -134,5 +135,22 @@ public class AggregateUtils {
                 .filter(NamedExpression.class::isInstance)
                 .map(NamedExpression.class::cast)
                 .collect(ImmutableSet.toImmutableSet());
+    }
+
+    /**
+     * Check if order keys are identical to group-by keys (1-1 mapping, same order).
+     * Shared utility used by both PushTopnToAgg and SplitAggWithoutDistinct.
+     */
+    public static boolean isOrderKeysMatchGroupKeys(List<OrderKey> orderKeys,
+            List<Expression> groupByKeys) {
+        if (orderKeys.size() != groupByKeys.size()) {
+            return false;
+        }
+        for (int i = 0; i < groupByKeys.size(); i++) {
+            if (!groupByKeys.get(i).equals(orderKeys.get(i).getExpr())) {
+                return false;
+            }
+        }
+        return true;
     }
 }

@@ -24,10 +24,13 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Ndv;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
 
@@ -184,10 +187,7 @@ public class PhysicalBucketedHashAggregate<CHILD_TYPE extends Plan> extends Phys
 
     @Override
     public String shapeInfo() {
-        StringBuilder builder = new StringBuilder("bucketedHashAgg[");
-        builder.append("BUCKETED");
-        builder.append(']');
-        return builder.toString();
+        return "bucketedHashAgg";
     }
 
     @Override
@@ -208,6 +208,10 @@ public class PhysicalBucketedHashAggregate<CHILD_TYPE extends Plan> extends Phys
     public void computeUnique(DataTrait.Builder builder) {
         DataTrait childFd = child(0).getLogicalProperties().getTrait();
 
+        if (groupByExpressions.stream().anyMatch(Expression::containsUniqueFunction)) {
+            return;
+        }
+
         ImmutableSet.Builder<Slot> groupByKeysBuilder = ImmutableSet.builder();
         for (Expression expr : groupByExpressions) {
             groupByKeysBuilder.addAll(expr.getInputSlots());
@@ -221,12 +225,24 @@ public class PhysicalBucketedHashAggregate<CHILD_TYPE extends Plan> extends Phys
 
         builder.addUniqueSlot(childFd);
         builder.addUniqueSlot(groupByKeys);
+
+        if (childFd.isUniqueAndNotNull(groupByKeys)) {
+            for (NamedExpression namedExpression : getOutputExpressions()) {
+                if (isUniqueGroupByUnique(namedExpression)) {
+                    builder.addUniqueSlot(namedExpression.toSlot());
+                }
+            }
+        }
     }
 
     @Override
     public void computeUniform(DataTrait.Builder builder) {
         DataTrait childFd = child(0).getLogicalProperties().getTrait();
         builder.addUniformSlot(childFd);
+
+        if (groupByExpressions.stream().anyMatch(Expression::containsUniqueFunction)) {
+            return;
+        }
 
         ImmutableSet.Builder<Slot> groupByKeysBuilder = ImmutableSet.builder();
         for (Expression expr : groupByExpressions) {
@@ -236,7 +252,33 @@ public class PhysicalBucketedHashAggregate<CHILD_TYPE extends Plan> extends Phys
 
         if (groupByExpressions.isEmpty() || childFd.isUniformAndNotNull(groupByKeys)) {
             getOutput().forEach(builder::addUniformSlot);
+            return;
         }
+
+        if (childFd.isUniqueAndNotNull(groupByKeys)) {
+            for (NamedExpression namedExpression : getOutputExpressions()) {
+                if (isUniformGroupByUnique(namedExpression)) {
+                    builder.addUniformSlot(namedExpression.toSlot());
+                }
+            }
+        }
+    }
+
+    private boolean isUniqueGroupByUnique(NamedExpression namedExpression) {
+        if (namedExpression.children().size() != 1) {
+            return false;
+        }
+        Expression agg = namedExpression.child(0);
+        return ExpressionUtils.isInjectiveAgg(agg)
+                && child().getLogicalProperties().getTrait().isUniqueAndNotNull(agg.getInputSlots());
+    }
+
+    private boolean isUniformGroupByUnique(NamedExpression namedExpression) {
+        if (namedExpression.children().size() != 1) {
+            return false;
+        }
+        Expression agg = namedExpression.child(0);
+        return agg instanceof Count || agg instanceof Ndv;
     }
 
     @Override

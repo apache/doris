@@ -129,9 +129,9 @@ private:
 
     std::vector<AggFnEvaluator*> _aggregate_evaluators;
 
-    TupleId _intermediate_tuple_id;
+    // Bucketed agg is one-phase: intermediate and output tuples are identical.
+    TupleId _tuple_id;
     TupleDescriptor* _intermediate_tuple_desc = nullptr;
-    TupleId _output_tuple_id;
     TupleDescriptor* _output_tuple_desc = nullptr;
 
     size_t _align_aggregate_states = 1;

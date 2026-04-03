@@ -66,8 +66,7 @@ public class BucketedAggregationNode extends PlanNode {
         TBucketedAggregationNode bucketedAggNode = new TBucketedAggregationNode();
         bucketedAggNode.setGroupingExprs(groupingExprs);
         bucketedAggNode.setAggregateFunctions(aggregateFunctions);
-        bucketedAggNode.setIntermediateTupleId(aggInfo.getOutputTupleId().asInt());
-        bucketedAggNode.setOutputTupleId(aggInfo.getOutputTupleId().asInt());
+        bucketedAggNode.setTupleId(aggInfo.getOutputTupleId().asInt());
         bucketedAggNode.setNeedFinalize(needsFinalize);
 
         msg.bucketed_agg_node = bucketedAggNode;

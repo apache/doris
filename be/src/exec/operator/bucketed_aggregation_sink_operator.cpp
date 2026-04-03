@@ -71,8 +71,8 @@ Status BucketedAggSinkLocalState::open(RuntimeState* state) {
 
     // Initialize per-instance data and shared metadata. Multiple sink instances call open()
     // concurrently, so all shared-state writes must be inside call_once to avoid data races.
-    Status init_status;
-    shared_state.init_instances(state->task_num(), [&]() {
+    // init_instances stores the init status in shared state so all threads see failures.
+    RETURN_IF_ERROR(shared_state.init_instances(state->task_num(), [&]() -> Status {
         // Copy metadata to shared state (once, from the first instance to reach here).
         shared_state.align_aggregate_states = p._align_aggregate_states;
         shared_state.total_size_of_aggregate_states = p._total_size_of_aggregate_states;
@@ -81,11 +81,7 @@ Status BucketedAggSinkLocalState::open(RuntimeState* state) {
 
         shared_state.probe_expr_ctxs.resize(p._probe_expr_ctxs.size());
         for (size_t i = 0; i < shared_state.probe_expr_ctxs.size(); i++) {
-            auto st = p._probe_expr_ctxs[i]->clone(state, shared_state.probe_expr_ctxs[i]);
-            if (!st) {
-                init_status = st;
-                return;
-            }
+            RETURN_IF_ERROR(p._probe_expr_ctxs[i]->clone(state, shared_state.probe_expr_ctxs[i]));
         }
 
         for (auto& evaluator : p._aggregate_evaluators) {
@@ -95,12 +91,11 @@ Status BucketedAggSinkLocalState::open(RuntimeState* state) {
         // Detect simple_count: exactly one COUNT(*) with no args, with GROUP BY present.
         // Bucketed agg always has GROUP BY (without-key not supported).
         if (p._aggregate_evaluators.size() == 1 &&
-            p._aggregate_evaluators[0]->function()->get_name() == "count" &&
-            p._aggregate_evaluators[0]->function()->get_argument_types().empty()) {
+            p._aggregate_evaluators[0]->function()->is_simple_count()) {
             shared_state.use_simple_count = true;
         }
-    });
-    RETURN_IF_ERROR(init_status);
+        return Status::OK();
+    }));
 
     // Now safe to access per_instance_data since init_instances has been called.
     auto& inst = shared_state.per_instance_data[_instance_idx];
@@ -397,8 +392,7 @@ BucketedAggSinkOperatorX::BucketedAggSinkOperatorX(ObjectPool* pool, int operato
                                                    const TPlanNode& tnode,
                                                    const DescriptorTbl& descs)
         : DataSinkOperatorX<BucketedAggSinkLocalState>(operator_id, tnode, dest_id),
-          _intermediate_tuple_id(tnode.bucketed_agg_node.intermediate_tuple_id),
-          _output_tuple_id(tnode.bucketed_agg_node.output_tuple_id),
+          _tuple_id(tnode.bucketed_agg_node.tuple_id),
           _pool(pool) {}
 
 Status BucketedAggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
@@ -423,9 +417,8 @@ Status BucketedAggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* stat
 Status BucketedAggSinkOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX<BucketedAggSinkLocalState>::prepare(state));
 
-    _intermediate_tuple_desc = state->desc_tbl().get_tuple_descriptor(_intermediate_tuple_id);
-    _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
-    DCHECK_EQ(_intermediate_tuple_desc->slots().size(), _output_tuple_desc->slots().size());
+    _intermediate_tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
+    _output_tuple_desc = _intermediate_tuple_desc;
 
     RETURN_IF_ERROR(
             VExpr::prepare(_probe_expr_ctxs, state,
