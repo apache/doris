@@ -98,7 +98,8 @@ private:
                  OlapReaderStatistics* index_load_stats);
 
 private:
-    friend OrdinalPageIndexIterator;
+    friend class OrdinalPageIndexIterator;
+    friend class SegmentPrefetcher;
 
     io::FileReaderSPtr _file_reader;
     DorisCallOnce<Status> _load_once;

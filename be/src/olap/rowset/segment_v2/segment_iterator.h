@@ -383,6 +383,8 @@ private:
     Status _materialization_of_virtual_column(vectorized::Block* block);
     void _prepare_score_column_materialization();
 
+    void _init_segment_prefetchers();
+
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
 
