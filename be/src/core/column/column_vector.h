@@ -120,8 +120,8 @@ public:
     void insert_many_from(const IColumn& src, size_t position, size_t length) override;
 
     void insert_range_of_integer(value_type begin, value_type end) {
-        if constexpr (!is_float_or_double(T) && T != TYPE_TIMEV2 &&
-                      T != TYPE_TIMESTAMPTZ && !is_date_type(T)) {
+        if constexpr (!is_float_or_double(T) && T != TYPE_TIMEV2 && T != TYPE_TIMESTAMPTZ &&
+                      !is_date_type(T)) {
             auto old_size = data.size();
             auto new_size = old_size + static_cast<size_t>(end - begin);
             data.resize(new_size);

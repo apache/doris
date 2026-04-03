@@ -136,7 +136,7 @@ struct FunctionCastTest : public testing::Test {
             return "datetime";
         case TYPE_BINARY:
             return "binary";
-        /* 13 */           // Not implemented
+        /* 13 */        // Not implemented
         case TYPE_CHAR: /* 15 */
             return fmt::format("char({})", precision > 0 ? precision : 64);
 
