@@ -18,6 +18,7 @@
 package org.apache.doris;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cluster.ClusterGuardFactory;
 import org.apache.doris.common.CommandLineOptions;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -191,6 +192,7 @@ public class DorisFE {
             }
 
             fuzzyConfigs();
+            initClusterGuard(dorisHomeDir);
 
             LOG.info("Doris FE starting...");
 
@@ -587,6 +589,11 @@ public class DorisFE {
                 LOG.warn("release process lock file failed", ignored);
             }
         }
+    }
+
+    private static void initClusterGuard(String dorisHomeDir) throws Exception {
+        ClusterGuardFactory.getGuard().onStartup(dorisHomeDir);
+        LOG.info("Cluster guard initialized successfully.");
     }
 
     public static void overwriteConfigs() {
