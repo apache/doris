@@ -412,6 +412,7 @@ public enum RuleType {
     DEFER_MATERIALIZE_TOP_N_RESULT(RuleTypeClass.REWRITE),
     // short circuit rule
     SHOR_CIRCUIT_POINT_QUERY(RuleTypeClass.REWRITE),
+    INVERTED_INDEX_POINT_QUERY(RuleTypeClass.REWRITE),
     // skew rewrtie
     SALT_JOIN(RuleTypeClass.REWRITE),
 

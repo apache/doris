@@ -84,6 +84,16 @@ public class InvertedIndexUtil {
     // Default analyzer key constant - matches BE's INVERTED_INDEX_DEFAULT_ANALYZER_KEY
     public static final String INVERTED_INDEX_DEFAULT_ANALYZER_KEY = "__default__";
 
+    public static String INVERTED_INDEX_POINT_QUERY_KEY = "point_query";
+
+    public static boolean isPointQueryEnabled(Map<String, String> properties) {
+        if (properties == null) {
+            return false;
+        }
+        String value = properties.get(INVERTED_INDEX_POINT_QUERY_KEY);
+        return "true".equalsIgnoreCase(value);
+    }
+
     public static String getInvertedIndexParser(Map<String, String> properties) {
         if (properties == null) {
             return INVERTED_INDEX_PARSER_NONE;

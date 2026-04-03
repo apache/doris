@@ -344,6 +344,11 @@ message PTabletKeyLookupRequest {
     optional bytes query_options = 8;
     // timezone string, e.g. "America/Mexico_City"
     optional string time_zone = 9;
+
+    // Inverted index point query fields.
+    // When set, BE uses inverted index EQUAL_QUERY instead of primary key lookup.
+    optional int32 inverted_index_column_unique_id = 10;
+    optional bytes inverted_index_query_value = 11;
 }
 
 message PTabletKeyLookupResponse {

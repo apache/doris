@@ -315,6 +315,10 @@ private:
 
     Status _output_data();
 
+    // Inverted index point query: locate rows by inverted index EQUAL_QUERY,
+    // then read columns by rowid.
+    Status _lookup_by_inverted_index();
+
     static void release_rowset(RowsetSharedPtr* r) {
         if (r && *r) {
             VLOG_DEBUG << "release rowset " << (*r)->rowset_id();
@@ -345,6 +349,16 @@ private:
     int32_t _row_hits = 0;
     // snapshot read version
     int64_t _version = -1;
+
+    // Inverted index point query state
+    bool _is_inverted_index_mode = false;
+    int32_t _inverted_index_column_uid = -1;
+    std::string _inverted_index_value;
+
+    // Inverted index profile counters
+    int32_t _inverted_index_segments_scanned = 0;
+    int32_t _inverted_index_segments_skipped = 0;
+    int64_t _inverted_index_bitmap_cardinality = 0;
 };
 
 } // namespace doris

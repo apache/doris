@@ -165,6 +165,18 @@ message RowsetMetaPB {
     
     optional bool is_recycled = 1013; // for recycler mark rowset as recycled
     optional string job_id = 1014;
+
+    // Per-column inverted index BloomFilter for point query tablet routing.
+    // Used by FE to quickly skip tablets that don't contain the queried value.
+    repeated InvertedIndexBloomFilterPB inverted_index_bloom_filters = 1015;
+}
+
+message InvertedIndexBloomFilterPB {
+    optional int32 column_unique_id = 1;
+    optional bytes bloom_filter_data = 2;  // serialized bloom filter bits
+    optional int64 num_entries = 3;        // number of entries inserted
+    optional int32 num_hash_functions = 4; // number of hash functions
+    optional int64 bloom_filter_size = 5;  // size in bits
 }
 
 message SchemaDictKeyList {

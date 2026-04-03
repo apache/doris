@@ -163,6 +163,7 @@ public:
     }
 
     io::FileReaderSPtr file_reader() { return _file_reader; }
+    io::FileSystemSPtr file_system() { return _fs; }
 
     // Including the column reader memory.
     // another method `get_metadata_size` not include the column reader, only the segment object itself.
@@ -197,6 +198,16 @@ public:
     }
 
     const TabletSchemaSPtr& tablet_schema() { return _tablet_schema; }
+
+    // Check if a term could exist in this segment based on term zone map.
+    // Returns true if the term is within [min_term, max_term] or if no zone map exists.
+    bool term_zone_map_may_contain(int32_t column_unique_id, const std::string& term) const {
+        auto it = _inverted_index_term_zone_maps.find(column_unique_id);
+        if (it == _inverted_index_term_zone_maps.end()) {
+            return true;
+        }
+        return term >= it->second.min_term && term <= it->second.max_term;
+    }
 
     // get the column reader by tablet column, return NOT_FOUND if not found reader in this segment
     Status get_column_reader(const TabletColumn& col, std::shared_ptr<ColumnReader>* column_reader,
@@ -297,6 +308,13 @@ private:
     InvertedIndexFileInfo _idx_file_info;
 
     int _be_exec_version = BeExecVersionManager::get_newest_version();
+
+    struct TermZoneMapEntry {
+        std::string min_term;
+        std::string max_term;
+        int64_t distinct_term_count = 0;
+    };
+    std::unordered_map<int32_t, TermZoneMapEntry> _inverted_index_term_zone_maps;
 };
 
 } // namespace segment_v2

@@ -623,6 +623,14 @@ Status Segment::_create_column_meta(const SegmentFooterPB& footer) {
             [this](std::shared_ptr<SegmentFooterPB>& footer_pb, OlapReaderStatistics* stats) {
                 return _get_segment_footer(footer_pb, stats);
             });
+    // Load inverted index term zone maps for point query optimization
+    for (const auto& tzm : footer.inverted_index_term_zone_maps()) {
+        TermZoneMapEntry entry;
+        entry.min_term = tzm.min_term();
+        entry.max_term = tzm.max_term();
+        entry.distinct_term_count = tzm.distinct_term_count();
+        _inverted_index_term_zone_maps[tzm.column_unique_id()] = std::move(entry);
+    }
     return Status::OK();
 }
 

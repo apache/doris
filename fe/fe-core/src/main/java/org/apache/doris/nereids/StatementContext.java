@@ -249,6 +249,12 @@ public class StatementContext implements Closeable {
 
     private ShortCircuitQueryContext shortCircuitQueryContext;
 
+    // Inverted index point query: single equality condition on a non-fulltext inverted index column
+    private boolean isInvertedIndexPointQuery;
+    private String invertedIndexPointQueryColumnName;
+    private int invertedIndexPointQueryColumnUniqueId = -1;
+    private String invertedIndexPointQueryLiteralValue;
+
     private FormatOptions formatOptions = FormatOptions.getDefault();
 
     private Set<PlannerHook> plannerHooks = new HashSet<>();
@@ -511,6 +517,38 @@ public class StatementContext implements Closeable {
 
     public void setShortCircuitQueryContext(ShortCircuitQueryContext shortCircuitQueryContext) {
         this.shortCircuitQueryContext = shortCircuitQueryContext;
+    }
+
+    public boolean isInvertedIndexPointQuery() {
+        return isInvertedIndexPointQuery;
+    }
+
+    public void setInvertedIndexPointQuery(boolean invertedIndexPointQuery) {
+        isInvertedIndexPointQuery = invertedIndexPointQuery;
+    }
+
+    public String getInvertedIndexPointQueryColumnName() {
+        return invertedIndexPointQueryColumnName;
+    }
+
+    public void setInvertedIndexPointQueryColumnName(String columnName) {
+        this.invertedIndexPointQueryColumnName = columnName;
+    }
+
+    public int getInvertedIndexPointQueryColumnUniqueId() {
+        return invertedIndexPointQueryColumnUniqueId;
+    }
+
+    public void setInvertedIndexPointQueryColumnUniqueId(int uniqueId) {
+        this.invertedIndexPointQueryColumnUniqueId = uniqueId;
+    }
+
+    public String getInvertedIndexPointQueryLiteralValue() {
+        return invertedIndexPointQueryLiteralValue;
+    }
+
+    public void setInvertedIndexPointQueryLiteralValue(String literalValue) {
+        this.invertedIndexPointQueryLiteralValue = literalValue;
     }
 
     public Optional<SqlCacheContext> getSqlCacheContext() {

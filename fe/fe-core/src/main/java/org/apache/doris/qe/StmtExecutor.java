@@ -1281,6 +1281,17 @@ public class StmtExecutor {
             coordBase = new PointQueryExecutor(shortCircuitQueryContext,
                         context.getSessionVariable().getMaxMsgSizeOfResultReceiver());
             context.getState().setIsQuery(true);
+        } else if (statementContext.isInvertedIndexPointQuery()) {
+            ShortCircuitQueryContext shortCircuitQueryContext =
+                        new ShortCircuitQueryContext(planner, (Queriable) parsedStmt);
+            coordBase = new PointQueryExecutor(shortCircuitQueryContext,
+                        context.getSessionVariable().getMaxMsgSizeOfResultReceiver());
+            context.getState().setIsQuery(true);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Inverted index point query: column={}, value={}",
+                        statementContext.getInvertedIndexPointQueryColumnName(),
+                        statementContext.getInvertedIndexPointQueryLiteralValue());
+            }
         } else if (planner instanceof NereidsPlanner && ((NereidsPlanner) planner).getDistributedPlans() != null) {
             coord = new NereidsCoordinator(context,
                     (NereidsPlanner) planner, context.getStatsErrorEstimator());

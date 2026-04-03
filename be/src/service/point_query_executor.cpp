@@ -26,6 +26,8 @@
 #include <google/protobuf/extension_set.h>
 #include <stdlib.h>
 
+#include <roaring/roaring.hh>
+
 #include <climits>
 #include <memory>
 #include <unordered_map>
@@ -41,6 +43,12 @@
 #include "olap/row_cursor.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_fwd.h"
+#include "olap/rowset/segment_v2/index_query_context.h"
+#include "olap/rowset/segment_v2/inverted_index_iterator.h"
+#include "olap/rowset/segment_v2/inverted_index_point_query.h"
+#include "olap/rowset/segment_v2/inverted_index_query_type.h"
+#include "olap/rowset/segment_v2/segment.h"
+#include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
 #include "olap/tablet_schema.h"
@@ -328,7 +336,13 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
     if (request->has_version() && request->version() >= 0) {
         _version = request->version();
     }
-    RETURN_IF_ERROR(_init_keys(request));
+    if (request->has_inverted_index_column_unique_id()) {
+        _is_inverted_index_mode = true;
+        _inverted_index_column_uid = request->inverted_index_column_unique_id();
+        _inverted_index_value = request->inverted_index_query_value();
+    } else {
+        RETURN_IF_ERROR(_init_keys(request));
+    }
     _result_block = _reusable->get_block();
     CHECK(_result_block != nullptr);
 
@@ -337,8 +351,12 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
 
 Status PointQueryExecutor::lookup_up() {
     SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->point_query_executor_mem_tracker());
-    RETURN_IF_ERROR(_lookup_row_key());
-    RETURN_IF_ERROR(_lookup_row_data());
+    if (_is_inverted_index_mode) {
+        RETURN_IF_ERROR(_lookup_by_inverted_index());
+    } else {
+        RETURN_IF_ERROR(_lookup_row_key());
+        RETURN_IF_ERROR(_lookup_row_data());
+    }
     RETURN_IF_ERROR(_output_data());
     return Status::OK();
 }
@@ -353,29 +371,55 @@ void PointQueryExecutor::print_profile() {
     auto load_segments_data_us = _profile_metrics.load_segment_data_stage_ns.value() / 1000;
     auto total_us = init_us + lookup_key_us + lookup_data_us + output_data_us;
     auto read_stats = _profile_metrics.read_stats;
-    const std::string stats_str = fmt::format(
-            "[lookup profile:{}us] init:{}us, init_key:{}us,"
-            " lookup_key:{}us, load_segments_key:{}us, lookup_data:{}us, load_segments_data:{}us,"
-            " output_data:{}us, "
-            "hit_lookup_cache:{}"
-            ", is_binary_row:{}, output_columns:{}, total_keys:{}, row_cache_hits:{}"
-            ", hit_cached_pages:{}, total_pages_read:{}, compressed_bytes_read:{}, "
-            "io_latency:{}ns, "
-            "uncompressed_bytes_read:{}, result_data_bytes:{}, row_hits:{}"
-            ", rs_column_uid:{}, bytes_read_from_local:{}, bytes_read_from_remote:{}, "
-            "local_io_timer:{}, remote_io_timer:{}, local_write_timer:{}",
-            total_us, init_us, init_key_us, lookup_key_us, load_segments_key_us, lookup_data_us,
-            load_segments_data_us, output_data_us, _profile_metrics.hit_lookup_cache,
-            _binary_row_format, _reusable->output_exprs().size(), _row_read_ctxs.size(),
-            _profile_metrics.row_cache_hits, read_stats.cached_pages_num,
-            read_stats.total_pages_num, read_stats.compressed_bytes_read, read_stats.io_ns,
-            read_stats.uncompressed_bytes_read, _profile_metrics.result_data_bytes, _row_hits,
-            _reusable->rs_column_uid(),
-            _profile_metrics.read_stats.file_cache_stats.bytes_read_from_local,
-            _profile_metrics.read_stats.file_cache_stats.bytes_read_from_remote,
-            _profile_metrics.read_stats.file_cache_stats.local_io_timer,
-            _profile_metrics.read_stats.file_cache_stats.remote_io_timer,
-            _profile_metrics.read_stats.file_cache_stats.write_cache_io_timer);
+
+    std::string stats_str;
+    if (_is_inverted_index_mode) {
+        stats_str = fmt::format(
+                "[inverted_index_point_query profile:{}us] init:{}us, lookup_index:{}us,"
+                " lookup_data:{}us, output_data:{}us,"
+                " segments_scanned:{}, segments_skipped:{}, bitmap_cardinality:{},"
+                " row_hits:{}, output_columns:{}, rs_column_uid:{},"
+                " searcher_cache_hit:{}, searcher_cache_miss:{},"
+                " query_cache_hit:{}, query_cache_miss:{},"
+                " hit_cached_pages:{}, total_pages_read:{}, compressed_bytes_read:{},"
+                " io_latency:{}ns, result_data_bytes:{}",
+                total_us, init_us, lookup_key_us, lookup_data_us, output_data_us,
+                _inverted_index_segments_scanned, _inverted_index_segments_skipped,
+                _inverted_index_bitmap_cardinality, _row_hits,
+                _reusable->output_exprs().size(), _reusable->rs_column_uid(),
+                _read_stats.inverted_index_searcher_cache_hit,
+                _read_stats.inverted_index_searcher_cache_miss,
+                _read_stats.inverted_index_query_cache_hit,
+                _read_stats.inverted_index_query_cache_miss,
+                read_stats.cached_pages_num, read_stats.total_pages_num,
+                read_stats.compressed_bytes_read, read_stats.io_ns,
+                _profile_metrics.result_data_bytes);
+    } else {
+        stats_str = fmt::format(
+                "[pk_point_query profile:{}us] init:{}us, init_key:{}us,"
+                " lookup_key:{}us, load_segments_key:{}us,"
+                " lookup_data:{}us, load_segments_data:{}us,"
+                " output_data:{}us, "
+                "hit_lookup_cache:{}"
+                ", is_binary_row:{}, output_columns:{}, total_keys:{}, row_cache_hits:{}"
+                ", hit_cached_pages:{}, total_pages_read:{}, compressed_bytes_read:{}, "
+                "io_latency:{}ns, "
+                "uncompressed_bytes_read:{}, result_data_bytes:{}, row_hits:{}"
+                ", rs_column_uid:{}, bytes_read_from_local:{}, bytes_read_from_remote:{}, "
+                "local_io_timer:{}, remote_io_timer:{}, local_write_timer:{}",
+                total_us, init_us, init_key_us, lookup_key_us, load_segments_key_us, lookup_data_us,
+                load_segments_data_us, output_data_us, _profile_metrics.hit_lookup_cache,
+                _binary_row_format, _reusable->output_exprs().size(), _row_read_ctxs.size(),
+                _profile_metrics.row_cache_hits, read_stats.cached_pages_num,
+                read_stats.total_pages_num, read_stats.compressed_bytes_read, read_stats.io_ns,
+                read_stats.uncompressed_bytes_read, _profile_metrics.result_data_bytes, _row_hits,
+                _reusable->rs_column_uid(),
+                _profile_metrics.read_stats.file_cache_stats.bytes_read_from_local,
+                _profile_metrics.read_stats.file_cache_stats.bytes_read_from_remote,
+                _profile_metrics.read_stats.file_cache_stats.local_io_timer,
+                _profile_metrics.read_stats.file_cache_stats.remote_io_timer,
+                _profile_metrics.read_stats.file_cache_stats.write_cache_io_timer);
+    }
 
     constexpr static int kSlowThreholdUs = 50 * 1000; // 50ms
     if (total_us > kSlowThreholdUs) {
@@ -607,6 +651,177 @@ Status PointQueryExecutor::_output_data() {
     }
     _profile_metrics.result_data_bytes = _result_block->bytes();
     _reusable->return_block(_result_block);
+    return Status::OK();
+}
+
+Status PointQueryExecutor::_lookup_by_inverted_index() {
+    SCOPED_TIMER(&_profile_metrics.lookup_key_ns);
+    static constexpr int32_t MAX_INVERTED_INDEX_POINT_QUERY_ROWS = 1000;
+
+    const auto& tablet_schema = *_tablet->tablet_schema();
+
+    auto inverted_indexes = tablet_schema.inverted_indexs(_inverted_index_column_uid);
+    if (inverted_indexes.empty()) {
+        return Status::InternalError("No inverted index found for column unique_id={}",
+                                     _inverted_index_column_uid);
+    }
+    const TabletIndex* index_meta = inverted_indexes[0];
+
+    if (!tablet_schema.has_column_unique_id(_inverted_index_column_uid)) {
+        return Status::InternalError("Column unique_id={} not found in tablet schema",
+                                     _inverted_index_column_uid);
+    }
+    const auto& driver_column = tablet_schema.column_by_uid(_inverted_index_column_uid);
+
+    std::vector<RowsetSharedPtr> specified_rowsets;
+    {
+        std::shared_lock rlock(_tablet->get_header_lock());
+        specified_rowsets = _tablet->get_rowset_by_ids(nullptr);
+    }
+
+    std::vector<SegmentCacheHandle> segment_cache_handles;
+
+    struct SegmentRowId {
+        segment_v2::SegmentSharedPtr segment;
+        segment_v2::rowid_t row_id;
+        RowsetSharedPtr rowset;
+    };
+    std::vector<SegmentRowId> hit_rows;
+
+    // Build IndexQueryContext so that Searcher Cache and Query Cache work correctly
+    auto index_context = std::make_shared<segment_v2::IndexQueryContext>();
+    index_context->stats = &_read_stats;
+    index_context->runtime_state = _reusable->runtime_state();
+
+    for (auto& rowset : specified_rowsets) {
+        auto beta_rowset = std::static_pointer_cast<BetaRowset>(rowset);
+        SegmentCacheHandle segment_cache;
+        RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(beta_rowset, &segment_cache, true));
+
+        for (const auto& segment : segment_cache.get_segments()) {
+            // Term Zone Map check: skip segments that definitely don't contain the value
+            if (!segment->term_zone_map_may_contain(_inverted_index_column_uid,
+                                                    _inverted_index_value)) {
+                _inverted_index_segments_skipped++;
+                continue;
+            }
+
+            _inverted_index_segments_scanned++;
+            auto result_bitmap = std::make_shared<roaring::Roaring>();
+            bool tpq_hit = false;
+
+            // Fast path: try .tpq direct index (O(1) hash lookup) before CLucene
+            // .tpq file path: <segment_path>.<column_uid>.tpq
+            if (segment->file_reader() != nullptr && segment->file_system() != nullptr) {
+                std::string tpq_path = segment->file_reader()->path().native() + "." +
+                                       std::to_string(_inverted_index_column_uid) + ".tpq";
+                bool tpq_exists = false;
+                auto exist_st = segment->file_system()->exists(tpq_path, &tpq_exists);
+                if (exist_st.ok() && tpq_exists) {
+                    io::FileReaderSPtr tpq_reader;
+                    io::FileReaderOptions reader_opts;
+                    auto open_st = segment->file_system()->open_file(
+                            tpq_path, &tpq_reader, &reader_opts);
+                    if (open_st.ok()) {
+                        segment_v2::TpqIndexReader tpq_index;
+                        auto init_st = tpq_index.open(tpq_reader);
+                        if (init_st.ok()) {
+                            auto lookup_st =
+                                    tpq_index.lookup(_inverted_index_value, result_bitmap);
+                            if (lookup_st.ok()) {
+                                tpq_hit = true;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (!tpq_hit) {
+                // Fallback: CLucene inverted index query with Searcher/Query cache
+                std::unique_ptr<segment_v2::IndexIterator> index_iter;
+                StorageReadOptions read_options;
+                read_options.stats = &_read_stats;
+                read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
+                index_context->io_ctx = &read_options.io_ctx;
+
+                Status st = segment->new_index_iterator(driver_column, index_meta,
+                                                        read_options, &index_iter);
+                if (!st.ok() || index_iter == nullptr) {
+                    _inverted_index_segments_skipped++;
+                    continue;
+                }
+
+                index_iter->set_context(index_context);
+
+                segment_v2::InvertedIndexParam param;
+                param.column_name = driver_column.name();
+                param.column_type = nullptr;
+                param.query_value = _inverted_index_value.c_str();
+                param.query_type = segment_v2::InvertedIndexQueryType::EQUAL_QUERY;
+                param.num_rows = segment->num_rows();
+                param.roaring = result_bitmap;
+                param.skip_try = true;
+
+                segment_v2::IndexParam idx_param = &param;
+                st = index_iter->read_from_index(idx_param);
+                if (!st.ok()) {
+                    VLOG_DEBUG << "inverted index read failed for segment " << segment->id()
+                               << ": " << st.to_string();
+                    continue;
+                }
+            }
+
+            // TODO: AND NOT with delete bitmap to exclude deleted rows
+
+            _inverted_index_bitmap_cardinality += cast_set<int64_t>(result_bitmap->cardinality());
+            if (hit_rows.size() + result_bitmap->cardinality() >
+                static_cast<size_t>(MAX_INVERTED_INDEX_POINT_QUERY_ROWS)) {
+                return Status::InternalError(
+                        "Inverted index point query hit too many rows (>{}), falling back",
+                        MAX_INVERTED_INDEX_POINT_QUERY_ROWS);
+            }
+
+            for (auto row_id : *result_bitmap) {
+                hit_rows.push_back(
+                        {segment, static_cast<segment_v2::rowid_t>(row_id), rowset});
+            }
+        }
+        segment_cache_handles.push_back(std::move(segment_cache));
+    }
+
+    // Phase: read row data by rowid
+    SCOPED_TIMER(&_profile_metrics.lookup_data_ns);
+    bool has_row_store = (_reusable->rs_column_uid() != -1);
+
+    for (const auto& hit : hit_rows) {
+        if (has_row_store) {
+            // Row Store path: 1 IO to read entire row as JSONB, with RowCache support
+            RowLocation loc(hit.segment->rowset_id(), hit.segment->id(), hit.row_id);
+            std::string value;
+            bool use_row_cache = !config::disable_storage_row_cache;
+            RETURN_IF_ERROR(_tablet->lookup_row_data(
+                    {}, loc, hit.rowset, _profile_metrics.read_stats, value, use_row_cache));
+            RETURN_IF_ERROR(vectorized::JsonbSerializeUtil::jsonb_to_block(
+                    _reusable->get_data_type_serdes(), value.data(), value.size(),
+                    _reusable->get_col_uid_to_idx(), *_result_block,
+                    _reusable->get_col_default_values(), _reusable->include_col_uids()));
+        } else {
+            // Column store fallback: read each column by rowid
+            for (size_t col_idx = 0; col_idx < _reusable->tuple_desc()->slots().size();
+                 ++col_idx) {
+                SlotDescriptor* slot = _reusable->tuple_desc()->slots()[col_idx];
+                vectorized::MutableColumnPtr column =
+                        _result_block->get_by_position(col_idx).column->assume_mutable();
+                std::unique_ptr<ColumnIterator> col_iter;
+                StorageReadOptions storage_read_options;
+                storage_read_options.stats = &_read_stats;
+                storage_read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
+                RETURN_IF_ERROR(hit.segment->seek_and_read_by_rowid(
+                        tablet_schema, slot, hit.row_id, column, storage_read_options, col_iter));
+            }
+        }
+        _row_hits++;
+    }
     return Status::OK();
 }
 

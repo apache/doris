@@ -101,6 +101,7 @@ import org.apache.doris.nereids.rules.rewrite.InitJoinOrder;
 import org.apache.doris.nereids.rules.rewrite.InlineLogicalView;
 import org.apache.doris.nereids.rules.rewrite.LimitAggToTopNAgg;
 import org.apache.doris.nereids.rules.rewrite.LimitSortToTopN;
+import org.apache.doris.nereids.rules.rewrite.LogicalResultSinkToInvertedIndexPointQuery;
 import org.apache.doris.nereids.rules.rewrite.LogicalResultSinkToShortCircuitPointQuery;
 import org.apache.doris.nereids.rules.rewrite.MergeAggregate;
 import org.apache.doris.nereids.rules.rewrite.MergeFilters;
@@ -723,7 +724,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         custom(RuleType.SET_PREAGG_STATUS, SetPreAggStatus::new)
                 ),
                 topic("Point query short circuit",
-                        topDown(new LogicalResultSinkToShortCircuitPointQuery())),
+                        topDown(new LogicalResultSinkToShortCircuitPointQuery()),
+                        topDown(new LogicalResultSinkToInvertedIndexPointQuery())),
                 topic("eliminate",
                         // SORT_PRUNING should be applied after mergeLimit
                         custom(RuleType.ELIMINATE_SORT, EliminateSort::new),

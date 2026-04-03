@@ -273,6 +273,17 @@ message SegmentFooterPB {
     // unique id and the serialized length (in bytes) of its ColumnMetaPB in the external
     // Column Meta Region.
     repeated ColumnMetaEntryPB column_meta_entries = 12;
+
+    // Per-column inverted index term zone maps for point query segment skipping.
+    repeated InvertedIndexTermZoneMapPB inverted_index_term_zone_maps = 13;
+}
+
+// Term zone map for a single inverted index column within a segment.
+message InvertedIndexTermZoneMapPB {
+    optional int32 column_unique_id = 1;
+    optional bytes min_term = 2;
+    optional bytes max_term = 3;
+    optional int64 distinct_term_count = 4;
 }
 
 message BTreeMetaPB {

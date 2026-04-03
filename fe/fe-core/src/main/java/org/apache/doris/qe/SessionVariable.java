@@ -359,6 +359,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_SHORT_CIRCUIT_QUERY_ACCESS_COLUMN_STORE
                     = "enable_short_circuit_query_access_column_store";
 
+    public static final String ENABLE_INVERTED_INDEX_POINT_QUERY = "enable_inverted_index_point_query";
+
     public static final String CHECK_OVERFLOW_FOR_DECIMAL = "check_overflow_for_decimal";
 
     public static final String DECIMAL_OVERFLOW_SCALE = "decimal_overflow_scale";
@@ -1765,6 +1767,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_SHORT_CIRCUIT_QUERY_ACCESS_COLUMN_STORE)
     private boolean enableShortCircuitQueryAcessColumnStore = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_INVERTED_INDEX_POINT_QUERY)
+    private boolean enableInvertedIndexPointQuery = false;
 
     @VariableMgr.VarAttr(name = CHECK_OVERFLOW_FOR_DECIMAL, affectQueryResultInExecution = true)
     private boolean checkOverflowForDecimal = true;
@@ -4572,6 +4577,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableShortCircuitQuery() {
         return enableShortCircuitQuery;
+    }
+
+    public boolean isEnableInvertedIndexPointQuery() {
+        return enableInvertedIndexPointQuery;
     }
 
     public boolean checkOverflowForDecimal() {

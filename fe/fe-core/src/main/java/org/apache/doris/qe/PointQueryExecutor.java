@@ -57,6 +57,7 @@ import org.apache.thrift.TException;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -82,10 +83,19 @@ public class PointQueryExecutor implements CoordInterface {
 
     private final ShortCircuitQueryContext shortCircuitQueryContext;
 
+    // Inverted index point query mode: multiple tablets may need to be queried
+    private boolean isInvertedIndexMode = false;
+    private List<Long> allTabletIds;
+    private Map<Long, List<Backend>> tabletToBackends;
+
     public PointQueryExecutor(ShortCircuitQueryContext ctx, int maxMessageSize) {
         ctx.sanitize();
         this.shortCircuitQueryContext = ctx;
         this.maxMsgSizeOfResultReceiver = maxMessageSize;
+        StatementContext stmtCtx = ConnectContext.get().getStatementContext();
+        if (stmtCtx != null && stmtCtx.isInvertedIndexPointQuery()) {
+            this.isInvertedIndexMode = true;
+        }
     }
 
     private void updateCloudPartitionVersions() throws RpcException {
@@ -113,8 +123,45 @@ public class PointQueryExecutor implements CoordInterface {
         if (scanNode.getScanTabletIds().isEmpty()) {
             return;
         }
-        Preconditions.checkState(scanNode.getScanTabletIds().size() == 1);
-        this.tabletID = scanNode.getScanTabletIds().get(0);
+
+        if (isInvertedIndexMode) {
+            // Inverted index mode: may have multiple tablets
+            allTabletIds = new ArrayList<>(scanNode.getScanTabletIds());
+            tabletToBackends = new HashMap<>();
+            for (TScanRangeLocations loc : locations) {
+                long tid = loc.getScanRange().getPaloScanRange().getTabletId();
+                List<Backend> backends = new ArrayList<>();
+                for (var tLoc : loc.getLocations()) {
+                    Backend backend = Env.getCurrentSystemInfo().getBackend(tLoc.getBackendId());
+                    if (SimpleScheduler.isAvailable(backend)) {
+                        backends.add(backend);
+                    }
+                }
+                Collections.shuffle(backends);
+                tabletToBackends.put(tid, backends);
+            }
+            // TODO: BloomFilter-based tablet pruning.
+            // When tablet-level BloomFilters are available in tablet metadata
+            // (populated by BE during segment write/compaction via InvertedIndexBloomFilterPB),
+            // probe the BloomFilter here to filter allTabletIds down to only those tablets
+            // that may contain the queried value.
+            // This would reduce RPC fanout from O(num_tablets) to O(num_tablets * false_positive_rate).
+            //
+            // Pseudocode:
+            //   String queryValue = statementContext.getInvertedIndexPointQueryLiteralValue();
+            //   int columnUid = statementContext.getInvertedIndexPointQueryColumnUniqueId();
+            //   allTabletIds.removeIf(tid -> {
+            //       BloomFilter bf = tabletBloomFilterCache.get(tid, columnUid);
+            //       return bf != null && !bf.mightContain(queryValue);
+            //   });
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Inverted index point query: {} tablets before BloomFilter pruning",
+                        allTabletIds.size());
+            }
+        } else {
+            Preconditions.checkState(scanNode.getScanTabletIds().size() == 1);
+            this.tabletID = scanNode.getScanTabletIds().get(0);
+        }
 
         // update partition version if cloud mode
         if (Config.isCloudMode()
@@ -123,17 +170,20 @@ public class PointQueryExecutor implements CoordInterface {
             updateCloudPartitionVersions();
         }
 
-        candidateBackends = new ArrayList<>();
-        for (Long backendID : scanNode.getScanBackendIds()) {
-            Backend backend = Env.getCurrentSystemInfo().getBackend(backendID);
-            if (SimpleScheduler.isAvailable(backend)) {
-                candidateBackends.add(backend);
+        if (!isInvertedIndexMode) {
+            candidateBackends = new ArrayList<>();
+            for (Long backendID : scanNode.getScanBackendIds()) {
+                Backend backend = Env.getCurrentSystemInfo().getBackend(backendID);
+                if (SimpleScheduler.isAvailable(backend)) {
+                    candidateBackends.add(backend);
+                }
             }
+            // Random read replicas
+            Collections.shuffle(this.candidateBackends);
         }
-        // Random read replicas
-        Collections.shuffle(this.candidateBackends);
         if (LOG.isDebugEnabled()) {
-            LOG.debug("set scan locations, backend ids {}, tablet id {}", candidateBackends, tabletID);
+            LOG.debug("set scan locations, inverted_index_mode={}, tablet_count={}",
+                    isInvertedIndexMode, isInvertedIndexMode ? allTabletIds.size() : 1);
         }
     }
 
@@ -209,6 +259,21 @@ public class PointQueryExecutor implements CoordInterface {
         requestBuilder.addKeyTuples(kBuilder);
     }
 
+    void addInvertedIndexQuery(
+            InternalService.PTabletKeyLookupRequest.Builder requestBuilder) {
+        StatementContext stmtCtx = ConnectContext.get().getStatementContext();
+        requestBuilder.setInvertedIndexColumnUniqueId(
+                stmtCtx.getInvertedIndexPointQueryColumnUniqueId());
+        String literalValue = stmtCtx.getInvertedIndexPointQueryLiteralValue();
+        // Strip surrounding quotes from the SQL literal representation if present
+        if (literalValue != null && literalValue.length() >= 2
+                && literalValue.startsWith("'") && literalValue.endsWith("'")) {
+            literalValue = literalValue.substring(1, literalValue.length() - 1);
+        }
+        requestBuilder.setInvertedIndexQueryValue(
+                com.google.protobuf.ByteString.copyFromUtf8(literalValue));
+    }
+
     @Override
     public void cancel(Status cancelReason) {
         // Do nothing
@@ -218,6 +283,11 @@ public class PointQueryExecutor implements CoordInterface {
     @Override
     public RowBatch getNext() throws Exception {
         setScanRangeLocations();
+
+        if (isInvertedIndexMode) {
+            return getNextForInvertedIndex();
+        }
+
         // No partition/tablet found return emtpy row batch
         if (candidateBackends == null || candidateBackends.isEmpty()) {
             return new RowBatch();
@@ -258,6 +328,91 @@ public class PointQueryExecutor implements CoordInterface {
         return rowBatch;
     }
 
+    private RowBatch getNextForInvertedIndex() throws Exception {
+        if (allTabletIds == null || allTabletIds.isEmpty()) {
+            return new RowBatch();
+        }
+        // Parallel RPC fanout: send requests to all tablets concurrently
+        Map<Long, Future<InternalService.PTabletKeyLookupResponse>> futures = new HashMap<>();
+        for (Long tid : allTabletIds) {
+            List<Backend> backends = tabletToBackends.get(tid);
+            if (backends == null || backends.isEmpty()) {
+                continue;
+            }
+            Backend backend = backends.get(0);
+            try {
+                InternalService.PTabletKeyLookupRequest request = buildInvertedIndexRequest(tid);
+                Future<InternalService.PTabletKeyLookupResponse> future =
+                        BackendServiceProxy.getInstance().fetchTabletDataAsync(
+                                backend.getBrpcAddress(), request);
+                futures.put(tid, future);
+            } catch (RpcException e) {
+                LOG.warn("inverted index point query RPC failed on tablet {}: {}", tid, e);
+            }
+        }
+        // Collect results from all parallel RPCs
+        List<TResultBatch> allBatches = new ArrayList<>();
+        for (Map.Entry<Long, Future<InternalService.PTabletKeyLookupResponse>> entry
+                : futures.entrySet()) {
+            Long tid = entry.getKey();
+            try {
+                InternalService.PTabletKeyLookupResponse pResult =
+                        entry.getValue().get(timeoutMs, TimeUnit.MILLISECONDS);
+                Status resultStatus = new Status(pResult.getStatus());
+                if (resultStatus.getErrorCode() != TStatusCode.OK) {
+                    LOG.warn("inverted index point query failed on tablet {}: {}",
+                            tid, resultStatus.getErrorMsg());
+                    continue;
+                }
+                if (pResult.hasEmptyBatch() && pResult.getEmptyBatch()) {
+                    continue;
+                }
+                if (pResult.hasRowBatch() && pResult.getRowBatch().size() > 0) {
+                    byte[] serialResult = pResult.getRowBatch().toByteArray();
+                    TResultBatch resultBatch = new TResultBatch();
+                    TDeserializer deserializer = new TDeserializer(
+                            new TCustomProtocolFactory(this.maxMsgSizeOfResultReceiver));
+                    deserializer.deserialize(resultBatch, serialResult);
+                    allBatches.add(resultBatch);
+                }
+            } catch (TimeoutException e) {
+                LOG.warn("inverted index point query timeout on tablet {}", tid);
+            } catch (Exception e) {
+                LOG.warn("inverted index point query error on tablet {}: {}", tid, e);
+            }
+        }
+        if (allBatches.isEmpty()) {
+            RowBatch empty = new RowBatch();
+            empty.setEos(true);
+            return empty;
+        }
+        TResultBatch merged = allBatches.get(0);
+        for (int i = 1; i < allBatches.size(); i++) {
+            merged.getRows().addAll(allBatches.get(i).getRows());
+        }
+        RowBatch result = new RowBatch();
+        result.setBatch(merged);
+        result.setEos(true);
+        return result;
+    }
+
+    private InternalService.PTabletKeyLookupRequest buildInvertedIndexRequest(long tid) {
+        InternalService.PTabletKeyLookupRequest.Builder requestBuilder
+                = InternalService.PTabletKeyLookupRequest.newBuilder()
+                .setTabletId(tid)
+                .setDescTbl(shortCircuitQueryContext.serializedDescTable)
+                .setOutputExpr(shortCircuitQueryContext.serializedOutputExpr)
+                .setQueryOptions(shortCircuitQueryContext.serializedQueryOptions)
+                .setIsBinaryRow(ConnectContext.get().command == MysqlCommand.COM_STMT_EXECUTE);
+        String timeZone = ConnectContext.get().getSessionVariable().getTimeZone();
+        if ("CST".equals(timeZone)) {
+            timeZone = "Asia/Shanghai";
+        }
+        requestBuilder.setTimeZone(timeZone);
+        addInvertedIndexQuery(requestBuilder);
+        return requestBuilder.build();
+    }
+
     @Override
     public void exec() throws Exception {
         // Point queries don't need to do anthing in execution phase.
@@ -296,7 +451,11 @@ public class PointQueryExecutor implements CoordInterface {
                 uuidBuilder.setUuidLow(shortCircuitQueryContext.cacheID.getLeastSignificantBits());
                 requestBuilder.setUuid(uuidBuilder);
             }
-            addKeyTuples(requestBuilder);
+            if (isInvertedIndexMode) {
+                addInvertedIndexQuery(requestBuilder);
+            } else {
+                addKeyTuples(requestBuilder);
+            }
 
             InternalService.PTabletKeyLookupRequest request = requestBuilder.build();
             Future<InternalService.PTabletKeyLookupResponse> futureResponse =
