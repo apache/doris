@@ -68,7 +68,7 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
     @SerializedName(value = "indexId")
     private long indexId = -1;
     @SerializedName(value = "idx")
-    private long idx = -1;
+    private int idx = -1;
     // last time to get tablet stats
     @Getter
     @Setter
@@ -116,7 +116,7 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
         this.tableId = tableId;
         this.partitionId = partitionId;
         this.indexId = indexId;
-        this.idx = idx;
+        this.idx = Math.toIntExact(idx);
     }
 
     private boolean isColocated() {
