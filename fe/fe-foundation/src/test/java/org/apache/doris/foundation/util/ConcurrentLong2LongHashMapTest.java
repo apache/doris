@@ -401,6 +401,65 @@ class ConcurrentLong2LongHashMapTest {
         Assertions.assertEquals(0, errors.get());
     }
 
+    // ---- Deadlock-safety tests ----
+
+    @Test
+    void testForEachWithMutatingCallbackDoesNotDeadlock() throws Exception {
+        ConcurrentLong2LongHashMap map = new ConcurrentLong2LongHashMap(1);
+        map.put(1L, 100L);
+        map.put(2L, 200L);
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        Future<?> future = executor.submit(() -> {
+            map.forEach((ConcurrentLong2LongHashMap.LongLongConsumer) (k, v) -> {
+                map.put(k + 1000L, v + 1);
+            });
+        });
+        future.get(5, java.util.concurrent.TimeUnit.SECONDS);
+        executor.shutdown();
+
+        Assertions.assertEquals(101L, map.get(1001L));
+        Assertions.assertEquals(201L, map.get(1002L));
+    }
+
+    @Test
+    void testReentrantComputeThrowsIllegalStateException() {
+        ConcurrentLong2LongHashMap map = new ConcurrentLong2LongHashMap();
+        map.put(1L, 100L);
+
+        Assertions.assertThrows(IllegalStateException.class, () -> {
+            map.compute(1L, (k, v) -> {
+                map.put(2L, 200L);
+                return v;
+            });
+        });
+    }
+
+    @Test
+    void testReentrantComputeIfAbsentThrowsIllegalStateException() {
+        ConcurrentLong2LongHashMap map = new ConcurrentLong2LongHashMap();
+
+        Assertions.assertThrows(IllegalStateException.class, () -> {
+            map.computeIfAbsent(1L, (long k) -> {
+                map.put(2L, 200L);
+                return k * 10;
+            });
+        });
+    }
+
+    @Test
+    void testReentrantMergeLongThrowsIllegalStateException() {
+        ConcurrentLong2LongHashMap map = new ConcurrentLong2LongHashMap();
+        map.put(1L, 100L);
+
+        Assertions.assertThrows(IllegalStateException.class, () -> {
+            map.mergeLong(1L, 50L, (oldVal, newVal) -> {
+                map.remove(2L);
+                return oldVal + newVal;
+            });
+        });
+    }
+
     // ---- Gson serialization tests ----
 
     @Test

@@ -52,11 +52,19 @@ import java.util.function.LongUnaryOperator;
  * <p><b>Important:</b> All compound operations from both {@link Long2LongMap} and {@link Map}
  * interfaces (computeIfAbsent, computeIfPresent, compute, merge, mergeLong, putIfAbsent,
  * replace, remove) are overridden to ensure atomicity within a segment.
+ *
+ * <p><b>Callback restriction:</b> The mapping/remapping functions passed to {@code computeIfAbsent},
+ * {@code computeIfPresent}, {@code compute}, {@code merge}, and {@code mergeLong} <em>must not</em>
+ * attempt to update any other mappings of this map. This restriction is enforced at runtime:
+ * reentrant access from a callback throws {@link IllegalStateException}. Violation may also cause
+ * deadlock if callbacks attempt cross-segment updates from multiple threads.
  */
 public class ConcurrentLong2LongHashMap extends AbstractLong2LongMap {
 
     private static final int DEFAULT_SEGMENT_COUNT = 16;
     private static final int DEFAULT_INITIAL_CAPACITY_PER_SEGMENT = 16;
+
+    private final ThreadLocal<Boolean> inCallback = ThreadLocal.withInitial(() -> Boolean.FALSE);
 
     private final Segment[] segments;
     private final int segmentMask;
@@ -97,6 +105,14 @@ public class ConcurrentLong2LongHashMap extends AbstractLong2LongMap {
 
     private Segment segmentFor(long key) {
         return segments[(int) (mix(key) >>> (64 - segmentBits)) & segmentMask];
+    }
+
+    private void checkNotInCallback() {
+        if (inCallback.get()) {
+            throw new IllegalStateException(
+                    "Recursive ConcurrentLong2LongHashMap access from within a compute/merge callback. "
+                    + "Callbacks must not modify the same map instance.");
+        }
     }
 
     // ---- Read operations (read-lock) ----
@@ -181,6 +197,7 @@ public class ConcurrentLong2LongHashMap extends AbstractLong2LongMap {
 
     @Override
     public long put(long key, long value) {
+        checkNotInCallback();
         Segment seg = segmentFor(key);
         seg.lock.writeLock().lock();
         try {
@@ -192,6 +209,7 @@ public class ConcurrentLong2LongHashMap extends AbstractLong2LongMap {
 
     @Override
     public long remove(long key) {
+        checkNotInCallback();
         Segment seg = segmentFor(key);
         seg.lock.writeLock().lock();
         try {
@@ -202,6 +220,7 @@ public class ConcurrentLong2LongHashMap extends AbstractLong2LongMap {
     }
 
     public long putIfAbsent(long key, long value) {
+        checkNotInCallback();
         Segment seg = segmentFor(key);
         seg.lock.writeLock().lock();
         try {
@@ -216,6 +235,7 @@ public class ConcurrentLong2LongHashMap extends AbstractLong2LongMap {
     }
 
     public boolean replace(long key, long oldValue, long newValue) {
+        checkNotInCallback();
         Segment seg = segmentFor(key);
         seg.lock.writeLock().lock();
         try {
@@ -230,6 +250,7 @@ public class ConcurrentLong2LongHashMap extends AbstractLong2LongMap {
     }
 
     public long replace(long key, long value) {
+        checkNotInCallback();
         Segment seg = segmentFor(key);
         seg.lock.writeLock().lock();
         try {
@@ -244,6 +265,7 @@ public class ConcurrentLong2LongHashMap extends AbstractLong2LongMap {
 
     @Override
     public boolean remove(Object key, Object value) {
+        checkNotInCallback();
         if (!(key instanceof Long) || !(value instanceof Long)) {
             return false;
         }
@@ -264,6 +286,7 @@ public class ConcurrentLong2LongHashMap extends AbstractLong2LongMap {
 
     @Override
     public void clear() {
+        checkNotInCallback();
         for (Segment seg : segments) {
             seg.lock.writeLock().lock();
             try {
@@ -291,6 +314,7 @@ public class ConcurrentLong2LongHashMap extends AbstractLong2LongMap {
      * @return the new value after the increment
      */
     public long addTo(long key, long increment) {
+        checkNotInCallback();
         Segment seg = segmentFor(key);
         seg.lock.writeLock().lock();
         try {
@@ -302,13 +326,20 @@ public class ConcurrentLong2LongHashMap extends AbstractLong2LongMap {
     }
 
     public long computeIfAbsent(long key, LongUnaryOperator mappingFunction) {
+        checkNotInCallback();
         Segment seg = segmentFor(key);
         seg.lock.writeLock().lock();
         try {
             if (seg.map.containsKey(key)) {
                 return seg.map.get(key);
             }
-            long newValue = mappingFunction.applyAsLong(key);
+            inCallback.set(Boolean.TRUE);
+            long newValue;
+            try {
+                newValue = mappingFunction.applyAsLong(key);
+            } finally {
+                inCallback.set(Boolean.FALSE);
+            }
             seg.map.put(key, newValue);
             return newValue;
         } finally {
@@ -317,13 +348,20 @@ public class ConcurrentLong2LongHashMap extends AbstractLong2LongMap {
     }
 
     public long computeIfAbsent(long key, Long2LongFunction mappingFunction) {
+        checkNotInCallback();
         Segment seg = segmentFor(key);
         seg.lock.writeLock().lock();
         try {
             if (seg.map.containsKey(key)) {
                 return seg.map.get(key);
             }
-            long newValue = mappingFunction.get(key);
+            inCallback.set(Boolean.TRUE);
+            long newValue;
+            try {
+                newValue = mappingFunction.get(key);
+            } finally {
+                inCallback.set(Boolean.FALSE);
+            }
             seg.map.put(key, newValue);
             return newValue;
         } finally {
@@ -333,6 +371,7 @@ public class ConcurrentLong2LongHashMap extends AbstractLong2LongMap {
 
     @Override
     public Long computeIfAbsent(Long key, Function<? super Long, ? extends Long> mappingFunction) {
+        checkNotInCallback();
         long k = key.longValue();
         Segment seg = segmentFor(k);
         seg.lock.writeLock().lock();
@@ -340,7 +379,13 @@ public class ConcurrentLong2LongHashMap extends AbstractLong2LongMap {
             if (seg.map.containsKey(k)) {
                 return seg.map.get(k);
             }
-            Long newValue = mappingFunction.apply(key);
+            inCallback.set(Boolean.TRUE);
+            Long newValue;
+            try {
+                newValue = mappingFunction.apply(key);
+            } finally {
+                inCallback.set(Boolean.FALSE);
+            }
             if (newValue != null) {
                 seg.map.put(k, newValue.longValue());
             }
@@ -352,6 +397,7 @@ public class ConcurrentLong2LongHashMap extends AbstractLong2LongMap {
 
     public long computeIfPresent(long key,
             BiFunction<? super Long, ? super Long, ? extends Long> remappingFunction) {
+        checkNotInCallback();
         Segment seg = segmentFor(key);
         seg.lock.writeLock().lock();
         try {
@@ -359,7 +405,13 @@ public class ConcurrentLong2LongHashMap extends AbstractLong2LongMap {
                 return defaultReturnValue();
             }
             long oldValue = seg.map.get(key);
-            Long newValue = remappingFunction.apply(key, oldValue);
+            inCallback.set(Boolean.TRUE);
+            Long newValue;
+            try {
+                newValue = remappingFunction.apply(key, oldValue);
+            } finally {
+                inCallback.set(Boolean.FALSE);
+            }
             if (newValue != null) {
                 seg.map.put(key, newValue.longValue());
                 return newValue;
@@ -373,11 +425,18 @@ public class ConcurrentLong2LongHashMap extends AbstractLong2LongMap {
     }
 
     public long compute(long key, BiFunction<? super Long, ? super Long, ? extends Long> remappingFunction) {
+        checkNotInCallback();
         Segment seg = segmentFor(key);
         seg.lock.writeLock().lock();
         try {
             Long oldValue = seg.map.containsKey(key) ? seg.map.get(key) : null;
-            Long newValue = remappingFunction.apply(key, oldValue);
+            inCallback.set(Boolean.TRUE);
+            Long newValue;
+            try {
+                newValue = remappingFunction.apply(key, oldValue);
+            } finally {
+                inCallback.set(Boolean.FALSE);
+            }
             if (newValue != null) {
                 seg.map.put(key, newValue.longValue());
                 return newValue;
@@ -392,6 +451,7 @@ public class ConcurrentLong2LongHashMap extends AbstractLong2LongMap {
 
     public long merge(long key, long value,
             BiFunction<? super Long, ? super Long, ? extends Long> remappingFunction) {
+        checkNotInCallback();
         Segment seg = segmentFor(key);
         seg.lock.writeLock().lock();
         try {
@@ -400,7 +460,13 @@ public class ConcurrentLong2LongHashMap extends AbstractLong2LongMap {
                 return value;
             }
             long oldValue = seg.map.get(key);
-            Long newValue = remappingFunction.apply(oldValue, value);
+            inCallback.set(Boolean.TRUE);
+            Long newValue;
+            try {
+                newValue = remappingFunction.apply(oldValue, value);
+            } finally {
+                inCallback.set(Boolean.FALSE);
+            }
             if (newValue != null) {
                 seg.map.put(key, newValue.longValue());
                 return newValue;
@@ -414,6 +480,7 @@ public class ConcurrentLong2LongHashMap extends AbstractLong2LongMap {
     }
 
     public long mergeLong(long key, long value, LongBinaryOperator remappingFunction) {
+        checkNotInCallback();
         Segment seg = segmentFor(key);
         seg.lock.writeLock().lock();
         try {
@@ -422,7 +489,13 @@ public class ConcurrentLong2LongHashMap extends AbstractLong2LongMap {
                 return value;
             }
             long oldValue = seg.map.get(key);
-            long newValue = remappingFunction.applyAsLong(oldValue, value);
+            inCallback.set(Boolean.TRUE);
+            long newValue;
+            try {
+                newValue = remappingFunction.applyAsLong(oldValue, value);
+            } finally {
+                inCallback.set(Boolean.FALSE);
+            }
             seg.map.put(key, newValue);
             return newValue;
         } finally {
@@ -493,17 +566,31 @@ public class ConcurrentLong2LongHashMap extends AbstractLong2LongMap {
     }
 
     /**
-     * Applies the given action to each entry under read-lock per segment.
+     * Applies the given action to each entry. Entries are snapshot-copied per segment under
+     * read-lock, then the action is invoked outside the lock. This avoids deadlock when
+     * the action modifies this map (e.g., {@code forEach((k, v) -> map.put(k, v + 1))}).
      */
     public void forEach(LongLongConsumer action) {
         for (Segment seg : segments) {
+            long[] keys;
+            long[] vals;
+            int n;
             seg.lock.readLock().lock();
             try {
+                n = seg.map.size();
+                keys = new long[n];
+                vals = new long[n];
+                int i = 0;
                 for (Long2LongMap.Entry entry : seg.map.long2LongEntrySet()) {
-                    action.accept(entry.getLongKey(), entry.getLongValue());
+                    keys[i] = entry.getLongKey();
+                    vals[i] = entry.getLongValue();
+                    i++;
                 }
             } finally {
                 seg.lock.readLock().unlock();
+            }
+            for (int i = 0; i < n; i++) {
+                action.accept(keys[i], vals[i]);
             }
         }
     }

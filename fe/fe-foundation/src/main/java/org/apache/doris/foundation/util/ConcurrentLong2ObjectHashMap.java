@@ -53,12 +53,24 @@ import java.util.function.LongFunction;
  * interfaces (computeIfAbsent, computeIfPresent, compute, merge, putIfAbsent, replace, remove)
  * are overridden to ensure atomicity within a segment.
  *
+ * <p><b>Callback restriction:</b> The mapping/remapping functions passed to {@code computeIfAbsent},
+ * {@code computeIfPresent}, {@code compute}, and {@code merge} <em>must not</em> attempt to update
+ * any other mappings of this map. This restriction is enforced at runtime: reentrant access from a
+ * callback throws {@link IllegalStateException}. Violation may also cause deadlock if callbacks
+ * attempt cross-segment updates from multiple threads.
+ *
  * @param <V> the type of mapped values
  */
 public class ConcurrentLong2ObjectHashMap<V> extends AbstractLong2ObjectMap<V> {
 
     private static final int DEFAULT_SEGMENT_COUNT = 16;
     private static final int DEFAULT_INITIAL_CAPACITY_PER_SEGMENT = 16;
+
+    /**
+     * Tracks whether the current thread is inside a callback (compute/merge) on this map instance.
+     * Used to detect reentrant calls that would risk deadlock.
+     */
+    private final ThreadLocal<Boolean> inCallback = ThreadLocal.withInitial(() -> Boolean.FALSE);
 
     private final Segment<V>[] segments;
     private final int segmentMask;
@@ -93,6 +105,14 @@ public class ConcurrentLong2ObjectHashMap<V> extends AbstractLong2ObjectMap<V> {
 
     private Segment<V> segmentFor(long key) {
         return segments[(int) (mix(key) >>> (64 - segmentBits)) & segmentMask];
+    }
+
+    private void checkNotInCallback() {
+        if (inCallback.get()) {
+            throw new IllegalStateException(
+                    "Recursive ConcurrentLong2ObjectHashMap access from within a compute/merge callback. "
+                    + "Callbacks must not modify the same map instance.");
+        }
     }
 
     // ---- Read operations (read-lock) ----
@@ -178,6 +198,7 @@ public class ConcurrentLong2ObjectHashMap<V> extends AbstractLong2ObjectMap<V> {
 
     @Override
     public V put(long key, V value) {
+        checkNotInCallback();
         Objects.requireNonNull(value, "Null values are not permitted");
         Segment<V> seg = segmentFor(key);
         seg.lock.writeLock().lock();
@@ -190,6 +211,7 @@ public class ConcurrentLong2ObjectHashMap<V> extends AbstractLong2ObjectMap<V> {
 
     @Override
     public V remove(long key) {
+        checkNotInCallback();
         Segment<V> seg = segmentFor(key);
         seg.lock.writeLock().lock();
         try {
@@ -200,6 +222,7 @@ public class ConcurrentLong2ObjectHashMap<V> extends AbstractLong2ObjectMap<V> {
     }
 
     public V putIfAbsent(long key, V value) {
+        checkNotInCallback();
         Objects.requireNonNull(value, "Null values are not permitted");
         Segment<V> seg = segmentFor(key);
         seg.lock.writeLock().lock();
@@ -216,6 +239,7 @@ public class ConcurrentLong2ObjectHashMap<V> extends AbstractLong2ObjectMap<V> {
     }
 
     public boolean replace(long key, V oldValue, V newValue) {
+        checkNotInCallback();
         Objects.requireNonNull(newValue, "Null values are not permitted");
         Segment<V> seg = segmentFor(key);
         seg.lock.writeLock().lock();
@@ -232,6 +256,7 @@ public class ConcurrentLong2ObjectHashMap<V> extends AbstractLong2ObjectMap<V> {
     }
 
     public V replace(long key, V value) {
+        checkNotInCallback();
         Objects.requireNonNull(value, "Null values are not permitted");
         Segment<V> seg = segmentFor(key);
         seg.lock.writeLock().lock();
@@ -247,6 +272,7 @@ public class ConcurrentLong2ObjectHashMap<V> extends AbstractLong2ObjectMap<V> {
 
     @Override
     public boolean remove(Object key, Object value) {
+        checkNotInCallback();
         if (!(key instanceof Long)) {
             return false;
         }
@@ -267,6 +293,7 @@ public class ConcurrentLong2ObjectHashMap<V> extends AbstractLong2ObjectMap<V> {
 
     @Override
     public void clear() {
+        checkNotInCallback();
         for (Segment<V> seg : segments) {
             seg.lock.writeLock().lock();
             try {
@@ -289,6 +316,7 @@ public class ConcurrentLong2ObjectHashMap<V> extends AbstractLong2ObjectMap<V> {
     // to ensure the check-then-act is atomic within a segment's write lock.
 
     public V computeIfAbsent(long key, LongFunction<? extends V> mappingFunction) {
+        checkNotInCallback();
         Segment<V> seg = segmentFor(key);
         seg.lock.writeLock().lock();
         try {
@@ -296,17 +324,23 @@ public class ConcurrentLong2ObjectHashMap<V> extends AbstractLong2ObjectMap<V> {
             if (val != null || seg.map.containsKey(key)) {
                 return val;
             }
-            V newValue = mappingFunction.apply(key);
-            if (newValue != null) {
-                seg.map.put(key, newValue);
+            inCallback.set(Boolean.TRUE);
+            try {
+                V newValue = mappingFunction.apply(key);
+                if (newValue != null) {
+                    seg.map.put(key, newValue);
+                }
+                return newValue;
+            } finally {
+                inCallback.set(Boolean.FALSE);
             }
-            return newValue;
         } finally {
             seg.lock.writeLock().unlock();
         }
     }
 
     public V computeIfAbsent(long key, Long2ObjectFunction<? extends V> mappingFunction) {
+        checkNotInCallback();
         Segment<V> seg = segmentFor(key);
         seg.lock.writeLock().lock();
         try {
@@ -314,11 +348,16 @@ public class ConcurrentLong2ObjectHashMap<V> extends AbstractLong2ObjectMap<V> {
             if (val != null || seg.map.containsKey(key)) {
                 return val;
             }
-            V newValue = mappingFunction.get(key);
-            if (newValue != null) {
-                seg.map.put(key, newValue);
+            inCallback.set(Boolean.TRUE);
+            try {
+                V newValue = mappingFunction.get(key);
+                if (newValue != null) {
+                    seg.map.put(key, newValue);
+                }
+                return newValue;
+            } finally {
+                inCallback.set(Boolean.FALSE);
             }
-            return newValue;
         } finally {
             seg.lock.writeLock().unlock();
         }
@@ -330,12 +369,19 @@ public class ConcurrentLong2ObjectHashMap<V> extends AbstractLong2ObjectMap<V> {
     }
 
     public V computeIfPresent(long key, BiFunction<? super Long, ? super V, ? extends V> remappingFunction) {
+        checkNotInCallback();
         Segment<V> seg = segmentFor(key);
         seg.lock.writeLock().lock();
         try {
             V oldValue = seg.map.get(key);
             if (oldValue != null || seg.map.containsKey(key)) {
-                V newValue = remappingFunction.apply(key, oldValue);
+                inCallback.set(Boolean.TRUE);
+                V newValue;
+                try {
+                    newValue = remappingFunction.apply(key, oldValue);
+                } finally {
+                    inCallback.set(Boolean.FALSE);
+                }
                 if (newValue != null) {
                     seg.map.put(key, newValue);
                 } else {
@@ -350,11 +396,18 @@ public class ConcurrentLong2ObjectHashMap<V> extends AbstractLong2ObjectMap<V> {
     }
 
     public V compute(long key, BiFunction<? super Long, ? super V, ? extends V> remappingFunction) {
+        checkNotInCallback();
         Segment<V> seg = segmentFor(key);
         seg.lock.writeLock().lock();
         try {
             V oldValue = seg.map.containsKey(key) ? seg.map.get(key) : null;
-            V newValue = remappingFunction.apply(key, oldValue);
+            inCallback.set(Boolean.TRUE);
+            V newValue;
+            try {
+                newValue = remappingFunction.apply(key, oldValue);
+            } finally {
+                inCallback.set(Boolean.FALSE);
+            }
             if (newValue != null) {
                 seg.map.put(key, newValue);
             } else if (seg.map.containsKey(key)) {
@@ -367,13 +420,19 @@ public class ConcurrentLong2ObjectHashMap<V> extends AbstractLong2ObjectMap<V> {
     }
 
     public V merge(long key, V value, BiFunction<? super V, ? super V, ? extends V> remappingFunction) {
+        checkNotInCallback();
         Segment<V> seg = segmentFor(key);
         seg.lock.writeLock().lock();
         try {
             V oldValue = seg.map.get(key);
             V newValue;
             if (oldValue != null || seg.map.containsKey(key)) {
-                newValue = remappingFunction.apply(oldValue, value);
+                inCallback.set(Boolean.TRUE);
+                try {
+                    newValue = remappingFunction.apply(oldValue, value);
+                } finally {
+                    inCallback.set(Boolean.FALSE);
+                }
             } else {
                 newValue = value;
             }
@@ -452,19 +511,33 @@ public class ConcurrentLong2ObjectHashMap<V> extends AbstractLong2ObjectMap<V> {
     }
 
     /**
-     * Applies the given action to each entry under read-lock per segment.
-     * This is more efficient than iterating {@link #long2ObjectEntrySet()} as it avoids
-     * creating a snapshot.
+     * Applies the given action to each entry. Entries are snapshot-copied per segment under
+     * read-lock, then the action is invoked outside the lock. This avoids deadlock when
+     * the action modifies this map (e.g., {@code forEach((k, v) -> map.put(k, v + 1))}).
      */
     public void forEach(LongObjConsumer<? super V> action) {
         for (Segment<V> seg : segments) {
+            long[] keys;
+            Object[] vals;
+            int n;
             seg.lock.readLock().lock();
             try {
+                n = seg.map.size();
+                keys = new long[n];
+                vals = new Object[n];
+                int i = 0;
                 for (Long2ObjectMap.Entry<V> entry : seg.map.long2ObjectEntrySet()) {
-                    action.accept(entry.getLongKey(), entry.getValue());
+                    keys[i] = entry.getLongKey();
+                    vals[i] = entry.getValue();
+                    i++;
                 }
             } finally {
                 seg.lock.readLock().unlock();
+            }
+            for (int i = 0; i < n; i++) {
+                @SuppressWarnings("unchecked")
+                V val = (V) vals[i];
+                action.accept(keys[i], val);
             }
         }
     }
