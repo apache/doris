@@ -107,6 +107,16 @@ BinaryColumnType SingleSparseColumnReader::get_type() const {
 }
 
 Status MultipleBinaryColumnReader::new_binary_column_iterator(ColumnIteratorUPtr* iter) const {
+    // Single bucket can be read directly without cross-bucket merge/sort.
+    if (_multiple_column_readers.size() == 1) {
+        DCHECK(!_multiple_column_readers.empty());
+        auto it = _multiple_column_readers.begin();
+        ColumnIteratorUPtr single_iter;
+        RETURN_IF_ERROR(it->second->new_iterator(&single_iter, nullptr));
+        *iter = std::move(single_iter);
+        return Status::OK();
+    }
+
     std::vector<std::unique_ptr<ColumnIterator>> iters;
     iters.reserve(_multiple_column_readers.size());
     for (const auto& [index, reader] : _multiple_column_readers) {

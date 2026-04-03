@@ -33,14 +33,24 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Map;
 
-@Disabled("set your aliyun's access key, secret key before running the test")
+@Disabled("set local DLF test credentials with -Ddoris.test.iceberg.dlf.access-key-id and "
+        + "-Ddoris.test.iceberg.dlf.secret-access-key before running the test")
 public class IcebergDlfRestCatalogTest {
 
-    private String ak = "ak";
-    private String sk = "sk";
+    private static final String DLF_ACCESS_KEY_ID_PROPERTY = "doris.test.iceberg.dlf.access-key-id";
+    private static final String DLF_SECRET_ACCESS_KEY_PROPERTY = "doris.test.iceberg.dlf.secret-access-key";
+    private static final String DLF_REST_URI = "http://cn-beijing-vpc.dlf.aliyuncs.com/iceberg";
+    private static final String DLF_WAREHOUSE = "new_dlf_iceberg_catalog";
+    private static final String DLF_SIGNING_NAME = "DlfNext";
+    private static final String DLF_SIGNING_REGION = "cn-beijing";
+
+    private static final String ACCESS_KEY_ID = System.getProperty(
+            DLF_ACCESS_KEY_ID_PROPERTY, "<your-access-key-id>");
+    private static final String SECRET_ACCESS_KEY = System.getProperty(
+            DLF_SECRET_ACCESS_KEY_PROPERTY, "<your-secret-access-key>");
 
     @Test
-    public void testIcebergDlRestCatalog() {
+    public void testIcebergDlfRestCatalog() {
         Catalog dlfRestCatalog = initIcebergDlfRestCatalog();
         SupportsNamespaces nsCatalog = (SupportsNamespaces) dlfRestCatalog;
         // List namespaces and assert
@@ -71,8 +81,8 @@ public class IcebergDlfRestCatalogTest {
     private Catalog initIcebergDlfRestCatalog() {
         Map<String, String> options = Maps.newHashMap();
         options.put(CatalogUtil.ICEBERG_CATALOG_TYPE, CatalogUtil.ICEBERG_CATALOG_TYPE_REST);
-        options.put(CatalogProperties.URI, "http://cn-beijing-vpc.dlf.aliyuncs.com/iceberg");
-        options.put(CatalogProperties.WAREHOUSE_LOCATION, "new_dlf_iceberg_catalog");
+        options.put(CatalogProperties.URI, DLF_REST_URI);
+        options.put(CatalogProperties.WAREHOUSE_LOCATION, DLF_WAREHOUSE);
         // remove this endpoint prop, or, add https://
         // must set:
         // software.amazon.awssdk.core.exception.SdkClientException: Unable to load region from any of the providers in
@@ -87,14 +97,14 @@ public class IcebergDlfRestCatalogTest {
         // Forbidden: {"message":"Missing Authentication Token"}
         options.put("rest.sigv4-enabled", "true");
         // Forbidden: {"message":"Credential should be scoped to correct service: 'glue'. "}
-        options.put("rest.signing-name", "DlfNext");
+        options.put("rest.signing-name", DLF_SIGNING_NAME);
         //  Forbidden: {"message":"The security token included in the request is invalid."}
-        options.put("rest.access-key-id", ak);
+        options.put("rest.access-key-id", ACCESS_KEY_ID);
         // Forbidden: {"message":"The request signature we calculated does not match the signature you provided.
         // Check your AWS Secret Access Key and signing method. Consult the service documentation for details."}
-        options.put("rest.secret-access-key", sk);
+        options.put("rest.secret-access-key", SECRET_ACCESS_KEY);
         // same as AwsClientProperties.CLIENT_REGION, "ap-east-1"
-        options.put("rest.signing-region", "cn-beijing");
+        options.put("rest.signing-region", DLF_SIGNING_REGION);
         //options.put("rest.auth.type", "sigv4");
 
         // options.put("iceberg.catalog.warehouse", "<accountid>:s3tablescatalog/<table-bucket-name>");
@@ -108,16 +118,16 @@ public class IcebergDlfRestCatalogTest {
      *     'type' = 'iceberg',
      *     'warehouse' = 's3://warehouse',
      *     'iceberg.catalog.type' = 'rest',
-     *     'iceberg.rest.uri' = 'http://cn-beijing-vpc.dlf.aliyuncs.com/iceberg',
+     *     'iceberg.rest.uri' = '<dlf-rest-uri>',
      *     'oss.endpoint' = 'https://oss-cn-beijing.aliyuncs.com',
-     *     'oss.access_key' = 'LTAI5t6wZZ7o4HThKWT2Pbxb',
-     *     'oss.secret_key' = '7REf7bRXiL9lnt5Zh4BGTncyCln2sQ',
+     *     'oss.access_key' = '<your-oss-access-key>',
+     *     'oss.secret_key' = '<your-oss-secret-key>',
      *     'oss.region' = 'cn-beijing',
      *     'iceberg.rest.sigv4-enabled' = 'true',
      *     'iceberg.rest.signing-name' = 'DlfNext',
      *     'iceberg.rest.signing-region' = 'cn-beijing',
-     *     'iceberg.rest.access-key-id' = 'LTAI5t6wZZ7o4HThKWT2Pbxb',
-     *     'iceberg.rest.secret-access-key' = '7REf7bRXiL9lnt5Zh4BGTncyCln2sQ',
+     *     'iceberg.rest.access-key-id' = '<your-access-key-id>',
+     *     'iceberg.rest.secret-access-key' = '<your-secret-access-key>',
      *     'iceberg.rest.auth.type' = 'sigv4'
      * );
      */

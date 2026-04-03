@@ -269,7 +269,7 @@ suite("test_mow_compaction_and_rowset_not_exist", "nonConcurrent") {
         logger.info("local_dm 1: " + local_dm)
 
         // block merge delete bitmap
-        GetDebugPoint().enableDebugPointForAllBEs("CumulativeCompaction.modify_rowsets.cloud_update_delete_bitmap_without_lock.block")
+        // GetDebugPoint().enableDebugPointForAllBEs("CumulativeCompaction.modify_rowsets.cloud_update_delete_bitmap_without_lock.block")
         // trigger compaction
         GetDebugPoint().enableDebugPointForAllBEs("CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets.set_input_rowsets",
                 [tablet_id: "${tablet.TabletId}", start_version: 7, end_version: 11]);
@@ -283,10 +283,13 @@ suite("test_mow_compaction_and_rowset_not_exist", "nonConcurrent") {
             sleep(2000)
         }
         assertEquals(3, tablet_status["rowsets"].size())
+        def ms_dm = getMsDeleteBitmapStatus(tablet)
+        logger.info("ms_dm 2: " + ms_dm)
+        assertEquals(1, ms_dm["delete_bitmap_count"])
+        assertEquals(5, ms_dm["cardinality"])
+        // for local delete bitmap, the unused rowsets may be not deleted because of rowset reference count
         local_dm = getLocalDeleteBitmapStatus(tablet)
         logger.info("local_dm 2: " + local_dm)
-        assertEquals(5, local_dm["delete_bitmap_count"])
-        assertEquals(5, local_dm["cardinality"])
         order_qt_sql4 "select * from ${testTable}"
 
         triggerFullCompaction(tablet)
@@ -303,7 +306,7 @@ suite("test_mow_compaction_and_rowset_not_exist", "nonConcurrent") {
         getTabletStatus(tablet)
         local_dm = getLocalDeleteBitmapStatus(tablet)
         logger.info("local_dm 3: " + local_dm)
-        def ms_dm = getMsDeleteBitmapStatus(tablet)
+        ms_dm = getMsDeleteBitmapStatus(tablet)
         logger.info("ms_dm 3: " + ms_dm)
         order_qt_sql5 "select * from ${testTable}"
 

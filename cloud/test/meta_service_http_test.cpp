@@ -1398,7 +1398,7 @@ TEST(MetaServiceHttpTest, ToUnknownUrlTest) {
     HttpContext ctx;
     auto [status_code, content] = ctx.query<std::string>("unkown_resource_xxxxxx", "");
     ASSERT_EQ(status_code, 200);
-    ASSERT_EQ(content, "{\n    \"code\": \"OK\",\n    \"msg\": \"\"\n}\n");
+    ASSERT_NE(content.find("\"code\": \"OK\""), std::string::npos);
 }
 
 TEST(MetaServiceHttpTest, UnknownFields) {

@@ -92,6 +92,9 @@ jobs:
           - After completing the review, you MUST provide a final summary opinion based on the rules defined in AGENTS.md and the code-review skill. The summary must include conclusions for each applicable critical checkpoint.
           - If no issues to report, submit a short summary comment saying no issues found using: gh pr comment PLACEHOLDER_PR_NUMBER --body "<summary>"
           - If issues found, submit a review with inline comments plus a comprehensive summary body. Use GitHub Reviews API to ensure comments are inline:
+              - Inline comment bodies may include GitHub suggested changes blocks when you can propose a precise patch.
+              - Prefer suggested changes for small, self-contained fixes (for example typos, trivial refactors, or narrowly scoped code corrections).
+              - Do not force suggested changes for broad, architectural, or multi-file issues; explain those normally.
               - Build a JSON array of comments like: [{ "path": "<file>", "position": <diff_position>, "body": "..." }]
               - Submit via: gh api repos/PLACEHOLDER_REPO/pulls/PLACEHOLDER_PR_NUMBER/reviews --input <json_file>
               - The JSON file should contain: {"event":"COMMENT","body":"<summary>","comments":[...]}
@@ -117,7 +120,7 @@ jobs:
           PROMPT=$(cat /tmp/review_prompt.txt)
 
           set +e
-          opencode run "$PROMPT" -m "github-copilot/claude-opus-4.6" 2>&1 | tee /tmp/opencode-review.log
+          opencode run "$PROMPT" -m "github-copilot/gpt-5.4" 2>&1 | tee /tmp/opencode-review.log
           status=${PIPESTATUS[0]}
           set -e
 

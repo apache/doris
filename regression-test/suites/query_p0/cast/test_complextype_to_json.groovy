@@ -17,8 +17,6 @@
 
 suite('test_complextype_to_json', "query_p0") {
     // do support in nereids
-    sql """ set experimental_enable_nereids_planner=true"""
-    sql """ set enable_fallback_to_original_planner=false; """
 
     // literal cast
     qt_select """SELECT CAST([] AS JSON)"""

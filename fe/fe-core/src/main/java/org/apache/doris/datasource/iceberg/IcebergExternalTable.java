@@ -319,6 +319,19 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     }
 
     @Override
+    public Optional<SysTable> findSysTable(String tableNameWithSysTableName) {
+        Optional<SysTable> sysTable = MTMVRelatedTableIf.super.findSysTable(tableNameWithSysTableName);
+        if (sysTable.isPresent()) {
+            return sysTable;
+        }
+        String sysTableName = SysTable.getTableNameWithSysTableName(tableNameWithSysTableName).second;
+        if (IcebergSysTable.POSITION_DELETES.equals(sysTableName)) {
+            return Optional.of(IcebergSysTable.UNSUPPORTED_POSITION_DELETES_TABLE);
+        }
+        return Optional.empty();
+    }
+
+    @Override
     public boolean isView() {
         makeSureInitialized();
         return isView;

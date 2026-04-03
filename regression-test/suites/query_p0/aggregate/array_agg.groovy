@@ -252,8 +252,6 @@ suite("array_agg") {
     """
 
     // only support nereids
-    sql "SET enable_nereids_planner=true;"
-    sql "SET enable_fallback_to_original_planner=false;"
 	sql """ CREATE TABLE IF NOT EXISTS test_array_agg_complex (id int, kastr array<string>, km map<string, int>, ks STRUCT<id: int>) engine=olap
                                                                                          DISTRIBUTED BY HASH(`id`) BUCKETS 4
                                                                                          properties("replication_num" = "1") """

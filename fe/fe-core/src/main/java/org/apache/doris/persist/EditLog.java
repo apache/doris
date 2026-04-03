@@ -23,6 +23,7 @@ import org.apache.doris.alter.BatchAlterJobPersistInfo;
 import org.apache.doris.alter.IndexChangeJob;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.authentication.AuthenticationIntegrationMeta;
+import org.apache.doris.authentication.RoleMappingMeta;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.Repository;
 import org.apache.doris.backup.RestoreJob;
@@ -1100,6 +1101,16 @@ public class EditLog {
                     DropAuthenticationIntegrationOperationLog log =
                             (DropAuthenticationIntegrationOperationLog) journal.getData();
                     env.getAuthenticationIntegrationMgr().replayDropAuthenticationIntegration(log);
+                    break;
+                }
+                case OperationType.OP_CREATE_ROLE_MAPPING: {
+                    RoleMappingMeta log = (RoleMappingMeta) journal.getData();
+                    env.getRoleMappingMgr().replayCreateRoleMapping(log);
+                    break;
+                }
+                case OperationType.OP_DROP_ROLE_MAPPING: {
+                    DropRoleMappingOperationLog log = (DropRoleMappingOperationLog) journal.getData();
+                    env.getRoleMappingMgr().replayDropRoleMapping(log);
                     break;
                 }
                 case OperationType.OP_MODIFY_TABLE_ENGINE: {
@@ -2365,6 +2376,14 @@ public class EditLog {
 
     public void logDropAuthenticationIntegration(DropAuthenticationIntegrationOperationLog log) {
         logEdit(OperationType.OP_DROP_AUTHENTICATION_INTEGRATION, log);
+    }
+
+    public void logCreateRoleMapping(RoleMappingMeta meta) {
+        logEdit(OperationType.OP_CREATE_ROLE_MAPPING, meta);
+    }
+
+    public void logDropRoleMapping(DropRoleMappingOperationLog log) {
+        logEdit(OperationType.OP_DROP_ROLE_MAPPING, log);
     }
 
     public void logModifyTableEngine(ModifyTableEngineOperationLog log) {

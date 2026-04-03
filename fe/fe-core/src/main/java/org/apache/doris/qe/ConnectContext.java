@@ -28,6 +28,7 @@ import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.analysis.VariableExpr;
+import org.apache.doris.authentication.Principal;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -90,6 +91,7 @@ import org.xnio.StreamConnection;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -170,6 +172,10 @@ public class ConnectContext {
     // In other word, currentUserIdentity is the entry that matched in Doris auth table.
     // This account determines user's access privileges.
     protected volatile UserIdentity currentUserIdentity;
+    // Authenticated external principal captured during the login flow.
+    protected volatile Principal authenticatedPrincipal;
+    // Roles granted during authentication and bound to the current session.
+    protected volatile Set<String> authenticatedRoles = Collections.emptySet();
     // Variables belong to this session.
     protected volatile SessionVariable sessionVariable;
     // Store user variable in this connection
@@ -659,6 +665,26 @@ public class ConnectContext {
 
     public UserIdentity getCurrentUserIdentity() {
         return currentUserIdentity;
+    }
+
+    public Principal getAuthenticatedPrincipal() {
+        return authenticatedPrincipal;
+    }
+
+    public void setAuthenticatedPrincipal(Principal authenticatedPrincipal) {
+        this.authenticatedPrincipal = authenticatedPrincipal;
+    }
+
+    public Set<String> getAuthenticatedRoles() {
+        return authenticatedRoles;
+    }
+
+    public void setAuthenticatedRoles(Set<String> authenticatedRoles) {
+        if (authenticatedRoles.isEmpty()) {
+            this.authenticatedRoles = Collections.emptySet();
+            return;
+        }
+        this.authenticatedRoles = Collections.unmodifiableSet(new HashSet<>(authenticatedRoles));
     }
 
     // used for select user(), select session_user();
