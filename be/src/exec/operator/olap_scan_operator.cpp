@@ -942,6 +942,7 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
             const auto& value_range = iter->second;
 
             std::optional<int> key_to_erase;
+            bool is_fixed_value_range = false;
 
             RETURN_IF_ERROR(std::visit(
                     [&](auto&& range) {
@@ -955,6 +956,7 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
                                                                &exact_range, &eos, &should_break));
                             if (exact_range) {
                                 key_to_erase = iter->first;
+                                is_fixed_value_range = range.is_fixed_value_range();
                             }
                         } else {
                             // if exceed max_pushdown_conditions_per_column, use whole_value_rang instead
@@ -972,9 +974,49 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
             if (key_to_erase.has_value()) {
                 _slot_id_to_value_range.erase(*key_to_erase);
 
+                // Determine which predicates are subsumed by the scan key range and can
+                // be removed.  The rule depends on the ColumnValueRange type:
+                //
+                //   Fixed value range  →  scan keys are exact point lookups, so both
+                //                         comparison (EQ/LT/LE/GT/GE) and positive IN_LIST
+                //                         predicates are fully captured and can be erased.
+                //
+                //   Scope range        →  scan keys only capture [low, high] boundaries,
+                //                         so only comparison predicates are subsumed.
+                //                         IN_LIST predicates (whose values may NOT have been
+                //                         absorbed into the ColumnValueRange, e.g., because
+                //                         the value count exceeded max_pushdown_conditions_per_column)
+                //                         must be preserved.
+                //
+                // In either case, predicates with negation semantics (effective NE / NOT_IN_LIST)
+                // are never subsumed by scan key ranges and must always be preserved.
+                auto can_erase_predicate = [is_fixed_value_range](const ColumnPredicate& pred) {
+                    PredicateType pt = pred.type();
+                    bool opposite = pred.opposite();
+
+                    // Effective NE: never subsumed by any scan key range.
+                    if ((pt == PredicateType::NE && !opposite) ||
+                        (pt == PredicateType::EQ && opposite)) {
+                        return false;
+                    }
+                    // Comparison predicates (EQ/LT/LE/GT/GE) or IS_NULL/IS_NOT_NULL: subsumed by both
+                    // fixed value and scope ranges.
+                    if (PredicateTypeTraits::is_comparison(pt) || pt == PredicateType::IS_NULL ||
+                        pt == PredicateType::IS_NOT_NULL) {
+                        return true;
+                    }
+                    // Effective IN_LIST: only subsumed by fixed value range.
+                    if ((pt == PredicateType::IN_LIST && !opposite) ||
+                        (pt == PredicateType::NOT_IN_LIST && opposite)) {
+                        return is_fixed_value_range;
+                    }
+                    // Everything else (BF, BITMAP, NOT_IN_LIST, etc.): keep.
+                    return false;
+                };
+
                 std::vector<std::shared_ptr<ColumnPredicate>> new_predicates;
                 for (const auto& it : _slot_id_to_predicates[*key_to_erase]) {
-                    if (!it->could_be_erased()) {
+                    if (!can_erase_predicate(*it)) {
                         new_predicates.push_back(it);
                     }
                 }
