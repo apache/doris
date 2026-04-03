@@ -473,10 +473,6 @@ Status CsvReader::_do_get_next_block(Block* block, size_t* read_rows, bool* eof)
     *eof = (rows == 0);
     *read_rows = rows;
 
-    if (rows > 0 && _push_down_agg_type != TPushAggOp::type::COUNT) {
-        RETURN_IF_ERROR(fill_remaining_columns(block, rows));
-    }
-
     return Status::OK();
 }
 

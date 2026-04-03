@@ -112,10 +112,6 @@ Status WalReader::_do_get_next_block(Block* block, size_t* read_rows, bool* eof)
     *read_rows = block->rows();
     VLOG_DEBUG << "read block rows:" << *read_rows;
 
-    if (*read_rows > 0) {
-        RETURN_IF_ERROR(fill_remaining_columns(block, *read_rows));
-    }
-
     return Status::OK();
 }
 

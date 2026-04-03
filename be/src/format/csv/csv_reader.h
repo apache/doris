@@ -32,7 +32,7 @@
 #include "common/status.h"
 #include "core/data_type/data_type.h"
 #include "format/file_reader/new_plain_text_line_reader.h"
-#include "format/generic_reader.h"
+#include "format/table/table_format_reader.h"
 #include "io/file_factory.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "util/decompressor.h"
@@ -170,7 +170,7 @@ private:
     std::string _value_sep;
 };
 
-class CsvReader : public GenericReader {
+class CsvReader : public TableFormatReader {
     ENABLE_FACTORY_CREATOR(CsvReader);
 
 public:

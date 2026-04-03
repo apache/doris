@@ -17,79 +17,21 @@
 
 #pragma once
 
-#include <algorithm>
-#include <cstddef>
-#include <string>
-
-#include "common/status.h"
-#include "core/block/block.h"
 #include "format/generic_reader.h"
-#include "runtime/runtime_profile.h"
-#include "runtime/runtime_state.h"
-
-namespace doris {
-class TFileRangeDesc;
-class Block;
-} // namespace doris
 
 namespace doris {
 #include "common/compile_check_begin.h"
+
+/// Intermediate base class for "table readers" used by FileScanner.
+/// Provides default on_after_read_block that fills partition/missing/synthesized columns.
+/// Parquet/ORC override to no-op (they fill per-batch internally).
 class TableFormatReader : public GenericReader {
-public:
-    TableFormatReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeState* state,
-                      RuntimeProfile* profile, const TFileScanRangeParams& params,
-                      const TFileRangeDesc& range, io::IOContext* io_ctx, FileMetaCache* meta_cache)
-            : _file_format_reader(std::move(file_format_reader)),
-              _state(state),
-              _profile(profile),
-              _params(params),
-              _range(range),
-              _io_ctx(io_ctx) {
-        _meta_cache = meta_cache;
-    }
-    ~TableFormatReader() override = default;
-    Status get_next_block(Block* block, size_t* read_rows, bool* eof) final {
-        return get_next_block_inner(block, read_rows, eof);
-    }
-
-    virtual Status get_next_block_inner(Block* block, size_t* read_rows, bool* eof) = 0;
-
-    Status get_parsed_schema(std::vector<std::string>* col_names,
-                             std::vector<DataTypePtr>* col_types) override {
-        return _file_format_reader->get_parsed_schema(col_names, col_types);
-    }
-
-    virtual Status init_row_filters() = 0;
-
-    bool count_read_rows() override { return _file_format_reader->count_read_rows(); }
-
-    void set_condition_cache_context(std::shared_ptr<ConditionCacheContext> ctx) override {
-        _file_format_reader->set_condition_cache_context(std::move(ctx));
-    }
-
-    bool has_delete_operations() const override {
-        return _file_format_reader->has_delete_operations();
-    }
-
-    bool supports_count_pushdown() const override {
-        return _file_format_reader->supports_count_pushdown();
-    }
-
-    int64_t get_total_rows() const override { return _file_format_reader->get_total_rows(); }
-
 protected:
-    std::string _table_format;                          // hudi, iceberg, paimon
-    std::unique_ptr<GenericReader> _file_format_reader; // parquet, orc
-    RuntimeState* _state = nullptr;                     // for query options
-    RuntimeProfile* _profile = nullptr;
-    const TFileScanRangeParams& _params;
-    const TFileRangeDesc& _range;
-    io::IOContext* _io_ctx = nullptr;
-
-    void _collect_profile_before_close() override {
-        if (_file_format_reader != nullptr) {
-            _file_format_reader->collect_profile_before_close();
+    Status on_after_read_block(Block* block, size_t* read_rows) override {
+        if (*read_rows > 0 && _push_down_agg_type != TPushAggOp::type::COUNT) {
+            RETURN_IF_ERROR(fill_remaining_columns(block, *read_rows));
         }
+        return Status::OK();
     }
 };
 

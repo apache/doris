@@ -16,7 +16,7 @@
 // under the License.
 
 #pragma once
-#include "format/generic_reader.h"
+#include "format/table/table_format_reader.h"
 #include "load/group_commit/wal/wal_file_reader.h"
 #include "runtime/descriptors.h"
 
@@ -29,7 +29,7 @@ struct WalInitContext final : public ReaderInitContext {
     const TupleDescriptor* output_tuple_descriptor = nullptr;
 };
 
-class WalReader : public GenericReader {
+class WalReader : public TableFormatReader {
     ENABLE_FACTORY_CREATOR(WalReader);
 
 public:

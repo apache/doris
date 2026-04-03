@@ -25,7 +25,7 @@
 #include <unordered_set>
 
 #include "common/status.h"
-#include "format/generic_reader.h"
+#include "format/table/table_format_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 
 namespace doris {
@@ -44,7 +44,7 @@ class Block;
 // it will read a sequence of Blocks encoded in Doris Native binary format.
 //
 // NOTE: current implementation is just a skeleton and will be filled step by step.
-class NativeReader : public GenericReader {
+class NativeReader : public TableFormatReader {
 public:
     ENABLE_FACTORY_CREATOR(NativeReader);
 

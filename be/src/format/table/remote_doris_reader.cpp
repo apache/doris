@@ -95,10 +95,6 @@ Status RemoteDorisReader::_do_get_next_block(Block* block, size_t* read_rows, bo
 
     *read_rows += num_rows;
 
-    if (*read_rows > 0) {
-        RETURN_IF_ERROR(fill_remaining_columns(block, *read_rows));
-    }
-
     return Status::OK();
 }
 

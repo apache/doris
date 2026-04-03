@@ -36,7 +36,7 @@
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "exprs/json_functions.h"
-#include "format/generic_reader.h"
+#include "format/table/table_format_reader.h"
 #include "format/line_reader.h"
 #include "io/file_factory.h"
 #include "io/fs/file_reader_writer_fwd.h"
@@ -69,7 +69,7 @@ struct JsonInitContext final : public ReaderInitContext {
     bool is_load = false;
 };
 
-class NewJsonReader : public GenericReader {
+class NewJsonReader : public TableFormatReader {
     ENABLE_FACTORY_CREATOR(NewJsonReader);
 
 public:

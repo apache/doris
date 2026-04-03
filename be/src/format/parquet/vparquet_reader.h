@@ -30,7 +30,7 @@
 #include <vector>
 
 #include "common/status.h"
-#include "format/generic_reader.h"
+#include "format/table/table_format_reader.h"
 #include "format/parquet/parquet_common.h"
 #include "format/parquet/parquet_predicate.h"
 #include "format/parquet/vparquet_column_reader.h"
@@ -87,7 +87,7 @@ struct ParquetInitContext final : public ReaderInitContext {
     const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts = nullptr;
 };
 
-class ParquetReader : public GenericReader {
+class ParquetReader : public TableFormatReader {
     ENABLE_FACTORY_CREATOR(ParquetReader);
 
 public:
@@ -208,6 +208,12 @@ protected:
 
     // Core block reading implementation
     Status _do_get_next_block(Block* block, size_t* read_rows, bool* eof) override;
+
+    // Parquet fills partition/missing columns per-batch internally via RowGroupReader,
+    // so suppress TableFormatReader's default on_after_read_block fill.
+    Status on_after_read_block(Block* /*block*/, size_t* /*read_rows*/) override {
+        return Status::OK();
+    }
 
     // Protected accessors so CRTP mixin subclasses can reach private members
     io::IOContext* get_io_ctx() const { return _io_ctx; }

@@ -27,6 +27,7 @@
 
 #include "common/status.h"
 #include "format/jni/jni_reader.h"
+#include "format/table/table_format_reader.h"
 #include "storage/olap_scan_common.h"
 
 namespace doris {
@@ -37,7 +38,8 @@ class Block;
 } // namespace doris
 
 namespace doris {
-class RemoteDorisReader : public GenericReader {
+#include "common/compile_check_begin.h"
+class RemoteDorisReader : public TableFormatReader {
     ENABLE_FACTORY_CREATOR(RemoteDorisReader);
 
 public:
@@ -75,4 +77,5 @@ private:
     // Column name to block index map, passed from FileScanner to avoid repeated map creation
     std::unordered_map<std::string, uint32_t>* _col_name_to_block_idx = nullptr;
 };
+#include "common/compile_check_end.h"
 } // namespace doris

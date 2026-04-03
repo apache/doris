@@ -41,7 +41,7 @@
 #include "exprs/vslot_ref.h"
 #include "format/column_type_convert.h"
 #include "format/format_common.h"
-#include "format/generic_reader.h"
+#include "format/table/table_format_reader.h"
 #include "format/table/table_schema_change_helper.h"
 #include "format/table/transactional_hive_common.h"
 #include "io/file_factory.h"
@@ -127,7 +127,7 @@ struct LazyReadContext {
     size_t filter_phase_rows = 0;
 };
 
-class OrcReader : public GenericReader, public RowPositionProvider {
+class OrcReader : public TableFormatReader, public RowPositionProvider {
     ENABLE_FACTORY_CREATOR(OrcReader);
 
 public:
@@ -262,6 +262,12 @@ protected:
 
     // Core block reading implementation
     Status _do_get_next_block(Block* block, size_t* read_rows, bool* eof) override;
+
+    // ORC fills partition/missing columns per-batch internally,
+    // so suppress TableFormatReader's default on_after_read_block fill.
+    Status on_after_read_block(Block* /*block*/, size_t* /*read_rows*/) override {
+        return Status::OK();
+    }
 
     // Protected accessors so CRTP mixin subclasses can reach private members
     io::IOContext* get_io_ctx() const { return _io_ctx; }

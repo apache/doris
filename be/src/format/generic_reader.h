@@ -321,8 +321,8 @@ public:
     }
 
     /// Unified fill for partition + missing + synthesized columns.
-    /// Called by simple readers (CSV, JSON, Text, etc.) at end of get_next_block.
-    /// Parquet/ORC fill internally via RowGroupReader / get_next_block hooks.
+    /// Called automatically by TableFormatReader::on_after_read_block for simple readers.
+    /// Parquet/ORC fill internally via RowGroupReader / per-batch hooks.
     Status fill_remaining_columns(Block* block, size_t rows) {
         std::vector<std::string> part_col_names;
         for (auto& kv : _fill_partition_values) {
