@@ -100,15 +100,11 @@ To* checked_context_cast(From* ptr) {
 /// A GenericReader is responsible for reading a file and returning
 /// a set of blocks with specified schema.
 ///
-/// Also provides hook virtual methods that table-format subclasses
-/// (Iceberg, Hive ACID, Paimon, Hudi) override via CRTP or direct inheritance.
+/// Provides hook virtual methods that implement the Template Method pattern:
+///   init_reader:      _open_file_reader → on_before_init_reader → _do_init_reader → on_after_init_reader
+///   get_next_block:   on_before_read_block → _do_get_next_block → on_after_read_block
 ///
-/// These hooks implement the Template Method pattern:
-///   init_reader:      on_before_init_reader  → _do_init_reader → on_after_init_reader
-///   get_next_block:   on_before_read_block    → _do_get_next_block → on_after_read_block
-///
-/// Also provides shared default implementations for filling partition/missing
-/// columns.
+/// Column-filling logic (partition/missing/synthesized) lives in TableFormatReader.
 class GenericReader : public ProfileCollector {
 public:
     GenericReader() : _push_down_agg_type(TPushAggOp::type::NONE) {}
@@ -209,142 +205,11 @@ public:
         return Status::OK();
     }
 
-    /// Hook called before core init. Sets up _column_descs, _fill_col_name_to_block_idx,
-    /// partition values, and builds column_names for file reading.
-    /// Subclasses override to customize schema mapping.
-    /// Also called by FileScanner for simple readers that don't have their own init_reader.
-    virtual Status on_before_init_reader(ReaderInitContext* ctx);
-
-    /// Get missing columns computed by get_columns().
-    const std::unordered_set<std::string>& missing_cols() const { return _fill_missing_cols; }
-
-    void set_fill_column_data(
-            const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
-                    partition_values,
-            const std::unordered_map<std::string, VExprContextSPtr>& missing_defaults,
-            std::unordered_map<std::string, uint32_t>* col_name_to_block_idx) {
-        _fill_partition_values = partition_values;
-        _fill_missing_defaults = missing_defaults;
-        _fill_col_name_to_block_idx = col_name_to_block_idx;
-    }
-
-    // ---- Fill-column hooks (called by RowGroupReader and ORC get_next_block) ----
-
-    /// Fill partition columns from metadata values.
-    /// Default implementation: deserializes partition value for each named column.
-    virtual Status on_fill_partition_columns(Block* block, size_t rows,
-                                             const std::vector<std::string>& cols) {
-        DataTypeSerDe::FormatOptions text_format_options;
-        for (const auto& col_name : cols) {
-            auto it = _fill_partition_values.find(col_name);
-            if (it == _fill_partition_values.end()) {
-                continue;
-            }
-            auto col_ptr = block->get_by_position((*_fill_col_name_to_block_idx)[col_name])
-                                   .column->assume_mutable();
-            const auto& [value, slot_desc] = it->second;
-            auto text_serde = slot_desc->get_data_type_ptr()->get_serde();
-            Slice slice(value.data(), value.size());
-            uint64_t num_deserialized = 0;
-            if (text_serde->deserialize_column_from_fixed_json(
-                        *col_ptr, slice, rows, &num_deserialized, text_format_options) !=
-                Status::OK()) {
-                return Status::InternalError("Failed to fill partition column: {}={}",
-                                             slot_desc->col_name(), value);
-            }
-            if (num_deserialized != rows) {
-                return Status::InternalError(
-                        "Failed to fill partition column: {}={}. "
-                        "Expected rows: {}, actual: {}",
-                        slot_desc->col_name(), value, num_deserialized, rows);
-            }
-        }
-        return Status::OK();
-    }
-
-    /// Fill missing columns with default values or null.
-    /// Default implementation: fills null or evaluates default expression.
-    virtual Status on_fill_missing_columns(Block* block, size_t rows,
-                                           const std::vector<std::string>& cols) {
-        for (const auto& col_name : cols) {
-            if (!_fill_col_name_to_block_idx->contains(col_name)) {
-                return Status::InternalError("Missing column: {} not found in block {}", col_name,
-                                             block->dump_structure());
-            }
-            auto it = _fill_missing_defaults.find(col_name);
-            VExprContextSPtr ctx = (it != _fill_missing_defaults.end()) ? it->second : nullptr;
-
-            if (ctx == nullptr) {
-                auto mutable_column =
-                        block->get_by_position((*_fill_col_name_to_block_idx)[col_name])
-                                .column->assume_mutable();
-                auto* nullable_column = static_cast<ColumnNullable*>(mutable_column.get());
-                nullable_column->insert_many_defaults(rows);
-            } else {
-                ColumnPtr result_column_ptr;
-                RETURN_IF_ERROR(ctx->execute(block, result_column_ptr));
-                if (result_column_ptr->use_count() == 1) {
-                    auto mutable_column = result_column_ptr->assume_mutable();
-                    mutable_column->resize(rows);
-                    result_column_ptr = result_column_ptr->convert_to_full_column_if_const();
-                    auto origin_column_type =
-                            block->get_by_position((*_fill_col_name_to_block_idx)[col_name]).type;
-                    bool is_nullable = origin_column_type->is_nullable();
-                    block->replace_by_position(
-                            (*_fill_col_name_to_block_idx)[col_name],
-                            is_nullable ? make_nullable(result_column_ptr) : result_column_ptr);
-                }
-            }
-        }
-        return Status::OK();
-    }
-
-    // ---- Synthesized column handler registry ----
-
-    /// Handler type: fills a single synthesized column into the block.
-    using SynthesizedColumnHandler = std::function<Status(Block* block, size_t rows)>;
-
-    /// Register a handler for a synthesized column. Called during init
-    /// (e.g. on_after_init_reader for Iceberg $row_id, _do_init_reader for TopN row_id).
-    void register_synthesized_column_handler(const std::string& col_name,
-                                             SynthesizedColumnHandler handler) {
-        _synthesized_col_handlers.emplace_back(col_name, std::move(handler));
-    }
-
-    /// Dispatch all registered synthesized column handlers.
-    /// Replaces the previous virtual on_fill_synthesized_columns hook.
-    Status fill_synthesized_columns(Block* block, size_t rows) {
-        for (auto& [name, handler] : _synthesized_col_handlers) {
-            RETURN_IF_ERROR(handler(block, rows));
-        }
-        return Status::OK();
-    }
-
-    /// Unified fill for partition + missing + synthesized columns.
-    /// Called automatically by TableFormatReader::on_after_read_block for simple readers.
-    /// Parquet/ORC fill internally via RowGroupReader / per-batch hooks.
-    Status fill_remaining_columns(Block* block, size_t rows) {
-        std::vector<std::string> part_col_names;
-        for (auto& kv : _fill_partition_values) {
-            part_col_names.push_back(kv.first);
-        }
-        RETURN_IF_ERROR(on_fill_partition_columns(block, rows, part_col_names));
-        std::vector<std::string> miss_col_names;
-        for (auto& kv : _fill_missing_defaults) {
-            miss_col_names.push_back(kv.first);
-        }
-        RETURN_IF_ERROR(on_fill_missing_columns(block, rows, miss_col_names));
-        RETURN_IF_ERROR(fill_synthesized_columns(block, rows));
-        return Status::OK();
-    }
-
-    /// Check if any synthesized column handlers are registered.
-    bool has_synthesized_column_handlers() const { return !_synthesized_col_handlers.empty(); }
-
-    /// Fill generated columns (may have file values, null rows are backfilled).
-    /// Default is no-op.
-    virtual Status on_fill_generated_columns(Block* block, size_t rows,
-                                             const std::vector<std::string>& cols) {
+    /// Hook called before core init. Default just sets _column_descs.
+    /// TableFormatReader overrides with partition/missing column computation.
+    /// ORC/Parquet/Hive/Iceberg further override with format-specific schema matching.
+    virtual Status on_before_init_reader(ReaderInitContext* ctx) {
+        _column_descs = ctx->column_descs;
         return Status::OK();
     }
 
@@ -391,13 +256,6 @@ protected:
         return Status::NotSupported("read_by_rows is not implemented for this reader.");
     }
 
-    /// Extracts partition key→value pairs from the file range into partition_values.
-    /// Static utility called by on_before_init_reader implementations.
-    static Status _extract_partition_values(
-            const TFileRangeDesc& range, const TupleDescriptor* tuple_descriptor,
-            std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
-                    partition_values);
-
     const size_t _MIN_BATCH_SIZE = 4064; // 4094 - 32(padding)
 
     TPushAggOp::type _push_down_agg_type {};
@@ -431,17 +289,6 @@ protected:
 
     // ---- Column descriptors (set by init_reader, owned by FileScanner) ----
     const std::vector<ColumnDescriptor>* _column_descs = nullptr;
-
-    // ---- Fill column data (set by _extract_partition_values / set_fill_column_data) ----
-    std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
-            _fill_partition_values;
-    std::unordered_map<std::string, VExprContextSPtr> _fill_missing_defaults;
-
-    std::unordered_map<std::string, uint32_t>* _fill_col_name_to_block_idx = nullptr;
-    std::unordered_set<std::string> _fill_missing_cols;
-
-    // ---- Synthesized column handlers ----
-    std::vector<std::pair<std::string, SynthesizedColumnHandler>> _synthesized_col_handlers;
 
     // ---- get_columns cache ----
     bool _get_columns_cached = false;

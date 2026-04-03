@@ -488,9 +488,6 @@ Status ParquetReader::_do_init_reader(ReaderInitContext* base_ctx) {
 
     // ---- Inlined set_fill_columns logic (partition/missing/synthesized classification) ----
 
-    // Store in GenericReader for on_fill_partition/missing_columns hooks
-    set_fill_column_data(_fill_partition_values, _fill_missing_defaults, _col_name_to_block_idx);
-
     // 1. Collect predicate columns from conjuncts for lazy materialization
     std::unordered_map<std::string, std::pair<uint32_t, int>> predicate_columns;
     _collect_predicate_columns_from_conjuncts(predicate_columns);

@@ -30,7 +30,7 @@
 #include "core/block/block.h"
 #include "core/column/column.h"
 #include "exprs/vexpr_fwd.h"
-#include "format/generic_reader.h"
+#include "format/table/table_format_reader.h"
 #include "format/parquet/parquet_common.h"
 #include "format/parquet/vparquet_column_reader.h"
 #include "format/table/table_schema_change_helper.h"
@@ -202,7 +202,7 @@ public:
         _row_id_column_iterator_pair = iterator_pair;
     }
 
-    void set_table_format_reader(GenericReader* reader) { _table_format_reader = reader; }
+    void set_table_format_reader(TableFormatReader* reader) { _table_format_reader = reader; }
 
     // RowPositionProvider interface
     const std::vector<rowid_t>& current_batch_row_positions() const override {
@@ -308,7 +308,7 @@ private:
     std::vector<rowid_t> _current_batch_row_ids;
 
     std::unordered_map<std::string, uint32_t>* _col_name_to_block_idx = nullptr;
-    GenericReader* _table_format_reader = nullptr;
+    TableFormatReader* _table_format_reader = nullptr;
 };
 
 } // namespace doris

@@ -17,22 +17,188 @@
 
 #pragma once
 
+#include <functional>
+#include <string>
+#include <tuple>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
+
+#include "common/status.h"
+#include "core/column/column.h"
+#include "core/column/column_nullable.h"
+#include "exprs/vexpr_fwd.h"
 #include "format/generic_reader.h"
+
+namespace doris {
+class TFileRangeDesc;
+class TupleDescriptor;
+class SlotDescriptor;
+} // namespace doris
 
 namespace doris {
 #include "common/compile_check_begin.h"
 
 /// Intermediate base class for "table readers" used by FileScanner.
-/// Provides default on_after_read_block that fills partition/missing/synthesized columns.
+///
+/// Owns all column-filling state and logic:
+///   - partition column values (from path metadata)
+///   - missing column defaults (columns not in file)
+///   - synthesized column handlers (e.g. Iceberg $row_id)
+///
+/// Provides default on_after_read_block that auto-fills these columns.
 /// Parquet/ORC override to no-op (they fill per-batch internally).
+///
+/// Also provides the default on_before_init_reader for simple readers
+/// (CSV, JSON, etc.) that auto-computes partition/missing columns.
+/// ORC/Parquet override on_before_init_reader with format-specific schema matching.
 class TableFormatReader : public GenericReader {
+public:
+    /// Get missing columns computed by on_before_init_reader / get_columns().
+    const std::unordered_set<std::string>& missing_cols() const { return _fill_missing_cols; }
+
+    // ---- Fill-column hooks (called by RowGroupReader and ORC per-batch reading) ----
+
+    /// Fill partition columns from metadata values.
+    virtual Status on_fill_partition_columns(Block* block, size_t rows,
+                                             const std::vector<std::string>& cols) {
+        DataTypeSerDe::FormatOptions text_format_options;
+        for (const auto& col_name : cols) {
+            auto it = _fill_partition_values.find(col_name);
+            if (it == _fill_partition_values.end()) {
+                continue;
+            }
+            auto col_ptr = block->get_by_position((*_fill_col_name_to_block_idx)[col_name])
+                                   .column->assume_mutable();
+            const auto& [value, slot_desc] = it->second;
+            auto text_serde = slot_desc->get_data_type_ptr()->get_serde();
+            Slice slice(value.data(), value.size());
+            uint64_t num_deserialized = 0;
+            if (text_serde->deserialize_column_from_fixed_json(
+                        *col_ptr, slice, rows, &num_deserialized, text_format_options) !=
+                Status::OK()) {
+                return Status::InternalError("Failed to fill partition column: {}={}",
+                                             slot_desc->col_name(), value);
+            }
+            if (num_deserialized != rows) {
+                return Status::InternalError(
+                        "Failed to fill partition column: {}={}. "
+                        "Expected rows: {}, actual: {}",
+                        slot_desc->col_name(), value, num_deserialized, rows);
+            }
+        }
+        return Status::OK();
+    }
+
+    /// Fill missing columns with default values or null.
+    virtual Status on_fill_missing_columns(Block* block, size_t rows,
+                                           const std::vector<std::string>& cols) {
+        for (const auto& col_name : cols) {
+            if (!_fill_col_name_to_block_idx->contains(col_name)) {
+                return Status::InternalError("Missing column: {} not found in block {}", col_name,
+                                             block->dump_structure());
+            }
+            auto it = _fill_missing_defaults.find(col_name);
+            VExprContextSPtr ctx = (it != _fill_missing_defaults.end()) ? it->second : nullptr;
+
+            if (ctx == nullptr) {
+                auto mutable_column =
+                        block->get_by_position((*_fill_col_name_to_block_idx)[col_name])
+                                .column->assume_mutable();
+                auto* nullable_column = static_cast<ColumnNullable*>(mutable_column.get());
+                nullable_column->insert_many_defaults(rows);
+            } else {
+                ColumnPtr result_column_ptr;
+                RETURN_IF_ERROR(ctx->execute(block, result_column_ptr));
+                if (result_column_ptr->use_count() == 1) {
+                    auto mutable_column = result_column_ptr->assume_mutable();
+                    mutable_column->resize(rows);
+                    result_column_ptr = result_column_ptr->convert_to_full_column_if_const();
+                    auto origin_column_type =
+                            block->get_by_position((*_fill_col_name_to_block_idx)[col_name]).type;
+                    bool is_nullable = origin_column_type->is_nullable();
+                    block->replace_by_position(
+                            (*_fill_col_name_to_block_idx)[col_name],
+                            is_nullable ? make_nullable(result_column_ptr) : result_column_ptr);
+                }
+            }
+        }
+        return Status::OK();
+    }
+
+    // ---- Synthesized column handler registry ----
+
+    using SynthesizedColumnHandler = std::function<Status(Block* block, size_t rows)>;
+
+    void register_synthesized_column_handler(const std::string& col_name,
+                                             SynthesizedColumnHandler handler) {
+        _synthesized_col_handlers.emplace_back(col_name, std::move(handler));
+    }
+
+    Status fill_synthesized_columns(Block* block, size_t rows) {
+        for (auto& [name, handler] : _synthesized_col_handlers) {
+            RETURN_IF_ERROR(handler(block, rows));
+        }
+        return Status::OK();
+    }
+
+    /// Unified fill for partition + missing + synthesized columns.
+    /// Called automatically by on_after_read_block for simple readers.
+    /// Parquet/ORC call individual on_fill_* methods per-batch internally.
+    Status fill_remaining_columns(Block* block, size_t rows) {
+        std::vector<std::string> part_col_names;
+        for (auto& kv : _fill_partition_values) {
+            part_col_names.push_back(kv.first);
+        }
+        RETURN_IF_ERROR(on_fill_partition_columns(block, rows, part_col_names));
+        std::vector<std::string> miss_col_names;
+        for (auto& kv : _fill_missing_defaults) {
+            miss_col_names.push_back(kv.first);
+        }
+        RETURN_IF_ERROR(on_fill_missing_columns(block, rows, miss_col_names));
+        RETURN_IF_ERROR(fill_synthesized_columns(block, rows));
+        return Status::OK();
+    }
+
+    bool has_synthesized_column_handlers() const { return !_synthesized_col_handlers.empty(); }
+
+    /// Fill generated columns. Default is no-op.
+    virtual Status on_fill_generated_columns(Block* block, size_t rows,
+                                             const std::vector<std::string>& cols) {
+        return Status::OK();
+    }
+
+    /// Default on_before_init_reader for simple readers (CSV, JSON, etc.).
+    /// Auto-computes partition values, missing columns, and table_info_node.
+    /// ORC/Parquet/Hive/Iceberg override with format-specific schema matching.
+    Status on_before_init_reader(ReaderInitContext* ctx) override;
+
 protected:
+    /// Default on_after_read_block: auto-fill partition/missing/synthesized columns.
+    /// Parquet/ORC override to no-op (they fill per-batch internally).
     Status on_after_read_block(Block* block, size_t* read_rows) override {
         if (*read_rows > 0 && _push_down_agg_type != TPushAggOp::type::COUNT) {
             RETURN_IF_ERROR(fill_remaining_columns(block, *read_rows));
         }
         return Status::OK();
     }
+
+    /// Extracts partition key→value pairs from the file range.
+    /// Static utility called by on_before_init_reader implementations.
+    static Status _extract_partition_values(
+            const TFileRangeDesc& range, const TupleDescriptor* tuple_descriptor,
+            std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
+                    partition_values);
+
+    // ---- Fill column data (set by on_before_init_reader / _do_init_reader) ----
+    std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
+            _fill_partition_values;
+    std::unordered_map<std::string, VExprContextSPtr> _fill_missing_defaults;
+    std::unordered_map<std::string, uint32_t>* _fill_col_name_to_block_idx = nullptr;
+    std::unordered_set<std::string> _fill_missing_cols;
+
+    // ---- Synthesized column handlers ----
+    std::vector<std::pair<std::string, SynthesizedColumnHandler>> _synthesized_col_handlers;
 };
 
 #include "common/compile_check_end.h"
