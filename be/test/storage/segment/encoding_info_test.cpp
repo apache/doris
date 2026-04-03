@@ -151,6 +151,43 @@ TEST_F(EncodingInfoTest, test_use_plain_binary_v2_config) {
     EXPECT_EQ(PLAIN_ENCODING, encoding_type); // Should still be PLAIN_ENCODING
 }
 
+// Test encoding preference for float types
+TEST_F(EncodingInfoTest, test_float_type_plain_encoding_preference) {
+    // Test FLOAT type
+    const auto* float_type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_FLOAT>();
+
+    // Default: float_type_default_use_plain_encoding = false -> BIT_SHUFFLE
+    EncodingPreference pref_default;
+    pref_default.float_type_default_use_plain_encoding = false;
+    EncodingTypePB encoding_type =
+            EncodingInfo::get_default_encoding(float_type_info->type(), pref_default, false);
+    EXPECT_EQ(BIT_SHUFFLE, encoding_type);
+
+    // Enabled: float_type_default_use_plain_encoding = true -> PLAIN_ENCODING
+    EncodingPreference pref_enabled;
+    pref_enabled.float_type_default_use_plain_encoding = true;
+    encoding_type =
+            EncodingInfo::get_default_encoding(float_type_info->type(), pref_enabled, false);
+    EXPECT_EQ(PLAIN_ENCODING, encoding_type);
+
+    // Test DOUBLE type
+    const auto* double_type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_DOUBLE>();
+
+    encoding_type =
+            EncodingInfo::get_default_encoding(double_type_info->type(), pref_default, false);
+    EXPECT_EQ(BIT_SHUFFLE, encoding_type);
+
+    encoding_type =
+            EncodingInfo::get_default_encoding(double_type_info->type(), pref_enabled, false);
+    EXPECT_EQ(PLAIN_ENCODING, encoding_type);
+
+    // Verify float preference doesn't affect integer types
+    const auto* bigint_type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_BIGINT>();
+    encoding_type =
+            EncodingInfo::get_default_encoding(bigint_type_info->type(), pref_enabled, false);
+    EXPECT_EQ(BIT_SHUFFLE, encoding_type); // Should still be BIT_SHUFFLE
+}
+
 // Comprehensive test for _data_page_pre_decoder for all encoding types
 TEST_F(EncodingInfoTest, test_all_pre_decoders) {
     EncodingPreference encoding_preference;

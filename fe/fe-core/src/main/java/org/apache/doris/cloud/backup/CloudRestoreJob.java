@@ -398,6 +398,7 @@ public class CloudRestoreJob extends RestoreJob {
                                     localTbl.getTimeSeriesCompactionTimeThresholdSeconds(),
                                     localTbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
                                     localTbl.getTimeSeriesCompactionLevelThreshold(), localTbl.disableAutoCompaction(),
+                                    localTbl.floatTypeDefaultUsePlainEncoding(),
                                     localTbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
                                     localTbl.getInvertedIndexFileStorageFormat(),
                                     localTbl.rowStorePageSize(),

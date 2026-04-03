@@ -360,6 +360,10 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_PAGE_SIZE)
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_DICT_PAGE_SIZE)) {
             throw new AnalysisException("You can not modify storage_page_size|storage_dict_page_size property.");
+        } else if (properties.containsKey(
+                PropertyAnalyzer.PROPERTIES_FLOAT_TYPE_DEFAULT_USE_PLAIN_ENCODING)) {
+            throw new AnalysisException("You can not modify "
+                    + PropertyAnalyzer.PROPERTIES_FLOAT_TYPE_DEFAULT_USE_PLAIN_ENCODING + " property.");
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM)) {
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else {

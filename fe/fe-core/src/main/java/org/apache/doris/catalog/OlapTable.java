@@ -2618,6 +2618,21 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return false;
     }
 
+    public void setFloatTypeDefaultUsePlainEncoding(boolean floatTypeDefaultUsePlainEncoding) {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(
+                PropertyAnalyzer.PROPERTIES_FLOAT_TYPE_DEFAULT_USE_PLAIN_ENCODING,
+                Boolean.valueOf(floatTypeDefaultUsePlainEncoding).toString());
+        tableProperty.buildFloatTypeDefaultUsePlainEncoding();
+    }
+
+    public Boolean floatTypeDefaultUsePlainEncoding() {
+        if (tableProperty != null) {
+            return tableProperty.floatTypeDefaultUsePlainEncoding();
+        }
+        return false;
+    }
+
     @Deprecated
     public void setVariantEnableFlattenNested(boolean flattenNested) throws AnalysisException {
         TableProperty tableProperty = getOrCreatTableProperty();

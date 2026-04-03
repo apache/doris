@@ -307,6 +307,8 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
     }
     opts.encoding_preference = {.integer_type_default_use_plain_encoding =
                                         _tablet_schema->integer_type_default_use_plain_encoding(),
+                                .float_type_default_use_plain_encoding =
+                                        _tablet_schema->float_type_default_use_plain_encoding(),
                                 .binary_plain_encoding_default_impl =
                                         _tablet_schema->binary_plain_encoding_default_impl()};
 

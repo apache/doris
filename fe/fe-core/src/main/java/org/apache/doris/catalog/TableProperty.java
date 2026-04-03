@@ -94,6 +94,8 @@ public class TableProperty implements GsonPostProcessable {
 
     private boolean disableAutoCompaction = false;
 
+    private boolean floatTypeDefaultUsePlainEncoding = false;
+
     private boolean variantEnableFlattenNested = false;
 
     private boolean enableSingleReplicaCompaction = false;
@@ -171,6 +173,7 @@ public class TableProperty implements GsonPostProcessable {
                 buildEnableSingleReplicaCompaction();
                 buildVerticalCompactionNumColumnsPerGroup();
                 buildDisableAutoCompaction();
+                buildFloatTypeDefaultUsePlainEncoding();
                 buildTimeSeriesCompactionEmptyRowsetsThreshold();
                 buildTimeSeriesCompactionLevelThreshold();
                 buildTTLSeconds();
@@ -293,6 +296,17 @@ public class TableProperty implements GsonPostProcessable {
         disableAutoCompaction = Boolean.parseBoolean(
                 properties.getOrDefault(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION, "false"));
         return this;
+    }
+
+    public TableProperty buildFloatTypeDefaultUsePlainEncoding() {
+        floatTypeDefaultUsePlainEncoding = Boolean.parseBoolean(
+                properties.getOrDefault(
+                        PropertyAnalyzer.PROPERTIES_FLOAT_TYPE_DEFAULT_USE_PLAIN_ENCODING, "false"));
+        return this;
+    }
+
+    public boolean floatTypeDefaultUsePlainEncoding() {
+        return floatTypeDefaultUsePlainEncoding;
     }
 
     public TableProperty buildAutoAnalyzeProperty() {
@@ -917,6 +931,7 @@ public class TableProperty implements GsonPostProcessable {
         buildTimeSeriesCompactionFileCountThreshold();
         buildTimeSeriesCompactionTimeThresholdSeconds();
         buildDisableAutoCompaction();
+        buildFloatTypeDefaultUsePlainEncoding();
         buildEnableSingleReplicaCompaction();
         buildVerticalCompactionNumColumnsPerGroup();
         buildTimeSeriesCompactionEmptyRowsetsThreshold();

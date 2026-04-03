@@ -31,6 +31,7 @@ constexpr long ROW_STORE_PAGE_SIZE_DEFAULT_VALUE = 16384; // default row store p
 
 struct EncodingPreference {
     bool integer_type_default_use_plain_encoding {false};
+    bool float_type_default_use_plain_encoding {false};
     BinaryPlainEncodingTypePB binary_plain_encoding_default_impl {
             BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V1};
 };

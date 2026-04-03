@@ -1300,6 +1300,9 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     if (schema.has_integer_type_default_use_plain_encoding()) {
         _integer_type_default_use_plain_encoding = schema.integer_type_default_use_plain_encoding();
     }
+    if (schema.has_float_type_default_use_plain_encoding()) {
+        _float_type_default_use_plain_encoding = schema.float_type_default_use_plain_encoding();
+    }
     if (schema.has_binary_plain_encoding_default_impl()) {
         _binary_plain_encoding_default_impl = schema.binary_plain_encoding_default_impl();
     }
@@ -1578,6 +1581,8 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
             _is_external_segment_column_meta_used);
     tablet_schema_pb->set_integer_type_default_use_plain_encoding(
             _integer_type_default_use_plain_encoding);
+    tablet_schema_pb->set_float_type_default_use_plain_encoding(
+            _float_type_default_use_plain_encoding);
     tablet_schema_pb->set_binary_plain_encoding_default_impl(_binary_plain_encoding_default_impl);
     auto column_groups_pb = tablet_schema_pb->mutable_seq_map();
     for (const auto& it : _seq_col_uid_to_value_cols_uid) {
@@ -1974,6 +1979,8 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
     if (a._is_external_segment_column_meta_used != b._is_external_segment_column_meta_used)
         return false;
     if (a._integer_type_default_use_plain_encoding != b._integer_type_default_use_plain_encoding)
+        return false;
+    if (a._float_type_default_use_plain_encoding != b._float_type_default_use_plain_encoding)
         return false;
     if (a._binary_plain_encoding_default_impl != b._binary_plain_encoding_default_impl)
         return false;

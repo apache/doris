@@ -410,6 +410,9 @@ void doris_tablet_schema_to_cloud(TabletSchemaCloudPB* out, const TabletSchemaPB
         out->set_integer_type_default_use_plain_encoding(
                 in.integer_type_default_use_plain_encoding());
     }
+    if (in.has_float_type_default_use_plain_encoding()) {
+        out->set_float_type_default_use_plain_encoding(in.float_type_default_use_plain_encoding());
+    }
     if (in.has_binary_plain_encoding_default_impl()) {
         out->set_binary_plain_encoding_default_impl(in.binary_plain_encoding_default_impl());
     }
@@ -456,6 +459,9 @@ void doris_tablet_schema_to_cloud(TabletSchemaCloudPB* out, TabletSchemaPB&& in)
     if (in.has_integer_type_default_use_plain_encoding()) {
         out->set_integer_type_default_use_plain_encoding(
                 in.integer_type_default_use_plain_encoding());
+    }
+    if (in.has_float_type_default_use_plain_encoding()) {
+        out->set_float_type_default_use_plain_encoding(in.float_type_default_use_plain_encoding());
     }
     if (in.has_binary_plain_encoding_default_impl()) {
         out->set_binary_plain_encoding_default_impl(in.binary_plain_encoding_default_impl());
@@ -517,6 +523,9 @@ void cloud_tablet_schema_to_doris(TabletSchemaPB* out, const TabletSchemaCloudPB
         out->set_integer_type_default_use_plain_encoding(
                 in.integer_type_default_use_plain_encoding());
     }
+    if (in.has_float_type_default_use_plain_encoding()) {
+        out->set_float_type_default_use_plain_encoding(in.float_type_default_use_plain_encoding());
+    }
     if (in.has_binary_plain_encoding_default_impl()) {
         out->set_binary_plain_encoding_default_impl(in.binary_plain_encoding_default_impl());
     }
@@ -564,6 +573,9 @@ void cloud_tablet_schema_to_doris(TabletSchemaPB* out, TabletSchemaCloudPB&& in)
     if (in.has_integer_type_default_use_plain_encoding()) {
         out->set_integer_type_default_use_plain_encoding(
                 in.integer_type_default_use_plain_encoding());
+    }
+    if (in.has_float_type_default_use_plain_encoding()) {
+        out->set_float_type_default_use_plain_encoding(in.float_type_default_use_plain_encoding());
     }
     if (in.has_binary_plain_encoding_default_impl()) {
         out->set_binary_plain_encoding_default_impl(in.binary_plain_encoding_default_impl());

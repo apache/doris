@@ -1543,6 +1543,11 @@ public class InternalCatalog implements CatalogIf<Database> {
                 properties.put(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION,
                         olapTable.disableAutoCompaction().toString());
             }
+            if (!properties.containsKey(
+                    PropertyAnalyzer.PROPERTIES_FLOAT_TYPE_DEFAULT_USE_PLAIN_ENCODING)) {
+                properties.put(PropertyAnalyzer.PROPERTIES_FLOAT_TYPE_DEFAULT_USE_PLAIN_ENCODING,
+                        olapTable.floatTypeDefaultUsePlainEncoding().toString());
+            }
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED,
                         olapTable.variantEnableFlattenNested().toString());
@@ -2149,6 +2154,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             indexes, tbl.isInMemory(), tabletType,
                             tbl.getDataSortInfo(), tbl.getCompressionType(),
                             tbl.getEnableUniqueKeyMergeOnWrite(), storagePolicy, tbl.disableAutoCompaction(),
+                            tbl.floatTypeDefaultUsePlainEncoding(),
                             tbl.enableSingleReplicaCompaction(), tbl.skipWriteIndexOnLoad(),
                             tbl.getCompactionPolicy(), tbl.getTimeSeriesCompactionGoalSizeMbytes(),
                             tbl.getTimeSeriesCompactionFileCountThreshold(),
@@ -2435,6 +2441,15 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         // use light schema change optimization
         olapTable.setDisableAutoCompaction(disableAutoCompaction);
+
+        boolean floatTypeDefaultUsePlainEncoding = false;
+        try {
+            floatTypeDefaultUsePlainEncoding =
+                    PropertyAnalyzer.analyzeFloatTypeDefaultUsePlainEncoding(properties);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+        olapTable.setFloatTypeDefaultUsePlainEncoding(floatTypeDefaultUsePlainEncoding);
 
         // set compaction policy
         String compactionPolicy = PropertyAnalyzer.SIZE_BASED_COMPACTION_POLICY;

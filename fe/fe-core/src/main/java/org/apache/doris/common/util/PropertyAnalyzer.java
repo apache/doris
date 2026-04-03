@@ -158,6 +158,9 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_DISABLE_AUTO_COMPACTION = "disable_auto_compaction";
 
+    public static final String PROPERTIES_FLOAT_TYPE_DEFAULT_USE_PLAIN_ENCODING =
+            "float_type_default_use_plain_encoding";
+
     // Legacy persisted switch for flatten-nested variant behavior before it was deprecated.
     @Deprecated
     public static final String LEGACY_PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED = "variant_enable_flatten_nested";
@@ -826,6 +829,25 @@ public class PropertyAnalyzer {
             return false;
         }
         throw new AnalysisException(PROPERTIES_DISABLE_AUTO_COMPACTION
+                + " must be `true` or `false`");
+    }
+
+    public static Boolean analyzeFloatTypeDefaultUsePlainEncoding(Map<String, String> properties)
+            throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return false;
+        }
+        String value = properties.get(PROPERTIES_FLOAT_TYPE_DEFAULT_USE_PLAIN_ENCODING);
+        if (null == value) {
+            return false;
+        }
+        properties.remove(PROPERTIES_FLOAT_TYPE_DEFAULT_USE_PLAIN_ENCODING);
+        if (value.equalsIgnoreCase("true")) {
+            return true;
+        } else if (value.equalsIgnoreCase("false")) {
+            return false;
+        }
+        throw new AnalysisException(PROPERTIES_FLOAT_TYPE_DEFAULT_USE_PLAIN_ENCODING
                 + " must be `true` or `false`");
     }
 

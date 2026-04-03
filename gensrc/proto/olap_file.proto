@@ -491,6 +491,7 @@ message TabletSchemaPB {
     optional BinaryPlainEncodingTypePB binary_plain_encoding_default_impl = 34;
     // mapping from seq column unique id to value column unique id
     optional ColumnGroupsPB seq_map = 35;
+    optional bool float_type_default_use_plain_encoding = 36;
 
     optional SplitSchemaPB __split_schema = 1000;  // A special field, DO NOT change it.
 }
@@ -535,6 +536,7 @@ message TabletSchemaCloudPB {
     optional BinaryPlainEncodingTypePB binary_plain_encoding_default_impl = 35;
     // mapping from seq column unique id to value column unique id
     optional ColumnGroupsPB seq_map = 36;
+    optional bool float_type_default_use_plain_encoding = 37;
 
     optional bool is_dynamic_schema = 100 [default=false];
 
