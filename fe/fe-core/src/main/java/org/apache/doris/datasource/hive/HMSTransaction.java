@@ -1290,17 +1290,18 @@ public class HMSTransaction implements Transaction {
                     Path path = new Path(targetPath);
                     String oldTablePath = new Path(
                             path.getParent(), "_temp_" + queryId + "_" + path.getName()).toString();
+                    renameDirectoryTasksForAbort.add(new RenameDirectoryTask(oldTablePath, targetPath));
                     wrapperRenameDirWithProfileSummary(
                             targetPath,
                             oldTablePath,
-                            () -> renameDirectoryTasksForAbort.add(new RenameDirectoryTask(oldTablePath, targetPath)));
+                            () -> {});
                     clearDirsForFinish.add(oldTablePath);
 
+                    directoryCleanUpTasksForAbort.add(new DirectoryCleanUpTask(targetPath, true));
                     wrapperRenameDirWithProfileSummary(
                             writePath,
                             targetPath,
-                            () -> directoryCleanUpTasksForAbort.add(
-                                    new DirectoryCleanUpTask(targetPath, true)));
+                            () -> {});
                 }
             } else {
                 if (!tableAndMore.hivePartitionUpdate.s3_mpu_pending_uploads.isEmpty()) {
@@ -1325,13 +1326,14 @@ public class HMSTransaction implements Transaction {
             String writePath = partitionAndMore.getCurrentLocation();
 
             if (!targetPath.equals(writePath)) {
+                directoryCleanUpTasksForAbort.add(new DirectoryCleanUpTask(targetPath, true));
                 wrapperAsyncRenameDirWithProfileSummary(
                         fileSystemExecutor,
                         asyncFileSystemTaskFutures,
                         fileSystemTaskCancelled,
                         writePath,
                         targetPath,
-                        () -> directoryCleanUpTasksForAbort.add(new DirectoryCleanUpTask(targetPath, true)));
+                        () -> {});
             } else {
                 if (!partitionAndMore.hivePartitionUpdate.s3_mpu_pending_uploads.isEmpty()) {
                     objCommit(fileSystemExecutor, asyncFileSystemTaskFutures, fileSystemTaskCancelled,
@@ -1435,16 +1437,18 @@ public class HMSTransaction implements Transaction {
                 Path path = new Path(targetPath);
                 String oldPartitionPath = new Path(
                         path.getParent(), "_temp_" + queryId + "_" + path.getName()).toString();
+                renameDirectoryTasksForAbort.add(new RenameDirectoryTask(oldPartitionPath, targetPath));
                 wrapperRenameDirWithProfileSummary(
                         targetPath,
                         oldPartitionPath,
-                        () -> renameDirectoryTasksForAbort.add(new RenameDirectoryTask(oldPartitionPath, targetPath)));
+                        () -> {});
                 clearDirsForFinish.add(oldPartitionPath);
 
+                directoryCleanUpTasksForAbort.add(new DirectoryCleanUpTask(targetPath, true));
                 wrapperRenameDirWithProfileSummary(
                         writePath,
                         targetPath,
-                        () -> directoryCleanUpTasksForAbort.add(new DirectoryCleanUpTask(targetPath, true)));
+                        () -> {});
             } else {
                 if (!partitionAndMore.hivePartitionUpdate.s3_mpu_pending_uploads.isEmpty()) {
                     s3cleanWhenSuccess.add(targetPath);

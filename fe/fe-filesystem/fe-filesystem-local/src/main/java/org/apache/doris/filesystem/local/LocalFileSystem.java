@@ -28,6 +28,7 @@ import org.apache.doris.filesystem.Location;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.RandomAccessFile;
+import java.net.URI;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -50,8 +51,8 @@ public class LocalFileSystem implements FileSystem {
 
     private Path toPath(Location location) {
         String uri = location.toString();
-        if (uri.startsWith("file://")) {
-            return Paths.get(uri.substring("file://".length()));
+        if (uri.startsWith("file:")) {
+            return Paths.get(URI.create(uri));
         }
         if (uri.startsWith("local://")) {
             return Paths.get(uri.substring("local://".length()));
