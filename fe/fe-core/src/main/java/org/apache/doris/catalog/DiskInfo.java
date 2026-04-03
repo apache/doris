@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.gson.annotations.SerializedName;
@@ -164,8 +165,47 @@ public class DiskInfo {
      * Check if this disk's capacity reach the limit. Return true if yes.
      * if floodStage is true, use floodStage threshold to check.
      *      floodStage threshold means a loosely limit, and we use 'AND' to give a more loosely limit.
+     *
+     * Debug points:
+     * - DiskInfo.exceedLimit.ssd.alwaysTrue: Force SSD disks to return true (exceed limit)
+     * - DiskInfo.exceedLimit.hdd.alwaysTrue: Force HDD disks to return true (exceed limit)
+     * - DiskInfo.exceedLimit.ssd.alwaysFalse: Force SSD disks to return false (available)
+     * - DiskInfo.exceedLimit.hdd.alwaysFalse: Force HDD disks to return false (available)
      */
     public boolean exceedLimit(boolean floodStage) {
+        // Debug point: Force specific medium to report as exceed limit
+        if (storageMedium == TStorageMedium.SSD) {
+            if (DebugPointUtil.isEnable("DiskInfo.exceedLimit.ssd.alwaysTrue")) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Debug point active: DiskInfo.exceedLimit.ssd.alwaysTrue, "
+                            + "forcing SSD disk {} to report exceed limit", rootPath);
+                }
+                return true;
+            }
+            if (DebugPointUtil.isEnable("DiskInfo.exceedLimit.ssd.alwaysFalse")) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Debug point active: DiskInfo.exceedLimit.ssd.alwaysFalse, "
+                            + "forcing SSD disk {} to report available", rootPath);
+                }
+                return false;
+            }
+        } else if (storageMedium == TStorageMedium.HDD) {
+            if (DebugPointUtil.isEnable("DiskInfo.exceedLimit.hdd.alwaysTrue")) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Debug point active: DiskInfo.exceedLimit.hdd.alwaysTrue, "
+                            + "forcing HDD disk {} to report exceed limit", rootPath);
+                }
+                return true;
+            }
+            if (DebugPointUtil.isEnable("DiskInfo.exceedLimit.hdd.alwaysFalse")) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Debug point active: DiskInfo.exceedLimit.hdd.alwaysFalse, "
+                            + "forcing HDD disk {} to report available", rootPath);
+                }
+                return false;
+            }
+        }
+
         if (LOG.isDebugEnabled()) {
             LOG.debug("flood stage: {}, diskAvailableCapacityB: {}, totalCapacityB: {}",
                     floodStage, diskAvailableCapacityB, totalCapacityB);

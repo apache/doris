@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
+import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DatasourcePrintableMap;
@@ -103,6 +104,7 @@ public class ModifyPartitionOp extends AlterTableOp {
     // 2. storage_medium && storage_cooldown_time
     // 3. in_memory
     // 4. tablet type
+    // 5. medium_allocation_mode
     private void checkProperties(Map<String, String> properties) throws AnalysisException {
         // 1. replica allocation
         PropertyAnalyzer.analyzeReplicaAllocation(properties, "");
@@ -119,6 +121,9 @@ public class ModifyPartitionOp extends AlterTableOp {
 
         // 4. mutable
         PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_MUTABLE, true);
+
+        // 5. data property
+        PropertyAnalyzer.analyzeDataProperty(properties, DataProperty.DEFAULT_HDD_DATA_PROPERTY);
     }
 
     @Override

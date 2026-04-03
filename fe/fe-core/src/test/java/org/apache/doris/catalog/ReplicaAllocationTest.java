@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.catalog.DataProperty.MediumAllocationMode;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
@@ -54,7 +55,7 @@ public class ReplicaAllocationTest {
         new Expectations() {
             {
                 systemInfoService.selectBackendIdsForReplicaCreation((ReplicaAllocation) any, Maps.newHashMap(),
-                        (TStorageMedium) any, false, true);
+                        (TStorageMedium) any, MediumAllocationMode.ADAPTIVE, true);
                 minTimes = 0;
                 result = new Delegate() {
                     Pair<Map<Tag, List<Long>>, TStorageMedium> selectBackendIdsForReplicaCreation() {
