@@ -180,7 +180,8 @@ public class Repository implements Writable, GsonPostProcessable {
             try {
                 this.spiFs = FileSystemFactory.getFileSystem(storageProperties);
             } catch (IOException e) {
-                LOG.warn("Failed to initialize SPI filesystem for new repository {}: {}", name, e.getMessage());
+                throw new IllegalStateException(
+                        "Failed to initialize SPI filesystem for repository '" + name + "': " + e.getMessage(), e);
             }
         }
     }
@@ -317,6 +318,13 @@ public class Repository implements Writable, GsonPostProcessable {
     private org.apache.doris.filesystem.FileSystem acquireSpiFs() throws IOException {
         if (spiFs != null) {
             return spiFs;
+        }
+        if (fileSystemDescriptor.getStorageType() != FsStorageType.BROKER) {
+            // spiFs should have been initialized in the constructor or gsonPostProcess.
+            // If it is null here, initialization failed silently during deserialization.
+            throw new IOException("Repository '" + name + "' filesystem is not available — "
+                    + "SPI filesystem failed to initialize during metadata load. "
+                    + "Check the prior WARN log for the root cause.");
         }
         // Broker: resolve live endpoint and create a per-call filesystem
         try {
