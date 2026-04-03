@@ -70,9 +70,9 @@ suite('test_float_type_default_use_plain_encoding') {
 
     assert jsonMeta.schema.float_type_default_use_plain_encoding == false
 
-    // Verify SHOW CREATE TABLE shows false
+    // Verify SHOW CREATE TABLE does NOT show false (only shown when true)
     createTableStmt = sql "show create table ${tableName2};"
-    assert createTableStmt[0][1].contains('"float_type_default_use_plain_encoding" = "false"')
+    assert !createTableStmt[0][1].contains('float_type_default_use_plain_encoding')
 
     // Test 3: Property is immutable - ALTER TABLE should fail
     test {

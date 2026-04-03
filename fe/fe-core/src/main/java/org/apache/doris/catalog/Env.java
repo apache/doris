@@ -4024,9 +4024,11 @@ public class Env {
         sb.append(olapTable.disableAutoCompaction()).append("\"");
 
         // float type default use plain encoding
-        sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_FLOAT_TYPE_DEFAULT_USE_PLAIN_ENCODING)
-                .append("\" = \"");
-        sb.append(olapTable.floatTypeDefaultUsePlainEncoding()).append("\"");
+        if (olapTable.floatTypeDefaultUsePlainEncoding()) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_FLOAT_TYPE_DEFAULT_USE_PLAIN_ENCODING)
+                    .append("\" = \"");
+            sb.append(olapTable.floatTypeDefaultUsePlainEncoding()).append("\"");
+        }
 
         if (olapTable.variantEnableFlattenNested()) {
             // enable flatten nested type in variant
