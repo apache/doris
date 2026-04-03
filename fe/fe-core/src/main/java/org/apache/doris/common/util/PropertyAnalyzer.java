@@ -835,11 +835,11 @@ public class PropertyAnalyzer {
     public static Boolean analyzeFloatTypeDefaultUsePlainEncoding(Map<String, String> properties)
             throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
-            return false;
+            return true;
         }
         String value = properties.get(PROPERTIES_FLOAT_TYPE_DEFAULT_USE_PLAIN_ENCODING);
         if (null == value) {
-            return false;
+            return true;
         }
         properties.remove(PROPERTIES_FLOAT_TYPE_DEFAULT_USE_PLAIN_ENCODING);
         if (value.equalsIgnoreCase("true")) {

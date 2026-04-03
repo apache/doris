@@ -851,7 +851,7 @@ private:
     bool _is_external_segment_column_meta_used = false;
 
     bool _integer_type_default_use_plain_encoding {false};
-    bool _float_type_default_use_plain_encoding {false};
+    bool _float_type_default_use_plain_encoding {true};
     BinaryPlainEncodingTypePB _binary_plain_encoding_default_impl {
             BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V1};
     // Sequence column unique id mapping to value columns unique id

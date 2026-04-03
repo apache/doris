@@ -94,7 +94,7 @@ public class TableProperty implements GsonPostProcessable {
 
     private boolean disableAutoCompaction = false;
 
-    private boolean floatTypeDefaultUsePlainEncoding = false;
+    private boolean floatTypeDefaultUsePlainEncoding = true;
 
     private boolean variantEnableFlattenNested = false;
 

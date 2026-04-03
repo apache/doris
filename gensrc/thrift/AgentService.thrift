@@ -52,7 +52,7 @@ struct TTabletSchema {
     23: optional i64 storage_page_size = 65536
     24: optional i64 storage_dict_page_size = 262144
     25: optional list<Types.TColumnGroup> seq_map
-    26: optional bool float_type_default_use_plain_encoding = false
+    26: optional bool float_type_default_use_plain_encoding = true
 }
 
 // this enum stands for different storage format in src_backends
