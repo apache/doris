@@ -23,6 +23,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
@@ -58,10 +59,16 @@ public class SimplifyConditionalFunction implements ExpressionPatternRuleFactory
     private static Expression rewriteCoalesce(ExpressionMatchingContext<Coalesce> ctx) {
         Coalesce coalesce = ctx.expr;
         if (1 == coalesce.arity()) {
-            return TypeCoercionUtils.ensureSameResultType(coalesce, coalesce.child(0), ctx.rewriteContext);
+            return keepCoalesceNullability(
+                    coalesce,
+                    TypeCoercionUtils.ensureSameResultType(coalesce, coalesce.child(0), ctx.rewriteContext)
+            );
         }
         if (!(coalesce.child(0) instanceof NullLiteral) && coalesce.child(0).nullable()) {
-            return TypeCoercionUtils.ensureSameResultType(coalesce, coalesce, ctx.rewriteContext);
+            return keepCoalesceNullability(
+                    coalesce,
+                    TypeCoercionUtils.ensureSameResultType(coalesce, coalesce, ctx.rewriteContext)
+            );
         }
         ImmutableList.Builder<Expression> childBuilder = ImmutableList.builder();
         for (int i = 0; i < coalesce.arity(); i++) {
@@ -70,7 +77,10 @@ public class SimplifyConditionalFunction implements ExpressionPatternRuleFactory
                 continue;
             }
             if (!child.nullable()) {
-                return TypeCoercionUtils.ensureSameResultType(coalesce, child, ctx.rewriteContext);
+                return keepCoalesceNullability(
+                        coalesce,
+                        TypeCoercionUtils.ensureSameResultType(coalesce, child, ctx.rewriteContext)
+                );
             } else {
                 for (int j = i; j < coalesce.arity(); j++) {
                     childBuilder.add(coalesce.children().get(j));
@@ -80,12 +90,18 @@ public class SimplifyConditionalFunction implements ExpressionPatternRuleFactory
         }
         List<Expression> newChildren = childBuilder.build();
         if (newChildren.isEmpty()) {
-            return TypeCoercionUtils.ensureSameResultType(
+            return keepCoalesceNullability(
+                coalesce,
+                TypeCoercionUtils.ensureSameResultType(
                     coalesce, new NullLiteral(coalesce.getDataType()), ctx.rewriteContext
+                )
             );
         } else {
-            return TypeCoercionUtils.ensureSameResultType(
+            return keepCoalesceNullability(
+                coalesce,
+                TypeCoercionUtils.ensureSameResultType(
                     coalesce, coalesce.withChildren(newChildren), ctx.rewriteContext
+                )
             );
         }
     }
@@ -97,10 +113,16 @@ public class SimplifyConditionalFunction implements ExpressionPatternRuleFactory
     private static Expression rewriteNvl(ExpressionMatchingContext<Nvl> ctx) {
         Nvl nvl = ctx.expr;
         if (nvl.child(0) instanceof NullLiteral) {
-            return TypeCoercionUtils.ensureSameResultType(nvl, nvl.child(1), ctx.rewriteContext);
+            return keepConditionalNullability(
+                    nvl,
+                    TypeCoercionUtils.ensureSameResultType(nvl, nvl.child(1), ctx.rewriteContext)
+            );
         }
         if (!nvl.child(0).nullable()) {
-            return TypeCoercionUtils.ensureSameResultType(nvl, nvl.child(0), ctx.rewriteContext);
+            return keepConditionalNullability(
+                    nvl,
+                    TypeCoercionUtils.ensureSameResultType(nvl, nvl.child(0), ctx.rewriteContext)
+            );
         }
         return nvl;
     }
@@ -118,5 +140,16 @@ public class SimplifyConditionalFunction implements ExpressionPatternRuleFactory
         } else {
             return nullIf;
         }
+    }
+
+    private static Expression keepCoalesceNullability(Coalesce origin, Expression rewritten) {
+        return keepConditionalNullability(origin, rewritten);
+    }
+
+    private static Expression keepConditionalNullability(Expression origin, Expression rewritten) {
+        if (!origin.nullable() && rewritten.nullable()) {
+            return new NonNullable(rewritten);
+        }
+        return rewritten;
     }
 }

@@ -20,8 +20,10 @@ package org.apache.doris.nereids.rules.expression.rules;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteTestHelper;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleExecutor;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
@@ -30,6 +32,7 @@ import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.StringType;
 
 import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 public class SimplifyConditionalFunctionTest extends ExpressionRewriteTestHelper {
@@ -76,13 +79,30 @@ public class SimplifyConditionalFunctionTest extends ExpressionRewriteTestHelper
         // coalesce(null_datetime(0), non-nullable_slot_datetime(6))
         assertRewrite(
                 new Coalesce(new NullLiteral(DateTimeV2Type.of(6)), datetimeSlot),
-                new Cast(datetimeSlot, DateTimeV2Type.of(6))
+                new NonNullable(new Cast(datetimeSlot, DateTimeV2Type.of(6)))
         );
         // coalesce(non-nullable_slot_datetime(6), null_datetime(0))
         assertRewrite(
                 new Coalesce(datetimeSlot, new NullLiteral(DateTimeV2Type.of(6))),
-                new Cast(datetimeSlot, DateTimeV2Type.of(6))
+                new NonNullable(new Cast(datetimeSlot, DateTimeV2Type.of(6)))
         );
+    }
+
+    @Test
+    public void testCoalesceKeepNonNullableAfterTypeCoercion() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(bottomUp((SimplifyConditionalFunction.INSTANCE))));
+
+        SlotReference nonNullableDateTimeSlot = new SlotReference("dt", DateTimeV2Type.of(0), false);
+        Expression rewritten = executor.rewrite(
+                typeCoercion(new Coalesce(nonNullableDateTimeSlot, new NullLiteral(DateTimeV2Type.of(6)))),
+                context
+        );
+
+        Assertions.assertEquals(
+                new NonNullable(new Cast(nonNullableDateTimeSlot, DateTimeV2Type.of(6))),
+                rewritten
+        );
+        Assertions.assertFalse(rewritten.nullable());
     }
 
     @Test
@@ -109,12 +129,12 @@ public class SimplifyConditionalFunctionTest extends ExpressionRewriteTestHelper
         // nvl(null_datetime(0), non-nullable_slot_datetime(6))
         assertRewrite(
                 new Nvl(new NullLiteral(DateTimeV2Type.of(6)), datetimeSlot),
-                new Cast(datetimeSlot, DateTimeV2Type.of(6))
+                new NonNullable(new Cast(datetimeSlot, DateTimeV2Type.of(6)))
         );
         // nvl(non-nullable_slot_datetime(6), null_datetime(0))
         assertRewrite(
                 new Nvl(datetimeSlot, new NullLiteral(DateTimeV2Type.of(6))),
-                new Cast(datetimeSlot, DateTimeV2Type.of(6))
+                new NonNullable(new Cast(datetimeSlot, DateTimeV2Type.of(6)))
         );
     }
 
