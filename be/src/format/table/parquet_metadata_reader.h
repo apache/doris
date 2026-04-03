@@ -54,7 +54,7 @@ public:
     ~ParquetMetadataReader() override;
 
     Status init_reader();
-    Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
+    Status _do_get_next_block(Block* block, size_t* read_rows, bool* eof) override;
     Status close() override;
 
 protected:

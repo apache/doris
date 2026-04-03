@@ -64,7 +64,7 @@ Status ArrowStreamReader::init_reader() {
     return Status::OK();
 }
 
-Status ArrowStreamReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
+Status ArrowStreamReader::_do_get_next_block(Block* block, size_t* read_rows, bool* eof) {
     bool has_next = false;
     RETURN_IF_ERROR(_pip_stream->HasNext(&has_next));
     if (!has_next) {

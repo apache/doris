@@ -58,7 +58,7 @@ Status RemoteDorisReader::init_reader() {
     return Status::OK();
 }
 
-Status RemoteDorisReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
+Status RemoteDorisReader::_do_get_next_block(Block* block, size_t* read_rows, bool* eof) {
     arrow::flight::FlightStreamChunk chunk;
     RETURN_DORIS_STATUS_IF_ERROR(_stream->Next().Value(&chunk));
 

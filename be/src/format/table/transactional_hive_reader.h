@@ -56,11 +56,6 @@ public:
                             FileMetaCache* meta_cache = nullptr);
     ~TransactionalHiveReader() final = default;
 
-    // Override get_next_block to call ACID expand/shrink hooks.
-    // OrcReader::get_next_block doesn't call hooks (matching master),
-    // so TransactionalHiveReader must call them explicitly.
-    Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
-
 protected:
     // Hook: ACID schema mapping (add transactional columns, map row.* fields)
     Status on_before_init_reader(ReaderInitContext* ctx) override;

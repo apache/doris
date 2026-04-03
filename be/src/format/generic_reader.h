@@ -122,7 +122,14 @@ public:
     void lock_push_down_agg_type() { _push_down_agg_type_locked = true; }
     TPushAggOp::type get_push_down_agg_type() const { return _push_down_agg_type; }
 
-    virtual Status get_next_block(Block* block, size_t* read_rows, bool* eof) = 0;
+    /// Template method for reading blocks.
+    /// Calls: on_before_read_block → _do_get_next_block → on_after_read_block
+    Status get_next_block(Block* block, size_t* read_rows, bool* eof) {
+        RETURN_IF_ERROR(on_before_read_block(block));
+        RETURN_IF_ERROR(_do_get_next_block(block, read_rows, eof));
+        RETURN_IF_ERROR(on_after_read_block(block, read_rows));
+        return Status::OK();
+    }
 
     // Type is always nullable to process illegal values.
     // Results are cached after the first successful call.
@@ -372,6 +379,9 @@ protected:
     /// Called before reading a block. Subclasses override to modify block
     /// structure (e.g. add ACID columns, expand for equality delete).
     virtual Status on_before_read_block(Block* block) { return Status::OK(); }
+
+    /// Core block reading. Subclasses must override with actual read logic.
+    virtual Status _do_get_next_block(Block* block, size_t* read_rows, bool* eof) = 0;
 
     /// Called after reading a block. Subclasses override to post-process
     /// (e.g. remove ACID columns, apply equality delete filter).

@@ -53,7 +53,7 @@ public:
 
     ~PaimonJniReader() override = default;
 
-    Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
+    Status _do_get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 
     Status init_reader();
 

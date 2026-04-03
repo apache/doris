@@ -183,9 +183,6 @@ protected:
     Status _do_init_reader(ReaderInitContext* ctx) override;
 
 public:
-    // Template method: calls on_before_read_block → _do_get_next_block → on_after_read_block
-    Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
-
     int64_t size() const;
 
     Status _get_columns_impl(std::unordered_map<std::string, DataTypePtr>* name_to_type) override;
@@ -263,8 +260,8 @@ protected:
     void _collect_profile_before_close() override;
     void _filter_rows_by_condition_cache(size_t* read_rows, bool* eof);
 
-    // Internal get_next_block implementation (the actual reading logic)
-    Status _do_get_next_block(Block* block, size_t* read_rows, bool* eof);
+    // Core block reading implementation
+    Status _do_get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 
     // Protected accessors so CRTP mixin subclasses can reach private members
     io::IOContext* get_io_ctx() const { return _io_ctx; }

@@ -54,7 +54,7 @@ Status WalReader::_do_init_reader(ReaderInitContext* base_ctx) {
     return Status::OK();
 }
 
-Status WalReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
+Status WalReader::_do_get_next_block(Block* block, size_t* read_rows, bool* eof) {
     //read src block
     PBlock pblock;
     auto st = _wal_reader->read_block(pblock);

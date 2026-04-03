@@ -36,7 +36,7 @@ public:
     WalReader(RuntimeState* state);
     ~WalReader() override = default;
     Status init_reader(const TupleDescriptor* tuple_descriptor);
-    Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
+    Status _do_get_next_block(Block* block, size_t* read_rows, bool* eof) override;
     Status _get_columns_impl(std::unordered_map<std::string, DataTypePtr>* name_to_type) override;
 
     Status close() override {

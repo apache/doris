@@ -242,7 +242,7 @@ Status NewJsonReader::_do_init_reader(ReaderInitContext* base_ctx) {
     return Status::OK();
 }
 
-Status NewJsonReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
+Status NewJsonReader::_do_get_next_block(Block* block, size_t* read_rows, bool* eof) {
     if (_reader_eof) {
         *eof = true;
         return Status::OK();

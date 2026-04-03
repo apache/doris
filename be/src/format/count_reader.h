@@ -54,7 +54,7 @@ public:
 
     ~CountReader() override = default;
 
-    Status get_next_block(Block* block, size_t* read_rows, bool* eof) override {
+    Status _do_get_next_block(Block* block, size_t* read_rows, bool* eof) override {
         auto rows = std::min(_remaining_rows, static_cast<int64_t>(_batch_size));
         _remaining_rows -= rows;
 

@@ -734,11 +734,6 @@ Status ParquetReader::_get_columns_impl(
     return Status::OK();
 }
 
-Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
-    RETURN_IF_ERROR(_do_get_next_block(block, read_rows, eof));
-    return Status::OK();
-}
-
 Status ParquetReader::_do_get_next_block(Block* block, size_t* read_rows, bool* eof) {
     if (_current_group_reader == nullptr || _row_group_eof) {
         Status st = _next_row_group_reader();

@@ -181,7 +181,7 @@ public:
     ~CsvReader() override = default;
 
     Status init_reader(bool is_load);
-    Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
+    Status _do_get_next_block(Block* block, size_t* read_rows, bool* eof) override;
     Status _get_columns_impl(std::unordered_map<std::string, DataTypePtr>* name_to_type) override;
 
     Status init_schema_reader() override;

@@ -69,7 +69,7 @@ Status PaimonCppReader::init_reader() {
     return _init_paimon_reader();
 }
 
-Status PaimonCppReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
+Status PaimonCppReader::_do_get_next_block(Block* block, size_t* read_rows, bool* eof) {
     if (_push_down_agg_type == TPushAggOp::type::COUNT && _remaining_table_level_row_count >= 0) {
         auto rows = std::min(_remaining_table_level_row_count,
                              (int64_t)_state->query_options().batch_size);

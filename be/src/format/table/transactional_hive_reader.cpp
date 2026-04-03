@@ -247,22 +247,6 @@ Status TransactionalHiveReader::on_after_init_reader(ReaderInitContext* /*ctx*/)
     return Status::OK();
 }
 
-Status TransactionalHiveReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
-    RETURN_IF_ERROR(on_before_read_block(block));
-    RETURN_IF_ERROR(OrcReader::get_next_block(block, read_rows, eof));
-    if (*read_rows > 0) {
-        RETURN_IF_ERROR(on_after_read_block(block, read_rows));
-    } else {
-        // Still need to shrink ACID columns even when read_rows == 0
-        Block::erase_useless_column(block,
-                                    block->columns() - TransactionalHive::READ_PARAMS.size());
-        for (const auto& i : TransactionalHive::READ_PARAMS) {
-            col_name_to_block_idx_ref()->erase(i.column_lower_case);
-        }
-    }
-    return Status::OK();
-}
-
 // ============================================================================
 // on_before_read_block: expand ACID columns into block
 // ============================================================================

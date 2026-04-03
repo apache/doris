@@ -152,9 +152,6 @@ protected:
     Status _do_init_reader(ReaderInitContext* ctx) override;
 
 public:
-    // Template method: calls on_before_read_block → _do_get_next_block → on_after_read_block
-    Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
-
     Status close() override;
 
     // set the delete rows in current parquet file
@@ -209,8 +206,8 @@ public:
 protected:
     void _collect_profile_before_close() override;
 
-    // Internal get_next_block implementation (the actual reading logic)
-    Status _do_get_next_block(Block* block, size_t* read_rows, bool* eof);
+    // Core block reading implementation
+    Status _do_get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 
     // Protected accessors so CRTP mixin subclasses can reach private members
     io::IOContext* get_io_ctx() const { return _io_ctx; }

@@ -551,8 +551,8 @@ Status OrcReader::_do_init_reader(ReaderInitContext* base_ctx) {
             auto& [value, slot_desc] = kv.second;
             auto iter = _slot_id_to_filter_conjuncts->find(slot_desc->id());
             if (iter != _slot_id_to_filter_conjuncts->end()) {
-                for (const auto& ctx : iter->second) {
-                    _filter_conjuncts.push_back(ctx);
+                for (const auto& conjunct_ctx : iter->second) {
+                    _filter_conjuncts.push_back(conjunct_ctx);
                 }
             }
         }
@@ -2370,11 +2370,6 @@ std::string OrcReader::get_field_name_lower_case(const orc::Type* orc_type, int 
     std::string name = orc_type->getFieldName(pos);
     transform(name.begin(), name.end(), name.begin(), ::tolower);
     return name;
-}
-
-Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
-    RETURN_IF_ERROR(_do_get_next_block(block, read_rows, eof));
-    return Status::OK();
 }
 
 Status OrcReader::_do_get_next_block(Block* block, size_t* read_rows, bool* eof) {

@@ -378,7 +378,7 @@ Status CsvReader::_do_init_reader(ReaderInitContext* base_ctx) {
 }
 
 // !FIXME: Here we should use MutableBlock
-Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
+Status CsvReader::_do_get_next_block(Block* block, size_t* read_rows, bool* eof) {
     if (_line_reader_eof) {
         *eof = true;
         return Status::OK();

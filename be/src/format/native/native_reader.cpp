@@ -144,7 +144,7 @@ Status NativeReader::init_reader() {
     return Status::OK();
 }
 
-Status NativeReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
+Status NativeReader::_do_get_next_block(Block* block, size_t* read_rows, bool* eof) {
     if (_eof) {
         *read_rows = 0;
         *eof = true;

@@ -109,7 +109,7 @@ public:
     // directly (without reading any files). For all other cases, resets push_down_agg_type
     // to NONE and delegates to the base reader — because in master, ParquetReader/OrcReader
     // never had _push_down_agg_type == COUNT (it was absorbed by the GenericReader layer).
-    Status get_next_block(Block* block, size_t* read_rows, bool* eof) override {
+    Status _do_get_next_block(Block* block, size_t* read_rows, bool* eof) override {
         if (this->_push_down_agg_type == TPushAggOp::type::COUNT && _table_level_row_count >= 0) {
             auto rows = std::min(_table_level_row_count, (int64_t)this->get_batch_size());
             _table_level_row_count -= rows;
@@ -125,29 +125,7 @@ public:
             return Status::OK();
         }
         this->set_push_down_agg_type(TPushAggOp::NONE);
-        RETURN_IF_ERROR(this->on_before_read_block(block));
-        RETURN_IF_ERROR(BaseReader::get_next_block(block, read_rows, eof));
-        if (*read_rows > 0) {
-            RETURN_IF_ERROR(this->on_after_read_block(block, read_rows));
-        } else if (!_expand_col_names.empty()) {
-            // When read_rows == 0, on_after_read_block is skipped,
-            // but on_before_read_block may have added expand columns.
-            // Must remove them here to keep block schema consistent.
-            std::set<size_t> positions_to_erase;
-            for (const std::string& expand_col : _expand_col_names) {
-                auto it = this->col_name_to_block_idx_ref()->find(expand_col);
-                if (it != this->col_name_to_block_idx_ref()->end()) {
-                    positions_to_erase.emplace(it->second);
-                }
-            }
-            if (!positions_to_erase.empty()) {
-                block->erase(positions_to_erase);
-                for (const std::string& expand_col : _expand_col_names) {
-                    this->col_name_to_block_idx_ref()->erase(expand_col);
-                }
-            }
-        }
-        return Status::OK();
+        return BaseReader::_do_get_next_block(block, read_rows, eof);
     }
 
 protected:

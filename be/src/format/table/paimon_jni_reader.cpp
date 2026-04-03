@@ -100,7 +100,7 @@ PaimonJniReader::PaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_d
     }
 }
 
-Status PaimonJniReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
+Status PaimonJniReader::_do_get_next_block(Block* block, size_t* read_rows, bool* eof) {
     if (_push_down_agg_type == TPushAggOp::type::COUNT && _remaining_table_level_row_count >= 0) {
         auto rows = std::min(_remaining_table_level_row_count,
                              (int64_t)_state->query_options().batch_size);
@@ -117,7 +117,7 @@ Status PaimonJniReader::get_next_block(Block* block, size_t* read_rows, bool* eo
 
         return Status::OK();
     }
-    return JniReader::get_next_block(block, read_rows, eof);
+    return JniReader::_do_get_next_block(block, read_rows, eof);
 }
 
 Status PaimonJniReader::init_reader() {
