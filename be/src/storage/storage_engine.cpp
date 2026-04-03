@@ -59,6 +59,7 @@
 #include "io/fs/local_file_system.h"
 #include "load/memtable/memtable_flush_executor.h"
 #include "load/stream_load/stream_load_recorder.h"
+#include "runtime/exec_env.h"
 #include "storage/binlog.h"
 #include "storage/cache/schema_cache.h"
 #include "storage/compaction/single_replica_compaction.h"
@@ -138,6 +139,27 @@ CloudStorageEngine& BaseStorageEngine::to_cloud() {
 int64_t BaseStorageEngine::memory_limitation_bytes_per_thread_for_schema_change() const {
     return std::max(_memory_limitation_bytes_for_schema_change / config::alter_tablet_worker_count,
                     config::memory_limitation_per_thread_for_schema_change_bytes);
+}
+
+void BaseStorageEngine::_start_adaptive_thread_controller() {
+    if (!config::enable_adaptive_flush_threads) {
+        return;
+    }
+
+    auto* system_metrics = DorisMetrics::instance()->system_metrics();
+    auto* s3_upload_pool = ExecEnv::GetInstance()->s3_file_upload_thread_pool();
+
+    _adaptive_thread_controller.init(system_metrics, s3_upload_pool);
+
+    if (_memtable_flush_executor) {
+        auto* flush_pool = _memtable_flush_executor->flush_pool();
+        auto* high_prio_pool = _memtable_flush_executor->high_prio_flush_pool();
+        _adaptive_thread_controller.add("flush", {flush_pool, high_prio_pool},
+                                        AdaptiveThreadPoolController::make_flush_adjust_func(
+                                                &_adaptive_thread_controller, flush_pool),
+                                        config::max_flush_thread_num_per_cpu,
+                                        config::min_flush_thread_num_per_cpu);
+    }
 }
 
 Status BaseStorageEngine::init_stream_load_recorder(const std::string& stream_load_record_path) {
@@ -769,6 +791,7 @@ void StorageEngine::stop() {
         _cooldown_thread_pool->shutdown();
     }
 
+    _adaptive_thread_controller.stop();
     _memtable_flush_executor.reset(nullptr);
     _calc_delete_bitmap_executor.reset(nullptr);
     _calc_delete_bitmap_executor_for_load.reset();

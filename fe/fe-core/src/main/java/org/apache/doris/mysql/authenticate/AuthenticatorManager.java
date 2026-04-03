@@ -17,6 +17,7 @@
 
 package org.apache.doris.mysql.authenticate;
 
+import org.apache.doris.authentication.AuthenticationFailureType;
 import org.apache.doris.authentication.CredentialType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -39,6 +40,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Properties;
@@ -56,10 +59,16 @@ import java.util.ServiceLoader;
  */
 public class AuthenticatorManager {
     private static final Logger LOG = LogManager.getLogger(AuthenticatorManager.class);
+    private static final String OIDC_CLIENT_PLUGIN_NAME = "authentication_openid_connect_client";
+    static final String OPERATIONAL_AUTHENTICATION_FAILURE_MESSAGE =
+            "Authentication failed because no configured authentication method succeeded due to service "
+                    + "or configuration issues; check FE logs for details";
 
     private static volatile Authenticator defaultAuthenticator = null;
     private static volatile Authenticator authTypeAuthenticator = null;
     private static volatile String authTypeIdentifier = null;
+    private final MysqlAuthPacketCredentialExtractor authPacketCredentialExtractor =
+            new MysqlAuthPacketCredentialExtractor();
 
     public AuthenticatorManager(String type) {
         String normalizedType = normalizeAuthTypeIdentifier(type);
@@ -162,18 +171,26 @@ public class AuthenticatorManager {
 
         AuthenticateRequest request = primaryRequest.get();
         remoteIp = request.getRemoteIp();
+        if (isOidcAuthenticationWithoutSsl(authPacket, request)) {
+            setInsecureOidcTransportError(context);
+            return reportAuthenticationFailure(context, userName, remoteIp, request.getPassword(),
+                    new ArrayList<>());
+        }
         AuthenticateResponse primaryResponse = authenticateWith(primaryAuthenticator, request);
         if (primaryResponse.isSuccess()) {
             return finishSuccessfulAuthentication(context, remoteIp, primaryResponse, false);
         }
+        List<AuthenticationFailureSummary> failureSummaries = new ArrayList<>();
+        addFailureSummary(failureSummaries, primaryResponse);
 
         AuthenticateResponse chainResponse = tryAuthenticationChainFallback(context, userName, remoteIp,
                 channel, serializer, authPacket, handshakePacket, request);
         if (chainResponse != null && chainResponse.isSuccess()) {
             return finishSuccessfulAuthentication(context, remoteIp, chainResponse, true);
         }
+        addFailureSummary(failureSummaries, chainResponse);
 
-        return reportAuthenticationFailure(context, userName, remoteIp, request.getPassword());
+        return reportAuthenticationFailure(context, userName, remoteIp, request.getPassword(), failureSummaries);
     }
 
     Authenticator chooseAuthenticator(String userName, String remoteIp) {
@@ -189,6 +206,8 @@ public class AuthenticatorManager {
         context.setCurrentUserIdentity(response.getUserIdentity());
         context.setRemoteIP(remoteIp);
         context.setIsTempUser(response.isTemp());
+        context.setAuthenticatedPrincipal(response.getPrincipal());
+        context.setAuthenticatedRoles(response.getAuthenticatedRoles());
     }
 
     private Optional<AuthenticateRequest> resolveAuthenticateRequest(Authenticator authenticator,
@@ -233,13 +252,16 @@ public class AuthenticatorManager {
             chainAuthenticator = getAuthenticationChainAuthenticator();
         } catch (RuntimeException e) {
             LOG.warn("Failed to initialize authentication_chain fallback authenticator: {}", e.getMessage(), e);
-            return null;
+            return AuthenticateResponse.failed(AuthenticationFailureSummary.forFailureType(
+                    AuthenticationFailureType.MISCONFIGURED,
+                    "Failed to initialize authentication_chain fallback authenticator: " + e.getMessage()));
         }
         if (!chainAuthenticator.canDeal(userName)) {
             return null;
         }
 
-        AuthenticateRequest chainRequest = primaryRequest;
+        AuthenticateRequest chainRequest = normalizeAuthenticationChainRequest(userName, channel, authPacket,
+                primaryRequest);
         if (!canReuseRequestForAuthenticationChain(chainRequest)) {
             Optional<AuthenticateRequest> fallbackRequest = resolveAuthenticateRequest(chainAuthenticator, userName,
                     context, channel, serializer, authPacket, handshakePacket);
@@ -249,12 +271,77 @@ public class AuthenticatorManager {
             chainRequest = fallbackRequest.get();
         }
 
+        if (isOidcAuthenticationWithoutSsl(authPacket, chainRequest)) {
+            setInsecureOidcTransportError(context);
+            return AuthenticateResponse.failedResponse;
+        }
         LOG.info("Try authentication_chain fallback for user '{}'", userName);
         return authenticateWith(chainAuthenticator, chainRequest);
     }
 
     private boolean hasAuthenticationChain() {
         return !AuthenticationIntegrationAuthenticator.parseAuthenticationChain(Config.authentication_chain).isEmpty();
+    }
+
+    private boolean isOidcAuthenticationWithoutSsl(MysqlAuthPacket authPacket, AuthenticateRequest request) {
+        return isOidcAuthenticateRequest(request) && !authPacket.getCapability().isClientUseSsl();
+    }
+
+    private boolean isOidcAuthenticateRequest(AuthenticateRequest request) {
+        if (CredentialType.OIDC_ID_TOKEN.equals(request.getCredentialType())) {
+            return true;
+        }
+        if (!(request.getPassword() instanceof ClearPassword)) {
+            return false;
+        }
+        String clearPassword = ((ClearPassword) request.getPassword()).getPassword();
+        if (Strings.isNullOrEmpty(clearPassword)) {
+            return false;
+        }
+        return looksLikeJwt(clearPassword);
+    }
+
+    private boolean looksLikeJwt(String token) {
+        if (!token.startsWith("eyJ")) {
+            return false;
+        }
+
+        int segmentSeparatorCount = 0;
+        for (int i = 0; i < token.length(); i++) {
+            if (token.charAt(i) == '.') {
+                segmentSeparatorCount++;
+            }
+        }
+        return segmentSeparatorCount == 2;
+    }
+
+    private void setInsecureOidcTransportError(ConnectContext context) {
+        context.getState().setError(ErrorCode.ERR_SECURE_TRANSPORT_REQUIRED,
+                "OIDC authentication requires TLS/SSL; reconnect with sslMode=REQUIRED");
+    }
+
+    private AuthenticateRequest normalizeAuthenticationChainRequest(String userName, MysqlChannel channel,
+            MysqlAuthPacket authPacket, AuthenticateRequest primaryRequest) {
+        Optional<AuthenticateRequest> authPacketRequest =
+                authPacketCredentialExtractor.extractAuthenticateRequest(userName, channel, authPacket);
+        if (authPacketRequest.isPresent()) {
+            return authPacketRequest.get();
+        }
+        if (!OIDC_CLIENT_PLUGIN_NAME.equals(authPacket.getPluginName())
+                || !(primaryRequest.getPassword() instanceof ClearPassword)) {
+            return primaryRequest;
+        }
+        ClearPassword clearPassword = (ClearPassword) primaryRequest.getPassword();
+        return AuthenticateRequest.builder()
+                .userName(primaryRequest.getUserName())
+                .password(clearPassword)
+                .remoteHost(primaryRequest.getRemoteHost())
+                .remotePort(primaryRequest.getRemotePort())
+                .clientType(primaryRequest.getClientType())
+                .credentialType(CredentialType.OIDC_ID_TOKEN)
+                .credential(clearPassword.getPassword().getBytes(StandardCharsets.UTF_8))
+                .properties(primaryRequest.getProperties())
+                .build();
     }
 
     private boolean canReuseRequestForAuthenticationChain(AuthenticateRequest request) {
@@ -265,8 +352,9 @@ public class AuthenticatorManager {
     }
 
     private boolean reportAuthenticationFailure(ConnectContext context, String userName, String remoteIp,
-            Password password) throws IOException {
-        ensureAuthenticationErrorReported(context, userName, remoteIp, password);
+            Password password, List<AuthenticationFailureSummary> failureSummaries) throws IOException {
+        logAuthenticationFailureSummary(userName, remoteIp, failureSummaries);
+        ensureAuthenticationErrorReported(context, userName, remoteIp, password, failureSummaries);
         if (context.getState().getStateType() == QueryState.MysqlStateType.ERR) {
             MysqlProto.sendResponsePacket(context);
         }
@@ -274,13 +362,80 @@ public class AuthenticatorManager {
     }
 
     private void ensureAuthenticationErrorReported(ConnectContext context, String userName, String remoteIp,
-            Password password) {
+            Password password, List<AuthenticationFailureSummary> failureSummaries) {
+        Optional<String> clientVisibleFailureMessage = findClientVisibleFailureMessage(failureSummaries);
+        if (clientVisibleFailureMessage.isPresent()
+                && shouldExposeClientVisibleFailureMessage(context, failureSummaries)) {
+            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, clientVisibleFailureMessage.get());
+            return;
+        }
         if (context.getState().getStateType() == QueryState.MysqlStateType.ERR) {
+            return;
+        }
+        if (containsOnlyOperationalFailures(failureSummaries)) {
+            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, OPERATIONAL_AUTHENTICATION_FAILURE_MESSAGE);
             return;
         }
         context.getState().setError(ErrorCode.ERR_ACCESS_DENIED_ERROR,
                 ErrorCode.ERR_ACCESS_DENIED_ERROR.formatErrorMsg(userName, remoteIp,
                         hasPassword(password) ? "YES" : "NO"));
+    }
+
+    private void addFailureSummary(List<AuthenticationFailureSummary> failureSummaries, AuthenticateResponse response) {
+        if (response == null || response.getFailureSummary() == null) {
+            return;
+        }
+        failureSummaries.add(response.getFailureSummary());
+    }
+
+    private Optional<String> findClientVisibleFailureMessage(List<AuthenticationFailureSummary> failureSummaries) {
+        for (AuthenticationFailureSummary failureSummary : failureSummaries) {
+            if (failureSummary.hasClientVisibleMessage()) {
+                return Optional.of(failureSummary.getClientVisibleMessage());
+            }
+        }
+        return Optional.empty();
+    }
+
+    private boolean containsSensitiveFailure(List<AuthenticationFailureSummary> failureSummaries) {
+        for (AuthenticationFailureSummary failureSummary : failureSummaries) {
+            if (failureSummary.isSensitiveToClient()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean shouldExposeClientVisibleFailureMessage(ConnectContext context,
+            List<AuthenticationFailureSummary> failureSummaries) {
+        if (containsSensitiveFailure(failureSummaries)) {
+            return false;
+        }
+        if (context.getState().getStateType() != QueryState.MysqlStateType.ERR) {
+            return true;
+        }
+        return ErrorCode.ERR_ACCESS_DENIED_ERROR.equals(context.getState().getErrorCode());
+    }
+
+    private boolean containsOnlyOperationalFailures(List<AuthenticationFailureSummary> failureSummaries) {
+        if (failureSummaries.isEmpty()) {
+            return false;
+        }
+        for (AuthenticationFailureSummary failureSummary : failureSummaries) {
+            if (failureSummary.isSensitiveToClient() || !failureSummary.isOperationalFailure()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void logAuthenticationFailureSummary(String userName, String remoteIp,
+            List<AuthenticationFailureSummary> failureSummaries) {
+        if (failureSummaries.isEmpty()) {
+            return;
+        }
+        LOG.warn("Authentication failed for user '{}' from '{}'. Failure summary: {}",
+                userName, remoteIp, failureSummaries);
     }
 
     private boolean hasPassword(Password password) {

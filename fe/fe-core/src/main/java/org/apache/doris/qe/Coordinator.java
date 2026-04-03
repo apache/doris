@@ -3497,6 +3497,18 @@ public class Coordinator implements CoordInterface {
         return backendAddresses;
     }
 
+    /**
+     * Returns the IDs of backends that have scan ranges assigned, collected from each ScanNode's
+     * scanBackendIds (populated during plan phase).
+     */
+    public List<Long> getScanBackendIds() {
+        Set<Long> result = Sets.newHashSet();
+        for (ScanNode scanNode : scanNodes) {
+            result.addAll(scanNode.getScanBackendIds());
+        }
+        return Lists.newArrayList(result);
+    }
+
     public List<PlanFragment> getFragments() {
         return fragments;
     }

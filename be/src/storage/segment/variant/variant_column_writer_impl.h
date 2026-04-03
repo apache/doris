@@ -284,6 +284,7 @@ private:
     const TabletColumn* _tablet_column = nullptr;
     ColumnWriterOptions _opts;
     bool _is_finalized = false;
+    bool _data_written = false;
     std::unique_ptr<ColumnWriter> _doc_value_column_writer;
     std::vector<std::unique_ptr<ColumnWriter>> _subcolumn_writers;
     std::vector<TabletIndexes> _subcolumns_indexes;

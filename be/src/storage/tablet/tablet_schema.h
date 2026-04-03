@@ -132,7 +132,8 @@ public:
     static TabletColumn create_materialized_variant_column(const std::string& root,
                                                            const std::vector<std::string>& paths,
                                                            int32_t parent_unique_id,
-                                                           int32_t max_subcolumns_count);
+                                                           int32_t max_subcolumns_count,
+                                                           bool enable_doc_mode = false);
     bool has_default_value() const { return _has_default_value; }
     std::string default_value() const { return _default_value; }
     int32_t length() const { return _length; }

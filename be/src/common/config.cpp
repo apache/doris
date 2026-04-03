@@ -345,6 +345,7 @@ DEFINE_mInt32(doris_scanner_row_num, "16384");
 DEFINE_mInt32(doris_scanner_row_bytes, "10485760");
 // single read execute fragment max run time millseconds
 DEFINE_mInt32(doris_scanner_max_run_time_ms, "1000");
+DEFINE_mInt32(doris_scanner_dynamic_interval_ms, "100");
 // (Advanced) Maximum size of per-query receive-side buffer
 DEFINE_mInt32(exchg_node_buffer_size_bytes, "20485760");
 DEFINE_mInt32(exchg_buffer_queue_capacity_factor, "64");
@@ -825,6 +826,12 @@ DEFINE_mInt32(high_priority_flush_thread_num_per_store, "6");
 // number of threads = min(flush_thread_num_per_store * num_store,
 //                         max_flush_thread_num_per_cpu * num_cpu)
 DEFINE_mInt32(max_flush_thread_num_per_cpu, "4");
+
+// minimum flush threads per cpu when adaptive flush is enabled (default 0.5)
+DEFINE_mDouble(min_flush_thread_num_per_cpu, "0.5");
+
+// Whether to enable adaptive flush thread adjustment
+DEFINE_mBool(enable_adaptive_flush_threads, "true");
 
 // config for tablet meta checkpoint
 DEFINE_mInt32(tablet_meta_checkpoint_min_new_rowsets_num, "10");
@@ -1704,7 +1711,7 @@ DEFINE_mBool(enable_update_delete_bitmap_kv_check_core, "false");
 DEFINE_mBool(enable_fetch_rowsets_from_peer_replicas, "false");
 // the max length of segments key bounds, in bytes
 // ATTENTION: as long as this conf has ever been enabled, cluster downgrade and backup recovery will no longer be supported.
-DEFINE_mInt32(segments_key_bounds_truncation_threshold, "-1");
+DEFINE_mInt32(segments_key_bounds_truncation_threshold, "36");
 // ATTENTION: for test only, use random segments key bounds truncation threshold every time
 DEFINE_mBool(random_segments_key_bounds_truncation, "false");
 // p0, daily, rqg, external
@@ -1726,6 +1733,14 @@ DEFINE_mInt32(max_segment_partial_column_cache_size, "100");
 
 DEFINE_mBool(enable_prefill_output_dbm_agg_cache_after_compaction, "true");
 DEFINE_mBool(enable_prefill_all_dbm_agg_cache_after_compaction, "true");
+
+// Cache for ANN index IVF on-disk list data.
+// "70%" means 70% of the process available memory, not 70% of total machine memory.
+// With default mem_limit="90%", this is effectively about 63% (90% * 70%) of physical memory
+// visible to the process (considering cgroup limits).
+DEFINE_String(ann_index_ivf_list_cache_limit, "70%");
+// Stale sweep time for ANN index IVF list cache in seconds. 3600s is 1 hour.
+DEFINE_mInt32(ann_index_ivf_list_cache_stale_sweep_time_sec, "3600");
 
 // Chunk size for ANN/vector index building per training/adding batch
 // 1M By default.

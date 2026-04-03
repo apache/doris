@@ -38,6 +38,7 @@ import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
@@ -716,15 +717,27 @@ public class BindSink implements AnalysisRuleFactory {
         List<Column> bindColumns;
         if (sink.getColNames().isEmpty()) {
             // When no column names specified, include all non-static-partition columns
-            bindColumns = table.getBaseSchema(true).stream()
-                    .filter(col -> !staticPartitionColNames.contains(col.getName()))
-                    .collect(ImmutableList.toImmutableList());
+            if (sink.isRewrite()) {
+                bindColumns = table.getBaseSchema(true).stream()
+                        .filter(col -> !staticPartitionColNames.contains(col.getName()))
+                        .filter(col -> col.isVisible() || IcebergUtils.isIcebergRowLineageColumn(col))
+                        .collect(ImmutableList.toImmutableList());
+            } else {
+                bindColumns = table.getBaseSchema(true).stream()
+                        .filter(col -> !staticPartitionColNames.contains(col.getName()))
+                        .filter(Column::isVisible)
+                        .collect(ImmutableList.toImmutableList());
+            }
         } else {
             bindColumns = sink.getColNames().stream().map(cn -> {
                 Column column = table.getColumn(cn);
                 if (column == null) {
                     throw new AnalysisException(String.format("column %s is not found in table %s",
                             cn, table.getName()));
+                }
+                if (IcebergUtils.isIcebergRowLineageColumn(column)) {
+                    throw new AnalysisException(String.format(
+                            "Cannot specify row lineage column '%s' in INSERT statement", cn));
                 }
                 return column;
             }).collect(ImmutableList.toImmutableList());
@@ -768,7 +781,13 @@ public class BindSink implements AnalysisRuleFactory {
             }
         }
 
-        LogicalProject<?> fullOutputProject = getOutputProjectByCoercion(table.getFullSchema(), child, columnToOutput);
+        List<Column> insertSchema = table.getFullSchema();
+        if (!sink.isRewrite()) {
+            insertSchema = insertSchema.stream()
+                    .filter(Column::isVisible)
+                    .collect(Collectors.toList());
+        }
+        LogicalProject<?> fullOutputProject = getOutputProjectByCoercion(insertSchema, child, columnToOutput);
         return boundSink.withChildAndUpdateOutput(fullOutputProject);
     }
 

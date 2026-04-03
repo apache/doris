@@ -71,9 +71,9 @@ public:
     }
 
     virtual PipelineTask& set_thread_id(int thread_id) {
-        _thread_id = thread_id;
         if (thread_id != _thread_id) {
             COUNTER_UPDATE(_core_change_times, 1);
+            _thread_id = thread_id;
         }
         return *this;
     }
@@ -130,8 +130,12 @@ public:
         _wake_by = wake_by;
     }
 
-    // Execution phase should be terminated. This is called if this task is canceled or waken up early.
-    void terminate();
+    // Unblock all dependencies so this task can never be blocked again.
+    // This is called when the task is woken up early or the fragment is canceled.
+    //
+    // NOTE: This does NOT call operator-level terminate() — operator terminate must run
+    // inside execute() on the worker thread because operator state is not thread-safe.
+    void unblock_all_dependencies();
 
     // 1 used for update priority queue
     // note(wb) an ugly implementation, need refactor later
@@ -317,7 +321,7 @@ private:
     MonotonicStopWatch _state_change_watcher;
     std::atomic<bool> _spilling = false;
     const std::string _pipeline_name;
-    int _wake_by = -1;
+    std::atomic<int> _wake_by = -1;
 };
 
 using PipelineTaskSPtr = std::shared_ptr<PipelineTask>;

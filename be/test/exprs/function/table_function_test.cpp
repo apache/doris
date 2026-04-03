@@ -40,6 +40,7 @@ namespace doris {
 
 using ::testing::_;
 using ::testing::DoAll;
+using ::testing::Invoke;
 using ::testing::Return;
 using ::testing::SetArgPointee;
 
@@ -64,6 +65,13 @@ protected:
             _children.push_back(std::make_shared<MockVExpr>());
             EXPECT_CALL(*_children[i], execute(_, _, _))
                     .WillRepeatedly(DoAll(SetArgPointee<2>(_column_ids[i]), Return(Status::OK())));
+            const int col_id = _column_ids[i];
+            EXPECT_CALL(*_children[i], execute_column(_, _, _, _, _))
+                    .WillRepeatedly(Invoke([col_id](VExprContext*, const Block* block, Selector*,
+                                                    size_t, ColumnPtr& result) {
+                        result = block->get_by_position(col_id).column;
+                        return Status::OK();
+                    }));
             _root->add_child(_children[i]);
         }
         _ctx = std::make_shared<VExprContext>(_root);

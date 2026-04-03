@@ -246,6 +246,22 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
                         inputTvf.getProperties().getMap().get("uri")),
                         "The uri property cannot be modified in ALTER JOB");
                 break;
+            case "cdc_stream":
+                // type, jdbc_url, database, schema, and table identify the source and cannot be changed.
+                // user, password, driver_url, driver_class, etc. are modifiable (credential rotation).
+                for (String unmodifiable : new String[] {
+                        DataSourceConfigKeys.TYPE,
+                        DataSourceConfigKeys.JDBC_URL,
+                        DataSourceConfigKeys.DATABASE,
+                        DataSourceConfigKeys.SCHEMA,
+                        DataSourceConfigKeys.TABLE}) {
+                    Preconditions.checkArgument(
+                            Objects.equals(
+                                    originTvf.getProperties().getMap().get(unmodifiable),
+                                    inputTvf.getProperties().getMap().get(unmodifiable)),
+                            "The '%s' property cannot be modified in ALTER JOB for cdc_stream", unmodifiable);
+                }
+                break;
             default:
                 throw new IllegalArgumentException("Unsupported tvf type:" + inputTvf.getFunctionName());
         }

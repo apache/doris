@@ -20,8 +20,11 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 
-CREATE_WINDOW_FUNCTION_WITH_NAME_AND_DATA(create_aggregate_function_window_first, FirstLastData,
-                                          WindowFunctionFirstImpl);
+CREATE_WINDOW_FUNCTION_DIRECT(create_aggregate_function_window_first, FirstLastData,
+                              WindowFunctionFirstImpl, false);
+
+CREATE_WINDOW_FUNCTION_DIRECT(create_aggregate_function_window_first_ignore_null, FirstLastData,
+                              WindowFunctionFirstImpl, true);
 
 #include "common/compile_check_end.h"
 } // namespace doris

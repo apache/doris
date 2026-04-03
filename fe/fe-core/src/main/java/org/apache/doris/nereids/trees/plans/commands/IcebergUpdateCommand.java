@@ -26,6 +26,7 @@ import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
 import org.apache.doris.datasource.iceberg.IcebergNereidsUtils;
+import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
@@ -64,6 +65,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.Callable;
 import java.util.stream.Collectors;
 
 /**
@@ -136,35 +138,54 @@ public class IcebergUpdateCommand extends Command implements ForwardWithSync, Ex
     private boolean executeMergePlan(ConnectContext ctx, StmtExecutor executor,
                                      IcebergExternalTable icebergTable,
                                      LogicalPlan logicalPlan) throws Exception {
-        LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalPlan, ctx.getStatementContext());
-        NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
-        planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
-        executor.setPlanner(planner);
-        executor.checkBlockRules();
-        Optional<org.apache.iceberg.expressions.Expression> conflictFilter =
-                IcebergConflictDetectionFilterUtils.buildConflictDetectionFilter(
-                        planner.getAnalyzedPlan(), icebergTable);
+        return executeWithExternalTableBatchModeDisabled(ctx, () -> {
+            LogicalPlanAdapter logicalPlanAdapter =
+                    new LogicalPlanAdapter(logicalPlan, ctx.getStatementContext());
+            NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
+            planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
+            executor.setPlanner(planner);
+            executor.checkBlockRules();
+            Optional<org.apache.iceberg.expressions.Expression> conflictFilter =
+                    IcebergConflictDetectionFilterUtils.buildConflictDetectionFilter(
+                            planner.getAnalyzedPlan(), icebergTable);
 
-        PhysicalSink<?> physicalSink = getPhysicalMergeSink(planner);
-        PlanFragment fragment = planner.getFragments().get(0);
-        DataSink dataSink = fragment.getSink();
-        boolean emptyInsert = childIsEmptyRelation(physicalSink);
-        String label = String.format("iceberg_update_merge_%x_%x", ctx.queryId().hi, ctx.queryId().lo);
+            PhysicalSink<?> physicalSink = getPhysicalMergeSink(planner);
+            PlanFragment fragment = planner.getFragments().get(0);
+            DataSink dataSink = fragment.getSink();
+            boolean emptyInsert = childIsEmptyRelation(physicalSink);
+            String label = String.format("iceberg_update_merge_%x_%x", ctx.queryId().hi, ctx.queryId().lo);
 
-        IcebergMergeExecutor insertExecutor =
-                new IcebergMergeExecutor(ctx, icebergTable, label, planner, emptyInsert, -1L);
-        insertExecutor.setConflictDetectionFilter(conflictFilter);
+            IcebergMergeExecutor insertExecutor =
+                    new IcebergMergeExecutor(ctx, icebergTable, label, planner, emptyInsert, -1L);
+            insertExecutor.setConflictDetectionFilter(conflictFilter);
 
-        if (insertExecutor.isEmptyInsert()) {
-            return true;
+            if (insertExecutor.isEmptyInsert()) {
+                return true;
+            }
+
+            insertExecutor.beginTransaction();
+            insertExecutor.finalizeSinkForMerge(fragment, dataSink, physicalSink);
+            insertExecutor.getCoordinator().setTxnId(insertExecutor.getTxnId());
+            executor.setCoord(insertExecutor.getCoordinator());
+            insertExecutor.executeSingleInsert(executor);
+            return ctx.getState().getStateType() != QueryState.MysqlStateType.ERR;
+        });
+    }
+
+    @VisibleForTesting
+    static <T> T executeWithExternalTableBatchModeDisabled(
+            ConnectContext ctx, Callable<T> action) throws Exception {
+        boolean previousEnableExternalTableBatchMode =
+                ctx.getSessionVariable().enableExternalTableBatchMode;
+        // disable batch mode for iceberg scan node get all splits.
+        // IcebergRewritableDeletePlanner.collect for map<data file -> list<delete file>>
+        ctx.getSessionVariable().enableExternalTableBatchMode = false;
+        try {
+            return action.call();
+        } finally {
+            ctx.getSessionVariable().enableExternalTableBatchMode =
+                    previousEnableExternalTableBatchMode;
         }
-
-        insertExecutor.beginTransaction();
-        insertExecutor.finalizeSinkForMerge(fragment, dataSink, physicalSink);
-        insertExecutor.getCoordinator().setTxnId(insertExecutor.getTxnId());
-        executor.setCoord(insertExecutor.getCoordinator());
-        insertExecutor.executeSingleInsert(executor);
-        return ctx.getState().getStateType() != QueryState.MysqlStateType.ERR;
     }
 
     @VisibleForTesting
@@ -182,11 +203,15 @@ public class IcebergUpdateCommand extends Command implements ForwardWithSync, Ex
         NamedExpression operationColumn = new UnboundAlias(
                 new TinyIntLiteral(IcebergMergeOperation.UPDATE_OPERATION_NUMBER),
                 IcebergMergeOperation.OPERATION_COLUMN);
-
         List<NamedExpression> projectItems = new ArrayList<>(2 + updateColumns.size());
         projectItems.add(operationColumn);
         projectItems.add(rowIdColumn);
         projectItems.addAll(updateColumns);
+        for (Column col : columns) {
+            if (IcebergUtils.isIcebergRowLineageColumn(col)) {
+                projectItems.add(new UnboundSlot(tableName, col.getName()));
+            }
+        }
         return new LogicalProject<>(projectItems, planWithRowId);
     }
 
