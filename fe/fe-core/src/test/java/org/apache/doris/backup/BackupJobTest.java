@@ -31,6 +31,7 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.UnitTestUtil;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.property.storage.BrokerProperties;
+import org.apache.doris.fs.FileSystemDescriptor;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.nereids.trees.plans.commands.BackupCommand;
@@ -236,6 +237,13 @@ public class BackupJobTest {
             Status getBrokerAddress(Long beId, Env env, List<FsBroker> brokerAddrs) {
                 brokerAddrs.add(new FsBroker());
                 return Status.OK;
+            }
+        };
+
+        new MockUp<FileSystemDescriptor>() {
+            @Mock
+            public java.util.Map<String, String> getBackendConfigProperties() {
+                return Maps.newHashMap();
             }
         };
 

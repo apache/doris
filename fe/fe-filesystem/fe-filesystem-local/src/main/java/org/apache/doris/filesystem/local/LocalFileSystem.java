@@ -92,7 +92,9 @@ public class LocalFileSystem implements FileSystem {
 
     @Override
     public void rename(Location src, Location dst) throws IOException {
-        Files.move(toPath(src), toPath(dst));
+        Path dstPath = toPath(dst);
+        Files.createDirectories(dstPath.getParent());
+        Files.move(toPath(src), dstPath);
     }
 
     @Override

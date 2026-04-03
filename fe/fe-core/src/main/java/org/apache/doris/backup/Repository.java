@@ -176,7 +176,8 @@ public class Repository implements Writable, GsonPostProcessable {
         this.fileSystemDescriptor = FileSystemDescriptor.fromStorageProperties(storageProperties, fsName);
         this.createTime = System.currentTimeMillis();
         // Initialize SPI filesystem for I/O; broker resolves a live endpoint per I/O call
-        if (fileSystemDescriptor.getStorageType() != FsStorageType.BROKER) {
+        if (fileSystemDescriptor.getStorageType() != FsStorageType.BROKER
+                && !FeConstants.runningUnitTest) {
             try {
                 this.spiFs = FileSystemFactory.getFileSystem(storageProperties);
             } catch (IOException e) {

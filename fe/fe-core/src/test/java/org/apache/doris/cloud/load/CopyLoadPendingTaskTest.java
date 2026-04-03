@@ -27,9 +27,11 @@ import org.apache.doris.cloud.storage.ObjectInfo;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.filesystem.spi.ObjFileSystem;
 import org.apache.doris.filesystem.spi.RemoteObject;
 import org.apache.doris.filesystem.spi.RemoteObjects;
+import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.utframe.TestWithFeService;
@@ -88,7 +90,7 @@ public class CopyLoadPendingTaskTest extends TestWithFeService {
     /** Registers a MockUp on ObjFileSystem to serve list/head calls from {@link #objectStore}. */
     private void setupObjFsMock() {
         Map<String, RemoteObject> store = objectStore;
-        new MockUp<ObjFileSystem>() {
+        MockUp<ObjFileSystem> objFsMockUp = new MockUp<ObjFileSystem>() {
             @Mock
             public RemoteObjects listObjectsWithPrefix(String prefix, String subPrefix, String continuationToken)
                     throws IOException {
@@ -112,6 +114,13 @@ public class CopyLoadPendingTaskTest extends TestWithFeService {
                     return new RemoteObjects(new ArrayList<>(), false, null);
                 }
                 return new RemoteObjects(Lists.newArrayList(f), false, null);
+            }
+        };
+        ObjFileSystem mockObjFs = objFsMockUp.getMockInstance();
+        new MockUp<FileSystemFactory>() {
+            @Mock
+            public org.apache.doris.filesystem.FileSystem getFileSystem(StorageProperties sp) throws IOException {
+                return mockObjFs;
             }
         };
     }

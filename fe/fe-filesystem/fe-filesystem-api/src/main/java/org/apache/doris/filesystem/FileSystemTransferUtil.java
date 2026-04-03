@@ -113,6 +113,9 @@ public final class FileSystemTransferUtil {
             while (iter.hasNext()) {
                 FileEntry entry = iter.next();
                 if (entry.isDirectory()) {
+                    if (pattern == null || pattern.matcher(entry.location().uri()).matches()) {
+                        result.add(entry);
+                    }
                     if (recursive) {
                         collectEntries(fs, entry.location(), pattern, true, result);
                     }
