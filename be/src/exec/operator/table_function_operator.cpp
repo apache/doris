@@ -294,82 +294,96 @@ Status TableFunctionLocalState::_get_expanded_block_block_fast_path(
     // Segment tracking: accumulate contiguous nested ranges, flush on boundaries.
     // Array column offsets are monotonically non-decreasing, so nested data across child rows
     // is always contiguous (even with NULL/empty rows that contribute zero elements).
-    std::vector<uint32_t> seg_row_ids;
-    std::vector<int32_t> seg_positions; // for posexplode
-    int64_t seg_nested_start = -1;
-    int seg_nested_count = 0;
-    seg_row_ids.reserve(remaining_capacity);
+    struct ExpandSegmentContext {
+        std::vector<uint32_t>
+                seg_row_ids; // row ids of non table-function columns to replicate for this segment
+        std::vector<int32_t>
+                seg_positions; // for posexplode, the position values to write for this segment
+        int64_t seg_nested_start = -1; // start offset in the nested column of this segment
+        int seg_nested_count =
+                0; // number of nested rows in this segment (can be > child row count due to multiple elements per row)
+    };
+    ExpandSegmentContext segment_ctx;
+    segment_ctx.seg_row_ids.reserve(remaining_capacity);
     if (is_posexplode) {
-        seg_positions.reserve(remaining_capacity);
+        segment_ctx.seg_positions.reserve(remaining_capacity);
     }
+
+    auto reset_expand_segment_ctx = [&segment_ctx, is_posexplode]() {
+        segment_ctx.seg_nested_start = -1;
+        segment_ctx.seg_nested_count = 0;
+        segment_ctx.seg_row_ids.clear();
+        if (is_posexplode) {
+            segment_ctx.seg_positions.clear();
+        }
+    };
 
     // Flush accumulated contiguous segment to output columns
     auto flush_segment = [&]() {
-        if (seg_nested_count == 0) {
+        if (segment_ctx.seg_nested_count == 0) {
             return;
         }
 
         // Non-TF columns: replicate each child row for every output element
         for (auto index : p._output_slot_indexs) {
             auto src_column = _child_block->get_by_position(index).column;
-            columns[index]->insert_indices_from(*src_column, seg_row_ids.data(),
-                                                seg_row_ids.data() + seg_row_ids.size());
+            columns[index]->insert_indices_from(
+                    *src_column, segment_ctx.seg_row_ids.data(),
+                    segment_ctx.seg_row_ids.data() + segment_ctx.seg_row_ids.size());
         }
 
         if (is_posexplode) {
             // Write positions
-            for (auto pos : seg_positions) {
-                pos_col_ptr->insert_value(pos);
-            }
+            pos_col_ptr->insert_many_raw_data(
+                    reinterpret_cast<const char*>(segment_ctx.seg_positions.data()),
+                    segment_ctx.seg_positions.size());
             // Write nested values to the struct's value sub-column
             DCHECK(value_col_ptr->is_nullable())
                     << "posexplode fast path requires nullable value column";
             auto* val_nullable = assert_cast<ColumnNullable*>(value_col_ptr);
             val_nullable->get_nested_column_ptr()->insert_range_from(
-                    *_block_fast_path_ctx.nested_col, seg_nested_start, seg_nested_count);
+                    *_block_fast_path_ctx.nested_col, segment_ctx.seg_nested_start,
+                    segment_ctx.seg_nested_count);
             auto* val_nullmap =
                     assert_cast<ColumnUInt8*>(val_nullable->get_null_map_column_ptr().get());
             auto& val_nullmap_data = val_nullmap->get_data();
             const size_t old_size = val_nullmap_data.size();
-            val_nullmap_data.resize(old_size + seg_nested_count);
+            val_nullmap_data.resize(old_size + segment_ctx.seg_nested_count);
             if (_block_fast_path_ctx.nested_nullmap_data != nullptr) {
                 memcpy(val_nullmap_data.data() + old_size,
-                       _block_fast_path_ctx.nested_nullmap_data + seg_nested_start,
-                       seg_nested_count * sizeof(UInt8));
+                       _block_fast_path_ctx.nested_nullmap_data + segment_ctx.seg_nested_start,
+                       segment_ctx.seg_nested_count * sizeof(UInt8));
             } else {
-                memset(val_nullmap_data.data() + old_size, 0, seg_nested_count * sizeof(UInt8));
+                memset(val_nullmap_data.data() + old_size, 0,
+                       segment_ctx.seg_nested_count * sizeof(UInt8));
             }
             // Struct-level null map: these rows are not null
             if (outer_struct_nullmap_ptr) {
-                outer_struct_nullmap_ptr->insert_many_defaults(seg_nested_count);
+                outer_struct_nullmap_ptr->insert_many_defaults(segment_ctx.seg_nested_count);
             }
         } else if (out_col->is_nullable()) {
             auto* out_nullable = assert_cast<ColumnNullable*>(out_col.get());
             out_nullable->get_nested_column_ptr()->insert_range_from(
-                    *_block_fast_path_ctx.nested_col, seg_nested_start, seg_nested_count);
+                    *_block_fast_path_ctx.nested_col, segment_ctx.seg_nested_start,
+                    segment_ctx.seg_nested_count);
             auto* nullmap_column =
                     assert_cast<ColumnUInt8*>(out_nullable->get_null_map_column_ptr().get());
             auto& nullmap_data = nullmap_column->get_data();
             const size_t old_size = nullmap_data.size();
-            nullmap_data.resize(old_size + seg_nested_count);
+            nullmap_data.resize(old_size + segment_ctx.seg_nested_count);
             if (_block_fast_path_ctx.nested_nullmap_data != nullptr) {
                 memcpy(nullmap_data.data() + old_size,
-                       _block_fast_path_ctx.nested_nullmap_data + seg_nested_start,
-                       seg_nested_count * sizeof(UInt8));
+                       _block_fast_path_ctx.nested_nullmap_data + segment_ctx.seg_nested_start,
+                       segment_ctx.seg_nested_count * sizeof(UInt8));
             } else {
-                memset(nullmap_data.data() + old_size, 0, seg_nested_count * sizeof(UInt8));
+                memset(nullmap_data.data() + old_size, 0,
+                       segment_ctx.seg_nested_count * sizeof(UInt8));
             }
         } else {
-            out_col->insert_range_from(*_block_fast_path_ctx.nested_col, seg_nested_start,
-                                       seg_nested_count);
+            out_col->insert_range_from(*_block_fast_path_ctx.nested_col,
+                                       segment_ctx.seg_nested_start, segment_ctx.seg_nested_count);
         }
-
-        seg_nested_start = -1;
-        seg_nested_count = 0;
-        seg_row_ids.clear();
-        if (is_posexplode) {
-            seg_positions.clear();
-        }
+        reset_expand_segment_ctx();
     };
 
     // Emit one NULL output row for an outer-null/empty child row
@@ -380,6 +394,13 @@ Status TableFunctionLocalState::_get_expanded_block_block_fast_path(
         }
         out_col->insert_default();
     };
+    // Walk through child rows, accumulating contiguous segments into the output,
+    // then when hitting a null/empty row or reaching the end,
+    // flush the segment using bulk operations.
+    // For outer-null rows, insert a NULL and copy the non-table-function columns directly.
+    // This naturally handles both outer and non-outer modes since non-outer mode
+    // just won't produce any null outputs.
+    // For posexplode, generate position indices alongside this.
     while (produced_rows < remaining_capacity && child_row < child_rows) {
         const bool is_null_row = _block_fast_path_ctx.array_nullmap_data &&
                                  _block_fast_path_ctx.array_nullmap_data[child_row];
@@ -408,25 +429,27 @@ Status TableFunctionLocalState::_get_expanded_block_block_fast_path(
         DCHECK_LE(nested_start + take_count, cur_off);
         DCHECK_LE(nested_start + take_count, _block_fast_path_ctx.nested_col->size());
 
-        if (seg_nested_count == 0) {
-            seg_nested_start = nested_start;
+        if (segment_ctx.seg_nested_count == 0) {
+            segment_ctx.seg_nested_start = nested_start;
         } else {
             // Nested data from an array column is always contiguous: offsets are monotonically
             // non-decreasing, so skipping NULL/empty rows doesn't create gaps.
-            DCHECK_EQ(static_cast<uint64_t>(seg_nested_start + seg_nested_count), nested_start)
+            DCHECK_EQ(static_cast<uint64_t>(segment_ctx.seg_nested_start +
+                                            segment_ctx.seg_nested_count),
+                      nested_start)
                     << "nested data must be contiguous across child rows";
         }
 
         // Map each produced output row back to its source child row for copying non-table-function
         // columns via insert_indices_from().
         for (int j = 0; j < take_count; ++j) {
-            seg_row_ids.push_back(cast_set<uint32_t>(child_row));
+            segment_ctx.seg_row_ids.push_back(cast_set<uint32_t>(child_row));
             if (is_posexplode) {
-                seg_positions.push_back(cast_set<int32_t>(in_row_offset + j));
+                segment_ctx.seg_positions.push_back(cast_set<int32_t>(in_row_offset + j));
             }
         }
 
-        seg_nested_count += take_count;
+        segment_ctx.seg_nested_count += take_count;
         produced_rows += take_count;
         in_row_offset += take_count;
         if (in_row_offset >= nested_len) {
