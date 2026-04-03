@@ -223,7 +223,8 @@ void ExchangeSinkLocalState::on_channel_finished(InstanceLoId channel_id) {
         return;
     } else {
         _finished_channels.emplace(channel_id);
-        if (_working_channels_count.fetch_sub(1) == 1) {
+        auto remaining = _working_channels_count.fetch_sub(1) - 1;
+        if (remaining == 0) {
             set_reach_limit();
             if (_finish_dependency) {
                 _finish_dependency->set_ready();

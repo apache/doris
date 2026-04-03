@@ -93,15 +93,17 @@ public class BucketShuffleDestinationTest {
 
         Method method = DistributePlanner.class.getDeclaredMethod(
                 "sortDestinationInstancesByBuckets",
-                PipelineDistributedPlan.class, List.class, int.class);
+                PipelineDistributedPlan.class, List.class, int.class, boolean.class);
         method.setAccessible(true);
 
         // Need a DistributePlanner instance — create via Objenesis (Mockito internal) to bypass constructor
         Object planner = org.objenesis.ObjenesisStd.class.getDeclaredConstructor()
                 .newInstance().newInstance(DistributePlanner.class);
 
+        // useJoinBucketAssignment=true: non-serial mode uses getAssignedJoinBucketIndexes()
         @SuppressWarnings("unchecked")
-        List<AssignedJob> destinations = (List<AssignedJob>) method.invoke(planner, mockPlan, firstPerWorker, 6);
+        List<AssignedJob> destinations = (List<AssignedJob>) method.invoke(
+                planner, mockPlan, firstPerWorker, 6, true);
 
         // Verify: destinations count == bucketNum
         Assertions.assertEquals(6, destinations.size(), "destinations count should equal bucketNum");

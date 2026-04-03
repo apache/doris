@@ -520,8 +520,8 @@ void ExchangeSinkBuffer::_ended(RpcInstance& ins) {
 
 void ExchangeSinkBuffer::_failed(InstanceLoId id, const std::string& err) {
     _is_failed = true;
-    LOG(INFO) << "send rpc failed, instance id: " << id << ", _dest_node_id: " << _dest_node_id
-              << ", node id: " << _node_id << ", err: " << err;
+    LOG(WARNING) << "send rpc failed, instance id: " << id << ", _dest_node_id: " << _dest_node_id
+                 << ", node id: " << _node_id << ", err: " << err;
     _context->cancel(Status::Cancelled(err));
 }
 

@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.plans.distribute.worker.job.AssignedJob;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.AssignedJobBuilder;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.BucketScanSource;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.DefaultScanSource;
+import org.apache.doris.nereids.trees.plans.distribute.worker.job.LocalShuffleBucketJoinAssignedJob;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.StaticAssignedJob;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.UnassignedJob;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.UnassignedJobBuilder;
@@ -63,6 +64,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Consumer;
 
 /** DistributePlanner */
@@ -174,12 +176,16 @@ public class DistributePlanner {
     }
 
     private FragmentIdMapping<DistributedPlan> linkPlans(FragmentIdMapping<DistributedPlan> plans) {
+        boolean enableShareHashTableForBroadcastJoin = statementContext.getConnectContext()
+                .getSessionVariable()
+                .enableShareHashTableForBroadcastJoin;
         for (DistributedPlan receiverPlan : plans.values()) {
             for (Entry<ExchangeNode, DistributedPlan> link : receiverPlan.getInputs().entries()) {
                 linkPipelinePlan(
                         (PipelineDistributedPlan) receiverPlan,
                         (PipelineDistributedPlan) link.getValue(),
-                        link.getKey()
+                        link.getKey(),
+                        enableShareHashTableForBroadcastJoin
                 );
                 for (Entry<DataSink, List<AssignedJob>> kv :
                         ((PipelineDistributedPlan) link.getValue()).getDestinations().entrySet()) {
@@ -200,12 +206,16 @@ public class DistributePlanner {
     private void linkPipelinePlan(
             PipelineDistributedPlan receiverPlan,
             PipelineDistributedPlan senderPlan,
-            ExchangeNode linkNode) {
+            ExchangeNode linkNode,
+            boolean enableShareHashTableForBroadcastJoin) {
 
+        boolean isSerialExchange = linkNode.isSerialOperator()
+                && linkNode.getFragment().useSerialSource(statementContext.getConnectContext());
         List<AssignedJob> receiverInstances = filterInstancesWhichCanReceiveDataFromRemote(
-                receiverPlan, linkNode);
+                receiverPlan, linkNode, enableShareHashTableForBroadcastJoin);
         if (linkNode.getPartitionType() == TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED) {
-            receiverInstances = getDestinationsByBuckets(receiverPlan, receiverInstances);
+            receiverInstances = getDestinationsByBuckets(receiverPlan, receiverInstances,
+                    !isSerialExchange);
         }
 
         DataSink sink = senderPlan.getFragmentJob().getFragment().getSink();
@@ -225,15 +235,18 @@ public class DistributePlanner {
 
     private List<AssignedJob> getDestinationsByBuckets(
             PipelineDistributedPlan joinSide,
-            List<AssignedJob> receiverInstances) {
+            List<AssignedJob> receiverInstances,
+            boolean useJoinBucketAssignment) {
         UnassignedScanBucketOlapTableJob bucketJob = (UnassignedScanBucketOlapTableJob) joinSide.getFragmentJob();
         int bucketNum = bucketJob.getOlapScanNodes().get(0).getBucketNum();
-        return sortDestinationInstancesByBuckets(joinSide, receiverInstances, bucketNum);
+        return sortDestinationInstancesByBuckets(joinSide, receiverInstances, bucketNum,
+                useJoinBucketAssignment);
     }
 
     private List<AssignedJob> filterInstancesWhichCanReceiveDataFromRemote(
             PipelineDistributedPlan receiverPlan,
-            ExchangeNode linkNode) {
+            ExchangeNode linkNode,
+            boolean enableShareHashTableForBroadcastJoin) {
         // isSerialOperator(): UNPARTITIONED or use_serial_exchange (operator-level)
         // useSerialSource(): fragment is in pooling mode (fragment-level guard)
         // Both must be true: serial exchange semantics AND pooling mode active.
@@ -243,17 +256,37 @@ public class DistributePlanner {
                 && linkNode.getFragment().useSerialSource(
                         statementContext.getConnectContext())) {
             return getFirstInstancePerWorker(receiverPlan.getInstanceJobs());
+        } else if (enableShareHashTableForBroadcastJoin && linkNode.isRightChildOfBroadcastHashJoin()) {
+            // For broadcast join with shared hash table, only 1 instance per BE receives
+            // the build side data; other instances on the same BE share that hash table.
+            return getFirstInstancePerWorker(receiverPlan.getInstanceJobs());
         } else {
             return receiverPlan.getInstanceJobs();
         }
     }
 
     private List<AssignedJob> sortDestinationInstancesByBuckets(
-            PipelineDistributedPlan plan, List<AssignedJob> unsorted, int bucketNum) {
+            PipelineDistributedPlan plan, List<AssignedJob> unsorted, int bucketNum,
+            boolean useJoinBucketAssignment) {
         AssignedJob[] instances = new AssignedJob[bucketNum];
         for (AssignedJob instanceJob : unsorted) {
-            BucketScanSource bucketScanSource = (BucketScanSource) instanceJob.getScanSource();
-            for (Integer bucketIndex : bucketScanSource.bucketIndexToScanNodeToTablets.keySet()) {
+            // For non-serial exchanges with LocalShuffleBucketJoinAssignedJob, use join bucket
+            // assignments rather than scan source buckets. In pooling mode, scan source buckets
+            // are pooled to one instance per BE, but join buckets are distributed across instances
+            // for parallelism. This must be consistent with
+            // ThriftPlansBuilder.computeBucketIdToInstanceId().
+            // For serial exchanges, scan source buckets are correct because the serial exchange
+            // creates a local exchange that redistributes data to all instances.
+            Set<Integer> bucketIndices;
+            if (useJoinBucketAssignment
+                    && instanceJob instanceof LocalShuffleBucketJoinAssignedJob) {
+                bucketIndices = ((LocalShuffleBucketJoinAssignedJob) instanceJob)
+                        .getAssignedJoinBucketIndexes();
+            } else {
+                BucketScanSource bucketScanSource = (BucketScanSource) instanceJob.getScanSource();
+                bucketIndices = bucketScanSource.bucketIndexToScanNodeToTablets.keySet();
+            }
+            for (Integer bucketIndex : bucketIndices) {
                 if (instances[bucketIndex] != null) {
                     throw new IllegalStateException(
                             "Multi instances scan same buckets: " + instances[bucketIndex] + " and " + instanceJob

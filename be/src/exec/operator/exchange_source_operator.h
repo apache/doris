@@ -19,6 +19,8 @@
 
 #include <stdint.h>
 
+#include <unordered_set>
+
 #include "exec/operator/operator.h"
 
 namespace doris {
@@ -46,22 +48,7 @@ public:
     Status close(RuntimeState* state) override;
     std::string debug_string(int indentation_level) const override;
 
-    Status reset(RuntimeState* state) {
-        if (stream_recvr) {
-            stream_recvr->close();
-        }
-        create_stream_recvr(state);
-
-        is_ready = false;
-        num_rows_skipped = 0;
-
-        const auto& queues = stream_recvr->sender_queues();
-        for (size_t i = 0; i < queues.size(); i++) {
-            deps[i]->block();
-            queues[i]->set_dependency(deps[i]);
-        }
-        return Status::OK();
-    }
+    Status reset(RuntimeState* state);
 
     std::vector<Dependency*> dependencies() const override {
         std::vector<Dependency*> dep_vec;
@@ -70,11 +57,12 @@ public:
         return dep_vec;
     }
 
-    MOCK_FUNCTION void create_stream_recvr(RuntimeState* state);
+    MOCK_FUNCTION void create_stream_recvr(RuntimeState* state, int num_senders);
     std::shared_ptr<doris::VDataStreamRecvr> stream_recvr;
     doris::VSortExecExprs vsort_exec_exprs;
     int64_t num_rows_skipped;
     bool is_ready;
+    int _task_idx = -1;
 
     std::vector<std::shared_ptr<Dependency>> deps;
 
@@ -110,6 +98,19 @@ public:
     [[nodiscard]] int num_senders() const { return _num_senders; }
     [[nodiscard]] bool is_merging() const { return _is_merging; }
 
+    // For BUCKET_SHUFFLE exchanges, set the local instance indices that are actual
+    // destinations (have bucket assignments). Instances NOT in this set are "padding"
+    // instances that should create recvrs with 0 senders to avoid hanging.
+    void set_destination_instances(std::unordered_set<int> dest) {
+        _destination_instances = std::move(dest);
+    }
+
+    // Returns true if this instance should receive data from exchange senders.
+    // When _destination_instances is empty, all instances are considered destinations.
+    [[nodiscard]] bool is_destination_instance(int task_idx) const {
+        return _destination_instances.empty() || _destination_instances.contains(task_idx);
+    }
+
     DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         if (OperatorX<ExchangeLocalState>::is_serial_operator()) {
             return {ExchangeType::NOOP};
@@ -126,6 +127,10 @@ private:
     const int _num_senders;
     const bool _is_merging;
     const TPartitionType::type _partition_type;
+
+    // Local instance indices that are actual BUCKET_SHUFFLE destinations.
+    // Empty means all instances are destinations (default for non-BUCKET_SHUFFLE exchanges).
+    std::unordered_set<int> _destination_instances;
 
     // use in merge sort
     size_t _offset;
