@@ -157,11 +157,11 @@ public class HiveAcidTest {
 
 
         List<String> resultReadFile = Arrays.asList(
-                "file:" + tempPath.toAbsolutePath() + "/base_50/bucket_0",
-                "file:" + tempPath.toAbsolutePath() + "/delta_40_60/bucket_0",
-                "file:" + tempPath.toAbsolutePath() + "/delta_00061_61/bucket_0",
-                "file:" + tempPath.toAbsolutePath() + "/delta_000062_62/bucket_0",
-                "file:" + tempPath.toAbsolutePath() + "/delta_0000063_63/bucket_0"
+                "file://" + tempPath.toAbsolutePath() + "/base_50/bucket_0",
+                "file://" + tempPath.toAbsolutePath() + "/delta_40_60/bucket_0",
+                "file://" + tempPath.toAbsolutePath() + "/delta_00061_61/bucket_0",
+                "file://" + tempPath.toAbsolutePath() + "/delta_000062_62/bucket_0",
+                "file://" + tempPath.toAbsolutePath() + "/delta_0000063_63/bucket_0"
         );
         Assert.assertTrue(resultReadFile.containsAll(readFile) && readFile.containsAll(resultReadFile));
     }
@@ -208,12 +208,12 @@ public class HiveAcidTest {
 
 
         List<String> resultReadFile = Arrays.asList(
-                "file:" + tempPath.toAbsolutePath() + "/base_50/bucket_0",
-                "file:" + tempPath.toAbsolutePath() + "/delta_40_60/bucket_0",
-                "file:" + tempPath.toAbsolutePath() + "/delta_00061_61_0/bucket_0",
-                "file:" + tempPath.toAbsolutePath() + "/delta_000062_62_0/bucket_0",
-                "file:" + tempPath.toAbsolutePath() + "/delta_000062_62_3/bucket_0",
-                "file:" + tempPath.toAbsolutePath() + "/delta_0000063_63_0/bucket_0"
+                "file://" + tempPath.toAbsolutePath() + "/base_50/bucket_0",
+                "file://" + tempPath.toAbsolutePath() + "/delta_40_60/bucket_0",
+                "file://" + tempPath.toAbsolutePath() + "/delta_00061_61_0/bucket_0",
+                "file://" + tempPath.toAbsolutePath() + "/delta_000062_62_0/bucket_0",
+                "file://" + tempPath.toAbsolutePath() + "/delta_000062_62_3/bucket_0",
+                "file://" + tempPath.toAbsolutePath() + "/delta_0000063_63_0/bucket_0"
 
         );
 
@@ -255,8 +255,8 @@ public class HiveAcidTest {
 
 
         List<String> resultReadFile = Arrays.asList(
-                "file:" + tempPath.toAbsolutePath() + "/delta_1_1/bucket_0",
-                "file:" + tempPath.toAbsolutePath() + "/delta_2_5/bucket_0"
+                "file://" + tempPath.toAbsolutePath() + "/delta_1_1/bucket_0",
+                "file://" + tempPath.toAbsolutePath() + "/delta_2_5/bucket_0"
         );
 
         Assert.assertTrue(resultReadFile.containsAll(readFile) && readFile.containsAll(resultReadFile));
@@ -300,8 +300,8 @@ public class HiveAcidTest {
 
 
         List<String> resultReadFile = Arrays.asList(
-                "file:" + tempPath.toAbsolutePath() + "/delta_1_1/bucket_0",
-                "file:" + tempPath.toAbsolutePath() + "/delta_2_5/bucket_0"
+                "file://" + tempPath.toAbsolutePath() + "/delta_1_1/bucket_0",
+                "file://" + tempPath.toAbsolutePath() + "/delta_2_5/bucket_0"
         );
 
         Assert.assertTrue(resultReadFile.containsAll(readFile) && readFile.containsAll(resultReadFile));
@@ -352,8 +352,8 @@ public class HiveAcidTest {
 
 
         List<String> resultReadFile = Arrays.asList(
-                "file:" + tempPath.toAbsolutePath() + "/base_49/bucket_0",
-                "file:" + tempPath.toAbsolutePath() + "/delta_050_105/bucket_0"
+                "file://" + tempPath.toAbsolutePath() + "/base_49/bucket_0",
+                "file://" + tempPath.toAbsolutePath() + "/delta_050_105/bucket_0"
         );
 
         Assert.assertTrue(resultReadFile.containsAll(readFile) && readFile.containsAll(resultReadFile));
@@ -422,12 +422,12 @@ public class HiveAcidTest {
 
 
         List<String> resultReadFile = Arrays.asList(
-                "file:" + tempPath.toAbsolutePath() + "/base_50/bucket_0",
+                "file://" + tempPath.toAbsolutePath() + "/base_50/bucket_0",
 
-                "file:" + tempPath.toAbsolutePath() + "/delta_40_60/bucket_0",
-                "file:" + tempPath.toAbsolutePath() + "/delta_00061_61/bucket_0",
-                "file:" + tempPath.toAbsolutePath() + "/delta_000062_62/bucket_0",
-                "file:" + tempPath.toAbsolutePath() + "/delta_0000063_63/bucket_0"
+                "file://" + tempPath.toAbsolutePath() + "/delta_40_60/bucket_0",
+                "file://" + tempPath.toAbsolutePath() + "/delta_00061_61/bucket_0",
+                "file://" + tempPath.toAbsolutePath() + "/delta_000062_62/bucket_0",
+                "file://" + tempPath.toAbsolutePath() + "/delta_0000063_63/bucket_0"
 
         );
 
@@ -485,7 +485,7 @@ public class HiveAcidTest {
 
 
         List<String> resultReadFile = Arrays.asList(
-                "file:" + tempPath.toAbsolutePath() + "/delta_40_60/bucket_0"
+                "file://" + tempPath.toAbsolutePath() + "/delta_40_60/bucket_0"
         );
 
         Assert.assertTrue(resultReadFile.containsAll(readFile) && readFile.containsAll(resultReadFile));
@@ -531,8 +531,8 @@ public class HiveAcidTest {
 
 
         List<String> resultReadFile = Arrays.asList(
-                "file:" + tempPath.toAbsolutePath() + "/delta_1_1/bucket_0",
-                "file:" + tempPath.toAbsolutePath() + "/delta_2_5/bucket_0"
+                "file://" + tempPath.toAbsolutePath() + "/delta_1_1/bucket_0",
+                "file://" + tempPath.toAbsolutePath() + "/delta_2_5/bucket_0"
         );
 
         Assert.assertTrue(resultReadFile.containsAll(readFile) && readFile.containsAll(resultReadFile));
@@ -593,8 +593,8 @@ public class HiveAcidTest {
 
 
         List<String> resultReadFile = Arrays.asList(
-                "file:" + tempPath.toAbsolutePath() + "/base_49/bucket_0",
-                "file:" + tempPath.toAbsolutePath() + "/delta_050_105/bucket_0"
+                "file://" + tempPath.toAbsolutePath() + "/base_49/bucket_0",
+                "file://" + tempPath.toAbsolutePath() + "/delta_050_105/bucket_0"
         );
         Assert.assertTrue(resultReadFile.containsAll(readFile) && readFile.containsAll(resultReadFile));
     }

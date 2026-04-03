@@ -105,7 +105,13 @@ public class LocalFileSystem implements FileSystem {
             for (Path child : stream) {
                 boolean isDir = Files.isDirectory(child);
                 long length = isDir ? 0L : Files.size(child);
-                entries.add(new FileEntry(Location.of(child.toUri().toString()), length, isDir,
+                // Java Path.toUri() appends a trailing slash for directories; strip it so callers
+                // can rely on consistent URIs (e.g. glob pattern matching, locationName parsing).
+                String uri = child.toUri().toString();
+                if (isDir && uri.endsWith("/")) {
+                    uri = uri.substring(0, uri.length() - 1);
+                }
+                entries.add(new FileEntry(Location.of(uri), length, isDir,
                         Files.getLastModifiedTime(child).toMillis(), null));
             }
         }

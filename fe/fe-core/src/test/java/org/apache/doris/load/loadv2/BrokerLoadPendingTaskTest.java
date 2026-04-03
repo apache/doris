@@ -38,10 +38,78 @@ import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
 public class BrokerLoadPendingTaskTest {
+
+    /** Minimal FileSystem stub that lists a single file entry for any location. */
+    private static final class SingleFileSystem implements org.apache.doris.filesystem.FileSystem {
+        private final long fileSize;
+
+        SingleFileSystem(long fileSize) {
+            this.fileSize = fileSize;
+        }
+
+        @Override
+        public FileIterator list(Location location) {
+            FileEntry entry = new FileEntry(location, fileSize, false, 0L, null);
+            return new FileIterator() {
+                boolean consumed = false;
+
+                @Override
+                public boolean hasNext() {
+                    return !consumed;
+                }
+
+                @Override
+                public FileEntry next() {
+                    consumed = true;
+                    return entry;
+                }
+
+                @Override
+                public void close() {
+                }
+            };
+        }
+
+        @Override
+        public boolean exists(Location location) {
+            return true;
+        }
+
+        @Override
+        public void mkdirs(Location location) {
+        }
+
+        @Override
+        public void delete(Location location, boolean recursive) {
+        }
+
+        @Override
+        public void deleteFiles(Collection<Location> locations) {
+        }
+
+        @Override
+        public void rename(Location src, Location dst) {
+        }
+
+        @Override
+        public org.apache.doris.filesystem.DorisInputFile newInputFile(Location location) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public org.apache.doris.filesystem.DorisOutputFile newOutputFile(Location location) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void close() {
+        }
+    }
 
     @Test
     public void testExecuteTask(@Injectable BrokerLoadJob brokerLoadJob,
@@ -65,30 +133,7 @@ public class BrokerLoadPendingTaskTest {
         new MockUp<FileSystemFactory>() {
             @Mock
             public org.apache.doris.filesystem.FileSystem getFileSystem(BrokerDesc desc) {
-                return new MockUp<org.apache.doris.filesystem.FileSystem>() {
-                    @Mock
-                    public FileIterator list(Location location) {
-                        FileEntry entry = new FileEntry(location, 1L, false, 0L, null);
-                        return new FileIterator() {
-                            boolean consumed = false;
-
-                            @Override
-                            public boolean hasNext() {
-                                return !consumed;
-                            }
-
-                            @Override
-                            public FileEntry next() {
-                                consumed = true;
-                                return entry;
-                            }
-
-                            @Override
-                            public void close() {
-                            }
-                        };
-                    }
-                }.getMockInstance();
+                return new SingleFileSystem(1L);
             }
         };
 

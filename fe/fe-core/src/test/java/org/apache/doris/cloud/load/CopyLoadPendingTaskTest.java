@@ -63,7 +63,7 @@ public class CopyLoadPendingTaskTest extends TestWithFeService {
     private ConnectContext ctx;
     private ObjectInfo objectInfo = new ObjectInfo(Provider.OSS, "test_ak", "test_sk", "test_bucket", "test_endpoint",
             "test_region", STORAGE_PREFIX);
-    // In-memory file store used by MockUp<ObjFileSystem>
+    // In-memory file store served by MockObjFileSystem
     private Map<String, RemoteObject> objectStore = new LinkedHashMap<>();
     MockInternalCatalog mockInternalCatalog = new MockInternalCatalog();
 
@@ -82,41 +82,81 @@ public class CopyLoadPendingTaskTest extends TestWithFeService {
         }
     }
 
+    /** Concrete ObjFileSystem subclass backed by the test's objectStore map. */
+    private class MockObjFileSystem extends ObjFileSystem {
+        MockObjFileSystem() {
+            super("test", null);
+        }
+
+        @Override
+        public RemoteObjects listObjectsWithPrefix(String prefix, String subPrefix,
+                String continuationToken) throws IOException {
+            String normalizedPrefix = prefix.isEmpty() ? "" : (prefix.endsWith("/") ? prefix : prefix + "/");
+            String fullPrefix = normalizedPrefix + subPrefix;
+            List<RemoteObject> result = new ArrayList<>();
+            for (Map.Entry<String, RemoteObject> entry : objectStore.entrySet()) {
+                if (entry.getKey().startsWith(fullPrefix)) {
+                    result.add(entry.getValue());
+                }
+            }
+            return new RemoteObjects(result, false, null);
+        }
+
+        @Override
+        public RemoteObjects headObjectWithMeta(String prefix, String subKey) throws IOException {
+            String normalizedPrefix = prefix.isEmpty() ? "" : (prefix.endsWith("/") ? prefix : prefix + "/");
+            String fullKey = normalizedPrefix + subKey;
+            RemoteObject f = objectStore.get(fullKey);
+            if (f == null) {
+                return new RemoteObjects(new ArrayList<>(), false, null);
+            }
+            return new RemoteObjects(Lists.newArrayList(f), false, null);
+        }
+
+        @Override
+        public org.apache.doris.filesystem.FileIterator list(
+                org.apache.doris.filesystem.Location location) throws IOException {
+            throw new UnsupportedOperationException("not used in copy load tests");
+        }
+
+        @Override
+        public void mkdirs(org.apache.doris.filesystem.Location location) throws IOException {
+        }
+
+        @Override
+        public void delete(org.apache.doris.filesystem.Location location, boolean recursive) throws IOException {
+        }
+
+        @Override
+        public void rename(org.apache.doris.filesystem.Location src,
+                org.apache.doris.filesystem.Location dst) throws IOException {
+        }
+
+        @Override
+        public org.apache.doris.filesystem.DorisInputFile newInputFile(
+                org.apache.doris.filesystem.Location location) throws IOException {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public org.apache.doris.filesystem.DorisOutputFile newOutputFile(
+                org.apache.doris.filesystem.Location location) throws IOException {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void close() throws IOException {
+        }
+    }
+
     @Override
     protected void runBeforeAll() throws Exception {
         FeConstants.runningUnitTest = true;
     }
 
-    /** Registers a MockUp on ObjFileSystem to serve list/head calls from {@link #objectStore}. */
+    /** Registers a MockUp on FileSystemFactory to serve requests from the test's objectStore. */
     private void setupObjFsMock() {
-        Map<String, RemoteObject> store = objectStore;
-        MockUp<ObjFileSystem> objFsMockUp = new MockUp<ObjFileSystem>() {
-            @Mock
-            public RemoteObjects listObjectsWithPrefix(String prefix, String subPrefix, String continuationToken)
-                    throws IOException {
-                String normalizedPrefix = prefix.isEmpty() ? "" : (prefix.endsWith("/") ? prefix : prefix + "/");
-                String fullPrefix = normalizedPrefix + subPrefix;
-                List<RemoteObject> result = new ArrayList<>();
-                for (Map.Entry<String, RemoteObject> entry : store.entrySet()) {
-                    if (entry.getKey().startsWith(fullPrefix)) {
-                        result.add(entry.getValue());
-                    }
-                }
-                return new RemoteObjects(result, false, null);
-            }
-
-            @Mock
-            public RemoteObjects headObjectWithMeta(String prefix, String subKey) throws IOException {
-                String normalizedPrefix = prefix.isEmpty() ? "" : (prefix.endsWith("/") ? prefix : prefix + "/");
-                String fullKey = normalizedPrefix + subKey;
-                RemoteObject f = store.get(fullKey);
-                if (f == null) {
-                    return new RemoteObjects(new ArrayList<>(), false, null);
-                }
-                return new RemoteObjects(Lists.newArrayList(f), false, null);
-            }
-        };
-        ObjFileSystem mockObjFs = objFsMockUp.getMockInstance();
+        MockObjFileSystem mockObjFs = new MockObjFileSystem();
         new MockUp<FileSystemFactory>() {
             @Mock
             public org.apache.doris.filesystem.FileSystem getFileSystem(StorageProperties sp) throws IOException {
