@@ -955,7 +955,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                     if (Config.isCloudMode()) {
                         long newReplicaId = Env.getCurrentEnv().getNextId();
                         Replica replica = new CloudReplica(newReplicaId, null, ReplicaState.NORMAL,
-                                visibleVersion, schemaHash, db.getId(), id, entry.getKey(), idx.getId(), i);
+                                visibleVersion, schemaHash, db.getId(), idx.getId(), i);
                         newTablet.addReplica(replica, true /* is restore */);
                         continue;
                     }

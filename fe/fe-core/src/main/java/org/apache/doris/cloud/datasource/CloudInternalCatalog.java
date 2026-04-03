@@ -454,8 +454,7 @@ public class CloudInternalCatalog extends InternalCatalog {
 
             long replicaId = Env.getCurrentEnv().getNextId();
             Replica replica = new CloudReplica(replicaId, null, replicaState, version,
-                    tabletMeta.getOldSchemaHash(), tabletMeta.getDbId(), tabletMeta.getTableId(),
-                    tabletMeta.getPartitionId(), tabletMeta.getIndexId(), i);
+                    tabletMeta.getOldSchemaHash(), tabletMeta.getDbId(), tabletMeta.getIndexId(), i);
             tablet.addReplica(replica);
         }
     }
@@ -879,7 +878,11 @@ public class CloudInternalCatalog extends InternalCatalog {
             for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                 indexIds.add(index.getId());
                 if (tableId == -1) {
-                    tableId = ((CloudTablet) index.getTablets().get(0)).getCloudReplica().getTableId();
+                    long firstTabletId = index.getTablets().get(0).getId();
+                    TabletMeta meta = Env.getCurrentInvertedIndex().getTabletMeta(firstTabletId);
+                    if (meta != null) {
+                        tableId = meta.getTableId();
+                    }
                 }
             }
             partitionIds.add(partition.getId());

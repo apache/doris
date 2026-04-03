@@ -174,11 +174,11 @@ public class CatalogTestUtil {
         if (Config.isCloudMode()) {
             // In cloud mode we must create CloudReplica instances to avoid ClassCastException
             replica1 = new CloudReplica(testReplicaId1, testBackendId1, Replica.ReplicaState.NORMAL, version,
-                    /*schemaHash*/ 0, dbId, tableId, partitionId, indexId, /*idx*/ 0);
+                    /*schemaHash*/ 0, dbId, indexId, /*idx*/ 0);
             replica2 = new CloudReplica(testReplicaId2, testBackendId2, Replica.ReplicaState.NORMAL, version,
-                    0, dbId, tableId, partitionId, indexId, 1);
+                    0, dbId, indexId, 1);
             replica3 = new CloudReplica(testReplicaId3, testBackendId3, Replica.ReplicaState.NORMAL, version,
-                    0, dbId, tableId, partitionId, indexId, 2);
+                    0, dbId, indexId, 2);
         } else {
             replica1 = new LocalReplica(testReplicaId1, testBackendId1, version, 0, 0L, 0L, 0L,
                     Replica.ReplicaState.NORMAL, -1, 0);
@@ -247,7 +247,7 @@ public class CatalogTestUtil {
         Replica replica;
         if (Config.isCloudMode()) {
             replica = new CloudReplica(testReplicaId4, testBackendId1, Replica.ReplicaState.NORMAL, testStartVersion,
-                    0, db.getId(), testTableId2, testPartitionId2, testIndexId2, 0);
+                    0, db.getId(), testIndexId2, 0);
         } else {
             replica = new LocalReplica(testReplicaId4, testBackendId1, testStartVersion, 0, 0L, 0L, 0L,
                     Replica.ReplicaState.NORMAL, -1, 0);
