@@ -18,6 +18,7 @@
 package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
@@ -49,7 +50,6 @@ import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
-import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
