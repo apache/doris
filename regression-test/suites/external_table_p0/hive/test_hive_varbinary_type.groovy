@@ -23,7 +23,7 @@ suite("test_hive_varbinary_type", "p0,external") {
         return;
     }
 
-    for (String hivePrefix : ["hive2","hive3"]) {
+    for (String hivePrefix : ["hive3"]) {
     
         String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
         String catalog_name_no_mapping = "${hivePrefix}_test_varbinary_no_mapping"

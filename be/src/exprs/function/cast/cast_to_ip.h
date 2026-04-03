@@ -104,45 +104,5 @@ public:
         return Status::OK();
     }
 };
-
-namespace CastWrapper {
-
-template <typename IpType>
-    requires(std::is_same_v<IpType, DataTypeIPv4> || std::is_same_v<IpType, DataTypeIPv6>)
-WrapperType create_ip_wrapper(FunctionContext* context, const DataTypePtr& from_type) {
-    std::shared_ptr<CastToBase> cast_to_ip;
-
-    auto make_ip_wrapper = [&](const auto& types) -> bool {
-        using Types = std::decay_t<decltype(types)>;
-        using FromDataType = typename Types::LeftType;
-        if constexpr (IsDataTypeNumber<FromDataType> || IsStringType<FromDataType> ||
-                      IsIPType<FromDataType>) {
-            if (context->enable_strict_mode()) {
-                cast_to_ip = std::make_shared<
-                        CastToImpl<CastModeType::StrictMode, FromDataType, IpType>>();
-            } else {
-                cast_to_ip = std::make_shared<
-                        CastToImpl<CastModeType::NonStrictMode, FromDataType, IpType>>();
-            }
-            return true;
-        } else {
-            return false;
-        }
-    };
-
-    if (!call_on_index_and_data_type<void>(from_type->get_primitive_type(), make_ip_wrapper)) {
-        return create_unsupport_wrapper(
-                fmt::format("CAST AS ip not supported {}", from_type->get_name()));
-    }
-
-    return [cast_to_ip](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count,
-                        const NullMap::value_type* null_map = nullptr) {
-        return cast_to_ip->execute_impl(context, block, arguments, result, input_rows_count,
-                                        null_map);
-    };
-}
 #include "common/compile_check_end.h"
-}; // namespace CastWrapper
-
 } // namespace doris

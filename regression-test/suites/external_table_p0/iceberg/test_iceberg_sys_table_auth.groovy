@@ -70,28 +70,10 @@ suite("test_iceberg_sys_table_auth", "p0,external") {
 
     // Test that user without table permission cannot query system tables
     connect(user, "${pwd}", context.config.jdbcUrl) {
-        // Test snapshots system table via iceberg_meta function
-        test {
-              sql """
-                 select committed_at, snapshot_id, parent_id, operation from iceberg_meta(
-                                             "table" = "${catalog_name}.${db_name}.test_iceberg_systable_auth_tbl1",
-                                             "query_type" = "snapshots");
-              """
-              exception "denied"
-        }
         // Test snapshots system table via direct access
         test {
               sql """
                  select committed_at, snapshot_id, parent_id, operation from ${catalog_name}.${db_name}.test_iceberg_systable_auth_tbl1\$snapshots
-              """
-              exception "denied"
-        }
-        // Test files system table via iceberg_meta function
-        test {
-              sql """
-                 select * from iceberg_meta(
-                                             "table" = "${catalog_name}.${db_name}.test_iceberg_systable_auth_tbl1",
-                                             "query_type" = "files");
               """
               exception "denied"
         }
@@ -102,28 +84,10 @@ suite("test_iceberg_sys_table_auth", "p0,external") {
               """
               exception "denied"
         }
-        // Test entries system table via iceberg_meta function
-        test {
-              sql """
-                 select * from iceberg_meta(
-                                             "table" = "${catalog_name}.${db_name}.test_iceberg_systable_auth_tbl1",
-                                             "query_type" = "entries");
-              """
-              exception "denied"
-        }
         // Test entries system table via direct access
         test {
               sql """
                  select * from ${catalog_name}.${db_name}.test_iceberg_systable_auth_tbl1\$entries
-              """
-              exception "denied"
-        }
-        // Test history system table via iceberg_meta function
-        test {
-              sql """
-                 select * from iceberg_meta(
-                                             "table" = "${catalog_name}.${db_name}.test_iceberg_systable_auth_tbl1",
-                                             "query_type" = "history");
               """
               exception "denied"
         }
@@ -139,38 +103,10 @@ suite("test_iceberg_sys_table_auth", "p0,external") {
     // Grant permission and verify user can query system tables
     sql """GRANT SELECT_PRIV ON ${catalog_name}.${db_name}.test_iceberg_systable_auth_tbl1 TO '${user}'@'%'"""
     connect(user, "${pwd}", context.config.jdbcUrl) {
-        // Test snapshots system table with permission
-        sql """
-           select committed_at, snapshot_id, parent_id, operation from iceberg_meta(
-                                       "table" = "${catalog_name}.${db_name}.test_iceberg_systable_auth_tbl1",
-                                       "query_type" = "snapshots");
-        """
         sql """select committed_at, snapshot_id, parent_id, operation from ${catalog_name}.${db_name}.test_iceberg_systable_auth_tbl1\$snapshots"""
-        
-        // Test files system table with permission
-        sql """
-           select * from iceberg_meta(
-                                       "table" = "${catalog_name}.${db_name}.test_iceberg_systable_auth_tbl1",
-                                       "query_type" = "files");
-        """
         sql """select * from ${catalog_name}.${db_name}.test_iceberg_systable_auth_tbl1\$files"""
-        
-        // Test entries system table with permission
-        sql """
-           select * from iceberg_meta(
-                                       "table" = "${catalog_name}.${db_name}.test_iceberg_systable_auth_tbl1",
-                                       "query_type" = "entries");
-        """
         sql """select * from ${catalog_name}.${db_name}.test_iceberg_systable_auth_tbl1\$entries"""
-        
-        // Test history system table with permission
-        sql """
-           select * from iceberg_meta(
-                                       "table" = "${catalog_name}.${db_name}.test_iceberg_systable_auth_tbl1",
-                                       "query_type" = "history");
-        """
         sql """select * from ${catalog_name}.${db_name}.test_iceberg_systable_auth_tbl1\$history"""
     }
     try_sql("DROP USER '${user}'@'%'")
 }
-

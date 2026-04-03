@@ -35,13 +35,14 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalFunctionRules;
 import org.apache.doris.datasource.FileQueryScanNode;
+import org.apache.doris.datasource.jdbc.JdbcExternalCatalog;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
+import org.apache.doris.datasource.jdbc.JdbcNameUtil;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
@@ -88,32 +89,77 @@ public class JdbcScanNode extends FileQueryScanNode {
     private boolean isTableValuedFunction = false;
     private String query = "";
 
-    private JdbcTable tbl;
+    // For normal JDBC external table scan
+    private JdbcExternalTable extTable;
+    // For TVF scan, connection info comes from catalog directly
+    private JdbcExternalCatalog tvfCatalog;
     private long catalogId;
 
-    public JdbcScanNode(PlanNodeId id, TupleDescriptor desc, boolean isJdbcExternalTable, ScanContext scanContext) {
+    // Accessor interfaces to abstract connection info source (external table vs TVF catalog)
+    private String jdbcUrl;
+    private String jdbcUser;
+    private String jdbcPasswd;
+    private String driverClass;
+    private String driverUrl;
+    private String checkSum;
+    private int connectionPoolMinSize;
+    private int connectionPoolMaxSize;
+    private int connectionPoolMaxWaitTime;
+    private int connectionPoolMaxLifeTime;
+    private boolean connectionPoolKeepAlive;
+    private ExternalFunctionRules externalFunctionRules;
+
+    public JdbcScanNode(PlanNodeId id, TupleDescriptor desc, ScanContext scanContext) {
         super(id, desc, "JdbcScanNode", scanContext, false,
                 ConnectContext.get() != null ? ConnectContext.get().getSessionVariable() : new SessionVariable());
-        if (isJdbcExternalTable) {
-            JdbcExternalTable jdbcExternalTable = (JdbcExternalTable) (desc.getTable());
-            tbl = jdbcExternalTable.getJdbcTable();
-        } else {
-            tbl = (JdbcTable) (desc.getTable());
-        }
-        jdbcType = tbl.getJdbcTableType();
-        tableName = tbl.getProperRemoteFullTableName(jdbcType);
+        extTable = (JdbcExternalTable) (desc.getTable());
+        jdbcType = extTable.getJdbcTableType();
+        tableName = extTable.getProperRemoteFullTableName(jdbcType);
+        catalogId = extTable.getCatalogId();
+        populateConnectionFromExtTable(extTable);
     }
 
-    public JdbcScanNode(PlanNodeId id, TupleDescriptor desc, boolean isTableValuedFunction, String query,
+    public JdbcScanNode(PlanNodeId id, TupleDescriptor desc, JdbcExternalCatalog catalog, String query,
             ScanContext scanContext) {
         super(id, desc, "JdbcScanNode", scanContext, false,
                 ConnectContext.get() != null ? ConnectContext.get().getSessionVariable() : new SessionVariable());
-        this.isTableValuedFunction = isTableValuedFunction;
+        this.isTableValuedFunction = true;
         this.query = query;
-        tbl = (JdbcTable) desc.getTable();
-        jdbcType = tbl.getJdbcTableType();
-        tableName = tbl.getExternalTableName();
-        catalogId = tbl.getCatalogId();
+        this.tvfCatalog = catalog;
+        this.jdbcType = JdbcExternalTable.parseJdbcType(catalog.getDatabaseTypeName());
+        this.tableName = desc.getTable().getName();
+        this.catalogId = catalog.getId();
+        populateConnectionFromCatalog(catalog);
+    }
+
+    private void populateConnectionFromExtTable(JdbcExternalTable table) {
+        this.jdbcUrl = table.getJdbcUrl();
+        this.jdbcUser = table.getJdbcUser();
+        this.jdbcPasswd = table.getJdbcPasswd();
+        this.driverClass = table.getDriverClass();
+        this.driverUrl = table.getDriverUrl();
+        this.checkSum = table.getCheckSum();
+        this.connectionPoolMinSize = table.getConnectionPoolMinSize();
+        this.connectionPoolMaxSize = table.getConnectionPoolMaxSize();
+        this.connectionPoolMaxWaitTime = table.getConnectionPoolMaxWaitTime();
+        this.connectionPoolMaxLifeTime = table.getConnectionPoolMaxLifeTime();
+        this.connectionPoolKeepAlive = table.isConnectionPoolKeepAlive();
+        this.externalFunctionRules = table.getExternalFunctionRules();
+    }
+
+    private void populateConnectionFromCatalog(JdbcExternalCatalog catalog) {
+        this.jdbcUrl = catalog.getJdbcUrl();
+        this.jdbcUser = catalog.getJdbcUser();
+        this.jdbcPasswd = catalog.getJdbcPasswd();
+        this.driverClass = catalog.getDriverClass();
+        this.driverUrl = catalog.getDriverUrl();
+        this.checkSum = catalog.getCheckSum();
+        this.connectionPoolMinSize = catalog.getConnectionPoolMinSize();
+        this.connectionPoolMaxSize = catalog.getConnectionPoolMaxSize();
+        this.connectionPoolMaxWaitTime = catalog.getConnectionPoolMaxWaitTime();
+        this.connectionPoolMaxLifeTime = catalog.getConnectionPoolMaxLifeTime();
+        this.connectionPoolKeepAlive = catalog.isConnectionPoolKeepAlive();
+        this.externalFunctionRules = catalog.getFunctionRules();
     }
 
     // ========= FileQueryScanNode abstract method implementations =========
@@ -150,19 +196,19 @@ public class JdbcScanNode extends FileQueryScanNode {
 
         JdbcSplit split = new JdbcSplit(
                 querySql,
-                tbl.getJdbcUrl(),
-                tbl.getJdbcUser(),
-                tbl.getJdbcPasswd(),
-                tbl.getDriverClass(),
-                tbl.getDriverUrl(),
-                tbl.getCheckSum(),
-                tbl.getCatalogId(),
+                jdbcUrl,
+                jdbcUser,
+                jdbcPasswd,
+                driverClass,
+                driverUrl,
+                checkSum,
+                catalogId,
                 jdbcType,
-                tbl.getConnectionPoolMinSize(),
-                tbl.getConnectionPoolMaxSize(),
-                tbl.getConnectionPoolMaxWaitTime(),
-                tbl.getConnectionPoolMaxLifeTime(),
-                tbl.isConnectionPoolKeepAlive()
+                connectionPoolMinSize,
+                connectionPoolMaxSize,
+                connectionPoolMaxWaitTime,
+                connectionPoolMaxLifeTime,
+                connectionPoolKeepAlive
         );
 
         List<Split> splits = new ArrayList<>();
@@ -236,17 +282,17 @@ public class JdbcScanNode extends FileQueryScanNode {
         for (SlotRef slotRef : slotRefs) {
             SlotRef slotRef1 = (SlotRef) slotRef.clone();
             slotRef1.setTableNameInfoToNull();
-            slotRef1.setLabel(JdbcTable.properNameWithRemoteName(jdbcType, slotRef1.getColumnName()));
+            slotRef1.setLabel(JdbcNameUtil.properNameWithRemoteName(jdbcType, slotRef1.getColumnName()));
             sMap.put(slotRef, slotRef1);
         }
 
         ArrayList<Expr> conjunctsList = Expr.cloneList(conjuncts, sMap);
         List<String> errors = Lists.newArrayList();
         List<Expr> pushDownConjuncts = collectConjunctsToPushDown(conjunctsList, errors,
-                tbl.getExternalFunctionRules());
+                externalFunctionRules);
 
         for (Expr individualConjunct : pushDownConjuncts) {
-            String filter = conjunctExprToString(jdbcType, individualConjunct, tbl);
+            String filter = conjunctExprToString(jdbcType, individualConjunct, desc.getTable());
             filters.add(filter);
             pushedDownConjuncts.add(individualConjunct);
         }
@@ -276,7 +322,11 @@ public class JdbcScanNode extends FileQueryScanNode {
         columns.clear();
         for (SlotDescriptor slot : desc.getSlots()) {
             Column col = slot.getColumn();
-            columns.add(tbl.getProperRemoteColumnName(jdbcType, col.getName()));
+            if (extTable != null) {
+                columns.add(extTable.getProperRemoteColumnName(jdbcType, col.getName()));
+            } else {
+                columns.add(JdbcNameUtil.databaseProperName(jdbcType, col.getName()));
+            }
         }
         if (columns.isEmpty()) {
             columns.add("*");

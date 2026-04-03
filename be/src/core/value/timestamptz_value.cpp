@@ -17,7 +17,7 @@
 
 #include "core/value/timestamptz_value.h"
 
-#include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
+#include "exprs/function/cast/cast_to_timestamptz_impl.hpp"
 
 namespace doris {
 
@@ -26,28 +26,7 @@ const TimestampTzValue TimestampTzValue::FIRST_DAY =
 
 bool TimestampTzValue::from_string(const StringRef& str, const cctz::time_zone* local_time_zone,
                                    CastParameters& params, uint32_t to_scale) {
-    if (params.is_strict) {
-        return CastToDatetimeV2::from_string_strict_mode<true, DataTimeCastEnumType::TIMESTAMP_TZ>(
-                str, _utc_dt, local_time_zone, to_scale, params);
-    } else {
-        // This from_string implementation is derived from:
-        /*
-        static inline bool from_string_non_strict_mode(const StringRef& str,
-                                                   DateV2Value<DateTimeV2ValueType>& res,
-                                                   const cctz::time_zone* local_time_zone,
-                                                   uint32_t to_scale, CastParameters& params) {
-        return CastToDatetimeV2::from_string_strict_mode<false>(str, res, local_time_zone, to_scale,
-                                                                params) ||
-               CastToDatetimeV2::from_string_non_strict_mode_impl(str, res, local_time_zone,
-                                                                  to_scale, params);
-    }
-        */
-        return CastToDatetimeV2::from_string_strict_mode<false, DataTimeCastEnumType::TIMESTAMP_TZ>(
-                       str, _utc_dt, local_time_zone, to_scale, params) ||
-               CastToDatetimeV2::from_string_non_strict_mode_impl<
-                       DataTimeCastEnumType::TIMESTAMP_TZ>(str, _utc_dt, local_time_zone, to_scale,
-                                                           params);
-    }
+    return CastToTimestampTz::from_string(str, *this, params, local_time_zone, to_scale);
 }
 
 std::string TimestampTzValue::to_string(const cctz::time_zone& tz, int scale) const {

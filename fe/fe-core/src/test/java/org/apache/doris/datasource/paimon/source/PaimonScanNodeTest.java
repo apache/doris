@@ -21,13 +21,19 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.FileSplitter;
+import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonFileExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonSysExternalTable;
+import org.apache.doris.datasource.property.metastore.MetastoreProperties;
+import org.apache.doris.datasource.property.metastore.PaimonJdbcMetaStoreProperties;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TFileScanRangeParams;
 
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.io.DataFileMeta;
@@ -475,11 +481,99 @@ public class PaimonScanNodeTest {
         Assert.assertEquals(100L * 1024L * 1024L, target);
     }
 
+    @Test
+    public void testGetBackendPaimonOptionsForJdbcCatalog() throws Exception {
+        String driverUrl = "file:///tmp/postgresql-42.5.0.jar";
+        Map<String, String> props = new HashMap<>();
+        props.put("type", "paimon");
+        props.put("paimon.catalog.type", "jdbc");
+        props.put("uri", "jdbc:postgresql://127.0.0.1:5442/postgres");
+        props.put("warehouse", "s3://warehouse/path");
+        props.put("paimon.jdbc.driver_url", driverUrl);
+        props.put("paimon.jdbc.driver_class", "org.postgresql.Driver");
+        PaimonJdbcMetaStoreProperties jdbcMetaStoreProperties =
+                (PaimonJdbcMetaStoreProperties) MetastoreProperties.create(props);
+
+        CatalogProperty catalogProperty = Mockito.mock(CatalogProperty.class);
+        Mockito.when(catalogProperty.getMetastoreProperties()).thenReturn(jdbcMetaStoreProperties);
+
+        PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
+        Mockito.when(catalog.getCatalogProperty()).thenReturn(catalogProperty);
+
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        Mockito.when(source.getCatalog()).thenReturn(catalog);
+
+        PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0), new TupleDescriptor(new TupleId(0)),
+                false, sv, ScanContext.EMPTY);
+        node.setSource(source);
+
+        Map<String, String> backendOptions = node.getBackendPaimonOptions();
+        Assert.assertEquals("org.postgresql.Driver", backendOptions.get("jdbc.driver_class"));
+        Assert.assertEquals(driverUrl, backendOptions.get("jdbc.driver_url"));
+        Assert.assertEquals(2, backendOptions.size());
+    }
+
+    @Test
+    public void testApplyBackendPaimonOptionsAtScanNodeLevel() throws Exception {
+        PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0), new TupleDescriptor(new TupleId(0)),
+                false, sv, ScanContext.EMPTY);
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        Mockito.when(source.getTableLocation()).thenReturn("file:///warehouse");
+        node.setSource(source);
+
+        Map<String, String> backendOptions = new HashMap<>();
+        backendOptions.put("jdbc.driver_url", "file:///tmp/postgresql-42.5.0.jar");
+        backendOptions.put("jdbc.driver_class", "org.postgresql.Driver");
+        setField(FileQueryScanNode.class, node, "params", new TFileScanRangeParams());
+        setField(PaimonScanNode.class, node, "backendPaimonOptions", backendOptions);
+        setField(PaimonScanNode.class, node, "storagePropertiesMap", Collections.emptyMap());
+
+        invokePrivateMethod(node, "setScanLevelPaimonOptions");
+
+        Assert.assertEquals(backendOptions, node.getFileScanRangeParams().getPaimonOptions());
+
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        invokePrivateMethod(node, "setPaimonParams",
+                new Class<?>[] {TFileRangeDesc.class, PaimonSplit.class},
+                rangeDesc, new PaimonSplit(createDataSplit("scan_level.parquet")));
+        Assert.assertFalse(rangeDesc.getTableFormatParams().getPaimonParams().isSetPaimonOptions());
+    }
+
     private void mockJniReader(PaimonScanNode spyNode) {
         Mockito.doReturn(false).when(spyNode).supportNativeReader(ArgumentMatchers.any(Optional.class));
     }
 
     private void mockNativeReader(PaimonScanNode spyNode) {
         Mockito.doReturn(true).when(spyNode).supportNativeReader(ArgumentMatchers.any(Optional.class));
+    }
+
+    private void setField(Class<?> clazz, Object target, String fieldName, Object value) throws Exception {
+        java.lang.reflect.Field field = clazz.getDeclaredField(fieldName);
+        field.setAccessible(true);
+        field.set(target, value);
+    }
+
+    private Object invokePrivateMethod(Object target, String methodName, Class<?>[] parameterTypes, Object... args)
+            throws Exception {
+        Method method = target.getClass().getDeclaredMethod(methodName, parameterTypes);
+        method.setAccessible(true);
+        return method.invoke(target, args);
+    }
+
+    private Object invokePrivateMethod(Object target, String methodName) throws Exception {
+        return invokePrivateMethod(target, methodName, new Class<?>[0]);
+    }
+
+    private DataSplit createDataSplit(String fileName) {
+        DataFileMeta dataFileMeta = DataFileMeta.forAppend(fileName, 64L * 1024 * 1024, 1L, SimpleStats.EMPTY_STATS,
+                1L, 1L, 1L, Collections.<String>emptyList(), null, FileSource.APPEND,
+                Collections.<String>emptyList(), null, null, Collections.<String>emptyList());
+        return DataSplit.builder()
+                .rawConvertible(true)
+                .withPartition(BinaryRow.singleColumn(1))
+                .withBucket(1)
+                .withBucketPath("file://b1")
+                .withDataFiles(Collections.singletonList(dataFileMeta))
+                .build();
     }
 }

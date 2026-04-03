@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
-import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -62,8 +61,8 @@ public class LogicalJdbcScan extends LogicalCatalogRelation {
 
     @Override
     public TableIf getTable() {
-        Preconditions.checkArgument(table instanceof ExternalTable || table instanceof JdbcTable,
-                String.format("Table %s is neither ExternalTable nor JdbcTable", table.getName()));
+        Preconditions.checkArgument(table instanceof ExternalTable,
+                String.format("Table %s is not ExternalTable", table.getName()));
         return table;
     }
 

@@ -128,10 +128,7 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external") {
             println "iceberg_meta_result SUCCESS" + catalog_name
 
             def iceberg_meta_result = sql """
-        SELECT snapshot_id FROM iceberg_meta(
-                'table' = '${catalog_name}.${db_name}.${table_name}',
-                'query_type' = 'snapshots'
-        ) order by committed_at desc;
+        SELECT snapshot_id FROM ${catalog_name}.${db_name}.${table_name}\$snapshots order by committed_at desc;
         
         """
             def first_snapshot_id = iceberg_meta_result.get(0).get(0);
@@ -291,10 +288,7 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external") {
             println "iceberg_meta_result SUCCESS" + catalog_name
 
             def iceberg_meta_result = sql """
-        SELECT snapshot_id FROM iceberg_meta(
-                'table' = '${catalog_name}.${db_name}.${table_name}',
-                'query_type' = 'snapshots'
-        ) order by committed_at desc;
+        SELECT snapshot_id FROM ${catalog_name}.${db_name}.${table_name}\$snapshots order by committed_at desc;
         
         """
             def first_snapshot_id = iceberg_meta_result.get(0).get(0);
@@ -553,7 +547,7 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external") {
     hmsTestQueryAndInsert(hms_kerberos_old_prop + warehouse + oss_storage_properties, "iceberg_hms_on_oss_kerberos_old")
     //new kerberos
     hmsTestQueryAndInsert(hms_kerberos_new_prop + warehouse + oss_storage_properties, "iceberg_hms_on_oss_kerberos_new")
-    warehouse  """
+    warehouse = """
                   'warehouse' = 'oss://${oss_bucket_endpoint_parent_path}/iceberg-hms-warehouse',
     """
     testQueryAndInsert(iceberg_hms_type_prop + hms_prop + warehouse + oss_region_param + oss_storage_properties, "iceberg_hms_on_oss")

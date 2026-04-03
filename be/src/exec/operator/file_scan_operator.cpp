@@ -120,10 +120,12 @@ Status FileScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
 }
 
 std::string FileScanLocalState::name_suffix() const {
-    return fmt::format("(nereids_id={}. table_name={})" + operator_name_suffix,
-                       std::to_string(_parent->nereids_id()),
-                       _parent->cast<FileScanOperatorX>()._table_name,
-                       std::to_string(_parent->node_id()));
+    if (_parent->nereids_id() == -1) {
+        return fmt::format("(id={}, table_name={})", _parent->node_id(),
+                           _parent->cast<FileScanOperatorX>()._table_name);
+    }
+    return fmt::format("(nereids_id={}, id={}, table_name={})", _parent->nereids_id(),
+                       _parent->node_id(), _parent->cast<FileScanOperatorX>()._table_name);
 }
 
 void FileScanLocalState::set_scan_ranges(RuntimeState* state,

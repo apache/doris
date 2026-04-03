@@ -425,7 +425,8 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
                                 !isPrefix,
                                 isPrefix ? -1 : blobItem.getProperties().getContentLength(),
                                 isPrefix ? -1 : blobItem.getProperties().getContentLength(),
-                                isPrefix ? 0 : blobItem.getProperties().getLastModified().getSecond());
+                                isPrefix ? 0 : blobItem.getProperties().getLastModified()
+                                        .toInstant().toEpochMilli());
                         result.add(remoteFile);
 
                         blobPath = blobPath.getParent();
@@ -500,7 +501,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
                             props.getBlobSize(),
                             props.getBlobSize(),
                             props.getLastModified() != null
-                                    ? props.getLastModified().toEpochSecond() : 0
+                                    ? props.getLastModified().toInstant().toEpochMilli() : 0
                     );
                     result.add(remoteFile);
 
@@ -561,7 +562,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
                             false,
                             props.getContentLength(),
                             props.getContentLength(),
-                            props.getLastModified().getSecond(),
+                            props.getLastModified().toInstant().toEpochMilli(),
                             null);
                     result.add(file);
                 }

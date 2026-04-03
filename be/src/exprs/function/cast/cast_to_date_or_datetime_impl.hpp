@@ -37,19 +37,20 @@ namespace doris {
 // NOLINTBEGIN(readability-function-size)
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
-template <bool IsDatetime>
+template <DatelikeTargetType TargetType>
 inline static void cast_to_type(VecDateTimeValue& res) {
-    if constexpr (IsDatetime) {
+    if constexpr (is_datelike_target_datetime(TargetType)) {
         res.to_datetime();
     } else {
         res.cast_to_date();
     }
 }
 
-template <bool IsStrict>
+template <DatelikeParseMode ParseMode>
 [[nodiscard]] inline static bool microsecond_carry_on(int64_t frac_part, uint32_t float_scale,
                                                       VecDateTimeValue& val,
                                                       CastParameters& params) {
+    constexpr bool IsStrict = is_datelike_parse_strict(ParseMode);
     if (val.type() == TimeType::TIME_DATE) {
         // for date, we just ignore the fractional part
         return true;
@@ -87,48 +88,54 @@ template <bool IsStrict>
 // for datev1 or datetimev1
 struct CastToDateOrDatetime {
     // may be slow
-    template <typename T, bool IsDatetime>
+    template <typename T, DatelikeTargetType TargetType>
     static inline bool from_integer(T int_val, VecDateTimeValue& val, CastParameters& params) {
         if (params.is_strict) {
-            return from_integer<true, IsDatetime>(int_val, val, params);
+            return from_integer<DatelikeParseMode::STRICT, TargetType>(int_val, val, params);
         } else {
-            return from_integer<false, IsDatetime>(int_val, val, params);
+            return from_integer<DatelikeParseMode::NON_STRICT, TargetType>(int_val, val, params);
         }
     }
 
     // same behaviour in both strict and non-strict mode
-    template <bool IsStrict, bool IsDatetime, typename T>
+    template <DatelikeParseMode ParseMode, DatelikeTargetType TargetType, typename T>
     static inline bool from_integer(T int_val, VecDateTimeValue& val, CastParameters& params);
 
     // may be slow
-    template <typename T, bool IsDatetime>
+    template <typename T, DatelikeTargetType TargetType>
         requires std::is_floating_point_v<T>
     static inline bool from_float(T float_value, VecDateTimeValue& val, uint32_t to_scale,
                                   CastParameters& params) {
         if (params.is_strict) {
-            return from_float<true, IsDatetime>(float_value, val, to_scale, params);
+            return from_float<DatelikeParseMode::STRICT, TargetType>(float_value, val, to_scale,
+                                                                     params);
         } else {
-            return from_float<false, IsDatetime>(float_value, val, to_scale, params);
+            return from_float<DatelikeParseMode::NON_STRICT, TargetType>(float_value, val, to_scale,
+                                                                         params);
         }
     }
 
-    template <bool IsStrict, bool IsDatetime, typename T>
+    template <DatelikeParseMode ParseMode, DatelikeTargetType TargetType, typename T>
         requires std::is_floating_point_v<T>
-    static inline bool from_float(T float_value, VecDateTimeValue& val, CastParameters& params) {
+    static inline bool from_float(T float_value, VecDateTimeValue& val, uint32_t to_scale,
+                                  CastParameters& params) {
+        constexpr bool IsStrict = is_datelike_parse_strict(ParseMode);
+        DCHECK(IsStrict == params.is_strict);
         SET_PARAMS_RET_FALSE_IFN(float_value > 0 && !std::isnan(float_value) &&
                                          !std::isinf(float_value) &&
                                          float_value < (double)std::numeric_limits<int64_t>::max(),
                                  "invalid float value for date/datetime: {}", float_value);
 
         auto int_part = static_cast<int64_t>(float_value);
-        if (!from_integer<IsStrict, IsDatetime>(int_part, val, params)) {
+        if (!from_integer<ParseMode, TargetType>(int_part, val, params)) {
             // if IsStrict, error code has been set in from_integer
             return false;
         }
 
-        if constexpr (IsDatetime) {
+        static_cast<void>(to_scale);
+        if constexpr (is_datelike_target_datetime(TargetType)) {
             int ms_part_7 = (float_value - (double)int_part) * common::exp10_i32(7);
-            if (!microsecond_carry_on<IsStrict>(ms_part_7, 7, val, params)) [[unlikely]] {
+            if (!microsecond_carry_on<ParseMode>(ms_part_7, 7, val, params)) [[unlikely]] {
                 return false; // status set in microsecond_carry_on
             }
         }
@@ -136,33 +143,37 @@ struct CastToDateOrDatetime {
     }
 
     // may be slow
-    template <typename T>
-    static inline bool from_decimal(const T& int_part, const T& frac_part,
-                                    const int64_t& decimal_scale, TimeValue::TimeType& res,
-                                    CastParameters& params) {
-        if (params.is_strict) {
-            return from_decimal<true>(int_part, frac_part, decimal_scale, res, params);
-        } else {
-            return from_decimal<false>(int_part, frac_part, decimal_scale, res, params);
-        }
-    }
-
-    template <bool IsStrict, bool IsDatetime, typename T>
+    template <typename T, DatelikeTargetType TargetType>
     static inline bool from_decimal(const T& int_part, const T& frac_part,
                                     const int64_t& decimal_scale, VecDateTimeValue& res,
                                     CastParameters& params) {
+        if (params.is_strict) {
+            return from_decimal<DatelikeParseMode::STRICT, TargetType>(int_part, frac_part,
+                                                                       decimal_scale, res, params);
+        } else {
+            return from_decimal<DatelikeParseMode::NON_STRICT, TargetType>(
+                    int_part, frac_part, decimal_scale, res, params);
+        }
+    }
+
+    template <DatelikeParseMode ParseMode, DatelikeTargetType TargetType, typename T>
+    static inline bool from_decimal(const T& int_part, const T& frac_part,
+                                    const int64_t& decimal_scale, VecDateTimeValue& res,
+                                    CastParameters& params) {
+        constexpr bool IsStrict = is_datelike_parse_strict(ParseMode);
+        DCHECK(IsStrict == params.is_strict);
         SET_PARAMS_RET_FALSE_IFN(int_part <= std::numeric_limits<int64_t>::max() && int_part >= 1,
                                  "invalid decimal value for date/datetime: {}.{}", int_part,
                                  frac_part);
 
-        if (!from_integer<IsStrict, IsDatetime>(int_part, res, params)) {
+        if (!from_integer<ParseMode, TargetType>(int_part, res, params)) {
             // if IsStrict, error code has been set in from_integer
             return false;
         }
 
-        if constexpr (IsDatetime) {
-            if (!microsecond_carry_on<IsStrict>((int64_t)frac_part, (uint32_t)decimal_scale, res,
-                                                params)) [[unlikely]] {
+        if constexpr (is_datelike_target_datetime(TargetType)) {
+            if (!microsecond_carry_on<ParseMode>((int64_t)frac_part, (uint32_t)decimal_scale, res,
+                                                 params)) [[unlikely]] {
                 return false; // status set in microsecond_carry_on
             }
         }
@@ -170,42 +181,46 @@ struct CastToDateOrDatetime {
     }
 
     // may be slow
-    template <bool IsDatetime>
+    template <DatelikeTargetType TargetType>
     static inline bool from_string(const StringRef& str, VecDateTimeValue& res,
                                    const cctz::time_zone* local_time_zone, CastParameters& params) {
         if (params.is_strict) {
-            return from_string_strict_mode<true, IsDatetime>(str, res, local_time_zone, params);
+            return from_string_strict_mode<DatelikeParseMode::STRICT, TargetType>(
+                    str, res, local_time_zone, params);
         } else {
-            return from_string_non_strict_mode<IsDatetime>(str, res, local_time_zone, params);
+            return from_string_non_strict_mode<TargetType>(str, res, local_time_zone, params);
         }
     }
 
     // this code follow rules of strict mode, but whether it RUNNING IN strict mode or not depends on the `IsStrict`
     // parameter. if it's false, we dont set error code for performance and we dont need.
-    template <bool IsStrict, bool IsDatetime>
+    template <DatelikeParseMode ParseMode, DatelikeTargetType TargetType>
     static inline bool from_string_strict_mode(const StringRef& str, VecDateTimeValue& res,
                                                const cctz::time_zone* local_time_zone,
                                                CastParameters& params);
 
-    template <bool IsDatetime>
+    template <DatelikeTargetType TargetType>
     static inline bool from_string_non_strict_mode(const StringRef& str, VecDateTimeValue& res,
                                                    const cctz::time_zone* local_time_zone,
                                                    CastParameters& params) {
-        return CastToDateOrDatetime::from_string_strict_mode<false, IsDatetime>(
-                       str, res, local_time_zone, params) ||
-               CastToDateOrDatetime::from_string_non_strict_mode_impl<IsDatetime>(
+        return CastToDateOrDatetime::from_string_strict_mode<DatelikeParseMode::NON_STRICT,
+                                                             TargetType>(str, res, local_time_zone,
+                                                                         params) ||
+               CastToDateOrDatetime::from_string_non_strict_mode_impl<TargetType>(
                        str, res, local_time_zone, params);
     }
 
-    template <bool IsDatetime>
+    template <DatelikeTargetType TargetType>
     static inline bool from_string_non_strict_mode_impl(const StringRef& str, VecDateTimeValue& res,
                                                         const cctz::time_zone* local_time_zone,
                                                         CastParameters& params);
 };
 
-template <bool IsStrict, bool IsDatetime, typename T>
+template <DatelikeParseMode ParseMode, DatelikeTargetType TargetType, typename T>
 inline bool CastToDateOrDatetime::from_integer(T input, VecDateTimeValue& val,
                                                CastParameters& params) {
+    constexpr bool IsStrict = is_datelike_parse_strict(ParseMode);
+    DCHECK(IsStrict == params.is_strict);
     // T maybe int128 then bigger than int64_t. so we must check before cast
     SET_PARAMS_RET_FALSE_IFN(input <= std::numeric_limits<int64_t>::max() && input > 0,
                              "invalid int value for date/datetime: {}", input);
@@ -264,14 +279,14 @@ inline bool CastToDateOrDatetime::from_integer(T input, VecDateTimeValue& val,
                                      "invalid second {}", int_val % 100);
         }
     } else [[unlikely]] {
-        if constexpr (IsStrict) {
+        if constexpr (is_datelike_parse_strict(ParseMode)) {
             params.status =
                     Status::InvalidArgument("invalid digits for date/datetime: {}", int_val);
         }
         return false;
     }
 
-    cast_to_type<IsDatetime>(val);
+    cast_to_type<TargetType>(val);
     return true;
 }
 
@@ -327,11 +342,13 @@ inline bool CastToDateOrDatetime::from_integer(T input, VecDateTimeValue& val,
 <alpha>          ::= "A" | … | "Z" | "a" | … | "z"
 <whitespace>     ::= " " | "\t" | "\n" | "\r" | "\v" | "\f"
 */
-template <bool IsStrict, bool IsDatetime>
+template <DatelikeParseMode ParseMode, DatelikeTargetType TargetType>
 inline bool CastToDateOrDatetime::from_string_strict_mode(const StringRef& str,
                                                           VecDateTimeValue& res,
                                                           const cctz::time_zone* local_time_zone,
                                                           CastParameters& params) {
+    constexpr bool IsStrict = is_datelike_parse_strict(ParseMode);
+    constexpr bool IsDatetime = is_datelike_target_datetime(TargetType);
     const char* ptr = str.data;
     const char* end = ptr + str.size;
     AsanPoisonGuard defer(end, 1);
@@ -412,6 +429,7 @@ inline bool CastToDateOrDatetime::from_string_strict_mode(const StringRef& str,
                                          "invalid day {}", part[3]);
             }
         } else {
+            // otherwise, it must be a 2-digit year
             if (!try_convert_set_zero_date(res, complete_4digit_year(part[0]), part[1], part[2])) {
                 SET_PARAMS_RET_FALSE_IFN(
                         res.template set_time_unit<TimeUnit::YEAR>(complete_4digit_year(part[0])),
@@ -483,7 +501,7 @@ inline bool CastToDateOrDatetime::from_string_strict_mode(const StringRef& str,
 
     if (ptr == end) {
         // no time part, just return.
-        cast_to_type<IsDatetime>(res);
+        cast_to_type<TargetType>(res);
         return true;
     }
 
@@ -647,7 +665,7 @@ FRAC:
                                  "invalid datetime string '{}', extra characters after timezone",
                                  std::string {ptr, end});
     }
-    cast_to_type<IsDatetime>(res);
+    cast_to_type<TargetType>(res);
     return true;
 }
 
@@ -693,11 +711,12 @@ FRAC:
 
 <alpha>          ::= "A" | … | "Z" | "a" | … | "z"
 */
-template <bool IsDatetime>
+template <DatelikeTargetType TargetType>
 inline bool CastToDateOrDatetime::from_string_non_strict_mode_impl(
         const StringRef& str, VecDateTimeValue& res, const cctz::time_zone* local_time_zone,
         CastParameters& params) {
     constexpr bool IsStrict = false;
+    constexpr bool IsDatetime = is_datelike_target_datetime(TargetType);
     const char* ptr = str.data;
     const char* end = ptr + str.size;
     AsanPoisonGuard defer(end, 1);
@@ -747,7 +766,7 @@ inline bool CastToDateOrDatetime::from_string_non_strict_mode_impl(
 
     if (is_space_range(ptr, end)) {
         // no time part, just return.
-        cast_to_type<IsDatetime>(res);
+        cast_to_type<TargetType>(res);
         return true;
     }
 
@@ -882,7 +901,7 @@ inline bool CastToDateOrDatetime::from_string_non_strict_mode_impl(
                              "invalid datetime string '{}', extra characters after parsing",
                              std::string {ptr, end});
 
-    cast_to_type<IsDatetime>(res);
+    cast_to_type<TargetType>(res);
     return true;
 }
 

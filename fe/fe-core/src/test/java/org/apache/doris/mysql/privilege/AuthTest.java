@@ -21,11 +21,13 @@ import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.Assert;
 import org.junit.jupiter.api.Test;
 
+import java.util.Collections;
 import java.util.Set;
 
 public class AuthTest extends TestWithFeService {
@@ -62,6 +64,27 @@ public class AuthTest extends TestWithFeService {
         Assert.assertEquals(3, roleNames.size());
         roleNames = Env.getCurrentEnv().getAuth().getRoleNamesByUserWithLdap(new UserIdentity("u2", "%"), false);
         Assert.assertEquals(2, roleNames.size());
+    }
+
+    @Test
+    public void testCheckDbPrivWithSessionMappedRoleForTempUser() throws Exception {
+        createRole("jit_role_auth_test");
+        grantPriv("GRANT SELECT_PRIV ON internal.test.* TO ROLE 'jit_role_auth_test';");
+
+        UserIdentity tempUserIdentity = UserIdentity.createAnalyzedUserIdentWithIp("jit_user", "%");
+        Assert.assertFalse(Env.getCurrentEnv().getAuth().checkDbPriv(tempUserIdentity,
+                InternalCatalog.INTERNAL_CATALOG_NAME, "test", PrivPredicate.SELECT));
+
+        ConnectContext ctx = new ConnectContext();
+        ctx.setCurrentUserIdentity(tempUserIdentity);
+        ctx.setThreadLocalInfo();
+        try {
+            ctx.setAuthenticatedRoles(Collections.singleton("jit_role_auth_test"));
+            Assert.assertTrue(Env.getCurrentEnv().getAccessManager()
+                    .checkDbPriv(ctx, InternalCatalog.INTERNAL_CATALOG_NAME, "test", PrivPredicate.SELECT));
+        } finally {
+            ConnectContext.remove();
+        }
     }
 
 }

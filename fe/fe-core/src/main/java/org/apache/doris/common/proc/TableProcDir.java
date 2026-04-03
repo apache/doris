@@ -19,10 +19,8 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
-import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.base.Preconditions;
@@ -82,10 +80,8 @@ public class TableProcDir implements ProcDirInterface {
         if (entryName.equals(PARTITIONS)) {
             if (table.isManagedTable()) {
                 return new PartitionsProcDir((Database) db, (OlapTable) table, false);
-            } else if (table.getType() == TableType.ELASTICSEARCH) {
-                return new EsPartitionsProcDir((Database) db, (EsTable) table);
             } else {
-                throw new AnalysisException("Table[" + table.getName() + "] is not a OLAP or ELASTICSEARCH table");
+                throw new AnalysisException("Table[" + table.getName() + "] is not a OLAP table");
             }
         } else if (entryName.equals(TEMP_PARTITIONS)) {
             if (table instanceof OlapTable) {

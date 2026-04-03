@@ -336,6 +336,7 @@ protected:
     // ScanLocalState owns the ownership of scanner, scanner context only has its weakptr
     std::list<std::shared_ptr<ScannerDelegate>> _scanners;
     Arena _arena;
+    int _instance_idx = 0;
 };
 
 template <typename LocalStateType>
@@ -424,6 +425,10 @@ protected:
     // If sort info is set, push limit to each scanner;
     int64_t _limit_per_scanner = -1;
 
+    // Shared remaining limit across all parallel instances and their scanners.
+    // Initialized to _limit (SQL LIMIT); -1 means no limit.
+    std::atomic<int64_t> _shared_scan_limit {-1};
+
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
 
     TPushAggOp::type _push_down_agg_type;
@@ -433,6 +438,9 @@ protected:
     const int _parallel_tasks = 0;
 
     std::vector<int> _topn_filter_source_node_ids;
+
+    std::shared_ptr<MemShareArbitrator> _mem_arb = nullptr;
+    std::shared_ptr<MemLimiter> _mem_limiter = nullptr;
 };
 
 #include "common/compile_check_end.h"

@@ -50,6 +50,7 @@
 #include "exprs/vtopn_pred.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_profile.h"
+#include "runtime/runtime_profile_counter_names.h"
 #include "storage/predicate/null_predicate.h"
 #include "storage/predicate/predicate_creator.h"
 
@@ -148,7 +149,25 @@ Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) 
     set_scan_ranges(state, info.scan_ranges);
 
     _wait_for_rf_timer = ADD_TIMER(common_profile(), "WaitForRuntimeFilter");
+    _instance_idx = info.task_idx;
     return Status::OK();
+}
+
+static std::string predicates_to_string(
+        const phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>>&
+                slot_id_to_predicates) {
+    fmt::memory_buffer debug_string_buffer;
+    for (const auto& [slot_id, predicates] : slot_id_to_predicates) {
+        if (predicates.empty()) {
+            continue;
+        }
+        fmt::format_to(debug_string_buffer, "Slot ID: {}: [", slot_id);
+        for (const auto& predicate : predicates) {
+            fmt::format_to(debug_string_buffer, "{{{}}}, ", predicate->debug_string());
+        }
+        fmt::format_to(debug_string_buffer, "] ");
+    }
+    return fmt::to_string(debug_string_buffer);
 }
 
 template <typename Derived>
@@ -191,6 +210,11 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
 
     RETURN_IF_ERROR(_process_conjuncts(state));
 
+    if (state->enable_profile()) {
+        custom_profile()->add_info_string("PushDownPredicates",
+                                          predicates_to_string(_slot_id_to_predicates));
+    }
+
     auto status = _eos ? Status::OK() : _prepare_scanners();
     RETURN_IF_ERROR(status);
     if (auto ctx = _scanner_ctx.load()) {
@@ -199,23 +223,6 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
     }
     _opened = true;
     return status;
-}
-
-static std::string predicates_to_string(
-        const phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>>&
-                slot_id_to_predicates) {
-    fmt::memory_buffer debug_string_buffer;
-    for (const auto& [slot_id, predicates] : slot_id_to_predicates) {
-        if (predicates.empty()) {
-            continue;
-        }
-        fmt::format_to(debug_string_buffer, "Slot ID: {}: [", slot_id);
-        for (const auto& predicate : predicates) {
-            fmt::format_to(debug_string_buffer, "{{{}}}, ", predicate->debug_string());
-        }
-        fmt::format_to(debug_string_buffer, "] ");
-    }
-    return fmt::to_string(debug_string_buffer);
 }
 
 static void init_slot_value_range(
@@ -246,7 +253,6 @@ static void init_slot_value_range(
     M(TIMESTAMPTZ)               \
     M(VARCHAR)                   \
     M(STRING)                    \
-    M(HLL)                       \
     M(DECIMAL32)                 \
     M(DECIMAL64)                 \
     M(DECIMAL128I)               \
@@ -263,6 +269,21 @@ static void init_slot_value_range(
     }
 }
 
+/// Step 1 of the scan-key generation pipeline.
+///
+/// Parse SQL WHERE conjuncts into per-column ColumnValueRange objects stored in
+/// _slot_id_to_value_range.  Each ColumnValueRange captures all constraints on
+/// one column (fixed values from IN / =, or min/max bounds from < / <= / > / >=).
+///
+/// Example – "WHERE k1 IN (1, 2) AND k2 >= 5 AND k2 < 10 AND v > 100":
+///   => ColumnValueRange<k1>: fixed_values = {1, 2}
+///   => ColumnValueRange<k2>: scope [5, 10)  (low=5 >=, high=10 <)
+///   => ColumnValueRange<v>:  scope (100, MAX]  (low=100 >, high=MAX <=)
+///   The k1/k2 ranges will later become scan keys (since they're key columns);
+///   v's range stays as a residual predicate / olap filter.
+///
+/// After this step, _build_key_ranges_and_filters() picks up the key-column
+/// ColumnValueRanges and feeds them to OlapScanKeys::extend_scan_key().
 template <typename Derived>
 Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
     auto& p = _parent->cast<typename Derived::Parent>();
@@ -309,8 +330,6 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
     }
 
     if (state->enable_profile()) {
-        custom_profile()->add_info_string("PushDownPredicates",
-                                          predicates_to_string(_slot_id_to_predicates));
         std::string message;
         for (auto& conjunct : _conjuncts) {
             if (conjunct->root()) {
@@ -917,10 +936,6 @@ Status ScanLocalStateBase::_change_value_range(bool is_equal_op,
                          (PrimitiveType == TYPE_DATEV2) || (PrimitiveType == TYPE_TIMESTAMPTZ) ||
                          (PrimitiveType == TYPE_DATETIME) || is_string_type(PrimitiveType)) {
         func(temp_range, to_olap_filter_type(fn_name), value.template get<PrimitiveType>());
-    } else if constexpr (PrimitiveType == TYPE_HLL) {
-        auto tmp = value.template get<PrimitiveType>();
-        func(temp_range, to_olap_filter_type(fn_name),
-             StringRef(reinterpret_cast<const char*>(&tmp), sizeof(tmp)));
     } else {
         static_assert(always_false_v<PrimitiveType>);
     }
@@ -997,14 +1012,16 @@ template <typename Derived>
 Status ScanLocalState<Derived>::_start_scanners(
         const std::list<std::shared_ptr<ScannerDelegate>>& scanners) {
     auto& p = _parent->cast<typename Derived::Parent>();
-    _scanner_ctx.store(ScannerContext::create_shared(state(), this, p._output_tuple_desc,
-                                                     p.output_row_descriptor(), scanners, p.limit(),
-                                                     _scan_dependency
+    _scanner_ctx.store(ScannerContext::create_shared(
+            state(), this, p._output_tuple_desc, p.output_row_descriptor(), scanners, p.limit(),
+            _scan_dependency, &p._shared_scan_limit, p._mem_arb, p._mem_limiter, _instance_idx,
+            _state->get_query_ctx()->get_query_options().__isset.enable_adaptive_scan &&
+                    _state->get_query_ctx()->get_query_options().enable_adaptive_scan
 #ifdef BE_TEST
-                                                     ,
-                                                     max_scanners_concurrency(state())
+            ,
+            max_scanners_concurrency(state())
 #endif
-                                                             ));
+                    ));
     return Status::OK();
 }
 
@@ -1030,28 +1047,30 @@ int64_t ScanLocalState<Derived>::limit_per_scanner() {
 template <typename Derived>
 Status ScanLocalState<Derived>::_init_profile() {
     // 1. counters for scan node
-    _rows_read_counter = ADD_COUNTER(custom_profile(), "RowsRead", TUnit::UNIT);
-    _num_scanners = ADD_COUNTER(custom_profile(), "NumScanners", TUnit::UNIT);
+    _rows_read_counter = ADD_COUNTER(custom_profile(), profile::ROWS_READ, TUnit::UNIT);
+    _num_scanners = ADD_COUNTER(custom_profile(), profile::NUM_SCANNERS, TUnit::UNIT);
     //custom_profile()->AddHighWaterMarkCounter("PeakMemoryUsage", TUnit::BYTES);
 
     // 2. counters for scanners
-    _scanner_profile.reset(new RuntimeProfile("Scanner"));
+    _scanner_profile.reset(new RuntimeProfile(profile::SCANNER));
     custom_profile()->add_child(_scanner_profile.get(), true, nullptr);
 
     _newly_create_free_blocks_num =
-            ADD_COUNTER(_scanner_profile, "NewlyCreateFreeBlocksNum", TUnit::UNIT);
-    _scan_timer = ADD_TIMER(_scanner_profile, "ScannerGetBlockTime");
-    _scan_cpu_timer = ADD_TIMER(_scanner_profile, "ScannerCpuTime");
-    _filter_timer = ADD_TIMER(_scanner_profile, "ScannerFilterTime");
+            ADD_COUNTER(_scanner_profile, profile::NEWLY_CREATE_FREE_BLOCKS_NUM, TUnit::UNIT);
+    _scan_timer = ADD_TIMER(_scanner_profile, profile::SCANNER_GET_BLOCK_TIME);
+    _scan_cpu_timer = ADD_TIMER(_scanner_profile, profile::SCANNER_CPU_TIME);
+    _filter_timer = ADD_TIMER(_scanner_profile, profile::SCANNER_FILTER_TIME);
 
     // time of scan thread to wait for worker thread of the thread pool
-    _scanner_wait_worker_timer = ADD_TIMER(custom_profile(), "ScannerWorkerWaitTime");
+    _scanner_wait_worker_timer = ADD_TIMER(custom_profile(), profile::SCANNER_WORKER_WAIT_TIME);
 
-    _max_scan_concurrency = ADD_COUNTER(custom_profile(), "MaxScanConcurrency", TUnit::UNIT);
-    _min_scan_concurrency = ADD_COUNTER(custom_profile(), "MinScanConcurrency", TUnit::UNIT);
+    _max_scan_concurrency =
+            ADD_COUNTER(custom_profile(), profile::MAX_SCAN_CONCURRENCY, TUnit::UNIT);
+    _min_scan_concurrency =
+            ADD_COUNTER(custom_profile(), profile::MIN_SCAN_CONCURRENCY, TUnit::UNIT);
 
     _peak_running_scanner =
-            _scanner_profile->AddHighWaterMarkCounter("RunningScanner", TUnit::UNIT);
+            _scanner_profile->AddHighWaterMarkCounter(profile::RUNNING_SCANNER, TUnit::UNIT);
 
     _condition_cache_hit_counter = ADD_COUNTER(_scanner_profile, "ConditionCacheHit", TUnit::UNIT);
     _condition_cache_filtered_rows_counter =
@@ -1059,10 +1078,10 @@ Status ScanLocalState<Derived>::_init_profile() {
 
     // Rows read from storage.
     // Include the rows read from doris page cache.
-    _scan_rows = ADD_COUNTER_WITH_LEVEL(custom_profile(), "ScanRows", TUnit::UNIT, 1);
+    _scan_rows = ADD_COUNTER_WITH_LEVEL(custom_profile(), profile::SCAN_ROWS, TUnit::UNIT, 1);
     // Size of data that read from storage.
     // Does not include rows that are cached by doris page cache.
-    _scan_bytes = ADD_COUNTER_WITH_LEVEL(custom_profile(), "ScanBytes", TUnit::BYTES, 1);
+    _scan_bytes = ADD_COUNTER_WITH_LEVEL(custom_profile(), profile::SCAN_BYTES, TUnit::BYTES, 1);
     return Status::OK();
 }
 
@@ -1155,6 +1174,7 @@ ScanOperatorX<LocalStateType>::ScanOperatorX(ObjectPool* pool, const TPlanNode& 
     if (tnode.__isset.push_down_count) {
         _push_down_count = tnode.push_down_count;
     }
+    _shared_scan_limit.store(this->_limit, std::memory_order_relaxed);
 }
 
 template <typename LocalStateType>
@@ -1167,6 +1187,18 @@ Status ScanOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState*
     }
     if (query_options.__isset.max_pushdown_conditions_per_column) {
         _max_pushdown_conditions_per_column = query_options.max_pushdown_conditions_per_column;
+    }
+#ifdef BE_TEST
+    _mem_arb = nullptr;
+#else
+    _mem_arb = state->get_query_ctx()->mem_arb();
+#endif
+    if (_mem_arb) {
+        _mem_arb->register_scan_node();
+        _mem_limiter =
+                MemLimiter::create_shared(state->query_id(), state->query_parallel_instance_num(),
+                                          OperatorX<LocalStateType>::is_serial_operator(),
+                                          state->get_query_ctx()->get_query_options().mem_limit);
     }
     // tnode.olap_scan_node.push_down_agg_type_opt field is deprecated
     // Introduced a new field : tnode.push_down_agg_type_opt

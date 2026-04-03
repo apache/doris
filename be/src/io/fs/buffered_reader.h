@@ -436,7 +436,7 @@ struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer>, public Pro
               _reader(reader),
               _io_ctx_holder(std::move(io_ctx)),
               _io_ctx(_io_ctx_holder.get()),
-              _buf(new char[buffer_size]),
+              _buf(nullptr),
               _sync_profile(std::move(sync_profile)) {}
 
     PrefetchBuffer(PrefetchBuffer&& other)

@@ -66,7 +66,7 @@ suite ("ivf_index_test") {
         DISTRIBUTED BY HASH(id) BUCKETS 1
         PROPERTIES ("replication_num" = "1");
         """
-        exception """nlist of ann index must be specified for ivf type"""
+        exception """nlist of ann index must be specified for ivf/ivf_on_disk type"""
     }
 
     sql """
@@ -84,15 +84,12 @@ suite ("ivf_index_test") {
     DISTRIBUTED BY HASH(id) BUCKETS 1
     PROPERTIES ("replication_num" = "1");
     """
-    test {
-        // not enough training points
-        sql """
-        INSERT INTO tbl_ann_l2 VALUES
-        (1, [1.0, 2.0, 3.0]),
-        (2, [0.5, 2.1, 2.9]);
-        """
-        exception """exception occurred during training"""
-    }
+    // Not enough training points: should not throw exception anymore, just skip index building.
+    sql """
+    INSERT INTO tbl_ann_l2 VALUES
+    (1, [1.0, 2.0, 3.0]),
+    (2, [0.5, 2.1, 2.9]);
+    """
 
     sql "drop table if exists tbl_ann_ip"
     sql """

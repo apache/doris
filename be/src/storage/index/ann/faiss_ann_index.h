@@ -49,8 +49,9 @@ struct FaissBuildParameter {
      * @brief Supported vector index types.
      */
     enum class IndexType {
-        HNSW, ///< Hierarchical Navigable Small World (HNSW) index for high performance
-        IVF   ///< Inverted File index
+        HNSW,       ///< Hierarchical Navigable Small World (HNSW) index for high performance
+        IVF,        ///< Inverted File index (in-memory)
+        IVF_ON_DISK ///< Inverted File index with on-disk inverted lists
     };
 
     /**
@@ -79,6 +80,8 @@ struct FaissBuildParameter {
             return IndexType::HNSW;
         } else if (type == "ivf") {
             return IndexType::IVF;
+        } else if (type == "ivf_on_disk") {
+            return IndexType::IVF_ON_DISK;
         } else {
             throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT, "Unsupported index type: {}",
                                    type);
@@ -209,6 +212,16 @@ public:
     doris::Status add(Int64 n, const float* vec) override;
 
     /**
+     * @brief Returns the minimum number of rows required for training the index.
+     *
+     * For IVF index types, this returns ivf_nlist (the number of clusters).
+     * For HNSW, this returns 0 as it doesn't require minimum training data.
+     *
+     * @return Minimum number of rows required for training
+     */
+    Int64 get_min_train_rows() const override;
+
+    /**
      * @brief Sets the build parameters for the index.
      *
      * This method must be called before adding vectors or performing searches.
@@ -274,10 +287,21 @@ public:
      */
     doris::Status load(lucene::store::Directory*) override;
 
+    /**
+     * @brief Sets a prefix string used as the cache key for ivfdata blocks.
+     *
+     * This must be called before load() when the index type is IVF_ON_DISK.
+     * The prefix should uniquely identify the index file (e.g. segment path).
+     */
+    void set_ivfdata_cache_key_prefix(std::string prefix) {
+        _ivfdata_cache_key_prefix = std::move(prefix);
+    }
+
 private:
     std::unique_ptr<faiss::Index> _index = nullptr; ///< Underlying FAISS index instance
     std::unique_ptr<faiss::Index> _quantizer = nullptr;
-    FaissBuildParameter _params; ///< Build parameters for the index
+    FaissBuildParameter _params;           ///< Build parameters for the index
+    std::string _ivfdata_cache_key_prefix; ///< Cache key prefix for ivfdata blocks
 };
 #include "common/compile_check_end.h"
 } // namespace doris::segment_v2

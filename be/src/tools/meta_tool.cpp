@@ -52,6 +52,7 @@
 #include "storage/options.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/encoding_info.h"
+#include "storage/segment/page_pointer.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_meta_manager.h"
@@ -75,13 +76,18 @@ using namespace doris;
 DEFINE_string(root_path, "", "storage root path");
 DEFINE_string(operation, "get_meta",
               "valid operation: get_meta, flag, load_meta, delete_meta, show_meta, "
-              "show_segment_footer, show_segment_data");
+              "show_segment_footer, show_segment_data, gen_empty_segment");
 DEFINE_int64(tablet_id, 0, "tablet_id for tablet meta");
+DEFINE_int32(num_rows_per_block, 1024, "num rows per block");
 DEFINE_int32(schema_hash, 0, "schema_hash for tablet meta");
 DEFINE_string(json_meta_path, "", "absolute json meta file path");
 DEFINE_string(pb_meta_path, "", "pb meta file path");
 DEFINE_string(tablet_file, "", "file to save a set of tablets");
 DEFINE_string(file, "", "segment file path");
+DEFINE_string(output_path, "", "output directory path (default: current directory)");
+DEFINE_int32(num_short_key_columns, 0, "number of short key columns");
+DEFINE_bool(has_sequence_col, false, "whether has sequence column");
+DEFINE_bool(enable_unique_key_merge_on_write, false, "whether enable unique key merge on write");
 
 std::string get_usage(const std::string& progname) {
     std::stringstream ss;
@@ -99,6 +105,9 @@ std::string get_usage(const std::string& progname) {
     ss << "./meta_tool --operation=show_meta --pb_meta_path=path\n";
     ss << "./meta_tool --operation=show_segment_footer --file=/path/to/segment/file\n";
     ss << "./meta_tool --operation=show_segment_data --file=/path/to/segment/file\n";
+    ss << "./meta_tool --operation=gen_empty_segment [--output_path=/path/to/output]\n";
+    ss << "  Generates an empty segment file (0 rows) at specified path or current directory\n";
+    ss << "  Default output file name: empty.dat\n";
     return ss.str();
 }
 
@@ -899,6 +908,120 @@ void show_segment_data(const std::string& file_name) {
     }
 }
 
+void gen_empty_segment() {
+    std::string output_path = FLAGS_output_path.empty() ? "." : FLAGS_output_path;
+
+    // Create output file path
+    std::string file_path = output_path + "/empty.dat";
+
+    // Open file for writing
+    std::ofstream out_file(file_path, std::ios::binary);
+    if (!out_file.is_open()) {
+        std::cout << "failed to open output file: " << file_path << std::endl;
+        return;
+    }
+
+    // 1. Build empty short key index page
+    std::vector<Slice> index_body;
+    segment_v2::PageFooterPB index_footer;
+    index_footer.set_type(segment_v2::SHORT_KEY_PAGE);
+    index_footer.set_uncompressed_size(0); // empty body
+
+    segment_v2::ShortKeyFooterPB* sk_footer = index_footer.mutable_short_key_page_footer();
+    sk_footer->set_num_items(0);    // 0 keys
+    sk_footer->set_key_bytes(0);    // empty key buffer
+    sk_footer->set_offset_bytes(0); // empty offset buffer
+    sk_footer->set_segment_id(0);
+    sk_footer->set_num_rows_per_block(FLAGS_num_rows_per_block);
+    sk_footer->set_num_segment_rows(0);
+
+    // Empty key and offset buffers
+    std::string key_buf;
+    std::string offset_buf;
+
+    index_body.push_back(Slice(key_buf.data(), key_buf.size()));
+    index_body.push_back(Slice(offset_buf.data(), offset_buf.size()));
+
+    // Serialize index footer
+    std::string index_footer_buf;
+    index_footer.SerializeToString(&index_footer_buf);
+    doris::put_fixed32_le(&index_footer_buf, static_cast<uint32_t>(index_footer_buf.size()));
+    index_body.push_back(Slice(index_footer_buf.data(), index_footer_buf.size()));
+
+    // Calculate checksum for index page
+    uint32_t index_checksum = 0;
+    for (const auto& slice : index_body) {
+        index_checksum = crc32c::Extend(index_checksum, (const uint8_t*)slice.data, slice.size);
+    }
+    uint8_t index_checksum_buf[sizeof(uint32_t)];
+    doris::encode_fixed32_le(index_checksum_buf, index_checksum);
+    index_body.push_back(Slice(index_checksum_buf, sizeof(uint32_t)));
+
+    // 2. Build segment footer
+    SegmentFooterPB footer;
+    footer.set_num_rows(0);
+
+    // Calculate total index page size
+    uint64_t index_page_size = 0;
+    for (const auto& slice : index_body) {
+        index_page_size += slice.size;
+    }
+
+    // Set short key index page pointer
+    segment_v2::PagePointer index_pp;
+    index_pp.offset = 0;
+    index_pp.size = static_cast<uint32_t>(index_page_size);
+    index_pp.to_proto(footer.mutable_short_key_index_page());
+
+    // Serialize footer
+    std::string footer_buf;
+    if (!footer.SerializeToString(&footer_buf)) {
+        std::cout << "failed to serialize footer" << std::endl;
+        return;
+    }
+
+    // 3. Write footer data to file
+    std::vector<Slice> footer_slices = {footer_buf};
+
+    // Footer size (4 bytes, little-endian)
+    uint32_t footer_size = static_cast<uint32_t>(footer_buf.size());
+    uint8_t footer_size_buf[4];
+    doris::encode_fixed32_le(footer_size_buf, footer_size);
+    footer_slices.push_back(Slice(footer_size_buf, 4));
+
+    // Footer checksum (4 bytes, crc32c)
+    uint32_t footer_checksum = crc32c::Crc32c(footer_buf.data(), footer_buf.size());
+    uint8_t footer_checksum_buf[4];
+    doris::encode_fixed32_le(footer_checksum_buf, footer_checksum);
+    footer_slices.push_back(Slice(footer_checksum_buf, 4));
+
+    // Magic number (4 bytes): "D0R1"
+    const char* k_segment_magic = "D0R1";
+    const uint32_t k_segment_magic_length = 4;
+    footer_slices.push_back(Slice(k_segment_magic, k_segment_magic_length));
+
+    // Write index page first, then footer
+    for (const auto& slice : index_body) {
+        out_file.write(slice.data, slice.size);
+    }
+
+    // Write footer
+    for (const auto& slice : footer_slices) {
+        out_file.write(slice.data, slice.size);
+    }
+
+    out_file.close();
+
+    // Print summary
+    std::cout << "Generated empty segment file: " << file_path << std::endl;
+    std::cout << "  - Index page size: " << index_page_size << " bytes" << std::endl;
+    std::cout << "  - Footer size: " << footer_slices.size() << " slices, "
+              << (footer_buf.size() + 12) << " bytes" << std::endl;
+    std::cout << "  - Total file size: " << (index_page_size + footer_buf.size() + 12) << " bytes"
+              << std::endl;
+    std::cout << "  - num_rows: 0" << std::endl;
+}
+
 int main(int argc, char** argv) {
     SCOPED_INIT_THREAD_CONTEXT();
     std::string usage = get_usage(argv[0]);
@@ -930,6 +1053,8 @@ int main(int argc, char** argv) {
             return -1;
         }
         show_segment_data(FLAGS_file);
+    } else if (FLAGS_operation == "gen_empty_segment") {
+        gen_empty_segment();
     } else {
         // operations that need root path should be written here
         std::set<std::string> valid_operations = {"get_meta", "load_meta", "delete_meta"};

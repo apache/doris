@@ -255,4 +255,112 @@ TEST_F(RuntimeProfileProfileLevelTest, ConcurrentTest) {
     add_counter_thread.join();
     to_thrift_thread.join();
 }
+
+// Verify that pretty_print() respects profile_level parameter for flat counters.
+TEST_F(RuntimeProfileProfileLevelTest, PrettyPrintLevelFilteringFlat) {
+    RuntimeProfile profile("test");
+    auto* counter_l0 = profile.add_counter("CounterLevel0", TUnit::UNIT, "", 0);
+    auto* counter_l1 = profile.add_counter("CounterLevel1", TUnit::UNIT, "", 1);
+    auto* counter_l2 = profile.add_counter("CounterLevel2", TUnit::UNIT, "", 2);
+    counter_l0->set(int64_t(100));
+    counter_l1->set(int64_t(200));
+    counter_l2->set(int64_t(300));
+
+    // Level 0: only level-0 counters should appear
+    {
+        std::stringstream ss;
+        profile.pretty_print(&ss, "", 0);
+        std::string output = ss.str();
+        EXPECT_TRUE(output.find("CounterLevel0") != std::string::npos)
+                << "Level-0 counter should appear at profile_level=0";
+        EXPECT_TRUE(output.find("CounterLevel1") == std::string::npos)
+                << "Level-1 counter should NOT appear at profile_level=0";
+        EXPECT_TRUE(output.find("CounterLevel2") == std::string::npos)
+                << "Level-2 counter should NOT appear at profile_level=0";
+    }
+
+    // Level 1: level-0 and level-1 counters should appear
+    {
+        std::stringstream ss;
+        profile.pretty_print(&ss, "", 1);
+        std::string output = ss.str();
+        EXPECT_TRUE(output.find("CounterLevel0") != std::string::npos);
+        EXPECT_TRUE(output.find("CounterLevel1") != std::string::npos);
+        EXPECT_TRUE(output.find("CounterLevel2") == std::string::npos)
+                << "Level-2 counter should NOT appear at profile_level=1";
+    }
+
+    // Level 2: all counters should appear
+    {
+        std::stringstream ss;
+        profile.pretty_print(&ss, "", 2);
+        std::string output = ss.str();
+        EXPECT_TRUE(output.find("CounterLevel0") != std::string::npos);
+        EXPECT_TRUE(output.find("CounterLevel1") != std::string::npos);
+        EXPECT_TRUE(output.find("CounterLevel2") != std::string::npos);
+    }
+}
+
+// Verify that pretty_print() respects profile_level for nested (parent-child) counters.
+TEST_F(RuntimeProfileProfileLevelTest, PrettyPrintLevelFilteringNested) {
+    /*
+     * Tree structure:
+     *   ROOT_COUNTER
+     *     parent_l0 (level 0)
+     *       child_l0 (level 0)
+     *       child_l1 (level 1)
+     *       child_l2 (level 2)
+     */
+    RuntimeProfile profile("nested_test");
+    profile.add_counter("parent_l0", TUnit::UNIT, RuntimeProfile::ROOT_COUNTER, 0);
+    profile.add_counter("child_l0", TUnit::UNIT, "parent_l0", 0);
+    profile.add_counter("child_l1", TUnit::UNIT, "parent_l0", 1);
+    profile.add_counter("child_l2", TUnit::UNIT, "parent_l0", 2);
+
+    // Level 0: parent_l0 and child_l0 should appear, child_l1/l2 should be pruned
+    {
+        std::stringstream ss;
+        profile.pretty_print(&ss, "", 0);
+        std::string output = ss.str();
+        EXPECT_TRUE(output.find("parent_l0") != std::string::npos);
+        EXPECT_TRUE(output.find("child_l0") != std::string::npos);
+        EXPECT_TRUE(output.find("child_l1") == std::string::npos);
+        EXPECT_TRUE(output.find("child_l2") == std::string::npos);
+    }
+
+    // Level 1: parent_l0, child_l0, child_l1 should appear
+    {
+        std::stringstream ss;
+        profile.pretty_print(&ss, "", 1);
+        std::string output = ss.str();
+        EXPECT_TRUE(output.find("parent_l0") != std::string::npos);
+        EXPECT_TRUE(output.find("child_l0") != std::string::npos);
+        EXPECT_TRUE(output.find("child_l1") != std::string::npos);
+        EXPECT_TRUE(output.find("child_l2") == std::string::npos);
+    }
+}
+
+// Verify pretty_print indentation: ROOT_COUNTER's direct children should be at
+// the same prefix level, and grandchildren should be indented by 2 more spaces.
+TEST_F(RuntimeProfileProfileLevelTest, PrettyPrintIndentation) {
+    RuntimeProfile profile("indent_test");
+    profile.add_counter("top_counter", TUnit::UNIT, RuntimeProfile::ROOT_COUNTER, 0);
+    profile.add_counter("sub_counter", TUnit::UNIT, "top_counter", 0);
+
+    std::stringstream ss;
+    profile.pretty_print(&ss, "PFX", 2);
+    std::string output = ss.str();
+
+    // ROOT_COUNTER's direct children should have prefix "PFX   - "
+    // (PFX + "   - " from Counter::pretty_print)
+    EXPECT_TRUE(output.find("PFX   - top_counter:") != std::string::npos)
+            << "Top-level counter should be at prefix level. Output:\n"
+            << output;
+
+    // Child of top_counter should have prefix "PFX  " + "   - "  = "PFX     - "
+    EXPECT_TRUE(output.find("PFX     - sub_counter:") != std::string::npos)
+            << "Sub-counter should be indented by 2 more spaces. Output:\n"
+            << output;
+}
+
 } // namespace doris

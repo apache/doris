@@ -35,7 +35,7 @@ import org.apache.doris.common.Pair;
  * <p>Subclasses should extend one of the specialized abstract classes:
  * <ul>
  *   <li>{@link NativeSysTable} - for tables using native execution path (FileQueryScanNode)</li>
- *   <li>{@link TvfSysTable} - for tables using TVF execution path (MetadataScanNode)</li>
+ *   <li>{@link TvfSysTable} - for tables still using TVF execution path (MetadataScanNode)</li>
  * </ul>
  *
  * @see NativeSysTable

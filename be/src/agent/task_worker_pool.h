@@ -50,7 +50,8 @@ public:
 class TaskWorkerPool : public TaskWorkerPoolIf {
 public:
     TaskWorkerPool(std::string_view name, int worker_count,
-                   std::function<void(const TAgentTaskRequest&)> callback);
+                   std::function<void(const TAgentTaskRequest&)> callback,
+                   std::function<void(const TAgentTaskRequest&)> pre_submit_callback = nullptr);
 
     ~TaskWorkerPool() override;
 
@@ -62,6 +63,7 @@ protected:
     std::atomic_bool _stopped {false};
     std::unique_ptr<ThreadPool> _thread_pool;
     std::function<void(const TAgentTaskRequest&)> _callback;
+    std::function<void(const TAgentTaskRequest&)> _pre_submit_callback;
 };
 
 class PublishVersionWorkerPool final : public TaskWorkerPool {
@@ -180,6 +182,8 @@ void alter_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req);
 
 void alter_cloud_tablet_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req);
 
+void set_alter_version_before_enqueue(CloudStorageEngine& engine, const TAgentTaskRequest& req);
+
 void clone_callback(StorageEngine& engine, const ClusterInfo* cluster_info,
                     const TAgentTaskRequest& req);
 
@@ -204,6 +208,9 @@ void report_tablet_callback(StorageEngine& engine, const ClusterInfo* cluster_in
 void report_tablet_callback(CloudStorageEngine& engine, const ClusterInfo* cluster_info);
 
 void calc_delete_bitmap_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req);
+
+void make_cloud_committed_rs_visible_callback(CloudStorageEngine& engine,
+                                              const TAgentTaskRequest& req);
 
 void report_index_policy_callback(const ClusterInfo* cluster_info);
 

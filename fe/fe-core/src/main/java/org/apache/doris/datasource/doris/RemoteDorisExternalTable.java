@@ -54,6 +54,11 @@ public class RemoteDorisExternalTable extends ExternalTable {
     }
 
     @Override
+    public String getMetaCacheEngine() {
+        return DorisExternalMetaCache.ENGINE;
+    }
+
+    @Override
     protected synchronized void makeSureInitialized() {
         super.makeSureInitialized();
         if (!objectCreated) {
