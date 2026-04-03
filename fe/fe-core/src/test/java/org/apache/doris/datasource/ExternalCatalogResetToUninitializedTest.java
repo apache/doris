@@ -61,7 +61,7 @@ public class ExternalCatalogResetToUninitializedTest {
         }
 
         @Override
-        protected List<String> listTableNamesFromRemote(SessionContext ctx, String dbName) {
+        public List<String> listTableNames(SessionContext ctx, String dbName) {
             return Collections.emptyList();
         }
 
