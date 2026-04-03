@@ -64,8 +64,6 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
     private long tableId = -1;
     @SerializedName(value = "partitionId")
     private long partitionId = -1;
-    @SerializedName(value = "indexId")
-    private long indexId = -1;
     @SerializedName(value = "idx")
     private long idx = -1;
     // last time to get tablet stats
@@ -107,7 +105,6 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
         this.dbId = dbId;
         this.tableId = tableId;
         this.partitionId = partitionId;
-        this.indexId = indexId;
         this.idx = idx;
     }
 
@@ -595,10 +592,6 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
 
     public long getPartitionId() {
         return partitionId;
-    }
-
-    public long getIndexId() {
-        return indexId;
     }
 
     public long getIdx() {
