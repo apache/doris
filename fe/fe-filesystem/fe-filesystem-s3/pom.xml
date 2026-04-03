@@ -82,6 +82,22 @@ under the License.
                     <argLine>--add-opens=java.base/java.io=ALL-UNNAMED</argLine>
                 </configuration>
             </plugin>
+            <!-- Bind the JAR packaging to prepare-package (earlier than the default 'package')
+                 so dependent modules' assembly plugins resolve the reactor artifact as a real
+                 file rather than target/classes, avoiding "isn't a file" in parallel builds. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>default-jar</id>
+                        <phase>prepare-package</phase>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <artifactId>maven-assembly-plugin</artifactId>
                 <configuration>

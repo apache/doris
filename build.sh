@@ -837,8 +837,9 @@ function build_fe_modules() {
         rm -f "${log_file}"
         return 0
     fi
-    if [[ "${thread_count}" != "${retry_thread_count}" ]] && grep -Fq "Could not acquire lock(s)" "${log_file}"; then
-        echo "FE Maven build hit Maven resolver lock contention. Retrying with -T ${retry_thread_count}."
+    if [[ "${thread_count}" != "${retry_thread_count}" ]] && \
+            grep -Eq "Could not acquire lock\(s\)|isn't a file" "${log_file}"; then
+        echo "FE Maven build hit parallel build issue (lock contention or reactor artifact race). Retrying with -T ${retry_thread_count}."
         mvn_cmd=("${mvn_cmd[@]:0:${#mvn_cmd[@]}-2}" -T "${retry_thread_count}")
         "${mvn_cmd[@]}"
         rm -f "${log_file}"
