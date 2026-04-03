@@ -663,6 +663,10 @@ public abstract class ConnectProcessor {
             ctx.setUserVars(userVariableFromThrift(request.getUserVariables()));
         }
 
+        if (request.isSetConnectAttributes()) {
+            ctx.setConnectAttributes(request.getConnectAttributes());
+        }
+
         // set compute group
         ctx.setComputeGroup(Env.getCurrentEnv().getAuth().getComputeGroup(ctx.getQualifiedUser()));
 
