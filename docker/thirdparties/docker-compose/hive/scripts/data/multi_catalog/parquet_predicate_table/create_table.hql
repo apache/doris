@@ -14,5 +14,3 @@ OUTPUTFORMAT
 LOCATION '/user/doris/suites/multi_catalog/parquet_predicate_table'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1692368377');
-
-msck repair table parquet_predicate_table;

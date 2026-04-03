@@ -18,5 +18,3 @@ OUTPUTFORMAT
 LOCATION '/user/doris/suites/default/hive01'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1669712244');
-
-msck repair table hive01;

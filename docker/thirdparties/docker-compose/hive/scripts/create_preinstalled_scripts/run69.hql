@@ -30,6 +30,3 @@ CREATE TABLE json_nested_complex_table (
 
 LOCATION
   '/user/doris/preinstalled_data/json/json_nested_complex_table';
-
-
-msck repair table json_nested_complex_table;

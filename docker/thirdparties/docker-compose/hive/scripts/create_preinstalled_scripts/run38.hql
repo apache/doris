@@ -66,7 +66,3 @@ OUTPUTFORMAT
   'org.apache.hadoop.hive.ql.io.avro.AvroContainerOutputFormat'
 LOCATION
   '/user/doris/preinstalled_data/avro/avro_all_types';
-
-msck repair table avro_all_types;
-
-

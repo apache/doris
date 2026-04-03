@@ -84,6 +84,3 @@ CREATE TABLE IF NOT EXISTS `sequence_all_types`(
 STORED AS SEQUENCEFILE
 LOCATION
   '/user/doris/preinstalled_data/sequence/sequence_all_types';
-
-msck repair table sequence_all_types;
-

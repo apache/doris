@@ -16,6 +16,3 @@ OUTPUTFORMAT
   'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
 LOCATION
   '/user/doris/preinstalled_data/parquet_table/test_string_dict_filter_parquet';
-
-msck repair table test_string_dict_filter_parquet;
-

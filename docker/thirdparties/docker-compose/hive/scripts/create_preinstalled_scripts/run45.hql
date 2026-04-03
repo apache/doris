@@ -77,6 +77,3 @@ LOCATION
 TBLPROPERTIES (
   'transient_lastDdlTime'='1681213018',
   "parquet.compression"="ZSTD");
-
-msck repair table parquet_zstd_all_types;
-

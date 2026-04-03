@@ -26,5 +26,3 @@ TBLPROPERTIES (
   'last_modified_by'='hadoop', 
   'last_modified_time'='1697270277', 
   'transient_lastDdlTime'='1697270277');
-
-msck repair table parquet_alter_column_to_float;

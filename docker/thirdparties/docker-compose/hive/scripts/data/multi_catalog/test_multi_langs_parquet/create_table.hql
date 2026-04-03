@@ -13,5 +13,3 @@ OUTPUTFORMAT
 LOCATION '/user/doris/suites/multi_catalog/test_multi_langs_parquet'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1688971869');
-
-msck repair table test_multi_langs_parquet;

@@ -12,7 +12,3 @@ LOCATION
   '/user/doris/preinstalled_data/different_types_parquet/datapage_v1-snappy-compressed-checksum'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1661955829');
-
-msck repair table datapage_v1_snappy_compressed_checksum;
-
-

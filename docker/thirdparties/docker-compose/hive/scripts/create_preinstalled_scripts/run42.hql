@@ -35,7 +35,3 @@ CREATE TABLE IF NOT EXISTS `text_all_types`(
 STORED AS TEXTFILE
 LOCATION
   '/user/doris/preinstalled_data/text/text_all_types';
-
-msck repair table text_all_types;
-
-

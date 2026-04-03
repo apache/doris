@@ -19,5 +19,3 @@ OUTPUTFORMAT
 LOCATION '/user/doris/suites/default/test1'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1669712243');
-
-msck repair table test1;

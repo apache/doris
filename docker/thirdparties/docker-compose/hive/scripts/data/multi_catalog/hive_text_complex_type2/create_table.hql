@@ -17,5 +17,3 @@ OUTPUTFORMAT
 LOCATION '/user/doris/suites/multi_catalog/hive_text_complex_type2'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1692719086');
-
-msck repair table hive_text_complex_type2;

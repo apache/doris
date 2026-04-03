@@ -41,5 +41,3 @@ OUTPUTFORMAT
 LOCATION '/user/doris/suites/multi_catalog/type_change_origin'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1712485085');
-
-msck repair table type_change_origin;

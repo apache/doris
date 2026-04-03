@@ -18,5 +18,3 @@ LOCATION
   '/user/doris/suites/multi_catalog/region'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1670483235');
-
-msck repair table region;

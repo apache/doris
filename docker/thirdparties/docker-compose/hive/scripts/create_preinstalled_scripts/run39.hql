@@ -89,6 +89,3 @@ OUTPUTFORMAT
   'org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat'
 LOCATION
   '/user/doris/preinstalled_data/orc_table/orc_all_types';
-
-msck repair table orc_all_types_t;
-

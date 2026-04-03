@@ -26,6 +26,3 @@ LOCATION
 TBLPROPERTIES (
   'parquet.compression'='LZO',
   'transient_lastDdlTime'='1701173147');
-
-msck repair table parquet_lzo_compression;
-

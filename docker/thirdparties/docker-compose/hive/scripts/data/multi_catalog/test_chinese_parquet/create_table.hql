@@ -15,5 +15,3 @@ TBLPROPERTIES (
   'last_modified_by'='hadoop', 
   'last_modified_time'='1688972107', 
   'transient_lastDdlTime'='1688972107');
-
-msck repair table test_chinese_parquet;

@@ -26,5 +26,3 @@ TBLPROPERTIES (
   'last_modified_by'='hadoop', 
   'last_modified_time'='1697217290', 
   'transient_lastDdlTime'='1697217290');
-
-msck repair table parquet_alter_column_to_smallint;

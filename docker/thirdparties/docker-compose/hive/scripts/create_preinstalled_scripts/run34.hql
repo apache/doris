@@ -23,7 +23,3 @@ LOCATION
   '/user/doris/preinstalled_data/parquet_table/parquet_alltypes_tiny_pages'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1661955829');
-
-msck repair table parquet_alltypes_tiny_pages;
-
-

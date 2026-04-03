@@ -20,5 +20,3 @@ OUTPUTFORMAT
 LOCATION '/user/doris/suites/default/student'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1669364024');
-
-msck repair table student;

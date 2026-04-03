@@ -14,6 +14,3 @@ LOCATION
   '/user/doris/preinstalled_data/parquet_table/fixed_length_byte_array_decimal_table'
 TBLPROPERTIES (
   'parquet.compress'='SNAPPY');
-
-msck repair table fixed_length_byte_array_decimal_table;
-

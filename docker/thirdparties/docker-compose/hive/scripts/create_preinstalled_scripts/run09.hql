@@ -11,7 +11,3 @@ LOCATION
   '/user/doris/preinstalled_data/different_types_parquet/overflow_i16_page_cnt'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1661955829');
-
-msck repair table overflow_i16_page_cnt;
-
-

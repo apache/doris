@@ -650,5 +650,3 @@ LOCATION
   '/user/doris/suites/multi_catalog/wide_table1_orc'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1680503244');
-
-msck repair table wide_table1_orc;

@@ -23,5 +23,3 @@ OUTPUTFORMAT
 LOCATION '/user/doris/suites/multi_catalog/hive_text_complex_type_delimiter2'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1692719456');
-
-msck repair table hive_text_complex_type_delimiter2;

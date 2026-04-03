@@ -13,7 +13,3 @@ INSERT INTO employees VALUES
     (3, 'Bob Johnson', 'IT', 80000.00, '2021-05-10'),
     (4, 'Alice Brown', 'Finance', 70000.00, '2020-11-30'),
     (5, 'Charlie Wilson', 'HR', 62000.00, '2022-01-05');
-
-
-
-msck repair table employees;

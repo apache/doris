@@ -14,5 +14,3 @@ STORED AS INPUTFORMAT
 OUTPUTFORMAT
   'org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat'
 LOCATION '/user/doris/suites/multi_catalog/test_truncate_char_or_varchar_columns_orc';
-
-msck repair table test_truncate_char_or_varchar_columns_orc;

@@ -77,6 +77,3 @@ LOCATION
 TBLPROPERTIES (
   'transient_lastDdlTime'='1681213018',
   "parquet.compression"="GZIP");
-
-msck repair table parquet_gzip_all_types;
-

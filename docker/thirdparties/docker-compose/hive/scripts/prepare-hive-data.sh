@@ -107,5 +107,9 @@ jars=(
 
 cd ${CUR_DIR}/auxlib
 for jar in "${jars[@]}"; do
+    if [[ -f "${CUR_DIR}/auxlib/${jar}" ]]; then
+        echo "Reuse cached hive aux jar ${jar}"
+        continue
+    fi
     curl -O "https://${s3BucketName}.${s3Endpoint}/regression/docker/hive3/${jar}"
 done

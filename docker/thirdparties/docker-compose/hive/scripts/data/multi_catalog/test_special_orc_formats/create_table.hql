@@ -15,5 +15,3 @@ OUTPUTFORMAT
   'org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat'
 LOCATION
   '/user/doris/suites/multi_catalog/orc_top_level_column_has_present_stream';
-
-msck repair table orc_top_level_column_has_present_stream;

@@ -14,6 +14,3 @@ OUTPUTFORMAT
   'org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat'
 LOCATION
   '/user/doris/preinstalled_data/orc_table/orc_decimal_table';
-
-msck repair table orc_decimal_table;
-

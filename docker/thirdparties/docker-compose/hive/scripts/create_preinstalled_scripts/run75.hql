@@ -486,30 +486,3 @@ CREATE TABLE IF NOT EXISTS orc_primitive_types_to_decimal2 (
     decimal2_col DECIMAL(7,1)
 ) STORED AS orc
 LOCATION '/user/doris/preinstalled_data/orc_table/orc_schema_change';
-
-
-MSCK REPAIR TABLE parquet_primitive_types_to_boolean;
-MSCK REPAIR TABLE parquet_primitive_types_to_bigint;
-MSCK REPAIR TABLE parquet_primitive_types_to_int;
-MSCK REPAIR TABLE parquet_primitive_types_to_smallint;
-MSCK REPAIR TABLE parquet_primitive_types_to_tinyint;
-MSCK REPAIR TABLE parquet_primitive_types_to_float;
-MSCK REPAIR TABLE parquet_primitive_types_to_double;
-MSCK REPAIR TABLE parquet_primitive_types_to_string;
-MSCK REPAIR TABLE parquet_primitive_types_to_date;
-MSCK REPAIR TABLE parquet_primitive_types_to_timestamp;
-MSCK REPAIR TABLE parquet_primitive_types_to_decimal1;
-MSCK REPAIR TABLE parquet_primitive_types_to_decimal2;
-
-MSCK REPAIR TABLE orc_primitive_types_to_boolean;
-MSCK REPAIR TABLE orc_primitive_types_to_bigint;
-MSCK REPAIR TABLE orc_primitive_types_to_int;
-MSCK REPAIR TABLE orc_primitive_types_to_smallint;
-MSCK REPAIR TABLE orc_primitive_types_to_tinyint;
-MSCK REPAIR TABLE orc_primitive_types_to_float;
-MSCK REPAIR TABLE orc_primitive_types_to_double;
-MSCK REPAIR TABLE orc_primitive_types_to_string;
-MSCK REPAIR TABLE orc_primitive_types_to_date;
-MSCK REPAIR TABLE orc_primitive_types_to_timestamp;
-MSCK REPAIR TABLE orc_primitive_types_to_decimal1;
-MSCK REPAIR TABLE orc_primitive_types_to_decimal2;

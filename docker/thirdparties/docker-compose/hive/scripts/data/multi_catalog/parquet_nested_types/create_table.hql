@@ -13,9 +13,6 @@ OUTPUTFORMAT
   'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
 LOCATION
   '/user/doris/suites/multi_catalog/nested_cross_page1_parquet';
-
-msck repair table nested_cross_page1_parquet;
-
 CREATE TABLE `nested_cross_page2_parquet`(
     id INT,
     nested_array_col ARRAY<ARRAY<INT>>,
@@ -38,9 +35,6 @@ OUTPUTFORMAT
   'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
 LOCATION
   '/user/doris/suites/multi_catalog/nested_cross_page2_parquet';
-
-msck repair table nested_cross_page2_parquet;
-
 CREATE TABLE `nested_cross_page3_parquet`(
     `id` int,
     `array_col` array<int>,
@@ -53,6 +47,3 @@ OUTPUTFORMAT
   'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
 LOCATION
   '/user/doris/suites/multi_catalog/nested_cross_page3_parquet';
-
-msck repair table nested_cross_page3_parquet;
-

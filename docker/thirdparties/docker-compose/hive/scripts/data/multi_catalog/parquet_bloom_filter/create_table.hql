@@ -35,5 +35,3 @@ TBLPROPERTIES (
   'transient_lastDdlTime'='1763470218',
   'bucketing_version'='2',
   'parquet.compression'='ZSTD');
-
-msck repair table parquet_bloom_filter;

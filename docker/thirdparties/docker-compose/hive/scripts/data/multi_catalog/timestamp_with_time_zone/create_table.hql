@@ -13,5 +13,3 @@ OUTPUTFORMAT
 LOCATION '/user/doris/suites/multi_catalog/timestamp_with_time_zone'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1712113278');
-
-msck repair table timestamp_with_time_zone;

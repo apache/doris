@@ -14,7 +14,3 @@ LOCATION
   '/user/doris/preinstalled_data/example_string.parquet'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1661955829');
-
-msck repair table example_string;
-
-

@@ -15,6 +15,3 @@ LOCATION
   '/user/doris/suites/multi_catalog/datev2_csv'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1688118691');
-
-msck repair table datev2_csv;
-

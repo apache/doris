@@ -8,6 +8,3 @@ OUTPUTFORMAT
   'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
 LOCATION
   '/user/doris/preinstalled_data/parquet_table/parquet_decimal90_table';
-
-msck repair table parquet_decimal90_table;
-

@@ -41,5 +41,3 @@ OUTPUTFORMAT
 LOCATION '/user/doris/suites/multi_catalog/type_change_orc'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1712484849');
-
-msck repair table type_change_orc;

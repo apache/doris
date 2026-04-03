@@ -12,5 +12,3 @@ OUTPUTFORMAT
   'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1702352468');
-
-msck repair table empty_table;

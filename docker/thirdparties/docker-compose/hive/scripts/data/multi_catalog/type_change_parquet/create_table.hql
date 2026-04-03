@@ -41,5 +41,3 @@ OUTPUTFORMAT
 LOCATION '/user/doris/suites/multi_catalog/type_change_parquet'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1712485017');
-
-msck repair table type_change_parquet;

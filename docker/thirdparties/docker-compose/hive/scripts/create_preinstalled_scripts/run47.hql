@@ -62,7 +62,3 @@ TBLPROPERTIES (
   'transient_lastDdlTime'='1681213018',
   'parquet.bloom.filter.columns'='t_int',
   'parquet.bloom.filter.fpp'='0.05');
-
-msck repair table bloom_parquet_table;
-
-

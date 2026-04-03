@@ -23,9 +23,3 @@ WITH SERDEPROPERTIES (
     "escapeChar" = "\\"
 )
 location '/user/doris/preinstalled_data/text/utf8_check';
-
-
-
-msck repair table invalid_utf8_data;
-msck repair table invalid_utf8_data2;
-

@@ -24,5 +24,3 @@ OUTPUTFORMAT
 LOCATION '/user/doris/suites/default/account_fund'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1669712244');
-
-msck repair table account_fund;

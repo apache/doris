@@ -9,5 +9,3 @@ CREATE TABLE json_load_data_table (
 ) ROW FORMAT SERDE 'org.apache.hive.hcatalog.data.JsonSerDe'
 LOCATION
   '/user/doris/preinstalled_data/json/json_load_data_table';
-
-msck repair table json_load_data_table;

@@ -15,6 +15,3 @@ LOCATION
   '/user/doris/preinstalled_data/orc_table/string_col_dict_plain_mixed_orc'
 TBLPROPERTIES (
   'orc.compress'='ZLIB');
-
-msck repair table string_col_dict_plain_mixed_orc;
-

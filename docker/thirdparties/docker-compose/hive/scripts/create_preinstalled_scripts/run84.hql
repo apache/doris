@@ -15,6 +15,3 @@ create table dim_small (
   c2       BIGINT
 )stored as parquet
 LOCATION '/user/doris/preinstalled_data/parquet_table/runtime_filter_dim_small';
-
-msck repair table fact_big;
-msck repair table dim_small;

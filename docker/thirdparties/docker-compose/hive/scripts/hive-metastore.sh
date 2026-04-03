@@ -161,13 +161,15 @@ done
 shopt -u nullglob
 
 if (( ${#preinstalled_hqls[@]} > 0 )); then
-    printf '%s\0' "${preinstalled_hqls[@]}" | xargs -0 -P "${LOAD_PARALLEL}" -I {} bash -ec '
-        START_TIME=$(date +%s)
-        hive -f {} || (echo "Failed to executing hql: {}" && exit 1)
-        END_TIME=$(date +%s)
-        EXECUTION_TIME=$((END_TIME - START_TIME))
-        echo "Script: {} executed in $EXECUTION_TIME seconds"
-    '
+    IFS=$'\n' preinstalled_hqls=($(printf '%s\n' "${preinstalled_hqls[@]}" | sort))
+    unset IFS
+    merged_preinstalled_hql="/tmp/merged-preinstalled.hql"
+    bash /mnt/scripts/merge-preinstalled-hql.sh "${merged_preinstalled_hql}" "${preinstalled_hqls[@]}"
+    START_TIME=$(date +%s)
+    hive -f "${merged_preinstalled_hql}" || (echo "Failed to executing merged preinstalled hqls" && exit 1)
+    END_TIME=$(date +%s)
+    EXECUTION_TIME=$((END_TIME - START_TIME))
+    echo "Merged preinstalled HQLs executed in $EXECUTION_TIME seconds"
 fi
 
 # create view

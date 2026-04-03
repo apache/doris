@@ -8,7 +8,3 @@ OUTPUTFORMAT
   'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
 LOCATION
   '/user/doris/preinstalled_data/parquet_table/parquet_timestamp_millis';
-
-msck repair table parquet_timestamp_millis;
-
-

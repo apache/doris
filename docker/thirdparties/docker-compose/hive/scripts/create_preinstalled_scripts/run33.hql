@@ -71,6 +71,3 @@ LOCATION
   '/user/doris/preinstalled_data/parquet_table/parquet_delta_binary_packed'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1661955829');
-
-msck repair table parquet_delta_binary_packed;
-

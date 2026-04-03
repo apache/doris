@@ -10,6 +10,3 @@ OUTPUTFORMAT
   'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
 LOCATION
   '/user/doris/preinstalled_data/parquet_table/parquet_decimal_bool';
-
-msck repair table partition_table;
-

@@ -15,6 +15,3 @@ LOCATION
   '/user/doris/suites/multi_catalog/datev2_parquet'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1688118725');
-
-msck repair table datev2_parquet;
-

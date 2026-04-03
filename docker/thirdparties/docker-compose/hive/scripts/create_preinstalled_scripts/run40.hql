@@ -35,7 +35,3 @@ ROW FORMAT SERDE
 STORED AS TEXTFILE
 LOCATION
   '/user/doris/preinstalled_data/json/json_all_types';
-
-msck repair table json_all_types;
-
-

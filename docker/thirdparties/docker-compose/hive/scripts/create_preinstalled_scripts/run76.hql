@@ -104,9 +104,3 @@ CREATE TABLE IF NOT EXISTS json_one_column_table (
 )
 ROW FORMAT SERDE 'org.openx.data.jsonserde.JsonSerDe'
 LOCATION '/user/doris/preinstalled_data/json/openx_json/json_one_column_table';
-
-msck repair table json_table;
-msck repair table json_table_ignore_malformed;
-msck repair table json_data_arrays_tb;
-msck repair table scalar_to_array_tb;
-msck repair table json_one_column_table;

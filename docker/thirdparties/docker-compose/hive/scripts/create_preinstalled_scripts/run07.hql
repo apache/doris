@@ -23,7 +23,3 @@ LOCATION
   '/user/doris/preinstalled_data/different_types_parquet/delta_encoding_optional_column'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1661955829');
-
-msck repair table delta_encoding_optional_column;
-
-

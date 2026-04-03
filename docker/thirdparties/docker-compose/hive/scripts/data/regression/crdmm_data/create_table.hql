@@ -157,6 +157,3 @@ LOCATION
   '/user/doris/suites/regression/crdmm_data/'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1685331029');
-
-msck repair table crdmm_data;
-

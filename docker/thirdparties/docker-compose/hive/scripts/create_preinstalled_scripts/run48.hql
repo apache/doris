@@ -93,7 +93,3 @@ TBLPROPERTIES (
   'transient_lastDdlTime'='1681213018',
   'orc.bloom.filter.columns'='t_int',
   'orc.bloom.filter.fpp'='0.05');
-
-msck repair table bloom_orc_table;
-
-

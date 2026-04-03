@@ -16,7 +16,3 @@ OUTPUTFORMAT
   'org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat'
 LOCATION
   '/user/doris/preinstalled_data/orc_table/test_string_dict_filter_orc';
-
-msck repair table test_string_dict_filter_orc;
-
-

@@ -84,6 +84,3 @@ ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.columnar.LazyBinaryColumnarSerDe
 STORED AS RCFILE
 LOCATION
   '/user/doris/preinstalled_data/rcbinary/rcbinary_all_types';
-
-msck repair table rcbinary_all_types;
-

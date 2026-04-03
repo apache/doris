@@ -31,5 +31,3 @@ OUTPUTFORMAT
 LOCATION '/user/doris/suites/statistics/stats'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1687325090');
-
-msck repair table stats;

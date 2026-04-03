@@ -76,6 +76,3 @@ LOCATION
   '/user/doris/preinstalled_data/parquet_table/parquet_all_types'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1681213018');
-
-msck repair table parquet_all_types;
-

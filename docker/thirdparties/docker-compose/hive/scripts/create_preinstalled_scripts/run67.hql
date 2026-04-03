@@ -7,5 +7,3 @@ CREATE TABLE `orc_tiny_stripes`(
 )
 STORED AS orc
 LOCATION '/user/doris/preinstalled_data/orc/orc_tiny_stripes';
-
-msck repair table orc_tiny_stripes;

@@ -6,6 +6,3 @@ ROW FORMAT DELIMITED FIELDS TERMINATED BY ','
 STORED AS TEXTFILE
 LOCATION
   '/user/doris/preinstalled_data/csv/csv_all_types';
-
-msck repair table csv_all_types;
-
