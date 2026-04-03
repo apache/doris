@@ -143,11 +143,45 @@ fi
 CMAKE_BUILD_TYPE="${BUILD_TYPE_UT:-ASAN}"
 CMAKE_BUILD_TYPE="$(echo "${CMAKE_BUILD_TYPE}" | awk '{ print(toupper($0)) }')"
 
+if [[ -z "${WITH_TDE_DIR}" ]]; then
+    WITH_TDE_DIR=''
+fi
+
+if [[ "${WITH_TDE_DIR}" == "enterprise" ]]; then
+    echo "WITH_TDE_DIR=enterprise is no longer supported; use WITH_TDE_DIR=enterprise/tde"
+    exit 1
+fi
+
+if [[ -n "${WITH_TDE_DIR}" && "${WITH_TDE_DIR}" != "enterprise/tde" ]]; then
+    echo "Unsupported WITH_TDE_DIR=${WITH_TDE_DIR}; only enterprise/tde is supported"
+    exit 1
+fi
+
+if [[ -n "${WITH_TDE_DIR}" && ! -d "${DORIS_HOME}/be/src/${WITH_TDE_DIR}" ]]; then
+    echo "WITH_TDE_DIR=${WITH_TDE_DIR} requested but be/src/${WITH_TDE_DIR} is missing; skip TDE plugin build"
+    WITH_TDE_DIR=''
+fi
+
+if [[ -z "${WITH_TLS_DIR}" ]]; then
+    WITH_TLS_DIR=''
+fi
+
+if [[ -n "${WITH_TLS_DIR}" && "${WITH_TLS_DIR}" != "enterprise/tls" ]]; then
+    echo "Unsupported WITH_TLS_DIR=${WITH_TLS_DIR}; only enterprise/tls is supported"
+    exit 1
+fi
+
+if [[ -n "${WITH_TLS_DIR}" && ! -d "${DORIS_HOME}/be/src/${WITH_TLS_DIR}" ]]; then
+    echo "WITH_TLS_DIR=${WITH_TLS_DIR} requested but be/src/${WITH_TLS_DIR} is missing; skip TLS plugin build"
+    WITH_TLS_DIR=''
+fi
+
 echo "Get params:
     PARALLEL            -- ${PARALLEL}
     CLEAN               -- ${CLEAN}
     ENABLE_PCH          -- ${ENABLE_PCH}
     WITH_TDE_DIR        -- ${WITH_TDE_DIR}
+    WITH_TLS_DIR        -- ${WITH_TLS_DIR}
 "
 echo "Build Backend UT"
 
@@ -270,6 +304,7 @@ cd "${CMAKE_BUILD_DIR}"
     -DDORIS_JAVA_HOME="${JAVA_HOME}" \
     -DBUILD_AZURE="${BUILD_AZURE}" \
     -DWITH_TDE_DIR="${WITH_TDE_DIR}" \
+    -DWITH_TLS_DIR="${WITH_TLS_DIR}" \
     "${DORIS_HOME}/be"
 "${BUILD_SYSTEM}" -j "${PARALLEL}"
 

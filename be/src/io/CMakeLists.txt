@@ -28,7 +28,8 @@ endif()
 
 if(NOT "${WITH_TDE_DIR}" STREQUAL "")
     list(REMOVE_ITEM IO_FILES "${CMAKE_CURRENT_SOURCE_DIR}/fs/encrypted_fs_factory.cpp")
-    file(GLOB_RECURSE EXTRA_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/../${WITH_TDE_DIR}/*.cpp")
+    file(GLOB_RECURSE EXTRA_SOURCES CONFIGURE_DEPENDS
+            "${CMAKE_CURRENT_SOURCE_DIR}/../${WITH_TDE_DIR}/*.cpp")
     list(APPEND IO_FILES ${EXTRA_SOURCES})
 endif()
 

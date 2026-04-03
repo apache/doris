@@ -86,6 +86,29 @@ fi
 
 echo "Build Frontend UT"
 
+if [[ -z "${WITH_TDE_DIR}" ]]; then
+    WITH_TDE_DIR=''
+fi
+
+if [[ -z "${WITH_TLS_DIR}" ]]; then
+    WITH_TLS_DIR=''
+fi
+
+FE_EXTRA_ARGS=()
+if [[ -n "${WITH_TDE_DIR}" || -n "${WITH_TLS_DIR}" ]]; then
+    if [[ -f "${DORIS_HOME}/fe/fe-extra/pom.xml" ]]; then
+        [[ -n "${WITH_TDE_DIR}" ]] && FE_EXTRA_ARGS+=("-Dfe.extra.tde.enabled=true")
+        [[ -n "${WITH_TLS_DIR}" ]] && FE_EXTRA_ARGS+=("-Dfe.extra.tls.enabled=true")
+    fi
+fi
+
+echo "Get params:
+    RUN                 -- ${RUN}
+    COVERAGE            -- ${COVERAGE}
+    WITH_TDE_DIR        -- ${WITH_TDE_DIR}
+    WITH_TLS_DIR        -- ${WITH_TLS_DIR}
+"
+
 echo "******************************"
 echo "    Runing DorisFe Unittest    "
 echo "******************************"
@@ -114,15 +137,15 @@ if [[ "${RUN}" -eq 1 ]]; then
     # sh run-fe-ut.sh --run org.apache.doris.utframe.DemoTest#testCreateDbAndTable+test2
 
     if [[ "${COVERAGE}" -eq 1 ]]; then
-        "${MVN_CMD}" test jacoco:report -DfailIfNoTests=false -Dtest="$1"
+        "${MVN_CMD}" test jacoco:report -DfailIfNoTests=false -Dtest="$1" "${FE_EXTRA_ARGS[@]}"
     else
-        "${MVN_CMD}" test -Dcheckstyle.skip=true -DfailIfNoTests=false -Dmaven.build.cache.enabled=false -Dtest="$1"
+        "${MVN_CMD}" test -Dcheckstyle.skip=true -DfailIfNoTests=false -Dmaven.build.cache.enabled=false -Dtest="$1" "${FE_EXTRA_ARGS[@]}"
     fi
 else
     echo "Run Frontend UT"
     if [[ "${COVERAGE}" -eq 1 ]]; then
-        "${MVN_CMD}" test jacoco:report -DfailIfNoTests=false -Dmaven.test.failure.ignore=true
+        "${MVN_CMD}" test jacoco:report -DfailIfNoTests=false -Dmaven.test.failure.ignore=true "${FE_EXTRA_ARGS[@]}"
     else
-        "${MVN_CMD}" test -Dcheckstyle.skip=true -DfailIfNoTests=false -Dmaven.build.cache.enabled=false
+        "${MVN_CMD}" test -Dcheckstyle.skip=true -DfailIfNoTests=false -Dmaven.build.cache.enabled=false "${FE_EXTRA_ARGS[@]}"
     fi
 fi

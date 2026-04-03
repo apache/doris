@@ -80,6 +80,8 @@ Usage: $0 <options>
     DISABLE_BE_JAVA_EXTENSIONS  If set DISABLE_BE_JAVA_EXTENSIONS=ON, we will do not build binary with java-udf,hadoop-hudi-scanner,jdbc-scanner and so on Default is OFF.
     DISABLE_JAVA_CHECK_STYLE    If set DISABLE_JAVA_CHECK_STYLE=ON, it will skip style check of java code in FE.
     DISABLE_BUILD_AZURE         If set DISABLE_BUILD_AZURE=ON, it will not build azure into BE.
+    WITH_TDE_DIR                Optional TDE plugin directory under be/src.
+    WITH_TLS_DIR                Optional TLS plugin directory under be/src.
     DISABLE_BUILD_JUICEFS       If set DISABLE_BUILD_JUICEFS=OFF, it will package juicefs-hadoop jar into FE/BE output. Default is ON (skip).
     DISABLE_BUILD_JINDOFS       If set DISABLE_BUILD_JINDOFS=OFF, it will package jindofs jars into FE/BE output. Default is ON (skip).
 
@@ -551,6 +553,32 @@ if [[ -z "${WITH_TDE_DIR}" ]]; then
     WITH_TDE_DIR=''
 fi
 
+if [[ -n "${WITH_TDE_DIR}" && ! -d "${DORIS_HOME}/be/src/${WITH_TDE_DIR}" ]]; then
+    echo "WITH_TDE_DIR=${WITH_TDE_DIR} requested but be/src/${WITH_TDE_DIR} is missing; skip TDE plugin build"
+    WITH_TDE_DIR=''
+fi
+
+if [[ -z "${WITH_TLS_DIR}" ]]; then
+    WITH_TLS_DIR=''
+fi
+
+if [[ -n "${WITH_TLS_DIR}" && ! -d "${DORIS_HOME}/be/src/${WITH_TLS_DIR}" ]]; then
+    echo "WITH_TLS_DIR=${WITH_TLS_DIR} requested but be/src/${WITH_TLS_DIR} is missing; skip TLS plugin build"
+    WITH_TLS_DIR=''
+fi
+
+FE_EXTRA_MODULE=''
+FE_EXTRA_ARTIFACT=''
+FE_EXTRA_ARGS=()
+if [[ -n "${WITH_TDE_DIR}" || -n "${WITH_TLS_DIR}" ]]; then
+    if [[ -f "${DORIS_HOME}/fe/fe-extra/pom.xml" ]]; then
+        FE_EXTRA_MODULE='fe-extra'
+        FE_EXTRA_ARTIFACT='fe-extra'
+        [[ -n "${WITH_TDE_DIR}" ]] && FE_EXTRA_ARGS+=("-Dfe.extra.tde.enabled=true")
+        [[ -n "${WITH_TLS_DIR}" ]] && FE_EXTRA_ARGS+=("-Dfe.extra.tls.enabled=true")
+    fi
+fi
+
 echo "Get params:
     BUILD_FE                            -- ${BUILD_FE}
     BUILD_BE                            -- ${BUILD_BE}
@@ -580,10 +608,12 @@ echo "Get params:
     DISPLAY_BUILD_TIME                  -- ${DISPLAY_BUILD_TIME}
     ENABLE_PCH                          -- ${ENABLE_PCH}
     WITH_TDE_DIR                        -- ${WITH_TDE_DIR}
+    WITH_TLS_DIR                        -- ${WITH_TLS_DIR}
 "
 
 FEAT=()
 FEAT+=($([[ -n "${WITH_TDE_DIR}" ]] && echo "+TDE" || echo "-TDE"))
+FEAT+=($([[ -n "${WITH_TLS_DIR}" ]] && echo "+TLS" || echo "-TLS"))
 FEAT+=($([[ "${ENABLE_HDFS_STORAGE_VAULT:-OFF}" == "ON" ]] && echo "+HDFS_STORAGE_VAULT" || echo "-HDFS_STORAGE_VAULT"))
 FEAT+=($([[ ${BUILD_UI} -eq 1 ]] && echo "+UI" || echo "-UI"))
 FEAT+=($([[ "${BUILD_AZURE}" == "ON" ]] && echo "+AZURE_BLOB,+AZURE_STORAGE_VAULT" || echo "-AZURE_BLOB,-AZURE_STORAGE_VAULT"))
@@ -615,8 +645,8 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
         fi
     done
     unset _fs_mod
-    if [[ "${WITH_TDE_DIR}" != "" ]]; then
-        modules+=("fe-${WITH_TDE_DIR}")
+    if [[ "${FE_EXTRA_MODULE}" != "" ]]; then
+        modules+=("${FE_EXTRA_MODULE}")
     fi
 fi
 if [[ "${BUILD_HIVE_UDF}" -eq 1 ]]; then
@@ -720,6 +750,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DBUILD_AZURE="${BUILD_AZURE}" \
         -DENABLE_DYNAMIC_ARCH="${ENABLE_DYNAMIC_ARCH}" \
         -DWITH_TDE_DIR="${WITH_TDE_DIR}" \
+        -DWITH_TLS_DIR="${WITH_TLS_DIR}" \
         -DFAISS_ENABLE_GPU="${FAISS_ENABLE_GPU:-OFF}" \
         "${DORIS_HOME}/be"
 
@@ -832,7 +863,7 @@ function build_fe_modules() {
         user_settings_opts=(-gs "${USER_SETTINGS_MVN_REPO}")
     fi
 
-    mvn_cmd+=("${extra_mvn_opts[@]}" "${dependency_mvn_opts[@]}" "${user_settings_opts[@]}" -T "${thread_count}")
+    mvn_cmd+=("${extra_mvn_opts[@]}" "${dependency_mvn_opts[@]}" "${FE_EXTRA_ARGS[@]}" "${user_settings_opts[@]}" -T "${thread_count}")
     log_file="$(mktemp)"
     if "${mvn_cmd[@]}" 2>&1 | tee "${log_file}"; then
         rm -f "${log_file}"
@@ -885,8 +916,11 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     rm -rf "${DORIS_OUTPUT}/fe/lib"/*
     cp -r -p "${DORIS_HOME}/fe/fe-core/target/lib"/* "${DORIS_OUTPUT}/fe/lib"/
     cp -r -p "${DORIS_HOME}/fe/fe-core/target/doris-fe.jar" "${DORIS_OUTPUT}/fe/lib"/
-    if [[ "${WITH_TDE_DIR}" != "" ]]; then
-        cp -r -p "${DORIS_HOME}/fe/fe-${WITH_TDE_DIR}/target/fe-${WITH_TDE_DIR}-1.2-SNAPSHOT.jar" "${DORIS_OUTPUT}/fe/lib"/
+    if [[ "${FE_EXTRA_MODULE}" != "" ]]; then
+        cp -r -p "${DORIS_HOME}/fe/${FE_EXTRA_MODULE}/target/${FE_EXTRA_ARTIFACT}-1.2-SNAPSHOT.jar" "${DORIS_OUTPUT}/fe/lib"/
+        if [[ -d "${DORIS_HOME}/fe/${FE_EXTRA_MODULE}/target/lib" ]]; then
+            cp -r -p "${DORIS_HOME}/fe/${FE_EXTRA_MODULE}/target/lib"/* "${DORIS_OUTPUT}/fe/lib"/
+        fi
     fi
 
     #cp -r -p "${DORIS_HOME}/docs/build/help-resource.zip" "${DORIS_OUTPUT}/fe/lib"/
