@@ -189,11 +189,14 @@ Status TransactionalHiveReader::on_after_init_reader(ReaderInitContext* /*ctx*/)
                                          std::make_shared<ScalarNode>());
         }
 
-        RETURN_IF_ERROR(delete_reader._do_init_reader(
-                &TransactionalHive::DELETE_ROW_COLUMN_NAMES_LOWER_CASE,
-                const_cast<std::unordered_map<std::string, uint32_t>*>(
-                        &TransactionalHive::DELETE_COL_NAME_TO_BLOCK_IDX),
-                {}, nullptr, nullptr, nullptr, nullptr, acid_info_node));
+        OrcInitContext delete_ctx;
+        delete_ctx.column_names.assign(
+                TransactionalHive::DELETE_ROW_COLUMN_NAMES_LOWER_CASE.begin(),
+                TransactionalHive::DELETE_ROW_COLUMN_NAMES_LOWER_CASE.end());
+        delete_ctx.col_name_to_block_idx = const_cast<std::unordered_map<std::string, uint32_t>*>(
+                &TransactionalHive::DELETE_COL_NAME_TO_BLOCK_IDX);
+        delete_ctx.table_info_node = acid_info_node;
+        RETURN_IF_ERROR(delete_reader.init_reader(&delete_ctx));
 
         bool eof = false;
         while (!eof) {

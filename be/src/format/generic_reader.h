@@ -81,7 +81,8 @@ struct ReaderInitContext {
 
     // ---- Output slots (filled by on_before_init_reader) ----
     std::vector<std::string> column_names;
-    std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node;
+    std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node =
+            TableSchemaChangeHelper::ConstNode::get_instance();
     std::set<uint64_t> column_ids;
     std::set<uint64_t> filter_column_ids;
 };
@@ -186,11 +187,17 @@ public:
 
         RETURN_IF_ERROR(_open_file_reader(ctx));
 
-        RETURN_IF_ERROR(on_before_init_reader(ctx));
+        // Standalone readers (delete file readers, push handler) set column_descs=nullptr
+        // and pre-populate column_names directly. Skip hooks for them.
+        if (ctx->column_descs != nullptr) {
+            RETURN_IF_ERROR(on_before_init_reader(ctx));
+        }
 
         RETURN_IF_ERROR(_do_init_reader(ctx));
 
-        RETURN_IF_ERROR(on_after_init_reader(ctx));
+        if (ctx->column_descs != nullptr) {
+            RETURN_IF_ERROR(on_after_init_reader(ctx));
+        }
 
         return Status::OK();
     }

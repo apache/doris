@@ -87,7 +87,10 @@ class ORCFileInputStream;
 /// Extends ReaderInitContext with conjuncts and filter fields.
 /// Note: ORC does NOT use slot_id_to_predicates (unlike Parquet).
 struct OrcInitContext final : public ReaderInitContext {
-    const VExprContextSPtrs* conjuncts = nullptr;
+    // Safe default for standalone readers (delete file readers) without conjuncts.
+    static inline const VExprContextSPtrs EMPTY_CONJUNCTS {};
+
+    const VExprContextSPtrs* conjuncts = &EMPTY_CONJUNCTS;
     const VExprContextSPtrs* not_single_slot_filter_conjuncts = nullptr;
     const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts = nullptr;
 };
@@ -173,20 +176,6 @@ public:
     // Subclasses (HiveOrcReader, IcebergOrcReader) call GenericReader::on_before_init_reader
     // directly, so this OrcReader-level override only applies to plain OrcReader (TVF, load).
     Status on_before_init_reader(ReaderInitContext* ctx) override;
-
-    // Low-level init_reader — used by standalone reader instances (tvf, load, push_handler,
-    // Iceberg delete file readers) that don't go through subclass hooks.
-    Status _do_init_reader(
-            const std::vector<std::string>* column_names,
-            std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
-            const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
-            const RowDescriptor* row_descriptor,
-            const VExprContextSPtrs* not_single_slot_filter_conjuncts,
-            const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts,
-            std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node_ptr =
-                    TableSchemaChangeHelper::ConstNode::get_instance(),
-            const std::set<uint64_t>& column_ids = {},
-            const std::set<uint64_t>& filter_column_ids = {});
 
 protected:
     // ---- Unified init_reader(ReaderInitContext*) overrides ----
@@ -757,7 +746,7 @@ private:
     cctz::time_zone _time_zone;
 
     // The columns of the table to be read (contain columns that do not exist)
-    const std::vector<std::string>* _table_column_names;
+    std::vector<std::string> _table_column_names;
 
     // The columns of the file to be read  (file column name)
     std::list<std::string> _read_file_cols;

@@ -119,10 +119,10 @@ Status init_parquet_delete_reader(ParquetReader* reader, bool* dictionary_coded)
         return Status::InvalidArgument("invalid parquet delete reader arguments");
     }
 
-    phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> slot_id_to_predicates;
-    RETURN_IF_ERROR(reader->_do_init_reader(DELETE_COL_NAMES, &DELETE_COL_NAME_TO_BLOCK_IDX, {},
-                                            slot_id_to_predicates, nullptr, nullptr, nullptr,
-                                            nullptr, nullptr));
+    ParquetInitContext ctx;
+    ctx.column_names = DELETE_COL_NAMES;
+    ctx.col_name_to_block_idx = &DELETE_COL_NAME_TO_BLOCK_IDX;
+    RETURN_IF_ERROR(reader->init_reader(&ctx));
 
     const tparquet::FileMetaData* meta_data = reader->get_meta_data();
     *dictionary_coded = true;
@@ -142,8 +142,10 @@ Status init_orc_delete_reader(OrcReader* reader) {
         return Status::InvalidArgument("orc delete reader is null");
     }
 
-    RETURN_IF_ERROR(reader->_do_init_reader(&DELETE_COL_NAMES, &DELETE_COL_NAME_TO_BLOCK_IDX, {},
-                                            nullptr, nullptr, nullptr, nullptr));
+    OrcInitContext ctx;
+    ctx.column_names = DELETE_COL_NAMES;
+    ctx.col_name_to_block_idx = &DELETE_COL_NAME_TO_BLOCK_IDX;
+    RETURN_IF_ERROR(reader->init_reader(&ctx));
     return Status::OK();
 }
 

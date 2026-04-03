@@ -360,12 +360,11 @@ Status IcebergParquetReader::_read_position_delete_file(const TFileRangeDesc* de
     // row group filtering before init; otherwise _do_init_reader returns EndOfFile
     // when _filter_groups && _range_size < 0.
     parquet_delete_reader.set_filter_groups(false);
-    phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
-    RETURN_IF_ERROR(parquet_delete_reader._do_init_reader(
-            delete_file_col_names,
-            const_cast<std::unordered_map<std::string, uint32_t>*>(&DELETE_COL_NAME_TO_BLOCK_IDX),
-            {}, tmp, nullptr, nullptr, nullptr, nullptr, nullptr,
-            TableSchemaChangeHelper::ConstNode::get_instance()));
+    ParquetInitContext delete_ctx;
+    delete_ctx.column_names = delete_file_col_names;
+    delete_ctx.col_name_to_block_idx =
+            const_cast<std::unordered_map<std::string, uint32_t>*>(&DELETE_COL_NAME_TO_BLOCK_IDX);
+    RETURN_IF_ERROR(parquet_delete_reader.init_reader(&delete_ctx));
 
     const tparquet::FileMetaData* meta_data = parquet_delete_reader.get_meta_data();
     bool dictionary_coded = true;
@@ -608,10 +607,11 @@ Status IcebergOrcReader::_read_position_delete_file(const TFileRangeDesc* delete
     OrcReader orc_delete_reader(get_profile(), get_state(), get_scan_params(), *delete_range,
                                 READ_DELETE_FILE_BATCH_SIZE, get_state()->timezone(), get_io_ctx(),
                                 _meta_cache);
-    RETURN_IF_ERROR(orc_delete_reader._do_init_reader(
-            &delete_file_col_names,
-            const_cast<std::unordered_map<std::string, uint32_t>*>(&DELETE_COL_NAME_TO_BLOCK_IDX),
-            {}, {}, {}, nullptr, nullptr));
+    OrcInitContext delete_ctx;
+    delete_ctx.column_names = delete_file_col_names;
+    delete_ctx.col_name_to_block_idx =
+            const_cast<std::unordered_map<std::string, uint32_t>*>(&DELETE_COL_NAME_TO_BLOCK_IDX);
+    RETURN_IF_ERROR(orc_delete_reader.init_reader(&delete_ctx));
 
     bool eof = false;
     DataTypePtr data_type_file_path {new DataTypeString};

@@ -73,9 +73,15 @@ namespace doris {
 /// Parquet-specific initialization context.
 /// Extends ReaderInitContext with predicate pushdown fields.
 struct ParquetInitContext final : public ReaderInitContext {
-    const VExprContextSPtrs* conjuncts = nullptr;
+    // Safe defaults for standalone readers (delete file readers, push handler)
+    // that don't have conjuncts/predicates. Dereferenced by _do_init_reader.
+    static inline const VExprContextSPtrs EMPTY_CONJUNCTS {};
+    static inline phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>>
+            EMPTY_SLOT_PREDICATES {};
+
+    const VExprContextSPtrs* conjuncts = &EMPTY_CONJUNCTS;
     phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>>*
-            slot_id_to_predicates = nullptr;
+            slot_id_to_predicates = &EMPTY_SLOT_PREDICATES;
     const std::unordered_map<std::string, int>* colname_to_slot_id = nullptr;
     const VExprContextSPtrs* not_single_slot_filter_conjuncts = nullptr;
     const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts = nullptr;
@@ -139,23 +145,6 @@ public:
     // Subclasses (HiveParquetReader, etc.) call GenericReader::on_before_init_reader directly,
     // so this override only applies to plain ParquetReader (TVF, load).
     Status on_before_init_reader(ReaderInitContext* ctx) override;
-
-    // Low-level init_reader — used by standalone reader instances (tvf, load, push_handler,
-    // Iceberg delete file readers) that don't go through subclass hooks.
-    Status _do_init_reader(
-            const std::vector<std::string>& all_column_names,
-            std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
-            const VExprContextSPtrs& conjuncts,
-            phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>>&
-                    slot_id_to_predicates,
-            const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
-            const std::unordered_map<std::string, int>* colname_to_slot_id,
-            const VExprContextSPtrs* not_single_slot_filter_conjuncts,
-            const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts,
-            std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node_ptr =
-                    TableSchemaChangeHelper::ConstNode::get_instance(),
-            const std::set<uint64_t>& column_ids = {},
-            const std::set<uint64_t>& filter_column_ids = {});
 
 protected:
     // ---- Unified init_reader(ReaderInitContext*) overrides ----
@@ -401,8 +390,6 @@ private:
     std::unordered_map<int, tparquet::OffsetIndex> _col_offsets;
 
     std::vector<std::string> _missing_cols;
-    // _table_column_names = _missing_cols + _read_table_columns
-    const std::vector<std::string>* _table_column_names = nullptr;
 
     ReaderStatistics _reader_statistics;
     ParquetColumnReader::ColumnStatistics _column_statistics;

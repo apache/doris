@@ -422,34 +422,16 @@ Status ParquetReader::_open_file_reader(ReaderInitContext* /*ctx*/) {
 
 Status ParquetReader::_do_init_reader(ReaderInitContext* base_ctx) {
     auto* ctx = checked_context_cast<ParquetInitContext>(base_ctx);
-    return _do_init_reader(base_ctx->column_names, base_ctx->col_name_to_block_idx, *ctx->conjuncts,
-                           *ctx->slot_id_to_predicates, ctx->tuple_descriptor, ctx->row_descriptor,
-                           ctx->colname_to_slot_id, ctx->not_single_slot_filter_conjuncts,
-                           ctx->slot_id_to_filter_conjuncts, base_ctx->table_info_node,
-                           base_ctx->column_ids, base_ctx->filter_column_ids);
-}
-
-Status ParquetReader::_do_init_reader(
-        const std::vector<std::string>& all_column_names,
-        std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
-        const VExprContextSPtrs& conjuncts,
-        phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>>&
-                slot_id_to_predicates,
-        const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
-        const std::unordered_map<std::string, int>* colname_to_slot_id,
-        const VExprContextSPtrs* not_single_slot_filter_conjuncts,
-        const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts,
-        std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node_ptr,
-        const std::set<uint64_t>& column_ids, const std::set<uint64_t>& filter_column_ids) {
-    _col_name_to_block_idx = col_name_to_block_idx;
-    _tuple_descriptor = tuple_descriptor;
-    _row_descriptor = row_descriptor;
-    _colname_to_slot_id = colname_to_slot_id;
-    _not_single_slot_filter_conjuncts = not_single_slot_filter_conjuncts;
-    _slot_id_to_filter_conjuncts = slot_id_to_filter_conjuncts;
-    _table_info_node_ptr = table_info_node_ptr;
-    _column_ids = column_ids;
-    _filter_column_ids = filter_column_ids;
+    const auto& all_column_names = base_ctx->column_names;
+    _col_name_to_block_idx = base_ctx->col_name_to_block_idx;
+    _tuple_descriptor = ctx->tuple_descriptor;
+    _row_descriptor = ctx->row_descriptor;
+    _colname_to_slot_id = ctx->colname_to_slot_id;
+    _not_single_slot_filter_conjuncts = ctx->not_single_slot_filter_conjuncts;
+    _slot_id_to_filter_conjuncts = ctx->slot_id_to_filter_conjuncts;
+    _table_info_node_ptr = base_ctx->table_info_node;
+    _column_ids = base_ctx->column_ids;
+    _filter_column_ids = base_ctx->filter_column_ids;
 
     // _open_file() is called by init_reader template method before hooks.
     // For standalone _do_init_reader callers (tvf, load, etc.), open the file here if not already opened.
@@ -468,7 +450,6 @@ Status ParquetReader::_do_init_reader(
     }
     _current_row_group_index = RowGroupReader::RowGroupIndex {-1, 0, 0};
 
-    _table_column_names = &all_column_names;
     auto schema_desc = _file_metadata->schema();
 
     std::map<std::string, std::string> required_file_columns; //file column -> table column
@@ -502,8 +483,8 @@ Status ParquetReader::_do_init_reader(
     }
 
     // build column predicates for column lazy read
-    _lazy_read_ctx.conjuncts = conjuncts;
-    _lazy_read_ctx.slot_id_to_predicates = slot_id_to_predicates;
+    _lazy_read_ctx.conjuncts = *ctx->conjuncts;
+    _lazy_read_ctx.slot_id_to_predicates = *ctx->slot_id_to_predicates;
 
     // ---- Inlined set_fill_columns logic (partition/missing/synthesized classification) ----
 

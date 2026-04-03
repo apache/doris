@@ -502,14 +502,14 @@ Status IcebergReaderMixin<BaseReader>::_equality_delete_base(
             for (uint32_t idx = 0; idx < delete_col_names.size(); ++idx) {
                 delete_col_name_to_block_idx[delete_col_names[idx]] = idx;
             }
-            phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
             // Delete files have TFileRangeDesc.size=-1, which would cause
             // set_fill_columns to return EndOfFile("No row group to read")
             // when _filter_groups is true. Master passes filter_groups=false.
             parquet_reader->set_filter_groups(false);
-            auto st2 = parquet_reader->_do_init_reader(
-                    delete_col_names, &delete_col_name_to_block_idx, {}, tmp, nullptr, nullptr,
-                    nullptr, nullptr, nullptr, TableSchemaChangeHelper::ConstNode::get_instance());
+            ParquetInitContext eq_delete_ctx;
+            eq_delete_ctx.column_names = delete_col_names;
+            eq_delete_ctx.col_name_to_block_idx = &delete_col_name_to_block_idx;
+            auto st2 = parquet_reader->init_reader(&eq_delete_ctx);
             if (!st2.ok()) {
                 LOG(WARNING) << "[EqDeleteDebug] _do_init_reader for delete reader FAILED: " << st2;
                 return st2;
@@ -540,9 +540,10 @@ Status IcebergReaderMixin<BaseReader>::_equality_delete_base(
             for (uint32_t idx = 0; idx < delete_col_names.size(); ++idx) {
                 delete_col_name_to_block_idx[delete_col_names[idx]] = idx;
             }
-            RETURN_IF_ERROR(orc_reader->_do_init_reader(&delete_col_names,
-                                                        &delete_col_name_to_block_idx, {}, {}, {},
-                                                        nullptr, nullptr));
+            OrcInitContext eq_delete_ctx;
+            eq_delete_ctx.column_names = delete_col_names;
+            eq_delete_ctx.col_name_to_block_idx = &delete_col_name_to_block_idx;
+            RETURN_IF_ERROR(orc_reader->init_reader(&eq_delete_ctx));
         } else {
             return Status::InternalError("Unsupported format of delete file");
         }
