@@ -279,11 +279,19 @@ private:
     std::shared_ptr<MemTrackerLimiter> _query_mem_tracker;
 
     /**
+         * Normal state machine:
          *
          * INITED -----> RUNNABLE -------------------------+----> FINISHED ---+---> FINALIZED
          *                   ^                             |                  |
          *                   |                             |                  |
          *                   +----------- BLOCKED <--------+------------------+
+         *
+         * When _wake_up_early is set by make_all_runnable(), additional transitions are allowed:
+         *   BLOCKED    → FINISHED : task skips RUNNABLE, terminates directly
+         *   FINISHED   → RUNNABLE : delayed wake_up() arrives after task already finished,
+         *                           legal but no-op (state stays FINISHED)
+         *   FINALIZED  → RUNNABLE : same as above but task already finalized,
+         *                           legal but no-op (state stays FINALIZED)
          */
     enum class State : int {
         INITED,
@@ -298,6 +306,15 @@ private:
             {State::RUNNABLE, State::FINISHED},               // Target state is BLOCKED
             {State::RUNNABLE},                                // Target state is FINISHED
             {State::INITED, State::FINISHED}};                // Target state is FINALIZED
+
+    // Extended table used when _wake_up_early is true.
+    const std::vector<std::set<State>> WAKE_UP_EARLY_LEGAL_STATE_TRANSITION = {
+            {}, // INITED
+            {State::INITED, State::RUNNABLE, State::BLOCKED, State::FINISHED,
+             State::FINALIZED},                 // RUNNABLE (+ FINISHED, FINALIZED)
+            {State::RUNNABLE, State::FINISHED}, // BLOCKED
+            {State::RUNNABLE, State::BLOCKED},  // FINISHED (+ BLOCKED)
+            {State::INITED, State::FINISHED}};  // FINALIZED
 
     std::string _to_string(State state) const {
         switch (state) {

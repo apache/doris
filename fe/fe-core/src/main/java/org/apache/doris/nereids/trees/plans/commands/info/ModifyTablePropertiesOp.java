@@ -241,9 +241,9 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
                     .get(PropertyAnalyzer.PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP);
             try {
                 numColumnsPerGroup = Integer.parseInt(numColumnsPerGroupStr);
-                if (numColumnsPerGroup < 1 || numColumnsPerGroup > 50) {
+                if (numColumnsPerGroup < 1) {
                     throw new AnalysisException(
-                            "vertical_compaction_num_columns_per_group must be between 1 and 50: "
+                            "vertical_compaction_num_columns_per_group must be >= 1: "
                                     + numColumnsPerGroupStr);
                 }
             } catch (NumberFormatException e) {

@@ -1438,7 +1438,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_HIVE_SQL_CACHE, fuzzy = false)
     public boolean enableHiveSqlCache = false;
 
-    @VariableMgr.VarAttr(name = ENABLE_QUERY_CACHE)
+    @VariableMgr.VarAttr(name = ENABLE_QUERY_CACHE, fuzzy = true)
     public boolean enableQueryCache = false;
 
     @VarAttr(name = QUERY_CACHE_FORCE_REFRESH)

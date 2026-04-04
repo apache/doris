@@ -59,14 +59,10 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
     private ConcurrentHashMap<String, List<Long>> primaryClusterToBackends = null;
     @SerializedName(value = "be")
     private ConcurrentHashMap<String, Long> primaryClusterToBackend = new ConcurrentHashMap<>();
-    @SerializedName(value = "dbId")
-    private long dbId = -1;
     @SerializedName(value = "tableId")
     private long tableId = -1;
     @SerializedName(value = "partitionId")
     private long partitionId = -1;
-    @SerializedName(value = "indexId")
-    private long indexId = -1;
     @SerializedName(value = "idx")
     private long idx = -1;
     // last time to get tablet stats
@@ -112,10 +108,8 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
     public CloudReplica(long replicaId, Long backendId, ReplicaState state, long version, int schemaHash,
             long dbId, long tableId, long partitionId, long indexId, long idx) {
         super(replicaId, -1, state, version, schemaHash);
-        this.dbId = dbId;
         this.tableId = tableId;
         this.partitionId = partitionId;
-        this.indexId = indexId;
         this.idx = idx;
     }
 
@@ -574,20 +568,12 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
         return true;
     }
 
-    public long getDbId() {
-        return dbId;
-    }
-
     public long getTableId() {
         return tableId;
     }
 
     public long getPartitionId() {
         return partitionId;
-    }
-
-    public long getIndexId() {
-        return indexId;
     }
 
     public long getIdx() {
