@@ -317,6 +317,11 @@ public class RepositoryTest {
                 {
                     // The remote file has an md5 checksum suffix matching content "a"
                     try {
+                        // Broker does not support globListWithLimit; fall back to listFiles.
+                        mockFs.globListWithLimit((Location) any, anyString, anyLong, anyLong);
+                        minTimes = 0;
+                        result = new UnsupportedOperationException("broker does not support globListWithLimit");
+
                         mockFs.listFiles((Location) any);
                         minTimes = 0;
                         result = Lists.newArrayList(

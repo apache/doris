@@ -36,6 +36,7 @@ import org.apache.doris.filesystem.DorisInputFile;
 import org.apache.doris.filesystem.DorisOutputFile;
 import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileIterator;
+import org.apache.doris.filesystem.GlobListing;
 import org.apache.doris.filesystem.Location;
 import org.apache.doris.foundation.fs.FsStorageType;
 import org.apache.doris.fs.FileSystemDescriptor;
@@ -68,8 +69,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /*
@@ -534,10 +537,20 @@ public class Repository implements Writable, GsonPostProcessable {
 
     // Visit the repository, and list all existing snapshot names
     public Status listSnapshots(List<String> snapshotNames) {
-        // list with prefix:
-        // eg. __palo_repository_repo_name/__ss_*
-        String listPath = Joiner.on(PATH_DELIMITER).join(location, joinPrefix(PREFIX_REPO, name), PREFIX_SNAPSHOT_DIR)
-                + "*";
+        // List repo root directory and extract unique snapshot names.
+        // Object stores (S3/OSS) return a flat list of all objects under the prefix, so we
+        // identify snapshot directories by finding "/<PREFIX_SNAPSHOT_DIR>" in each URI and
+        // extracting the name segment that follows. HDFS/Broker return real directory entries
+        // whose names start with PREFIX_SNAPSHOT_DIR, which is handled by the same path.
+        //
+        // We do NOT append "*" here because:
+        //   - Broker: list() passes the path to Hadoop globStatus and handles it correctly even
+        //     without a trailing wildcard when given a directory path.
+        //   - HDFS: listStatusIterator does not support glob; it needs an actual directory path.
+        //   - S3/OSS: list() is prefix-based; a trailing "*" would be treated as a literal key
+        //             character, matching nothing.
+        String repoRootPath = Joiner.on(PATH_DELIMITER).join(getLocation(), joinPrefix(PREFIX_REPO, name))
+                + PATH_DELIMITER;
         org.apache.doris.filesystem.FileSystem fs;
         try {
             fs = acquireSpiFs();
@@ -545,20 +558,35 @@ public class Repository implements Writable, GsonPostProcessable {
             return new Status(ErrCode.COMMON_ERROR, "Failed to acquire filesystem: " + e.getMessage());
         }
         try {
-            try (FileIterator it = fs.list(Location.of(listPath))) {
+            Set<String> ssNameSet = new LinkedHashSet<>();
+            try (FileIterator it = fs.list(Location.of(repoRootPath))) {
                 while (it.hasNext()) {
                     FileEntry entry = it.next();
-                    if (!entry.isDirectory()) {
-                        if (LOG.isDebugEnabled()) {
-                            LOG.debug("get snapshot path {} which is not a dir", entry.location());
-                        }
-                        continue;
-                    }
                     String uri = entry.location().uri();
-                    String entryName = uri.substring(uri.lastIndexOf('/') + 1);
-                    snapshotNames.add(disjoinPrefix(PREFIX_SNAPSHOT_DIR, entryName));
+                    if (entry.isDirectory()) {
+                        // HDFS / Broker: real directory entry whose name is "__ss_<snapshotName>"
+                        String entryName = uri.substring(uri.lastIndexOf('/') + 1);
+                        if (entryName.startsWith(PREFIX_SNAPSHOT_DIR)) {
+                            ssNameSet.add(disjoinPrefix(PREFIX_SNAPSHOT_DIR, entryName));
+                        }
+                    } else {
+                        // S3 / OSS: flat object URI, e.g. ".../repo/__ss_snap1/__meta.xxx"
+                        // Extract the snapshot name from the path component after "/__ss_"
+                        int ssIdx = uri.lastIndexOf(PATH_DELIMITER + PREFIX_SNAPSHOT_DIR);
+                        if (ssIdx < 0) {
+                            continue;
+                        }
+                        String afterSs = uri.substring(ssIdx + 1 + PREFIX_SNAPSHOT_DIR.length());
+                        String snapshotName = afterSs.contains(PATH_DELIMITER)
+                                ? afterSs.substring(0, afterSs.indexOf(PATH_DELIMITER))
+                                : afterSs;
+                        if (!snapshotName.isEmpty()) {
+                            ssNameSet.add(snapshotName);
+                        }
+                    }
                 }
             }
+            snapshotNames.addAll(ssNameSet);
             return Status.OK;
         } catch (IOException e) {
             return new Status(ErrCode.COMMON_ERROR, "Failed to list snapshots: " + e.getMessage());
@@ -694,6 +722,35 @@ public class Repository implements Writable, GsonPostProcessable {
         return Status.OK;
     }
 
+    /**
+     * Lists files whose paths start with {@code pathPrefix} (a glob suffix "*" is appended
+     * internally).  Works correctly across all backends:
+     * <ul>
+     *   <li><b>S3 / OSS</b>: {@link org.apache.doris.filesystem.FileSystem#globListWithLimit}
+     *       strips the trailing "*" to obtain an S3 list prefix, then filters by the full
+     *       glob pattern — so "prefix*" matches any file starting with that prefix.</li>
+     *   <li><b>HDFS</b>: {@code globListWithLimit} delegates to Hadoop's
+     *       {@code FileSystem.globStatus}, which natively handles the "*" wildcard.</li>
+     *   <li><b>Broker</b>: {@code globListWithLimit} is not implemented; falls back to
+     *       {@link org.apache.doris.filesystem.FileSystem#listFiles}, which passes the path
+     *       (including "*") to the broker's {@code listPath} RPC — the broker handles glob
+     *       patterns via Hadoop's {@code globStatus}.</li>
+     * </ul>
+     */
+    private static List<FileEntry> listFilesWithGlob(org.apache.doris.filesystem.FileSystem fs,
+            String pathPrefix) throws IOException {
+        try {
+            GlobListing listing = fs.globListWithLimit(Location.of(pathPrefix + "*"), null, 0, 0);
+            if (listing != null) {
+                return listing.getFiles();
+            }
+        } catch (UnsupportedOperationException e) {
+            // Broker: list() passes the path (with "*") directly to the broker's listPath RPC,
+            // which calls Hadoop globStatus and handles the wildcard correctly.
+        }
+        return fs.listFiles(Location.of(pathPrefix + "*"));
+    }
+
     // remoteFilePath must be a file(not dir) and does not contain checksum
     public Status download(String remoteFilePath, String localFilePath) {
         org.apache.doris.filesystem.FileSystem fs;
@@ -705,7 +762,7 @@ public class Repository implements Writable, GsonPostProcessable {
         String md5sum;
         try {
             // 0. list to get to full name (with checksum)
-            List<FileEntry> remoteFiles = fs.listFiles(Location.of(remoteFilePath + "*"));
+            List<FileEntry> remoteFiles = listFilesWithGlob(fs, remoteFilePath);
             if (remoteFiles.size() != 1) {
                 return new Status(ErrCode.COMMON_ERROR,
                         "Expected one file with path: " + remoteFilePath + ". get: " + remoteFiles.size());
@@ -874,7 +931,7 @@ public class Repository implements Writable, GsonPostProcessable {
                 org.apache.doris.filesystem.FileSystem fs = acquireSpiFs();
                 List<FileEntry> results;
                 try {
-                    results = fs.listFiles(Location.of(infoFilePath + "*"));
+                    results = listFilesWithGlob(fs, infoFilePath);
                 } finally {
                     releaseSpiFs(fs);
                 }
