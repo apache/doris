@@ -2819,7 +2819,10 @@ int InstanceChecker::do_packed_file_check() {
         std::string end_key = recycle_rowset_key({instance_id_, INT64_MAX, "\xff"});
 
         std::unique_ptr<RangeGetIterator> it;
-        while (it == nullptr /* may be not init */ || (it->more() && !stopped())) {
+        while (it == nullptr /* may be not init */ || it->more()) {
+            if (stopped()) {
+                return -1;
+            }
             std::unique_ptr<Transaction> txn;
             TxnErrorCode err = txn_kv_->create_txn(&txn);
             if (err != TxnErrorCode::TXN_OK) {
