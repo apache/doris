@@ -36,6 +36,22 @@ curdir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 export DORIS_HOME="${curdir}/.."
 export TP_DIR="${curdir}"
 
+# macOS ships BSD getopt, which does not support the -l long options below; require GNU getopt (e.g. from Homebrew).
+if [[ "$(uname -s)" == 'Darwin' ]]; then
+    if command -v brew &>/dev/null; then
+        _gnu_getopt_bin="$(brew --prefix)/opt/gnu-getopt/bin"
+        if [[ -x "${_gnu_getopt_bin}/getopt" ]]; then
+            PATH="${_gnu_getopt_bin}:${PATH}"
+            export PATH
+        fi
+    fi
+    if ! getopt --version 2>/dev/null | grep -q util-linux; then
+        echo "ERROR: On macOS, GNU getopt is required for this script (BSD getopt breaks option parsing)."
+        echo "Install: brew install gnu-getopt"
+        exit 1
+    fi
+fi
+
 # include custom environment variables
 if [[ -f "${DORIS_HOME}/env.sh" ]]; then
     export DO_NOT_CHECK_JAVA_ENV=1

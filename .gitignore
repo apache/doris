@@ -55,6 +55,8 @@ thirdparty/src*
 thirdparty/installed*
 thirdparty/doris-thirdparty*.tar.xz
 
+docker/runtime/local-dev/.prebuilt/
+
 docker/thirdparties/docker-compose/mysql/data
 docker/thirdparties/docker-compose/hive/scripts/tpch1.db/
 docker/thirdparties/docker-compose/hive/scripts/tvf_data
