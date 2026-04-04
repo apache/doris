@@ -144,10 +144,37 @@ public class DFSFileSystem implements org.apache.doris.filesystem.FileSystem {
     public void rename(Location src, Location dst) throws IOException {
         Path srcPath = new Path(src.toString());
         Path dstPath = new Path(dst.toString());
-        authenticator.doAs(() -> {
-            getHadoopFs(srcPath).rename(srcPath, dstPath);
-            return null;
-        });
+        boolean success = authenticator.doAs(() ->
+                getHadoopFs(srcPath).rename(srcPath, dstPath));
+        if (!success) {
+            throw new IOException("HDFS rename failed: " + src + " -> " + dst);
+        }
+    }
+
+    /**
+     * Renames a directory atomically on HDFS, creating the parent of {@code dst} if it
+     * does not exist — matching the behaviour of the legacy {@code RemoteFileSystem.renameDir}.
+     * Without this parent-mkdir the HDFS rename returns {@code false} when the intermediate
+     * partition directory (e.g. {@code pt1=wuu/}) does not yet exist, causing silent data loss
+     * in the Hive write path.
+     */
+    @Override
+    public void renameDirectory(Location src, Location dst, Runnable whenSrcNotExists)
+            throws IOException {
+        if (!exists(src)) {
+            whenSrcNotExists.run();
+            return;
+        }
+        Path dstPath = new Path(dst.toString());
+        Path dstParent = dstPath.getParent();
+        org.apache.hadoop.fs.FileSystem hadoopFs = getHadoopFs(dstPath);
+        if (dstParent != null && !authenticator.doAs(() -> hadoopFs.exists(dstParent))) {
+            authenticator.doAs(() -> {
+                hadoopFs.mkdirs(dstParent);
+                return null;
+            });
+        }
+        rename(src, dst);
     }
 
     @Override
