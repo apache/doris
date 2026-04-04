@@ -99,7 +99,10 @@ public class JdbcFieldSchema {
     }
 
     public JdbcFieldSchema(ResultSetMetaData metaData, int columnIndex) throws SQLException {
-        this.columnName = metaData.getColumnName(columnIndex);
+        String columnLabel = metaData.getColumnLabel(columnIndex);
+        this.columnName = columnLabel == null || columnLabel.isEmpty()
+                ? metaData.getColumnName(columnIndex)
+                : columnLabel;
         this.dataType = metaData.getColumnType(columnIndex);
         this.dataTypeName = Optional.ofNullable(metaData.getColumnTypeName(columnIndex));
         this.columnSize = Optional.of(metaData.getPrecision(columnIndex));
