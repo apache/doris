@@ -5756,7 +5756,6 @@ int InstanceRecycler::scan_and_recycle(
             if (recycle_func(k, v) != 0) {
                 err = "recycle_func error";
                 ret = -1;
-                return ret;
             }
         }
         begin.push_back('\x00'); // Update to next smallest key for iteration
