@@ -404,14 +404,23 @@ class ConcurrentLong2ObjectHashMapTest {
 
         // Run in a separate thread with a timeout so the test fails fast instead of hanging
         ExecutorService executor = Executors.newSingleThreadExecutor();
-        Future<?> future = executor.submit(() -> {
-            map.forEach((ConcurrentLong2ObjectHashMap.LongObjConsumer<String>) (k, v) -> {
-                map.put(k + 1000L, v + "-copy");
+        Future<?> future = null;
+        try {
+            future = executor.submit(() -> {
+                map.forEach((ConcurrentLong2ObjectHashMap.LongObjConsumer<String>) (k, v) -> {
+                    map.put(k + 1000L, v + "-copy");
+                });
             });
-        });
-        // Should complete within 5 seconds; if it deadlocks, get() will time out
-        future.get(5, java.util.concurrent.TimeUnit.SECONDS);
-        executor.shutdown();
+            // Should complete within 5 seconds; if it deadlocks, get() will time out
+            future.get(5, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (Exception e) {
+            if (future != null && !future.isDone()) {
+                future.cancel(true);
+            }
+            throw e;
+        } finally {
+            executor.shutdownNow();
+        }
 
         Assertions.assertEquals("one-copy", map.get(1001L));
         Assertions.assertEquals("two-copy", map.get(1002L));

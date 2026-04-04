@@ -410,13 +410,22 @@ class ConcurrentLong2LongHashMapTest {
         map.put(2L, 200L);
 
         ExecutorService executor = Executors.newSingleThreadExecutor();
-        Future<?> future = executor.submit(() -> {
-            map.forEach((ConcurrentLong2LongHashMap.LongLongConsumer) (k, v) -> {
-                map.put(k + 1000L, v + 1);
+        Future<?> future = null;
+        try {
+            future = executor.submit(() -> {
+                map.forEach((ConcurrentLong2LongHashMap.LongLongConsumer) (k, v) -> {
+                    map.put(k + 1000L, v + 1);
+                });
             });
-        });
-        future.get(5, java.util.concurrent.TimeUnit.SECONDS);
-        executor.shutdown();
+            future.get(5, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (Exception e) {
+            if (future != null && !future.isDone()) {
+                future.cancel(true);
+            }
+            throw e;
+        } finally {
+            executor.shutdownNow();
+        }
 
         Assertions.assertEquals(101L, map.get(1001L));
         Assertions.assertEquals(201L, map.get(1002L));

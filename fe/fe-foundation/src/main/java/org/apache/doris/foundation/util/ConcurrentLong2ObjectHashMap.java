@@ -54,10 +54,11 @@ import java.util.function.LongFunction;
  * are overridden to ensure atomicity within a segment.
  *
  * <p><b>Callback restriction:</b> The mapping/remapping functions passed to {@code computeIfAbsent},
- * {@code computeIfPresent}, {@code compute}, and {@code merge} <em>must not</em> attempt to update
- * any other mappings of this map. This restriction is enforced at runtime: reentrant access from a
- * callback throws {@link IllegalStateException}. Violation may also cause deadlock if callbacks
- * attempt cross-segment updates from multiple threads.
+ * {@code computeIfPresent}, {@code compute}, and {@code merge} <em>must not</em> access this map
+ * in any way while executing, including reads such as {@code get} or {@code containsKey}, as well
+ * as writes. Reentrant write access from a callback is rejected at runtime with
+ * {@link IllegalStateException}. Even read-only cross-segment access from callbacks can deadlock
+ * when multiple threads each hold a segment write-lock and attempt to read the other's segment.
  *
  * @param <V> the type of mapped values
  */
@@ -332,7 +333,7 @@ public class ConcurrentLong2ObjectHashMap<V> extends AbstractLong2ObjectMap<V> {
                 }
                 return newValue;
             } finally {
-                inCallback.set(Boolean.FALSE);
+                inCallback.remove();
             }
         } finally {
             seg.lock.writeLock().unlock();
@@ -356,7 +357,7 @@ public class ConcurrentLong2ObjectHashMap<V> extends AbstractLong2ObjectMap<V> {
                 }
                 return newValue;
             } finally {
-                inCallback.set(Boolean.FALSE);
+                inCallback.remove();
             }
         } finally {
             seg.lock.writeLock().unlock();
@@ -380,7 +381,7 @@ public class ConcurrentLong2ObjectHashMap<V> extends AbstractLong2ObjectMap<V> {
                 try {
                     newValue = remappingFunction.apply(key, oldValue);
                 } finally {
-                    inCallback.set(Boolean.FALSE);
+                    inCallback.remove();
                 }
                 if (newValue != null) {
                     seg.map.put(key, newValue);
@@ -406,7 +407,7 @@ public class ConcurrentLong2ObjectHashMap<V> extends AbstractLong2ObjectMap<V> {
             try {
                 newValue = remappingFunction.apply(key, oldValue);
             } finally {
-                inCallback.set(Boolean.FALSE);
+                inCallback.remove();
             }
             if (newValue != null) {
                 seg.map.put(key, newValue);
@@ -431,7 +432,7 @@ public class ConcurrentLong2ObjectHashMap<V> extends AbstractLong2ObjectMap<V> {
                 try {
                     newValue = remappingFunction.apply(oldValue, value);
                 } finally {
-                    inCallback.set(Boolean.FALSE);
+                    inCallback.remove();
                 }
             } else {
                 newValue = value;
