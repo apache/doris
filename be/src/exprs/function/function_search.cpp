@@ -32,6 +32,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "runtime/runtime_profile.h"
 #include "core/block/columns_with_type_and_name.h"
 #include "core/column/column_const.h"
 #include "core/data_type/data_type_string.h"
@@ -191,6 +192,9 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
     auto cache_it = _cache.find(binding_key);
     if (cache_it != _cache.end()) {
         *binding = cache_it->second;
+        if (_context->stats) {
+            _context->stats->inverted_index_searcher_cache_hit++;
+        }
         return Status::OK();
     }
 
@@ -275,6 +279,9 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
 
     std::shared_ptr<lucene::index::IndexReader> reader_holder;
     if (cache_hit) {
+        if (_context->stats) {
+            _context->stats->inverted_index_searcher_cache_hit++;
+        }
         auto searcher_variant = searcher_cache_handle.get_index_searcher();
         auto* searcher_ptr = std::get_if<FulltextIndexSearcherPtr>(&searcher_variant);
         if (searcher_ptr != nullptr && *searcher_ptr != nullptr) {
@@ -285,7 +292,13 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
     }
 
     if (!reader_holder) {
+        if (_context->stats) {
+            _context->stats->inverted_index_searcher_cache_miss++;
+        }
         // Cache miss: open directory, build IndexSearcher, insert into cache
+        int64_t dummy_timer = 0;
+        SCOPED_RAW_TIMER(_context->stats ? &_context->stats->inverted_index_searcher_open_timer
+                                         : &dummy_timer);
         RETURN_IF_ERROR(
                 index_file_reader->init(config::inverted_index_read_buffer_size, _context->io_ctx));
         auto directory = DORIS_TRY(
@@ -434,6 +447,12 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
         }
     }
 
+    // Track overall query time (equivalent to inverted_index_query_timer in MATCH path)
+    int64_t query_timer_dummy = 0;
+    OlapReaderStatistics* outer_stats =
+            index_query_context ? index_query_context->stats : nullptr;
+    SCOPED_RAW_TIMER(outer_stats ? &outer_stats->inverted_index_query_timer : &query_timer_dummy);
+
     std::shared_ptr<IndexQueryContext> context;
     if (index_query_context) {
         context = index_query_context;
@@ -542,11 +561,19 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
         minimum_should_match = search_param.minimum_should_match;
     }
 
+    auto* stats = context->stats;
+    int64_t dummy_timer = 0;
+    SCOPED_RAW_TIMER(stats ? &stats->inverted_index_searcher_search_timer : &dummy_timer);
+
     query_v2::QueryPtr root_query;
     std::string root_binding_key;
-    RETURN_IF_ERROR(build_query_recursive(search_param.root, context, resolver, &root_query,
-                                          &root_binding_key, default_operator,
-                                          minimum_should_match));
+    {
+        int64_t init_dummy = 0;
+        SCOPED_RAW_TIMER(stats ? &stats->inverted_index_searcher_search_init_timer : &init_dummy);
+        RETURN_IF_ERROR(build_query_recursive(search_param.root, context, resolver, &root_query,
+                                              &root_binding_key, default_operator,
+                                              minimum_should_match));
+    }
     if (root_query == nullptr) {
         LOG(INFO) << "search: Query tree resolved to empty query, dsl:"
                   << search_param.original_dsl;
@@ -577,17 +604,23 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
     }
 
     std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
-    if (enable_scoring && !is_asc && top_k > 0) {
-        bool use_wand = index_query_context->runtime_state != nullptr &&
-                        index_query_context->runtime_state->query_options()
-                                .enable_inverted_index_wand_query;
-        query_v2::collect_multi_segment_top_k(weight, exec_ctx, root_binding_key, top_k, roaring,
-                                              index_query_context->collection_similarity, use_wand);
-    } else {
-        query_v2::collect_multi_segment_doc_set(
-                weight, exec_ctx, root_binding_key, roaring,
-                index_query_context ? index_query_context->collection_similarity : nullptr,
-                enable_scoring);
+    {
+        int64_t exec_dummy = 0;
+        SCOPED_RAW_TIMER(stats ? &stats->inverted_index_searcher_search_exec_timer : &exec_dummy);
+        if (enable_scoring && !is_asc && top_k > 0) {
+            bool use_wand = index_query_context->runtime_state != nullptr &&
+                            index_query_context->runtime_state->query_options()
+                                    .enable_inverted_index_wand_query;
+            query_v2::collect_multi_segment_top_k(weight, exec_ctx, root_binding_key, top_k,
+                                                  roaring,
+                                                  index_query_context->collection_similarity,
+                                                  use_wand);
+        } else {
+            query_v2::collect_multi_segment_doc_set(
+                    weight, exec_ctx, root_binding_key, roaring,
+                    index_query_context ? index_query_context->collection_similarity : nullptr,
+                    enable_scoring);
+        }
     }
 
     VLOG_DEBUG << "search: Query completed, matched " << roaring->cardinality() << " documents";
