@@ -32,12 +32,12 @@
 #include <vector>
 
 #include "common/status.h"
-#include "runtime/runtime_profile.h"
 #include "core/block/columns_with_type_and_name.h"
 #include "core/column/column_const.h"
 #include "core/data_type/data_type_string.h"
 #include "exprs/function/simple_function_factory.h"
 #include "exprs/vexpr_context.h"
+#include "runtime/runtime_profile.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_query_context.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
@@ -449,8 +449,7 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
 
     // Track overall query time (equivalent to inverted_index_query_timer in MATCH path)
     int64_t query_timer_dummy = 0;
-    OlapReaderStatistics* outer_stats =
-            index_query_context ? index_query_context->stats : nullptr;
+    OlapReaderStatistics* outer_stats = index_query_context ? index_query_context->stats : nullptr;
     SCOPED_RAW_TIMER(outer_stats ? &outer_stats->inverted_index_query_timer : &query_timer_dummy);
 
     std::shared_ptr<IndexQueryContext> context;
@@ -611,10 +610,9 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
             bool use_wand = index_query_context->runtime_state != nullptr &&
                             index_query_context->runtime_state->query_options()
                                     .enable_inverted_index_wand_query;
-            query_v2::collect_multi_segment_top_k(weight, exec_ctx, root_binding_key, top_k,
-                                                  roaring,
-                                                  index_query_context->collection_similarity,
-                                                  use_wand);
+            query_v2::collect_multi_segment_top_k(
+                    weight, exec_ctx, root_binding_key, top_k, roaring,
+                    index_query_context->collection_similarity, use_wand);
         } else {
             query_v2::collect_multi_segment_doc_set(
                     weight, exec_ctx, root_binding_key, roaring,

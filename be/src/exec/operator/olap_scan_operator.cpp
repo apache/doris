@@ -259,10 +259,10 @@ Status OlapScanLocalState::_init_profile() {
             ADD_TIMER_WITH_LEVEL(_segment_profile, "InvertedIndexSearcherSearchInitTime", 1);
     _inverted_index_searcher_search_exec_timer =
             ADD_TIMER_WITH_LEVEL(_segment_profile, "InvertedIndexSearcherSearchExecTime", 1);
-    _inverted_index_searcher_cache_hit_counter =
-            ADD_COUNTER_WITH_LEVEL(_segment_profile, "InvertedIndexSearcherCacheHit", TUnit::UNIT, 1);
-    _inverted_index_searcher_cache_miss_counter =
-            ADD_COUNTER_WITH_LEVEL(_segment_profile, "InvertedIndexSearcherCacheMiss", TUnit::UNIT, 1);
+    _inverted_index_searcher_cache_hit_counter = ADD_COUNTER_WITH_LEVEL(
+            _segment_profile, "InvertedIndexSearcherCacheHit", TUnit::UNIT, 1);
+    _inverted_index_searcher_cache_miss_counter = ADD_COUNTER_WITH_LEVEL(
+            _segment_profile, "InvertedIndexSearcherCacheMiss", TUnit::UNIT, 1);
     _inverted_index_downgrade_count_counter =
             ADD_COUNTER_WITH_LEVEL(_segment_profile, "InvertedIndexDowngradeCount", TUnit::UNIT, 1);
     _inverted_index_analyzer_timer =

@@ -356,8 +356,8 @@ bool DorisCompoundReader::openInput(const char* name, lucene::store::IndexInput*
         bufferSize = _read_buffer_size;
     }
 
-    auto* cs_input =
-            _CLNEW CSIndexInput(_stream, entry->file_name, entry->offset, entry->length, bufferSize);
+    auto* cs_input = _CLNEW CSIndexInput(_stream, entry->file_name, entry->offset, entry->length,
+                                         bufferSize);
     if (_io_ctx) {
         cs_input->setIoContext(_io_ctx);
     }
