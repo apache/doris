@@ -19,8 +19,8 @@
 
 #include "cloud/config.h"
 #include "io/fs/file_writer.h"
-#include "olap/olap_common.h"
-#include "olap/rowset/rowset_writer_context.h"
+#include "storage/olap_common.h"
+#include "storage/rowset/rowset_writer_context.h"
 
 namespace doris {
 
