@@ -410,7 +410,17 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
                 result.addFile(entry, locationPath);
             }
         } catch (FileSystemIOException e) {
-            throw new RuntimeException(e);
+            if (e.getCause() instanceof java.io.FileNotFoundException) {
+                LOG.warn("Partition location {} does not exist.", path.getNormalizedLocation());
+                if (!Boolean.parseBoolean(catalog.getProperties()
+                        .getOrDefault("hive.ignore_absent_partitions", "true"))) {
+                    throw new UserException(
+                            "Partition location does not exist: " + path.getNormalizedLocation());
+                }
+                // hive.ignore_absent_partitions=true: fall through with empty file list
+            } else {
+                throw new RuntimeException(e);
+            }
         }
 
         result.setPartitionValues(Lists.newArrayList(partitionValues));
