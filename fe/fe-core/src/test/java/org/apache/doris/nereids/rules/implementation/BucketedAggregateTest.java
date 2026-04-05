@@ -28,8 +28,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalBucketedHashAggregate;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
@@ -37,7 +36,6 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
@@ -46,7 +44,7 @@ import java.util.List;
 import java.util.Optional;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-public class BucketedAggregateTest {
+public class BucketedAggregateTest implements MemoPatternMatchSupported {
     private Plan rStudent;
 
     @BeforeAll
@@ -90,14 +88,9 @@ public class BucketedAggregateTest {
         ctx.getSessionVariable().enableBucketedHashAgg = false;
         ctx.getSessionVariable().setBeNumberForTest(1);
 
-        List<Plan> allPlans = PlanChecker.from(ctx, root)
+        PlanChecker.from(ctx, root)
                 .applyImplementation(splitAggWithoutDistinctRule())
-                .getAllPlan();
-        // Should only produce PhysicalHashAggregate (two-phase), no bucketed agg
-        boolean hasBucketed = allPlans.stream()
-                .anyMatch(p -> p instanceof PhysicalBucketedHashAggregate);
-        Assertions.assertFalse(hasBucketed,
-                "Bucketed agg should not be produced when enableBucketedHashAgg=false");
+                .nonMatch(physicalBucketedHashAggregate());
     }
 
     @Test
@@ -107,13 +100,9 @@ public class BucketedAggregateTest {
         ctx.getSessionVariable().enableBucketedHashAgg = true;
         ctx.getSessionVariable().setBeNumberForTest(3);
 
-        List<Plan> allPlans = PlanChecker.from(ctx, root)
+        PlanChecker.from(ctx, root)
                 .applyImplementation(splitAggWithoutDistinctRule())
-                .getAllPlan();
-        boolean hasBucketed = allPlans.stream()
-                .anyMatch(p -> p instanceof PhysicalBucketedHashAggregate);
-        Assertions.assertFalse(hasBucketed,
-                "Bucketed agg should not be produced when BE count > 1");
+                .nonMatch(physicalBucketedHashAggregate());
     }
 
     @Test
@@ -123,13 +112,9 @@ public class BucketedAggregateTest {
         ctx.getSessionVariable().enableBucketedHashAgg = true;
         ctx.getSessionVariable().setBeNumberForTest(1);
 
-        List<Plan> allPlans = PlanChecker.from(ctx, root)
+        PlanChecker.from(ctx, root)
                 .applyImplementation(splitAggWithoutDistinctRule())
-                .getAllPlan();
-        boolean hasBucketed = allPlans.stream()
-                .anyMatch(p -> p instanceof PhysicalBucketedHashAggregate);
-        Assertions.assertFalse(hasBucketed,
-                "Bucketed agg should not be produced without GROUP BY keys");
+                .nonMatch(physicalBucketedHashAggregate());
     }
 
     @Test
@@ -140,18 +125,11 @@ public class BucketedAggregateTest {
         ctx.getSessionVariable().setBeNumberForTest(1);
         ctx.getSessionVariable().bucketedAggMinInputRows = 0;
         ctx.getSessionVariable().bucketedAggMaxGroupKeys = 0;
+        ctx.getSessionVariable().bucketedAggHighCardThreshold = 1.0;
 
-        List<Plan> allPlans = PlanChecker.from(ctx, root)
+        PlanChecker.from(ctx, root)
                 .deriveStats()
                 .applyImplementation(splitAggWithoutDistinctRule())
-                .getAllPlan();
-        boolean hasBucketed = allPlans.stream()
-                .anyMatch(p -> p instanceof PhysicalBucketedHashAggregate);
-        boolean hasTwoPhase = allPlans.stream()
-                .anyMatch(p -> p instanceof PhysicalHashAggregate);
-        Assertions.assertTrue(hasBucketed,
-                "Bucketed agg should be produced on single-BE with GROUP BY");
-        Assertions.assertTrue(hasTwoPhase,
-                "Two-phase agg should also be produced as alternative candidate");
+                .matches(physicalBucketedHashAggregate());
     }
 }
