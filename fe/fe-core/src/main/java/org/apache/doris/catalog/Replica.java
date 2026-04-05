@@ -104,10 +104,6 @@ public abstract class Replica {
     @Getter
     @SerializedName(value = "lss", alternate = {"localSegmentSize"})
     private long localSegmentSize = 0L;
-    @SerializedName(value = "sc")
-    private long segmentCount = 0L;
-    @SerializedName(value = "rsc")
-    private long rowsetCount = 0L;
 
     public Replica() {
     }
@@ -230,19 +226,19 @@ public abstract class Replica {
     }
 
     public long getSegmentCount() {
-        return segmentCount;
+        return 0;
     }
 
     public void setSegmentCount(long segmentCount) {
-        this.segmentCount = segmentCount;
+        // no-op for non-cloud replica
     }
 
     public long getRowsetCount() {
-        return rowsetCount;
+        return 0;
     }
 
     public void setRowsetCount(long rowsetCount) {
-        this.rowsetCount = rowsetCount;
+        // no-op for non-cloud replica
     }
 
     public long getLastFailedVersion() {
