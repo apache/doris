@@ -103,6 +103,11 @@ public class DFSFileSystem extends RemoteFileSystem {
                     for (FileStatus fileStatus : fileStatusList) {
                         if (fileStatus.isDirectory()) {
                             if (recursive) {
+                                String fileName = fileStatus.getPath().getName();
+                                if ((fileName.startsWith(".") || fileName.startsWith("_"))
+                                        && Config.enable_list_hdfs_files_ignore_hidden_directory) {
+                                    continue;
+                                }
                                 pathQueue.add(fileStatus.getPath());
                             }
                         } else {

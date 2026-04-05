@@ -3963,4 +3963,8 @@ public class Config extends ConfigBase {
         "当左侧的 slot 的类型为 string 时，是否把右侧的 date 类型转为 string 类型",
         "When the left-hand side slot is of string type, whether to cast the right-hand side date type to string"})
     public static boolean enable_cast_date_to_string = true;
+
+    @ConfField(mutable = true, description = {"是否允许获取hdfs的文件元数据信息时忽略隐藏目录",
+        "whether to enable list hdfs files ignore hidden directory"})
+    public static boolean enable_list_hdfs_files_ignore_hidden_directory = true;
 }
