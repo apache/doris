@@ -225,21 +225,6 @@ public abstract class Replica {
         this.rowCount = rowCount;
     }
 
-    public long getSegmentCount() {
-        return 0;
-    }
-
-    public void setSegmentCount(long segmentCount) {
-        // no-op for non-cloud replica
-    }
-
-    public long getRowsetCount() {
-        return 0;
-    }
-
-    public void setRowsetCount(long rowsetCount) {
-        // no-op for non-cloud replica
-    }
 
     public long getLastFailedVersion() {
         return -1;
