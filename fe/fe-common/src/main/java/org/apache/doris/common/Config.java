@@ -3958,4 +3958,9 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, description = {"hive表使用分区缓存的最大分区数量",
         "max partition num for hive table with partition cache"})
     public static int max_partition_num_for_hive_table_with_partition_cache = 3000;
+
+    @ConfField(mutable = true, description = {
+        "当左侧的 slot 的类型为 string 时，是否把右侧的 date 类型转为 string 类型",
+        "When the left-hand side slot is of string type, whether to cast the right-hand side date type to string"})
+    public static boolean enable_cast_date_to_string = true;
 }

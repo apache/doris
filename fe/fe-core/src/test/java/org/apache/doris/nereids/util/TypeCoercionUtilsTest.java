@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -38,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.ArrayType;
@@ -366,5 +368,34 @@ public class TypeCoercionUtilsTest {
         Assertions.assertThrows(AnalysisException.class, () -> TypeCoercionUtils.getNumResultType(MapType.SYSTEM_DEFAULT));
         Assertions.assertThrows(AnalysisException.class, () -> TypeCoercionUtils.getNumResultType(StructType.SYSTEM_DEFAULT));
         Assertions.assertThrows(AnalysisException.class, () -> TypeCoercionUtils.getNumResultType(QuantileStateType.INSTANCE));
+    }
+
+    @Test
+    public void testProcessComparisonPredicateCastDateToStringConfig() {
+        // enable_cast_date_to_string: string slot vs date literal should use string type
+        boolean old = Config.enable_cast_date_to_string;
+        Config.enable_cast_date_to_string = true;
+        try {
+            EqualTo stringDate = new EqualTo(
+                    new SlotReference("c1", StringType.INSTANCE),
+                    new DateLiteral(2024, 4, 12)
+            );
+            stringDate = (EqualTo) TypeCoercionUtils.processComparisonPredicate(stringDate);
+            Assertions.assertEquals(StringType.INSTANCE, stringDate.left().getDataType());
+            Assertions.assertEquals(StringType.INSTANCE, stringDate.right().getDataType());
+        } finally {
+            Config.enable_cast_date_to_string = old;
+        }
+    }
+
+    @Test
+    public void testProcessEquealToStringCoercoin() {
+        EqualTo equalTo = new EqualTo(
+                new SlotReference("c1", StringType.INSTANCE),
+                new IntegerLiteral(3)
+        );
+        EqualTo expression = (EqualTo) TypeCoercionUtils.processComparisonPredicate(equalTo);
+        Assertions.assertEquals(StringType.INSTANCE, expression.left().getDataType());
+        Assertions.assertEquals(StringType.INSTANCE, expression.right().getDataType());
     }
 }
