@@ -84,9 +84,15 @@ private:
         range.start_offset = 0;
         range.size = 1293;
         auto reader = OrcReader::create_unique(params, range, "", nullptr, &cache, true);
-        auto status = reader->_do_init_reader(&column_names, &col_name_to_block_idx, {}, tuple_desc,
-                                              &row_desc, nullptr, nullptr);
-        EXPECT_TRUE(status.ok());
+        OrcInitContext orc_ctx;
+        orc_ctx.column_names = column_names;
+        orc_ctx.col_name_to_block_idx = &col_name_to_block_idx;
+        orc_ctx.tuple_descriptor = tuple_desc;
+        orc_ctx.row_descriptor = &row_desc;
+        orc_ctx.params = &params;
+        orc_ctx.range = &range;
+        auto status = reader->init_reader(&orc_ctx);
+        EXPECT_TRUE(status.ok()) << "init_reader failed: " << status.to_string();
 
         // deserialize expr
         auto exprx = apache::thrift::from_json_string<TExpr>(expr);

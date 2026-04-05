@@ -58,13 +58,13 @@ TEST_F(OrcReaderInitColumnTest, InitReadColumn) {
         std::vector<std::string> tmp;
         tmp.emplace_back("col1");
 
-        reader->_table_column_names = &tmp;
+        reader->_table_column_names = tmp;
         Status st = reader->_init_read_columns();
         std::cout << "st =" << st << "\n";
-        std::list<std::string> ans;
-        ans.emplace_back("col1");
-        ASSERT_EQ(ans, reader->_read_file_cols);
-        ASSERT_EQ(ans, reader->_read_table_cols);
+        // _init_read_columns builds _type_map; _read_file_cols is populated later
+        // in _do_init_reader's standalone path when _table_column_names is set.
+        ASSERT_TRUE(reader->_type_map.contains("col1"));
+        ASSERT_FALSE(reader->_type_map.contains("nonexistent"));
     }
 }
 

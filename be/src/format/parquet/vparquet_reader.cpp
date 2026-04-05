@@ -407,10 +407,13 @@ Status ParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
 
     // Build table_info_node from Parquet file metadata with case-insensitive recursive matching.
     // File is already opened by init_reader before this hook, so metadata is available.
-    const FieldDescriptor* field_desc = nullptr;
-    RETURN_IF_ERROR(get_file_metadata_schema(&field_desc));
-    RETURN_IF_ERROR(TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_name(
-            ctx->tuple_descriptor, *field_desc, ctx->table_info_node));
+    // tuple_descriptor may be null in unit tests that only set column_descs.
+    if (ctx->tuple_descriptor != nullptr) {
+        const FieldDescriptor* field_desc = nullptr;
+        RETURN_IF_ERROR(get_file_metadata_schema(&field_desc));
+        RETURN_IF_ERROR(TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_name(
+                ctx->tuple_descriptor, *field_desc, ctx->table_info_node));
+    }
 
     return Status::OK();
 }
@@ -427,6 +430,7 @@ Status ParquetReader::_do_init_reader(ReaderInitContext* base_ctx) {
     _colname_to_slot_id = ctx->colname_to_slot_id;
     _not_single_slot_filter_conjuncts = ctx->not_single_slot_filter_conjuncts;
     _slot_id_to_filter_conjuncts = ctx->slot_id_to_filter_conjuncts;
+    _filter_groups = ctx->filter_groups;
     _table_info_node_ptr = base_ctx->table_info_node;
     _column_ids = base_ctx->column_ids;
     _filter_column_ids = base_ctx->filter_column_ids;
@@ -487,41 +491,48 @@ Status ParquetReader::_do_init_reader(ReaderInitContext* base_ctx) {
             }
         }
         // Register row-position-based synthesized column handler.
-        // _row_id_column_iterator_pair and _row_lineage_columns are set before init_reader
-        // by FileScanner. Registration must be here (not on_before_init_reader) because
-        // table-format readers override on_before_init_reader.
-        if (_row_id_column_iterator_pair.first != nullptr ||
-            (_row_lineage_columns != nullptr &&
-             (_row_lineage_columns->need_row_ids() ||
-              _row_lineage_columns->has_last_updated_sequence_number_column()))) {
-            register_synthesized_column_handler(
-                    BeConsts::ROWID_COL, [this](Block* block, size_t rows) -> Status {
-                        if (_current_group_reader) {
-                            return _current_group_reader->fill_topn_row_id(block, rows);
-                        }
-                        return Status::OK();
-                    });
-        }
+    }
+
+    // Register row-position-based synthesized column handler.
+    // _row_id_column_iterator_pair and _row_lineage_columns are set before init_reader
+    // by FileScanner. This must be outside has_column_descs() guard because standalone
+    // readers also need synthesized column handlers.
+    if (_row_id_column_iterator_pair.first != nullptr ||
+        (_row_lineage_columns != nullptr &&
+         (_row_lineage_columns->need_row_ids() ||
+          _row_lineage_columns->has_last_updated_sequence_number_column()))) {
+        register_synthesized_column_handler(
+                BeConsts::ROWID_COL, [this](Block* block, size_t rows) -> Status {
+                    if (_current_group_reader) {
+                        return _current_group_reader->fill_topn_row_id(block, rows);
+                    }
+                    return Status::OK();
+                });
     }
 
     // Standalone callers (column_descs == nullptr) skip on_before_init_reader,
     // so _read_file_columns etc. are not populated. Use table_info_node for name mapping
     // when available, otherwise fall back to 1:1 mapping using file schema.
+    // Must iterate in file schema order (not user column order) so that
+    // _generate_random_access_ranges sees monotonically increasing chunk offsets.
     if (!has_column_descs() && _read_file_columns.empty()) {
         auto schema_desc = _file_metadata->schema();
-        std::unordered_set<std::string> file_col_set;
-        for (int i = 0; i < schema_desc.size(); ++i) {
-            file_col_set.insert(schema_desc.get_column(i)->name);
-        }
+        // Build map: file_col_name -> table_col_name for requested columns.
+        std::unordered_map<std::string, std::string> required_file_columns;
         for (const auto& col_name : base_ctx->column_names) {
             std::string file_col_name = col_name;
             if (_table_info_node_ptr && _table_info_node_ptr->children_column_exists(col_name)) {
                 file_col_name = _table_info_node_ptr->children_file_column_name(col_name);
             }
-            if (file_col_set.contains(file_col_name)) {
-                _read_file_columns.emplace_back(file_col_name);
-                _read_table_columns.emplace_back(col_name);
-                _read_table_columns_set.insert(col_name);
+            required_file_columns[file_col_name] = col_name;
+        }
+        // Iterate file schema to preserve physical column order.
+        for (int i = 0; i < schema_desc.size(); ++i) {
+            const auto& name = schema_desc.get_column(i)->name;
+            if (required_file_columns.contains(name)) {
+                _read_file_columns.emplace_back(name);
+                _read_table_columns.emplace_back(required_file_columns[name]);
+                _read_table_columns_set.insert(required_file_columns[name]);
             }
         }
     }

@@ -117,7 +117,6 @@ public:
                                                 nullptr, &runtime_state, &cache, enable_lazy);
         p_reader->set_file_reader(reader);
         runtime_state.set_desc_tbl(desc_tbl);
-        phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
         auto conjuncts = create_predicates(desc_tbl, &runtime_state);
         std::unordered_map<int, VExprContextSPtrs> slot_id_to_expr_ctxs;
         slot_id_to_expr_ctxs[0].emplace_back(conjuncts[0]);
@@ -125,12 +124,22 @@ public:
 
         auto column_descs = to_column_descs(column_names);
         if constexpr (filter_all) {
-            st = p_reader->init_reader(column_descs, &col_name_to_block_idx, conjuncts, tmp,
-                                       tuple_desc, nullptr, nullptr, nullptr,
-                                       &slot_id_to_expr_ctxs);
+            ParquetInitContext pq_ctx;
+            pq_ctx.column_descs = &column_descs;
+            pq_ctx.col_name_to_block_idx = &col_name_to_block_idx;
+            pq_ctx.conjuncts = &conjuncts;
+            pq_ctx.tuple_descriptor = tuple_desc;
+            pq_ctx.slot_id_to_filter_conjuncts = &slot_id_to_expr_ctxs;
+            pq_ctx.params = &scan_params;
+            pq_ctx.range = &scan_range;
+            st = p_reader->init_reader(&pq_ctx);
         } else {
-            st = p_reader->init_reader(column_descs, &col_name_to_block_idx, {}, tmp, nullptr,
-                                       nullptr, nullptr, nullptr, nullptr);
+            ParquetInitContext pq_ctx;
+            pq_ctx.column_descs = &column_descs;
+            pq_ctx.col_name_to_block_idx = &col_name_to_block_idx;
+            pq_ctx.params = &scan_params;
+            pq_ctx.range = &scan_range;
+            st = p_reader->init_reader(&pq_ctx);
         }
 
         EXPECT_TRUE(st.ok()) << st;
@@ -201,6 +210,8 @@ public:
         TFileRangeDesc scan_range;
         scan_range.start_offset = 0;
         scan_range.size = 1000;
+        scan_range.__set_columns_from_path_keys({"part_col"});
+        scan_range.__set_columns_from_path({"1"});
         auto q_options = TQueryOptions();
         q_options.__set_enable_adjust_conjunct_order_by_cost(true);
         RuntimeState runtime_state = RuntimeState(q_options, TQueryGlobals());
@@ -210,22 +221,25 @@ public:
         p_reader->set_file_reader(reader);
         runtime_state.set_desc_tbl(desc_tbl);
 
-        phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
         auto conjuncts = create_partition_predicates<filter_all>(desc_tbl, &runtime_state);
         std::unordered_map<int, VExprContextSPtrs> slot_id_to_expr_ctxs;
         slot_id_to_expr_ctxs[1].emplace_back(conjuncts[0]);
         slot_id_to_expr_ctxs[2].emplace_back(conjuncts[1]);
 
         auto column_descs = to_column_descs(column_names);
-        st = p_reader->init_reader(column_descs, &col_name_to_block_idx, conjuncts, tmp, tuple_desc,
-                                   nullptr, nullptr, nullptr, &slot_id_to_expr_ctxs);
+        ParquetInitContext pq_ctx;
+        pq_ctx.column_descs = &column_descs;
+        pq_ctx.col_name_to_block_idx = &col_name_to_block_idx;
+        pq_ctx.conjuncts = &conjuncts;
+        pq_ctx.tuple_descriptor = tuple_desc;
+        pq_ctx.slot_id_to_filter_conjuncts = &slot_id_to_expr_ctxs;
+        pq_ctx.params = &scan_params;
+        pq_ctx.range = &scan_range;
+        st = p_reader->init_reader(&pq_ctx);
         EXPECT_TRUE(st.ok()) << st;
 
-        std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
-                partition_columns;
-        partition_columns.emplace("part_col", std::make_tuple("1", tuple_desc->slots()[2]));
-        std::unordered_map<std::string, VExprContextSPtr> missing_columns;
-        p_reader->set_fill_column_data(partition_columns, missing_columns, &col_name_to_block_idx);
+        // Partition/missing column logic is now handled by on_before_init_reader
+        // via _extract_partition_values from scan_range.
 
         bool eof = false;
         size_t total_rows = 0;
@@ -354,9 +368,12 @@ TEST_F(ParquetReaderTest, normal) {
     RuntimeState runtime_state((TQueryOptions()), TQueryGlobals());
     runtime_state.set_desc_tbl(desc_tbl);
 
-    phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
-    static_cast<void>(p_reader->_do_init_reader(column_names, &col_name_to_block_idx, {}, tmp,
-                                                nullptr, nullptr, nullptr, nullptr, nullptr));
+    ParquetInitContext pq_ctx;
+    pq_ctx.column_names = column_names;
+    pq_ctx.col_name_to_block_idx = &col_name_to_block_idx;
+    pq_ctx.params = &scan_params;
+    pq_ctx.range = &scan_range;
+    static_cast<void>(p_reader->init_reader(&pq_ctx));
     // set_fill_columns logic is now inlined in _do_init_reader,
     // so no separate call is needed.
     BlockUPtr block = Block::create_unique();
@@ -417,9 +434,12 @@ TEST_F(ParquetReaderTest, uuid_varbinary) {
     RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
     runtime_state.set_desc_tbl(desc_tbl);
 
-    phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
-    st = p_reader->_do_init_reader(column_names, &col_name_to_block_idx, {}, tmp, nullptr, nullptr,
-                                   nullptr, nullptr, nullptr);
+    ParquetInitContext pq_ctx;
+    pq_ctx.column_names = column_names;
+    pq_ctx.col_name_to_block_idx = &col_name_to_block_idx;
+    pq_ctx.params = &scan_params;
+    pq_ctx.range = &scan_range;
+    st = p_reader->init_reader(&pq_ctx);
     EXPECT_TRUE(st.ok()) << st;
     // set_fill_columns logic is now inlined in _do_init_reader,
     // so no separate call is needed.
@@ -488,9 +508,12 @@ TEST_F(ParquetReaderTest, varbinary_varbinary) {
     RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
     runtime_state.set_desc_tbl(desc_tbl);
 
-    phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
-    st = p_reader->_do_init_reader(column_names, &col_name_to_block_idx, {}, tmp, nullptr, nullptr,
-                                   nullptr, nullptr, nullptr);
+    ParquetInitContext pq_ctx;
+    pq_ctx.column_names = column_names;
+    pq_ctx.col_name_to_block_idx = &col_name_to_block_idx;
+    pq_ctx.params = &scan_params;
+    pq_ctx.range = &scan_range;
+    st = p_reader->init_reader(&pq_ctx);
     EXPECT_TRUE(st.ok()) << st;
     // set_fill_columns logic is now inlined in _do_init_reader,
     // so no separate call is needed.
@@ -561,9 +584,12 @@ TEST_F(ParquetReaderTest, varbinary_string) {
     RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
     runtime_state.set_desc_tbl(desc_tbl);
 
-    phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
-    st = p_reader->_do_init_reader(column_names, &col_name_to_block_idx, {}, tmp, nullptr, nullptr,
-                                   nullptr, nullptr, nullptr);
+    ParquetInitContext pq_ctx;
+    pq_ctx.column_names = column_names;
+    pq_ctx.col_name_to_block_idx = &col_name_to_block_idx;
+    pq_ctx.params = &scan_params;
+    pq_ctx.range = &scan_range;
+    st = p_reader->init_reader(&pq_ctx);
     EXPECT_TRUE(st.ok()) << st;
     // set_fill_columns logic is now inlined in _do_init_reader,
     // so no separate call is needed.
@@ -634,9 +660,12 @@ TEST_F(ParquetReaderTest, varbinary_string2) {
     RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
     runtime_state.set_desc_tbl(desc_tbl);
 
-    phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
-    st = p_reader->_do_init_reader(column_names, &col_name_to_block_idx, {}, tmp, nullptr, nullptr,
-                                   nullptr, nullptr, nullptr);
+    ParquetInitContext pq_ctx;
+    pq_ctx.column_names = column_names;
+    pq_ctx.col_name_to_block_idx = &col_name_to_block_idx;
+    pq_ctx.params = &scan_params;
+    pq_ctx.range = &scan_range;
+    st = p_reader->init_reader(&pq_ctx);
     EXPECT_TRUE(st.ok()) << st;
     // set_fill_columns logic is now inlined in _do_init_reader,
     // so no separate call is needed.
@@ -953,6 +982,8 @@ TEST_F(ParquetReaderTest, only_partition_column) {
     TFileRangeDesc scan_range;
     scan_range.start_offset = 0;
     scan_range.size = 1000;
+    scan_range.__set_columns_from_path_keys({"part_col"});
+    scan_range.__set_columns_from_path({"1"});
     auto q_options = TQueryOptions();
     q_options.__set_enable_adjust_conjunct_order_by_cost(true);
     RuntimeState runtime_state = RuntimeState(q_options, TQueryGlobals());
@@ -961,21 +992,24 @@ TEST_F(ParquetReaderTest, only_partition_column) {
     p_reader->set_file_reader(reader);
     runtime_state.set_desc_tbl(desc_tbl);
 
-    phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
     auto conjuncts = create_only_partition_predicates(desc_tbl, &runtime_state);
     std::unordered_map<int, VExprContextSPtrs> slot_id_to_expr_ctxs;
     slot_id_to_expr_ctxs[0].emplace_back(conjuncts[0]);
 
     auto column_descs = to_column_descs(column_names);
-    st = p_reader->init_reader(column_descs, &col_name_to_block_idx, conjuncts, tmp, tuple_desc,
-                               nullptr, nullptr, nullptr, &slot_id_to_expr_ctxs);
+    ParquetInitContext pq_ctx;
+    pq_ctx.column_descs = &column_descs;
+    pq_ctx.col_name_to_block_idx = &col_name_to_block_idx;
+    pq_ctx.conjuncts = &conjuncts;
+    pq_ctx.tuple_descriptor = tuple_desc;
+    pq_ctx.slot_id_to_filter_conjuncts = &slot_id_to_expr_ctxs;
+    pq_ctx.params = &scan_params;
+    pq_ctx.range = &scan_range;
+    st = p_reader->init_reader(&pq_ctx);
     EXPECT_TRUE(st.ok()) << st;
 
-    std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
-            partition_columns;
-    partition_columns.emplace("part_col", std::make_tuple("1", tuple_desc->slots()[0]));
-    std::unordered_map<std::string, VExprContextSPtr> missing_columns;
-    p_reader->set_fill_column_data(partition_columns, missing_columns, &col_name_to_block_idx);
+    // Partition/missing column logic is now handled by on_before_init_reader
+    // via _extract_partition_values from scan_range.
 
     bool eof = false;
     size_t total_rows = 0;

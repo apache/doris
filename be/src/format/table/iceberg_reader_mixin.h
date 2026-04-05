@@ -483,8 +483,8 @@ Status IcebergReaderMixin<BaseReader>::_equality_delete_base(
             // Delete files have TFileRangeDesc.size=-1, which would cause
             // set_fill_columns to return EndOfFile("No row group to read")
             // when _filter_groups is true. Master passes filter_groups=false.
-            parquet_reader->set_filter_groups(false);
             ParquetInitContext eq_delete_ctx;
+            eq_delete_ctx.filter_groups = false;
             eq_delete_ctx.column_names = delete_col_names;
             eq_delete_ctx.col_name_to_block_idx = &delete_col_name_to_block_idx;
             auto st2 = parquet_reader->init_reader(&eq_delete_ctx);

@@ -31,7 +31,7 @@ Status TableFormatReader::_extract_partition_values(
         std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
                 partition_values) {
     partition_values.clear();
-    if (range.__isset.columns_from_path_keys) {
+    if (range.__isset.columns_from_path_keys && tuple_descriptor != nullptr) {
         std::unordered_map<std::string, const SlotDescriptor*> name_to_slot;
         for (auto* slot : tuple_descriptor->slots()) {
             name_to_slot[slot->col_name()] = slot;

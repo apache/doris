@@ -46,7 +46,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "format/column_descriptor.h"
-#include "format/column_processor.h"
+#include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_column_chunk_reader.h"
 #include "format/parquet/vparquet_reader.h"
 #include "io/fs/file_meta_cache.h"
@@ -109,23 +109,18 @@ protected:
 
         parquet_reader->set_file_reader(*file_reader);
 
-        phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> predicates;
-        st = parquet_reader->init_reader(delete_file_column_names,
-                                         &delete_file_col_name_to_block_idx, {}, predicates,
-                                         nullptr, nullptr, nullptr, nullptr, nullptr);
+        ParquetInitContext pq_ctx;
+        pq_ctx.column_names = delete_file_column_names;
+        pq_ctx.col_name_to_block_idx = &delete_file_col_name_to_block_idx;
+        pq_ctx.params = scan_params;
+        pq_ctx.range = scan_range;
+        st = parquet_reader->init_reader(&pq_ctx);
         EXPECT_TRUE(st.ok()) << st;
         if (!st.ok()) {
             return nullptr;
         }
 
-        std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
-                partition_columns;
-        std::unordered_map<std::string, VExprContextSPtr> missing_columns;
-        st = parquet_reader->set_fill_columns(partition_columns, missing_columns);
-        EXPECT_TRUE(st.ok()) << st;
-        if (!st.ok()) {
-            return nullptr;
-        }
+        // Partition/missing column logic is now inlined in _do_init_reader.
 
         *file_meta_data = parquet_reader->get_meta_data();
         return parquet_reader;
@@ -735,15 +730,11 @@ TEST_F(IcebergReaderTest, read_iceberg_parquet_file) {
     const TupleDescriptor* tuple_descriptor =
             create_tuple_descriptor(&desc_tbl, obj_pool, t_desc_table, t_table_desc);
 
-    VExprContextSPtrs conjuncts; // Empty conjuncts for this test
     std::vector<std::string> table_col_names = {"name", "profile"};
     std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {
             {"name", 0},
             {"profile", 1},
     };
-    const RowDescriptor* row_descriptor = nullptr;
-    const VExprContextSPtrs* not_single_slot_filter_conjuncts = nullptr;
-    const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts = nullptr;
 
     std::vector<ColumnDescriptor> column_descs;
     for (const auto& name : table_col_names) {
@@ -751,11 +742,13 @@ TEST_F(IcebergReaderTest, read_iceberg_parquet_file) {
         desc.name = name;
         column_descs.push_back(desc);
     }
-    phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
-    const std::unordered_map<std::string, int>* colname_to_slot_id = nullptr;
-    st = iceberg_reader->init_reader(column_descs, &col_name_to_block_idx, conjuncts, tmp,
-                                     tuple_descriptor, row_descriptor, colname_to_slot_id,
-                                     not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts);
+    ParquetInitContext pq_ctx;
+    pq_ctx.column_descs = &column_descs;
+    pq_ctx.col_name_to_block_idx = &col_name_to_block_idx;
+    pq_ctx.tuple_descriptor = tuple_descriptor;
+    pq_ctx.params = &scan_params;
+    pq_ctx.range = &scan_range;
+    st = iceberg_reader->init_reader(&pq_ctx);
     ASSERT_TRUE(st.ok()) << st;
 
     // set_fill_columns logic is now inlined in _do_init_reader,
@@ -868,15 +861,12 @@ TEST_F(IcebergReaderTest, read_iceberg_orc_file) {
     const TupleDescriptor* tuple_descriptor =
             create_tuple_descriptor(&desc_tbl, obj_pool, t_desc_table, t_table_desc);
 
-    VExprContextSPtrs conjuncts; // Empty conjuncts for this test
     std::vector<std::string> table_col_names = {"name", "profile"};
     const RowDescriptor* row_descriptor = nullptr;
     std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {
             {"name", 0},
             {"profile", 1},
     };
-    const VExprContextSPtrs* not_single_slot_filter_conjuncts = nullptr;
-    const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts = nullptr;
 
     std::vector<ColumnDescriptor> column_descs;
     for (const auto& name : table_col_names) {
@@ -884,9 +874,14 @@ TEST_F(IcebergReaderTest, read_iceberg_orc_file) {
         desc.name = name;
         column_descs.push_back(desc);
     }
-    st = iceberg_reader->init_reader(column_descs, &col_name_to_block_idx, conjuncts,
-                                     tuple_descriptor, row_descriptor,
-                                     not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts);
+    OrcInitContext orc_ctx;
+    orc_ctx.column_descs = &column_descs;
+    orc_ctx.col_name_to_block_idx = &col_name_to_block_idx;
+    orc_ctx.tuple_descriptor = tuple_descriptor;
+    orc_ctx.row_descriptor = row_descriptor;
+    orc_ctx.params = &scan_params;
+    orc_ctx.range = &scan_range;
+    st = iceberg_reader->init_reader(&orc_ctx);
     ASSERT_TRUE(st.ok()) << st;
 
     // set_fill_columns logic is now inlined in _do_init_reader,

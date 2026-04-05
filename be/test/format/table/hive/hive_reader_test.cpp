@@ -44,6 +44,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
 #include "io/fs/file_meta_cache.h"
 #include "io/fs/file_reader_writer_fwd.h"
@@ -557,20 +558,17 @@ TEST_F(HiveReaderTest, read_hive_parquet_file) {
             create_tuple_descriptor(&desc_tbl, obj_pool, t_desc_table, t_table_desc,
                                     table_column_names, table_column_positions, table_column_types);
 
-    VExprContextSPtrs conjuncts; // Empty conjuncts for this test
     std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {{"name", 0}, {"profile", 1}};
-    const RowDescriptor* row_descriptor = nullptr;
-    const std::unordered_map<std::string, int>* colname_to_slot_id = nullptr;
-    const VExprContextSPtrs* not_single_slot_filter_conjuncts = nullptr;
-    const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts = nullptr;
 
-    phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
     // Use the template method init_reader (inherited from ParquetReader)
     // on_before_init_columns hook in HiveParquetReader will do schema matching
-    st = hive_reader->_do_init_reader(table_column_names, &col_name_to_block_idx, conjuncts, tmp,
-                                      tuple_descriptor, row_descriptor, colname_to_slot_id,
-                                      not_single_slot_filter_conjuncts,
-                                      slot_id_to_filter_conjuncts);
+    ParquetInitContext pq_ctx;
+    pq_ctx.column_names = table_column_names;
+    pq_ctx.col_name_to_block_idx = &col_name_to_block_idx;
+    pq_ctx.tuple_descriptor = tuple_descriptor;
+    pq_ctx.params = &scan_params;
+    pq_ctx.range = &scan_range;
+    st = hive_reader->init_reader(&pq_ctx);
     ASSERT_TRUE(st.ok()) << st;
 
     // set_fill_columns logic is now inlined in _do_init_reader,
@@ -687,15 +685,15 @@ TEST_F(HiveReaderTest, read_hive_rrc_file) {
             create_tuple_descriptor(&desc_tbl, obj_pool, t_desc_table, t_table_desc,
                                     table_column_names, table_column_positions, table_column_types);
 
-    VExprContextSPtrs conjuncts; // Empty conjuncts for this test
     std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {{"name", 0}, {"profile", 1}};
-    const RowDescriptor* row_descriptor = nullptr;
-    const VExprContextSPtrs* not_single_slot_filter_conjuncts = nullptr;
-    const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts = nullptr;
 
-    st = hive_reader->_do_init_reader(
-            &table_column_names, &col_name_to_block_idx, conjuncts, tuple_descriptor,
-            row_descriptor, not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts);
+    OrcInitContext orc_ctx;
+    orc_ctx.column_names = table_column_names;
+    orc_ctx.col_name_to_block_idx = &col_name_to_block_idx;
+    orc_ctx.tuple_descriptor = tuple_descriptor;
+    orc_ctx.params = &scan_params;
+    orc_ctx.range = &scan_range;
+    st = hive_reader->init_reader(&orc_ctx);
     ASSERT_TRUE(st.ok()) << st;
 
     // set_fill_columns logic is now inlined in _do_init_reader,

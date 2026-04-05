@@ -535,18 +535,21 @@ Status OrcReader::_do_init_reader(ReaderInitContext* base_ctx) {
             _read_file_cols.emplace_back(file_column_name);
             _read_table_cols.emplace_back(table_column_name);
         }
-        // Register row-position-based synthesized column handler.
-        // _row_id_column_iterator_pair, _row_lineage_columns, and _iceberg_rowid_params
-        // are all set before init_reader by FileScanner.
-        if (_row_id_column_iterator_pair.first != nullptr || _iceberg_rowid_params.enabled ||
-            (_row_lineage_columns != nullptr &&
-             (_row_lineage_columns->need_row_ids() ||
-              _row_lineage_columns->has_last_updated_sequence_number_column()))) {
-            register_synthesized_column_handler(
-                    BeConsts::ROWID_COL, [this](Block* block, size_t rows) -> Status {
-                        return _fill_row_id_columns(block, _row_reader->getRowNumber());
-                    });
-        }
+    }
+
+    // Register row-position-based synthesized column handler.
+    // _row_id_column_iterator_pair, _row_lineage_columns, and _iceberg_rowid_params
+    // are all set before init_reader by FileScanner.
+    // This must be outside has_column_descs() guard because standalone readers
+    // (e.g., orc_read_lines tests) also use row_id columns.
+    if (_row_id_column_iterator_pair.first != nullptr || _iceberg_rowid_params.enabled ||
+        (_row_lineage_columns != nullptr &&
+         (_row_lineage_columns->need_row_ids() ||
+          _row_lineage_columns->has_last_updated_sequence_number_column()))) {
+        register_synthesized_column_handler(
+                BeConsts::ROWID_COL, [this](Block* block, size_t rows) -> Status {
+                    return _fill_row_id_columns(block, _row_reader->getRowNumber());
+                });
     }
 
     // Standalone callers (column_descs == nullptr) skip on_before_init_reader,
@@ -631,8 +634,11 @@ Status OrcReader::on_before_init_reader(ReaderInitContext* ctx) {
 
     // Build table_info_node from ORC file type with case-insensitive recursive matching.
     // _reader is available here because init_reader calls _create_file_reader() before this hook.
-    RETURN_IF_ERROR(TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_name(
-            ctx->tuple_descriptor, &_reader->getType(), ctx->table_info_node));
+    // tuple_descriptor may be null in unit tests that only set column_descs.
+    if (ctx->tuple_descriptor != nullptr) {
+        RETURN_IF_ERROR(TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_name(
+                ctx->tuple_descriptor, &_reader->getType(), ctx->table_info_node));
+    }
 
     return Status::OK();
 }

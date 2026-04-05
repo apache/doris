@@ -122,6 +122,7 @@ Status init_parquet_delete_reader(ParquetReader* reader, bool* dictionary_coded)
     ParquetInitContext ctx;
     ctx.column_names = DELETE_COL_NAMES;
     ctx.col_name_to_block_idx = &DELETE_COL_NAME_TO_BLOCK_IDX;
+    ctx.filter_groups = false;
     RETURN_IF_ERROR(reader->init_reader(&ctx));
 
     const tparquet::FileMetaData* meta_data = reader->get_meta_data();

@@ -135,8 +135,15 @@ static void read_orc_line(int64_t line, std::string block_dump,
                            tuple_desc->slots().size());
     reader->set_row_id_column_iterator(iterator_pair);
 
-    auto status = reader->_do_init_reader(&column_names, &col_name_to_block_idx, {}, tuple_desc,
-                                          &row_desc, nullptr, nullptr);
+    // Construct OrcInitContext for standalone reader (no column_descs).
+    OrcInitContext orc_ctx;
+    orc_ctx.column_names = column_names;
+    orc_ctx.col_name_to_block_idx = &col_name_to_block_idx;
+    orc_ctx.tuple_descriptor = tuple_desc;
+    orc_ctx.row_descriptor = &row_desc;
+    orc_ctx.params = &params;
+    orc_ctx.range = &range;
+    auto status = reader->init_reader(&orc_ctx);
 
     EXPECT_TRUE(status.ok());
 

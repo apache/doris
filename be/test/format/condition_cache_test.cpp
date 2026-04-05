@@ -370,7 +370,7 @@ TEST_F(CachePreAllocTest, ExtraElementDoesNotCauseIncorrectFiltering) {
 class MockFileFormatReader : public GenericReader {
 public:
     bool mock_has_deletes = false;
-    Status get_next_block(Block*, size_t*, bool*) override { return Status::OK(); }
+    Status _do_get_next_block(Block*, size_t*, bool*) override { return Status::OK(); }
     bool has_delete_operations() const override { return mock_has_deletes; }
 };
 // ============================================================

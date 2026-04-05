@@ -85,6 +85,7 @@ struct ParquetInitContext final : public ReaderInitContext {
     const std::unordered_map<std::string, int>* colname_to_slot_id = nullptr;
     const VExprContextSPtrs* not_single_slot_filter_conjuncts = nullptr;
     const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts = nullptr;
+    bool filter_groups = true;
 };
 
 class ParquetReader : public TableFormatReader {

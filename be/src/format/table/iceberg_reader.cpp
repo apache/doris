@@ -359,8 +359,8 @@ Status IcebergParquetReader::_read_position_delete_file(const TFileRangeDesc* de
     // The delete file range has size=-1 (read whole file). We must disable
     // row group filtering before init; otherwise _do_init_reader returns EndOfFile
     // when _filter_groups && _range_size < 0.
-    parquet_delete_reader.set_filter_groups(false);
     ParquetInitContext delete_ctx;
+    delete_ctx.filter_groups = false;
     delete_ctx.column_names = delete_file_col_names;
     delete_ctx.col_name_to_block_idx =
             const_cast<std::unordered_map<std::string, uint32_t>*>(&DELETE_COL_NAME_TO_BLOCK_IDX);
