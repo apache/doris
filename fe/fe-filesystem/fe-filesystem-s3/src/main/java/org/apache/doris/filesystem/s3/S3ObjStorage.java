@@ -68,6 +68,7 @@ import java.net.URI;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -103,6 +104,38 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
 
     /** Validity period for pre-signed URLs and STS tokens (seconds). */
     private static final int SESSION_EXPIRE_SECONDS = 3600;
+
+    /**
+     * Normalizes property keys to canonical AWS_* form so that callers using
+     * alternate key formats (e.g. "s3.access_key", "access_key") are treated
+     * identically to callers that already use canonical keys like "AWS_ACCESS_KEY".
+     *
+     * <p>Only adds a canonical entry when the canonical key is absent; explicit
+     * canonical values are never overridden.
+     */
+    static Map<String, String> normalizeProperties(Map<String, String> props) {
+        Map<String, String> result = new HashMap<>(props);
+        addIfAbsent(result, PROP_ACCESS_KEY, "s3.access_key", "access_key", "ACCESS_KEY");
+        addIfAbsent(result, PROP_SECRET_KEY, "s3.secret_key", "secret_key", "SECRET_KEY");
+        addIfAbsent(result, PROP_ENDPOINT, "s3.endpoint", "endpoint", "ENDPOINT");
+        addIfAbsent(result, PROP_REGION, "s3.region", "region", "REGION");
+        addIfAbsent(result, PROP_TOKEN, "s3.session_token", "session_token");
+        return result;
+    }
+
+    /** Copies the first non-null alias value into {@code canonicalKey} if not already present. */
+    private static void addIfAbsent(Map<String, String> map, String canonicalKey, String... aliases) {
+        if (map.containsKey(canonicalKey)) {
+            return;
+        }
+        for (String alias : aliases) {
+            String value = map.get(alias);
+            if (value != null) {
+                map.put(canonicalKey, value);
+                return;
+            }
+        }
+    }
 
     private final Map<String, String> properties;
     private final boolean usePathStyle;

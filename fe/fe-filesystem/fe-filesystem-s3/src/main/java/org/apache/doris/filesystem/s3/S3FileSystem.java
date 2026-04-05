@@ -130,6 +130,21 @@ public class S3FileSystem extends ObjFileSystem {
     }
 
     @Override
+    public List<FileEntry> listFiles(Location location) throws IOException {
+        // BrokerLoadPendingTask passes paths with glob characters (e.g. _*).
+        // S3 list-objects does not expand globs; reuse globListWithLimit for glob paths.
+        if (containsGlob(location.toString())) {
+            GlobListing listing = globListWithLimit(location, null, -1L, -1L);
+            return listing.getFiles();
+        }
+        return super.listFiles(location);
+    }
+
+    private static boolean containsGlob(String path) {
+        return path.contains("*") || path.contains("?") || path.contains("[") || path.contains("{");
+    }
+
+    @Override
     public DorisInputFile newInputFile(Location location) throws IOException {
         return new S3InputFile(location);
     }
@@ -372,6 +387,32 @@ public class S3FileSystem extends ObjFileSystem {
         return globPattern.substring(0, earliest);
     }
 
+    /**
+     * Expands {@code {N..M}} numeric range syntax in a glob pattern to the equivalent
+     * comma-separated alternation {@code {N,N+1,...,M}} that Java's PathMatcher understands.
+     * For example, {@code data_{1..3}.csv} becomes {@code data_{1,2,3}.csv}.
+     */
+    private static String expandNumericRanges(String pattern) {
+        java.util.regex.Pattern p = java.util.regex.Pattern.compile("\\{(\\d+)\\.\\.(\\d+)\\}");
+        java.util.regex.Matcher m = p.matcher(pattern);
+        StringBuffer sb = new StringBuffer();
+        while (m.find()) {
+            int from = Integer.parseInt(m.group(1));
+            int to = Integer.parseInt(m.group(2));
+            StringBuilder expansion = new StringBuilder("{");
+            for (int i = from; i <= to; i++) {
+                if (i > from) {
+                    expansion.append(',');
+                }
+                expansion.append(i);
+            }
+            expansion.append('}');
+            m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(expansion.toString()));
+        }
+        m.appendTail(sb);
+        return sb.toString();
+    }
+
     @Override
     public GlobListing globListWithLimit(Location path, String startAfter, long maxBytes,
             long maxFiles) throws IOException {
@@ -383,9 +424,10 @@ public class S3FileSystem extends ObjFileSystem {
         String bucket = firstSlash >= 0 ? bucketAndKey.substring(0, firstSlash) : bucketAndKey;
         String keyPattern = firstSlash >= 0 ? bucketAndKey.substring(firstSlash + 1) : "";
 
-        java.nio.file.Path pathPattern = Paths.get(keyPattern);
+        String expandedKeyPattern = expandNumericRanges(keyPattern);
+        java.nio.file.Path pathPattern = Paths.get(expandedKeyPattern);
         PathMatcher matcher = FileSystems.getDefault().getPathMatcher("glob:" + pathPattern);
-        String listPrefix = longestNonGlobPrefix(keyPattern);
+        String listPrefix = longestNonGlobPrefix(expandedKeyPattern);
 
         S3ObjStorage s3 = (S3ObjStorage) objStorage;
         ListObjectsV2Request.Builder reqBuilder = ListObjectsV2Request.builder()

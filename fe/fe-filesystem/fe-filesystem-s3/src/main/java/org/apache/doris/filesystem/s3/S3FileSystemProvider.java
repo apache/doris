@@ -36,9 +36,10 @@ public class S3FileSystemProvider implements FileSystemProvider {
 
     @Override
     public boolean supports(Map<String, String> properties) {
-        String accessKey = properties.get(S3ObjStorage.PROP_ACCESS_KEY);
-        String endpoint = properties.get(S3ObjStorage.PROP_ENDPOINT);
-        String region = properties.get(S3ObjStorage.PROP_REGION);
+        Map<String, String> normalized = S3ObjStorage.normalizeProperties(properties);
+        String accessKey = normalized.get(S3ObjStorage.PROP_ACCESS_KEY);
+        String endpoint = normalized.get(S3ObjStorage.PROP_ENDPOINT);
+        String region = normalized.get(S3ObjStorage.PROP_REGION);
         // Require access key + (endpoint or region)
         return accessKey != null && !accessKey.isEmpty()
                 && (endpoint != null || region != null);
@@ -46,7 +47,8 @@ public class S3FileSystemProvider implements FileSystemProvider {
 
     @Override
     public FileSystem create(Map<String, String> properties) throws IOException {
-        S3ObjStorage storage = new S3ObjStorage(properties);
+        Map<String, String> normalized = S3ObjStorage.normalizeProperties(properties);
+        S3ObjStorage storage = new S3ObjStorage(normalized);
         return new S3FileSystem(storage);
     }
 

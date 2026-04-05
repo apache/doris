@@ -95,10 +95,15 @@ public class DFSFileSystem implements org.apache.doris.filesystem.FileSystem {
                 // injects NullScanFileSystem which is not a subtype of the plugin's
                 // FileSystem class, causing a ServiceConfigurationError that prevents HDFS
                 // from being registered and leads to "No FileSystem for scheme 'hdfs'".
+                // For other schemes (jfs, ofs, oss, etc.) the parent FE classloader must
+                // remain accessible so third-party drivers can be found.
                 ClassLoader pluginCL = DFSFileSystem.class.getClassLoader();
                 Thread currentThread = Thread.currentThread();
                 ClassLoader previousCCL = currentThread.getContextClassLoader();
-                currentThread.setContextClassLoader(pluginCL);
+                String scheme = path.toUri().getScheme();
+                boolean needPluginCL = "hdfs".equalsIgnoreCase(scheme)
+                        || "viewfs".equalsIgnoreCase(scheme);
+                currentThread.setContextClassLoader(needPluginCL ? pluginCL : previousCCL);
                 try {
                     fs = authenticator.doAs(
                             () -> org.apache.hadoop.fs.FileSystem.get(path.toUri(), conf));
@@ -178,6 +183,32 @@ public class DFSFileSystem implements org.apache.doris.filesystem.FileSystem {
     }
 
     @Override
+    public List<FileEntry> listFiles(Location location) throws IOException {
+        String locationStr = location.toString();
+        // BrokerLoadPendingTask passes paths with glob characters (e.g. _*).
+        // Hadoop's listStatusIterator does not expand globs; use globStatus instead.
+        if (containsGlob(locationStr)) {
+            Path path = new Path(locationStr);
+            FileStatus[] statuses = authenticator.doAs(() -> getHadoopFs(path).globStatus(path));
+            List<FileEntry> result = new ArrayList<>();
+            if (statuses != null) {
+                for (FileStatus s : statuses) {
+                    if (!s.isDirectory()) {
+                        result.add(new FileEntry(Location.of(s.getPath().toString()),
+                                s.getLen(), false, s.getModificationTime(), null));
+                    }
+                }
+            }
+            return result;
+        }
+        return org.apache.doris.filesystem.FileSystem.super.listFiles(location);
+    }
+
+    private static boolean containsGlob(String path) {
+        return path.contains("*") || path.contains("?") || path.contains("[");
+    }
+
+    @Override
     public FileIterator list(Location location) throws IOException {
         Path path = new Path(location.toString());
         org.apache.hadoop.fs.RemoteIterator<FileStatus> it =
@@ -210,7 +241,11 @@ public class DFSFileSystem implements org.apache.doris.filesystem.FileSystem {
                     break;
                 }
                 if (!status.isDirectory()) {
-                    files.add(new FileEntry(Location.of(status.getPath().toUri().toString()),
+                    // Use Path.toString() (not toUri().toString()) to avoid double URL-encoding.
+                    // Hadoop may return paths with percent-encoded characters (e.g., %3A for colons
+                    // in Hive timestamp partition values). toUri().toString() would re-encode the %
+                    // to %25, producing broken paths like pt7=2024-04-09%2012%253A34%253A56.
+                    files.add(new FileEntry(Location.of(status.getPath().toString()),
                             status.getLen(), false, status.getModificationTime(), null));
                     totalBytes += status.getLen();
                 }
