@@ -51,15 +51,23 @@ public class FileSystemPluginManager {
 
     private static final Logger LOG = LogManager.getLogger(FileSystemPluginManager.class);
 
-    // software.amazon.awssdk must be parent-first so that all AWS SDK classes
-    // (including ExecutionInterceptor from awssdk:core) are loaded by a single
-    // ClassLoader. Without this, the plugin's child-first loader loads its own
-    // awssdk:core copy, while the FE core ClassLoader's s3-transfer-manager SPI
-    // registers ApplyUserAgentInterceptor against the parent's ExecutionInterceptor.
-    // The resulting cross-ClassLoader isAssignableFrom check fails with:
+    // Hadoop and AWS SDK classes must be parent-first so that all instances of
+    // shared interfaces/classes are loaded by a single ClassLoader.
+    //
+    // Without parent-first for org.apache.hadoop.*:
+    //   The plugin's child-first loader loads its own copy of RpcEngine (an interface
+    //   in hadoop-common), while ProtobufRpcEngine2 (which implements RpcEngine) is
+    //   already loaded by the parent app ClassLoader. A cross-ClassLoader cast then
+    //   fails with: "ProtobufRpcEngine2 cannot be cast to RpcEngine".
+    //
+    // Without parent-first for software.amazon.awssdk.*:
+    //   The plugin's child-first loader loads its own awssdk:core copy, while the
+    //   FE core ClassLoader's s3-transfer-manager SPI registers
+    //   ApplyUserAgentInterceptor against the parent's ExecutionInterceptor.
+    //   The resulting cross-ClassLoader isAssignableFrom check fails with:
     //   "ApplyUserAgentInterceptor does not implement ExecutionInterceptor API"
     private static final List<String> FS_PARENT_FIRST_PREFIXES =
-            Arrays.asList("org.apache.doris.filesystem.", "software.amazon.awssdk.");
+            Arrays.asList("org.apache.doris.filesystem.", "software.amazon.awssdk.", "org.apache.hadoop.");
 
     private final List<FileSystemProvider> providers = new CopyOnWriteArrayList<>();
     private final DirectoryPluginRuntimeManager<FileSystemProvider> runtimeManager =
