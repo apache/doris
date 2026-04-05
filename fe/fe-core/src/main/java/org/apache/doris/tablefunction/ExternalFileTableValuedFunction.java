@@ -166,14 +166,13 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             }
             try (org.apache.doris.filesystem.FileSystem fs = FileSystemFactory.getFileSystem(brokerDesc)) {
                 List<FileEntry> entries;
-                if (hasGlobPattern(path)) {
-                    try {
-                        entries = fs.globListWithLimit(Location.of(path), "", 0, 0).getFiles();
-                    } catch (UnsupportedOperationException ex) {
-                        // fall back to non-glob listing for filesystems without glob support
-                        entries = fs.listFiles(Location.of(path));
-                    }
-                } else {
+                // Always prefer glob semantics: for exact paths it ensures precise matching
+                // (prevents S3 prefix-based listing from including unintended files like
+                // "file.csv.bz2" when listing "file.csv"). Fall back to listFiles only
+                // when the filesystem does not support glob.
+                try {
+                    entries = fs.globListWithLimit(Location.of(path), "", 0, 0).getFiles();
+                } catch (UnsupportedOperationException ex) {
                     entries = fs.listFiles(Location.of(path));
                 }
                 for (FileEntry e : entries) {
@@ -193,10 +192,6 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         }
     }
 
-    private static boolean hasGlobPattern(String path) {
-        return path.indexOf('*') >= 0 || path.indexOf('?') >= 0
-                || path.indexOf('[') >= 0 || path.indexOf('{') >= 0;
-    }
 
     // The keys in properties map need to be lowercase.
     protected Map<String, String> parseCommonProperties(Map<String, String> properties) throws AnalysisException {

@@ -26,6 +26,7 @@ import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.GlobListing;
 import org.apache.doris.filesystem.Location;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.load.BrokerFileGroup;
@@ -100,7 +101,19 @@ public class BrokerLoadPendingTask extends LoadTask {
                     List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
                     for (String path : fileGroup.getFilePaths()) {
                         try (FileSystem fs = FileSystemFactory.getFileSystem(brokerDesc)) {
-                            for (FileEntry e : fs.listFiles(Location.of(path))) {
+                            // Use glob semantics (matching the old BrokerUtil.parseFile/globList behavior):
+                            // exact paths match only that file, glob patterns expand.
+                            // Plain listFiles uses S3 prefix matching which can return unintended
+                            // prefix-siblings (e.g. "file.csv.bz2" when listing "file.csv").
+                            List<FileEntry> entries;
+                            try {
+                                GlobListing listing = fs.globListWithLimit(
+                                        Location.of(path), null, 0, 0);
+                                entries = listing.getFiles();
+                            } catch (UnsupportedOperationException ex) {
+                                entries = fs.listFiles(Location.of(path));
+                            }
+                            for (FileEntry e : entries) {
                                 fileStatuses.add(new TBrokerFileStatus(
                                         e.location().uri(), e.isDirectory(), e.length(), !e.isDirectory()));
                             }

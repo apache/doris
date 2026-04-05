@@ -399,12 +399,15 @@ public class S3FileSystem extends ObjFileSystem {
         while (m.find()) {
             int from = Integer.parseInt(m.group(1));
             int to = Integer.parseInt(m.group(2));
+            int step = from <= to ? 1 : -1;
             StringBuilder expansion = new StringBuilder("{");
-            for (int i = from; i <= to; i++) {
-                if (i > from) {
+            boolean first = true;
+            for (int i = from; step > 0 ? i <= to : i >= to; i += step) {
+                if (!first) {
                     expansion.append(',');
                 }
                 expansion.append(i);
+                first = false;
             }
             expansion.append('}');
             m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(expansion.toString()));

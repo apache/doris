@@ -30,6 +30,7 @@ import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.core.exception.SdkException;
 import software.amazon.awssdk.http.urlconnection.UrlConnectionHttpClient;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -144,9 +145,12 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     private volatile S3Client client;
 
     public S3ObjStorage(Map<String, String> properties) {
-        this.properties = Collections.unmodifiableMap(properties);
-        this.usePathStyle = Boolean.parseBoolean(properties.getOrDefault(PROP_PATH_STYLE, "false"));
-        this.bucket = properties.get(PROP_BUCKET);
+        // Always normalize so that subclasses (OssObjStorage, CosObjStorage, etc.)
+        // which pass s3.* property keys also get them mapped to canonical AWS_* form.
+        Map<String, String> normalized = normalizeProperties(properties);
+        this.properties = Collections.unmodifiableMap(normalized);
+        this.usePathStyle = Boolean.parseBoolean(normalized.getOrDefault(PROP_PATH_STYLE, "false"));
+        this.bucket = normalized.get(PROP_BUCKET);
     }
 
     @Override
@@ -237,7 +241,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                     .collect(Collectors.toList());
             return new RemoteObjects(objects, response.isTruncated(),
                     response.nextContinuationToken());
-        } catch (S3Exception e) {
+        } catch (SdkException e) {
             throw new IOException("Failed to list objects at " + remotePath + ": " + e.getMessage(), e);
         }
     }
@@ -262,6 +266,8 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                 throw new FileNotFoundException("Object not found: " + remotePath);
             }
             throw new IOException("headObject failed for " + remotePath + ": " + e.getMessage(), e);
+        } catch (SdkException e) {
+            throw new IOException("headObject failed for " + remotePath + ": " + e.getMessage(), e);
         }
     }
 
@@ -274,7 +280,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                     PutObjectRequest.builder().bucket(uri.bucket()).key(uri.key()).build(),
                     software.amazon.awssdk.core.sync.RequestBody.fromInputStream(
                             content, requestBody.contentLength()));
-        } catch (S3Exception e) {
+        } catch (SdkException e) {
             throw new IOException("putObject failed for " + remotePath + ": " + e.getMessage(), e);
         }
     }
@@ -290,6 +296,8 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                 return; // already deleted
             }
             throw new IOException("deleteObject failed for " + remotePath + ": " + e.getMessage(), e);
+        } catch (SdkException e) {
+            throw new IOException("deleteObject failed for " + remotePath + ": " + e.getMessage(), e);
         }
     }
 
@@ -303,7 +311,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                     .destinationBucket(dstUri.bucket())
                     .destinationKey(dstUri.key())
                     .build());
-        } catch (S3Exception e) {
+        } catch (SdkException e) {
             throw new IOException("copyObject from " + srcPath + " to " + dstPath
                     + " failed: " + e.getMessage(), e);
         }
@@ -316,7 +324,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             CreateMultipartUploadResponse response = getClient().createMultipartUpload(
                     CreateMultipartUploadRequest.builder().bucket(uri.bucket()).key(uri.key()).build());
             return response.uploadId();
-        } catch (S3Exception e) {
+        } catch (SdkException e) {
             throw new IOException("initiateMultipartUpload failed for " + remotePath
                     + ": " + e.getMessage(), e);
         }
@@ -336,7 +344,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                     software.amazon.awssdk.core.sync.RequestBody.fromInputStream(
                             content, body.contentLength()));
             return new UploadPartResult(partNum, response.eTag());
-        } catch (S3Exception e) {
+        } catch (SdkException e) {
             throw new IOException("uploadPart " + partNum + " failed for " + remotePath
                     + ": " + e.getMessage(), e);
         }
@@ -354,7 +362,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                     .bucket(uri.bucket()).key(uri.key()).uploadId(uploadId)
                     .multipartUpload(CompletedMultipartUpload.builder().parts(completedParts).build())
                     .build());
-        } catch (S3Exception e) {
+        } catch (SdkException e) {
             throw new IOException("completeMultipartUpload failed for " + remotePath
                     + ": " + e.getMessage(), e);
         }
@@ -366,7 +374,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         try {
             getClient().abortMultipartUpload(AbortMultipartUploadRequest.builder()
                     .bucket(uri.bucket()).key(uri.key()).uploadId(uploadId).build());
-        } catch (S3Exception e) {
+        } catch (SdkException e) {
             LOG.warn("abortMultipartUpload failed for {}: {}", remotePath, e.getMessage());
         }
     }
@@ -381,7 +389,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                     GetObjectRequest.builder().bucket(uri.bucket()).key(uri.key()).build());
         } catch (NoSuchKeyException e) {
             throw new FileNotFoundException("Object not found: " + remotePath);
-        } catch (S3Exception e) {
+        } catch (SdkException e) {
             throw new IOException("getObject failed for " + remotePath + ": " + e.getMessage(), e);
         }
     }
@@ -400,7 +408,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             return getClient().getObject(req.build());
         } catch (NoSuchKeyException e) {
             throw new FileNotFoundException("Object not found: " + remotePath);
-        } catch (S3Exception e) {
+        } catch (SdkException e) {
             throw new IOException("getObject failed for " + remotePath + ": " + e.getMessage(), e);
         }
     }
@@ -416,7 +424,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             return resp.lastModified() != null ? resp.lastModified().toEpochMilli() : 0L;
         } catch (NoSuchKeyException e) {
             throw new FileNotFoundException("Object not found: " + remotePath);
-        } catch (S3Exception e) {
+        } catch (SdkException e) {
             throw new IOException("headObject failed for " + remotePath + ": " + e.getMessage(), e);
         }
     }
@@ -481,7 +489,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                     .collect(Collectors.toList());
             return new RemoteObjects(files, resp.isTruncated(),
                     resp.isTruncated() ? resp.nextContinuationToken() : null);
-        } catch (S3Exception e) {
+        } catch (SdkException e) {
             LOG.warn("Failed to listObjectsWithPrefix, fullPrefix={}", fullPrefix, e);
             throw new IOException("Failed to listObjectsWithPrefix: " + e.getMessage(), e);
         }
@@ -504,7 +512,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         } catch (NoSuchKeyException e) {
             LOG.warn("Key not found in headObjectWithMeta, key={}", fullKey);
             return new RemoteObjects(Collections.emptyList(), false, null);
-        } catch (S3Exception e) {
+        } catch (SdkException e) {
             LOG.warn("Failed to headObjectWithMeta, key={}", fullKey, e);
             throw new IOException("Failed to headObjectWithMeta: " + e.getMessage(), e);
         }
@@ -534,7 +542,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                 LOG.info("Generated S3 presigned URL for key={}", objectKey);
                 return presigned.url().toString();
             }
-        } catch (S3Exception e) {
+        } catch (SdkException e) {
             LOG.warn("Failed to generate S3 presigned URL for key={}", objectKey, e);
             throw new IOException("Failed to generate S3 presigned URL: " + e.getMessage(), e);
         }
