@@ -104,6 +104,10 @@ public abstract class Replica {
     @Getter
     @SerializedName(value = "lss", alternate = {"localSegmentSize"})
     private long localSegmentSize = 0L;
+    @SerializedName(value = "sc")
+    private long segmentCount = 0L;
+    @SerializedName(value = "rsc")
+    private long rowsetCount = 0L;
 
     public Replica() {
     }
@@ -226,23 +230,19 @@ public abstract class Replica {
     }
 
     public long getSegmentCount() {
-        return 0;
+        return segmentCount;
     }
 
     public void setSegmentCount(long segmentCount) {
-        if (segmentCount > 0) {
-            throw new UnsupportedOperationException("setSegmentCount is not supported in Replica");
-        }
+        this.segmentCount = segmentCount;
     }
 
     public long getRowsetCount() {
-        return 0;
+        return rowsetCount;
     }
 
     public void setRowsetCount(long rowsetCount) {
-        if (rowsetCount > 0) {
-            throw new UnsupportedOperationException("setRowsetCount is not supported in Replica");
-        }
+        this.rowsetCount = rowsetCount;
     }
 
     public long getLastFailedVersion() {
