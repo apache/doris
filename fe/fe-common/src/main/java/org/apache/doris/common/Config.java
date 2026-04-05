@@ -3942,4 +3942,20 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, description = {"是否允许获取hdfs的文件元数据信息时不携带block的位置信息",
         "whether to enable list hdfs files without block locations"})
     public static boolean enable_list_hdfs_files_without_block_locations = true;
+
+    @ConfField(mutable = true, description = {"单个lakehouse表能扫描的最大分区数量",
+        "max selected partition num for single lakehouse table"})
+    public static int max_selected_partition_num_for_lakehouse_table = 3000;
+
+    @ConfField(mutable = true, description = {"单个hive表能扫描的最大文件数量",
+        "max selected file number for single hive table"})
+    public static long max_selected_total_file_num_for_hive_table = 50000L;
+
+    @ConfField(mutable = true, description = {"单个hms表能扫描的最大分片数量",
+        "max selected split number for single hms table"})
+    public static long max_selected_total_split_num_for_hms_table = 300000L;
+
+    @ConfField(mutable = true, description = {"hive表使用分区缓存的最大分区数量",
+        "max partition num for hive table with partition cache"})
+    public static int max_partition_num_for_hive_table_with_partition_cache = 3000;
 }

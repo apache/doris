@@ -23,10 +23,26 @@ public class AutoCloseConnectContext implements AutoCloseable {
 
     private final ConnectContext previousContext;
 
+    private final BDPAuthContext previousBDPAuthContext;
+
     public AutoCloseConnectContext(ConnectContext connectContext) {
         this.previousContext = ConnectContext.get();
         this.connectContext = connectContext;
+        if (this.previousContext != null) {
+            this.previousBDPAuthContext = this.previousContext.getBdpAuthContext();
+        } else {
+            this.previousBDPAuthContext = null;
+        }
         connectContext.setThreadLocalInfo();
+    }
+
+    public AutoCloseConnectContext(ConnectContext connectContext, BDPAuthContext authContext) {
+        this.previousContext = ConnectContext.get();
+        this.previousBDPAuthContext = BDPAuthContext.get();
+        this.connectContext = connectContext;
+        this.connectContext.setBdpAuthContext(authContext);
+        connectContext.setThreadLocalInfo();
+        authContext.setThreadLocalInfo();
     }
 
     public void call() {

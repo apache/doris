@@ -113,7 +113,7 @@ public class HiveMetaStoreCache {
     // cache from <dbname-tblname> -> <num of partitions>
     private LoadingCache<PartitionNumCacheKey, Integer> partitionNumCache;
     // cache from <dbname-tblname-filter> -> <values of partitions>
-    private LoadingCache<FilterPartitionValueCacheKey, Map<Long, PartitionItem>> filterPartitionValuesCache;
+    private LoadingCache<FilterPartitionValueCacheKey, Map<String, PartitionItem>> filterPartitionValuesCache;
     // cache from <dbname-tblname> -> <values of partitions>
     private LoadingCache<PartitionValueCacheKey, HivePartitionValues> partitionValuesCache;
     // cache from <dbname-tblname-partition_values> -> <partition info>
@@ -330,13 +330,13 @@ public class HiveMetaStoreCache {
                 key.nameMapping.getRemoteTblName(), "");
     }
 
-    private Map<Long, PartitionItem> loadFilterPartitionValues(FilterPartitionValueCacheKey key) {
+    private Map<String, PartitionItem> loadFilterPartitionValues(FilterPartitionValueCacheKey key) {
         Preconditions.checkNotNull(BDPAuthContext.get(), "bdp auth info cannot be null");
         List<Partition> partitions = key.viewBased ? catalog.getClient().listPartitionsByFilterFromView(
                 key.nameMapping.getRemoteDbName(), key.nameMapping.getRemoteTblName(), key.filter, (short) -1)
                 : catalog.getClient().listPartitionsByFilter(
                 key.nameMapping.getRemoteDbName(), key.nameMapping.getRemoteTblName(), key.filter, (short) -1);
-        Map<Long, PartitionItem> idToPartitionItem = Maps.newHashMapWithExpectedSize(partitions.size());
+        Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMapWithExpectedSize(partitions.size());
         for (Partition partition : partitions) {
             List<PartitionValue> values = Lists.newArrayListWithExpectedSize(key.types.size());
             for (String partitionValue : partition.getValues()) {
@@ -347,18 +347,16 @@ public class HiveMetaStoreCache {
                 String partitionName = IntStream.range(0, key.partitionColumnNames.size())
                         .mapToObj(i -> key.partitionColumnNames.get(i) + "=" + values.get(i).getStringValue())
                         .collect(Collectors.joining("/"));
-                long partitionId = Util.genIdByName(catalog.getName(), key.nameMapping.getLocalDbName(),
-                        key.nameMapping.getLocalTblName(), partitionName);
-                idToPartitionItem.put(partitionId, new ListPartitionItem(Lists.newArrayList(partitionKey)));
+                nameToPartitionItem.put(partitionName, new ListPartitionItem(Lists.newArrayList(partitionKey)));
             } catch (AnalysisException e) {
                 throw new CacheException("failed to convert hive partition %s to list partition in catalog %s",
                     e, partition.getValues(), catalog.getName());
             }
         }
-        return idToPartitionItem;
+        return nameToPartitionItem;
     }
 
-    public Map<Long, PartitionItem> getPartitionValuesByFilter(ExternalTable dorisTable, String filter,
+    public Map<String, PartitionItem> getPartitionValuesByFilter(ExternalTable dorisTable, String filter,
                                                                List<String> partitionColumnNames, List<Type> types) {
         Preconditions.checkNotNull(BDPAuthContext.get(), "bdp auth info cannot be null");
         FilterPartitionValueCacheKey key = new FilterPartitionValueCacheKey(BDPAuthContext.get().getHadoopUserName(),
@@ -367,7 +365,7 @@ public class HiveMetaStoreCache {
         return getFilterPartitionValues(key);
     }
 
-    public Map<Long, PartitionItem> getFilterPartitionValues(FilterPartitionValueCacheKey key) {
+    public Map<String, PartitionItem> getFilterPartitionValues(FilterPartitionValueCacheKey key) {
         return filterPartitionValuesCache.get(key);
     }
 
@@ -520,6 +518,14 @@ public class HiveMetaStoreCache {
         } finally {
             Thread.currentThread().setContextClassLoader(classLoader);
         }
+    }
+
+    public HivePartitionValues getPartitionValuesWithoutCache(ExternalTable dorisTable, List<Type> types) {
+        BDPAuthContext bdpAuthContext = BDPAuthContext.get();
+        Preconditions.checkNotNull(bdpAuthContext, "bdp auth info cannot be null");
+        PartitionValueCacheKey key = new PartitionValueCacheKey(bdpAuthContext.getHadoopUserName(),
+                dorisTable.getOrBuildNameMapping(), types, ((HMSExternalTable) dorisTable).isViewBased());
+        return loadPartitionValues(key);
     }
 
     public HivePartitionValues getPartitionValues(ExternalTable dorisTable, List<Type> types) {

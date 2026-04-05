@@ -380,6 +380,10 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         return initSchema().map(SchemaCacheValue::getSchema).orElse(null);
     }
 
+    public List<Type> getPartitionColumnTypes() {
+        return getPartitionColumnTypes(MvccUtil.getSnapshotFromContext(this));
+    }
+
     public List<Type> getPartitionColumnTypes(Optional<MvccSnapshot> snapshot) {
         makeSureInitialized();
         if (getDlaType() == DLAType.HUDI) {

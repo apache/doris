@@ -97,7 +97,7 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     protected PartitionInfo partitionsInfo = null;
     protected SplitAssignment splitAssignment = null;
 
-    protected long selectedPartitionNum = 0;
+    protected int selectedPartitionNum = 0;
     protected int selectedSplitNum = 0;
 
     // create a mapping between output slot's id and project expr

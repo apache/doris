@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ExpectsInputTypes;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -106,10 +107,8 @@ public abstract class CompoundPredicate extends Expression implements ExpectsInp
 
     @Override
     public String computeToSql() {
-        StringBuilder sb = new StringBuilder();
-        children().forEach(c -> sb.append(c.toSql()).append(","));
-        sb.deleteCharAt(sb.length() - 1);
-        return symbol + "[" + sb + "]";
+        return "(" + children().stream().map(Expression::computeToSql)
+                .collect(Collectors.joining(" " + symbol + " ")) + ")";
     }
 
     @Override
@@ -122,12 +121,8 @@ public abstract class CompoundPredicate extends Expression implements ExpectsInp
 
     @Override
     public String toDigest() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("(");
-        sb.append(children().stream().map(c -> c.toDigest())
-                .collect(Collectors.joining(" " + symbol + " ")));
-        sb.append(")");
-        return sb.toString();
+        return "(" + children().stream().map(TreeNode::toDigest)
+                .collect(Collectors.joining(" " + symbol + " ")) + ")";
     }
 
     @Override

@@ -2398,6 +2398,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             if (request.isSetBdpAuthContext()) {
                 BDPAuthContext bdpAuthContext = new BDPAuthContext(request.getBdpAuthContext());
                 bdpAuthContext.setThreadLocalInfo();
+                ConnectContext connectContext = new ConnectContext();
+                connectContext.setThreadLocalInfo();
+                String hadoopUserName = bdpAuthContext.getHadoopUserName();
+                if (hadoopUserName.endsWith("$")) {
+                    hadoopUserName = hadoopUserName.substring(0, hadoopUserName.length() - 1);
+                    bdpAuthContext.setHadoopUserName(hadoopUserName);
+                    connectContext.setViewBased(true);
+                }
             }
             if (!request.isSetSchemaTableName()) {
                 return MetadataGenerator.errorResult("Fetch schema table name is not set");
@@ -2415,6 +2423,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } finally {
             if (request.isSetBdpAuthContext()) {
                 BDPAuthContext.clear();
+                ConnectContext.remove();
             }
         }
     }

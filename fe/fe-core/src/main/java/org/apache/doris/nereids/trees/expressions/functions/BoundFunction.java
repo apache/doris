@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
@@ -91,6 +92,9 @@ public abstract class BoundFunction extends Function implements ComputeSignature
         int arity = arity();
         for (int i = 0; i < arity; i++) {
             Expression arg = child(i);
+            if (arg instanceof Alias) {
+                arg = arg.child(0);
+            }
             sql.append(arg.toSql());
             if (i + 1 < arity) {
                 sql.append(", ");

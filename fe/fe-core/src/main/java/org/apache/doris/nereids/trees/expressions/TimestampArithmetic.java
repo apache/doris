@@ -142,7 +142,8 @@ public class TimestampArithmetic extends Expression
         if (funcName != null) {
             // Function-call like version.
             strBuilder.append(funcName).append("(");
-            strBuilder.append(child(0).toSql()).append(", ");
+            strBuilder.append(child(0) instanceof Alias
+                ? child(0).child(0).toSql() : child(0).toSql()).append(", ");
             strBuilder.append("INTERVAL ");
             strBuilder.append(child(1).toSql());
             strBuilder.append(" ").append(timeUnit);
@@ -150,7 +151,8 @@ public class TimestampArithmetic extends Expression
             return strBuilder.toString();
         }
         // Non-function-call like version with interval as second operand.
-        strBuilder.append(child(0).toSql());
+        strBuilder.append(child(0) instanceof Alias
+                ? child(0).child(0).toSql() : child(0).toSql());
         strBuilder.append(" ").append(op.toString()).append(" ");
         strBuilder.append("INTERVAL ");
         strBuilder.append(child(1).toSql()).append(" ");

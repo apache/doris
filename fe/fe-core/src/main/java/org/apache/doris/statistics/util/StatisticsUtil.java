@@ -67,6 +67,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.AutoCloseConnectContext;
+import org.apache.doris.qe.BDPAuthContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.QueryState;
@@ -210,7 +211,15 @@ public class StatisticsUtil {
         return PartitionColumnStatistic.fromResultRow(resultBatches);
     }
 
+    public static AutoCloseConnectContext buildConnectContext(BDPAuthContext authContext) {
+        return buildConnectContext(false, authContext);
+    }
+
     public static AutoCloseConnectContext buildConnectContext(boolean useFileCacheForStat) {
+        return buildConnectContext(useFileCacheForStat, null);
+    }
+
+    public static AutoCloseConnectContext buildConnectContext(boolean useFileCacheForStat, BDPAuthContext authContext) {
         ConnectContext connectContext = new ConnectContext();
         connectContext.getState().setInternal(true);
         SessionVariable sessionVariable = connectContext.getSessionVariable();
@@ -236,8 +245,9 @@ public class StatisticsUtil {
         connectContext.setDatabase(FeConstants.INTERNAL_DB_NAME);
         connectContext.setCurrentUserIdentity(UserIdentity.ADMIN);
         connectContext.setStartTime();
+        AutoCloseConnectContext ctx = authContext == null ? new AutoCloseConnectContext(connectContext)
+                : new AutoCloseConnectContext(connectContext, authContext);
         if (Config.isCloudMode()) {
-            AutoCloseConnectContext ctx = new AutoCloseConnectContext(connectContext);
             try {
                 ctx.connectContext.getCloudCluster();
             } catch (ComputeGroupException e) {
@@ -247,7 +257,7 @@ public class StatisticsUtil {
             sessionVariable.disableFileCache = !useFileCacheForStat;
             return ctx;
         } else {
-            return new AutoCloseConnectContext(connectContext);
+            return ctx;
         }
     }
 

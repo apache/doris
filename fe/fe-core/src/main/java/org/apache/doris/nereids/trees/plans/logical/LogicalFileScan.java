@@ -217,7 +217,7 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         /**
          * total partition number
          */
-        public final long totalPartitionNum;
+        public final int totalPartitionNum;
         /**
          * partition name -> partition item
          */
@@ -231,7 +231,7 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         /**
          * Constructor for SelectedPartitions.
          */
-        public SelectedPartitions(long totalPartitionNum, Map<String, PartitionItem> selectedPartitions,
+        public SelectedPartitions(int totalPartitionNum, Map<String, PartitionItem> selectedPartitions,
                 boolean isPruned) {
             this.totalPartitionNum = totalPartitionNum;
             this.selectedPartitions = ImmutableMap.copyOf(Objects.requireNonNull(selectedPartitions,

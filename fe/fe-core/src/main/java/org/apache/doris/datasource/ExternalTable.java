@@ -32,6 +32,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
+import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
@@ -416,6 +417,10 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
             return SelectedPartitions.NOT_PRUNED;
         }
         if (CollectionUtils.isEmpty(this.getPartitionColumns(snapshot))) {
+            return SelectedPartitions.NOT_PRUNED;
+        }
+        // lazy obtain the selected partitions for hms external table until the prune file scan partition needed
+        if (this instanceof HMSExternalTable) {
             return SelectedPartitions.NOT_PRUNED;
         }
         Map<String, PartitionItem> nameToPartitionItems = getNameToPartitionItems(snapshot);

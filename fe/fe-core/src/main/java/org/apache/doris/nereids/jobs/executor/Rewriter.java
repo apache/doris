@@ -117,6 +117,7 @@ import org.apache.doris.nereids.rules.rewrite.OrExpansion;
 import org.apache.doris.nereids.rules.rewrite.ProjectOtherJoinConditionForNestedLoopJoin;
 import org.apache.doris.nereids.rules.rewrite.PruneEmptyPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneFileScanPartition;
+import org.apache.doris.nereids.rules.rewrite.PruneHMSScanPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneOlapScanPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneOlapScanTablet;
 import org.apache.doris.nereids.rules.rewrite.PullUpCteAnchor;
@@ -399,6 +400,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                     topDown(
                                             new PruneOlapScanPartition(),
                                             new PruneEmptyPartition(),
+                                            new PruneHMSScanPartition(),
                                             new PruneFileScanPartition(),
                                             new PushDownFilterIntoSchemaScan()
                                     )
@@ -716,6 +718,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new LogicalResultSinkToShortCircuitPointQuery(),
                                 new PruneOlapScanPartition(),
                                 new PruneEmptyPartition(),
+                                new PruneHMSScanPartition(),
                                 new PruneFileScanPartition(),
                                 new PushDownFilterIntoSchemaScan(),
                                 new PruneOlapScanTablet()

@@ -28,6 +28,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.HMSPartitionsUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.FileSplit;
@@ -148,13 +149,18 @@ public class HiveScanNode extends FileQueryScanNode {
         if (!partitionColumnTypes.isEmpty()) {
             // partitioned table
             Collection<PartitionItem> partitionItems;
-            // partitions has benn pruned by Nereids, in PruneFileScanPartition,
-            // so just use the selected partitions.
+            // partitioned table maybe not pruned when it is without conjunct
+            if (!selectedPartitions.isPruned) {
+                Map<String, PartitionItem> nameToPartitionItems
+                        = hmsTable.getNameToPartitionItems(MvccUtil.getSnapshotFromContext(hmsTable));
+                selectedPartitions = new SelectedPartitions(nameToPartitionItems.size(),
+                        nameToPartitionItems, true);
+            }
             this.totalPartitionNum = selectedPartitions.totalPartitionNum;
             partitionItems = selectedPartitions.selectedPartitions.values();
             Preconditions.checkNotNull(partitionItems);
             this.selectedPartitionNum = partitionItems.size();
-
+            HMSPartitionsUtil.checkSelectedPartitionNumLimit(hmsTable, this.selectedPartitionNum);
             // get partitions from cache
             List<List<String>> partitionValuesList = Lists.newArrayListWithCapacity(partitionItems.size());
             for (PartitionItem item : partitionItems) {

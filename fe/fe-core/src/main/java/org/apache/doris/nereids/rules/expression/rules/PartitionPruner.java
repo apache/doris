@@ -61,6 +61,13 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
     private final List<OnePartitionEvaluator<?>> partitions;
     private final Expression partitionPredicate;
 
+    /** Different type of partition with prune behavior */
+    public enum PruneOutType {
+        TRUE,
+        FALSE,
+        UNKNOWN
+    }
+
     /** Different type of table may have different partition prune behavior. */
     public enum PartitionTableType {
         OLAP,
@@ -199,6 +206,59 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
         } else {
             return Pair.of(res.first, Optional.empty());
         }
+    }
+
+    private PruneOutType getPrunedOutType(OnePartitionEvaluator<?> evaluator) {
+        List<Map<Slot, PartitionSlotInput>> onePartitionInputs = evaluator.getOnePartitionInputs();
+        for (Map<Slot, PartitionSlotInput> currentInputs : onePartitionInputs) {
+            // evaluate whether there's possible for this partition to accept this predicate
+            Expression result = evaluator.evaluateWithDefaultPartition(partitionPredicate, currentInputs);
+            if (!result.equals(BooleanLiteral.FALSE) && !(result instanceof NullLiteral)) {
+                if (result.equals(BooleanLiteral.TRUE)) {
+                    return PruneOutType.FALSE;
+                } else {
+                    return PruneOutType.UNKNOWN;
+                }
+            }
+        }
+        // only have false result: Can be pruned out. have other exprs: CanNot be pruned out
+        return PruneOutType.TRUE;
+    }
+
+    /** try prune */
+    public boolean tryPrune(List<String> scanPartitionNames) {
+        for (OnePartitionEvaluator<?> partition : partitions) {
+            switch (getPrunedOutType(partition)) {
+                case TRUE:
+                    break;
+                case FALSE:
+                    scanPartitionNames.add((String) partition.getPartitionIdent());
+                    break;
+                case UNKNOWN:
+                    return false;
+                default:
+                    break;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * try prune partition with `idToPartitions` as parameter.
+     */
+    public static boolean tryPrune(List<Slot> partitionSlots, Expression partitionPredicate,
+                                   Map<String, PartitionItem> nameToPartitions, List<String> prunedPartitionNames,
+                                   CascadesContext cascadesContext) {
+        int expandThreshold = cascadesContext.getAndCacheSessionVariable(
+                "partitionPruningExpandThreshold",
+                10, sessionVariable -> sessionVariable.partitionPruningExpandThreshold);
+        List<OnePartitionEvaluator<?>> evaluators = Lists.newArrayListWithCapacity(nameToPartitions.size());
+        for (Entry<String, PartitionItem> kv : nameToPartitions.entrySet()) {
+            evaluators.add(toPartitionEvaluator(
+                    kv.getKey(), kv.getValue(), partitionSlots, cascadesContext, expandThreshold));
+        }
+        PartitionPruner partitionPruner = new PartitionPruner(evaluators, partitionPredicate);
+        return partitionPruner.tryPrune(prunedPartitionNames);
     }
 
     /**

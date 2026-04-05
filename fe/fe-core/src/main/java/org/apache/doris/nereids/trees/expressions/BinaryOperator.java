@@ -51,7 +51,9 @@ public abstract class BinaryOperator extends Expression implements BinaryExpress
 
     @Override
     public String computeToSql() {
-        return "(" + left().toSql() + " " + symbol + " " + right().toSql() + ")";
+        return "(" + (left() instanceof Alias ? left().child(0).toSql() : left().toSql())
+            + " " + symbol + " " + (right() instanceof Alias ? right().child(0).toSql()
+            : right().toSql()) + ")";
     }
 
     @Override

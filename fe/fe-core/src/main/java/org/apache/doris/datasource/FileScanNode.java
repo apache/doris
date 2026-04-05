@@ -75,7 +75,7 @@ public abstract class FileScanNode extends ExternalScanNode {
 
     // For explain
     protected long totalFileSize = 0;
-    protected long totalPartitionNum = 0;
+    protected int  totalPartitionNum = 0;
     // For display pushdown agg result
     protected long tableLevelRowCount = -1;
 

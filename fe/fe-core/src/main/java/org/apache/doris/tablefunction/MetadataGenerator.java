@@ -1095,7 +1095,6 @@ public class MetadataGenerator {
         if (LOG.isDebugEnabled()) {
             LOG.debug("tableName: " + tableName);
         }
-
         CatalogIf catalog;
         TableIf table;
         DatabaseIf db;
