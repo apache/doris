@@ -292,6 +292,7 @@ OrcReader::OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& r
         : _profile(nullptr),
           _scan_params(params),
           _scan_range(range),
+          _batch_size(_MIN_BATCH_SIZE),
           _ctz(ctz),
           _file_system(nullptr),
           _io_ctx(io_ctx),
@@ -309,6 +310,7 @@ OrcReader::OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& r
         : _profile(nullptr),
           _scan_params(params),
           _scan_range(range),
+          _batch_size(_MIN_BATCH_SIZE),
           _ctz(ctz),
           _file_system(nullptr),
           _io_ctx(io_ctx_holder ? io_ctx_holder.get() : nullptr),
@@ -1431,7 +1433,8 @@ void OrcReader::_classify_columns_for_lazy_read(
 Status OrcReader::_init_orc_row_reader() {
     try {
         _row_reader_options.range(_range_start_offset, _range_size);
-        _row_reader_options.setTimezoneName(_ctz == "CST" ? "Asia/Shanghai" : _ctz);
+        std::string tz = _ctz.empty() ? "UTC" : (_ctz == "CST" ? "Asia/Shanghai" : _ctz);
+        _row_reader_options.setTimezoneName(tz);
         if (!_column_ids.empty()) {
             std::list<uint64_t> column_ids_list(_column_ids.begin(), _column_ids.end());
             _row_reader_options.includeTypes(column_ids_list);

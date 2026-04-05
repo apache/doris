@@ -261,6 +261,8 @@ private:
     Status _process_src_block_after_read(Block* block);
     Status _process_src_block_after_read_for_load(Block* block);
     Status _process_src_block_after_read_for_query(Block* block);
+    Status _fill_columns_from_path(size_t rows);
+    Status _fill_missing_columns(size_t rows);
     Status _check_output_block_types();
     Status _cast_to_input_block(Block* block);
     Status _pre_filter_src_block();
