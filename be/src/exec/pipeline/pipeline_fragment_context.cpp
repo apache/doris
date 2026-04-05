@@ -299,6 +299,29 @@ Status PipelineFragmentContext::_build_and_prepare_full_pipeline(ThreadPool* thr
             DCHECK(pipeline->sink() != nullptr) << pipeline->operators().size();
             RETURN_IF_ERROR(pipeline->sink()->set_child(pipeline->operators().back()));
         }
+
+        // Dump pipeline structure for debugging GROUP_JOIN
+        for (PipelinePtr& pipeline : _pipelines) {
+            std::stringstream ss;
+            ss << "Pipeline[" << pipeline->id() << "]: ops=[";
+            for (size_t i = 0; i < pipeline->operators().size(); i++) {
+                if (i > 0) ss << " -> ";
+                ss << pipeline->operators()[i]->get_name()
+                   << "(op_id=" << pipeline->operators()[i]->operator_id()
+                   << ",node_id=" << pipeline->operators()[i]->node_id() << ")";
+            }
+            ss << "] -> sink=" << pipeline->sink()->get_name()
+               << "(op_id=" << pipeline->sink()->operator_id()
+               << ",node_id=" << pipeline->sink()->node_id() << ")";
+            if (_dag.contains(pipeline->id())) {
+                ss << " depends_on=[";
+                for (auto dep : _dag[pipeline->id()]) {
+                    ss << dep << " ";
+                }
+                ss << "]";
+            }
+            LOG(WARNING) << "GroupJoin debug: " << ss.str();
+        }
     }
     // 4. Build local exchanger
     if (_runtime_state->enable_local_shuffle()) {
@@ -517,11 +540,23 @@ Status PipelineFragmentContext::_build_pipeline_tasks_for_instance(
                 for (auto& dep : deps) {
                     if (pipeline_id_to_task.contains(dep)) {
                         auto ss = pipeline_id_to_task[dep]->get_sink_shared_state();
+                        if (_has_group_join) {
+                            LOG(WARNING) << "GroupJoin: inject shared_state pipe="
+                                         << _pipeline->id() << " from dep_pipe=" << dep
+                                         << " sink_ss=" << (ss ? "non-null" : "null");
+                        }
                         if (ss) {
-                            task->inject_shared_state(ss);
+                            bool ok = task->inject_shared_state(ss);
+                            if (_has_group_join) {
+                                LOG(WARNING) << "GroupJoin: inject result=" << ok;
+                            }
                         } else {
-                            pipeline_id_to_task[dep]->inject_shared_state(
-                                    task->get_source_shared_state());
+                            auto src_ss = task->get_source_shared_state();
+                            if (_has_group_join) {
+                                LOG(WARNING) << "GroupJoin: reverse inject src_ss="
+                                             << (src_ss ? "non-null" : "null");
+                            }
+                            pipeline_id_to_task[dep]->inject_shared_state(src_ss);
                         }
                     }
                 }
@@ -537,8 +572,18 @@ Status PipelineFragmentContext::_build_pipeline_tasks_for_instance(
             if (local_params.per_node_scan_ranges.contains(node_id)) {
                 scan_ranges = local_params.per_node_scan_ranges.find(node_id)->second;
             }
+            if (_has_group_join) {
+                LOG(WARNING) << "GroupJoin: preparing task for pipe=" << _pipelines[pip_idx]->id()
+                             << " pip_idx=" << pip_idx
+                             << " source_node_id=" << node_id
+                             << " scan_ranges=" << scan_ranges.size()
+                             << " pipeline=" << _pipelines[pip_idx]->debug_string();
+            }
             RETURN_IF_ERROR_OR_CATCH_EXCEPTION(task->prepare(scan_ranges, local_params.sender_id,
                                                              _params.fragment.output_sink));
+            if (_has_group_join) {
+                LOG(WARNING) << "GroupJoin: prepare OK for pipe=" << _pipelines[pip_idx]->id();
+            }
         }
     }
     {
@@ -706,7 +751,10 @@ Status PipelineFragmentContext::_create_tree_helper(
                                      current_require_bucket_distribution, cache_op));
     // Initialization must be done here. For example, group by expressions in agg will be used to
     // decide if a local shuffle should be planed, so it must be initialized here.
-    RETURN_IF_ERROR(op->init(tnode, _runtime_state.get()));
+    // For GROUP_JOIN_NODE, init is done inside _create_operator with converted tnodes.
+    if (tnode.node_type != TPlanNodeType::GROUP_JOIN_NODE) {
+        RETURN_IF_ERROR(op->init(tnode, _runtime_state.get()));
+    }
     // assert(parent != nullptr || (node_idx == 0 && root_expr != nullptr));
     if (parent != nullptr) {
         // add to parent's child(s)
@@ -748,10 +796,25 @@ Status PipelineFragmentContext::_create_tree_helper(
     if (num_children == 0) {
         _use_serial_source = op->is_serial_operator();
     }
+    // For GROUP_JOIN_NODE, op is AggSourceOperatorX but children belong to the
+    // HashJoinProbeOperatorX which is the first operator in the current pipeline
+    // (after _create_operator set cur_pipe to the join pipeline).
+    // Use the join operator as parent so its set_child() correctly handles
+    // probe child (first call) and build child (second call).
+    OperatorPtr effective_parent = op;
+    if (tnode.node_type == TPlanNodeType::GROUP_JOIN_NODE) {
+        effective_parent = cur_pipe->operators().back();
+        LOG(WARNING) << "GroupJoin: effective_parent switched from "
+                     << op->get_name() << "(op_id=" << op->operator_id() << ") to "
+                     << effective_parent->get_name()
+                     << "(op_id=" << effective_parent->operator_id() << ")"
+                     << " cur_pipe_id=" << cur_pipe->id();
+    }
     // rely on that tnodes is preorder of the plan
     for (int i = 0; i < num_children; i++) {
         ++*node_idx;
-        RETURN_IF_ERROR(_create_tree_helper(pool, tnodes, descs, op, node_idx, nullptr, cur_pipe, i,
+        RETURN_IF_ERROR(_create_tree_helper(pool, tnodes, descs, effective_parent, node_idx,
+                                            nullptr, cur_pipe, i,
                                             current_followed_by_shuffled_operator,
                                             current_require_bucket_distribution));
 
@@ -1742,6 +1805,121 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
     case TPlanNodeType::REC_CTE_SCAN_NODE: {
         op = std::make_shared<RecCTEScanOperatorX>(pool, tnode, next_operator_id(), descs);
         RETURN_IF_ERROR(cur_pipe->add_operator(op, _parallel_instances));
+        break;
+    }
+    case TPlanNodeType::GROUP_JOIN_NODE: {
+        // Decompose GROUP_JOIN_NODE into hash join + aggregation operators.
+        // This gives correct results by reusing existing operators.
+        _has_group_join = true;
+        LOG(WARNING) << "GroupJoin: decomposing node_id=" << tnode.node_id
+                     << " num_children=" << tnode.num_children
+                     << " cur_pipe_id=" << cur_pipe->id();
+        const auto& group_join = tnode.group_join_node;
+
+        // --- Build TPlanNode for hash join ---
+        TPlanNode hash_join_tnode = tnode;
+        hash_join_tnode.node_type = TPlanNodeType::HASH_JOIN_NODE;
+        THashJoinNode hjn;
+        hjn.join_op = group_join.join_op;
+        hjn.eq_join_conjuncts = group_join.eq_join_conjuncts;
+        if (group_join.__isset.vother_join_conjunct) {
+            hjn.__set_vother_join_conjunct(group_join.vother_join_conjunct);
+        }
+        if (group_join.__isset.hash_output_slot_ids) {
+            hjn.__set_hash_output_slot_ids(group_join.hash_output_slot_ids);
+        }
+        if (group_join.__isset.vintermediate_tuple_id_list) {
+            hjn.__set_vintermediate_tuple_id_list(group_join.vintermediate_tuple_id_list);
+        }
+        if (group_join.__isset.is_broadcast_join) {
+            hjn.__set_is_broadcast_join(group_join.is_broadcast_join);
+        }
+        if (group_join.__isset.dist_type) {
+            hjn.__set_dist_type(group_join.dist_type);
+        }
+        hash_join_tnode.__set_hash_join_node(hjn);
+        // Restore join's own output tuple id (tnode's output_tuple_id is the agg output)
+        if (group_join.__isset.join_output_tuple_id) {
+            hash_join_tnode.__set_output_tuple_id(group_join.join_output_tuple_id);
+        } else {
+            hash_join_tnode.__isset.output_tuple_id = false;
+        }
+
+        // --- Build TPlanNode for aggregation ---
+        TPlanNode agg_tnode = tnode;
+        agg_tnode.node_type = TPlanNodeType::AGGREGATION_NODE;
+        // Clear join-level projectList so agg doesn't re-apply it
+        agg_tnode.__isset.projections = false;
+        agg_tnode.projections.clear();
+        // Fix row_tuples to only contain the agg output tuple (not the join's tuples)
+        agg_tnode.row_tuples.clear();
+        agg_tnode.row_tuples.push_back(group_join.agg_output_tuple_id);
+        agg_tnode.nullable_tuples.clear();
+        agg_tnode.nullable_tuples.push_back(false);
+        TAggregationNode an;
+        an.aggregate_functions = group_join.aggregate_functions;
+        an.intermediate_tuple_id = group_join.agg_intermediate_tuple_id;
+        an.output_tuple_id = group_join.agg_output_tuple_id;
+        an.need_finalize = group_join.need_finalize;
+        if (group_join.__isset.grouping_exprs) {
+            an.__set_grouping_exprs(group_join.grouping_exprs);
+        }
+        if (group_join.__isset.is_first_phase) {
+            an.__set_is_first_phase(group_join.is_first_phase);
+        }
+        if (group_join.__isset.is_colocate) {
+            an.__set_is_colocate(group_join.is_colocate);
+        }
+        agg_tnode.__set_agg_node(an);
+
+        // --- Create aggregation source operator (the main op returned to tree helper) ---
+        op = std::make_shared<AggSourceOperatorX>(pool, agg_tnode, next_operator_id(), descs);
+        RETURN_IF_ERROR(op->init(agg_tnode, _runtime_state.get()));
+        RETURN_IF_ERROR(cur_pipe->add_operator(op, _parallel_instances));
+
+        // --- Create aggregation sink pipeline ---
+        const auto agg_downstream_pipeline_id = cur_pipe->id();
+        if (!_dag.contains(agg_downstream_pipeline_id)) {
+            _dag.insert({agg_downstream_pipeline_id, {}});
+        }
+        cur_pipe = add_pipeline(cur_pipe);
+        _dag[agg_downstream_pipeline_id].push_back(cur_pipe->id());
+
+        sink_ops.push_back(std::make_shared<AggSinkOperatorX>(
+                pool, next_sink_operator_id(), op->operator_id(), agg_tnode, descs));
+        RETURN_IF_ERROR(cur_pipe->set_sink(sink_ops.back()));
+        RETURN_IF_ERROR(cur_pipe->sink()->init(agg_tnode, _runtime_state.get()));
+
+        // --- Create hash join probe operator in the agg pipeline ---
+        OperatorPtr join_op = std::make_shared<HashJoinProbeOperatorX>(
+                pool, hash_join_tnode, next_operator_id(), descs);
+        RETURN_IF_ERROR(join_op->init(hash_join_tnode, _runtime_state.get()));
+        RETURN_IF_ERROR(cur_pipe->add_operator(join_op, _parallel_instances));
+
+        // --- Create hash join build side pipeline ---
+        const auto join_downstream_pipeline_id = cur_pipe->id();
+        if (!_dag.contains(join_downstream_pipeline_id)) {
+            _dag.insert({join_downstream_pipeline_id, {}});
+        }
+        PipelinePtr build_side_pipe = add_pipeline(cur_pipe);
+        _dag[join_downstream_pipeline_id].push_back(build_side_pipe->id());
+
+        sink_ops.push_back(std::make_shared<HashJoinBuildSinkOperatorX>(
+                pool, next_sink_operator_id(), join_op->operator_id(), hash_join_tnode, descs));
+        RETURN_IF_ERROR(build_side_pipe->set_sink(sink_ops.back()));
+        RETURN_IF_ERROR(build_side_pipe->sink()->init(hash_join_tnode, _runtime_state.get()));
+
+        _pipeline_parent_map.push(join_op->node_id(), cur_pipe);
+        _pipeline_parent_map.push(join_op->node_id(), build_side_pipe);
+
+        LOG(WARNING) << "GroupJoin: decomposition done. "
+                     << "agg_source op_id=" << op->operator_id() << " node_id=" << op->node_id()
+                     << " agg_sink in pipe_id=" << cur_pipe->id()
+                     << " join_probe op_id=" << join_op->operator_id()
+                     << " node_id=" << join_op->node_id()
+                     << " build_pipe_id=" << build_side_pipe->id()
+                     << " agg_downstream_pipe_id=" << agg_downstream_pipeline_id
+                     << " join_downstream_pipe_id=" << join_downstream_pipeline_id;
         break;
     }
     default:

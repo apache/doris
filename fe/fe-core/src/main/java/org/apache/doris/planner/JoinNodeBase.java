@@ -93,4 +93,8 @@ public abstract class JoinNodeBase extends PlanNode {
     public void setvIntermediateTupleDescList(List<TupleDescriptor> vIntermediateTupleDescList) {
         this.vIntermediateTupleDescList = vIntermediateTupleDescList;
     }
+
+    public List<TupleDescriptor> getvIntermediateTupleDescList() {
+        return vIntermediateTupleDescList;
+    }
 }

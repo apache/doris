@@ -352,6 +352,7 @@ private:
              std::pair<std::shared_ptr<BasicSharedState>, std::vector<std::shared_ptr<Dependency>>>>
             _op_id_to_shared_state;
 
+    bool _has_group_join = false;  // debug flag for GROUP_JOIN tracing
     std::map<PipelineId, Pipeline*> _pip_id_to_pipeline;
     std::vector<std::unique_ptr<RuntimeFilterMgr>> _runtime_filter_mgr_map;
 

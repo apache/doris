@@ -2003,6 +2003,11 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = "push_topn_to_agg", fuzzy = false, needForward = true)
     public boolean pushTopnToAgg = true;
 
+    @VariableMgr.VarAttr(name = "enable_group_join", fuzzy = false, needForward = true,
+            description = {"是否启用 group join 优化，将聚合下推融合到 hash join 中",
+                    "Enable group join optimization that fuses aggregation into hash join"})
+    public boolean enableGroupJoin = true;
+
     @VariableMgr.VarAttr(name = NEREIDS_CBO_PENALTY_FACTOR, needForward = true)
     private double nereidsCboPenaltyFactor = 0.7;
 
