@@ -252,7 +252,7 @@ public final class GlobalVariable {
                             + "when converting to a time-related type and precision cannot be determined, "
                             + "the DATETIME type with 6-digit precision is preferred. When converting to"
                             + " a numeric type and precision cannot be determined, the DECIMAL type is preferred."})
-    public static boolean enableNewTypeCoercionBehavior = true;
+    public static boolean enableNewTypeCoercionBehavior = false;
 
     @VariableMgr.VarAttr(name = ENABLE_NESTED_NAMESPACE, flag = VariableMgr.GLOBAL,
             description = {

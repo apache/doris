@@ -19,6 +19,7 @@ package org.apache.doris.nereids.util;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -41,6 +42,7 @@ import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IntegralDivide;
 import org.apache.doris.nereids.trees.expressions.Mod;
 import org.apache.doris.nereids.trees.expressions.Multiply;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
@@ -1329,10 +1331,18 @@ public class TypeCoercionUtils {
         right = comparisonPredicate.right();
 
         Optional<DataType> commonType;
-        if (GlobalVariable.enableNewTypeCoercionBehavior) {
-            commonType = findWiderTypeForTwo(left.getDataType(), right.getDataType(), false, false);
+        if (Config.enable_cast_date_to_string
+                && left instanceof Slot
+                && !(right instanceof Slot)
+                && left.getDataType().isStringLikeType()
+                && right.getDataType().isDateLikeType()) {
+            commonType = Optional.of(left.getDataType());
         } else {
-            commonType = findWiderTypeForTwoForComparison(left.getDataType(), right.getDataType(), false);
+            if (GlobalVariable.enableNewTypeCoercionBehavior) {
+                commonType = findWiderTypeForTwo(left.getDataType(), right.getDataType(), false, false);
+            } else {
+                commonType = findWiderTypeForTwoForComparison(left.getDataType(), right.getDataType(), false);
+            }
         }
 
         if (commonType.isPresent()) {
