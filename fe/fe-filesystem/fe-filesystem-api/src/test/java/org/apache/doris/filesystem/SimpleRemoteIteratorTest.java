@@ -17,16 +17,12 @@
 
 package org.apache.doris.filesystem;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SimpleRemoteIteratorTest {
 
@@ -37,28 +33,28 @@ class SimpleRemoteIteratorTest {
         Iterator<FileEntry> underlying = List.of(e1, e2).iterator();
 
         SimpleRemoteIterator iter = new SimpleRemoteIterator(underlying);
-        assertTrue(iter.hasNext());
-        assertEquals(e1, iter.next());
-        assertTrue(iter.hasNext());
-        assertEquals(e2, iter.next());
-        assertFalse(iter.hasNext());
+        Assertions.assertTrue(iter.hasNext());
+        Assertions.assertEquals(e1, iter.next());
+        Assertions.assertTrue(iter.hasNext());
+        Assertions.assertEquals(e2, iter.next());
+        Assertions.assertFalse(iter.hasNext());
     }
 
     @Test
     void emptyIterator() throws FileSystemIOException {
         SimpleRemoteIterator iter = new SimpleRemoteIterator(List.<FileEntry>of().iterator());
-        assertFalse(iter.hasNext());
+        Assertions.assertFalse(iter.hasNext());
     }
 
     @Test
     void nextOnExhaustedIteratorThrows() throws FileSystemIOException {
         SimpleRemoteIterator iter = new SimpleRemoteIterator(List.<FileEntry>of().iterator());
-        assertFalse(iter.hasNext());
-        assertThrows(NoSuchElementException.class, iter::next);
+        Assertions.assertFalse(iter.hasNext());
+        Assertions.assertThrows(NoSuchElementException.class, iter::next);
     }
 
     @Test
     void nullIteratorThrowsNPE() {
-        assertThrows(NullPointerException.class, () -> new SimpleRemoteIterator(null));
+        Assertions.assertThrows(NullPointerException.class, () -> new SimpleRemoteIterator(null));
     }
 }

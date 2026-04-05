@@ -26,6 +26,7 @@ import org.apache.doris.filesystem.Location;
 import org.apache.doris.filesystem.s3.S3FileSystem;
 
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Order;
@@ -41,11 +42,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Environment-dependent integration tests for OBS (Huawei Cloud) via {@link S3FileSystem}.
@@ -79,9 +75,11 @@ class ObsFileSystemEnvTest {
                 try {
                     fs.delete(iter.next().location(), false);
                 } catch (IOException ignored) {
+                    // best-effort cleanup
                 }
             }
         } catch (IOException ignored) {
+            // no objects to clean
         }
         fs.close();
     }
@@ -116,13 +114,13 @@ class ObsFileSystemEnvTest {
     @Order(1)
     void existsReturnsTrueForExisting() throws IOException {
         writeContent("exists.txt", "data".getBytes());
-        assertTrue(fs.exists(loc("exists.txt")));
+        Assertions.assertTrue(fs.exists(loc("exists.txt")));
     }
 
     @Test
     @Order(2)
     void existsReturnsFalseForMissing() throws IOException {
-        assertFalse(fs.exists(loc("missing-" + UUID.randomUUID())));
+        Assertions.assertFalse(fs.exists(loc("missing-" + UUID.randomUUID())));
     }
 
     @Test
@@ -130,7 +128,7 @@ class ObsFileSystemEnvTest {
     void deleteRemovesObject() throws IOException {
         writeContent("del.txt", "x".getBytes());
         fs.delete(loc("del.txt"), false);
-        assertFalse(fs.exists(loc("del.txt")));
+        Assertions.assertFalse(fs.exists(loc("del.txt")));
     }
 
     @Test
@@ -138,8 +136,8 @@ class ObsFileSystemEnvTest {
     void renameMovesObject() throws IOException {
         writeContent("src.txt", "r".getBytes());
         fs.rename(loc("src.txt"), loc("dst.txt"));
-        assertFalse(fs.exists(loc("src.txt")));
-        assertTrue(fs.exists(loc("dst.txt")));
+        Assertions.assertFalse(fs.exists(loc("src.txt")));
+        Assertions.assertTrue(fs.exists(loc("dst.txt")));
     }
 
     @Test
@@ -154,7 +152,7 @@ class ObsFileSystemEnvTest {
                 entries.add(iter.next());
             }
         }
-        assertTrue(entries.size() >= 2);
+        Assertions.assertTrue(entries.size() >= 2);
     }
 
     @Test
@@ -162,7 +160,7 @@ class ObsFileSystemEnvTest {
     void inputOutputRoundTrip() throws IOException {
         byte[] expected = "OBS round-trip 华为云".getBytes();
         writeContent("rt.bin", expected);
-        assertArrayEquals(expected, readAll("rt.bin"));
+        Assertions.assertArrayEquals(expected, readAll("rt.bin"));
     }
 
     @Test
@@ -171,6 +169,6 @@ class ObsFileSystemEnvTest {
         byte[] data = new byte[555];
         java.util.Arrays.fill(data, (byte) 'H');
         writeContent("len.bin", data);
-        assertEquals(555L, fs.newInputFile(loc("len.bin")).length());
+        Assertions.assertEquals(555L, fs.newInputFile(loc("len.bin")).length());
     }
 }

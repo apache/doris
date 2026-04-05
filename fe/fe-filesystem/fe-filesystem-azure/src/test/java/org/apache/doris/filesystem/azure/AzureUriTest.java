@@ -17,106 +17,104 @@
 
 package org.apache.doris.filesystem.azure;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class AzureUriTest {
 
     @Test
     void parseWasbScheme() throws IOException {
         AzureUri uri = AzureUri.parse("wasb://mycontainer@myaccount.blob.core.windows.net/path/to/file");
-        assertEquals("wasb", uri.scheme());
-        assertEquals("myaccount", uri.accountName());
-        assertEquals("mycontainer", uri.container());
-        assertEquals("path/to/file", uri.key());
+        Assertions.assertEquals("wasb", uri.scheme());
+        Assertions.assertEquals("myaccount", uri.accountName());
+        Assertions.assertEquals("mycontainer", uri.container());
+        Assertions.assertEquals("path/to/file", uri.key());
     }
 
     @Test
     void parseWasbsScheme() throws IOException {
         AzureUri uri = AzureUri.parse("wasbs://container@account.blob.core.windows.net/key");
-        assertEquals("wasbs", uri.scheme());
-        assertEquals("account", uri.accountName());
-        assertEquals("container", uri.container());
-        assertEquals("key", uri.key());
+        Assertions.assertEquals("wasbs", uri.scheme());
+        Assertions.assertEquals("account", uri.accountName());
+        Assertions.assertEquals("container", uri.container());
+        Assertions.assertEquals("key", uri.key());
     }
 
     @Test
     void parseAbfsScheme() throws IOException {
         AzureUri uri = AzureUri.parse("abfs://container@account.dfs.core.windows.net/dir/file");
-        assertEquals("abfs", uri.scheme());
-        assertEquals("account", uri.accountName());
-        assertEquals("container", uri.container());
-        assertEquals("dir/file", uri.key());
+        Assertions.assertEquals("abfs", uri.scheme());
+        Assertions.assertEquals("account", uri.accountName());
+        Assertions.assertEquals("container", uri.container());
+        Assertions.assertEquals("dir/file", uri.key());
     }
 
     @Test
     void parseAbfssScheme() throws IOException {
         AzureUri uri = AzureUri.parse("abfss://container@account.dfs.core.windows.net/");
-        assertEquals("abfss", uri.scheme());
-        assertEquals("account", uri.accountName());
-        assertEquals("container", uri.container());
-        assertEquals("", uri.key());
+        Assertions.assertEquals("abfss", uri.scheme());
+        Assertions.assertEquals("account", uri.accountName());
+        Assertions.assertEquals("container", uri.container());
+        Assertions.assertEquals("", uri.key());
     }
 
     @Test
     void parseHttpsScheme() throws IOException {
         AzureUri uri = AzureUri.parse("https://myaccount.blob.core.windows.net/mycontainer/path");
-        assertEquals("https", uri.scheme());
-        assertEquals("myaccount", uri.accountName());
-        assertEquals("mycontainer", uri.container());
-        assertEquals("path", uri.key());
+        Assertions.assertEquals("https", uri.scheme());
+        Assertions.assertEquals("myaccount", uri.accountName());
+        Assertions.assertEquals("mycontainer", uri.container());
+        Assertions.assertEquals("path", uri.key());
     }
 
     @Test
     void parseS3CompatScheme() throws IOException {
         AzureUri uri = AzureUri.parse("s3://container/key/path");
-        assertEquals("s3", uri.scheme());
-        assertEquals("", uri.accountName());
-        assertEquals("container", uri.container());
-        assertEquals("key/path", uri.key());
+        Assertions.assertEquals("s3", uri.scheme());
+        Assertions.assertEquals("", uri.accountName());
+        Assertions.assertEquals("container", uri.container());
+        Assertions.assertEquals("key/path", uri.key());
     }
 
     @Test
     void parseWasbNoPath() throws IOException {
         AzureUri uri = AzureUri.parse("wasb://container@account.blob.core.windows.net");
-        assertEquals("wasb", uri.scheme());
-        assertEquals("account", uri.accountName());
-        assertEquals("container", uri.container());
-        assertEquals("", uri.key());
+        Assertions.assertEquals("wasb", uri.scheme());
+        Assertions.assertEquals("account", uri.accountName());
+        Assertions.assertEquals("container", uri.container());
+        Assertions.assertEquals("", uri.key());
     }
 
     @Test
     void toStringReconstructsUri() throws IOException {
         AzureUri uri = AzureUri.parse("wasbs://mycontainer@myaccount.blob.core.windows.net/path/key");
-        assertEquals("wasbs://mycontainer@myaccount/path/key", uri.toString());
+        Assertions.assertEquals("wasbs://mycontainer@myaccount/path/key", uri.toString());
     }
 
     @Test
     void nullPathThrows() {
-        assertThrows(IOException.class, () -> AzureUri.parse(null));
+        Assertions.assertThrows(IOException.class, () -> AzureUri.parse(null));
     }
 
     @Test
     void emptyPathThrows() {
-        assertThrows(IOException.class, () -> AzureUri.parse(""));
+        Assertions.assertThrows(IOException.class, () -> AzureUri.parse(""));
     }
 
     @Test
     void noSchemeThrows() {
-        assertThrows(IOException.class, () -> AzureUri.parse("container/path"));
+        Assertions.assertThrows(IOException.class, () -> AzureUri.parse("container/path"));
     }
 
     @Test
     void unsupportedSchemeThrows() {
-        assertThrows(IOException.class, () -> AzureUri.parse("ftp://host/path"));
+        Assertions.assertThrows(IOException.class, () -> AzureUri.parse("ftp://host/path"));
     }
 
     @Test
     void wasbMissingAtSignThrows() {
-        assertThrows(IOException.class, () -> AzureUri.parse("wasb://container.blob.core.windows.net/path"));
+        Assertions.assertThrows(IOException.class, () -> AzureUri.parse("wasb://container.blob.core.windows.net/path"));
     }
 }

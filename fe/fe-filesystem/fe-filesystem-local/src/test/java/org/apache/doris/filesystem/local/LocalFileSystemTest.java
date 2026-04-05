@@ -24,6 +24,7 @@ import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileIterator;
 import org.apache.doris.filesystem.Location;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -35,12 +36,6 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class LocalFileSystemTest {
 
@@ -61,12 +56,12 @@ class LocalFileSystemTest {
     void existsReturnsTrueForExistingFile() throws IOException {
         Path file = tempDir.resolve("test.txt");
         Files.writeString(file, "hello");
-        assertTrue(createFs().exists(loc(file)));
+        Assertions.assertTrue(createFs().exists(loc(file)));
     }
 
     @Test
     void existsReturnsFalseForNonExistent() throws IOException {
-        assertFalse(createFs().exists(loc(tempDir.resolve("nonexistent"))));
+        Assertions.assertFalse(createFs().exists(loc(tempDir.resolve("nonexistent"))));
     }
 
     // --- mkdirs ---
@@ -76,7 +71,7 @@ class LocalFileSystemTest {
         LocalFileSystem fs = createFs();
         Path deep = tempDir.resolve("a/b/c");
         fs.mkdirs(loc(deep));
-        assertTrue(Files.isDirectory(deep));
+        Assertions.assertTrue(Files.isDirectory(deep));
     }
 
     // --- delete ---
@@ -87,7 +82,7 @@ class LocalFileSystemTest {
         Files.writeString(file, "content");
         LocalFileSystem fs = createFs();
         fs.delete(loc(file), false);
-        assertFalse(Files.exists(file));
+        Assertions.assertFalse(Files.exists(file));
     }
 
     @Test
@@ -99,7 +94,7 @@ class LocalFileSystemTest {
 
         LocalFileSystem fs = createFs();
         fs.delete(loc(dir), true);
-        assertFalse(Files.exists(dir));
+        Assertions.assertFalse(Files.exists(dir));
     }
 
     // --- rename ---
@@ -112,9 +107,9 @@ class LocalFileSystemTest {
 
         LocalFileSystem fs = createFs();
         fs.rename(loc(src), loc(dst));
-        assertFalse(Files.exists(src));
-        assertTrue(Files.exists(dst));
-        assertEquals("hello", Files.readString(dst));
+        Assertions.assertFalse(Files.exists(src));
+        Assertions.assertTrue(Files.exists(dst));
+        Assertions.assertEquals("hello", Files.readString(dst));
     }
 
     // --- list ---
@@ -133,7 +128,7 @@ class LocalFileSystemTest {
             }
         }
 
-        assertEquals(3, entries.size());
+        Assertions.assertEquals(3, entries.size());
     }
 
     // --- newInputFile + newOutputFile round-trip ---
@@ -157,7 +152,7 @@ class LocalFileSystemTest {
             readBack = in.readAllBytes();
         }
 
-        assertArrayEquals(data, readBack);
+        Assertions.assertArrayEquals(data, readBack);
     }
 
     @Test
@@ -167,7 +162,7 @@ class LocalFileSystemTest {
         Files.write(file, data);
 
         DorisInputFile inputFile = createFs().newInputFile(loc(file));
-        assertEquals(data.length, inputFile.length());
+        Assertions.assertEquals(data.length, inputFile.length());
     }
 
     @Test
@@ -177,10 +172,10 @@ class LocalFileSystemTest {
         Files.writeString(file, "x");
 
         DorisInputFile inputFile = fs.newInputFile(loc(file));
-        assertTrue(inputFile.exists());
+        Assertions.assertTrue(inputFile.exists());
 
         Files.delete(file);
-        assertFalse(inputFile.exists());
+        Assertions.assertFalse(inputFile.exists());
     }
 
     // --- outputFile create vs createOrOverwrite ---
@@ -190,7 +185,7 @@ class LocalFileSystemTest {
         Path file = tempDir.resolve("existing.txt");
         Files.writeString(file, "x");
         DorisOutputFile outputFile = createFs().newOutputFile(loc(file));
-        assertThrows(IOException.class, outputFile::create);
+        Assertions.assertThrows(IOException.class, outputFile::create);
     }
 
     @Test
@@ -202,7 +197,7 @@ class LocalFileSystemTest {
         try (OutputStream out = outputFile.createOrOverwrite()) {
             out.write("replaced".getBytes(StandardCharsets.UTF_8));
         }
-        assertEquals("replaced", Files.readString(file));
+        Assertions.assertEquals("replaced", Files.readString(file));
     }
 
     // --- seekable input stream ---
@@ -214,13 +209,13 @@ class LocalFileSystemTest {
 
         DorisInputFile inputFile = createFs().newInputFile(loc(file));
         try (DorisInputStream in = inputFile.newStream()) {
-            assertEquals(0, in.getPos());
-            assertEquals('A', (char) in.read());
-            assertEquals(1, in.getPos());
+            Assertions.assertEquals(0, in.getPos());
+            Assertions.assertEquals('A', (char) in.read());
+            Assertions.assertEquals(1, in.getPos());
 
             in.seek(5);
-            assertEquals(5, in.getPos());
-            assertEquals('F', (char) in.read());
+            Assertions.assertEquals(5, in.getPos());
+            Assertions.assertEquals('F', (char) in.read());
         }
     }
 }

@@ -21,10 +21,10 @@ import org.apache.doris.filesystem.DorisInputFile;
 import org.apache.doris.filesystem.DorisInputStream;
 import org.apache.doris.filesystem.DorisOutputFile;
 import org.apache.doris.filesystem.FileEntry;
-import org.apache.doris.filesystem.FileIterator;
 import org.apache.doris.filesystem.Location;
 
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Order;
@@ -35,17 +35,11 @@ import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 
 import java.io.IOException;
 import java.io.OutputStream;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Environment-dependent integration tests for {@link DFSFileSystem} using simple authentication.
@@ -117,7 +111,7 @@ class DFSFileSystemEnvTest {
     @Order(1)
     void mkdirsAndExists() throws IOException {
         fs.mkdirs(loc("subdir/deep/nested"));
-        assertTrue(fs.exists(loc("subdir/deep/nested")));
+        Assertions.assertTrue(fs.exists(loc("subdir/deep/nested")));
     }
 
     // ------------------------------------------------------------------
@@ -129,10 +123,10 @@ class DFSFileSystemEnvTest {
     void deleteRecursive() throws IOException {
         fs.mkdirs(loc("del-dir"));
         writeContent("del-dir/file.txt", "data".getBytes());
-        assertTrue(fs.exists(loc("del-dir/file.txt")));
+        Assertions.assertTrue(fs.exists(loc("del-dir/file.txt")));
 
         fs.delete(loc("del-dir"), true);
-        assertFalse(fs.exists(loc("del-dir")));
+        Assertions.assertFalse(fs.exists(loc("del-dir")));
     }
 
     // ------------------------------------------------------------------
@@ -145,8 +139,8 @@ class DFSFileSystemEnvTest {
         writeContent("rename-src.txt", "rename-data".getBytes());
         fs.rename(loc("rename-src.txt"), loc("rename-dst.txt"));
 
-        assertFalse(fs.exists(loc("rename-src.txt")));
-        assertTrue(fs.exists(loc("rename-dst.txt")));
+        Assertions.assertFalse(fs.exists(loc("rename-src.txt")));
+        Assertions.assertTrue(fs.exists(loc("rename-dst.txt")));
     }
 
     @Test
@@ -159,9 +153,9 @@ class DFSFileSystemEnvTest {
         fs.renameDirectory(loc("rename-dir-src"), loc("rename-dir-dst"),
                 () -> callbackCalled[0] = true);
 
-        assertFalse(callbackCalled[0], "Callback should not be called when src exists");
-        assertFalse(fs.exists(loc("rename-dir-src")));
-        assertTrue(fs.exists(loc("rename-dir-dst")));
+        Assertions.assertFalse(callbackCalled[0], "Callback should not be called when src exists");
+        Assertions.assertFalse(fs.exists(loc("rename-dir-src")));
+        Assertions.assertTrue(fs.exists(loc("rename-dir-dst")));
     }
 
     // ------------------------------------------------------------------
@@ -176,7 +170,7 @@ class DFSFileSystemEnvTest {
         fs.mkdirs(loc("list-dir/subdir"));
 
         List<FileEntry> files = fs.listFiles(loc("list-dir"));
-        assertTrue(files.size() >= 2,
+        Assertions.assertTrue(files.size() >= 2,
                 "Expected at least 2 files, got " + files.size());
     }
 
@@ -188,7 +182,7 @@ class DFSFileSystemEnvTest {
         writeContent("dirs-test/file.txt", "f".getBytes());
 
         Set<String> dirs = fs.listDirectories(loc("dirs-test"));
-        assertTrue(dirs.size() >= 2,
+        Assertions.assertTrue(dirs.size() >= 2,
                 "Expected at least 2 directories, got " + dirs.size());
     }
 
@@ -202,7 +196,7 @@ class DFSFileSystemEnvTest {
         byte[] expected = "HDFS round-trip test 你好 🐘".getBytes();
         writeContent("roundtrip.bin", expected);
         byte[] actual = readAll("roundtrip.bin");
-        assertArrayEquals(expected, actual);
+        Assertions.assertArrayEquals(expected, actual);
     }
 
     // ------------------------------------------------------------------
@@ -216,6 +210,6 @@ class DFSFileSystemEnvTest {
         java.util.Arrays.fill(data, (byte) 'H');
         writeContent("length.bin", data);
         DorisInputFile inputFile = fs.newInputFile(loc("length.bin"));
-        assertEquals(3456L, inputFile.length());
+        Assertions.assertEquals(3456L, inputFile.length());
     }
 }

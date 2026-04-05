@@ -17,12 +17,10 @@
 
 package org.apache.doris.filesystem.hdfs;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class SimpleHadoopAuthenticatorTest {
 
@@ -30,34 +28,34 @@ class SimpleHadoopAuthenticatorTest {
     void noUserDoAsExecutesDirectly() throws IOException {
         SimpleHadoopAuthenticator auth = new SimpleHadoopAuthenticator();
         String result = auth.doAs(() -> "hello");
-        assertEquals("hello", result);
+        Assertions.assertEquals("hello", result);
     }
 
     @Test
     void nullUserDoAsExecutesDirectly() throws IOException {
         SimpleHadoopAuthenticator auth = new SimpleHadoopAuthenticator(null);
         String result = auth.doAs(() -> "world");
-        assertEquals("world", result);
+        Assertions.assertEquals("world", result);
     }
 
     @Test
     void emptyUserDoAsExecutesDirectly() throws IOException {
         SimpleHadoopAuthenticator auth = new SimpleHadoopAuthenticator("");
         int result = auth.doAs(() -> 42);
-        assertEquals(42, result);
+        Assertions.assertEquals(42, result);
     }
 
     @Test
     void withUserDoAsExecutesThroughUgi() throws IOException {
         SimpleHadoopAuthenticator auth = new SimpleHadoopAuthenticator("testuser");
         String result = auth.doAs(() -> "authenticated");
-        assertEquals("authenticated", result);
+        Assertions.assertEquals("authenticated", result);
     }
 
     @Test
     void doAsPropagatesIOException() {
         SimpleHadoopAuthenticator auth = new SimpleHadoopAuthenticator();
-        assertThrows(IOException.class, () -> auth.doAs(() -> {
+        Assertions.assertThrows(IOException.class, () -> auth.doAs(() -> {
             throw new IOException("test error");
         }));
     }
@@ -65,7 +63,7 @@ class SimpleHadoopAuthenticatorTest {
     @Test
     void doAsWithUserPropagatesIOException() {
         SimpleHadoopAuthenticator auth = new SimpleHadoopAuthenticator("testuser");
-        assertThrows(IOException.class, () -> auth.doAs(() -> {
+        Assertions.assertThrows(IOException.class, () -> auth.doAs(() -> {
             throw new IOException("test error");
         }));
     }

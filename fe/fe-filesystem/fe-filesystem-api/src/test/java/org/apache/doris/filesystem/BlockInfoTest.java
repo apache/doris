@@ -17,20 +17,17 @@
 
 package org.apache.doris.filesystem;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotSame;
 
 class BlockInfoTest {
 
     @Test
     void gettersReturnCorrectValues() {
         BlockInfo block = new BlockInfo(128L, 256L, new String[]{"host1", "host2"});
-        assertEquals(128L, block.offset());
-        assertEquals(256L, block.length());
-        assertArrayEquals(new String[]{"host1", "host2"}, block.hosts());
+        Assertions.assertEquals(128L, block.offset());
+        Assertions.assertEquals(256L, block.length());
+        Assertions.assertArrayEquals(new String[]{"host1", "host2"}, block.hosts());
     }
 
     @Test
@@ -40,7 +37,7 @@ class BlockInfoTest {
 
         // Mutating the original array should NOT affect the block
         original[0] = "mutated";
-        assertEquals("host1", block.hosts()[0]);
+        Assertions.assertEquals("host1", block.hosts()[0]);
     }
 
     @Test
@@ -50,17 +47,17 @@ class BlockInfoTest {
         String[] second = block.hosts();
 
         // Each call should return a fresh copy
-        assertNotSame(first, second);
-        assertArrayEquals(first, second);
+        Assertions.assertNotSame(first, second);
+        Assertions.assertArrayEquals(first, second);
 
         // Mutating the returned array should NOT affect future calls
         first[0] = "mutated";
-        assertEquals("host1", block.hosts()[0]);
+        Assertions.assertEquals("host1", block.hosts()[0]);
     }
 
     @Test
     void nullHostsTreatedAsEmpty() {
         BlockInfo block = new BlockInfo(0, 100, null);
-        assertEquals(0, block.hosts().length);
+        Assertions.assertEquals(0, block.hosts().length);
     }
 }

@@ -17,14 +17,11 @@
 
 package org.apache.doris.filesystem;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class GlobListingTest {
 
@@ -33,10 +30,10 @@ class GlobListingTest {
         FileEntry entry = new FileEntry(Location.of("s3://bucket/key"), 100, false, 0, null);
         GlobListing listing = new GlobListing(List.of(entry), "bucket", "prefix/", "prefix/z.csv");
 
-        assertEquals(1, listing.getFiles().size());
-        assertEquals("bucket", listing.getBucket());
-        assertEquals("prefix/", listing.getPrefix());
-        assertEquals("prefix/z.csv", listing.getMaxFile());
+        Assertions.assertEquals(1, listing.getFiles().size());
+        Assertions.assertEquals("bucket", listing.getBucket());
+        Assertions.assertEquals("prefix/", listing.getPrefix());
+        Assertions.assertEquals("prefix/z.csv", listing.getMaxFile());
     }
 
     @Test
@@ -44,7 +41,7 @@ class GlobListingTest {
         FileEntry entry = new FileEntry(Location.of("s3://b/k"), 10, false, 0, null);
         GlobListing listing = new GlobListing(List.of(entry), "b", "", "");
 
-        assertThrows(UnsupportedOperationException.class,
+        Assertions.assertThrows(UnsupportedOperationException.class,
                 () -> listing.getFiles().add(new FileEntry(Location.of("s3://b/k2"), 0, false, 0, null)));
     }
 
@@ -57,12 +54,12 @@ class GlobListingTest {
 
         // Modify the source list after construction
         source.add(new FileEntry(Location.of("s3://b/k2"), 20, false, 0, null));
-        assertEquals(1, listing.getFiles().size());
+        Assertions.assertEquals(1, listing.getFiles().size());
     }
 
     @Test
     void emptyFilesListIsHandled() {
         GlobListing listing = new GlobListing(List.of(), "b", "p", "");
-        assertTrue(listing.getFiles().isEmpty());
+        Assertions.assertTrue(listing.getFiles().isEmpty());
     }
 }

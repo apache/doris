@@ -19,15 +19,12 @@ package org.apache.doris.filesystem.hdfs;
 
 import org.apache.doris.filesystem.Location;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
-
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Unit tests for {@link DFSFileSystem} constructor and lifecycle.
@@ -42,7 +39,7 @@ class DFSFileSystemTest {
 
     @Test
     void constructor_succeedsWithEmptyProperties() {
-        assertDoesNotThrow(() -> new DFSFileSystem(new HashMap<>()),
+        Assertions.assertDoesNotThrow(() -> new DFSFileSystem(new HashMap<>()),
                 "DFSFileSystem should accept empty properties (simple auth, no Kerberos)");
     }
 
@@ -51,7 +48,7 @@ class DFSFileSystemTest {
         Map<String, String> props = new HashMap<>();
         props.put("hadoop.username", "testuser");
 
-        assertDoesNotThrow(() -> new DFSFileSystem(props));
+        Assertions.assertDoesNotThrow(() -> new DFSFileSystem(props));
     }
 
     @Test
@@ -61,7 +58,7 @@ class DFSFileSystemTest {
         props.put("hadoop.username", "doris");
         props.put("dfs.ha.namenodes.ns1", "nn1,nn2");
 
-        assertDoesNotThrow(() -> new DFSFileSystem(props));
+        Assertions.assertDoesNotThrow(() -> new DFSFileSystem(props));
     }
 
     // ------------------------------------------------------------------
@@ -72,7 +69,7 @@ class DFSFileSystemTest {
     void close_isIdempotent() throws IOException {
         DFSFileSystem fs = new DFSFileSystem(new HashMap<>());
         fs.close();
-        assertDoesNotThrow(fs::close, "Second close should not throw");
+        Assertions.assertDoesNotThrow(fs::close, "Second close should not throw");
     }
 
     @Test
@@ -80,9 +77,9 @@ class DFSFileSystemTest {
         DFSFileSystem fs = new DFSFileSystem(new HashMap<>());
         fs.close();
 
-        IOException ex = assertThrows(IOException.class,
+        IOException ex = Assertions.assertThrows(IOException.class,
                 () -> fs.exists(Location.of("hdfs://namenode/test")));
-        assertTrue(ex.getMessage().contains("closed"),
+        Assertions.assertTrue(ex.getMessage().contains("closed"),
                 "Error message should indicate the filesystem is closed");
     }
 
@@ -91,9 +88,9 @@ class DFSFileSystemTest {
         DFSFileSystem fs = new DFSFileSystem(new HashMap<>());
         fs.close();
 
-        IOException ex = assertThrows(IOException.class,
+        IOException ex = Assertions.assertThrows(IOException.class,
                 () -> fs.mkdirs(Location.of("hdfs://namenode/dir")));
-        assertTrue(ex.getMessage().contains("closed"));
+        Assertions.assertTrue(ex.getMessage().contains("closed"));
     }
 
     @Test
@@ -101,9 +98,9 @@ class DFSFileSystemTest {
         DFSFileSystem fs = new DFSFileSystem(new HashMap<>());
         fs.close();
 
-        IOException ex = assertThrows(IOException.class,
+        IOException ex = Assertions.assertThrows(IOException.class,
                 () -> fs.delete(Location.of("hdfs://namenode/file"), false));
-        assertTrue(ex.getMessage().contains("closed"));
+        Assertions.assertTrue(ex.getMessage().contains("closed"));
     }
 
     @Test
@@ -111,9 +108,9 @@ class DFSFileSystemTest {
         DFSFileSystem fs = new DFSFileSystem(new HashMap<>());
         fs.close();
 
-        IOException ex = assertThrows(IOException.class,
+        IOException ex = Assertions.assertThrows(IOException.class,
                 () -> fs.rename(Location.of("hdfs://nn/src"), Location.of("hdfs://nn/dst")));
-        assertTrue(ex.getMessage().contains("closed"));
+        Assertions.assertTrue(ex.getMessage().contains("closed"));
     }
 
     @Test
@@ -121,8 +118,8 @@ class DFSFileSystemTest {
         DFSFileSystem fs = new DFSFileSystem(new HashMap<>());
         fs.close();
 
-        IOException ex = assertThrows(IOException.class,
+        IOException ex = Assertions.assertThrows(IOException.class,
                 () -> fs.list(Location.of("hdfs://namenode/dir")));
-        assertTrue(ex.getMessage().contains("closed"));
+        Assertions.assertTrue(ex.getMessage().contains("closed"));
     }
 }

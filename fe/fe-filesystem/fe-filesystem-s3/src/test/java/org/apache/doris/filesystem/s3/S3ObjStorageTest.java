@@ -17,16 +17,11 @@
 
 package org.apache.doris.filesystem.s3;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
 import java.util.Map;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Unit tests for {@link S3ObjStorage} focusing on property normalization
@@ -50,11 +45,11 @@ class S3ObjStorageTest {
 
         Map<String, String> result = S3ObjStorage.normalizeProperties(props);
 
-        assertEquals("canonical-ak", result.get("AWS_ACCESS_KEY"));
-        assertEquals("canonical-sk", result.get("AWS_SECRET_KEY"));
-        assertEquals("https://s3.amazonaws.com", result.get("AWS_ENDPOINT"));
-        assertEquals("us-east-1", result.get("AWS_REGION"));
-        assertEquals("tok", result.get("AWS_TOKEN"));
+        Assertions.assertEquals("canonical-ak", result.get("AWS_ACCESS_KEY"));
+        Assertions.assertEquals("canonical-sk", result.get("AWS_SECRET_KEY"));
+        Assertions.assertEquals("https://s3.amazonaws.com", result.get("AWS_ENDPOINT"));
+        Assertions.assertEquals("us-east-1", result.get("AWS_REGION"));
+        Assertions.assertEquals("tok", result.get("AWS_TOKEN"));
     }
 
     @Test
@@ -68,11 +63,11 @@ class S3ObjStorageTest {
 
         Map<String, String> result = S3ObjStorage.normalizeProperties(props);
 
-        assertEquals("ak-from-s3-prefix", result.get("AWS_ACCESS_KEY"));
-        assertEquals("sk-from-s3-prefix", result.get("AWS_SECRET_KEY"));
-        assertEquals("https://minio.local", result.get("AWS_ENDPOINT"));
-        assertEquals("us-west-2", result.get("AWS_REGION"));
-        assertEquals("sess-tok", result.get("AWS_TOKEN"));
+        Assertions.assertEquals("ak-from-s3-prefix", result.get("AWS_ACCESS_KEY"));
+        Assertions.assertEquals("sk-from-s3-prefix", result.get("AWS_SECRET_KEY"));
+        Assertions.assertEquals("https://minio.local", result.get("AWS_ENDPOINT"));
+        Assertions.assertEquals("us-west-2", result.get("AWS_REGION"));
+        Assertions.assertEquals("sess-tok", result.get("AWS_TOKEN"));
     }
 
     @Test
@@ -85,10 +80,10 @@ class S3ObjStorageTest {
 
         Map<String, String> result = S3ObjStorage.normalizeProperties(props);
 
-        assertEquals("ak-bare", result.get("AWS_ACCESS_KEY"));
-        assertEquals("sk-bare", result.get("AWS_SECRET_KEY"));
-        assertEquals("https://endpoint.bare", result.get("AWS_ENDPOINT"));
-        assertEquals("ap-southeast-1", result.get("AWS_REGION"));
+        Assertions.assertEquals("ak-bare", result.get("AWS_ACCESS_KEY"));
+        Assertions.assertEquals("sk-bare", result.get("AWS_SECRET_KEY"));
+        Assertions.assertEquals("https://endpoint.bare", result.get("AWS_ENDPOINT"));
+        Assertions.assertEquals("ap-southeast-1", result.get("AWS_REGION"));
     }
 
     @Test
@@ -101,10 +96,10 @@ class S3ObjStorageTest {
 
         Map<String, String> result = S3ObjStorage.normalizeProperties(props);
 
-        assertEquals("ak-upper", result.get("AWS_ACCESS_KEY"));
-        assertEquals("sk-upper", result.get("AWS_SECRET_KEY"));
-        assertEquals("https://upper.endpoint", result.get("AWS_ENDPOINT"));
-        assertEquals("eu-west-1", result.get("AWS_REGION"));
+        Assertions.assertEquals("ak-upper", result.get("AWS_ACCESS_KEY"));
+        Assertions.assertEquals("sk-upper", result.get("AWS_SECRET_KEY"));
+        Assertions.assertEquals("https://upper.endpoint", result.get("AWS_ENDPOINT"));
+        Assertions.assertEquals("eu-west-1", result.get("AWS_REGION"));
     }
 
     @Test
@@ -116,7 +111,7 @@ class S3ObjStorageTest {
 
         Map<String, String> result = S3ObjStorage.normalizeProperties(props);
 
-        assertEquals("canonical", result.get("AWS_ACCESS_KEY"));
+        Assertions.assertEquals("canonical", result.get("AWS_ACCESS_KEY"));
     }
 
     @Test
@@ -128,7 +123,7 @@ class S3ObjStorageTest {
 
         Map<String, String> result = S3ObjStorage.normalizeProperties(props);
 
-        assertEquals("s3-prefix-wins", result.get("AWS_ACCESS_KEY"));
+        Assertions.assertEquals("s3-prefix-wins", result.get("AWS_ACCESS_KEY"));
     }
 
     @Test
@@ -138,10 +133,10 @@ class S3ObjStorageTest {
 
         Map<String, String> result = S3ObjStorage.normalizeProperties(props);
 
-        assertNull(result.get("AWS_ACCESS_KEY"));
-        assertNull(result.get("AWS_SECRET_KEY"));
-        assertNull(result.get("AWS_ENDPOINT"));
-        assertNull(result.get("AWS_REGION"));
+        Assertions.assertNull(result.get("AWS_ACCESS_KEY"));
+        Assertions.assertNull(result.get("AWS_SECRET_KEY"));
+        Assertions.assertNull(result.get("AWS_ENDPOINT"));
+        Assertions.assertNull(result.get("AWS_REGION"));
     }
 
     // ------------------------------------------------------------------
@@ -159,12 +154,12 @@ class S3ObjStorageTest {
         S3ObjStorage storage = new S3ObjStorage(props);
         Map<String, String> stored = storage.getProperties();
 
-        assertEquals("ak", stored.get("AWS_ACCESS_KEY"));
-        assertEquals("sk", stored.get("AWS_SECRET_KEY"));
-        assertEquals("https://ep", stored.get("AWS_ENDPOINT"));
-        assertEquals("my-bucket", stored.get("AWS_BUCKET"));
+        Assertions.assertEquals("ak", stored.get("AWS_ACCESS_KEY"));
+        Assertions.assertEquals("sk", stored.get("AWS_SECRET_KEY"));
+        Assertions.assertEquals("https://ep", stored.get("AWS_ENDPOINT"));
+        Assertions.assertEquals("my-bucket", stored.get("AWS_BUCKET"));
 
-        assertThrows(UnsupportedOperationException.class, () -> stored.put("new", "val"),
+        Assertions.assertThrows(UnsupportedOperationException.class, () -> stored.put("new", "val"),
                 "getProperties() should return unmodifiable map");
     }
 
@@ -176,7 +171,7 @@ class S3ObjStorageTest {
         S3ObjStorage storage = new S3ObjStorage(props);
         Map<String, String> stored = storage.getProperties();
 
-        assertEquals("false", stored.getOrDefault("use_path_style", "false"));
+        Assertions.assertEquals("false", stored.getOrDefault("use_path_style", "false"));
     }
 
     @Test
@@ -188,7 +183,7 @@ class S3ObjStorageTest {
         S3ObjStorage storage = new S3ObjStorage(props);
         Map<String, String> stored = storage.getProperties();
 
-        assertEquals("true", stored.get("use_path_style"));
+        Assertions.assertEquals("true", stored.get("use_path_style"));
     }
 
     @Test
@@ -200,7 +195,7 @@ class S3ObjStorageTest {
         S3ObjStorage storage = new S3ObjStorage(props);
         props.put("AWS_ACCESS_KEY", "mutated");
 
-        assertEquals("original", storage.getProperties().get("AWS_ACCESS_KEY"),
+        Assertions.assertEquals("original", storage.getProperties().get("AWS_ACCESS_KEY"),
                 "Constructor must copy the input map");
     }
 

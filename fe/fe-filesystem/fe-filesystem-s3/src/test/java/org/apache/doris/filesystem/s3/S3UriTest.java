@@ -17,62 +17,60 @@
 
 package org.apache.doris.filesystem.s3;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class S3UriTest {
 
     @Test
     void parseS3VirtualHostedStyle() {
         S3Uri uri = S3Uri.parse("s3://my-bucket/path/to/file.csv", false);
-        assertEquals("my-bucket", uri.bucket());
-        assertEquals("path/to/file.csv", uri.key());
+        Assertions.assertEquals("my-bucket", uri.bucket());
+        Assertions.assertEquals("path/to/file.csv", uri.key());
     }
 
     @Test
     void parseS3aScheme() {
         S3Uri uri = S3Uri.parse("s3a://my-bucket/key", false);
-        assertEquals("my-bucket", uri.bucket());
-        assertEquals("key", uri.key());
+        Assertions.assertEquals("my-bucket", uri.bucket());
+        Assertions.assertEquals("key", uri.key());
     }
 
     @Test
     void parseS3nScheme() {
         S3Uri uri = S3Uri.parse("s3n://my-bucket/dir/file", false);
-        assertEquals("my-bucket", uri.bucket());
-        assertEquals("dir/file", uri.key());
+        Assertions.assertEquals("my-bucket", uri.bucket());
+        Assertions.assertEquals("dir/file", uri.key());
     }
 
     @Test
     void parseBucketOnly() {
         S3Uri uri = S3Uri.parse("s3://my-bucket", false);
-        assertEquals("my-bucket", uri.bucket());
-        assertEquals("", uri.key());
+        Assertions.assertEquals("my-bucket", uri.bucket());
+        Assertions.assertEquals("", uri.key());
     }
 
     @Test
     void parseNormalizesDoubleSlashInKey() {
         S3Uri uri = S3Uri.parse("s3://bucket//path", false);
-        assertEquals("bucket", uri.bucket());
-        assertEquals("path", uri.key());
+        Assertions.assertEquals("bucket", uri.bucket());
+        Assertions.assertEquals("path", uri.key());
     }
 
     @Test
     void parseHttpsEndpoint() {
         S3Uri uri = S3Uri.parse("https://s3.amazonaws.com/my-bucket/key", false);
-        assertEquals("s3.amazonaws.com", uri.bucket());
-        assertEquals("my-bucket/key", uri.key());
+        Assertions.assertEquals("s3.amazonaws.com", uri.bucket());
+        Assertions.assertEquals("my-bucket/key", uri.key());
     }
 
     @Test
     void nullPathThrows() {
-        assertThrows(IllegalArgumentException.class, () -> S3Uri.parse(null, false));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> S3Uri.parse(null, false));
     }
 
     @Test
     void noSchemeThrows() {
-        assertThrows(IllegalArgumentException.class, () -> S3Uri.parse("bucket/key", false));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> S3Uri.parse("bucket/key", false));
     }
 }

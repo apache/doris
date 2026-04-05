@@ -32,9 +32,11 @@ import org.apache.doris.thrift.TBrokerRenamePathRequest;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloBrokerService;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 
 import java.io.IOException;
@@ -42,14 +44,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link BrokerSpiFileSystem} using a mock {@link BrokerClientPool}
@@ -67,7 +61,7 @@ class BrokerSpiFileSystemTest {
         mockPool = Mockito.mock(BrokerClientPool.class);
         mockClient = Mockito.mock(TPaloBrokerService.Client.class);
         endpoint = new TNetworkAddress("broker-host", 9999);
-        when(mockPool.borrow(endpoint)).thenReturn(mockClient);
+        Mockito.when(mockPool.borrow(endpoint)).thenReturn(mockClient);
 
         Map<String, String> params = new HashMap<>();
         params.put("username", "testuser");
@@ -82,28 +76,28 @@ class BrokerSpiFileSystemTest {
     void exists_returnsTrueWhenPathExists() throws Exception {
         TBrokerOperationStatus status = new TBrokerOperationStatus(TBrokerOperationStatusCode.OK);
         TBrokerCheckPathExistResponse resp = new TBrokerCheckPathExistResponse(status, true);
-        when(mockClient.checkPathExist(any(TBrokerCheckPathExistRequest.class))).thenReturn(resp);
+        Mockito.when(mockClient.checkPathExist(ArgumentMatchers.any(TBrokerCheckPathExistRequest.class))).thenReturn(resp);
 
-        assertTrue(fs.exists(Location.of("hdfs:///test/file.txt")));
-        verify(mockPool).returnGood(endpoint, mockClient);
+        Assertions.assertTrue(fs.exists(Location.of("hdfs:///test/file.txt")));
+        Mockito.verify(mockPool).returnGood(endpoint, mockClient);
     }
 
     @Test
     void exists_returnsFalseWhenPathDoesNotExist() throws Exception {
         TBrokerOperationStatus status = new TBrokerOperationStatus(TBrokerOperationStatusCode.OK);
         TBrokerCheckPathExistResponse resp = new TBrokerCheckPathExistResponse(status, false);
-        when(mockClient.checkPathExist(any(TBrokerCheckPathExistRequest.class))).thenReturn(resp);
+        Mockito.when(mockClient.checkPathExist(ArgumentMatchers.any(TBrokerCheckPathExistRequest.class))).thenReturn(resp);
 
-        assertFalse(fs.exists(Location.of("hdfs:///test/missing")));
+        Assertions.assertFalse(fs.exists(Location.of("hdfs:///test/missing")));
     }
 
     @Test
     void exists_returnsFalseForFileNotFoundStatus() throws Exception {
         TBrokerOperationStatus status = new TBrokerOperationStatus(TBrokerOperationStatusCode.FILE_NOT_FOUND);
         TBrokerCheckPathExistResponse resp = new TBrokerCheckPathExistResponse(status, false);
-        when(mockClient.checkPathExist(any(TBrokerCheckPathExistRequest.class))).thenReturn(resp);
+        Mockito.when(mockClient.checkPathExist(ArgumentMatchers.any(TBrokerCheckPathExistRequest.class))).thenReturn(resp);
 
-        assertFalse(fs.exists(Location.of("hdfs:///test/gone")));
+        Assertions.assertFalse(fs.exists(Location.of("hdfs:///test/gone")));
     }
 
     @Test
@@ -111,18 +105,18 @@ class BrokerSpiFileSystemTest {
         TBrokerOperationStatus status = new TBrokerOperationStatus(TBrokerOperationStatusCode.INVALID_INPUT_FILE_PATH);
         status.setMessage("invalid path");
         TBrokerCheckPathExistResponse resp = new TBrokerCheckPathExistResponse(status, false);
-        when(mockClient.checkPathExist(any(TBrokerCheckPathExistRequest.class))).thenReturn(resp);
+        Mockito.when(mockClient.checkPathExist(ArgumentMatchers.any(TBrokerCheckPathExistRequest.class))).thenReturn(resp);
 
-        assertThrows(IOException.class, () -> fs.exists(Location.of("hdfs:///bad/path")));
+        Assertions.assertThrows(IOException.class, () -> fs.exists(Location.of("hdfs:///bad/path")));
     }
 
     @Test
     void exists_throwsIOExceptionAndInvalidatesClientOnThriftError() throws Exception {
-        when(mockClient.checkPathExist(any(TBrokerCheckPathExistRequest.class)))
+        Mockito.when(mockClient.checkPathExist(ArgumentMatchers.any(TBrokerCheckPathExistRequest.class)))
                 .thenThrow(new org.apache.thrift.TException("connection lost"));
 
-        assertThrows(IOException.class, () -> fs.exists(Location.of("hdfs:///test")));
-        verify(mockPool).invalidate(endpoint, mockClient);
+        Assertions.assertThrows(IOException.class, () -> fs.exists(Location.of("hdfs:///test")));
+        Mockito.verify(mockPool).invalidate(endpoint, mockClient);
     }
 
     // ------------------------------------------------------------------
@@ -142,21 +136,21 @@ class BrokerSpiFileSystemTest {
     @Test
     void delete_delegatesToBrokerDeletePath() throws Exception {
         TBrokerOperationStatus status = new TBrokerOperationStatus(TBrokerOperationStatusCode.OK);
-        when(mockClient.deletePath(any(TBrokerDeletePathRequest.class))).thenReturn(status);
+        Mockito.when(mockClient.deletePath(ArgumentMatchers.any(TBrokerDeletePathRequest.class))).thenReturn(status);
 
         fs.delete(Location.of("hdfs:///test/file.txt"), false);
 
         ArgumentCaptor<TBrokerDeletePathRequest> captor =
                 ArgumentCaptor.forClass(TBrokerDeletePathRequest.class);
-        verify(mockClient).deletePath(captor.capture());
-        assertEquals("hdfs:///test/file.txt", captor.getValue().getPath());
-        verify(mockPool).returnGood(endpoint, mockClient);
+        Mockito.verify(mockClient).deletePath(captor.capture());
+        Assertions.assertEquals("hdfs:///test/file.txt", captor.getValue().getPath());
+        Mockito.verify(mockPool).returnGood(endpoint, mockClient);
     }
 
     @Test
     void delete_swallowsFileNotFoundError() throws Exception {
         TBrokerOperationStatus status = new TBrokerOperationStatus(TBrokerOperationStatusCode.FILE_NOT_FOUND);
-        when(mockClient.deletePath(any(TBrokerDeletePathRequest.class))).thenReturn(status);
+        Mockito.when(mockClient.deletePath(ArgumentMatchers.any(TBrokerDeletePathRequest.class))).thenReturn(status);
 
         // Should not throw
         fs.delete(Location.of("hdfs:///test/gone"), false);
@@ -166,9 +160,9 @@ class BrokerSpiFileSystemTest {
     void delete_throwsIOExceptionOnBrokerError() throws Exception {
         TBrokerOperationStatus status = new TBrokerOperationStatus(TBrokerOperationStatusCode.INVALID_INPUT_FILE_PATH);
         status.setMessage("error");
-        when(mockClient.deletePath(any(TBrokerDeletePathRequest.class))).thenReturn(status);
+        Mockito.when(mockClient.deletePath(ArgumentMatchers.any(TBrokerDeletePathRequest.class))).thenReturn(status);
 
-        assertThrows(IOException.class, () -> fs.delete(Location.of("hdfs:///bad"), false));
+        Assertions.assertThrows(IOException.class, () -> fs.delete(Location.of("hdfs:///bad"), false));
     }
 
     // ------------------------------------------------------------------
@@ -178,24 +172,24 @@ class BrokerSpiFileSystemTest {
     @Test
     void rename_delegatesToBrokerRenamePath() throws Exception {
         TBrokerOperationStatus status = new TBrokerOperationStatus(TBrokerOperationStatusCode.OK);
-        when(mockClient.renamePath(any(TBrokerRenamePathRequest.class))).thenReturn(status);
+        Mockito.when(mockClient.renamePath(ArgumentMatchers.any(TBrokerRenamePathRequest.class))).thenReturn(status);
 
         fs.rename(Location.of("hdfs:///old/path"), Location.of("hdfs:///new/path"));
 
         ArgumentCaptor<TBrokerRenamePathRequest> captor =
                 ArgumentCaptor.forClass(TBrokerRenamePathRequest.class);
-        verify(mockClient).renamePath(captor.capture());
-        assertEquals("hdfs:///old/path", captor.getValue().getSrcPath());
-        assertEquals("hdfs:///new/path", captor.getValue().getDestPath());
+        Mockito.verify(mockClient).renamePath(captor.capture());
+        Assertions.assertEquals("hdfs:///old/path", captor.getValue().getSrcPath());
+        Assertions.assertEquals("hdfs:///new/path", captor.getValue().getDestPath());
     }
 
     @Test
     void rename_throwsIOExceptionOnBrokerError() throws Exception {
         TBrokerOperationStatus status = new TBrokerOperationStatus(TBrokerOperationStatusCode.INVALID_ARGUMENT);
         status.setMessage("target exists");
-        when(mockClient.renamePath(any(TBrokerRenamePathRequest.class))).thenReturn(status);
+        Mockito.when(mockClient.renamePath(ArgumentMatchers.any(TBrokerRenamePathRequest.class))).thenReturn(status);
 
-        assertThrows(IOException.class, () ->
+        Assertions.assertThrows(IOException.class, () ->
                 fs.rename(Location.of("hdfs:///src"), Location.of("hdfs:///dst")));
     }
 
@@ -215,21 +209,21 @@ class BrokerSpiFileSystemTest {
         files.add(f1);
         files.add(f2);
         listResp.setFiles(files);
-        when(mockClient.listPath(any(TBrokerListPathRequest.class))).thenReturn(listResp);
+        Mockito.when(mockClient.listPath(ArgumentMatchers.any(TBrokerListPathRequest.class))).thenReturn(listResp);
 
         FileIterator iter = fs.list(Location.of("hdfs:///dir"));
 
-        assertTrue(iter.hasNext());
+        Assertions.assertTrue(iter.hasNext());
         FileEntry entry1 = iter.next();
-        assertEquals("hdfs:///dir/a.txt", entry1.location().uri());
-        assertEquals(100L, entry1.length());
+        Assertions.assertEquals("hdfs:///dir/a.txt", entry1.location().uri());
+        Assertions.assertEquals(100L, entry1.length());
 
-        assertTrue(iter.hasNext());
+        Assertions.assertTrue(iter.hasNext());
         FileEntry entry2 = iter.next();
-        assertEquals("hdfs:///dir/b.txt", entry2.location().uri());
-        assertEquals(200L, entry2.length());
+        Assertions.assertEquals("hdfs:///dir/b.txt", entry2.location().uri());
+        Assertions.assertEquals(200L, entry2.length());
 
-        assertFalse(iter.hasNext());
+        Assertions.assertFalse(iter.hasNext());
         iter.close();
     }
 
@@ -237,11 +231,11 @@ class BrokerSpiFileSystemTest {
     void list_returnsEmptyIteratorForFileNotFound() throws Exception {
         TBrokerOperationStatus status = new TBrokerOperationStatus(TBrokerOperationStatusCode.FILE_NOT_FOUND);
         TBrokerListResponse listResp = new TBrokerListResponse(status);
-        when(mockClient.listPath(any(TBrokerListPathRequest.class))).thenReturn(listResp);
+        Mockito.when(mockClient.listPath(ArgumentMatchers.any(TBrokerListPathRequest.class))).thenReturn(listResp);
 
         FileIterator iter = fs.list(Location.of("hdfs:///missing"));
 
-        assertFalse(iter.hasNext());
+        Assertions.assertFalse(iter.hasNext());
     }
 
     // ------------------------------------------------------------------
@@ -251,7 +245,7 @@ class BrokerSpiFileSystemTest {
     @Test
     void close_closesClientPool() throws IOException {
         fs.close();
-        verify(mockPool).close();
+        Mockito.verify(mockPool).close();
     }
 
     // ------------------------------------------------------------------
@@ -260,15 +254,15 @@ class BrokerSpiFileSystemTest {
 
     @Test
     void accessors_returnConstructorValues() {
-        assertEquals("broker-host", fs.endpoint().getHostname());
-        assertEquals(9999, fs.endpoint().getPort());
-        assertEquals("fe-client", fs.clientId());
-        assertEquals("testuser", fs.brokerParams().get("username"));
+        Assertions.assertEquals("broker-host", fs.endpoint().getHostname());
+        Assertions.assertEquals(9999, fs.endpoint().getPort());
+        Assertions.assertEquals("fe-client", fs.clientId());
+        Assertions.assertEquals("testuser", fs.brokerParams().get("username"));
     }
 
     @Test
     void brokerParams_areImmutable() {
-        assertThrows(UnsupportedOperationException.class,
+        Assertions.assertThrows(UnsupportedOperationException.class,
                 () -> fs.brokerParams().put("new", "val"));
     }
 }

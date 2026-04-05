@@ -17,10 +17,7 @@
 
 package org.apache.doris.filesystem;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -130,9 +127,9 @@ class FileSystemDefaultMethodsTest {
         ));
 
         List<FileEntry> files = fs.listFiles(Location.of("s3://b/dir"));
-        assertEquals(2, files.size());
-        assertEquals("a.csv", files.get(0).name());
-        assertEquals("b.csv", files.get(1).name());
+        Assertions.assertEquals(2, files.size());
+        Assertions.assertEquals("a.csv", files.get(0).name());
+        Assertions.assertEquals("b.csv", files.get(1).name());
     }
 
     @Test
@@ -143,7 +140,7 @@ class FileSystemDefaultMethodsTest {
         ));
 
         List<FileEntry> files = fs.listFiles(Location.of("s3://b/dir"));
-        assertTrue(files.isEmpty());
+        Assertions.assertTrue(files.isEmpty());
     }
 
     // --- listDirectories ---
@@ -158,9 +155,9 @@ class FileSystemDefaultMethodsTest {
         ));
 
         Set<String> dirs = fs.listDirectories(Location.of("s3://b/dir"));
-        assertEquals(2, dirs.size());
-        assertTrue(dirs.contains("s3://b/dir/subdir1"));
-        assertTrue(dirs.contains("s3://b/dir/subdir2"));
+        Assertions.assertEquals(2, dirs.size());
+        Assertions.assertTrue(dirs.contains("s3://b/dir/subdir1"));
+        Assertions.assertTrue(dirs.contains("s3://b/dir/subdir2"));
     }
 
     // --- deleteFiles ---
@@ -172,10 +169,10 @@ class FileSystemDefaultMethodsTest {
                 Location.of("s3://b/a"), Location.of("s3://b/b"), Location.of("s3://b/c"));
 
         fs.deleteFiles(toDelete);
-        assertEquals(3, fs.deleteCallCount);
-        assertEquals(Location.of("s3://b/a"), fs.deletedLocations.get(0));
-        assertEquals(Location.of("s3://b/b"), fs.deletedLocations.get(1));
-        assertEquals(Location.of("s3://b/c"), fs.deletedLocations.get(2));
+        Assertions.assertEquals(3, fs.deleteCallCount);
+        Assertions.assertEquals(Location.of("s3://b/a"), fs.deletedLocations.get(0));
+        Assertions.assertEquals(Location.of("s3://b/b"), fs.deletedLocations.get(1));
+        Assertions.assertEquals(Location.of("s3://b/c"), fs.deletedLocations.get(2));
     }
 
     // --- renameDirectory ---
@@ -185,9 +182,11 @@ class FileSystemDefaultMethodsTest {
         StubFileSystem fs = new StubFileSystem(List.of());
         fs.setExistsResult(true);
 
-        Runnable callback = () -> { throw new AssertionError("should not be called"); };
+        Runnable callback = () -> {
+            throw new AssertionError("should not be called");
+        };
         fs.renameDirectory(Location.of("s3://b/src"), Location.of("s3://b/dst"), callback);
-        assertTrue(fs.renameCalled);
+        Assertions.assertTrue(fs.renameCalled);
     }
 
     @Test
@@ -198,7 +197,7 @@ class FileSystemDefaultMethodsTest {
         boolean[] callbackCalled = {false};
         fs.renameDirectory(Location.of("s3://b/src"), Location.of("s3://b/dst"),
                 () -> callbackCalled[0] = true);
-        assertTrue(callbackCalled[0]);
+        Assertions.assertTrue(callbackCalled[0]);
     }
 
     // --- newInputFile with length hint ---
@@ -209,7 +208,7 @@ class FileSystemDefaultMethodsTest {
         // newInputFile(location). Since our stub throws UnsupportedOperationException,
         // we verify the delegation by expecting the same exception.
         StubFileSystem fs = new StubFileSystem(List.of());
-        assertThrows(UnsupportedOperationException.class,
+        Assertions.assertThrows(UnsupportedOperationException.class,
                 () -> fs.newInputFile(Location.of("s3://b/f"), 100));
     }
 
@@ -218,7 +217,7 @@ class FileSystemDefaultMethodsTest {
     @Test
     void globListWithLimitThrowsUnsupportedByDefault() {
         StubFileSystem fs = new StubFileSystem(List.of());
-        assertThrows(UnsupportedOperationException.class,
+        Assertions.assertThrows(UnsupportedOperationException.class,
                 () -> fs.globListWithLimit(Location.of("s3://b/*"), null, 0, 0));
     }
 }

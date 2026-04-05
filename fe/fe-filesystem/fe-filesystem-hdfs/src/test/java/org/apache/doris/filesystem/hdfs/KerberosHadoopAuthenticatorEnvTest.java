@@ -20,6 +20,7 @@ package org.apache.doris.filesystem.hdfs;
 import org.apache.doris.filesystem.Location;
 
 import org.apache.hadoop.conf.Configuration;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
@@ -27,11 +28,6 @@ import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Environment-dependent integration tests for {@link KerberosHadoopAuthenticator}.
@@ -68,7 +64,7 @@ class KerberosHadoopAuthenticatorEnvTest {
 
         KerberosHadoopAuthenticator auth =
                 new KerberosHadoopAuthenticator(principal, keytab, kerberosConf());
-        assertNotNull(auth);
+        Assertions.assertNotNull(auth);
     }
 
     @Test
@@ -79,7 +75,7 @@ class KerberosHadoopAuthenticatorEnvTest {
         KerberosHadoopAuthenticator auth =
                 new KerberosHadoopAuthenticator(principal, keytab, kerberosConf());
         String result = auth.doAs(() -> "hello-from-kerberos");
-        assertEquals("hello-from-kerberos", result);
+        Assertions.assertEquals("hello-from-kerberos", result);
     }
 
     @Test
@@ -89,7 +85,7 @@ class KerberosHadoopAuthenticatorEnvTest {
 
         KerberosHadoopAuthenticator auth =
                 new KerberosHadoopAuthenticator(principal, keytab, kerberosConf());
-        assertThrows(IOException.class, () -> auth.doAs(() -> {
+        Assertions.assertThrows(IOException.class, () -> auth.doAs(() -> {
             throw new IOException("intentional");
         }));
     }
@@ -113,7 +109,7 @@ class KerberosHadoopAuthenticatorEnvTest {
 
         try (DFSFileSystem dfs = new DFSFileSystem(props)) {
             boolean exists = dfs.exists(Location.of("hdfs://" + hdfsHost + ":" + hdfsPort + "/"));
-            assertTrue(exists, "Root directory should exist");
+            Assertions.assertTrue(exists, "Root directory should exist");
         }
     }
 }

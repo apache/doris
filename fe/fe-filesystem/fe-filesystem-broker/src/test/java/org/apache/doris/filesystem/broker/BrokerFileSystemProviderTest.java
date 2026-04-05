@@ -17,17 +17,13 @@
 
 package org.apache.doris.filesystem.broker;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Unit tests for {@link BrokerFileSystemProvider}.
@@ -48,7 +44,7 @@ class BrokerFileSystemProviderTest {
 
     @Test
     void name_returnsBroker() {
-        assertEquals("Broker", provider.name());
+        Assertions.assertEquals("Broker", provider.name());
     }
 
     // ------------------------------------------------------------------
@@ -61,7 +57,7 @@ class BrokerFileSystemProviderTest {
         props.put("_STORAGE_TYPE_", "BROKER");
         props.put("BROKER_HOST", "broker-host");
 
-        assertTrue(provider.supports(props));
+        Assertions.assertTrue(provider.supports(props));
     }
 
     @Test
@@ -69,7 +65,7 @@ class BrokerFileSystemProviderTest {
         Map<String, String> props = new HashMap<>();
         props.put("BROKER_HOST", "broker-host");
 
-        assertFalse(provider.supports(props));
+        Assertions.assertFalse(provider.supports(props));
     }
 
     @Test
@@ -78,7 +74,7 @@ class BrokerFileSystemProviderTest {
         props.put("_STORAGE_TYPE_", "S3");
         props.put("BROKER_HOST", "broker-host");
 
-        assertFalse(provider.supports(props));
+        Assertions.assertFalse(provider.supports(props));
     }
 
     @Test
@@ -86,12 +82,12 @@ class BrokerFileSystemProviderTest {
         Map<String, String> props = new HashMap<>();
         props.put("_STORAGE_TYPE_", "BROKER");
 
-        assertFalse(provider.supports(props));
+        Assertions.assertFalse(provider.supports(props));
     }
 
     @Test
     void supports_falseForEmptyMap() {
-        assertFalse(provider.supports(new HashMap<>()));
+        Assertions.assertFalse(provider.supports(new HashMap<>()));
     }
 
     // ------------------------------------------------------------------
@@ -104,8 +100,8 @@ class BrokerFileSystemProviderTest {
         props.put("_STORAGE_TYPE_", "BROKER");
         props.put("BROKER_PORT", "9999");
 
-        IOException ex = assertThrows(IOException.class, () -> provider.create(props));
-        assertTrue(ex.getMessage().contains("BROKER_HOST"));
+        IOException ex = Assertions.assertThrows(IOException.class, () -> provider.create(props));
+        Assertions.assertTrue(ex.getMessage().contains("BROKER_HOST"));
     }
 
     @Test
@@ -115,8 +111,8 @@ class BrokerFileSystemProviderTest {
         props.put("BROKER_HOST", "");
         props.put("BROKER_PORT", "9999");
 
-        IOException ex = assertThrows(IOException.class, () -> provider.create(props));
-        assertTrue(ex.getMessage().contains("BROKER_HOST"));
+        IOException ex = Assertions.assertThrows(IOException.class, () -> provider.create(props));
+        Assertions.assertTrue(ex.getMessage().contains("BROKER_HOST"));
     }
 
     @Test
@@ -125,8 +121,8 @@ class BrokerFileSystemProviderTest {
         props.put("_STORAGE_TYPE_", "BROKER");
         props.put("BROKER_HOST", "broker-host");
 
-        IOException ex = assertThrows(IOException.class, () -> provider.create(props));
-        assertTrue(ex.getMessage().contains("BROKER_PORT"));
+        IOException ex = Assertions.assertThrows(IOException.class, () -> provider.create(props));
+        Assertions.assertTrue(ex.getMessage().contains("BROKER_PORT"));
     }
 
     @Test
@@ -136,8 +132,8 @@ class BrokerFileSystemProviderTest {
         props.put("BROKER_HOST", "broker-host");
         props.put("BROKER_PORT", "");
 
-        IOException ex = assertThrows(IOException.class, () -> provider.create(props));
-        assertTrue(ex.getMessage().contains("BROKER_PORT"));
+        IOException ex = Assertions.assertThrows(IOException.class, () -> provider.create(props));
+        Assertions.assertTrue(ex.getMessage().contains("BROKER_PORT"));
     }
 
     @Test
@@ -147,7 +143,7 @@ class BrokerFileSystemProviderTest {
         props.put("BROKER_HOST", "broker-host");
         props.put("BROKER_PORT", "not-a-number");
 
-        IOException ex = assertThrows(IOException.class, () -> provider.create(props));
-        assertTrue(ex.getMessage().contains("Invalid BROKER_PORT"));
+        IOException ex = Assertions.assertThrows(IOException.class, () -> provider.create(props));
+        Assertions.assertTrue(ex.getMessage().contains("Invalid BROKER_PORT"));
     }
 }

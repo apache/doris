@@ -18,21 +18,18 @@
 package org.apache.doris.filesystem.hdfs;
 
 import org.apache.hadoop.conf.Configuration;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class HdfsConfigBuilderTest {
 
     @Test
     void buildSetsDisableCache() {
         Configuration conf = HdfsConfigBuilder.build(Map.of());
-        assertTrue(conf.getBoolean("fs.hdfs.impl.disable.cache", false));
-        assertTrue(conf.getBoolean("fs.AbstractFileSystem.hdfs.impl.disable.cache", false));
+        Assertions.assertTrue(conf.getBoolean("fs.hdfs.impl.disable.cache", false));
+        Assertions.assertTrue(conf.getBoolean("fs.AbstractFileSystem.hdfs.impl.disable.cache", false));
     }
 
     @Test
@@ -41,8 +38,8 @@ class HdfsConfigBuilderTest {
                 "fs.defaultFS", "hdfs://namenode:8020",
                 "dfs.replication", "3"
         ));
-        assertEquals("hdfs://namenode:8020", conf.get("fs.defaultFS"));
-        assertEquals("3", conf.get("dfs.replication"));
+        Assertions.assertEquals("hdfs://namenode:8020", conf.get("fs.defaultFS"));
+        Assertions.assertEquals("3", conf.get("dfs.replication"));
     }
 
     @Test
@@ -53,15 +50,15 @@ class HdfsConfigBuilderTest {
         props.put("null.key", null);
 
         Configuration conf = HdfsConfigBuilder.build(props);
-        assertEquals("good.value", conf.get("good.key"));
+        Assertions.assertEquals("good.value", conf.get("good.key"));
         // empty and null values should not be set
-        assertFalse(conf.iterator().hasNext()
+        Assertions.assertFalse(conf.iterator().hasNext()
                 && "empty.key".equals(conf.get("empty.key")));
     }
 
     @Test
     void isKerberosEnabledBothPresent() {
-        assertTrue(HdfsConfigBuilder.isKerberosEnabled(Map.of(
+        Assertions.assertTrue(HdfsConfigBuilder.isKerberosEnabled(Map.of(
                 "hadoop.kerberos.principal", "doris@REALM",
                 "hadoop.kerberos.keytab", "/path/to/keytab"
         )));
@@ -69,20 +66,20 @@ class HdfsConfigBuilderTest {
 
     @Test
     void isKerberosEnabledMissingPrincipal() {
-        assertFalse(HdfsConfigBuilder.isKerberosEnabled(Map.of(
+        Assertions.assertFalse(HdfsConfigBuilder.isKerberosEnabled(Map.of(
                 "hadoop.kerberos.keytab", "/path/to/keytab"
         )));
     }
 
     @Test
     void isKerberosEnabledMissingKeytab() {
-        assertFalse(HdfsConfigBuilder.isKerberosEnabled(Map.of(
+        Assertions.assertFalse(HdfsConfigBuilder.isKerberosEnabled(Map.of(
                 "hadoop.kerberos.principal", "doris@REALM"
         )));
     }
 
     @Test
     void isKerberosEnabledNeitherPresent() {
-        assertFalse(HdfsConfigBuilder.isKerberosEnabled(Map.of()));
+        Assertions.assertFalse(HdfsConfigBuilder.isKerberosEnabled(Map.of()));
     }
 }

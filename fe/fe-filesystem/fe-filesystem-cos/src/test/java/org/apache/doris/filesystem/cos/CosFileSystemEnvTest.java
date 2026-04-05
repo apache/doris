@@ -26,6 +26,7 @@ import org.apache.doris.filesystem.Location;
 import org.apache.doris.filesystem.s3.S3FileSystem;
 
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Order;
@@ -41,11 +42,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Environment-dependent integration tests for COS (Tencent Cloud) via {@link S3FileSystem}.
@@ -123,13 +119,13 @@ class CosFileSystemEnvTest {
     @Order(1)
     void existsReturnsTrueForExisting() throws IOException {
         writeContent("exists.txt", "data".getBytes());
-        assertTrue(fs.exists(loc("exists.txt")));
+        Assertions.assertTrue(fs.exists(loc("exists.txt")));
     }
 
     @Test
     @Order(2)
     void existsReturnsFalseForMissing() throws IOException {
-        assertFalse(fs.exists(loc("missing-" + UUID.randomUUID())));
+        Assertions.assertFalse(fs.exists(loc("missing-" + UUID.randomUUID())));
     }
 
     @Test
@@ -137,7 +133,7 @@ class CosFileSystemEnvTest {
     void deleteRemovesObject() throws IOException {
         writeContent("del.txt", "x".getBytes());
         fs.delete(loc("del.txt"), false);
-        assertFalse(fs.exists(loc("del.txt")));
+        Assertions.assertFalse(fs.exists(loc("del.txt")));
     }
 
     @Test
@@ -145,8 +141,8 @@ class CosFileSystemEnvTest {
     void renameMovesObject() throws IOException {
         writeContent("src.txt", "r".getBytes());
         fs.rename(loc("src.txt"), loc("dst.txt"));
-        assertFalse(fs.exists(loc("src.txt")));
-        assertTrue(fs.exists(loc("dst.txt")));
+        Assertions.assertFalse(fs.exists(loc("src.txt")));
+        Assertions.assertTrue(fs.exists(loc("dst.txt")));
     }
 
     @Test
@@ -161,7 +157,7 @@ class CosFileSystemEnvTest {
                 entries.add(iter.next());
             }
         }
-        assertTrue(entries.size() >= 2);
+        Assertions.assertTrue(entries.size() >= 2);
     }
 
     @Test
@@ -169,7 +165,7 @@ class CosFileSystemEnvTest {
     void inputOutputRoundTrip() throws IOException {
         byte[] expected = "COS round-trip test 腾讯云".getBytes();
         writeContent("rt.bin", expected);
-        assertArrayEquals(expected, readAll("rt.bin"));
+        Assertions.assertArrayEquals(expected, readAll("rt.bin"));
     }
 
     @Test
@@ -178,6 +174,6 @@ class CosFileSystemEnvTest {
         byte[] data = new byte[999];
         java.util.Arrays.fill(data, (byte) 'C');
         writeContent("len.bin", data);
-        assertEquals(999L, fs.newInputFile(loc("len.bin")).length());
+        Assertions.assertEquals(999L, fs.newInputFile(loc("len.bin")).length());
     }
 }

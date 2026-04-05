@@ -17,58 +17,55 @@
 
 package org.apache.doris.filesystem;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class FileEntryTest {
 
     @Test
     void nameForRegularFile() {
         FileEntry entry = new FileEntry(Location.of("s3://bucket/dir/file.csv"), 100, false, 0, null);
-        assertEquals("file.csv", entry.name());
+        Assertions.assertEquals("file.csv", entry.name());
     }
 
     @Test
     void nameForDirectory() {
         FileEntry entry = new FileEntry(Location.of("s3://bucket/dir/subdir"), 0, true, 0, null);
-        assertEquals("subdir", entry.name());
+        Assertions.assertEquals("subdir", entry.name());
     }
 
     @Test
     void nameForDirectoryWithTrailingSlash() {
         FileEntry entry = new FileEntry(Location.of("s3://bucket/dir/subdir/"), 0, true, 0, null);
-        assertEquals("subdir", entry.name());
+        Assertions.assertEquals("subdir", entry.name());
     }
 
     @Test
     void nameForRootFile() {
         FileEntry entry = new FileEntry(Location.of("s3://bucket/file.txt"), 50, false, 0, null);
-        assertEquals("file.txt", entry.name());
+        Assertions.assertEquals("file.txt", entry.name());
     }
 
     @Test
     void isFileReturnsTrueForFile() {
         FileEntry entry = new FileEntry(Location.of("s3://b/f"), 1, false, 0, null);
-        assertTrue(entry.isFile());
-        assertFalse(entry.isDirectory());
+        Assertions.assertTrue(entry.isFile());
+        Assertions.assertFalse(entry.isDirectory());
     }
 
     @Test
     void isDirectoryReturnsTrueForDirectory() {
         FileEntry entry = new FileEntry(Location.of("s3://b/d"), 0, true, 0, null);
-        assertTrue(entry.isDirectory());
-        assertFalse(entry.isFile());
+        Assertions.assertTrue(entry.isDirectory());
+        Assertions.assertFalse(entry.isFile());
     }
 
     @Test
     void blocksReturnsEmptyListWhenNull() {
         FileEntry entry = new FileEntry(Location.of("s3://b/f"), 0, false, 0, null);
-        assertTrue(entry.blocks().isEmpty());
+        Assertions.assertTrue(entry.blocks().isEmpty());
     }
 
     @Test
@@ -78,10 +75,10 @@ class FileEntryTest {
         original.add(block);
         FileEntry entry = new FileEntry(Location.of("s3://b/f"), 100, false, 0, original);
 
-        assertEquals(1, entry.blocks().size());
+        Assertions.assertEquals(1, entry.blocks().size());
         // Modifying the original list should NOT affect the entry
         original.add(new BlockInfo(100, 200, new String[]{"host2"}));
-        assertEquals(1, entry.blocks().size());
+        Assertions.assertEquals(1, entry.blocks().size());
     }
 
     @Test
@@ -97,8 +94,8 @@ class FileEntryTest {
     void locationAndLengthAndModTime() {
         Location loc = Location.of("hdfs://nn/path/to/file");
         FileEntry entry = new FileEntry(loc, 12345L, false, 9999L, null);
-        assertEquals(loc, entry.location());
-        assertEquals(12345L, entry.length());
-        assertEquals(9999L, entry.modificationTime());
+        Assertions.assertEquals(loc, entry.location());
+        Assertions.assertEquals(12345L, entry.length());
+        Assertions.assertEquals(9999L, entry.modificationTime());
     }
 }

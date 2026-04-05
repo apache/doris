@@ -25,6 +25,7 @@ import org.apache.doris.filesystem.FileIterator;
 import org.apache.doris.filesystem.Location;
 
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Order;
@@ -40,11 +41,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Environment-dependent integration tests for {@link S3FileSystem}.
@@ -124,13 +120,13 @@ class S3FileSystemEnvTest {
     @Order(1)
     void existsReturnsTrueForExistingObject() throws IOException {
         writeContent("exists-test.txt", "data".getBytes());
-        assertTrue(fs.exists(loc("exists-test.txt")));
+        Assertions.assertTrue(fs.exists(loc("exists-test.txt")));
     }
 
     @Test
     @Order(2)
     void existsReturnsFalseForMissing() throws IOException {
-        assertFalse(fs.exists(loc("non-existent-" + UUID.randomUUID())));
+        Assertions.assertFalse(fs.exists(loc("non-existent-" + UUID.randomUUID())));
     }
 
     // ------------------------------------------------------------------
@@ -141,10 +137,10 @@ class S3FileSystemEnvTest {
     @Order(3)
     void deleteRemovesObject() throws IOException {
         writeContent("delete-test.txt", "to-delete".getBytes());
-        assertTrue(fs.exists(loc("delete-test.txt")));
+        Assertions.assertTrue(fs.exists(loc("delete-test.txt")));
 
         fs.delete(loc("delete-test.txt"), false);
-        assertFalse(fs.exists(loc("delete-test.txt")));
+        Assertions.assertFalse(fs.exists(loc("delete-test.txt")));
     }
 
     // ------------------------------------------------------------------
@@ -158,8 +154,8 @@ class S3FileSystemEnvTest {
 
         fs.rename(loc("rename-src.txt"), loc("rename-dst.txt"));
 
-        assertFalse(fs.exists(loc("rename-src.txt")));
-        assertTrue(fs.exists(loc("rename-dst.txt")));
+        Assertions.assertFalse(fs.exists(loc("rename-src.txt")));
+        Assertions.assertTrue(fs.exists(loc("rename-dst.txt")));
     }
 
     // ------------------------------------------------------------------
@@ -179,7 +175,7 @@ class S3FileSystemEnvTest {
             }
         }
 
-        assertTrue(entries.size() >= 2,
+        Assertions.assertTrue(entries.size() >= 2,
                 "Expected at least 2 entries, got " + entries.size());
     }
 
@@ -194,7 +190,7 @@ class S3FileSystemEnvTest {
         writeContent("roundtrip.bin", expected);
 
         byte[] actual = readAll("roundtrip.bin");
-        assertArrayEquals(expected, actual);
+        Assertions.assertArrayEquals(expected, actual);
     }
 
     // ------------------------------------------------------------------
@@ -209,6 +205,6 @@ class S3FileSystemEnvTest {
         writeContent("length-check.bin", data);
 
         DorisInputFile inputFile = fs.newInputFile(loc("length-check.bin"));
-        assertEquals(1234L, inputFile.length());
+        Assertions.assertEquals(1234L, inputFile.length());
     }
 }

@@ -23,9 +23,9 @@ import org.apache.doris.filesystem.DorisOutputFile;
 import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileIterator;
 import org.apache.doris.filesystem.Location;
-import org.apache.doris.thrift.TNetworkAddress;
 
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Order;
@@ -41,10 +41,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Environment-dependent integration tests for {@link BrokerSpiFileSystem}.
@@ -63,7 +59,6 @@ class BrokerSpiFileSystemEnvTest {
     static void setUp() throws IOException {
         String host = requireEnv("DORIS_FS_TEST_BROKER_HOST");
         int port = Integer.parseInt(requireEnv("DORIS_FS_TEST_BROKER_PORT"));
-        TNetworkAddress endpoint = new TNetworkAddress(host, port);
 
         Map<String, String> params = new HashMap<>();
         // Broker may need HDFS or other backend storage params; pass through env
@@ -113,7 +108,7 @@ class BrokerSpiFileSystemEnvTest {
     @Test
     @Order(1)
     void existsReturnsFalseForMissing() throws IOException {
-        assertFalse(fs.exists(loc("no-such-file-" + UUID.randomUUID())));
+        Assertions.assertFalse(fs.exists(loc("no-such-file-" + UUID.randomUUID())));
     }
 
     // ------------------------------------------------------------------
@@ -132,7 +127,7 @@ class BrokerSpiFileSystemEnvTest {
         DorisInputFile in = fs.newInputFile(loc("rw-test.txt"));
         try (DorisInputStream is = in.newStream()) {
             byte[] actual = is.readAllBytes();
-            assertArrayEquals(expected, actual);
+            Assertions.assertArrayEquals(expected, actual);
         }
     }
 
@@ -147,10 +142,10 @@ class BrokerSpiFileSystemEnvTest {
         try (OutputStream os = out.createOrOverwrite()) {
             os.write("del".getBytes());
         }
-        assertTrue(fs.exists(loc("to-delete.txt")));
+        Assertions.assertTrue(fs.exists(loc("to-delete.txt")));
 
         fs.delete(loc("to-delete.txt"), false);
-        assertFalse(fs.exists(loc("to-delete.txt")));
+        Assertions.assertFalse(fs.exists(loc("to-delete.txt")));
     }
 
     // ------------------------------------------------------------------
@@ -175,7 +170,7 @@ class BrokerSpiFileSystemEnvTest {
                 entries.add(iter.next());
             }
         }
-        assertTrue(entries.size() >= 2,
+        Assertions.assertTrue(entries.size() >= 2,
                 "Expected at least 2 entries, got " + entries.size());
     }
 }

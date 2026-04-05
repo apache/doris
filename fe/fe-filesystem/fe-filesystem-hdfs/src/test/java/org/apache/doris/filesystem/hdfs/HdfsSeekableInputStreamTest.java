@@ -20,17 +20,13 @@ package org.apache.doris.filesystem.hdfs;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.PositionedReadable;
 import org.apache.hadoop.fs.Seekable;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class HdfsSeekableInputStreamTest {
 
@@ -55,7 +51,9 @@ class HdfsSeekableInputStreamTest {
 
         @Override
         public int read(byte[] b, int off, int len) {
-            if (pos >= data.length) return -1;
+            if (pos >= data.length) {
+                return -1;
+            }
             int toRead = Math.min(len, data.length - pos);
             System.arraycopy(data, pos, b, off, toRead);
             pos += toRead;
@@ -82,7 +80,9 @@ class HdfsSeekableInputStreamTest {
 
         @Override
         public int read(long position, byte[] buffer, int offset, int length) throws IOException {
-            if (position >= data.length) return -1;
+            if (position >= data.length) {
+                return -1;
+            }
             int toRead = Math.min(length, data.length - (int) position);
             System.arraycopy(data, (int) position, buffer, offset, toRead);
             return toRead;
@@ -120,44 +120,44 @@ class HdfsSeekableInputStreamTest {
 
     @Test
     void getPosReturnsCorrectPosition() throws IOException {
-        assertEquals(0L, stream.getPos());
+        Assertions.assertEquals(0L, stream.getPos());
         stream.read();
-        assertEquals(1L, stream.getPos());
+        Assertions.assertEquals(1L, stream.getPos());
     }
 
     @Test
     void seekChangesPosition() throws IOException {
         stream.seek(5L);
-        assertEquals(5L, stream.getPos());
-        assertEquals('F', (char) stream.read());
+        Assertions.assertEquals(5L, stream.getPos());
+        Assertions.assertEquals('F', (char) stream.read());
     }
 
     @Test
     void readSingleByteReturnsCorrectValue() throws IOException {
-        assertEquals('A', (char) stream.read());
-        assertEquals('B', (char) stream.read());
+        Assertions.assertEquals('A', (char) stream.read());
+        Assertions.assertEquals('B', (char) stream.read());
     }
 
     @Test
     void readArrayReturnsCorrectData() throws IOException {
         byte[] buf = new byte[5];
         int bytesRead = stream.read(buf, 0, 5);
-        assertEquals(5, bytesRead);
-        assertEquals("ABCDE", new String(buf, StandardCharsets.UTF_8));
+        Assertions.assertEquals(5, bytesRead);
+        Assertions.assertEquals("ABCDE", new String(buf, StandardCharsets.UTF_8));
     }
 
     @Test
     void skipMovesForward() throws IOException {
         long skipped = stream.skip(3L);
-        assertTrue(skipped > 0);
-        assertEquals('D', (char) stream.read());
+        Assertions.assertTrue(skipped > 0);
+        Assertions.assertEquals('D', (char) stream.read());
     }
 
     @Test
     void availableReturnsRemainingBytes() throws IOException {
-        assertEquals(TEST_DATA.length, stream.available());
+        Assertions.assertEquals(TEST_DATA.length, stream.available());
         stream.read();
-        assertEquals(TEST_DATA.length - 1, stream.available());
+        Assertions.assertEquals(TEST_DATA.length - 1, stream.available());
     }
 
     @Test
@@ -168,24 +168,24 @@ class HdfsSeekableInputStreamTest {
     @Test
     void readAfterCloseThrowsIOException() throws IOException {
         stream.close();
-        assertThrows(IOException.class, () -> stream.read());
+        Assertions.assertThrows(IOException.class, () -> stream.read());
     }
 
     @Test
     void seekAfterCloseThrowsIOException() throws IOException {
         stream.close();
-        assertThrows(IOException.class, () -> stream.seek(0));
+        Assertions.assertThrows(IOException.class, () -> stream.seek(0));
     }
 
     @Test
     void getPosAfterCloseThrowsIOException() throws IOException {
         stream.close();
-        assertThrows(IOException.class, () -> stream.getPos());
+        Assertions.assertThrows(IOException.class, () -> stream.getPos());
     }
 
     @Test
     void seekOutOfRangeWrapsException() throws IOException {
-        IOException ex = assertThrows(IOException.class, () -> stream.seek(-1L));
-        assertTrue(ex.getMessage().contains("seek(-1) failed"));
+        IOException ex = Assertions.assertThrows(IOException.class, () -> stream.seek(-1L));
+        Assertions.assertTrue(ex.getMessage().contains("seek(-1) failed"));
     }
 }

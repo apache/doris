@@ -22,9 +22,11 @@ import org.apache.doris.filesystem.spi.RemoteObjects;
 import org.apache.doris.filesystem.spi.RequestBody;
 import org.apache.doris.filesystem.spi.UploadPartResult;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.AbortMultipartUploadRequest;
@@ -50,20 +52,10 @@ import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 import java.io.ByteArrayInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.io.InputStream;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 /**
  * Full unit tests for {@link S3ObjStorage} using a testable subclass that overrides
@@ -92,7 +84,7 @@ class S3ObjStorageMockTest {
 
     @Test
     void getClient_returnsInjectedMockClient() throws IOException {
-        assertEquals(mockS3, storage.getClient());
+        Assertions.assertEquals(mockS3, storage.getClient());
     }
 
     // ------------------------------------------------------------------
@@ -112,16 +104,16 @@ class S3ObjStorageMockTest {
                 .contents(obj)
                 .isTruncated(false)
                 .build();
-        when(mockS3.listObjectsV2(any(ListObjectsV2Request.class))).thenReturn(response);
+        Mockito.when(mockS3.listObjectsV2(ArgumentMatchers.any(ListObjectsV2Request.class))).thenReturn(response);
 
         RemoteObjects result = storage.listObjects("s3://my-bucket/data/", null);
 
-        assertEquals(1, result.getObjectList().size());
+        Assertions.assertEquals(1, result.getObjectList().size());
         RemoteObject ro = result.getObjectList().get(0);
-        assertEquals("data/file1.csv", ro.getKey());
-        assertEquals(1024L, ro.getSize());
-        assertEquals("abc123", ro.getEtag());
-        assertFalse(result.isTruncated());
+        Assertions.assertEquals("data/file1.csv", ro.getKey());
+        Assertions.assertEquals(1024L, ro.getSize());
+        Assertions.assertEquals("abc123", ro.getEtag());
+        Assertions.assertFalse(result.isTruncated());
     }
 
     @Test
@@ -130,13 +122,13 @@ class S3ObjStorageMockTest {
                 .contents(List.of())
                 .isTruncated(false)
                 .build();
-        when(mockS3.listObjectsV2(any(ListObjectsV2Request.class))).thenReturn(response);
+        Mockito.when(mockS3.listObjectsV2(ArgumentMatchers.any(ListObjectsV2Request.class))).thenReturn(response);
 
         storage.listObjects("s3://my-bucket/prefix/", "token-abc");
 
         ArgumentCaptor<ListObjectsV2Request> captor = ArgumentCaptor.forClass(ListObjectsV2Request.class);
-        verify(mockS3).listObjectsV2(captor.capture());
-        assertEquals("token-abc", captor.getValue().continuationToken());
+        Mockito.verify(mockS3).listObjectsV2(captor.capture());
+        Assertions.assertEquals("token-abc", captor.getValue().continuationToken());
     }
 
     @Test
@@ -146,12 +138,12 @@ class S3ObjStorageMockTest {
                 .isTruncated(true)
                 .nextContinuationToken("next-token")
                 .build();
-        when(mockS3.listObjectsV2(any(ListObjectsV2Request.class))).thenReturn(response);
+        Mockito.when(mockS3.listObjectsV2(ArgumentMatchers.any(ListObjectsV2Request.class))).thenReturn(response);
 
         RemoteObjects result = storage.listObjects("s3://my-bucket/prefix/", null);
 
-        assertTrue(result.isTruncated());
-        assertEquals("next-token", result.getContinuationToken());
+        Assertions.assertTrue(result.isTruncated());
+        Assertions.assertEquals("next-token", result.getContinuationToken());
     }
 
     // ------------------------------------------------------------------
@@ -166,30 +158,30 @@ class S3ObjStorageMockTest {
                 .contentLength(2048L)
                 .lastModified(now)
                 .build();
-        when(mockS3.headObject(any(HeadObjectRequest.class))).thenReturn(headResp);
+        Mockito.when(mockS3.headObject(ArgumentMatchers.any(HeadObjectRequest.class))).thenReturn(headResp);
 
         RemoteObject result = storage.headObject("s3://my-bucket/data/file.csv");
 
-        assertEquals("data/file.csv", result.getKey());
-        assertEquals(2048L, result.getSize());
-        assertEquals("etag-xyz", result.getEtag());
+        Assertions.assertEquals("data/file.csv", result.getKey());
+        Assertions.assertEquals(2048L, result.getSize());
+        Assertions.assertEquals("etag-xyz", result.getEtag());
     }
 
     @Test
     void headObject_throwsFileNotFoundForNoSuchKeyException() {
-        when(mockS3.headObject(any(HeadObjectRequest.class)))
+        Mockito.when(mockS3.headObject(ArgumentMatchers.any(HeadObjectRequest.class)))
                 .thenThrow(NoSuchKeyException.builder().message("not found").build());
 
-        assertThrows(FileNotFoundException.class,
+        Assertions.assertThrows(FileNotFoundException.class,
                 () -> storage.headObject("s3://my-bucket/missing"));
     }
 
     @Test
     void headObject_throwsFileNotFoundFor404S3Exception() {
-        when(mockS3.headObject(any(HeadObjectRequest.class)))
+        Mockito.when(mockS3.headObject(ArgumentMatchers.any(HeadObjectRequest.class)))
                 .thenThrow(S3Exception.builder().message("not found").statusCode(404).build());
 
-        assertThrows(FileNotFoundException.class,
+        Assertions.assertThrows(FileNotFoundException.class,
                 () -> storage.headObject("s3://my-bucket/missing"));
     }
 
@@ -199,18 +191,18 @@ class S3ObjStorageMockTest {
 
     @Test
     void putObject_delegatesToS3Client() throws IOException {
-        when(mockS3.putObject(any(PutObjectRequest.class),
-                any(software.amazon.awssdk.core.sync.RequestBody.class)))
+        Mockito.when(mockS3.putObject(ArgumentMatchers.any(PutObjectRequest.class),
+                ArgumentMatchers.any(software.amazon.awssdk.core.sync.RequestBody.class)))
                 .thenReturn(PutObjectResponse.builder().build());
 
         RequestBody body = RequestBody.of(new ByteArrayInputStream(new byte[]{1, 2, 3}), 3);
         storage.putObject("s3://my-bucket/obj", body);
 
         ArgumentCaptor<PutObjectRequest> captor = ArgumentCaptor.forClass(PutObjectRequest.class);
-        verify(mockS3).putObject(captor.capture(),
-                any(software.amazon.awssdk.core.sync.RequestBody.class));
-        assertEquals("my-bucket", captor.getValue().bucket());
-        assertEquals("obj", captor.getValue().key());
+        Mockito.verify(mockS3).putObject(captor.capture(),
+                ArgumentMatchers.any(software.amazon.awssdk.core.sync.RequestBody.class));
+        Assertions.assertEquals("my-bucket", captor.getValue().bucket());
+        Assertions.assertEquals("obj", captor.getValue().key());
     }
 
     // ------------------------------------------------------------------
@@ -219,20 +211,20 @@ class S3ObjStorageMockTest {
 
     @Test
     void deleteObject_delegatesToS3Client() throws IOException {
-        when(mockS3.deleteObject(any(DeleteObjectRequest.class)))
+        Mockito.when(mockS3.deleteObject(ArgumentMatchers.any(DeleteObjectRequest.class)))
                 .thenReturn(DeleteObjectResponse.builder().build());
 
         storage.deleteObject("s3://my-bucket/to-delete");
 
         ArgumentCaptor<DeleteObjectRequest> captor = ArgumentCaptor.forClass(DeleteObjectRequest.class);
-        verify(mockS3).deleteObject(captor.capture());
-        assertEquals("my-bucket", captor.getValue().bucket());
-        assertEquals("to-delete", captor.getValue().key());
+        Mockito.verify(mockS3).deleteObject(captor.capture());
+        Assertions.assertEquals("my-bucket", captor.getValue().bucket());
+        Assertions.assertEquals("to-delete", captor.getValue().key());
     }
 
     @Test
     void deleteObject_swallows404S3Exception() throws IOException {
-        when(mockS3.deleteObject(any(DeleteObjectRequest.class)))
+        Mockito.when(mockS3.deleteObject(ArgumentMatchers.any(DeleteObjectRequest.class)))
                 .thenThrow(S3Exception.builder().message("not found").statusCode(404).build());
 
         // Should not throw
@@ -245,16 +237,16 @@ class S3ObjStorageMockTest {
 
     @Test
     void copyObject_delegatesToS3Client() throws IOException {
-        when(mockS3.copyObject(any(CopyObjectRequest.class)))
+        Mockito.when(mockS3.copyObject(ArgumentMatchers.any(CopyObjectRequest.class)))
                 .thenReturn(CopyObjectResponse.builder().build());
 
         storage.copyObject("s3://my-bucket/src", "s3://my-bucket/dst");
 
         ArgumentCaptor<CopyObjectRequest> captor = ArgumentCaptor.forClass(CopyObjectRequest.class);
-        verify(mockS3).copyObject(captor.capture());
-        assertEquals("my-bucket/src", captor.getValue().copySource());
-        assertEquals("my-bucket", captor.getValue().destinationBucket());
-        assertEquals("dst", captor.getValue().destinationKey());
+        Mockito.verify(mockS3).copyObject(captor.capture());
+        Assertions.assertEquals("my-bucket/src", captor.getValue().copySource());
+        Assertions.assertEquals("my-bucket", captor.getValue().destinationBucket());
+        Assertions.assertEquals("dst", captor.getValue().destinationKey());
     }
 
     // ------------------------------------------------------------------
@@ -263,12 +255,12 @@ class S3ObjStorageMockTest {
 
     @Test
     void initiateMultipartUpload_returnsUploadId() throws IOException {
-        when(mockS3.createMultipartUpload(any(CreateMultipartUploadRequest.class)))
+        Mockito.when(mockS3.createMultipartUpload(ArgumentMatchers.any(CreateMultipartUploadRequest.class)))
                 .thenReturn(CreateMultipartUploadResponse.builder().uploadId("upload-123").build());
 
         String uploadId = storage.initiateMultipartUpload("s3://my-bucket/large-file");
 
-        assertEquals("upload-123", uploadId);
+        Assertions.assertEquals("upload-123", uploadId);
     }
 
     // ------------------------------------------------------------------
@@ -277,15 +269,15 @@ class S3ObjStorageMockTest {
 
     @Test
     void uploadPart_returnsPartResult() throws IOException {
-        when(mockS3.uploadPart(any(UploadPartRequest.class),
-                any(software.amazon.awssdk.core.sync.RequestBody.class)))
+        Mockito.when(mockS3.uploadPart(ArgumentMatchers.any(UploadPartRequest.class),
+                ArgumentMatchers.any(software.amazon.awssdk.core.sync.RequestBody.class)))
                 .thenReturn(UploadPartResponse.builder().eTag("part-etag").build());
 
         RequestBody body = RequestBody.of(new ByteArrayInputStream(new byte[5]), 5);
         UploadPartResult result = storage.uploadPart("s3://my-bucket/large-file", "upload-123", 1, body);
 
-        assertEquals(1, result.partNumber());
-        assertEquals("part-etag", result.etag());
+        Assertions.assertEquals(1, result.partNumber());
+        Assertions.assertEquals("part-etag", result.etag());
     }
 
     // ------------------------------------------------------------------
@@ -294,7 +286,7 @@ class S3ObjStorageMockTest {
 
     @Test
     void completeMultipartUpload_delegatesToS3Client() throws IOException {
-        when(mockS3.completeMultipartUpload(any(CompleteMultipartUploadRequest.class)))
+        Mockito.when(mockS3.completeMultipartUpload(ArgumentMatchers.any(CompleteMultipartUploadRequest.class)))
                 .thenReturn(software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse.builder().build());
 
         List<UploadPartResult> parts = List.of(
@@ -304,10 +296,10 @@ class S3ObjStorageMockTest {
 
         ArgumentCaptor<CompleteMultipartUploadRequest> captor =
                 ArgumentCaptor.forClass(CompleteMultipartUploadRequest.class);
-        verify(mockS3).completeMultipartUpload(captor.capture());
-        assertEquals("my-bucket", captor.getValue().bucket());
-        assertEquals("upload-123", captor.getValue().uploadId());
-        assertEquals(2, captor.getValue().multipartUpload().parts().size());
+        Mockito.verify(mockS3).completeMultipartUpload(captor.capture());
+        Assertions.assertEquals("my-bucket", captor.getValue().bucket());
+        Assertions.assertEquals("upload-123", captor.getValue().uploadId());
+        Assertions.assertEquals(2, captor.getValue().multipartUpload().parts().size());
     }
 
     // ------------------------------------------------------------------
@@ -316,15 +308,15 @@ class S3ObjStorageMockTest {
 
     @Test
     void abortMultipartUpload_delegatesToS3Client() throws IOException {
-        when(mockS3.abortMultipartUpload(any(AbortMultipartUploadRequest.class)))
+        Mockito.when(mockS3.abortMultipartUpload(ArgumentMatchers.any(AbortMultipartUploadRequest.class)))
                 .thenReturn(software.amazon.awssdk.services.s3.model.AbortMultipartUploadResponse.builder().build());
 
         storage.abortMultipartUpload("s3://my-bucket/file", "upload-123");
 
         ArgumentCaptor<AbortMultipartUploadRequest> captor =
                 ArgumentCaptor.forClass(AbortMultipartUploadRequest.class);
-        verify(mockS3).abortMultipartUpload(captor.capture());
-        assertEquals("upload-123", captor.getValue().uploadId());
+        Mockito.verify(mockS3).abortMultipartUpload(captor.capture());
+        Assertions.assertEquals("upload-123", captor.getValue().uploadId());
     }
 
     // ------------------------------------------------------------------
@@ -339,7 +331,7 @@ class S3ObjStorageMockTest {
         noBucketProps.put("AWS_SECRET_KEY", "sk");
         S3ObjStorage noBucket = new TestableS3ObjStorage(noBucketProps, mockS3);
 
-        assertThrows(IOException.class, () -> noBucket.getPresignedUrl("some/key"),
+        Assertions.assertThrows(IOException.class, () -> noBucket.getPresignedUrl("some/key"),
                 "Should throw when AWS_BUCKET not configured");
     }
 
@@ -349,7 +341,7 @@ class S3ObjStorageMockTest {
 
     @Test
     void getStsToken_throwsWhenRoleArnNotConfigured() {
-        assertThrows(IOException.class, () -> storage.getStsToken(),
+        Assertions.assertThrows(IOException.class, () -> storage.getStsToken(),
                 "Should throw when AWS_ROLE_ARN not configured");
     }
 
@@ -362,7 +354,7 @@ class S3ObjStorageMockTest {
         // Force client creation
         storage.getClient();
         storage.close();
-        verify(mockS3).close();
+        Mockito.verify(mockS3).close();
     }
 
     // ------------------------------------------------------------------

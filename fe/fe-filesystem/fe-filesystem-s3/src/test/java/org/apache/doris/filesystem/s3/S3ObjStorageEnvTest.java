@@ -23,6 +23,7 @@ import org.apache.doris.filesystem.spi.RequestBody;
 import org.apache.doris.filesystem.spi.UploadPartResult;
 
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Order;
@@ -33,17 +34,10 @@ import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Environment-dependent integration tests for {@link S3ObjStorage}.
@@ -114,8 +108,8 @@ class S3ObjStorageEnvTest {
         putSmallObject("head-test.txt", data);
 
         RemoteObject ro = storage.headObject(uri("head-test.txt"));
-        assertEquals(data.length, ro.getSize());
-        assertNotNull(ro.getEtag());
+        Assertions.assertEquals(data.length, ro.getSize());
+        Assertions.assertNotNull(ro.getEtag());
     }
 
     // ------------------------------------------------------------------
@@ -130,7 +124,7 @@ class S3ObjStorageEnvTest {
 
         RemoteObjects result = storage.listObjects(uri("list/"), null);
 
-        assertTrue(result.getObjectList().size() >= 2,
+        Assertions.assertTrue(result.getObjectList().size() >= 2,
                 "Expected at least 2 objects, got " + result.getObjectList().size());
     }
 
@@ -148,15 +142,15 @@ class S3ObjStorageEnvTest {
 
         // Verify destination exists
         RemoteObject dst = storage.headObject(uri("copy-dst.txt"));
-        assertEquals("copy-data".length(), dst.getSize());
+        Assertions.assertEquals("copy-data".length(), dst.getSize());
 
         // Delete both
         storage.deleteObject(uri("copy-src.txt"));
         storage.deleteObject(uri("copy-dst.txt"));
 
         // Verify they are gone
-        assertThrows(Exception.class, () -> storage.headObject(uri("copy-src.txt")));
-        assertThrows(Exception.class, () -> storage.headObject(uri("copy-dst.txt")));
+        Assertions.assertThrows(Exception.class, () -> storage.headObject(uri("copy-src.txt")));
+        Assertions.assertThrows(Exception.class, () -> storage.headObject(uri("copy-dst.txt")));
     }
 
     // ------------------------------------------------------------------
@@ -168,7 +162,7 @@ class S3ObjStorageEnvTest {
     void multipartUpload_completeSucceeds() throws IOException {
         String path = uri("multipart-complete.bin");
         String uploadId = storage.initiateMultipartUpload(path);
-        assertNotNull(uploadId);
+        Assertions.assertNotNull(uploadId);
 
         // S3 requires parts >= 5MB except the last. Use a single part for simplicity.
         byte[] partData = new byte[5 * 1024 * 1024 + 1];
@@ -183,7 +177,7 @@ class S3ObjStorageEnvTest {
         storage.completeMultipartUpload(path, uploadId, List.of(part1, part2));
 
         RemoteObject completed = storage.headObject(path);
-        assertEquals(partData.length + lastPart.length, completed.getSize());
+        Assertions.assertEquals(partData.length + lastPart.length, completed.getSize());
     }
 
     @Test
@@ -191,11 +185,11 @@ class S3ObjStorageEnvTest {
     void abortMultipartUpload_leavesNoObject() throws IOException {
         String path = uri("multipart-abort.bin");
         String uploadId = storage.initiateMultipartUpload(path);
-        assertNotNull(uploadId);
+        Assertions.assertNotNull(uploadId);
 
         storage.abortMultipartUpload(path, uploadId);
 
         // The object should not exist
-        assertThrows(Exception.class, () -> storage.headObject(path));
+        Assertions.assertThrows(Exception.class, () -> storage.headObject(path));
     }
 }

@@ -25,6 +25,7 @@ import org.apache.doris.filesystem.FileIterator;
 import org.apache.doris.filesystem.Location;
 
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Order;
@@ -40,11 +41,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Environment-dependent integration tests for {@link AzureFileSystem}.
@@ -121,22 +117,22 @@ class AzureFileSystemEnvTest {
     @Order(1)
     void existsReturnsTrueForExistingBlob() throws IOException {
         writeContent("exists.txt", "data".getBytes());
-        assertTrue(fs.exists(loc("exists.txt")));
+        Assertions.assertTrue(fs.exists(loc("exists.txt")));
     }
 
     @Test
     @Order(2)
     void existsReturnsFalseForMissing() throws IOException {
-        assertFalse(fs.exists(loc("no-such-blob-" + UUID.randomUUID())));
+        Assertions.assertFalse(fs.exists(loc("no-such-blob-" + UUID.randomUUID())));
     }
 
     @Test
     @Order(3)
     void deleteRemovesBlob() throws IOException {
         writeContent("to-delete.txt", "xxx".getBytes());
-        assertTrue(fs.exists(loc("to-delete.txt")));
+        Assertions.assertTrue(fs.exists(loc("to-delete.txt")));
         fs.delete(loc("to-delete.txt"), false);
-        assertFalse(fs.exists(loc("to-delete.txt")));
+        Assertions.assertFalse(fs.exists(loc("to-delete.txt")));
     }
 
     @Test
@@ -144,8 +140,8 @@ class AzureFileSystemEnvTest {
     void renameMovesBlob() throws IOException {
         writeContent("rename-src.txt", "rename".getBytes());
         fs.rename(loc("rename-src.txt"), loc("rename-dst.txt"));
-        assertFalse(fs.exists(loc("rename-src.txt")));
-        assertTrue(fs.exists(loc("rename-dst.txt")));
+        Assertions.assertFalse(fs.exists(loc("rename-src.txt")));
+        Assertions.assertTrue(fs.exists(loc("rename-dst.txt")));
     }
 
     @Test
@@ -160,7 +156,7 @@ class AzureFileSystemEnvTest {
                 entries.add(iter.next());
             }
         }
-        assertTrue(entries.size() >= 2);
+        Assertions.assertTrue(entries.size() >= 2);
     }
 
     @Test
@@ -169,7 +165,7 @@ class AzureFileSystemEnvTest {
         byte[] expected = "Azure round-trip 你好 🌍".getBytes();
         writeContent("roundtrip.bin", expected);
         byte[] actual = readAll("roundtrip.bin");
-        assertArrayEquals(expected, actual);
+        Assertions.assertArrayEquals(expected, actual);
     }
 
     @Test
@@ -179,6 +175,6 @@ class AzureFileSystemEnvTest {
         java.util.Arrays.fill(data, (byte) 'Z');
         writeContent("length.bin", data);
         DorisInputFile inputFile = fs.newInputFile(loc("length.bin"));
-        assertEquals(2048L, inputFile.length());
+        Assertions.assertEquals(2048L, inputFile.length());
     }
 }
