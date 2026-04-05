@@ -20,16 +20,44 @@ package org.apache.doris.filesystem.hdfs;
 import org.apache.doris.filesystem.spi.HadoopAuthenticator;
 import org.apache.doris.filesystem.spi.IOCallable;
 
+import org.apache.hadoop.security.UserGroupInformation;
+
 import java.io.IOException;
+import java.security.PrivilegedExceptionAction;
 
 /**
  * Simple (non-Kerberos) implementation of {@link HadoopAuthenticator}.
- * Executes actions directly without any privilege switching.
+ * When a {@code hadoopUsername} is provided, wraps all actions inside
+ * {@link UserGroupInformation#doAs} so that HDFS operations use that
+ * identity (important for permission checks). Otherwise, executes
+ * actions directly as the FE process user.
  */
 public class SimpleHadoopAuthenticator implements HadoopAuthenticator {
 
+    private final UserGroupInformation ugi;
+
+    public SimpleHadoopAuthenticator() {
+        this.ugi = null;
+    }
+
+    public SimpleHadoopAuthenticator(String hadoopUsername) {
+        if (hadoopUsername != null && !hadoopUsername.isEmpty()) {
+            this.ugi = UserGroupInformation.createRemoteUser(hadoopUsername);
+        } else {
+            this.ugi = null;
+        }
+    }
+
     @Override
     public <T> T doAs(IOCallable<T> action) throws IOException {
-        return action.call();
+        if (ugi == null) {
+            return action.call();
+        }
+        try {
+            return ugi.doAs((PrivilegedExceptionAction<T>) action::call);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Interrupted during HDFS operation as user " + ugi.getUserName(), e);
+        }
     }
 }

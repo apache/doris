@@ -390,25 +390,56 @@ public class S3FileSystem extends ObjFileSystem {
     /**
      * Expands {@code {N..M}} numeric range syntax in a glob pattern to the equivalent
      * comma-separated alternation {@code {N,N+1,...,M}} that Java's PathMatcher understands.
-     * For example, {@code data_{1..3}.csv} becomes {@code data_{1,2,3}.csv}.
+     * Supports simple non-negative ranges like {@code {1..3}}, reverse ranges like {@code {3..1}},
+     * and mixed comma-separated patterns like {@code {1..2,3,1..3}} or {@code {Refrain,1..3}}.
+     * For simple (no-comma) brace groups, only non-negative ranges are expanded;
+     * negative-start ranges like {@code {-1..1}} are left unchanged.
+     * Duplicate values are removed. For example:
+     * <ul>
+     *   <li>{@code data_{1..3}.csv} → {@code data_{1,2,3}.csv}</li>
+     *   <li>{@code data_{1..2,3,1..3}.csv} → {@code data_{1,2,3}.csv}</li>
+     *   <li>{@code data_{Refrain,1..3}.csv} → {@code data_{Refrain,1,2,3}.csv}</li>
+     *   <li>{@code data_{-1..1}.csv} → unchanged (no expansion)</li>
+     * </ul>
      */
     private static String expandNumericRanges(String pattern) {
-        java.util.regex.Pattern p = java.util.regex.Pattern.compile("\\{(\\d+)\\.\\.(\\d+)\\}");
-        java.util.regex.Matcher m = p.matcher(pattern);
+        java.util.regex.Pattern rangeSegment = java.util.regex.Pattern.compile(
+                "(-?\\d+)\\.\\.(-?\\d+)");
+        java.util.regex.Pattern simpleRange = java.util.regex.Pattern.compile(
+                "\\{(\\d+)\\.\\.(\\d+)\\}");
+        // Match any brace group that contains at least one N..M range
+        java.util.regex.Pattern braceGroup = java.util.regex.Pattern.compile(
+                "\\{([^}]*\\d+\\.\\.\\d+[^}]*)\\}");
+        java.util.regex.Matcher m = braceGroup.matcher(pattern);
         StringBuffer sb = new StringBuffer();
         while (m.find()) {
-            int from = Integer.parseInt(m.group(1));
-            int to = Integer.parseInt(m.group(2));
-            int step = from <= to ? 1 : -1;
-            StringBuilder expansion = new StringBuilder("{");
-            boolean first = true;
-            for (int i = from; step > 0 ? i <= to : i >= to; i += step) {
-                if (!first) {
-                    expansion.append(',');
+            String content = m.group(1);
+            boolean isMixed = content.contains(",");
+            if (!isMixed) {
+                // Simple brace group (no comma): only expand non-negative ranges
+                java.util.regex.Matcher sm = simpleRange.matcher(m.group(0));
+                if (!sm.matches()) {
+                    // Not a simple non-negative range (e.g., {-1..1}) — leave unchanged
+                    continue;
                 }
-                expansion.append(i);
-                first = false;
             }
+            String[] segments = content.split(",", -1);
+            java.util.LinkedHashSet<String> values = new java.util.LinkedHashSet<>();
+            for (String seg : segments) {
+                java.util.regex.Matcher rm = rangeSegment.matcher(seg.trim());
+                if (rm.matches()) {
+                    int from = Integer.parseInt(rm.group(1));
+                    int to = Integer.parseInt(rm.group(2));
+                    int step = from <= to ? 1 : -1;
+                    for (int i = from; step > 0 ? i <= to : i >= to; i += step) {
+                        values.add(String.valueOf(i));
+                    }
+                } else {
+                    values.add(seg.trim());
+                }
+            }
+            StringBuilder expansion = new StringBuilder("{");
+            expansion.append(String.join(",", values));
             expansion.append('}');
             m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(expansion.toString()));
         }

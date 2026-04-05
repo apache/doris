@@ -46,8 +46,12 @@ public final class S3Uri {
             if (slashIdx < 0) {
                 return new S3Uri(withoutScheme, "");
             }
-            return new S3Uri(withoutScheme.substring(0, slashIdx),
-                    withoutScheme.substring(slashIdx + 1));
+            String rawKey = withoutScheme.substring(slashIdx + 1);
+            // Strip leading slashes to normalize keys (e.g., "s3://bucket//path" → key "path")
+            while (rawKey.startsWith("/")) {
+                rawKey = rawKey.substring(1);
+            }
+            return new S3Uri(withoutScheme.substring(0, slashIdx), rawKey);
         }
         // Treat bare string as key (shouldn't normally happen)
         throw new IllegalArgumentException("Cannot parse S3 URI without scheme: " + path);

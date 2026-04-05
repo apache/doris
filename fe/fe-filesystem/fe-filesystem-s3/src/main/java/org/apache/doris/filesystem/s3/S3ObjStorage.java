@@ -25,8 +25,10 @@ import org.apache.doris.filesystem.spi.UploadPartResult;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProviderChain;
 import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
@@ -217,7 +219,13 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             }
             return StaticCredentialsProvider.create(AwsBasicCredentials.create(accessKey, secretKey));
         }
-        return DefaultCredentialsProvider.create();
+        // Allow anonymous access: chain DefaultCredentialsProvider with AnonymousCredentialsProvider
+        // as fallback, so public buckets can be accessed without any credentials.
+        return AwsCredentialsProviderChain.builder()
+                .credentialsProviders(
+                        DefaultCredentialsProvider.create(),
+                        AnonymousCredentialsProvider.create())
+                .build();
     }
 
     @Override

@@ -123,6 +123,10 @@ public class S3Resource extends Resource {
 
     protected static void pingS3(String bucketName, String rootPath, Map<String, String> newProperties)
             throws DdlException {
+        // Normalize rootPath: strip leading slashes to avoid "s3://bucket//path" double-slash
+        if (rootPath != null) {
+            rootPath = rootPath.replaceAll("^/+", "");
+        }
 
         Long timestamp = System.currentTimeMillis();
         String prefix = "s3://" + bucketName + "/" + rootPath;
