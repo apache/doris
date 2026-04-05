@@ -37,6 +37,12 @@ under the License.
         Contains NO Java code; only lists sub-modules.
     </description>
 
+    <properties>
+        <!-- By default, skip env-dependent tests tagged @Tag("environment").
+             Override on CLI: -Dtest.excludedGroups=none -->
+        <test.excludedGroups>environment</test.excludedGroups>
+    </properties>
+
     <modules>
         <module>fe-filesystem-api</module>
         <module>fe-filesystem-spi</module>
@@ -57,7 +63,7 @@ under the License.
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-surefire-plugin</artifactId>
                     <configuration>
-                        <excludedGroups>environment</excludedGroups>
+                        <excludedGroups>${test.excludedGroups}</excludedGroups>
                     </configuration>
                 </plugin>
             </plugins>

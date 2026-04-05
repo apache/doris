@@ -75,17 +75,30 @@ for arg in "$@"; do
     esac
 done
 
-if [[ "$SERVICE" == "all" ]]; then
-    GROUPS="environment"
-else
-    GROUPS="$SERVICE"
-fi
+# Map service name to JUnit 5 tag and Maven module(s)
+# NOTE: Do NOT use GROUPS as variable name — it is a bash builtin (user group IDs).
+case "$SERVICE" in
+    s3)        TAG="s3";       MODULES="fe-filesystem/fe-filesystem-s3" ;;
+    oss)       TAG="oss";      MODULES="fe-filesystem/fe-filesystem-oss" ;;
+    cos)       TAG="cos";      MODULES="fe-filesystem/fe-filesystem-cos" ;;
+    obs)       TAG="obs";      MODULES="fe-filesystem/fe-filesystem-obs" ;;
+    azure)     TAG="azure";    MODULES="fe-filesystem/fe-filesystem-azure" ;;
+    hdfs)      TAG="hdfs";     MODULES="fe-filesystem/fe-filesystem-hdfs" ;;
+    kerberos)  TAG="kerberos"; MODULES="fe-filesystem/fe-filesystem-hdfs" ;;
+    broker)    TAG="broker";   MODULES="fe-filesystem/fe-filesystem-broker" ;;
+    all)       TAG="environment"
+               MODULES="fe-filesystem/fe-filesystem-s3,fe-filesystem/fe-filesystem-oss"
+               MODULES="${MODULES},fe-filesystem/fe-filesystem-cos,fe-filesystem/fe-filesystem-obs"
+               MODULES="${MODULES},fe-filesystem/fe-filesystem-azure,fe-filesystem/fe-filesystem-hdfs"
+               MODULES="${MODULES},fe-filesystem/fe-filesystem-broker" ;;
+    *) echo "Unknown service: $SERVICE"; exit 1 ;;
+esac
 
 cd "${ROOT}/fe"
-echo "Running filesystem environment tests for: $GROUPS"
-mvn test -pl fe-filesystem \
-    -Dsurefire.excludedGroups= \
-    -Dgroups="$GROUPS" \
+echo "Running filesystem environment tests for: $TAG (modules: $MODULES)"
+mvn test -pl "${MODULES}" \
+    -Dtest.excludedGroups=none \
+    -Dgroups="$TAG" \
     -Dcheckstyle.skip=true \
     -DfailIfNoTests=false \
     -Dmaven.build.cache.enabled=false \

@@ -177,4 +177,35 @@ class AzureFileSystemEnvTest {
         DorisInputFile inputFile = fs.newInputFile(loc("length.bin"));
         Assertions.assertEquals(2048L, inputFile.length());
     }
+
+    @Test
+    @Order(8)
+    void getPresignedUrl_returnsValidUrlAndUploadWorks() throws IOException {
+        // Azure getPresignedUrl expects a full Azure URI
+        String azureKey = "wasbs://" + container + "@" + account
+                + ".blob.core.windows.net/" + PREFIX + "presigned-put.txt";
+        String presignedUrl = fs.getPresignedUrl(azureKey);
+        Assertions.assertNotNull(presignedUrl);
+
+        java.net.URL url = new java.net.URL(presignedUrl);
+        Assertions.assertTrue(url.getProtocol().startsWith("http"));
+
+        // Upload data through the presigned (SAS) URL
+        byte[] payload = "azure-presigned-upload".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+        conn.setDoOutput(true);
+        conn.setRequestMethod("PUT");
+        conn.setRequestProperty("Content-Length", String.valueOf(payload.length));
+        conn.setRequestProperty("x-ms-blob-type", "BlockBlob");
+        try (java.io.OutputStream os = conn.getOutputStream()) {
+            os.write(payload);
+        }
+        int responseCode = conn.getResponseCode();
+        conn.disconnect();
+        Assertions.assertTrue(responseCode >= 200 && responseCode < 300,
+                "PUT via presigned SAS URL should succeed, got HTTP " + responseCode);
+
+        // Verify the object exists
+        Assertions.assertTrue(fs.exists(loc("presigned-put.txt")));
+    }
 }

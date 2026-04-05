@@ -192,4 +192,34 @@ class S3ObjStorageEnvTest {
         // The object should not exist
         Assertions.assertThrows(Exception.class, () -> storage.headObject(path));
     }
+
+    @Test
+    @Order(6)
+    void getPresignedUrl_returnsValidUrlAndUploadWorks() throws IOException {
+        String key = PREFIX + "presigned-put.txt";
+        String presignedUrl = storage.getPresignedUrl(key);
+        Assertions.assertNotNull(presignedUrl);
+
+        java.net.URL url = new java.net.URL(presignedUrl);
+        Assertions.assertTrue(url.getProtocol().startsWith("http"));
+
+        // Upload data through the presigned URL
+        byte[] payload = "presigned-upload-test".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+        conn.setDoOutput(true);
+        conn.setRequestMethod("PUT");
+        conn.setRequestProperty("Content-Length", String.valueOf(payload.length));
+        try (java.io.OutputStream os = conn.getOutputStream()) {
+            os.write(payload);
+        }
+        int responseCode = conn.getResponseCode();
+        conn.disconnect();
+        Assertions.assertTrue(responseCode >= 200 && responseCode < 300,
+                "PUT via presigned URL should succeed, got HTTP " + responseCode);
+
+        // Verify the object exists and has correct size
+        String fullPath = "s3://" + bucket + "/" + key;
+        RemoteObject obj = storage.headObject(fullPath);
+        Assertions.assertEquals(payload.length, obj.getSize());
+    }
 }
