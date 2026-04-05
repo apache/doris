@@ -509,10 +509,10 @@ else
 fi
 export DISABLE_BUILD_JINDOFS
 
-if [[ "$(echo "${DISABLE_BUILD_JUICEFS}" | tr '[:lower:]' '[:upper:]')" == "OFF" ]]; then
-    BUILD_JUICEFS='ON'
-else
+if [[ "$(echo "${DISABLE_BUILD_JUICEFS}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]; then
     BUILD_JUICEFS='OFF'
+else
+    BUILD_JUICEFS='ON'
 fi
 export DISABLE_BUILD_JUICEFS
 
