@@ -67,10 +67,16 @@ public class BrokerSpiFileSystem implements FileSystem {
     private final BrokerClientPool clientPool;
 
     BrokerSpiFileSystem(String host, int port, String clientId, Map<String, String> brokerParams) {
-        this.endpoint = new TNetworkAddress(host, port);
+        this(new TNetworkAddress(host, port), clientId, brokerParams, new BrokerClientPool());
+    }
+
+    /** Package-visible constructor for unit testing with a mock {@link BrokerClientPool}. */
+    BrokerSpiFileSystem(TNetworkAddress endpoint, String clientId,
+            Map<String, String> brokerParams, BrokerClientPool clientPool) {
+        this.endpoint = endpoint;
         this.clientId = clientId;
         this.brokerParams = Map.copyOf(brokerParams);
-        this.clientPool = new BrokerClientPool();
+        this.clientPool = clientPool;
     }
 
     @Override

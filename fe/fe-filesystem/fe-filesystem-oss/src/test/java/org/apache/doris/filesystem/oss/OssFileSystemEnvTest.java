@@ -1,0 +1,176 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.filesystem.oss;
+
+import org.apache.doris.filesystem.DorisInputFile;
+import org.apache.doris.filesystem.DorisInputStream;
+import org.apache.doris.filesystem.DorisOutputFile;
+import org.apache.doris.filesystem.FileEntry;
+import org.apache.doris.filesystem.FileIterator;
+import org.apache.doris.filesystem.Location;
+import org.apache.doris.filesystem.s3.S3FileSystem;
+
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.MethodOrderer;
+import org.junit.jupiter.api.Order;
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestMethodOrder;
+import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
+
+import java.io.IOException;
+import java.io.OutputStream;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+/**
+ * Environment-dependent integration tests for OSS (Alibaba Cloud) via {@link S3FileSystem}.
+ */
+@Tag("environment")
+@Tag("oss")
+@EnabledIfEnvironmentVariable(named = "DORIS_FS_TEST_OSS_ENDPOINT", matches = ".+")
+@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
+class OssFileSystemEnvTest {
+
+    private static final String PREFIX = "doris-oss-ut-" + UUID.randomUUID() + "/";
+    private static S3FileSystem fs;
+    private static String bucket;
+
+    @BeforeAll
+    static void setUp() {
+        Map<String, String> props = new HashMap<>();
+        props.put("AWS_ENDPOINT", requireEnv("DORIS_FS_TEST_OSS_ENDPOINT"));
+        props.put("AWS_REGION", requireEnv("DORIS_FS_TEST_OSS_REGION"));
+        props.put("AWS_BUCKET", requireEnv("DORIS_FS_TEST_OSS_BUCKET"));
+        props.put("AWS_ACCESS_KEY", requireEnv("DORIS_FS_TEST_OSS_AK"));
+        props.put("AWS_SECRET_KEY", requireEnv("DORIS_FS_TEST_OSS_SK"));
+        bucket = props.get("AWS_BUCKET");
+        fs = new S3FileSystem(new OssObjStorage(props));
+    }
+
+    @AfterAll
+    static void tearDown() throws IOException {
+        try (FileIterator iter = fs.list(loc(""))) {
+            while (iter.hasNext()) {
+                try {
+                    fs.delete(iter.next().location(), false);
+                } catch (IOException ignored) {
+                }
+            }
+        } catch (IOException ignored) {
+        }
+        fs.close();
+    }
+
+    private static String requireEnv(String name) {
+        String val = System.getenv(name);
+        if (val == null || val.isEmpty()) {
+            throw new IllegalStateException("Missing required env var: " + name);
+        }
+        return val;
+    }
+
+    private static Location loc(String suffix) {
+        return Location.of("s3://" + bucket + "/" + PREFIX + suffix);
+    }
+
+    private void writeContent(String suffix, byte[] data) throws IOException {
+        DorisOutputFile out = fs.newOutputFile(loc(suffix));
+        try (OutputStream os = out.createOrOverwrite()) {
+            os.write(data);
+        }
+    }
+
+    private byte[] readAll(String suffix) throws IOException {
+        DorisInputFile in = fs.newInputFile(loc(suffix));
+        try (DorisInputStream is = in.newStream()) {
+            return is.readAllBytes();
+        }
+    }
+
+    @Test
+    @Order(1)
+    void existsReturnsTrueForExisting() throws IOException {
+        writeContent("exists.txt", "data".getBytes());
+        assertTrue(fs.exists(loc("exists.txt")));
+    }
+
+    @Test
+    @Order(2)
+    void existsReturnsFalseForMissing() throws IOException {
+        assertFalse(fs.exists(loc("missing-" + UUID.randomUUID())));
+    }
+
+    @Test
+    @Order(3)
+    void deleteRemovesObject() throws IOException {
+        writeContent("del.txt", "x".getBytes());
+        fs.delete(loc("del.txt"), false);
+        assertFalse(fs.exists(loc("del.txt")));
+    }
+
+    @Test
+    @Order(4)
+    void renameMovesObject() throws IOException {
+        writeContent("src.txt", "r".getBytes());
+        fs.rename(loc("src.txt"), loc("dst.txt"));
+        assertFalse(fs.exists(loc("src.txt")));
+        assertTrue(fs.exists(loc("dst.txt")));
+    }
+
+    @Test
+    @Order(5)
+    void listReturnsEntries() throws IOException {
+        writeContent("l/a.csv", "a".getBytes());
+        writeContent("l/b.csv", "b".getBytes());
+
+        List<FileEntry> entries = new ArrayList<>();
+        try (FileIterator iter = fs.list(loc("l/"))) {
+            while (iter.hasNext()) {
+                entries.add(iter.next());
+            }
+        }
+        assertTrue(entries.size() >= 2);
+    }
+
+    @Test
+    @Order(6)
+    void inputOutputRoundTrip() throws IOException {
+        byte[] expected = "OSS round-trip 阿里云".getBytes();
+        writeContent("rt.bin", expected);
+        assertArrayEquals(expected, readAll("rt.bin"));
+    }
+
+    @Test
+    @Order(7)
+    void inputFileLength() throws IOException {
+        byte[] data = new byte[777];
+        java.util.Arrays.fill(data, (byte) 'O');
+        writeContent("len.bin", data);
+        assertEquals(777L, fs.newInputFile(loc("len.bin")).length());
+    }
+}

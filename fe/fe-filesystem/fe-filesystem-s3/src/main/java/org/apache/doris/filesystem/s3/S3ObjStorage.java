@@ -167,7 +167,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         return client;
     }
 
-    private S3Client buildClient() throws IOException {
+    protected S3Client buildClient() throws IOException {
         String endpointStr = properties.get(PROP_ENDPOINT);
         String region = properties.getOrDefault(PROP_REGION, "us-east-1");
         AwsCredentialsProvider credentialsProvider = buildCredentialsProvider();
