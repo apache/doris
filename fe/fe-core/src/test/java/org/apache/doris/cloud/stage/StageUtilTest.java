@@ -86,7 +86,7 @@ public class StageUtilTest {
                     throws IOException {
                 List<RemoteObject> objectFiles = new ArrayList<>();
                 for (String key : keys) {
-                    objectFiles.add(new RemoteObject(key, key, "7741995E5B849F911ADF926A4C5747D3-3", 100, 0));
+                    objectFiles.add(new RemoteObject(key, key, "fake-etag-for-test", 100, 0));
                 }
                 return new RemoteObjects(objectFiles, false, null);
             }

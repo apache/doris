@@ -150,7 +150,8 @@ public class HdfsStorageVault extends StorageVault {
         } catch (IOException e) {
             LOG.warn("checkConnectivity failed, properties:{}", new DatasourcePrintableMap<>(
                     newProperties, "=", true, false, true, false), e);
-            throw new DdlException("checkConnectivity failed, properties: " + new DatasourcePrintableMap<>(
+            throw new DdlException("checkConnectivity failed, " + e.getMessage()
+                    + ", properties: " + new DatasourcePrintableMap<>(
                     newProperties, "=", true, false, true, false), e);
         }
     }
