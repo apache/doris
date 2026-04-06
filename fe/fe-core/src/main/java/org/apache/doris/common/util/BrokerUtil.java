@@ -27,11 +27,7 @@ import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloBrokerService;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 public class BrokerUtil {
-    private static final Logger LOG = LogManager.getLogger(BrokerUtil.class);
 
     public static String printBroker(String brokerName, TNetworkAddress address) {
         return brokerName + "[" + address.toString() + "]";
@@ -60,17 +56,5 @@ public class BrokerUtil {
             }
         }
         return client;
-    }
-
-    private static void returnClient(TPaloBrokerService.Client client, TNetworkAddress address, boolean failed) {
-        if (failed) {
-            ClientPool.brokerPool.invalidateObject(address, client);
-        } else {
-            ClientPool.brokerPool.returnObject(address, client);
-        }
-    }
-
-    private static void reopenClient(TPaloBrokerService.Client client) {
-        ClientPool.brokerPool.reopen(client);
     }
 }

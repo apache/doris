@@ -18,6 +18,7 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.service.FrontendOptions;
@@ -40,15 +41,17 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 
+import java.io.Closeable;
 import java.io.IOException;
 
-public class BrokerReader {
+public class BrokerReader implements Closeable {
     private static final Logger LOG = LogManager.getLogger(BrokerReader.class);
 
     private BrokerDesc brokerDesc;
     private TNetworkAddress address;
     private TPaloBrokerService.Client client;
     private long currentPos;
+    private boolean clientReturned = false;
 
     public static BrokerReader create(BrokerDesc brokerDesc) throws IOException {
         try {
@@ -128,6 +131,20 @@ public class BrokerReader {
         } else if (tOperationStatus.getStatusCode() != TBrokerOperationStatusCode.OK) {
             LOG.warn("Broker close reader failed. fd={}, address={}, error={}", fd.toString(), address,
                     tOperationStatus.getMessage());
+        }
+        // Return the Thrift client to the connection pool after closing the reader fd
+        close();
+    }
+
+    /**
+     * Returns the borrowed Thrift client back to the connection pool.
+     * Idempotent — safe to call multiple times.
+     */
+    @Override
+    public void close() {
+        if (!clientReturned && client != null) {
+            clientReturned = true;
+            ClientPool.brokerPool.returnObject(address, client);
         }
     }
 
