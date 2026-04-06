@@ -612,7 +612,7 @@ TEST_F(IcebergReaderTest, falls_back_to_encodings_when_data_page_stats_are_missi
 
 TEST_F(IcebergReaderTest, generated_position_delete_file_is_mixed_encoded) {
     RuntimeProfile profile("test_profile");
-    RuntimeState runtime_state((TQueryGlobals()));
+    RuntimeState runtime_state(TQueryGlobals());
     TFileScanRangeParams scan_params;
     TFileRangeDesc scan_range;
     io::FileReaderSPtr file_reader;
