@@ -45,14 +45,19 @@ import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadResponse;
+import software.amazon.awssdk.services.s3.model.Delete;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
+import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.model.S3Error;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
@@ -563,18 +568,34 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
 
     @Override
     public void deleteObjectsByKeys(String bucket, List<String> keys) throws IOException {
-        List<IOException> errors = new ArrayList<>();
-        for (String key : keys) {
-            try {
-                deleteObject("s3://" + bucket + "/" + key);
-            } catch (IOException e) {
-                LOG.warn("Failed to delete object key={} from bucket={}", key, bucket, e);
-                errors.add(e);
+        // S3 DeleteObjects supports up to 1000 keys per request
+        int batchSize = 1000;
+        List<String> failedKeys = new ArrayList<>();
+        try {
+            for (int i = 0; i < keys.size(); i += batchSize) {
+                List<String> batch = keys.subList(i, Math.min(i + batchSize, keys.size()));
+                List<ObjectIdentifier> identifiers = batch.stream()
+                        .map(k -> ObjectIdentifier.builder().key(k).build())
+                        .collect(Collectors.toList());
+                DeleteObjectsRequest request = DeleteObjectsRequest.builder()
+                        .bucket(bucket)
+                        .delete(Delete.builder().objects(identifiers).quiet(true).build())
+                        .build();
+                DeleteObjectsResponse response = getClient().deleteObjects(request);
+                if (response.hasErrors()) {
+                    for (S3Error error : response.errors()) {
+                        LOG.warn("Failed to delete object key={} from bucket={}: {} {}",
+                                error.key(), bucket, error.code(), error.message());
+                        failedKeys.add(error.key());
+                    }
+                }
             }
+        } catch (SdkException e) {
+            throw new IOException("Failed to batch delete objects from bucket=" + bucket + ": " + e.getMessage(), e);
         }
-        if (!errors.isEmpty()) {
-            throw new IOException("Failed to delete " + errors.size() + " object(s): "
-                    + errors.get(0).getMessage(), errors.get(0));
+        if (!failedKeys.isEmpty()) {
+            throw new IOException("Failed to delete " + failedKeys.size() + " object(s), first key: "
+                    + failedKeys.get(0));
         }
     }
 

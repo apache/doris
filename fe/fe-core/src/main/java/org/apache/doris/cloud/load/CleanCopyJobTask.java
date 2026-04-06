@@ -29,6 +29,7 @@ import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.filesystem.spi.ObjFileSystem;
 import org.apache.doris.fs.FileSystemFactory;
 
+import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -59,8 +60,16 @@ public class CleanCopyJobTask {
         }
         try {
             StorageProperties storageProps = ObjectInfoAdapter.toStorageProperties(objectInfo);
-            ObjFileSystem fs = (ObjFileSystem) FileSystemFactory.getFileSystem(storageProps);
-            fs.deleteObjectsByKeys(objectInfo.getBucket(), loadFiles);
+            org.apache.doris.filesystem.FileSystem rawFs = FileSystemFactory.getFileSystem(storageProps);
+            Preconditions.checkState(rawFs instanceof ObjFileSystem,
+                    "Clean copy operations require ObjFileSystem, but got: %s",
+                    rawFs.getClass().getSimpleName());
+            ObjFileSystem fs = (ObjFileSystem) rawFs;
+            try {
+                fs.deleteObjectsByKeys(objectInfo.getBucket(), loadFiles);
+            } finally {
+                fs.close();
+            }
             ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
                     .finishCopy(stageId, stageType, tableId, copyId, 0, Action.REMOVE);
         } catch (Throwable e) {

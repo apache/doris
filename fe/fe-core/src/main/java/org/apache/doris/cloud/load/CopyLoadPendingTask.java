@@ -45,6 +45,7 @@ import org.apache.doris.load.loadv2.BrokerLoadPendingTask;
 import org.apache.doris.load.loadv2.BrokerPendingTaskAttachment;
 import org.apache.doris.thrift.TBrokerFileStatus;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.lang3.tuple.Triple;
@@ -262,7 +263,10 @@ public class CopyLoadPendingTask extends BrokerLoadPendingTask {
         loadedFileNum = 0;
         reachLimitStr = "";
         StorageProperties storageProps = ObjectInfoAdapter.toStorageProperties(objectInfo);
-        ObjFileSystem fs = (ObjFileSystem) FileSystemFactory.getFileSystem(storageProps);
+        org.apache.doris.filesystem.FileSystem rawFs = FileSystemFactory.getFileSystem(storageProps);
+        Preconditions.checkState(rawFs instanceof ObjFileSystem,
+                "Copy operations require ObjFileSystem, but got: %s", rawFs.getClass().getSimpleName());
+        ObjFileSystem fs = (ObjFileSystem) rawFs;
         Set<String> loadedFileSet = copiedFiles.stream().map(f -> StageUtil.getFileInfoUniqueId(f))
                 .collect(Collectors.toSet());
         try {
@@ -344,7 +348,10 @@ public class CopyLoadPendingTask extends BrokerLoadPendingTask {
         isBeginCopyDone = true;
         try {
             StorageProperties storageProps = ObjectInfoAdapter.toStorageProperties(objectInfo);
-            try (ObjFileSystem fs = (ObjFileSystem) FileSystemFactory.getFileSystem(storageProps)) {
+            org.apache.doris.filesystem.FileSystem rawFs = FileSystemFactory.getFileSystem(storageProps);
+            Preconditions.checkState(rawFs instanceof ObjFileSystem,
+                    "Copy operations require ObjFileSystem, but got: %s", rawFs.getClass().getSimpleName());
+            try (ObjFileSystem fs = (ObjFileSystem) rawFs) {
                 List<Pair<TBrokerFileStatus, ObjectFilePB>> fileStatuses = Lists.newArrayList();
                 for (ObjectFilePB objectFile : copyJobPB.getObjectFilesList()) {
                     List<RemoteObject> files = fs.headObjectWithMeta(

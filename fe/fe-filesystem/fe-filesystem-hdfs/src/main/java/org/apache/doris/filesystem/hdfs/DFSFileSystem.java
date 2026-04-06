@@ -241,16 +241,21 @@ public class DFSFileSystem implements org.apache.doris.filesystem.FileSystem {
         }
         List<FileEntry> files = new ArrayList<>();
         long totalBytes = 0;
+        boolean hasStartAfter = startAfter != null && !startAfter.isEmpty();
         for (FileStatus status : statuses) {
             if ((maxFiles > 0 && files.size() >= maxFiles) || (maxBytes > 0 && totalBytes >= maxBytes)) {
                 break;
             }
             if (!status.isDirectory()) {
+                String filePath = status.getPath().toString();
+                if (hasStartAfter && filePath.compareTo(startAfter) <= 0) {
+                    continue;
+                }
                 // Use Path.toString() (not toUri().toString()) to avoid double URL-encoding.
                 // Hadoop may return paths with percent-encoded characters (e.g., %3A for colons
                 // in Hive timestamp partition values). toUri().toString() would re-encode the %
                 // to %25, producing broken paths like pt7=2024-04-09%2012%253A34%253A56.
-                files.add(new FileEntry(Location.of(status.getPath().toString()),
+                files.add(new FileEntry(Location.of(filePath),
                         status.getLen(), false, status.getModificationTime(), null));
                 totalBytes += status.getLen();
             }

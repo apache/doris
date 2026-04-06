@@ -41,6 +41,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileCompressType;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Triple;
@@ -153,7 +154,10 @@ public class StageUtil {
         int loadedFileNum = 0;
         String reachLimitStr = "";
         StorageProperties storageProps = ObjectInfoAdapter.toStorageProperties(objectInfo);
-        ObjFileSystem fs = (ObjFileSystem) FileSystemFactory.getFileSystem(storageProps);
+        org.apache.doris.filesystem.FileSystem rawFs = FileSystemFactory.getFileSystem(storageProps);
+        Preconditions.checkState(rawFs instanceof ObjFileSystem,
+                "Stage operations require ObjFileSystem, but got: %s", rawFs.getClass().getSimpleName());
+        ObjFileSystem fs = (ObjFileSystem) rawFs;
 
         List<Pair<String, Boolean>> globs = analyzeGlob(copyId, pattern);
         LOG.info("Input copy into glob={}, analyzed={}", pattern, globs);

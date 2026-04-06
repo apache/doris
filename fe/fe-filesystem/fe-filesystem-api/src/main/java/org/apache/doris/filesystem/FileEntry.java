@@ -75,4 +75,29 @@ public final class FileEntry {
         int start = uri.lastIndexOf('/', end - 1);
         return uri.substring(start + 1, end);
     }
+
+    @Override
+    public boolean equals(Object o) {
+        // blocks are excluded: they are locality hints, not part of file identity
+        if (this == o) {
+            return true;
+        }
+        if (!(o instanceof FileEntry)) {
+            return false;
+        }
+        FileEntry that = (FileEntry) o;
+        return length == that.length
+                && isDirectory == that.isDirectory
+                && modificationTime == that.modificationTime
+                && location.equals(that.location);
+    }
+
+    @Override
+    public int hashCode() {
+        int result = location.hashCode();
+        result = 31 * result + Long.hashCode(length);
+        result = 31 * result + Boolean.hashCode(isDirectory);
+        result = 31 * result + Long.hashCode(modificationTime);
+        return result;
+    }
 }
