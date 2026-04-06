@@ -19,7 +19,6 @@ package org.apache.doris.cloud.load;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
-import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.ObjectFilePB;
 import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB.Provider;
 import org.apache.doris.cloud.stage.StageUtil;
@@ -42,7 +41,6 @@ import mockit.Expectations;
 import mockit.Mock;
 import mockit.MockUp;
 import org.junit.Assert;
-import org.junit.Ignore;
 import org.junit.Test;
 
 import java.io.IOException;
@@ -281,34 +279,72 @@ public class CopyLoadPendingTaskTest extends TestWithFeService {
         } while (false);
     }
 
-    @Ignore
+    /** MockObjFileSystem variant that simulates paginated responses with continuation tokens. */
+    private class PaginatingMockObjFileSystem extends MockObjFileSystem {
+        private final int pageSize;
+
+        PaginatingMockObjFileSystem(int pageSize) {
+            this.pageSize = pageSize;
+        }
+
+        @Override
+        public RemoteObjects listObjectsWithPrefix(String prefix, String subPrefix,
+                String continuationToken) throws IOException {
+            String normalizedPrefix = prefix.isEmpty() ? "" : (prefix.endsWith("/") ? prefix : prefix + "/");
+            String fullPrefix = normalizedPrefix + subPrefix;
+            List<RemoteObject> allResults = new ArrayList<>();
+            for (Map.Entry<String, RemoteObject> entry : objectStore.entrySet()) {
+                if (entry.getKey().startsWith(fullPrefix)) {
+                    allResults.add(entry.getValue());
+                }
+            }
+            int startIdx = 0;
+            if (continuationToken != null) {
+                startIdx = Integer.parseInt(continuationToken);
+            }
+            int endIdx = Math.min(startIdx + pageSize, allResults.size());
+            List<RemoteObject> page = new ArrayList<>(allResults.subList(startIdx, endIdx));
+            boolean isTruncated = endIdx < allResults.size();
+            String nextToken = isTruncated ? String.valueOf(endIdx) : null;
+            return new RemoteObjects(page, isTruncated, nextToken);
+        }
+    }
+
+    /** Registers a paginating MockUp on FileSystemFactory with the given page size. */
+    private void setupPaginatingObjFsMock(int pageSize) {
+        PaginatingMockObjFileSystem mockObjFs = new PaginatingMockObjFileSystem(pageSize);
+        new MockUp<FileSystemFactory>() {
+            @Mock
+            public org.apache.doris.filesystem.FileSystem getFileSystem(StorageProperties sp) throws IOException {
+                return mockObjFs;
+            }
+        };
+    }
+
     @Test
     public void testContinuationToken() throws Exception {
+        objectStore.clear();
         ctx = UtFrameUtils.createDefaultCtx();
-        String prefix = "prefix1";
         List<String> subPrefixes = Lists.newArrayList("", "dir1", "dir2/dir3", "dir4/dir5/dir6");
-        // list object files
-        List<RemoteObject> objectFiles = new ArrayList<>();
+        // Populate objectStore with 10 files (same as testParseFileForCopyJob)
         for (int i = 0; i < subPrefixes.size(); i++) {
             for (int j = 0; j < i + 1; j++) {
                 String relativePath = subPrefixes.get(i) + (subPrefixes.get(i).isEmpty() ? "" : "/") + "file_" + j
                         + ".csv";
                 String etag = "";
-                RemoteObject objectFile = new RemoteObject(prefix + (prefix.isEmpty() ? "" : "/") + relativePath,
-                        relativePath, etag, (j + 1) * 10, 0L);
-                objectFiles.add(objectFile);
-                System.out.println(
-                        "object file=" + objectFile.getKey() + ", " + objectFile.getRelativePath() + ", size: "
-                                + objectFile.getSize());
+                RemoteObject objectFile = new RemoteObject(
+                        STORAGE_PREFIX + (STORAGE_PREFIX.isEmpty() ? "" : "/") + relativePath, relativePath, etag,
+                        (j + 1) * 10, 0L);
+                objectStore.put(objectFile.getKey(), objectFile);
             }
         }
-        // loading or loaded files
-        List<Cloud.ObjectFilePB> files = new ArrayList<>();
+        // Use paginating mock with page size 3 to force multiple continuation token rounds
+        setupPaginatingObjFsMock(3);
         new Expectations(ctx.getEnv(), ctx.getEnv().getInternalCatalog()) {
             {
-                ((CloudInternalCatalog) Env.getCurrentInternalCatalog()).getCopyFiles(anyString, 100);
+                Env.getCurrentInternalCatalog();
                 minTimes = 0;
-                result = files;
+                result = mockInternalCatalog;
             }
         };
 
@@ -319,7 +355,7 @@ public class CopyLoadPendingTaskTest extends TestWithFeService {
         int fileMetaSizeLimit = 0;
 
         CopyLoadPendingTask task = new CopyLoadPendingTask(null, null, null);
-        // test pattern
+        // Pagination should yield the same total results as non-paginated listing
         List<Pair<String, Integer>> patternAndMatchNum = Lists.newArrayList(Pair.of(null, 10), Pair.of("file*csv", 1),
                 Pair.of("**/file*csv", 9), Pair.of("file_0.csv", 1), Pair.of("*/file_[0-9].csv", 2));
         for (Pair<String, Integer> pair : patternAndMatchNum) {
@@ -327,8 +363,8 @@ public class CopyLoadPendingTaskTest extends TestWithFeService {
             List<Pair<TBrokerFileStatus, ObjectFilePB>> fileStatus = new ArrayList<>();
             task.parseFileForCopyJob(stageId, tableId, "q1", pattern, sizeLimit, fileNumLimit, fileMetaSizeLimit,
                     fileStatus, objectInfo, false);
-            Assert.assertTrue("expected: " + pair.second * 2 + ", real: " + fileStatus.size(),
-                    pair.second * 2 == fileStatus.size());
+            Assert.assertEquals("pattern=" + pattern + " with pagination",
+                    pair.second.intValue(), fileStatus.size());
         }
     }
 
