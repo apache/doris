@@ -326,7 +326,7 @@ public class CopyLoadPendingTask extends BrokerLoadPendingTask {
                 continuationToken = listObjectsResult.getContinuationToken();
             }
         } finally {
-            // ObjFileSystem has no close/cleanup to perform
+            fs.close();
         }
     }
 
@@ -344,26 +344,27 @@ public class CopyLoadPendingTask extends BrokerLoadPendingTask {
         isBeginCopyDone = true;
         try {
             StorageProperties storageProps = ObjectInfoAdapter.toStorageProperties(objectInfo);
-            ObjFileSystem fs = (ObjFileSystem) FileSystemFactory.getFileSystem(storageProps);
-            List<Pair<TBrokerFileStatus, ObjectFilePB>> fileStatuses = Lists.newArrayList();
-            for (ObjectFilePB objectFile : copyJobPB.getObjectFilesList()) {
-                List<RemoteObject> files = fs.headObjectWithMeta(
-                        objectInfo.getPrefix(), objectFile.getRelativePath()).getObjectList();
-                TBrokerFileStatus brokerFileStatus = null;
-                for (RemoteObject file : files) {
-                    if (file.getRelativePath().equals(objectFile.getRelativePath()) && file.getEtag()
-                            .equals(objectFile.getEtag())) {
-                        String objUrl = "s3://" + objectInfo.getBucket() + "/" + file.getKey();
-                        brokerFileStatus = new TBrokerFileStatus(objUrl, false, file.getSize(), true);
-                        break;
+            try (ObjFileSystem fs = (ObjFileSystem) FileSystemFactory.getFileSystem(storageProps)) {
+                List<Pair<TBrokerFileStatus, ObjectFilePB>> fileStatuses = Lists.newArrayList();
+                for (ObjectFilePB objectFile : copyJobPB.getObjectFilesList()) {
+                    List<RemoteObject> files = fs.headObjectWithMeta(
+                            objectInfo.getPrefix(), objectFile.getRelativePath()).getObjectList();
+                    TBrokerFileStatus brokerFileStatus = null;
+                    for (RemoteObject file : files) {
+                        if (file.getRelativePath().equals(objectFile.getRelativePath()) && file.getEtag()
+                                .equals(objectFile.getEtag())) {
+                            String objUrl = "s3://" + objectInfo.getBucket() + "/" + file.getKey();
+                            brokerFileStatus = new TBrokerFileStatus(objUrl, false, file.getSize(), true);
+                            break;
+                        }
                     }
+                    if (brokerFileStatus == null) {
+                        throw new Exception("Can not find object with relative path: " + objectFile.getRelativePath());
+                    }
+                    fileStatuses.add(Pair.of(brokerFileStatus, objectFile));
                 }
-                if (brokerFileStatus == null) {
-                    throw new Exception("Can not find object with relative path: " + objectFile.getRelativePath());
-                }
-                fileStatuses.add(Pair.of(brokerFileStatus, objectFile));
+                return fileStatuses;
             }
-            return fileStatuses;
         } catch (Exception e) {
             throw new DdlException(e.getMessage());
         }

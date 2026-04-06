@@ -63,13 +63,15 @@ class ObjFileSystemTest {
     }
 
     /**
-     * M4: An {@link IOException} whose message contains "404" must be classified as not-found.
+     * M4: A plain {@link IOException} whose message contains "404" must NOT be classified as
+     * not-found. Only {@link FileNotFoundException} qualifies — the fragile message-based
+     * fallback was removed to avoid false positives (e.g., port numbers like "40404").
      */
     @Test
     void testIsNotFoundErrorFor404MessageIo() {
         TestObjFileSystem fs = new TestObjFileSystem(new NoopObjStorage());
-        Assertions.assertTrue(fs.isNotFoundError(new IOException("HTTP 404 Not Found")),
-                "IOException with '404' in message must be a not-found error");
+        Assertions.assertFalse(fs.isNotFoundError(new IOException("HTTP 404 Not Found")),
+                "Plain IOException with '404' in message must NOT be a not-found error");
     }
 
     /**
@@ -105,21 +107,24 @@ class ObjFileSystemTest {
     }
 
     /**
-     * M4: {@link ObjFileSystem#exists(Location)} must return {@code false} when
-     * {@link ObjStorage#headObject(String)} throws an IOException with "404" in the message.
+     * M4: {@link ObjFileSystem#exists(Location)} must re-throw a plain {@link IOException}
+     * even if the message happens to contain "404" — only {@link FileNotFoundException} qualifies.
      */
     @Test
-    void testExistsReturnsFalseFor404IOException() throws IOException {
+    void testExistsRethrowsPlain404IOException() {
+        IOException io404 = new IOException("404 Not Found");
         ObjStorage<?> storage = new NoopObjStorage() {
             @Override
             public RemoteObject headObject(String remotePath) throws IOException {
-                throw new IOException("404 Not Found");
+                throw io404;
             }
         };
 
         TestObjFileSystem fs = new TestObjFileSystem(storage);
-        Assertions.assertFalse(fs.exists(Location.of("s3://bucket/missing")),
-                "exists() must return false when headObject() throws 404 IOException");
+        IOException thrown = Assertions.assertThrows(IOException.class,
+                () -> fs.exists(Location.of("s3://bucket/missing")),
+                "exists() must rethrow plain IOException even with '404' in message");
+        Assertions.assertEquals(io404, thrown, "Rethrown exception must be the original");
     }
 
     /**

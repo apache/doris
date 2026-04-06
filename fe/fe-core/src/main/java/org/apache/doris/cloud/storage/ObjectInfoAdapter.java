@@ -115,13 +115,15 @@ public class ObjectInfoAdapter {
             ObjectInfo arnObj = new ObjectInfo(infoPB, stagePB.getRoleName(), stagePB.getArn(),
                     encodedExternalId, null);
             StorageProperties props = toStorageProperties(arnObj);
-            ObjFileSystem fs = (ObjFileSystem) FileSystemFactory.getFileSystem(props);
-            StsCredentials stsToken = fs.getStsToken();
-            ObjectInfo objInfo = new ObjectInfo(infoPB.getProvider(), stsToken.getAccessKey(), stsToken.getSecretKey(),
-                    infoPB.getBucket(), infoPB.getEndpoint(), infoPB.getRegion(), infoPB.getPrefix(),
-                    stagePB.getRoleName(), stagePB.getArn(), encodedExternalId, stsToken.getSecurityToken());
-            LOG.info("Parse object storage info, before={}, after={}", new ObjectInfo(infoPB), objInfo);
-            return objInfo;
+            try (ObjFileSystem fs = (ObjFileSystem) FileSystemFactory.getFileSystem(props)) {
+                StsCredentials stsToken = fs.getStsToken();
+                ObjectInfo objInfo = new ObjectInfo(infoPB.getProvider(), stsToken.getAccessKey(),
+                        stsToken.getSecretKey(), infoPB.getBucket(), infoPB.getEndpoint(), infoPB.getRegion(),
+                        infoPB.getPrefix(), stagePB.getRoleName(), stagePB.getArn(), encodedExternalId,
+                        stsToken.getSecurityToken());
+                LOG.info("Parse object storage info, before={}, after={}", new ObjectInfo(infoPB), objInfo);
+                return objInfo;
+            }
         } catch (Throwable e) {
             LOG.warn("Failed analyze stagePB={}", stagePB, e);
             throw new AnalysisException("Failed analyze object info of stagePB, " + e.getMessage());

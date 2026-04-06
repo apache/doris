@@ -75,6 +75,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 /**
@@ -144,6 +145,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     private final boolean usePathStyle;
     /** Bucket name; may be null if not provided (listObjectsWithPrefix and related methods will fail). */
     private final String bucket;
+    private final AtomicBoolean closed = new AtomicBoolean(false);
     private volatile S3Client client;
 
     public S3ObjStorage(Map<String, String> properties) {
@@ -157,6 +159,9 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
 
     @Override
     public S3Client getClient() throws IOException {
+        if (closed.get()) {
+            throw new IOException("S3ObjStorage is already closed");
+        }
         if (client == null) {
             synchronized (this) {
                 if (client == null) {
@@ -608,9 +613,11 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
 
     @Override
     public void close() throws IOException {
-        if (client != null) {
-            client.close();
-            client = null;
+        if (closed.compareAndSet(false, true)) {
+            if (client != null) {
+                client.close();
+                client = null;
+            }
         }
     }
 }

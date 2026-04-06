@@ -23,12 +23,16 @@ import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.filesystem.FileSystem;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.Objects;
 import java.util.OptionalLong;
 
 public class FileSystemCache {
+
+    private static final Logger LOG = LogManager.getLogger(FileSystemCache.class);
 
     private final LoadingCache<FileSystemCacheKey, FileSystem> fileSystemCache;
 
@@ -40,7 +44,15 @@ public class FileSystemCache {
                 Config.max_remote_file_system_cache_num,
                 false,
                 null);
-        fileSystemCache = fsCacheFactory.buildCache(this::loadFileSystem);
+        fileSystemCache = fsCacheFactory.buildCacheWithSyncRemovalListener(this::loadFileSystem, (key, fs, cause) -> {
+            if (fs != null) {
+                try {
+                    fs.close();
+                } catch (IOException e) {
+                    LOG.warn("Failed to close evicted FileSystem for key: {}", key, e);
+                }
+            }
+        });
     }
 
     private FileSystem loadFileSystem(FileSystemCacheKey key) {

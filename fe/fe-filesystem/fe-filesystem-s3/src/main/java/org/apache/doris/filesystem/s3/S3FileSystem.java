@@ -61,8 +61,7 @@ public class S3FileSystem extends ObjFileSystem {
 
     @Override
     protected boolean isNotFoundError(IOException e) {
-        return e instanceof java.io.FileNotFoundException
-                || (e.getMessage() != null && e.getMessage().contains("404"));
+        return e instanceof java.io.FileNotFoundException;
     }
 
     @Override
@@ -195,6 +194,9 @@ public class S3FileSystem extends ObjFileSystem {
 
         @Override
         public FileEntry next() throws IOException {
+            if (!hasNext()) {
+                throw new java.util.NoSuchElementException();
+            }
             return buffer.get(bufferIdx++);
         }
 

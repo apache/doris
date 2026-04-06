@@ -69,11 +69,13 @@ class S3FileSystemTest {
     }
 
     @Test
-    void exists_returnsFalseFor404InMessage() throws IOException {
-        Mockito.when(mockStorage.headObject("s3://bucket/gone"))
-                .thenThrow(new IOException("HTTP 404 Not Found"));
+    void exists_rethrowsPlain404IOException() throws IOException {
+        IOException io404 = new IOException("HTTP 404 Not Found");
+        Mockito.doThrow(io404).when(mockStorage).headObject("s3://bucket/gone");
 
-        Assertions.assertFalse(fs.exists(Location.of("s3://bucket/gone")));
+        IOException thrown = Assertions.assertThrows(IOException.class,
+                () -> fs.exists(Location.of("s3://bucket/gone")));
+        Assertions.assertEquals(io404, thrown);
     }
 
     // ------------------------------------------------------------------

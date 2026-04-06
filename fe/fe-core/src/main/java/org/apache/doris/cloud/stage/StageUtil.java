@@ -188,16 +188,21 @@ public class StageUtil {
                             LOG.info("not matchPattern path:{}", objectFile.getRelativePath());
                             continue;
                         }
+                        matchedFileNum++;
                         matchPatternFiles.add(objectFile);
                         // 2. filter files which are not copying or copied by other copy jobs
                         if (matchPatternFiles.size() >= Config.cloud_filter_copy_file_num_limit) {
+                            int batchSize = matchPatternFiles.size();
                             List<ObjectFilePB> filterCopyFiles = filterCopyFiles(stageId, tableId, force,
                                     matchPatternFiles);
+                            loadedFileNum += batchSize - filterCopyFiles.size();
                             fileStatus.addAll(
                                     generateFiles(filterCopyFiles, matchPatternFiles, objectInfo.getBucket()));
                             matchPatternFiles.clear();
                             // 3. check if reach any limit of fileNum/fileSize/fileMetaSize if select more than 1 file
-                            if (reachLimit(fileStatus, sizeLimit, fileNum, metaSizeLimit, reachLimitStr)) {
+                            String limitReason = reachLimit(fileStatus, sizeLimit, fileNum, metaSizeLimit);
+                            if (limitReason != null) {
+                                reachLimitStr = limitReason;
                                 finish = true;
                                 break;
                             }
@@ -210,42 +215,44 @@ public class StageUtil {
                 }
             }
             if (!matchPatternFiles.isEmpty()) {
+                int batchSize = matchPatternFiles.size();
                 List<ObjectFilePB> filterCopyFiles = filterCopyFiles(stageId, tableId, force, matchPatternFiles);
+                loadedFileNum += batchSize - filterCopyFiles.size();
                 fileStatus.addAll(generateFiles(filterCopyFiles, matchPatternFiles, objectInfo.getBucket()));
                 matchPatternFiles.clear();
             }
         } finally {
-            // ObjFileSystem has no close/cleanup to perform
+            fs.close();
         }
         return Triple.of(matchedFileNum, loadedFileNum, reachLimitStr);
     }
 
-    private static boolean reachLimit(List<Pair<TBrokerFileStatus, ObjectFilePB>> objectFiles, long sizeLimit,
-            int fileNum, int metaSizeLimit, String reachLimitStr) {
+    /**
+     * Returns null if no limit is reached, or a descriptive string if a limit is hit.
+     */
+    private static String reachLimit(List<Pair<TBrokerFileStatus, ObjectFilePB>> objectFiles, long sizeLimit,
+            int fileNum, int metaSizeLimit) {
         if (objectFiles.size() == 0) {
-            return false;
+            return null;
         }
         if (fileNum > 0 && objectFiles.size() >= fileNum) {
-            reachLimitStr = ", reach num limit: " + fileNum;
             LOG.info("reach file num limit fileNum:{} objectFiles.size:{}", fileNum, objectFiles.size());
-            return true;
+            return ", reach num limit: " + fileNum;
         }
 
         long objectFilesSize = objectFiles.stream().mapToLong(f -> f.first.getSize()).sum();
         if (sizeLimit > 0 && objectFilesSize >= sizeLimit) {
-            reachLimitStr = ", reach size limit: " + sizeLimit;
             LOG.info("reach size limit sizeLimit:{}, objectFilesSize:{}", sizeLimit, objectFilesSize);
-            return true;
+            return ", reach size limit: " + sizeLimit;
         }
 
         long objectFilesSerializedSize = objectFiles.stream().mapToLong(f -> f.second.getSerializedSize()).sum();
         if (metaSizeLimit > 0 && objectFilesSerializedSize >= metaSizeLimit) {
-            reachLimitStr = ", reach meta size limit: " + metaSizeLimit;
             LOG.info("reach meta size limit metaSizeLimit:{} objectFilesSerializedSize:{}",
                     metaSizeLimit, objectFilesSerializedSize);
-            return true;
+            return ", reach meta size limit: " + metaSizeLimit;
         }
-        return false;
+        return null;
     }
 
     private static List<ObjectFilePB> filterCopyFiles(String stageId, long tableId, boolean force,
