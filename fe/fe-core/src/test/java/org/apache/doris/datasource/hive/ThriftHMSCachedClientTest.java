@@ -204,7 +204,7 @@ public class ThriftHMSCachedClientTest {
         ThriftHMSCachedClient cachedClient = newClient(1);
 
         cachedClient.acquireSharedLock("query-1", 1L, "user",
-                new TableName("db1", "tbl1"), Collections.emptyList(), 5_000L);
+                new TableName("internal", "db1", "tbl1"), Collections.emptyList(), 5_000L);
 
         Assert.assertEquals(1, provider.createdClients.get());
         Assert.assertEquals(1, provider.checkLockCalls.get());
