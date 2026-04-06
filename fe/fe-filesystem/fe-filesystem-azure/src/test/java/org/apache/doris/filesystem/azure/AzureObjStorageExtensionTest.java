@@ -109,6 +109,21 @@ class AzureObjStorageExtensionTest {
         Assertions.assertEquals("stage/blob", storage.lastGenerateSasBlobKey);
     }
 
+    @Test
+    void getPresignedUrl_fallsBackToAwsSecretKey() throws Exception {
+        Map<String, String> props = new HashMap<>();
+        props.put("AZURE_ACCOUNT_NAME", "myaccount");
+        // No AZURE_ACCOUNT_KEY, but AWS_SECRET_KEY is present (S3-compat config)
+        props.put("AWS_SECRET_KEY", "dGVzdA==");
+
+        TestableAzureObjStorage storage = new TestableAzureObjStorage(props, null);
+        storage.stubbedSasUrl = "https://sas-with-fallback-key";
+
+        String result = storage.getPresignedUrl(
+                "wasb://mycontainer@myaccount.blob.core.windows.net/blob");
+        Assertions.assertEquals("https://sas-with-fallback-key", result);
+    }
+
     // ------------------------------------------------------------------
     // listObjectsWithPrefix tests
     // ------------------------------------------------------------------

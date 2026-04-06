@@ -117,6 +117,10 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
         String accountName = resolveAccountName();
         String endpoint = resolveEndpoint(accountName);
         String accountKey = resolve(PROP_ACCOUNT_KEY, PROP_ACCOUNT_KEY_ALT, null);
+        if (accountKey == null || accountKey.isEmpty()) {
+            // Fall back to AWS_SECRET_KEY for S3-compat configurations
+            accountKey = properties.get("AWS_SECRET_KEY");
+        }
         String clientId = resolve(PROP_CLIENT_ID, PROP_CLIENT_ID_ALT, null);
         String clientSecret = resolve(PROP_CLIENT_SECRET, PROP_CLIENT_SECRET_ALT, null);
         String tenantId = resolve(PROP_TENANT_ID, PROP_TENANT_ID_ALT, null);
@@ -392,6 +396,10 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     public String getPresignedUrl(String objectKey) throws IOException {
         String accountName = resolveAccountName();
         String accountKey = resolve(PROP_ACCOUNT_KEY, PROP_ACCOUNT_KEY_ALT, null);
+        if (accountKey == null || accountKey.isEmpty()) {
+            // Fall back to AWS_SECRET_KEY for S3-compat configurations
+            accountKey = properties.get("AWS_SECRET_KEY");
+        }
         if (accountKey == null || accountKey.isEmpty()) {
             throw new IOException(
                     "getPresignedUrl requires a storage account key (AZURE_ACCOUNT_KEY)");

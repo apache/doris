@@ -74,6 +74,12 @@ public final class StoragePropertiesConverter {
         } else if (props instanceof AzureProperties) {
             AzureProperties azureProps = (AzureProperties) props;
             map.put("AZURE_ACCOUNT_NAME", azureProps.getAccountName());
+            if (StringUtils.isNotBlank(azureProps.getAccountKey())) {
+                map.put("AZURE_ACCOUNT_KEY", azureProps.getAccountKey());
+            }
+            if (StringUtils.isNotBlank(azureProps.getEndpoint())) {
+                map.put("AZURE_ENDPOINT", azureProps.getEndpoint());
+            }
             map.put("_STORAGE_TYPE_", "AZURE");
         } else if (props instanceof HdfsCompatibleProperties) {
             map.put("_STORAGE_TYPE_", "HDFS");
