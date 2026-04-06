@@ -176,14 +176,32 @@ export function AdhocContentResult(props) {
                                     <tbody className="ant-table-tbody">
                                         {tableData.map((item,index) => (
                                             <tr className="ant-table-row" key={index}>
-                                                {item.map((tdData, index) => (
-                                                    <td
-                                                        className="ant-table-cell"
-                                                        key={index+''+tdData}
-                                                    >
-                                                        {tdData == '\\N'?'-':tdData}
-                                                    </td>
-                                                ))}
+                                                {item.map((tdData, index) => {
+                                                  let displayValue;
+                
+                                                 // 1. Handle the placeholder/null value
+                                                 if (tdData == '\\N') {
+                                                     displayValue = '-';
+                                                 } 
+                                                 // 2. Handle the large number type conversion
+                                                 else if (typeof tdData === 'number' && Math.abs(tdData) > Number.MAX_SAFE_INTEGER) {
+                                                     // The most direct way to prevent loss is to treat it as a string representation
+                                                     displayValue = String(tdData); 
+                                                 }
+                                                 // 3. Handle other types (already strings or small numbers)
+                                                 else {
+                                                     displayValue = tdData;
+                                                 }
+                                 
+                                                 return (
+                                                     <td
+                                                         className="ant-table-cell"
+                                                         key={index+''+tdData}
+                                                     >
+                                                         {displayValue}
+                                                     </td>
+                                                 );
+                                                 })}
                                             </tr>
                                         ))}
                                     </tbody>
