@@ -23,7 +23,7 @@ import com.amazonaws.services.kinesis.model.*
 import org.apache.doris.regression.suite.ClusterOptions
 import java.nio.ByteBuffer
 
-suite("test_kinesis_routine_load_be_restart", "docker") {
+suite("test_kinesis_routine_load_fe_restart", "docker") {
     def region = context.config.awsRegion ?: context.config.otherConfigs.get("awsRegion")
     def ak = context.config.awsAccessKey ?: context.config.otherConfigs.get("awsAccessKey")
     def sk = context.config.awsSecretKey ?: context.config.otherConfigs.get("awsSecretKey")
@@ -40,9 +40,9 @@ suite("test_kinesis_routine_load_be_restart", "docker") {
     options.feConfigs.add("JAVA_HOME=")
     docker(options) {
         def suffix = UUID.randomUUID().toString().substring(0, 8)
-        def streamName = "doris-be-restart-${suffix}"
-        def tableName = "test_kinesis_be_restart"
-        def jobName = "test_kinesis_be_restart_${suffix}"
+        def streamName = "doris-fe-restart-${suffix}"
+        def tableName = "test_kinesis_fe_restart"
+        def jobName = "test_kinesis_fe_restart_${suffix}"
 
         def credentials = new BasicAWSCredentials(ak, sk)
         def kinesisClient = AmazonKinesisClientBuilder.standard()
@@ -52,7 +52,8 @@ suite("test_kinesis_routine_load_be_restart", "docker") {
         def streamCreated = false
         def tableCreated = false
         def jobCreated = false
-        def backendsStopped = false
+        def frontendsStopped = false
+        def masterFeIndex = -1
 
         def waitForStreamReady = { int timeoutSec ->
             logger.info("Waiting for stream ${streamName} to become active")
@@ -75,7 +76,7 @@ suite("test_kinesis_routine_load_be_restart", "docker") {
         def writeRange = { int startId, int endId ->
             logger.info("Writing records ${startId}-${endId} to stream ${streamName}")
             for (int i = startId; i <= endId; i++) {
-                def data = "{\"id\": ${i}, \"name\": \"user_${i}\"}"
+                def data = "{\"id\": ${i}, \"value\": ${i * 100}}"
                 def putRequest = new PutRecordRequest()
                     .withStreamName(streamName)
                     .withPartitionKey("key_${i}")
@@ -112,25 +113,6 @@ suite("test_kinesis_routine_load_be_restart", "docker") {
             assertTrue(false, "Timeout waiting row count >= ${expectedCount}, last count=${lastCount}")
         }
 
-        def waitForBackendsState = { boolean alive, int timeoutSec ->
-            for (int i = 0; i < timeoutSec; i++) {
-                def backends = sql_return_maparray("SHOW BACKENDS")
-                boolean allMatched = true
-                for (def backend : backends) {
-                    if (backend.Alive.toString().toBoolean() != alive) {
-                        allMatched = false
-                        break
-                    }
-                }
-                if (allMatched) {
-                    logger.info("All backends are ${alive ? "alive" : "down"}")
-                    return
-                }
-                Thread.sleep(1000)
-            }
-            assertTrue(false, "Timeout waiting all backends to be ${alive ? "alive" : "down"}")
-        }
-
         def getJobState = {
             def result = sql "SHOW ROUTINE LOAD FOR ${jobName}"
             assertTrue(result.size() > 0, "SHOW ROUTINE LOAD returned empty result for ${jobName}")
@@ -162,7 +144,7 @@ suite("test_kinesis_routine_load_be_restart", "docker") {
             sql """
                 CREATE TABLE ${tableName} (
                     id INT,
-                    name VARCHAR(100)
+                    value INT
                 )
                 DUPLICATE KEY(id)
                 DISTRIBUTED BY HASH(id) BUCKETS 1
@@ -189,46 +171,49 @@ suite("test_kinesis_routine_load_be_restart", "docker") {
 
             writeRange(1, 50)
             long beforeRestartCount = waitForCountAtLeast(50, 120)
-            logger.info("Loaded rows before BE restart: ${beforeRestartCount}")
+            logger.info("Loaded rows before FE restart: ${beforeRestartCount}")
             assertEquals(50L, beforeRestartCount)
 
-            logger.info("Stopping all backends")
-            cluster.stopBackends()
-            backendsStopped = true
-            waitForBackendsState(false, 120)
-
-            def stateAfterStop = waitForJobStateIn(["PAUSED", "RUNNING", "NEED_SCHEDULE"] as Set<String>, 120)
-            logger.info("Routine load state after BE stop: ${stateAfterStop}")
-            assertNotEquals("CANCELLED", stateAfterStop)
+            masterFeIndex = cluster.getMasterFe().index
+            logger.info("Stopping master FE index=${masterFeIndex}")
+            cluster.stopFrontends(masterFeIndex)
+            frontendsStopped = true
 
             writeRange(51, 100)
 
-            logger.info("Starting all backends")
-            cluster.startBackends()
-            backendsStopped = false
-            waitForBackendsState(true, 120)
+            logger.info("Starting master FE index=${masterFeIndex}")
+            cluster.startFrontends(masterFeIndex)
+            frontendsStopped = false
+            Thread.sleep(30000)
+            context.reconnectFe()
 
             def stateAfterRestart = waitForJobStateIn(["RUNNING", "NEED_SCHEDULE", "PAUSED"] as Set<String>, 120)
-            logger.info("Routine load state after BE restart: ${stateAfterRestart}")
+            logger.info("Routine load state after FE restart: ${stateAfterRestart}")
             assertNotEquals("CANCELLED", stateAfterRestart)
 
             long finalCount = waitForCountAtLeast(100, 180)
-            logger.info("Loaded rows after BE restart: ${finalCount}")
+            logger.info("Loaded rows after FE restart: ${finalCount}")
             assertEquals(100L, finalCount)
-            def result = sql "SELECT COUNT(*), COUNT(DISTINCT id), MIN(id), MAX(id) FROM ${tableName}"
+            def result = sql "SELECT COUNT(*), COUNT(DISTINCT id), MIN(id), MAX(id), SUM(value) FROM ${tableName}"
             assertEquals(100L, ((Number) result[0][0]).longValue())
             assertEquals(100L, ((Number) result[0][1]).longValue())
             assertEquals(1, ((Number) result[0][2]).intValue())
             assertEquals(100, ((Number) result[0][3]).intValue())
+            assertEquals(505000L, ((Number) result[0][4]).longValue())
 
         } finally {
-            if (backendsStopped) {
+            if (frontendsStopped) {
                 try {
-                    cluster.startBackends()
-                    waitForBackendsState(true, 120)
-                    backendsStopped = false
+                    if (masterFeIndex > 0) {
+                        cluster.startFrontends(masterFeIndex)
+                    } else {
+                        cluster.startFrontends()
+                    }
+                    Thread.sleep(30000)
+                    context.reconnectFe()
+                    frontendsStopped = false
                 } catch (Exception e) {
-                    logger.warn("Failed to restart backends in cleanup: ${e.message}")
+                    logger.warn("Failed to restart FE in cleanup: ${e.message}")
                 }
             }
             if (jobCreated) {
