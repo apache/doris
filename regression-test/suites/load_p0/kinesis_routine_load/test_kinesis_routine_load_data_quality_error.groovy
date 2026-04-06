@@ -114,6 +114,39 @@ suite("test_kinesis_routine_load_data_quality_error") {
         return [written: written, bad: bad, good: written - bad]
     }
 
+    def writeNotNullViolationRecords = { int startId, int endId, String partitionKeyPrefix, String targetStream ->
+        int written = 0
+        int bad = 0
+        logger.info("Writing NOT NULL violation records ${startId}-${endId} to stream ${targetStream}")
+        for (int i = startId; i <= endId; i++) {
+            boolean isBadRecord = (i % 4 == 0)
+            def data
+            if (isBadRecord) {
+                data = "{\"id\": null, \"age\": ${20 + i}}"
+                bad++
+            } else {
+                data = "{\"id\": ${i}, \"age\": ${20 + i}}"
+            }
+            def putRequest = new PutRecordRequest()
+                .withStreamName(targetStream)
+                .withPartitionKey("${partitionKeyPrefix}_${i}")
+                .withData(ByteBuffer.wrap(data.getBytes("UTF-8")))
+            for (int retry = 0; retry < 20; retry++) {
+                try {
+                    kinesisClient.putRecord(putRequest)
+                    break
+                } catch (ResourceNotFoundException e) {
+                    if (retry == 19) {
+                        throw e
+                    }
+                    Thread.sleep(500)
+                }
+            }
+            written++
+        }
+        return [written: written, bad: bad, good: written - bad]
+    }
+
     def queryCount = {
         def result = sql "SELECT COUNT(*) FROM test_kinesis_quality"
         return toLongValue(result[0][0])
@@ -248,6 +281,114 @@ suite("test_kinesis_routine_load_data_quality_error") {
 
             def finalState = getJobState()
             assertNotEquals("CANCELLED", finalState)
+
+            // test2.1 : verify NOT NULL violation records are filtered under max_filter_ratio
+            def notNullStream = "doris-quality-not-null-${suffix}"
+            def notNullTable = "test_kinesis_quality_not_null"
+            def notNullJob = "${jobName}_not_null"
+            def notNullStreamCreated = false
+            def notNullTableCreated = false
+            def notNullJobCreated = false
+            try {
+                kinesisClient.createStream(new CreateStreamRequest()
+                    .withStreamName(notNullStream)
+                    .withShardCount(1))
+                notNullStreamCreated = true
+
+                def notNullStreamActive = false
+                for (int i = 0; i < 120; i++) {
+                    try {
+                        def describeResult = kinesisClient.describeStream(
+                            new DescribeStreamRequest().withStreamName(notNullStream))
+                        if (describeResult.getStreamDescription().getStreamStatus() == "ACTIVE" &&
+                                !describeResult.getStreamDescription().getShards().isEmpty()) {
+                            notNullStreamActive = true
+                            break
+                        }
+                    } catch (ResourceNotFoundException e) {
+                        // Metadata may not be visible immediately after create.
+                    }
+                    Thread.sleep(1000)
+                }
+                assertTrue(notNullStreamActive, "Stream ${notNullStream} failed to become active")
+
+                def thirdBatch = writeNotNullViolationRecords(61, 80, "third_not_null", notNullStream)
+                assertEquals(20, thirdBatch.written)
+                assertEquals(5, thirdBatch.bad)
+                assertEquals(15, thirdBatch.good)
+
+                sql "DROP TABLE IF EXISTS ${notNullTable}"
+                sql """
+                    CREATE TABLE ${notNullTable} (
+                        id INT NOT NULL,
+                        age INT
+                    )
+                    DUPLICATE KEY(id)
+                    DISTRIBUTED BY HASH(id) BUCKETS 1
+                    PROPERTIES ("replication_num" = "1")
+                """
+                notNullTableCreated = true
+
+                sql """
+                    CREATE ROUTINE LOAD ${notNullJob} ON ${notNullTable}
+                    PROPERTIES (
+                        "format" = "json",
+                        "max_filter_ratio" = "0.5"
+                    )
+                    FROM KINESIS (
+                        "aws.region" = "${region}",
+                        "aws.access_key" = "${ak}",
+                        "aws.secret_key" = "${sk}",
+                        "kinesis_stream" = "${notNullStream}",
+                        "property.kinesis_default_pos" = "TRIM_HORIZON"
+                    )
+                """
+                notNullJobCreated = true
+
+                def stateRetry = 0
+                while (true) {
+                    Thread.sleep(1000)
+                    def stateResult = sql "SHOW ROUTINE LOAD FOR ${notNullJob}"
+                    def state = stateResult[0][8].toString()
+                    if (state == "RUNNING" || state == "NEED_SCHEDULE") {
+                        break
+                    }
+                    stateRetry++
+                    if (stateRetry > 120) {
+                        fail("NOT NULL job failed to start")
+                    }
+                }
+
+                long notNullCount = -1
+                for (int i = 0; i < 360; i++) {
+                    def notNullResult = sql "SELECT COUNT(*) FROM ${notNullTable}"
+                    notNullCount = toLongValue(notNullResult[0][0])
+                    if (notNullCount >= 15L) {
+                        logger.info("Table ${notNullTable} row count reached ${notNullCount} (expected >= 15)")
+                        break
+                    }
+                    Thread.sleep(1000)
+                }
+                assertTrue(notNullCount >= 15L, "Timeout waiting row count >= 15, last count=${notNullCount}")
+            } finally {
+                if (notNullJobCreated) {
+                    try {
+                        sql "STOP ROUTINE LOAD FOR ${notNullJob}"
+                    } catch (Exception e) {
+                        logger.warn("Failed to stop routine load ${notNullJob}: ${e.message}")
+                    }
+                }
+                if (notNullStreamCreated) {
+                    try {
+                        kinesisClient.deleteStream(new DeleteStreamRequest().withStreamName(notNullStream))
+                    } catch (Exception e) {
+                        logger.warn("Failed to delete stream ${notNullStream}: ${e.message}")
+                    }
+                }
+                if (notNullTableCreated) {
+                    sql "DROP TABLE IF EXISTS ${notNullTable}"
+                }
+            }
         } finally {
             stopRoutineLoadIfCreated()
             deleteStreamIfCreated()
