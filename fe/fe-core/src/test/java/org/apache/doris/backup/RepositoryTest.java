@@ -258,6 +258,76 @@ public class RepositoryTest {
         Assert.assertEquals("a", snapshotNames.get(0));
     }
 
+    /**
+     * Tests that listSnapshots correctly extracts snapshot names from flat S3 object keys
+     * that contain nested {@code __ss_content} segments. Before the fix, {@code lastIndexOf}
+     * matched the later {@code /__ss_content} instead of the earlier {@code /__ss_snap1},
+     * producing a spurious "content" snapshot name.
+     */
+    @Test
+    public void testListSnapshotsFlatObjectKeys() {
+        String repoRoot = location + "/__palo_repository_repo";
+        new Expectations() {
+            {
+                try {
+                    mockFs.list((Location) any);
+                } catch (IOException ignored) {
+                    // never thrown during JMockit recording phase
+                }
+                minTimes = 0;
+                result = new Delegate<FileIterator>() {
+                    public FileIterator list(Location loc) throws IOException {
+                        List<FileEntry> entries = Lists.newArrayList(
+                                // A meta file directly under __ss_snap1 (single __ss_ segment)
+                                new FileEntry(
+                                        Location.of(repoRoot + "/__ss_snap1/__meta__abc"),
+                                        50, false, 0L, null),
+                                // A data file under __ss_snap1/__ss_content (two __ss_ segments)
+                                new FileEntry(
+                                        Location.of(repoRoot
+                                                + "/__ss_snap1/__ss_content/__db_1/__tbl_2/data.dat"),
+                                        200, false, 0L, null),
+                                // A second snapshot
+                                new FileEntry(
+                                        Location.of(repoRoot + "/__ss_snap2/__meta__def"),
+                                        50, false, 0L, null),
+                                // An entry without __ss_ prefix — should be skipped
+                                new FileEntry(
+                                        Location.of(repoRoot + "/__repo_info"),
+                                        10, false, 0L, null));
+                        return new FileIterator() {
+                            private int idx = 0;
+
+                            @Override
+                            public boolean hasNext() {
+                                return idx < entries.size();
+                            }
+
+                            @Override
+                            public FileEntry next() throws IOException {
+                                return entries.get(idx++);
+                            }
+
+                            @Override
+                            public void close() {
+                            }
+                        };
+                    }
+                };
+            }
+        };
+
+        repo = new Repository(10000, "repo", false, location, testProps);
+        List<String> snapshotNames = Lists.newArrayList();
+        Status st = repo.listSnapshots(snapshotNames);
+        Assert.assertTrue(st.ok());
+        Assert.assertEquals(2, snapshotNames.size());
+        Assert.assertTrue(snapshotNames.contains("snap1"));
+        Assert.assertTrue(snapshotNames.contains("snap2"));
+        // "content" must NOT appear — it is a nested directory, not a snapshot
+        Assert.assertFalse(snapshotNames.contains("content"));
+    }
+
     @Test
     public void testUpload() {
         new Expectations() {

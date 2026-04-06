@@ -571,8 +571,10 @@ public class Repository implements Writable, GsonPostProcessable {
                         }
                     } else {
                         // S3 / OSS: flat object URI, e.g. ".../repo/__ss_snap1/__meta.xxx"
-                        // Extract the snapshot name from the path component after "/__ss_"
-                        int ssIdx = uri.lastIndexOf(PATH_DELIMITER + PREFIX_SNAPSHOT_DIR);
+                        // Extract the snapshot name from the FIRST "/__ss_" after the repo root.
+                        // Using lastIndexOf would incorrectly match nested "__ss_content" segments.
+                        int ssIdx = uri.indexOf(PATH_DELIMITER + PREFIX_SNAPSHOT_DIR,
+                                repoRootPath.length() - 1);
                         if (ssIdx < 0) {
                             continue;
                         }
