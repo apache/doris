@@ -288,21 +288,30 @@ public class EncryptSQLTest extends ParserTestBase {
             res = "SET PASSWORD FOR 'admin' = PASSWORD('*XXX')";
             parseAndCheck(sql, res);
 
-            // create s3 job
-            sql = "CREATE JOB my_job"
-                    + " ON STREAMING"
-                    + " DO"
-                    + " INSERT INTO test.`student`"
-                    + " SELECT * FROM S3"
-                    + " ("
-                    + " \"uri\" = \"s3://bucketname/demo/*.csv\","
-                    + " \"format\" = \"csv\","
-                    + " \"column_separator\" = \",\","
-                    + " \"s3.endpoint\" = \"s3.ap-southeast-1.amazonaws.com\","
-                    + " \"s3.region\" = \"ap-southeast-1\","
-                    + " \"s3.access_key\" = \"ak\","
-                    + " \"s3.secret_key\" = \"abcdefg\""
-                    + " );";
+        // testing for https://github.com/apache/doris/issues/62140
+        sql = "CREATE USER 'test_user62140'@'%' IDENTIFIED BY '123456'";
+        res = "CREATE USER 'test_user62140'@'%' IDENTIFIED BY '*XXX'";
+        parseAndCheck(sql, res);
+
+        sql = "ALTER USER 'test_user62140'@'%' IDENTIFIED BY '123456'";
+        res = "ALTER USER 'test_user62140'@'%' IDENTIFIED BY '*XXX'";
+        parseAndCheck(sql, res);
+
+        // create s3 job
+        sql = "CREATE JOB my_job"
+                + " ON STREAMING"
+                + " DO"
+                + " INSERT INTO test.`student`"
+                + " SELECT * FROM S3"
+                + " ("
+                + " \"uri\" = \"s3://bucketname/demo/*.csv\","
+                + " \"format\" = \"csv\","
+                + " \"column_separator\" = \",\","
+                + " \"s3.endpoint\" = \"s3.ap-southeast-1.amazonaws.com\","
+                + " \"s3.region\" = \"ap-southeast-1\","
+                + " \"s3.access_key\" = \"ak\","
+                + " \"s3.secret_key\" = \"abcdefg\""
+                + " );";
 
             res = "CREATE JOB my_job"
                     + " ON STREAMING"
