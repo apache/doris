@@ -113,6 +113,12 @@ TEST_F(TabletMetaManagerTest, TestLoad) {
     // EXPECT_EQ(_json_header, json_meta_read);
 }
 
+TEST_F(TabletMetaManagerTest, TestLoadFailed) {
+    Status s = TabletMetaManager::load_json_meta(_data_dir, "/path/to/non_existent_file.json");
+    EXPECT_FALSE(s.ok());
+    EXPECT_TRUE(s.is<INTERNAL_ERROR>());
+}
+
 TEST_F(TabletMetaManagerTest, TestDeleteBitmapEncode) {
     TTabletId tablet_id = 1234;
     int64_t version = 456;
