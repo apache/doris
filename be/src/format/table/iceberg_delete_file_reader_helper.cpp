@@ -39,6 +39,7 @@
 #include "format/parquet/vparquet_column_chunk_reader.h"
 #include "format/parquet/vparquet_reader.h"
 #include "format/table/deletion_vector_reader.h"
+#include "format/table/iceberg_reader.h"
 #include "format/table/table_format_reader.h"
 #include "io/hdfs_builder.h"
 #include "runtime/descriptors.h"
@@ -135,7 +136,8 @@ Status init_parquet_delete_reader(ParquetReader* reader, bool* dictionary_coded)
     *dictionary_coded = true;
     for (const auto& row_group : meta_data->row_groups) {
         const auto& column_chunk = row_group.columns[0];
-        if (!(column_chunk.__isset.meta_data && has_dict_page(column_chunk.meta_data))) {
+        if (!(column_chunk.__isset.meta_data &&
+              IcebergTableReader::_is_fully_dictionary_encoded(column_chunk.meta_data))) {
             *dictionary_coded = false;
             break;
         }
