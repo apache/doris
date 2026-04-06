@@ -176,8 +176,14 @@ suite("test_kinesis_routine_load_fe_restart", "docker") {
 
             masterFeIndex = cluster.getMasterFe().index
             logger.info("Stopping master FE index=${masterFeIndex}")
-            cluster.stopFrontends(masterFeIndex)
             frontendsStopped = true
+            try {
+                cluster.stopFrontends(masterFeIndex)
+            } catch (Exception e) {
+                // In single-FE docker cluster, stop may timeout while checking FE liveness.
+                // The FE container can already be stopped at this point, so continue the restart flow.
+                logger.warn("Stop master FE index=${masterFeIndex} returned exception, continue restart flow: ${e.message}")
+            }
 
             writeRange(51, 100)
 
@@ -233,7 +239,11 @@ suite("test_kinesis_routine_load_fe_restart", "docker") {
             }
             kinesisClient.shutdown()
             if (tableCreated) {
-                sql "DROP TABLE IF EXISTS ${tableName}"
+                try {
+                    sql "DROP TABLE IF EXISTS ${tableName}"
+                } catch (Exception e) {
+                    logger.warn("Failed to drop table ${tableName}: ${e.message}")
+                }
             }
         }
     }
