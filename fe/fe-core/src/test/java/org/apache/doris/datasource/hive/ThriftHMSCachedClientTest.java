@@ -17,11 +17,11 @@
 
 package org.apache.doris.datasource.hive;
 
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.property.metastore.HMSBaseProperties;
-import org.apache.doris.info.TableNameInfo;
 
 import com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient;
 import com.amazonaws.glue.catalog.metastore.AWSCatalogMetastoreClient;
@@ -204,7 +204,7 @@ public class ThriftHMSCachedClientTest {
         ThriftHMSCachedClient cachedClient = newClient(1);
 
         cachedClient.acquireSharedLock("query-1", 1L, "user",
-                new TableNameInfo("db1", "tbl1"), Collections.emptyList(), 5_000L);
+                new TableName("db1", "tbl1"), Collections.emptyList(), 5_000L);
 
         Assert.assertEquals(1, provider.createdClients.get());
         Assert.assertEquals(1, provider.checkLockCalls.get());
