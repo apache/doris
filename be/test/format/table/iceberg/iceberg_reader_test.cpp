@@ -97,9 +97,9 @@ protected:
         scan_range->size = (*file_reader)->size();
         scan_range->path = mixed_position_delete_file();
 
-        auto parquet_reader = ParquetReader::create_unique(profile, *scan_params, *scan_range,
-                                                           1024, &timezone_obj, nullptr,
-                                                           runtime_state, cache.get());
+        auto parquet_reader =
+                ParquetReader::create_unique(profile, *scan_params, *scan_range, 1024,
+                                             &timezone_obj, nullptr, runtime_state, cache.get());
         EXPECT_NE(parquet_reader, nullptr);
         if (parquet_reader == nullptr) {
             return nullptr;
@@ -524,8 +524,8 @@ protected:
     std::unique_ptr<doris::FileMetaCache> cache;
     cctz::time_zone timezone_obj;
     std::vector<std::string> delete_file_column_names = {"file_path", "pos"};
-    std::unordered_map<std::string, uint32_t> delete_file_col_name_to_block_idx = {
-            {"file_path", 0}, {"pos", 1}};
+    std::unordered_map<std::string, uint32_t> delete_file_col_name_to_block_idx = {{"file_path", 0},
+                                                                                   {"pos", 1}};
 };
 
 TEST_F(IcebergReaderTest, detects_fully_dictionary_encoded_parquet_column) {
