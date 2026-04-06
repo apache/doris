@@ -334,6 +334,7 @@ under the License.
         <!--Need to ensure that the version is the same as in arrow/java/pom.xml or compatible with it.-->
         <grpc.version>1.65.1</grpc.version>
         <check.freamework.version>3.53.0</check.freamework.version>
+        <cel.version>0.9.1-proto3</cel.version>
         <protobuf.version>3.25.8</protobuf.version>
         <!-- we use protoc-jar-maven-plugin to generate protobuf generated code -->
         <!-- see https://repo.maven.apache.org/maven2/com/google/protobuf/protoc/ to get correct version -->
@@ -893,6 +894,11 @@ under the License.
                 <groupId>com.google.guava</groupId>
                 <artifactId>guava-testlib</artifactId>
                 <version>${guava.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>dev.cel</groupId>
+                <artifactId>cel</artifactId>
+                <version>${cel.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/org.javassist/javassist -->
             <dependency>

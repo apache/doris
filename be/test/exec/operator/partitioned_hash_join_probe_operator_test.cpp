@@ -1027,6 +1027,51 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, revocable_mem_size) {
     ASSERT_EQ(probe_operator->revocable_mem_size(_helper.runtime_state.get()), 0);
 }
 
+// Partition (level + 1) >= _repartition_max_depth → revocable_mem_size returns 0.
+TEST_F(PartitionedHashJoinProbeOperatorTest, revocable_mem_size_at_max_depth) {
+    auto [probe_operator, sink_operator] = _helper.create_operators();
+
+    std::shared_ptr<MockPartitionedHashJoinSharedState> shared_state;
+    auto local_state = _helper.create_probe_local_state(_helper.runtime_state.get(),
+                                                        probe_operator.get(), shared_state);
+
+    local_state->_shared_state->_is_spilled = true;
+    local_state->_child_eos = true;
+
+    // Set up a valid current partition with build not finished (the path that
+    // checks level vs max depth).
+    SpillFileSPtr build_file;
+    ASSERT_TRUE(ExecEnv::GetInstance()
+                        ->spill_file_mgr()
+                        ->create_spill_file("ut/revocable_join_max_depth_build", build_file)
+                        .ok());
+    SpillFileSPtr probe_file;
+    ASSERT_TRUE(ExecEnv::GetInstance()
+                        ->spill_file_mgr()
+                        ->create_spill_file("ut/revocable_join_max_depth_probe", probe_file)
+                        .ok());
+    local_state->_current_partition = JoinSpillPartitionInfo(
+            build_file, probe_file, static_cast<int>(probe_operator->_repartition_max_depth - 1));
+    local_state->_current_partition.build_finished = false;
+
+    // Add a recovered build block large enough to exceed the threshold.
+    std::vector<int32_t> large_data(256 * 1024); // 1MB of int32
+    std::iota(large_data.begin(), large_data.end(), 0);
+    Block large_block = ColumnHelper::create_block<DataTypeInt32>(large_data);
+    ASSERT_GE(large_block.allocated_bytes(), SpillFile::MIN_SPILL_WRITE_BATCH_MEM);
+    local_state->_recovered_build_block = MutableBlock::create_unique(std::move(large_block));
+
+    ASSERT_GE(probe_operator->_repartition_max_depth, 2);
+
+    // At max depth → not revocable.
+    ASSERT_EQ(probe_operator->revocable_mem_size(_helper.runtime_state.get()), 0);
+
+    // One level below max depth → revocable.
+    local_state->_current_partition.level =
+            static_cast<int>(probe_operator->_repartition_max_depth) - 2;
+    ASSERT_GT(probe_operator->revocable_mem_size(_helper.runtime_state.get()), 0);
+}
+
 TEST_F(PartitionedHashJoinProbeOperatorTest, get_reserve_mem_size) {
     // Setup test environment
     auto [probe_operator, sink_operator] = _helper.create_operators();

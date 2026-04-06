@@ -58,10 +58,10 @@ suite("test_streaming_job_cdc_stream_postgres_latest_alter_cred",
 
     sql """
         CREATE TABLE IF NOT EXISTS ${currentDb}.${dorisTable} (
-            `name` varchar(200) NOT NULL,
+            `name` varchar(200) NULL,
             `age`  int NULL
         ) ENGINE=OLAP
-        UNIQUE KEY(`name`)
+        DUPLICATE KEY(`name`)
         DISTRIBUTED BY HASH(`name`) BUCKETS AUTO
         PROPERTIES ("replication_allocation" = "tag.location.default: 1")
     """

@@ -29,6 +29,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "core/column/column.h"
+#include "core/column/column_string.h"
 #include "storage/segment/binary_plain_page_v2.h"
 #include "storage/segment/bitshuffle_page.h"
 #include "storage/segment/encoding_info.h"
@@ -318,11 +319,28 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, MutableColumnPtr& dst) {
                                                         _bit_shuffle_ptr->_cur_index));
     *n = max_fetch;
 
-    const auto* data_array = reinterpret_cast<const int32_t*>(_bit_shuffle_ptr->get_data(0));
-    size_t start_index = _bit_shuffle_ptr->_cur_index;
+    if (_options.only_read_offsets) {
+        // OFFSET_ONLY mode: resolve dict codes to get real string lengths
+        // without copying actual char data. This allows length() to work.
+        const auto* data_array = reinterpret_cast<const int32_t*>(_bit_shuffle_ptr->get_data(0));
+        size_t start_index = _bit_shuffle_ptr->_cur_index;
+        // Reuse _buffer (int32_t vector) to store uint32_t lengths.
+        // int32_t and uint32_t have the same size/alignment, and string
+        // lengths are always non-negative, so the bit patterns are identical.
+        _buffer.resize(max_fetch);
+        for (size_t i = 0; i < max_fetch; ++i) {
+            int32_t codeword = data_array[start_index + i];
+            _buffer[i] = static_cast<int32_t>(_dict_word_info[codeword].size);
+        }
+        dst->insert_offsets_from_lengths(reinterpret_cast<const uint32_t*>(_buffer.data()),
+                                         max_fetch);
+    } else {
+        const auto* data_array = reinterpret_cast<const int32_t*>(_bit_shuffle_ptr->get_data(0));
+        size_t start_index = _bit_shuffle_ptr->_cur_index;
 
-    dst->insert_many_dict_data(data_array, start_index, _dict_word_info, max_fetch,
-                               _num_dict_items);
+        dst->insert_many_dict_data(data_array, start_index, _dict_word_info, max_fetch,
+                                   _num_dict_items);
+    }
 
     _bit_shuffle_ptr->_cur_index += max_fetch;
 
@@ -343,8 +361,32 @@ Status BinaryDictPageDecoder::read_by_rowids(const rowid_t* rowids, ordinal_t pa
         return Status::OK();
     }
 
-    const auto* data_array = reinterpret_cast<const int32_t*>(_bit_shuffle_ptr->get_data(0));
     auto total = *n;
+
+    if (_options.only_read_offsets) {
+        // OFFSET_ONLY mode: resolve dict codes to get real string lengths
+        // without copying actual char data. This allows length() to work correctly.
+        const auto* data_array = reinterpret_cast<const int32_t*>(_bit_shuffle_ptr->get_data(0));
+        size_t read_count = 0;
+        _buffer.resize(total);
+        for (size_t i = 0; i < total; ++i) {
+            ordinal_t ord = rowids[i] - page_first_ordinal;
+            if (ord >= _bit_shuffle_ptr->_num_elements) [[unlikely]] {
+                break;
+            }
+            int32_t codeword = data_array[ord];
+            _buffer[read_count] = static_cast<int32_t>(_dict_word_info[codeword].size);
+            read_count++;
+        }
+        if (read_count > 0) {
+            dst->insert_offsets_from_lengths(reinterpret_cast<const uint32_t*>(_buffer.data()),
+                                             read_count);
+        }
+        *n = read_count;
+        return Status::OK();
+    }
+
+    const auto* data_array = reinterpret_cast<const int32_t*>(_bit_shuffle_ptr->get_data(0));
     size_t read_count = 0;
     _buffer.resize(total);
     for (size_t i = 0; i < total; ++i) {

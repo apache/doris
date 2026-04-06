@@ -1063,12 +1063,20 @@ Status PipelineTask::_state_transition(State new_state) {
     }
     _task_profile->add_info_string("TaskState", _to_string(new_state));
     _task_profile->add_info_string("BlockedByDependency", _blocked_dep ? _blocked_dep->name() : "");
-    if (!LEGAL_STATE_TRANSITION[(int)new_state].contains(_exec_state)) {
+    const auto& table =
+            _wake_up_early ? WAKE_UP_EARLY_LEGAL_STATE_TRANSITION : LEGAL_STATE_TRANSITION;
+    if (!table[(int)new_state].contains(_exec_state)) {
         return Status::InternalError(
                 "Task state transition from {} to {} is not allowed! Task info: {}",
                 _to_string(_exec_state), _to_string(new_state), debug_string());
     }
-    _exec_state = new_state;
+    // FINISHED/FINALIZED → RUNNABLE is legal under wake_up_early (delayed wake_up() arriving
+    // after the task already terminated), but we must not actually move the state backwards.
+    bool need_move = !((_exec_state == State::FINISHED || _exec_state == State::FINALIZED) &&
+                       new_state == State::RUNNABLE);
+    if (need_move) {
+        _exec_state = new_state;
+    }
     return Status::OK();
 }
 

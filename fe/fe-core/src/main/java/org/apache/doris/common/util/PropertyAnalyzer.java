@@ -2286,9 +2286,9 @@ public class PropertyAnalyzer {
         properties.remove(PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP);
         try {
             int num = Integer.parseInt(value);
-            if (num < 1 || num > 50) {
+            if (num < 1) {
                 throw new AnalysisException(PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP
-                        + " must be between 1 and 50");
+                        + " must be >= 1");
             }
             return num;
         } catch (NumberFormatException e) {

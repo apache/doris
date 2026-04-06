@@ -31,6 +31,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.authentication.AuthenticationIntegrationMgr;
 import org.apache.doris.authentication.AuthenticationIntegrationRuntime;
+import org.apache.doris.authentication.RoleMappingMgr;
 import org.apache.doris.backup.BackupHandler;
 import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.binlog.BinlogGcer;
@@ -386,6 +387,7 @@ public class Env {
     private SqlBlockRuleMgr sqlBlockRuleMgr;
     private AuthenticationIntegrationMgr authenticationIntegrationMgr;
     private AuthenticationIntegrationRuntime authenticationIntegrationRuntime;
+    private RoleMappingMgr roleMappingMgr;
     private ExportMgr exportMgr;
     private Alter alter;
     private ConsistencyChecker consistencyChecker;
@@ -730,6 +732,7 @@ public class Env {
         this.sqlBlockRuleMgr = new SqlBlockRuleMgr();
         this.authenticationIntegrationMgr = new AuthenticationIntegrationMgr();
         this.authenticationIntegrationRuntime = new AuthenticationIntegrationRuntime();
+        this.roleMappingMgr = new RoleMappingMgr();
         this.exportMgr = new ExportMgr();
         this.alter = new Alter();
         this.consistencyChecker = new ConsistencyChecker();
@@ -2518,13 +2521,14 @@ public class Env {
     }
 
     public long loadAuthenticationIntegrations(DataInputStream in, long checksum) throws IOException {
-        // TODO(authentication-integration): Re-enable image persistence
-        // when authentication integration is fully integrated.
-        // Consume persisted bytes to keep image stream alignment,
-        // but do not restore into in-memory state for now.
-        AuthenticationIntegrationMgr.read(in);
-        authenticationIntegrationMgr = new AuthenticationIntegrationMgr();
-        LOG.info("skip replay authentication integrations from image temporarily");
+        authenticationIntegrationMgr = AuthenticationIntegrationMgr.read(in);
+        LOG.info("finished replay authentication integrations from image");
+        return checksum;
+    }
+
+    public long loadRoleMappings(DataInputStream in, long checksum) throws IOException {
+        roleMappingMgr = RoleMappingMgr.read(in);
+        LOG.info("finished replay role mappings from image");
         return checksum;
     }
 
@@ -2853,10 +2857,12 @@ public class Env {
     }
 
     public long saveAuthenticationIntegrations(CountingDataOutputStream out, long checksum) throws IOException {
-        // TODO(authentication-integration): Re-enable image persistence
-        // when authentication integration is fully integrated.
-        // Persist an empty manager temporarily.
-        new AuthenticationIntegrationMgr().write(out);
+        this.authenticationIntegrationMgr.write(out);
+        return checksum;
+    }
+
+    public long saveRoleMappings(CountingDataOutputStream out, long checksum) throws IOException {
+        this.roleMappingMgr.write(out);
         return checksum;
     }
 
@@ -5234,6 +5240,10 @@ public class Env {
 
     public AuthenticationIntegrationMgr getAuthenticationIntegrationMgr() {
         return authenticationIntegrationMgr;
+    }
+
+    public RoleMappingMgr getRoleMappingMgr() {
+        return roleMappingMgr;
     }
 
     public AuthenticationIntegrationRuntime getAuthenticationIntegrationRuntime() {
