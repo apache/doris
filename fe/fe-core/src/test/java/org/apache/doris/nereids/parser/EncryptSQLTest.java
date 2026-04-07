@@ -454,7 +454,6 @@ public class EncryptSQLTest extends ParserTestBase {
         };
         ctx.setEnv(env);
         Config.enable_nereids_load = true;
-
         // testing for https://github.com/apache/doris/issues/62140
         String sql = "CREATE USER 'test_user62140'@'%' IDENTIFIED BY '123456'";
         String res = "CREATE USER 'test_user62140'@'%' IDENTIFIED BY '*XXX'";
@@ -472,7 +471,6 @@ public class EncryptSQLTest extends ParserTestBase {
         };
         ctx.setEnv(env);
         Config.enable_nereids_load = true;
-    
         // testing for https://github.com/apache/doris/issues/62140
         String sql = "ALTER USER 'test_user62140'@'%' IDENTIFIED BY '123456'";
         String res = "ALTER USER 'test_user62140'@'%' IDENTIFIED BY '*XXX'";
