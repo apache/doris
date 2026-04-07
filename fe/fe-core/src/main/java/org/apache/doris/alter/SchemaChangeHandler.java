@@ -2349,37 +2349,80 @@ public class SchemaChangeHandler extends AlterHandler {
                     buildIndexChange = true;
                     lightSchemaChange = false;
                 } else if (alterOp instanceof DropIndexOp) {
-                    if (processDropIndex((DropIndexOp) alterOp, olapTable, newIndexes)) {
-                        return;
-                    }
-                    lightSchemaChange = false;
-
                     DropIndexOp dropIndexOp = (DropIndexOp) alterOp;
-                    List<Index> existedIndexes = olapTable.getIndexes();
-                    Index found = null;
-                    for (Index existedIdx : existedIndexes) {
-                        if (existedIdx.getIndexName().equalsIgnoreCase(dropIndexOp.getIndexName())) {
-                            found = existedIdx;
-                            break;
+
+                    if (dropIndexOp.hasPartitionSpec()) {
+                        // DROP INDEX ON PARTITION: only delete physical index files,
+                        // do not modify table-level index metadata.
+                        List<Index> existedIndexes = olapTable.getIndexes();
+                        Index found = null;
+                        for (Index existedIdx : existedIndexes) {
+                            if (existedIdx.getIndexName().equalsIgnoreCase(dropIndexOp.getIndexName())) {
+                                found = existedIdx;
+                                break;
+                            }
                         }
-                    }
-                    // for inverted index, light schema change is supported in both cloud and local mode;
-                    // for ngram index, light schema change is supported only in cloud mode;
-                    boolean supportLightIndexChange = false;
-                    if (Config.isCloudMode()) {
-                        if (enableAddIndexForNewData) {
-                            supportLightIndexChange = (
-                                    found.getIndexType() == IndexType.NGRAM_BF
-                                            || found.getIndexType() == IndexType.INVERTED);
+                        if (found == null) {
+                            if (dropIndexOp.isSetIfExists()) {
+                                LOG.info("drop index[{}] which does not exist on table[{}]",
+                                        dropIndexOp.getIndexName(), olapTable.getName());
+                                return;
+                            }
+                            throw new DdlException("index " + dropIndexOp.getIndexName() + " does not exist");
                         }
-                    } else {
-                        supportLightIndexChange = found.getIndexType() == IndexType.INVERTED
-                                || found.getIndexType() == IndexType.ANN;
-                    }
-                    if (found != null && supportLightIndexChange) {
+                        if (found.getIndexType() != IndexType.INVERTED) {
+                            throw new DdlException(
+                                    "Only inverted index supports DROP INDEX ON PARTITION");
+                        }
+                        if (!olapTable.isPartitionedTable()) {
+                            throw new DdlException("table " + olapTable.getName()
+                                    + " is not partitioned, cannot drop index with partitions");
+                        }
+                        Set<String> specifiedPartitions = new HashSet<>(dropIndexOp.getPartitionNames());
+                        for (String partName : specifiedPartitions) {
+                            if (olapTable.getPartition(partName) == null) {
+                                throw new DdlException("partition " + partName + " does not exist");
+                            }
+                        }
+
                         alterIndexes.add(found);
+                        indexOnPartitions.put(found.getIndexId(), specifiedPartitions);
                         isDropIndex = true;
-                        lightIndexChange = true;
+                        buildIndexChange = true;
+                        lightSchemaChange = false;
+                    } else {
+                        // Original full-table DROP INDEX logic
+                        if (processDropIndex(dropIndexOp, olapTable, newIndexes)) {
+                            return;
+                        }
+                        lightSchemaChange = false;
+
+                        List<Index> existedIndexes = olapTable.getIndexes();
+                        Index found = null;
+                        for (Index existedIdx : existedIndexes) {
+                            if (existedIdx.getIndexName().equalsIgnoreCase(dropIndexOp.getIndexName())) {
+                                found = existedIdx;
+                                break;
+                            }
+                        }
+                        // for inverted index, light schema change is supported in both cloud and local mode;
+                        // for ngram index, light schema change is supported only in cloud mode;
+                        boolean supportLightIndexChange = false;
+                        if (Config.isCloudMode()) {
+                            if (enableAddIndexForNewData) {
+                                supportLightIndexChange = (
+                                        found.getIndexType() == IndexType.NGRAM_BF
+                                                || found.getIndexType() == IndexType.INVERTED);
+                            }
+                        } else {
+                            supportLightIndexChange = found.getIndexType() == IndexType.INVERTED
+                                    || found.getIndexType() == IndexType.ANN;
+                        }
+                        if (found != null && supportLightIndexChange) {
+                            alterIndexes.add(found);
+                            isDropIndex = true;
+                            lightIndexChange = true;
+                        }
                     }
                 } else {
                     Preconditions.checkState(false);
@@ -2409,7 +2452,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 }
                 if (Config.enable_light_index_change) {
                     buildOrDeleteTableInvertedIndices(db, olapTable, indexSchemaMap,
-                            alterIndexes, indexOnPartitions, false);
+                            alterIndexes, indexOnPartitions, isDropIndex);
                 }
             } else {
                 createJob(rawSql, db.getId(), olapTable, indexSchemaMap, propertyMap, newIndexes, sequenceMapping);

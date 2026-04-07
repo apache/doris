@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.info.TableNameInfo;
@@ -25,6 +26,8 @@ import org.apache.doris.qe.ConnectContext;
 
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -36,12 +39,26 @@ public class DropIndexOp extends AlterTableOp {
 
     private boolean alter;
 
+    private final PartitionNamesInfo partitionNamesInfo;
+
+    /**
+     * DropIndexOp without partition spec.
+     */
     public DropIndexOp(String indexName, boolean ifExists, TableNameInfo tableName, boolean alter) {
+        this(indexName, ifExists, tableName, alter, null);
+    }
+
+    /**
+     * DropIndexOp with optional partition spec.
+     */
+    public DropIndexOp(String indexName, boolean ifExists, TableNameInfo tableName, boolean alter,
+            PartitionNamesInfo partitionNamesInfo) {
         super(AlterOpType.SCHEMA_CHANGE);
         this.indexName = indexName;
         this.ifExists = ifExists;
         this.tableName = tableName;
         this.alter = alter;
+        this.partitionNamesInfo = partitionNamesInfo;
     }
 
     public String getIndexName() {
@@ -58,6 +75,16 @@ public class DropIndexOp extends AlterTableOp {
 
     public boolean isAlter() {
         return alter;
+    }
+
+    public boolean hasPartitionSpec() {
+        return partitionNamesInfo != null;
+    }
+
+    public List<String> getPartitionNames() {
+        return partitionNamesInfo == null
+                ? Collections.emptyList()
+                : partitionNamesInfo.getPartitionNames();
     }
 
     @Override
@@ -91,6 +118,9 @@ public class DropIndexOp extends AlterTableOp {
         stringBuilder.append("DROP INDEX ").append(indexName);
         if (!alter) {
             stringBuilder.append(" ON ").append(tableName != null ? tableName.toSql() : null);
+        }
+        if (partitionNamesInfo != null) {
+            stringBuilder.append(" ").append(partitionNamesInfo.toSql());
         }
         return stringBuilder.toString();
     }
