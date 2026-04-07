@@ -206,28 +206,30 @@ Status CloudTabletCalcDeleteBitmapAsyncPublishTask::handle() const {
     exec_stats.queue_wait_us = tablet_start_time_us - _transaction_start_time_us;
     int64_t table_id_for_log = _table_id;
     Defer defer_log_finish {[&]() {
-        LOG(INFO) << "finish calculate delete bitmap for async publish on tablet"
-                  << ", table_id=" << table_id_for_log << ", transaction_id=" << _transaction_id
-                  << ", tablet_id=" << _tablet_id << ", queue_wait_us=" << exec_stats.queue_wait_us
-                  << ", total_time_us=" << MonotonicMicros() - tablet_start_time_us
-                  << ", get_tablet_time_us=" << exec_stats.get_tablet_time_us
-                  << ", acquire_delete_bitmap_and_rowset_layout_lock_time_us="
-                  << exec_stats.acquire_delete_bitmap_and_rowset_layout_lock_time_us
-                  << ", get_delete_bitmap_tablet_lock_time_us="
-                  << exec_stats.get_delete_bitmap_tablet_lock_time_us
-                  << ", sync_rowset_time_us=" << exec_stats.sync_rowset_time_us
-                  << ", handle_rowset_time_us=" << exec_stats.handle_rowset_time_us
-                  << ", update_delete_bitmap_time_us=" << exec_stats.update_delete_bitmap_time_us
-                  << ", save_delete_bitmap_to_ms_time_us="
-                  << exec_stats.save_delete_bitmap_to_ms_time_us
-                  << ", async_publish_time_us=" << exec_stats.async_publish_time_us
-                  << ", convert_tmp_rowset_time_us=" << exec_stats.convert_tmp_rowset_time_us
-                  << ", local_apply_time_us=" << exec_stats.local_apply_time_us
-                  << ", remove_tablet_txn_info_time_us="
-                  << exec_stats.remove_tablet_txn_info_time_us
-                  << ", remove_delete_bitmap_tablet_lock_time_us="
-                  << exec_stats.remove_delete_bitmap_tablet_lock_time_us
-                  << ", is_empty_rowset=" << exec_stats.is_empty_rowset << ", res=" << status;
+        LOG_INFO("finish calculate delete bitmap for async publish on tablet")
+                .tag("table_id", table_id_for_log)
+                .tag("transaction_id", _transaction_id)
+                .tag("tablet_id", _tablet_id)
+                .tag("queue_wait_us", exec_stats.queue_wait_us)
+                .tag("total_time_us", MonotonicMicros() - tablet_start_time_us)
+                .tag("get_tablet_time_us", exec_stats.get_tablet_time_us)
+                .tag("acquire_delete_bitmap_and_rowset_layout_lock_time_us",
+                     exec_stats.acquire_delete_bitmap_and_rowset_layout_lock_time_us)
+                .tag("get_delete_bitmap_tablet_lock_time_us",
+                     exec_stats.get_delete_bitmap_tablet_lock_time_us)
+                .tag("sync_rowset_time_us", exec_stats.sync_rowset_time_us)
+                .tag("handle_rowset_time_us", exec_stats.handle_rowset_time_us)
+                .tag("update_delete_bitmap_time_us", exec_stats.update_delete_bitmap_time_us)
+                .tag("save_delete_bitmap_to_ms_time_us",
+                     exec_stats.save_delete_bitmap_to_ms_time_us)
+                .tag("async_publish_time_us", exec_stats.async_publish_time_us)
+                .tag("convert_tmp_rowset_time_us", exec_stats.convert_tmp_rowset_time_us)
+                .tag("local_apply_time_us", exec_stats.local_apply_time_us)
+                .tag("remove_tablet_txn_info_time_us", exec_stats.remove_tablet_txn_info_time_us)
+                .tag("remove_delete_bitmap_tablet_lock_time_us",
+                     exec_stats.remove_delete_bitmap_tablet_lock_time_us)
+                .tag("is_empty_rowset", exec_stats.is_empty_rowset)
+                .tag("res", status.to_string());
     }};
     bool expected = false;
     if (_first_tablet_start_logged && _first_tablet_start_logged->compare_exchange_strong(
