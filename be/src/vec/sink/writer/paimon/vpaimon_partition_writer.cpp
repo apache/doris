@@ -22,10 +22,10 @@
 #include <map>
 #include <utility>
 
-#include "runtime/runtime_state.h"
+#include "common/metrics/doris_metrics.h"
 #include "format/arrow/arrow_block_convertor.h"
 #include "format/arrow/arrow_row_batch.h"
-#include "common/metrics/doris_metrics.h"
+#include "runtime/runtime_state.h"
 
 #ifdef WITH_PAIMON_CPP
 #include <arrow/c/bridge.h>

@@ -61,8 +61,6 @@
 #include "exec/operator/olap_scan_operator.h"
 #include "exec/operator/olap_table_sink_operator.h"
 #include "exec/operator/olap_table_sink_v2_operator.h"
-#include "pipeline/exec/paimon_table_sink_operator.h"
-#include "vec/sink/vpaimon_table_writer.h"
 #include "exec/operator/partition_sort_sink_operator.h"
 #include "exec/operator/partition_sort_source_operator.h"
 #include "exec/operator/partitioned_aggregation_sink_operator.h"
@@ -95,10 +93,12 @@
 #include "exec/pipeline/pipeline.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
+#include "pipeline/exec/paimon_table_sink_operator.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_profile_counter_names.h"
 #include "util/debug_util.h"
 #include "util/string_util.h"
+#include "vec/sink/vpaimon_table_writer.h"
 
 namespace doris {
 class RowDescriptor;
