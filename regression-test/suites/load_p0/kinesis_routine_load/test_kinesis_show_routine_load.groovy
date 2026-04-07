@@ -34,9 +34,9 @@ suite("test_kinesis_show_routine_load") {
     }
 
     def suffix = UUID.randomUUID().toString().substring(0, 8)
-    def streamName = "doris-test-show-${suffix}"
-    def tableName = "test_kinesis_show_${suffix}"
-    def jobName = "test_kinesis_show_${suffix}"
+    String streamName = "doris-test-show-${suffix}"
+    String tableName = "test_kinesis_show_${suffix}"
+    String jobName = "test_kinesis_show_${suffix}"
 
     def credentials = new BasicAWSCredentials(awsAccessKey, awsSecretKey)
     def kinesisClient = AmazonKinesisClientBuilder.standard()
@@ -133,6 +133,22 @@ suite("test_kinesis_show_routine_load") {
         assertTrue(false, "Timeout waiting job ${jobName} to reach states ${expectedStates}, last state=${lastState}")
     }
 
+    def waitForShowRowWithOpenShards = { int timeoutSec ->
+        for (int i = 0; i < timeoutSec; i++) {
+            def result = sql "SHOW ROUTINE LOAD FOR ${jobName}"
+            if (result.size() > 0) {
+                def row = result[0]
+                def dataSourceProperties = parseJson(row[12].toString())
+                if (dataSourceProperties.containsKey("openKinesisShards")
+                        && dataSourceProperties.openKinesisShards.toString().length() > 0) {
+                    return row
+                }
+            }
+            Thread.sleep(1000)
+        }
+        assertTrue(false, "Timeout waiting job ${jobName} to expose openKinesisShards")
+    }
+
     def streamCreated = false
     def tableCreated = false
     def jobCreated = false
@@ -184,7 +200,8 @@ suite("test_kinesis_show_routine_load") {
             """
             jobCreated = true
 
-            def showRow = waitForJobStateIn(["RUNNING", "NEED_SCHEDULE"] as Set<String>, 120)
+            waitForJobStateIn(["RUNNING", "NEED_SCHEDULE"] as Set<String>, 120)
+            def showRow = waitForShowRowWithOpenShards(120)
 
             assertTrue(showRow.size() >= 23, "SHOW ROUTINE LOAD column count should be >= 23")
             assertEquals(jobName, showRow[1].toString())
@@ -210,9 +227,10 @@ suite("test_kinesis_show_routine_load") {
             assertTrue(customProperties["aws.access_key"].toString().length() > 0)
 
             // Verify additional SHOW ROUTINE LOAD paths.
-            def whereResult = sql "SHOW ROUTINE LOAD WHERE Name = '${jobName}'"
-            assertTrue(whereResult.size() == 1)
-            assertEquals(showRow[0].toString(), whereResult[0][0].toString())
+            String dbName = context.config.getDbNameByFile(context.file)
+            def qualifiedResult = sql "SHOW ROUTINE LOAD FOR ${dbName}.${jobName}"
+            assertTrue(qualifiedResult.size() == 1)
+            assertEquals(showRow[0].toString(), qualifiedResult[0][0].toString())
 
             def likeResult = sql "SHOW ROUTINE LOAD LIKE \"%${suffix}%\""
             assertTrue(likeResult.size() >= 1)
