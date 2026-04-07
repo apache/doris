@@ -163,13 +163,32 @@ shopt -u nullglob
 if (( ${#preinstalled_hqls[@]} > 0 )); then
     IFS=$'\n' preinstalled_hqls=($(printf '%s\n' "${preinstalled_hqls[@]}" | sort))
     unset IFS
-    merged_preinstalled_hql="/tmp/merged-preinstalled.hql"
-    bash /mnt/scripts/merge-preinstalled-hql.sh "${merged_preinstalled_hql}" "${preinstalled_hqls[@]}"
-    START_TIME=$(date +%s)
-    hive -f "${merged_preinstalled_hql}" || (echo "Failed to executing merged preinstalled hqls" && exit 1)
-    END_TIME=$(date +%s)
-    EXECUTION_TIME=$((END_TIME - START_TIME))
-    echo "Merged preinstalled HQLs executed in $EXECUTION_TIME seconds"
+    shard_count="${LOAD_PARALLEL}"
+    if (( shard_count < 1 )); then
+        shard_count=1
+    fi
+    if (( shard_count > ${#preinstalled_hqls[@]} )); then
+        shard_count=${#preinstalled_hqls[@]}
+    fi
+
+    merged_preinstalled_hqls=()
+    for ((i = 0; i < shard_count; i++)); do
+        merged_preinstalled_hql="/tmp/merged-preinstalled-${i}.hql"
+        shard_inputs=()
+        for ((j = i; j < ${#preinstalled_hqls[@]}; j += shard_count)); do
+            shard_inputs+=("${preinstalled_hqls[j]}")
+        done
+        bash /mnt/scripts/merge-preinstalled-hql.sh "${merged_preinstalled_hql}" "${shard_inputs[@]}"
+        merged_preinstalled_hqls+=("${merged_preinstalled_hql}")
+    done
+
+    printf '%s\0' "${merged_preinstalled_hqls[@]}" | xargs -0 -P "${shard_count}" -I {} bash -ec '
+        START_TIME=$(date +%s)
+        hive -f "{}" || (echo "Failed to executing merged preinstalled hql shard: {}" && exit 1)
+        END_TIME=$(date +%s)
+        EXECUTION_TIME=$((END_TIME - START_TIME))
+        echo "Merged preinstalled HQL shard: {} executed in $EXECUTION_TIME seconds"
+    '
 fi
 
 # create view
