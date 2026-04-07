@@ -17,49 +17,29 @@
 
 package org.apache.doris.mtmv.ivm;
 
-import org.apache.doris.mtmv.BaseTableInfo;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.commands.Command;
-import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 
-import java.util.Collections;
 import java.util.List;
 
 /**
- * Transforms a normalized MV plan into delta INSERT commands.
- *
- * <p>Supported patterns:
+ * Entry point for IVM delta rewriting. Routes the normalized plan to the appropriate strategy:
  * <ul>
- *   <li>SCAN_ONLY:    ResultSink → Project → OlapScan</li>
- *   <li>PROJECT_SCAN: ResultSink → Project → Project → OlapScan</li>
+ *   <li>Aggregate MVs → {@link IvmAggDeltaStrategy}</li>
+ *   <li>Simple scan/project MVs → {@link IvmSimpleScanDeltaStrategy}</li>
  * </ul>
- *
- * <p>Aggregate plans are not yet supported and will be routed to
- * {@code AggDeltaStrategy} once strategy routing is implemented.
  */
 public class IvmDeltaRewriter {
 
     /**
      * Rewrites the normalized plan into a list of delta command bundles.
-     * Currently produces exactly one INSERT bundle for the single base table scan.
+     * Dispatches to the appropriate strategy based on the normalize result.
      */
     public List<DeltaCommandBundle> rewrite(Plan normalizedPlan, IvmDeltaRewriteContext ctx) {
-        Plan queryPlan = AbstractDeltaStrategy.stripResultSink(normalizedPlan);
-        rejectAggPlan(queryPlan);
-        LogicalOlapScan scan = AbstractDeltaStrategy.extractScan(queryPlan);
-        BaseTableInfo baseTableInfo = AbstractDeltaStrategy.extractBaseTableInfo(scan);
-        Command insertCommand = AbstractDeltaStrategy.buildInsertCommand(queryPlan, ctx);
-        return Collections.singletonList(new DeltaCommandBundle(baseTableInfo, insertCommand));
-    }
-
-    /** Guard: reject aggregate plans until AggDeltaStrategy routing is wired in. */
-    private void rejectAggPlan(Plan plan) {
-        if (plan.containsType(LogicalAggregate.class)) {
-            throw new AnalysisException(
-                    "IVM delta rewrite does not yet support aggregate plans; "
-                            + "AggDeltaStrategy routing is not yet implemented");
+        IvmNormalizeResult normalizeResult = ctx.getNormalizeResult();
+        if (normalizeResult != null && normalizeResult.isAggMv()) {
+            return new IvmAggDeltaStrategy().rewrite(normalizedPlan, ctx);
+        } else {
+            return new IvmSimpleScanDeltaStrategy().rewrite(normalizedPlan, ctx);
         }
     }
 }
