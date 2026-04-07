@@ -288,15 +288,6 @@ public class EncryptSQLTest extends ParserTestBase {
             res = "SET PASSWORD FOR 'admin' = PASSWORD('*XXX')";
             parseAndCheck(sql, res);
 
-        // testing for https://github.com/apache/doris/issues/62140
-        sql = "CREATE USER 'test_user62140'@'%' IDENTIFIED BY '123456'";
-        res = "CREATE USER 'test_user62140'@'%' IDENTIFIED BY '*XXX'";
-        parseAndCheck(sql, res);
-
-        sql = "ALTER USER 'test_user62140'@'%' IDENTIFIED BY '123456'";
-        res = "ALTER USER 'test_user62140'@'%' IDENTIFIED BY '*XXX'";
-        parseAndCheck(sql, res);
-
         // create s3 job
         sql = "CREATE JOB my_job"
                 + " ON STREAMING"
@@ -451,6 +442,42 @@ public class EncryptSQLTest extends ParserTestBase {
                     origFeType);
         }
     }
+
+    @Test
+    public void testCreateUserPasswordMasking() throws Exception {
+        ctx.setDatabase("test");
+        new MockUp<StmtExecutor>() {
+            @Mock
+            public boolean isForwardToMaster() {
+                return false;
+            }
+        };
+        ctx.setEnv(env);
+        Config.enable_nereids_load = true;
+
+        // testing for https://github.com/apache/doris/issues/62140
+        sql = "CREATE USER 'test_user62140'@'%' IDENTIFIED BY '123456'";
+        res = "CREATE USER 'test_user62140'@'%' IDENTIFIED BY '*XXX'";
+        parseAndCheck(sql, res);
+    }        
+
+    @Test
+    public void testCreateUserPasswordMasking() throws Exception {
+        ctx.setDatabase("test");
+        new MockUp<StmtExecutor>() {
+            @Mock
+            public boolean isForwardToMaster() {
+                return false;
+            }
+        };
+        ctx.setEnv(env);
+        Config.enable_nereids_load = true;
+                
+        // testing for https://github.com/apache/doris/issues/62140
+        sql = "ALTER USER 'test_user62140'@'%' IDENTIFIED BY '123456'";
+        res = "ALTER USER 'test_user62140'@'%' IDENTIFIED BY '*XXX'";
+        parseAndCheck(sql, res);
+    }        
 
     private void parseAndCheck(String sql, String expected) throws Exception {
         processor.executeQuery(sql);
