@@ -54,6 +54,8 @@ public class QueryProfileController extends BaseController {
         if (profile == null) {
             return ResponseEntityBuilder.okWithCommonError("ID " + id + " does not exist");
         }
+        profile = profile.replaceAll("\n", "</br>");
+        profile = profile.replaceAll(" ", "&nbsp;&nbsp;");
         return ResponseEntityBuilder.ok(profile);
     }
 
