@@ -16,11 +16,14 @@
 // under the License.
 
 suite("test_role_mapping_system_table", "p0,auth") {
+    String suiteName = "test_role_mapping_system_table"
     String mappingName = "test_role_mapping_system_table_mapping"
     String integrationName = "test_role_mapping_system_table_ldap"
     String readerRole = "test_role_mapping_reader"
     String financeReaderRole = "test_role_mapping_fin_reader"
     String financeWriterRole = "test_role_mapping_fin_writer"
+    String user = "${suiteName}_user"
+    String pwd = 'C123_567p'
     String expectedRules = (
             """RULE (USING CEL 'has_group("analyst")' GRANT ROLE ${readerRole}); """
             + """RULE (USING CEL 'attr("department") == "finance"' """
@@ -29,6 +32,7 @@ suite("test_role_mapping_system_table", "p0,auth") {
 
     try_sql("DROP ROLE MAPPING IF EXISTS ${mappingName}")
     try_sql("DROP AUTHENTICATION INTEGRATION IF EXISTS ${integrationName}")
+    try_sql("DROP USER ${user}")
     try_sql("DROP ROLE IF EXISTS ${financeWriterRole}")
     try_sql("DROP ROLE IF EXISTS ${financeReaderRole}")
     try_sql("DROP ROLE IF EXISTS ${readerRole}")
@@ -46,6 +50,17 @@ suite("test_role_mapping_system_table", "p0,auth") {
             )
             COMMENT 'role mapping auth'
         """
+
+        sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
+
+        if (isCloudMode()) {
+            def clusters = sql " SHOW CLUSTERS; "
+            assertTrue(!clusters.isEmpty())
+            def validCluster = clusters[0][0]
+            sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}"""
+        }
+
+        sql """GRANT SELECT_PRIV ON internal.information_schema.* TO ${user}"""
 
         sql """
             CREATE ROLE MAPPING ${mappingName}
@@ -83,9 +98,20 @@ suite("test_role_mapping_system_table", "p0,auth") {
         assertTrue(result[0][5] != null && result[0][5].length() > 0)
         assertTrue(result[0][6] != null && result[0][6].length() > 0)
         assertEquals(result[0][5], result[0][7])
+
+        connect(user, "${pwd}", context.config.jdbcUrl) {
+            def nonAdminResult = sql """
+                SELECT NAME
+                FROM information_schema.role_mappings
+                WHERE NAME = '${mappingName}'
+                ORDER BY NAME
+            """
+            assertTrue(nonAdminResult == [])
+        }
     } finally {
         try_sql("DROP ROLE MAPPING IF EXISTS ${mappingName}")
         try_sql("DROP AUTHENTICATION INTEGRATION IF EXISTS ${integrationName}")
+        try_sql("DROP USER ${user}")
         try_sql("DROP ROLE IF EXISTS ${financeWriterRole}")
         try_sql("DROP ROLE IF EXISTS ${financeReaderRole}")
         try_sql("DROP ROLE IF EXISTS ${readerRole}")
