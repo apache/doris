@@ -135,8 +135,7 @@ Status CloudCalcDeleteBitmapAsyncPublishTask::execute() {
             auto tablet_task = std::make_shared<CloudTabletCalcDeleteBitmapAsyncPublishTask>(
                     _engine, tablet_id, transaction_id, version, db_id, table_id, index_id,
                     partition.partition_id, transaction_start_time_us, total_partition_num,
-                    total_tablet_num,
-                    first_tablet_start_logged);
+                    total_tablet_num, first_tablet_start_logged);
             auto submit_st = token->submit_func([tablet_id, tablet_task, this]() {
                 auto st = tablet_task->handle();
                 if (st.ok()) {
@@ -163,8 +162,8 @@ Status CloudCalcDeleteBitmapAsyncPublishTask::execute() {
               << ", total_tablet_num=" << total_tablet_num
               << ", already_succeeded_tablet_num=" << already_succeeded_tablet_num
               << ", pending_tablet_num=" << pending_tablet_num
-              << ", submit_tablet_task_time_us="
-              << MonotonicMicros() - transaction_start_time_us << ", thread_pool="
+              << ", submit_tablet_task_time_us=" << MonotonicMicros() - transaction_start_time_us
+              << ", thread_pool="
               << _engine.calc_tablet_delete_bitmap_task_thread_pool().get_info();
     // wait for all finished
     token->wait();
@@ -209,8 +208,7 @@ Status CloudTabletCalcDeleteBitmapAsyncPublishTask::handle() const {
     Defer defer_log_finish {[&]() {
         LOG(INFO) << "finish calculate delete bitmap for async publish on tablet"
                   << ", table_id=" << table_id_for_log << ", transaction_id=" << _transaction_id
-                  << ", tablet_id=" << _tablet_id
-                  << ", queue_wait_us=" << exec_stats.queue_wait_us
+                  << ", tablet_id=" << _tablet_id << ", queue_wait_us=" << exec_stats.queue_wait_us
                   << ", total_time_us=" << MonotonicMicros() - tablet_start_time_us
                   << ", get_tablet_time_us=" << exec_stats.get_tablet_time_us
                   << ", acquire_delete_bitmap_and_rowset_layout_lock_time_us="
@@ -232,9 +230,8 @@ Status CloudTabletCalcDeleteBitmapAsyncPublishTask::handle() const {
                   << ", is_empty_rowset=" << exec_stats.is_empty_rowset << ", res=" << status;
     }};
     bool expected = false;
-    if (_first_tablet_start_logged &&
-        _first_tablet_start_logged->compare_exchange_strong(expected, true,
-                                                            std::memory_order_relaxed)) {
+    if (_first_tablet_start_logged && _first_tablet_start_logged->compare_exchange_strong(
+                                              expected, true, std::memory_order_relaxed)) {
         LOG(INFO) << "first tablet task starts for async publish transaction"
                   << ", transaction_id=" << _transaction_id << ", tablet_id=" << _tablet_id
                   << ", queue_wait_us=" << exec_stats.queue_wait_us
@@ -243,8 +240,7 @@ Status CloudTabletCalcDeleteBitmapAsyncPublishTask::handle() const {
                   << _engine.calc_tablet_delete_bitmap_task_thread_pool().get_info();
     }
     VLOG_DEBUG << "start calculate delete bitmap for async publish on tablet " << _tablet_id
-               << ", txn_id=" << _transaction_id
-               << ", queue_wait_us=" << exec_stats.queue_wait_us;
+               << ", txn_id=" << _transaction_id << ", queue_wait_us=" << exec_stats.queue_wait_us;
     SCOPED_ATTACH_TASK(_mem_tracker);
     int64_t t1 = MonotonicMicros();
     auto base_tablet_res = _engine.get_tablet(_tablet_id);
@@ -303,8 +299,7 @@ Status CloudTabletCalcDeleteBitmapAsyncPublishTask::handle() const {
     Defer defer_release_tablet_lock {[&]() {
         int64_t t_release_lock = MonotonicMicros();
         _engine.meta_mgr().remove_delete_bitmap_tablet_lock(*tablet, _transaction_id, -1);
-        exec_stats.remove_delete_bitmap_tablet_lock_time_us =
-                MonotonicMicros() - t_release_lock;
+        exec_stats.remove_delete_bitmap_tablet_lock_time_us = MonotonicMicros() - t_release_lock;
     }};
 
     int64_t max_version = tablet->max_version_unlocked();
@@ -446,8 +441,8 @@ Status CloudTabletCalcDeleteBitmapAsyncPublishTask::_handle_rowset(
         int64_t next_visible_version =
                 txn_info.is_txn_load ? txn_info.next_visible_version : version;
         int64_t t_save_delete_bitmap_to_ms = MonotonicMicros();
-        auto st = tablet->save_delete_bitmap_to_ms(version, _transaction_id, delete_bitmap,
-                                                   lock_id, next_visible_version, rowset);
+        auto st = tablet->save_delete_bitmap_to_ms(version, _transaction_id, delete_bitmap, lock_id,
+                                                   next_visible_version, rowset);
         if (exec_stats != nullptr) {
             exec_stats->save_delete_bitmap_to_ms_time_us =
                     MonotonicMicros() - t_save_delete_bitmap_to_ms;
@@ -470,8 +465,7 @@ Status CloudTabletCalcDeleteBitmapAsyncPublishTask::_handle_rowset(
         status = CloudTablet::update_delete_bitmap(tablet, &txn_info, _transaction_id,
                                                    txn_expiration);
         if (exec_stats != nullptr) {
-            exec_stats->update_delete_bitmap_time_us =
-                    MonotonicMicros() - t_update_delete_bitmap;
+            exec_stats->update_delete_bitmap_time_us = MonotonicMicros() - t_update_delete_bitmap;
         }
     }
     if (status != Status::OK()) {
@@ -557,8 +551,7 @@ Status CloudTabletCalcDeleteBitmapAsyncPublishTask::_handle_async_publish(
                                                             _db_id, _table_id, _index_id,
                                                             _partition_id, &ms_rowset_meta);
             if (exec_stats != nullptr) {
-                exec_stats->convert_tmp_rowset_time_us =
-                        MonotonicMicros() - t_convert_tmp_rowset;
+                exec_stats->convert_tmp_rowset_time_us = MonotonicMicros() - t_convert_tmp_rowset;
             }
             RETURN_IF_ERROR(st);
             visible_ts_ms = ms_rowset_meta->visible_ts_ms();

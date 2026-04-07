@@ -34,15 +34,12 @@ class MemTrackerLimiter;
 
 class CloudTabletCalcDeleteBitmapAsyncPublishTask {
 public:
-    CloudTabletCalcDeleteBitmapAsyncPublishTask(CloudStorageEngine& engine, int64_t tablet_id,
-                                                int64_t transaction_id, int64_t version,
-                                                int64_t db_id, int64_t table_id, int64_t index_id,
-                                                int64_t partition_id,
-                                                int64_t transaction_start_time_us,
-                                                int64_t transaction_total_partition_num,
-                                                int64_t transaction_total_tablet_num,
-                                                std::shared_ptr<std::atomic_bool>
-                                                        first_tablet_start_logged);
+    CloudTabletCalcDeleteBitmapAsyncPublishTask(
+            CloudStorageEngine& engine, int64_t tablet_id, int64_t transaction_id, int64_t version,
+            int64_t db_id, int64_t table_id, int64_t index_id, int64_t partition_id,
+            int64_t transaction_start_time_us, int64_t transaction_total_partition_num,
+            int64_t transaction_total_tablet_num,
+            std::shared_ptr<std::atomic_bool> first_tablet_start_logged);
     ~CloudTabletCalcDeleteBitmapAsyncPublishTask() = default;
 
     Status handle() const;
@@ -66,9 +63,8 @@ private:
     };
 
     Status _handle_rowset(std::shared_ptr<CloudTablet> tablet, int64_t version,
-                          int64_t ms_base_compaction_cnt,
-                          int64_t ms_cumulative_compaction_cnt, int64_t ms_cumulative_point,
-                          ExecutionStats* exec_stats) const;
+                          int64_t ms_base_compaction_cnt, int64_t ms_cumulative_compaction_cnt,
+                          int64_t ms_cumulative_point, ExecutionStats* exec_stats) const;
 
     Status _handle_async_publish(std::shared_ptr<CloudTablet> tablet, int64_t version,
                                  ExecutionStats* exec_stats) const;
@@ -98,11 +94,10 @@ private:
 
 class CloudCalcDeleteBitmapAsyncPublishTask : public EngineTask {
 public:
-    CloudCalcDeleteBitmapAsyncPublishTask(
-            CloudStorageEngine& engine,
-            const TCalcDeleteBitmapAsyncPublishRequest& request,
-            std::vector<TTabletId>* error_tablet_ids,
-            std::vector<TTabletId>* succ_tablet_ids = nullptr);
+    CloudCalcDeleteBitmapAsyncPublishTask(CloudStorageEngine& engine,
+                                          const TCalcDeleteBitmapAsyncPublishRequest& request,
+                                          std::vector<TTabletId>* error_tablet_ids,
+                                          std::vector<TTabletId>* succ_tablet_ids = nullptr);
     Status execute() override;
 
     void add_error_tablet_id(int64_t tablet_id, const Status& err);

@@ -46,9 +46,9 @@
 #include <vector>
 
 #include "agent/utils.h"
+#include "cloud/cloud_calc_delete_bitmap_async_publish_task.h"
 #include "cloud/cloud_delete_task.h"
 #include "cloud/cloud_engine_calc_delete_bitmap_task.h"
-#include "cloud/cloud_calc_delete_bitmap_async_publish_task.h"
 #include "cloud/cloud_schema_change_job.h"
 #include "cloud/cloud_snapshot_loader.h"
 #include "cloud/cloud_snapshot_mgr.h"
@@ -462,7 +462,7 @@ bvar::Adder<uint64_t> GC_BINLOG_count("task", "GC_BINLOG");
 bvar::Adder<uint64_t> UPDATE_VISIBLE_VERSION_count("task", "UPDATE_VISIBLE_VERSION");
 bvar::Adder<uint64_t> CALCULATE_DELETE_BITMAP_count("task", "CALCULATE_DELETE_BITMAP");
 bvar::Adder<uint64_t> CALC_DELETE_BITMAP_ASYNC_PUBLISH_count("task",
-                                                              "CALC_DELETE_BITMAP_ASYNC_PUBLISH");
+                                                             "CALC_DELETE_BITMAP_ASYNC_PUBLISH");
 
 void add_task_count(const TAgentTaskRequest& task, int n) {
     // clang-format off
@@ -580,8 +580,8 @@ PriorTaskWorkerPool::PriorTaskWorkerPool(
         std::function<void(const TAgentTaskRequest& task)> callback)
         : _callback(std::move(callback)) {
     for (int i = 0; i < normal_worker_count; ++i) {
-        auto st = Thread::create(
-                "Normal", name, [this] { normal_loop(); }, &_workers.emplace_back());
+        auto st =
+                Thread::create("Normal", name, [this] { normal_loop(); }, &_workers.emplace_back());
         CHECK(st.ok()) << name << ": " << st;
     }
 
@@ -2211,9 +2211,10 @@ void CloudCalcDeleteBitmapAsyncPublishWorkerPool::calc_delete_bitmap_async_publi
     for (const auto& partition : async_publish_req.partitions) {
         total_tablet_num += partition.tablet_ids.size();
     }
-    int64_t already_succeeded_tablet_num = async_publish_req.__isset.already_succeeded_tablet_ids
-                                                   ? async_publish_req.already_succeeded_tablet_ids.size()
-                                                   : 0;
+    int64_t already_succeeded_tablet_num =
+            async_publish_req.__isset.already_succeeded_tablet_ids
+                    ? async_publish_req.already_succeeded_tablet_ids.size()
+                    : 0;
     int64_t pending_tablet_num = total_tablet_num - already_succeeded_tablet_num;
     int64_t queue_wait_s = req.__isset.recv_time ? time(nullptr) - req.recv_time : -1;
     LOG_INFO("begin to execute calc delete bitmap async publish task")
@@ -2225,8 +2226,8 @@ void CloudCalcDeleteBitmapAsyncPublishWorkerPool::calc_delete_bitmap_async_publi
             .tag("already_succeeded_tablet_num", already_succeeded_tablet_num)
             .tag("pending_tablet_num", pending_tablet_num);
 
-    CloudCalcDeleteBitmapAsyncPublishTask engine_task(
-            _engine, async_publish_req, &error_tablet_ids, &succ_tablet_ids);
+    CloudCalcDeleteBitmapAsyncPublishTask engine_task(_engine, async_publish_req, &error_tablet_ids,
+                                                      &succ_tablet_ids);
     SCOPED_ATTACH_TASK(engine_task.mem_tracker());
     Status status = engine_task.execute();
     if (status.is<PUBLISH_VERSION_NOT_CONTINUOUS>()) {
@@ -2243,16 +2244,14 @@ void CloudCalcDeleteBitmapAsyncPublishWorkerPool::calc_delete_bitmap_async_publi
             auto next_async_publish_req = next_req.calc_delete_bitmap_async_publish_req;
             std::set<TTabletId> already_succeeded_tablet_ids;
             if (next_async_publish_req.__isset.already_succeeded_tablet_ids) {
-                already_succeeded_tablet_ids =
-                        next_async_publish_req.already_succeeded_tablet_ids;
+                already_succeeded_tablet_ids = next_async_publish_req.already_succeeded_tablet_ids;
             }
             // Keep the original partition list unchanged for FE stale checking and only
             // shrink the BE-local retry scope by skipping tablets that already succeeded.
             already_succeeded_tablet_ids.insert(succ_tablet_ids.begin(), succ_tablet_ids.end());
             next_async_publish_req.__set_already_succeeded_tablet_ids(
                     std::move(already_succeeded_tablet_ids));
-            next_req.__set_calc_delete_bitmap_async_publish_req(
-                    std::move(next_async_publish_req));
+            next_req.__set_calc_delete_bitmap_async_publish_req(std::move(next_async_publish_req));
             CALC_DELETE_BITMAP_ASYNC_PUBLISH_count << 1;
             auto st = _thread_pool->submit_func([this, next_req] {
                 this->calc_delete_bitmap_async_publish_callback(next_req);
