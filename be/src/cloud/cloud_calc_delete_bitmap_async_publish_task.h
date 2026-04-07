@@ -48,12 +48,30 @@ public:
     Status handle() const;
 
 private:
+    struct ExecutionStats {
+        int64_t queue_wait_us {0};
+        int64_t get_tablet_time_us {0};
+        int64_t acquire_delete_bitmap_and_rowset_layout_lock_time_us {0};
+        int64_t get_delete_bitmap_tablet_lock_time_us {0};
+        int64_t sync_rowset_time_us {0};
+        int64_t handle_rowset_time_us {0};
+        int64_t update_delete_bitmap_time_us {0};
+        int64_t save_delete_bitmap_to_ms_time_us {0};
+        int64_t async_publish_time_us {0};
+        int64_t convert_tmp_rowset_time_us {0};
+        int64_t local_apply_time_us {0};
+        int64_t remove_tablet_txn_info_time_us {0};
+        int64_t remove_delete_bitmap_tablet_lock_time_us {0};
+        bool is_empty_rowset {false};
+    };
+
     Status _handle_rowset(std::shared_ptr<CloudTablet> tablet, int64_t version,
                           int64_t ms_base_compaction_cnt,
-                          int64_t ms_cumulative_compaction_cnt,
-                          int64_t ms_cumulative_point) const;
+                          int64_t ms_cumulative_compaction_cnt, int64_t ms_cumulative_point,
+                          ExecutionStats* exec_stats) const;
 
-    Status _handle_async_publish(std::shared_ptr<CloudTablet> tablet, int64_t version) const;
+    Status _handle_async_publish(std::shared_ptr<CloudTablet> tablet, int64_t version,
+                                 ExecutionStats* exec_stats) const;
 
     Status _apply_rowset_to_tablet(std::shared_ptr<CloudTablet> tablet, int64_t version,
                                    RowsetSharedPtr& rowset,

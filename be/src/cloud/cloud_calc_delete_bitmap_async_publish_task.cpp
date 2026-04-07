@@ -175,63 +175,109 @@ CloudTabletCalcDeleteBitmapAsyncPublishTask::CloudTabletCalcDeleteBitmapAsyncPub
 
 Status CloudTabletCalcDeleteBitmapAsyncPublishTask::handle() const {
     const int64_t tablet_start_time_us = MonotonicMicros();
-    const int64_t queue_wait_us = tablet_start_time_us - _transaction_start_time_us;
+    Status status = Status::OK();
+    ExecutionStats exec_stats;
+    exec_stats.queue_wait_us = tablet_start_time_us - _transaction_start_time_us;
+    int64_t table_id_for_log = _table_id;
+    Defer defer_log_finish {[&]() {
+        LOG(INFO) << "finish calculate delete bitmap for async publish on tablet"
+                  << ", table_id=" << table_id_for_log << ", transaction_id=" << _transaction_id
+                  << ", tablet_id=" << _tablet_id
+                  << ", queue_wait_us=" << exec_stats.queue_wait_us
+                  << ", total_time_us=" << MonotonicMicros() - tablet_start_time_us
+                  << ", get_tablet_time_us=" << exec_stats.get_tablet_time_us
+                  << ", acquire_delete_bitmap_and_rowset_layout_lock_time_us="
+                  << exec_stats.acquire_delete_bitmap_and_rowset_layout_lock_time_us
+                  << ", get_delete_bitmap_tablet_lock_time_us="
+                  << exec_stats.get_delete_bitmap_tablet_lock_time_us
+                  << ", sync_rowset_time_us=" << exec_stats.sync_rowset_time_us
+                  << ", handle_rowset_time_us=" << exec_stats.handle_rowset_time_us
+                  << ", update_delete_bitmap_time_us=" << exec_stats.update_delete_bitmap_time_us
+                  << ", save_delete_bitmap_to_ms_time_us="
+                  << exec_stats.save_delete_bitmap_to_ms_time_us
+                  << ", async_publish_time_us=" << exec_stats.async_publish_time_us
+                  << ", convert_tmp_rowset_time_us=" << exec_stats.convert_tmp_rowset_time_us
+                  << ", local_apply_time_us=" << exec_stats.local_apply_time_us
+                  << ", remove_tablet_txn_info_time_us="
+                  << exec_stats.remove_tablet_txn_info_time_us
+                  << ", remove_delete_bitmap_tablet_lock_time_us="
+                  << exec_stats.remove_delete_bitmap_tablet_lock_time_us
+                  << ", is_empty_rowset=" << exec_stats.is_empty_rowset << ", res=" << status;
+    }};
     bool expected = false;
     if (_first_tablet_start_logged &&
         _first_tablet_start_logged->compare_exchange_strong(expected, true,
                                                             std::memory_order_relaxed)) {
         LOG(INFO) << "first tablet task starts for async publish transaction"
                   << ", transaction_id=" << _transaction_id << ", tablet_id=" << _tablet_id
-                  << ", queue_wait_us=" << queue_wait_us
+                  << ", queue_wait_us=" << exec_stats.queue_wait_us
                   << ", total_partition_num=" << _transaction_total_partition_num
                   << ", total_tablet_num=" << _transaction_total_tablet_num << ", thread_pool="
                   << _engine.calc_tablet_delete_bitmap_task_thread_pool().get_info();
     }
     VLOG_DEBUG << "start calculate delete bitmap for async publish on tablet " << _tablet_id
-               << ", txn_id=" << _transaction_id << ", queue_wait_us=" << queue_wait_us;
+               << ", txn_id=" << _transaction_id
+               << ", queue_wait_us=" << exec_stats.queue_wait_us;
     SCOPED_ATTACH_TASK(_mem_tracker);
     int64_t t1 = MonotonicMicros();
-    auto base_tablet = DORIS_TRY(_engine.get_tablet(_tablet_id));
-    auto get_tablet_time_us = MonotonicMicros() - t1;
+    auto base_tablet_res = _engine.get_tablet(_tablet_id);
+    exec_stats.get_tablet_time_us = MonotonicMicros() - t1;
+    if (!base_tablet_res.has_value()) {
+        status = base_tablet_res.error();
+        return status;
+    }
+    auto base_tablet = std::move(base_tablet_res.value());
     std::shared_ptr<CloudTablet> tablet = std::dynamic_pointer_cast<CloudTablet>(base_tablet);
     if (tablet == nullptr) {
-        return Status::Error<ErrorCode::PUSH_TABLE_NOT_EXIST>(
+        status = Status::Error<ErrorCode::PUSH_TABLE_NOT_EXIST>(
                 "can't get tablet when calculate delete bitmap for async publish. tablet_id={}",
                 _tablet_id);
+        return status;
     }
+    table_id_for_log = tablet->table_id();
 
     {
         std::shared_lock rlock(tablet->get_header_lock());
         if (tablet->max_version_unlocked() >= _version) {
             LOG(INFO) << "tablet already has version " << _version
                       << ", skip calc delete bitmap for async publish, tablet_id=" << _tablet_id;
-            return Status::OK();
+            status = Status::OK();
+            return status;
         }
     }
 
+    int64_t t_lock = MonotonicMicros();
     std::unique_lock delete_bitmap_and_rowset_layout_lock(
             tablet->get_delete_bitmap_and_rowset_layout_lock());
+    exec_stats.acquire_delete_bitmap_and_rowset_layout_lock_time_us = MonotonicMicros() - t_lock;
 
     {
         std::shared_lock rlock(tablet->get_header_lock());
         if (tablet->max_version_unlocked() >= _version) {
             LOG(INFO) << "tablet already has version " << _version
                       << ", skip calc delete bitmap for async publish, tablet_id=" << _tablet_id;
-            return Status::OK();
+            status = Status::OK();
+            return status;
         }
     }
 
     // Acquire MS tablet-level lock right after the cloud async publish lock,
     // before delete bitmap calculation, to ensure mutual exclusion with compaction
     cloud::CloudMetaMgr::DeleteBitmapTabletLockInfo ms_lock_info;
+    int64_t t_ms_lock = MonotonicMicros();
     auto lock_st = _engine.meta_mgr().get_delete_bitmap_tablet_lock(*tablet, _transaction_id, -1,
                                                                     &ms_lock_info);
+    exec_stats.get_delete_bitmap_tablet_lock_time_us = MonotonicMicros() - t_ms_lock;
     if (!lock_st.ok()) {
-        return lock_st;
+        status = lock_st;
+        return status;
     }
     // Release MS tablet lock on any exit path
     Defer defer_release_tablet_lock {[&]() {
+        int64_t t_release_lock = MonotonicMicros();
         _engine.meta_mgr().remove_delete_bitmap_tablet_lock(*tablet, _transaction_id, -1);
+        exec_stats.remove_delete_bitmap_tablet_lock_time_us =
+                MonotonicMicros() - t_release_lock;
     }};
 
     int64_t max_version = tablet->max_version_unlocked();
@@ -258,24 +304,27 @@ Status CloudTabletCalcDeleteBitmapAsyncPublishTask::handle() const {
         if (!sync_st.ok()) {
             LOG(WARNING) << "failed to sync rowsets. tablet_id=" << _tablet_id
                          << ", txn_id=" << _transaction_id << ", status=" << sync_st;
-            return sync_st;
+            status = sync_st;
+            return status;
         }
         if (tablet->tablet_state() != TABLET_RUNNING) [[unlikely]] {
             LOG(INFO) << "tablet is under alter process, delete bitmap will be calculated later, "
                          "tablet_id: "
                       << _tablet_id << " txn_id: " << _transaction_id
                       << ", request_version=" << _version;
-            return Status::OK();
+            status = Status::OK();
+            return status;
         }
     }
-    auto sync_rowset_time_us = MonotonicMicros() - t2;
+    exec_stats.sync_rowset_time_us = MonotonicMicros() - t2;
     max_version = tablet->max_version_unlocked();
 
     // If already applied, skip calc delete bitmap
     if (max_version >= _version) {
         LOG(INFO) << "tablet already has version " << _version
                   << ", skip calc delete bitmap for async publish, tablet_id=" << _tablet_id;
-        return Status::OK();
+        status = Status::OK();
+        return status;
     }
 
     if (_version != max_version + 1) {
@@ -285,22 +334,23 @@ Status CloudTabletCalcDeleteBitmapAsyncPublishTask::handle() const {
             LOG(WARNING) << "version not continuous, current max version=" << max_version
                          << ", request_version=" << _version << " tablet_id=" << _tablet_id;
         }
-        return Status::Error<ErrorCode::PUBLISH_VERSION_NOT_CONTINUOUS>(
+        status = Status::Error<ErrorCode::PUBLISH_VERSION_NOT_CONTINUOUS>(
                 "version not continuous for cloud async publish, tablet_id={}, "
                 "tablet_max_version={}, publish_version={}",
                 _tablet_id, max_version, _version);
+        return status;
     }
 
-    int64_t t3 = MonotonicMicros();
-    Status status;
+    int64_t t_handle_rowset = MonotonicMicros();
     if (_engine.txn_delete_bitmap_cache().is_empty_rowset(_transaction_id, _tablet_id)) {
+        exec_stats.is_empty_rowset = true;
         LOG(INFO) << "tablet=" << _tablet_id << ", txn=" << _transaction_id
                   << " is empty rowset, skip delete bitmap calculation for async publish";
         status = Status::OK();
     } else {
         status = _handle_rowset(tablet, _version, ms_lock_info.base_compaction_cnt,
                                 ms_lock_info.cumulative_compaction_cnt,
-                                ms_lock_info.cumulative_point);
+                                ms_lock_info.cumulative_point, &exec_stats);
         if (!status.ok()) {
             LOG(INFO) << "failed to calculate delete bitmap for async publish on tablet"
                       << ", table_id=" << tablet->table_id()
@@ -310,31 +360,26 @@ Status CloudTabletCalcDeleteBitmapAsyncPublishTask::handle() const {
             return status;
         }
     }
+    exec_stats.handle_rowset_time_us = MonotonicMicros() - t_handle_rowset;
 
     // Async publish: convert tmp rowset + local apply
     if (status.ok()) {
-        status = _handle_async_publish(tablet, _version);
+        int64_t t_async_publish = MonotonicMicros();
+        status = _handle_async_publish(tablet, _version, &exec_stats);
+        exec_stats.async_publish_time_us = MonotonicMicros() - t_async_publish;
         if (!status.ok()) {
             LOG(WARNING) << "async publish failed, tablet_id=" << _tablet_id
                          << ", txn_id=" << _transaction_id << ", status=" << status;
             return status;
         }
     }
-
-    auto total_update_delete_bitmap_time_us = MonotonicMicros() - t3;
-    LOG(INFO) << "finish calculate delete bitmap for async publish on tablet"
-              << ", table_id=" << tablet->table_id() << ", transaction_id=" << _transaction_id
-              << ", tablet_id=" << tablet->tablet_id()
-              << ", get_tablet_time_us=" << get_tablet_time_us
-              << ", sync_rowset_time_us=" << sync_rowset_time_us
-              << ", total_update_delete_bitmap_time_us=" << total_update_delete_bitmap_time_us
-              << ", res=" << status;
     return status;
 }
 
 Status CloudTabletCalcDeleteBitmapAsyncPublishTask::_handle_rowset(
         std::shared_ptr<CloudTablet> tablet, int64_t version, int64_t ms_base_compaction_cnt,
-        int64_t ms_cumulative_compaction_cnt, int64_t ms_cumulative_point) const {
+        int64_t ms_cumulative_compaction_cnt, int64_t ms_cumulative_point,
+        ExecutionStats* exec_stats) const {
     std::string txn_str = "txn_id=" + std::to_string(_transaction_id);
     RowsetSharedPtr rowset;
     DeleteBitmapPtr delete_bitmap;
@@ -373,8 +418,14 @@ Status CloudTabletCalcDeleteBitmapAsyncPublishTask::_handle_rowset(
         int64_t lock_id = txn_info.is_txn_load ? txn_info.lock_id : -1;
         int64_t next_visible_version =
                 txn_info.is_txn_load ? txn_info.next_visible_version : version;
-        RETURN_IF_ERROR(tablet->save_delete_bitmap_to_ms(version, _transaction_id, delete_bitmap,
-                                                         lock_id, next_visible_version, rowset));
+        int64_t t_save_delete_bitmap_to_ms = MonotonicMicros();
+        auto st = tablet->save_delete_bitmap_to_ms(version, _transaction_id, delete_bitmap,
+                                                   lock_id, next_visible_version, rowset);
+        if (exec_stats != nullptr) {
+            exec_stats->save_delete_bitmap_to_ms_time_us =
+                    MonotonicMicros() - t_save_delete_bitmap_to_ms;
+        }
+        RETURN_IF_ERROR(st);
 
         LOG(INFO) << "tablet=" << _tablet_id << ", " << txn_str
                   << ", publish_status=SUCCEED, not need to re-calculate delete_bitmaps.";
@@ -388,8 +439,13 @@ Status CloudTabletCalcDeleteBitmapAsyncPublishTask::_handle_rowset(
                     rowset->tablet_schema(), rowset->rowset_id(), segments, delete_bitmap));
         }
 
+        int64_t t_update_delete_bitmap = MonotonicMicros();
         status = CloudTablet::update_delete_bitmap(tablet, &txn_info, _transaction_id,
                                                    txn_expiration);
+        if (exec_stats != nullptr) {
+            exec_stats->update_delete_bitmap_time_us =
+                    MonotonicMicros() - t_update_delete_bitmap;
+        }
     }
     if (status != Status::OK()) {
         LOG(WARNING) << "failed to calculate delete bitmap. rowset_id=" << rowset->rowset_id()
@@ -440,7 +496,7 @@ Status CloudTabletCalcDeleteBitmapAsyncPublishTask::_apply_rowset_to_tablet(
 }
 
 Status CloudTabletCalcDeleteBitmapAsyncPublishTask::_handle_async_publish(
-        std::shared_ptr<CloudTablet> tablet, int64_t version) const {
+        std::shared_ptr<CloudTablet> tablet, int64_t version, ExecutionStats* exec_stats) const {
     // MS tablet-level lock is already held (acquired in handle() before delete bitmap calculation)
 
     // Step 1: Get rowset and delete bitmap from local cache
@@ -469,15 +525,25 @@ Status CloudTabletCalcDeleteBitmapAsyncPublishTask::_handle_async_publish(
         } else {
             // Non-empty rowset: call MS convert_tmp_rowset (only this error propagates)
             RowsetMetaSharedPtr ms_rowset_meta;
-            RETURN_IF_ERROR(_engine.meta_mgr().convert_tmp_rowset(
-                    _transaction_id, _tablet_id, version, _db_id, _table_id, _index_id,
-                    _partition_id, &ms_rowset_meta));
+            int64_t t_convert_tmp_rowset = MonotonicMicros();
+            auto st = _engine.meta_mgr().convert_tmp_rowset(_transaction_id, _tablet_id, version,
+                                                            _db_id, _table_id, _index_id,
+                                                            _partition_id, &ms_rowset_meta);
+            if (exec_stats != nullptr) {
+                exec_stats->convert_tmp_rowset_time_us =
+                        MonotonicMicros() - t_convert_tmp_rowset;
+            }
+            RETURN_IF_ERROR(st);
             visible_ts_ms = ms_rowset_meta->visible_ts_ms();
         }
 
         // Local apply is best-effort
+        int64_t t_local_apply = MonotonicMicros();
         auto st = _apply_rowset_to_tablet(tablet, version, rowset, delete_bitmap, visible_ts_ms,
                                           meta_lock);
+        if (exec_stats != nullptr) {
+            exec_stats->local_apply_time_us = MonotonicMicros() - t_local_apply;
+        }
         if (!st.ok()) {
             LOG(WARNING) << "async publish local apply failed, tablet_id=" << _tablet_id
                          << ", txn_id=" << _transaction_id << ", version=" << version
@@ -486,7 +552,12 @@ Status CloudTabletCalcDeleteBitmapAsyncPublishTask::_handle_async_publish(
     }
 
     // Step 3: Clean up the cache entry
+    int64_t t_remove_unused_tablet_txn_info = MonotonicMicros();
     _engine.txn_delete_bitmap_cache().remove_unused_tablet_txn_info(_transaction_id, _tablet_id);
+    if (exec_stats != nullptr) {
+        exec_stats->remove_tablet_txn_info_time_us =
+                MonotonicMicros() - t_remove_unused_tablet_txn_info;
+    }
 
     LOG(INFO) << "async publish apply succeeded, tablet_id=" << _tablet_id
               << ", txn_id=" << _transaction_id << ", version=" << version
