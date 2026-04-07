@@ -18,10 +18,17 @@
 package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash364;
+import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.LargeIntType;
 
+import java.math.BigInteger;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -33,6 +40,25 @@ public class IvmUtil {
 
     public static boolean isIvmHiddenColumn(String columnName) {
         return columnName != null && columnName.startsWith(Column.IVM_HIDDEN_COLUMN_PREFIX);
+    }
+
+    /**
+     * Builds a deterministic row-id expression from key expressions:
+     * <ul>
+     *   <li>Empty list (scalar agg): returns {@code LargeIntLiteral(0)}</li>
+     *   <li>Non-empty (grouped agg): returns {@code CAST(murmur_hash3_64(keys...) AS LARGEINT)}</li>
+     * </ul>
+     *
+     * <p>Used by both normalize (IvmNormalizeMtmv) and delta rewrite (IvmAggDeltaStrategy)
+     * to ensure row-id derivation is identical.
+     */
+    public static Expression buildRowIdHash(List<? extends Expression> keyExprs) {
+        if (keyExprs.isEmpty()) {
+            return new LargeIntLiteral(BigInteger.ZERO);
+        }
+        Expression first = keyExprs.get(0);
+        Expression[] rest = keyExprs.subList(1, keyExprs.size()).toArray(new Expression[0]);
+        return new Cast(new MurmurHash364(first, rest), LargeIntType.INSTANCE);
     }
 
     /**
