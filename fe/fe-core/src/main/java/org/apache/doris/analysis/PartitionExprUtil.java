@@ -161,7 +161,7 @@ public class PartitionExprUtil {
             if (partitionType == PartitionType.RANGE) {
                 String beginTime = curPartitionValues.get(0); // have check range type size must be 1
                 Type partitionColumnType = partitionColumn.get(0).getType();
-                DateLiteral beginDateTime = new DateLiteral(beginTime, partitionColumnType);
+                DateLiteral beginDateTime = DateLiteralUtils.createDateLiteral(beginTime, partitionColumnType);
                 partitionName += String.format(DATETIME_NAME_FORMATTER,
                     beginDateTime.getYear(), beginDateTime.getMonth(), beginDateTime.getDay(),
                     beginDateTime.getHour(), beginDateTime.getMinute(), beginDateTime.getSecond());

@@ -18,7 +18,7 @@
 package org.apache.doris.statistics.util;
 
 import org.apache.doris.analysis.BoolLiteral;
-import org.apache.doris.analysis.DateLiteral;
+import org.apache.doris.analysis.DateLiteralUtils;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.DecimalLiteralUtils;
 import org.apache.doris.analysis.FloatLiteral;
@@ -288,7 +288,7 @@ public class StatisticsUtil {
             case DATEV2:
             case DATETIMEV2:
             case TIMESTAMPTZ:
-                return new DateLiteral(columnValue, type);
+                return DateLiteralUtils.createDateLiteral(columnValue, type);
             case CHAR:
             case VARCHAR:
             case STRING:
