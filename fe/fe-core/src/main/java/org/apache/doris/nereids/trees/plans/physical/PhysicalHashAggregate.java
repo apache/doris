@@ -357,6 +357,15 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
         return this;
     }
 
+    public boolean isUseSortedDistinct() {
+        Optional<Object> obj = getMutableState(MutableState.KEY_USE_SORTED_DISTINCT);
+        return obj.isPresent() && Boolean.TRUE.equals(obj.get());
+    }
+
+    public void setUseSortedDistinct(boolean useSortedDistinct) {
+        setMutableState(MutableState.KEY_USE_SORTED_DISTINCT, useSortedDistinct);
+    }
+
     /**
      * sql: select sum(distinct c1) from t;
      * assume c1 is not null, because there is no group by

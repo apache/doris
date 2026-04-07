@@ -84,6 +84,7 @@ public class PlanPostProcessors {
         if (cascadesContext.getConnectContext().getSessionVariable().pushTopnToAgg) {
             builder.add(new PushTopnToAgg());
         }
+        builder.add(new UseDistinctInOrder());
         builder.add(new TopNScanOpt());
         builder.add(new FragmentProcessor());
         if (!cascadesContext.getConnectContext().getSessionVariable().getRuntimeFilterMode()

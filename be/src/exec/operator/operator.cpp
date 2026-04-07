@@ -32,6 +32,7 @@
 #include "exec/operator/datagen_operator.h"
 #include "exec/operator/dict_sink_operator.h"
 #include "exec/operator/distinct_streaming_aggregation_operator.h"
+#include "exec/operator/sorted_streaming_distinct_operator.h"
 #include "exec/operator/empty_set_operator.h"
 #include "exec/operator/es_scan_operator.h"
 #include "exec/operator/exchange_sink_operator.h"
@@ -887,6 +888,7 @@ template class StatefulOperatorX<RepeatLocalState>;
 template class StatefulOperatorX<MaterializationLocalState>;
 template class StatefulOperatorX<StreamingAggLocalState>;
 template class StatefulOperatorX<DistinctStreamingAggLocalState>;
+template class StatefulOperatorX<SortedStreamingDistinctLocalState>;
 template class StatefulOperatorX<NestedLoopJoinProbeLocalState>;
 template class StatefulOperatorX<TableFunctionLocalState>;
 

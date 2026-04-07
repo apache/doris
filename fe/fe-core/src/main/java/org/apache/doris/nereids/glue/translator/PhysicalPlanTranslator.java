@@ -1350,6 +1350,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         } else {
             aggregationNode.setSortByGroupKey(null);
         }
+        if (aggregate.isUseSortedDistinct()) {
+            aggregationNode.setUseSortedDistinct(true);
+        }
         setPlanRoot(inputPlanFragment, aggregationNode, aggregate);
         if (aggregate.getStats() != null) {
             aggregationNode.setCardinality((long) aggregate.getStats().getRowCount());

@@ -63,6 +63,8 @@ public class AggregationNode extends PlanNode {
 
     private boolean queryCacheCandidate;
 
+    private boolean useSortedDistinct;
+
     /**
      * Create an agg node that is not an intermediate node.
      * isIntermediate is true if it is a slave node in a 2-part agg plan.
@@ -137,6 +139,9 @@ public class AggregationNode extends PlanNode {
         msg.agg_node.setIsColocate(isColocate);
         if (sortByGroupKey != null) {
             msg.agg_node.setAggSortInfoByGroupKey(sortByGroupKey.toThrift());
+        }
+        if (useSortedDistinct) {
+            msg.agg_node.setUseSortedDistinct(true);
         }
         List<Expr> groupingExprs = aggInfo.getGroupingExprs();
         if (groupingExprs != null) {
@@ -257,5 +262,9 @@ public class AggregationNode extends PlanNode {
 
     public void setQueryCacheCandidate(boolean queryCacheCandidate) {
         this.queryCacheCandidate = queryCacheCandidate;
+    }
+
+    public void setUseSortedDistinct(boolean useSortedDistinct) {
+        this.useSortedDistinct = useSortedDistinct;
     }
 }

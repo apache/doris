@@ -166,6 +166,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String BROKER_LOAD_BATCH_SIZE = "broker_load_batch_size";
     public static final String DISABLE_STREAMING_PREAGGREGATIONS = "disable_streaming_preaggregations";
     public static final String ENABLE_DISTINCT_STREAMING_AGGREGATION = "enable_distinct_streaming_aggregation";
+    public static final String ENABLE_SORTED_DISTINCT = "enable_sorted_distinct";
     public static final String ENABLE_STREAMING_AGG_HASH_JOIN_FORCE_PASSTHROUGH =
             "enable_streaming_agg_hash_join_force_passthrough";
     public static final String ENABLE_DISTINCT_STREAMING_AGG_FORCE_PASSTHROUGH =
@@ -1295,7 +1296,10 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = ENABLE_DISTINCT_STREAMING_AGGREGATION, fuzzy = true)
     public boolean enableDistinctStreamingAggregation = true;
 
-    @VarAttrDef.VarAttr(name = ENABLE_STREAMING_AGG_HASH_JOIN_FORCE_PASSTHROUGH, fuzzy = true)
+    @VariableMgr.VarAttr(name = ENABLE_SORTED_DISTINCT, fuzzy = true)
+    public boolean enableSortedDistinct = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_STREAMING_AGG_HASH_JOIN_FORCE_PASSTHROUGH, fuzzy = true)
     public boolean enableStreamingAggHashJoinForcePassthrough = true;
 
     @VarAttrDef.VarAttr(name = ENABLE_DISTINCT_STREAMING_AGG_FORCE_PASSTHROUGH, fuzzy = true)

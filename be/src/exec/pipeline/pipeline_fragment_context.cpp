@@ -54,6 +54,7 @@
 #include "exec/operator/datagen_operator.h"
 #include "exec/operator/dict_sink_operator.h"
 #include "exec/operator/distinct_streaming_aggregation_operator.h"
+#include "exec/operator/sorted_streaming_distinct_operator.h"
 #include "exec/operator/empty_set_operator.h"
 #include "exec/operator/es_scan_operator.h"
 #include "exec/operator/exchange_sink_operator.h"
@@ -1393,8 +1394,16 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
                 _params.query_options.__isset.enable_distinct_streaming_aggregation &&
                 _params.query_options.enable_distinct_streaming_aggregation;
 
+        // Sorted streaming distinct: use sorted input to deduplicate without hash table
+        const bool use_sorted_distinct = tnode.agg_node.__isset.use_sorted_distinct &&
+                                         tnode.agg_node.use_sorted_distinct;
+
         if (can_use_distinct_streaming_agg) {
-            if (need_create_cache_op) {
+            if (use_sorted_distinct) {
+                op = std::make_shared<SortedStreamingDistinctOperatorX>(pool, next_operator_id(),
+                                                                       tnode, descs);
+                RETURN_IF_ERROR(cur_pipe->add_operator(op, _parallel_instances));
+            } else if (need_create_cache_op) {
                 PipelinePtr new_pipe;
                 RETURN_IF_ERROR(create_query_cache_operator(new_pipe));
 
