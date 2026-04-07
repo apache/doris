@@ -238,33 +238,37 @@ Status OlapScanLocalState::_init_profile() {
 
     _statistics_collect_timer = ADD_TIMER(_scanner_profile, "StatisticsCollectTime");
     _inverted_index_filter_counter =
-            ADD_COUNTER(_segment_profile, "RowsInvertedIndexFiltered", TUnit::UNIT);
-    _inverted_index_filter_timer = ADD_TIMER(_segment_profile, "InvertedIndexFilterTime");
+            ADD_COUNTER_WITH_LEVEL(_segment_profile, "RowsInvertedIndexFiltered", TUnit::UNIT, 1);
+    _inverted_index_filter_timer =
+            ADD_TIMER_WITH_LEVEL(_segment_profile, "InvertedIndexFilterTime", 1);
     _inverted_index_query_cache_hit_counter =
-            ADD_COUNTER(_segment_profile, "InvertedIndexQueryCacheHit", TUnit::UNIT);
+            ADD_COUNTER_WITH_LEVEL(_segment_profile, "InvertedIndexQueryCacheHit", TUnit::UNIT, 1);
     _inverted_index_query_cache_miss_counter =
-            ADD_COUNTER(_segment_profile, "InvertedIndexQueryCacheMiss", TUnit::UNIT);
-    _inverted_index_query_timer = ADD_TIMER(_segment_profile, "InvertedIndexQueryTime");
+            ADD_COUNTER_WITH_LEVEL(_segment_profile, "InvertedIndexQueryCacheMiss", TUnit::UNIT, 1);
+    _inverted_index_query_timer =
+            ADD_TIMER_WITH_LEVEL(_segment_profile, "InvertedIndexQueryTime", 1);
     _inverted_index_query_null_bitmap_timer =
-            ADD_TIMER(_segment_profile, "InvertedIndexQueryNullBitmapTime");
+            ADD_TIMER_WITH_LEVEL(_segment_profile, "InvertedIndexQueryNullBitmapTime", 1);
     _inverted_index_query_bitmap_copy_timer =
-            ADD_TIMER(_segment_profile, "InvertedIndexQueryBitmapCopyTime");
+            ADD_TIMER_WITH_LEVEL(_segment_profile, "InvertedIndexQueryBitmapCopyTime", 1);
     _inverted_index_searcher_open_timer =
-            ADD_TIMER(_segment_profile, "InvertedIndexSearcherOpenTime");
+            ADD_TIMER_WITH_LEVEL(_segment_profile, "InvertedIndexSearcherOpenTime", 1);
     _inverted_index_searcher_search_timer =
-            ADD_TIMER(_segment_profile, "InvertedIndexSearcherSearchTime");
+            ADD_TIMER_WITH_LEVEL(_segment_profile, "InvertedIndexSearcherSearchTime", 1);
     _inverted_index_searcher_search_init_timer =
-            ADD_TIMER(_segment_profile, "InvertedIndexSearcherSearchInitTime");
+            ADD_TIMER_WITH_LEVEL(_segment_profile, "InvertedIndexSearcherSearchInitTime", 1);
     _inverted_index_searcher_search_exec_timer =
-            ADD_TIMER(_segment_profile, "InvertedIndexSearcherSearchExecTime");
-    _inverted_index_searcher_cache_hit_counter =
-            ADD_COUNTER(_segment_profile, "InvertedIndexSearcherCacheHit", TUnit::UNIT);
-    _inverted_index_searcher_cache_miss_counter =
-            ADD_COUNTER(_segment_profile, "InvertedIndexSearcherCacheMiss", TUnit::UNIT);
+            ADD_TIMER_WITH_LEVEL(_segment_profile, "InvertedIndexSearcherSearchExecTime", 1);
+    _inverted_index_searcher_cache_hit_counter = ADD_COUNTER_WITH_LEVEL(
+            _segment_profile, "InvertedIndexSearcherCacheHit", TUnit::UNIT, 1);
+    _inverted_index_searcher_cache_miss_counter = ADD_COUNTER_WITH_LEVEL(
+            _segment_profile, "InvertedIndexSearcherCacheMiss", TUnit::UNIT, 1);
     _inverted_index_downgrade_count_counter =
-            ADD_COUNTER(_segment_profile, "InvertedIndexDowngradeCount", TUnit::UNIT);
-    _inverted_index_analyzer_timer = ADD_TIMER(_segment_profile, "InvertedIndexAnalyzerTime");
-    _inverted_index_lookup_timer = ADD_TIMER(_segment_profile, "InvertedIndexLookupTimer");
+            ADD_COUNTER_WITH_LEVEL(_segment_profile, "InvertedIndexDowngradeCount", TUnit::UNIT, 1);
+    _inverted_index_analyzer_timer =
+            ADD_TIMER_WITH_LEVEL(_segment_profile, "InvertedIndexAnalyzerTime", 1);
+    _inverted_index_lookup_timer =
+            ADD_TIMER_WITH_LEVEL(_segment_profile, "InvertedIndexLookupTimer", 1);
 
     _output_index_result_column_timer = ADD_TIMER(_segment_profile, "OutputIndexResultColumnTime");
     _filtered_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentFiltered", TUnit::UNIT);
