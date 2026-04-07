@@ -88,22 +88,19 @@ void Dependency::set_ready() noexcept {
                     } else {
                         // Task is not finalized but wake_up failed — it may be stuck in BLOCKED
                         // with no one to reschedule it. Cancel the query to prevent a hang.
-                        LOG(WARNING)
-                                << "Dependency::set_ready(): wake_up failed for non-finalized "
-                                   "task, cancelling query. dep="
-                                << _name << ", status=" << e.code() << ": " << e.to_string();
+                        LOG(WARNING) << "Dependency::set_ready(): wake_up failed for non-finalized "
+                                        "task, cancelling query. dep="
+                                     << _name << ", status=" << e.code() << ": " << e.to_string();
                         if (auto frag = t->fragment_context().lock()) {
                             frag->cancel(Status::InternalError(
-                                    "wake_up failed in Dependency::set_ready: {}",
-                                    e.to_string()));
+                                    "wake_up failed in Dependency::set_ready: {}", e.to_string()));
                         }
                     }
                 } catch (const std::exception& e) {
                     // Non-Doris exceptions (e.g. std::bad_alloc from scheduler submit path).
-                    LOG(WARNING)
-                            << "Dependency::set_ready(): unexpected exception during wake_up, "
-                               "cancelling query. dep="
-                            << _name << ": " << e.what();
+                    LOG(WARNING) << "Dependency::set_ready(): unexpected exception during wake_up, "
+                                    "cancelling query. dep="
+                                 << _name << ": " << e.what();
                     if (auto frag = t->fragment_context().lock()) {
                         frag->cancel(Status::InternalError(
                                 "unexpected exception in Dependency::set_ready: {}", e.what()));
