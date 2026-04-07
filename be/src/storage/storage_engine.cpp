@@ -305,13 +305,15 @@ Status StorageEngine::_open() {
     _memtable_flush_executor->init(_disk_num);
 
     _calc_delete_bitmap_executor = std::make_unique<CalcDeleteBitmapExecutor>();
-    _calc_delete_bitmap_executor->init(config::calc_delete_bitmap_max_thread);
+    _calc_delete_bitmap_executor->init(config::calc_delete_bitmap_max_thread,
+                                       "TabletCalcDeleteBitmapThreadPool");
 
     _calc_delete_bitmap_executor_for_load = std::make_unique<CalcDeleteBitmapExecutor>();
     _calc_delete_bitmap_executor_for_load->init(
             config::calc_delete_bitmap_for_load_max_thread > 0
                     ? config::calc_delete_bitmap_for_load_max_thread
-                    : std::max(1, CpuInfo::num_cores() / 2));
+                    : std::max(1, CpuInfo::num_cores() / 2),
+            "TabletCalcDeleteBitmapForLoadThreadPool");
 
     _parse_default_rowset_type();
 

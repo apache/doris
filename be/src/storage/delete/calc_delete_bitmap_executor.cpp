@@ -90,8 +90,8 @@ Status CalcDeleteBitmapToken::wait() {
     return _status;
 }
 
-void CalcDeleteBitmapExecutor::init(int max_threads) {
-    static_cast<void>(ThreadPoolBuilder("TabletCalcDeleteBitmapThreadPool")
+void CalcDeleteBitmapExecutor::init(int max_threads, std::string thread_pool_name) {
+    static_cast<void>(ThreadPoolBuilder(std::move(thread_pool_name))
                               .set_min_threads(1)
                               .set_max_threads(max_threads)
                               .build(&_thread_pool));
