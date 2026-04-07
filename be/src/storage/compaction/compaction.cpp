@@ -56,6 +56,7 @@
 #include "storage/compaction/cumulative_compaction.h"
 #include "storage/compaction/cumulative_compaction_policy.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
+#include "storage/compaction_task_tracker.h"
 #include "storage/data_dir.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
@@ -154,7 +155,8 @@ bool is_rowset_tidy(std::string& pre_max_key, bool& pre_rs_key_bounds_truncated,
 } // namespace
 
 Compaction::Compaction(BaseTabletSPtr tablet, const std::string& label)
-        : _mem_tracker(
+        : _compaction_id(CompactionTaskTracker::instance()->next_compaction_id()),
+          _mem_tracker(
                   MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::COMPACTION, label)),
           _tablet(std::move(tablet)),
           _is_vertical(config::enable_vertical_compaction),
@@ -175,6 +177,55 @@ Compaction::~Compaction() {
     _output_rowset.reset();
     _cur_tablet_schema.reset();
     _rowid_conversion.reset();
+}
+
+std::string Compaction::input_version_range_str() const {
+    if (_input_rowsets.empty()) return "";
+    return fmt::format("[{}-{}]", _input_rowsets.front()->start_version(),
+                       _input_rowsets.back()->end_version());
+}
+
+void Compaction::submit_profile_record(bool success, int64_t start_time_ms,
+                                       const std::string& status_msg) {
+    if (!profile_type().has_value()) {
+        return;
+    }
+    auto* tracker = CompactionTaskTracker::instance();
+    CompletionStats stats;
+    // Input stats for backfill: local compaction fills these in build_basic_info()
+    // which runs inside execute_compact_impl(), so they are available now.
+    stats.input_version_range = input_version_range_str();
+    stats.input_rowsets_count = static_cast<int64_t>(_input_rowsets.size());
+    stats.input_row_num = _input_row_num;
+    stats.input_data_size = _input_rowsets_data_size;
+    stats.input_index_size = _input_rowsets_index_size;
+    stats.input_total_size = _input_rowsets_total_size;
+    stats.input_segments_num = input_segments_num_value();
+    stats.end_time_ms = UnixMillis();
+    stats.merged_rows = _stats.merged_rows;
+    stats.filtered_rows = _stats.filtered_rows;
+    stats.output_rows = _stats.output_rows;
+    if (_output_rowset) {
+        stats.output_row_num = _output_rowset->num_rows();
+        stats.output_data_size = _output_rowset->data_disk_size();
+        stats.output_index_size = _output_rowset->index_disk_size();
+        stats.output_total_size = _output_rowset->total_disk_size();
+        stats.output_segments_num = _output_rowset->num_segments();
+    }
+    stats.output_version = _output_version.to_string();
+    if (_merge_rowsets_latency_timer) {
+        stats.merge_latency_ms = _merge_rowsets_latency_timer->value() / 1000000;
+    }
+    stats.bytes_read_from_local = _stats.bytes_read_from_local;
+    stats.bytes_read_from_remote = _stats.bytes_read_from_remote;
+    if (_mem_tracker) {
+        stats.peak_memory_bytes = _mem_tracker->peak_consumption();
+    }
+    if (success) {
+        tracker->complete(_compaction_id, stats);
+    } else {
+        tracker->fail(_compaction_id, stats, status_msg);
+    }
 }
 
 void Compaction::init_profile(const std::string& label) {
@@ -236,10 +287,14 @@ Status Compaction::merge_input_rowsets() {
             if (!_tablet->tablet_schema()->cluster_key_uids().empty()) {
                 RETURN_IF_ERROR(update_delete_bitmap());
             }
+            auto progress_cb = [compaction_id = this->_compaction_id](int64_t total,
+                                                                      int64_t completed) {
+                CompactionTaskTracker::instance()->update_progress(compaction_id, total, completed);
+            };
             res = Merger::vertical_merge_rowsets(_tablet, compaction_type(), *_cur_tablet_schema,
                                                  input_rs_readers, _output_rs_writer.get(),
                                                  cast_set<uint32_t>(get_avg_segment_rows()),
-                                                 way_num, &_stats);
+                                                 way_num, &_stats, progress_cb);
         } else {
             if (!_tablet->tablet_schema()->cluster_key_uids().empty()) {
                 return Status::InternalError(
@@ -533,13 +588,18 @@ bool CompactionMixin::handle_ordered_data_compaction() {
 }
 
 Status CompactionMixin::execute_compact() {
+    int64_t profile_start_time_ms = UnixMillis();
     uint32_t checksum_before;
     uint32_t checksum_after;
     bool enable_compaction_checksum = config::enable_compaction_checksum;
     if (enable_compaction_checksum) {
         EngineChecksumTask checksum_task(_engine, _tablet->tablet_id(), _tablet->schema_hash(),
                                          _input_rowsets.back()->end_version(), &checksum_before);
-        RETURN_IF_ERROR(checksum_task.execute());
+        auto st = checksum_task.execute();
+        if (!st.ok()) {
+            submit_profile_record(false, profile_start_time_ms, st.to_string());
+            return st;
+        }
     }
 
     auto* data_dir = tablet()->data_dir();
@@ -552,18 +612,32 @@ Status CompactionMixin::execute_compact() {
         data_dir->disks_compaction_score_increment(-permits);
         data_dir->disks_compaction_num_increment(-1);
     };
+    // Handler for execute_compact_impl failure (both Status error and C++ exception).
+    // The macro calls this then returns, so submit_profile_record(false) must be here.
+    auto on_compact_impl_failure = [&](const doris::Exception& ex) {
+        record_compaction_stats(ex);
+        submit_profile_record(false, profile_start_time_ms,
+                              ex.what() ? std::string(ex.what()) : "");
+    };
 
-    HANDLE_EXCEPTION_IF_CATCH_EXCEPTION(execute_compact_impl(permits), record_compaction_stats);
+    HANDLE_EXCEPTION_IF_CATCH_EXCEPTION(execute_compact_impl(permits), on_compact_impl_failure);
+    // Only reached on success (macro returns on failure).
     record_compaction_stats(doris::Exception());
 
     if (enable_compaction_checksum) {
         EngineChecksumTask checksum_task(_engine, _tablet->tablet_id(), _tablet->schema_hash(),
                                          _input_rowsets.back()->end_version(), &checksum_after);
-        RETURN_IF_ERROR(checksum_task.execute());
+        auto st = checksum_task.execute();
+        if (!st.ok()) {
+            submit_profile_record(false, profile_start_time_ms, st.to_string());
+            return st;
+        }
         if (checksum_before != checksum_after) {
-            return Status::InternalError(
+            auto mismatch_st = Status::InternalError(
                     "compaction tablet checksum not consistent, before={}, after={}, tablet_id={}",
                     checksum_before, checksum_after, _tablet->tablet_id());
+            submit_profile_record(false, profile_start_time_ms, mismatch_st.to_string());
+            return mismatch_st;
         }
     }
 
@@ -579,6 +653,7 @@ Status CompactionMixin::execute_compact() {
             _output_rowset->total_disk_size());
 
     _load_segment_to_cache();
+    submit_profile_record(true, profile_start_time_ms);
     return Status::OK();
 }
 
@@ -1671,6 +1746,7 @@ size_t CloudCompactionMixin::apply_txn_size_truncation_and_log(const std::string
 }
 
 Status CloudCompactionMixin::execute_compact() {
+    int64_t profile_start_time_ms = UnixMillis();
     TEST_INJECTION_POINT("Compaction::do_compaction");
     int64_t permits = get_compaction_permits();
     HANDLE_EXCEPTION_IF_CATCH_EXCEPTION(
@@ -1686,6 +1762,7 @@ Status CloudCompactionMixin::execute_compact() {
                             _tablet->table_id(), COMPACTION_DELETE_BITMAP_LOCK_ID, initiator(),
                             _tablet->tablet_id());
                 }
+                submit_profile_record(false, profile_start_time_ms, ex.what());
             });
 
     DorisMetrics::instance()->remote_compaction_read_rows_total->increment(_input_row_num);
@@ -1695,6 +1772,7 @@ Status CloudCompactionMixin::execute_compact() {
             _output_rowset->total_disk_size());
 
     _load_segment_to_cache();
+    submit_profile_record(true, profile_start_time_ms);
     return Status::OK();
 }
 

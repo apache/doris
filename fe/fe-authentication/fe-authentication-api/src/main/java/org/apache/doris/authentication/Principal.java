@@ -85,6 +85,16 @@ public interface Principal {
     }
 
     /**
+     * Returns multi-valued attributes about the principal.
+     * These may include scopes, roles, entitlements, etc.
+     *
+     * @return map of attribute names to sets of values
+     */
+    default Map<String, Set<String>> getMultiValueAttributes() {
+        return Collections.emptyMap();
+    }
+
+    /**
      * Returns whether this is a service principal (non-human / machine account).
      *
      * <p>This flag is intended to distinguish service accounts from human users

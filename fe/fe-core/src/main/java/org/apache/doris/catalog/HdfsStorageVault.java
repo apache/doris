@@ -17,14 +17,14 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.backup.Status;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.util.DatasourcePrintableMap;
-import org.apache.doris.datasource.property.storage.HdfsCompatibleProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.fs.remote.dfs.DFSFileSystem;
+import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.Location;
+import org.apache.doris.fs.FileSystemFactory;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -131,38 +131,27 @@ public class HdfsStorageVault extends StorageVault {
         Preconditions.checkArgument(
                 !Strings.isNullOrEmpty(pathPrefix), "%s is null or empty", PropertyKey.VAULT_PATH_PREFIX);
 
-        try (DFSFileSystem dfsFileSystem = new DFSFileSystem((HdfsCompatibleProperties) StorageProperties
-                .createPrimary(newProperties))) {
+        try (FileSystem fs = FileSystemFactory.getFileSystem(
+                StorageProperties.createPrimary(newProperties))) {
             Long timestamp = System.currentTimeMillis();
             String remotePath = hadoopFsName + "/" + pathPrefix + "/doris-check-connectivity" + timestamp.toString();
+            Location loc = Location.of(remotePath);
 
-            Status st = dfsFileSystem.makeDir(remotePath);
-            if (st != Status.OK) {
+            fs.mkdirs(loc);
+
+            if (!fs.exists(loc)) {
                 throw new DdlException(
-                        "checkConnectivity(makeDir) failed, status: " + st
+                        "checkConnectivity(exist) failed: path does not exist after mkdirs: " + remotePath
                                 + ", properties: " + new DatasourcePrintableMap<>(
                                 newProperties, "=", true, false, true, false));
             }
 
-            st = dfsFileSystem.exists(remotePath);
-            if (st != Status.OK) {
-                throw new DdlException(
-                        "checkConnectivity(exist) failed, status: " + st
-                                + ", properties: " + new DatasourcePrintableMap<>(
-                                newProperties, "=", true, false, true, false));
-            }
-
-            st = dfsFileSystem.delete(remotePath);
-            if (st != Status.OK) {
-                throw new DdlException(
-                        "checkConnectivity(exist) failed, status: " + st
-                                + ", properties: " + new DatasourcePrintableMap<>(
-                                newProperties, "=", true, false, true, false));
-            }
+            fs.delete(loc, false);
         } catch (IOException e) {
             LOG.warn("checkConnectivity failed, properties:{}", new DatasourcePrintableMap<>(
                     newProperties, "=", true, false, true, false), e);
-            throw new DdlException("checkConnectivity failed, properties: " + new DatasourcePrintableMap<>(
+            throw new DdlException("checkConnectivity failed, " + e.getMessage()
+                    + ", properties: " + new DatasourcePrintableMap<>(
                     newProperties, "=", true, false, true, false), e);
         }
     }

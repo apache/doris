@@ -216,6 +216,10 @@ supportedCreateStatement
     | CREATE ROLE (IF NOT EXISTS)? name=identifierOrText (COMMENT STRING_LITERAL)?    #createRole
     | CREATE AUTHENTICATION INTEGRATION (IF NOT EXISTS)? integrationName=identifier
         properties=propertyClause commentSpec?                                  #createAuthenticationIntegration
+    | CREATE ROLE MAPPING (IF NOT EXISTS)? mappingName=identifier
+        ON AUTHENTICATION INTEGRATION integrationName=identifier
+        rules+=roleMappingRuleClause (COMMA rules+=roleMappingRuleClause)*
+        commentSpec?                                                            #createRoleMapping
     | CREATE WORKLOAD GROUP (IF NOT EXISTS)?
         name=identifierOrText (FOR computeGroup=identifierOrText)? properties=propertyClause? #createWorkloadGroup
     | CREATE CATALOG (IF NOT EXISTS)? catalogName=identifier
@@ -350,6 +354,7 @@ supportedDropStatement
     | DROP WORKLOAD GROUP (IF EXISTS)? name=identifierOrText (FOR computeGroup=identifierOrText)?                    #dropWorkloadGroup
     | DROP CATALOG (IF EXISTS)? name=identifier                                 #dropCatalog
     | DROP AUTHENTICATION INTEGRATION (IF EXISTS)? name=identifier              #dropAuthenticationIntegration
+    | DROP ROLE MAPPING (IF EXISTS)? name=identifier                            #dropRoleMapping
     | DROP FILE name=STRING_LITERAL
         ((FROM | IN) database=identifier)? properties=propertyClause            #dropFile
     | DROP WORKLOAD POLICY (IF EXISTS)? name=identifierOrText                   #dropWorkloadPolicy
@@ -663,6 +668,13 @@ supportedAdminStatement
     | ADMIN DROP CLUSTER SNAPSHOT WHERE (key=identifier) EQ (value=STRING_LITERAL)  #adminDropClusterSnapshot
     | ADMIN SET CLUSTER SNAPSHOT FEATURE (ON | OFF)                                 #adminSetClusterSnapshotFeatureSwitch
     | ADMIN ROTATE TDE ROOT KEY properties=propertyClause?                          #adminRotateTdeRootKey
+    ;
+
+roleMappingRuleClause
+    : RULE LEFT_PAREN
+        USING CEL condition=STRING_LITERAL
+        GRANT ROLE grantedRoles+=identifierOrText (COMMA grantedRoles+=identifierOrText)*
+      RIGHT_PAREN
     ;
 
 supportedRecoverStatement

@@ -21,7 +21,10 @@
 package org.apache.doris.fs;
 
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.fs.remote.RemoteFile;
+import org.apache.doris.filesystem.FileEntry;
+import org.apache.doris.filesystem.FileSystemIOException;
+import org.apache.doris.filesystem.Location;
+import org.apache.doris.filesystem.RemoteIterator;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -39,12 +42,16 @@ import java.util.Objects;
 // some tests may invalidate the whole cache affecting therefore other concurrent tests
 @Execution(ExecutionMode.SAME_THREAD)
 public class TransactionScopeCachingDirectoryListerTest {
+    private static FileEntry fileEntry(String uri) {
+        return new FileEntry(Location.of(uri), 1, false, 0L, null);
+    }
+
     @Test
     public void testConcurrentDirectoryListing(@Mocked TableIf table)
             throws FileSystemIOException {
-        RemoteFile firstFile = new RemoteFile("file:/x/x", true, 1, 1);
-        RemoteFile secondFile = new RemoteFile("file:/x/y", true, 1, 1);
-        RemoteFile thirdFile = new RemoteFile("file:/y/z", true, 1, 1);
+        FileEntry firstFile = fileEntry("file:/x/x");
+        FileEntry secondFile = fileEntry("file:/x/y");
+        FileEntry thirdFile = fileEntry("file:/y/z");
 
         String path1 = "file:/x";
         String path2 = "file:/y";
@@ -68,15 +75,15 @@ public class TransactionScopeCachingDirectoryListerTest {
 
 
         // start listing path1 concurrently
-        RemoteIterator<RemoteFile> path1FilesA = cachingLister.listFiles(null, true, table, path1);
-        RemoteIterator<RemoteFile> path1FilesB = cachingLister.listFiles(null, true, table, path1);
+        RemoteIterator<FileEntry> path1FilesA = cachingLister.listFiles(null, true, table, path1);
+        RemoteIterator<FileEntry> path1FilesB = cachingLister.listFiles(null, true, table, path1);
         Assert.assertEquals(2, countingLister.getListCount());
 
         // list path1 files using both iterators concurrently
-        Assert.assertEquals(firstFile, path1FilesA.next());
-        Assert.assertEquals(firstFile, path1FilesB.next());
-        Assert.assertEquals(secondFile, path1FilesB.next());
-        Assert.assertEquals(secondFile, path1FilesA.next());
+        Assert.assertSame(firstFile, path1FilesA.next());
+        Assert.assertSame(firstFile, path1FilesB.next());
+        Assert.assertSame(secondFile, path1FilesB.next());
+        Assert.assertSame(secondFile, path1FilesA.next());
         Assert.assertFalse(path1FilesA.hasNext());
         Assert.assertFalse(path1FilesB.hasNext());
         Assert.assertEquals(2, countingLister.getListCount());
@@ -89,7 +96,7 @@ public class TransactionScopeCachingDirectoryListerTest {
     @Test
     public void testConcurrentDirectoryListingException(@Mocked TableIf table)
             throws FileSystemIOException {
-        RemoteFile file = new RemoteFile("file:/x/x", true, 1, 1);
+        FileEntry file = fileEntry("file:/x/x");
 
         String path = "file:/x";
 
@@ -98,8 +105,8 @@ public class TransactionScopeCachingDirectoryListerTest {
 
         // start listing path concurrently
         countingLister.setThrowException(true);
-        RemoteIterator<RemoteFile> filesA = cachingLister.listFiles(null, true, table, path);
-        RemoteIterator<RemoteFile> filesB = cachingLister.listFiles(null, true, table, path);
+        RemoteIterator<FileEntry> filesA = cachingLister.listFiles(null, true, table, path);
+        RemoteIterator<FileEntry> filesB = cachingLister.listFiles(null, true, table, path);
         Assert.assertEquals(1, countingLister.getListCount());
 
         // listing should throw an exception
@@ -116,9 +123,9 @@ public class TransactionScopeCachingDirectoryListerTest {
 
     }
 
-    private void assertFiles(RemoteIterator<RemoteFile> iterator, List<RemoteFile> expectedFiles)
+    private void assertFiles(RemoteIterator<FileEntry> iterator, List<FileEntry> expectedFiles)
             throws FileSystemIOException {
-        ImmutableList.Builder<RemoteFile> actualFiles = ImmutableList.builder();
+        ImmutableList.Builder<FileEntry> actualFiles = ImmutableList.builder();
         while (iterator.hasNext()) {
             actualFiles.add(iterator.next());
         }
@@ -127,16 +134,17 @@ public class TransactionScopeCachingDirectoryListerTest {
 
     private static class CountingDirectoryLister
             implements DirectoryLister {
-        private final Map<String, List<RemoteFile>> fileStatuses;
+        private final Map<String, List<FileEntry>> fileStatuses;
         private int listCount;
         private boolean throwException;
 
-        public CountingDirectoryLister(Map<String, List<RemoteFile>> fileStatuses) {
+        public CountingDirectoryLister(Map<String, List<FileEntry>> fileStatuses) {
             this.fileStatuses = Objects.requireNonNull(fileStatuses, "fileStatuses is null");
         }
 
         @Override
-        public RemoteIterator<RemoteFile> listFiles(FileSystem fs, boolean recursive, TableIf table, String location)
+        public RemoteIterator<FileEntry> listFiles(org.apache.doris.filesystem.FileSystem fs, boolean recursive,
+                TableIf table, String location)
                 throws FileSystemIOException {
             // No specific recursive files-only listing implementation
             listCount++;
@@ -152,9 +160,9 @@ public class TransactionScopeCachingDirectoryListerTest {
         }
     }
 
-    static RemoteIterator<RemoteFile> throwingRemoteIterator(List<RemoteFile> files, boolean throwException) {
-        return new RemoteIterator<RemoteFile>() {
-            private final Iterator<RemoteFile> iterator = ImmutableList.copyOf(files).iterator();
+    static RemoteIterator<FileEntry> throwingRemoteIterator(List<FileEntry> files, boolean throwException) {
+        return new RemoteIterator<FileEntry>() {
+            private final Iterator<FileEntry> iterator = ImmutableList.copyOf(files).iterator();
 
             @Override
             public boolean hasNext()
@@ -166,7 +174,7 @@ public class TransactionScopeCachingDirectoryListerTest {
             }
 
             @Override
-            public RemoteFile next() {
+            public FileEntry next() {
                 return iterator.next();
             }
         };

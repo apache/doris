@@ -34,7 +34,6 @@ import java.util.Enumeration;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.ServiceLoader;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.stream.Collectors;
@@ -195,13 +194,27 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
     private PluginHandle<F> loadFromPluginDir(Path pluginDir, ClassLoader parent, Class<F> factoryType,
             ClassLoadingPolicy policy) throws PluginLoadException {
         Path normalizedDir = normalize(pluginDir);
-        List<Path> resolvedJars = resolveJars(normalizedDir);
-        URL[] urls = toUrls(resolvedJars, normalizedDir);
+
+        // Collect root-level jars (plugin primary jars) and lib/ jars (dependencies) separately.
+        // Service discovery uses only root-level jars to avoid picking up FileSystemProvider (or
+        // other SPI) registrations from dependency jars that are also standalone plugins (e.g.
+        // fe-filesystem-s3 inside fe-filesystem-cos). The runtime classloader still includes all
+        // jars so that the discovered factory can reference classes from lib/ at runtime.
+        List<Path> rootJars = new ArrayList<>();
+        List<Path> libJars = new ArrayList<>();
+        resolveJars(normalizedDir, rootJars, libJars);
+
+        List<Path> allJars = new ArrayList<>(rootJars.size() + libJars.size());
+        allJars.addAll(rootJars);
+        allJars.addAll(libJars);
+
+        URL[] allUrls = toUrls(allJars, normalizedDir);
         ClassLoader filteredParent = new ServiceResourceFilteringParentClassLoader(parent, factoryType);
 
+        // Runtime classloader: all jars, child-first with configured policy.
         ClassLoader classLoader;
         try {
-            classLoader = new PluginLoader(policy.toParentFirstPackages()).createClassLoader(urls, filteredParent);
+            classLoader = new PluginLoader(policy.toParentFirstPackages()).createClassLoader(allUrls, filteredParent);
         } catch (RuntimeException e) {
             throw new PluginLoadException(
                     normalizedDir,
@@ -212,7 +225,30 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
 
         F factory;
         try {
-            factory = discoverSingleFactory(factoryType, classLoader, normalizedDir);
+            // Discovery classloader: only root-level jars.  This ensures that service registrations
+            // bundled inside lib/ dependencies are not included in the scan.
+            URL[] rootUrls = toUrls(rootJars.isEmpty() ? allJars : rootJars, normalizedDir);
+            ClassLoader discoveryCL = new java.net.URLClassLoader(rootUrls, filteredParent);
+            String factoryClassName;
+            try {
+                factoryClassName = discoverSingleFactoryClassName(factoryType, discoveryCL, normalizedDir);
+            } finally {
+                closeClassLoader(discoveryCL);
+            }
+            // Re-load and instantiate the factory class from the runtime classloader so that it
+            // has full access to lib/ classes (e.g. CosFileSystemProvider needs S3 classes).
+            try {
+                @SuppressWarnings("unchecked")
+                Class<? extends F> factoryClass = (Class<? extends F>)
+                        classLoader.loadClass(factoryClassName).asSubclass(factoryType);
+                factory = factoryClass.getDeclaredConstructor().newInstance();
+            } catch (ReflectiveOperationException e) {
+                throw new PluginLoadException(
+                        normalizedDir,
+                        LoadFailure.STAGE_INSTANTIATE,
+                        "Failed to instantiate factory class '" + factoryClassName + "' in " + normalizedDir,
+                        e);
+            }
         } catch (PluginLoadException e) {
             closeClassLoader(classLoader);
             throw e;
@@ -241,13 +277,18 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
         return new PluginHandle<>(
                 pluginName.trim(),
                 normalizedDir,
-                resolvedJars,
+                allJars,
                 classLoader,
                 factory,
                 Instant.now());
     }
 
-    private List<Path> resolveJars(Path pluginDir) throws PluginLoadException {
+    /**
+     * Collects jars into {@code rootJars} (plugin directory root) and {@code libJars}
+     * (plugin directory lib/ subdirectory). Fails if no jars are found in either location.
+     */
+    private void resolveJars(Path pluginDir, List<Path> rootJars, List<Path> libJars)
+            throws PluginLoadException {
         if (!Files.exists(pluginDir) || !Files.isDirectory(pluginDir)) {
             throw new PluginLoadException(
                     pluginDir,
@@ -256,22 +297,20 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
                     null);
         }
 
-        List<Path> jars = new ArrayList<>();
-        collectJars(pluginDir, jars);
+        collectJars(pluginDir, rootJars);
 
         Path libDir = pluginDir.resolve("lib");
         if (Files.isDirectory(libDir)) {
-            collectJars(libDir, jars);
+            collectJars(libDir, libJars);
         }
 
-        if (jars.isEmpty()) {
+        if (rootJars.isEmpty() && libJars.isEmpty()) {
             throw new PluginLoadException(
                     pluginDir,
                     LoadFailure.STAGE_RESOLVE,
                     "No jar found under plugin directory: " + pluginDir,
                     null);
         }
-        return jars;
     }
 
     private void collectJars(Path directory, List<Path> target) throws PluginLoadException {
@@ -306,20 +345,42 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
         return urls;
     }
 
-    private F discoverSingleFactory(Class<F> factoryType, ClassLoader classLoader, Path pluginDir)
+    /**
+     * Discovers exactly one factory class name from {@code META-INF/services} entries visible
+     * to {@code classLoader}. Returns the binary class name; does not instantiate anything.
+     */
+    private String discoverSingleFactoryClassName(Class<F> factoryType, ClassLoader classLoader, Path pluginDir)
             throws PluginLoadException {
-        List<F> discovered = new ArrayList<>();
+        List<String> classNames = new ArrayList<>();
         try {
-            ServiceLoader.load(factoryType, classLoader).forEach(discovered::add);
-        } catch (Throwable t) {
+            Enumeration<URL> resources = classLoader.getResources(
+                    "META-INF/services/" + factoryType.getName());
+            while (resources.hasMoreElements()) {
+                URL url = resources.nextElement();
+                try (java.io.BufferedReader reader = new java.io.BufferedReader(
+                        new java.io.InputStreamReader(url.openStream(), java.nio.charset.StandardCharsets.UTF_8))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        int commentIdx = line.indexOf('#');
+                        if (commentIdx >= 0) {
+                            line = line.substring(0, commentIdx);
+                        }
+                        line = line.trim();
+                        if (!line.isEmpty()) {
+                            classNames.add(line);
+                        }
+                    }
+                }
+            }
+        } catch (IOException t) {
             throw new PluginLoadException(
                     pluginDir,
                     LoadFailure.STAGE_DISCOVER,
-                    "Failed to discover " + factoryType.getName() + " in " + pluginDir,
+                    "Failed to read service files for " + factoryType.getName() + " in " + pluginDir,
                     t);
         }
 
-        if (discovered.isEmpty()) {
+        if (classNames.isEmpty()) {
             throw new PluginLoadException(
                     pluginDir,
                     LoadFailure.STAGE_DISCOVER,
@@ -327,14 +388,15 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
                     null);
         }
 
-        if (discovered.size() > 1) {
+        if (classNames.size() > 1) {
             throw new PluginLoadException(
                     pluginDir,
                     LoadFailure.STAGE_DISCOVER,
-                    "Multiple " + factoryType.getName() + " found in " + pluginDir + ": " + discovered.size(),
+                    "Multiple " + factoryType.getName() + " found in root-level jars of " + pluginDir
+                            + ": " + classNames,
                     null);
         }
-        return discovered.get(0);
+        return classNames.get(0);
     }
 
     private static void closeClassLoader(ClassLoader classLoader) {

@@ -68,7 +68,7 @@ struct MockExchangeSourceLocalState : public ExchangeLocalState {
 struct ExchangeSourceOperatorXTest : public ::testing::Test {
     void SetUp() override {
         state = std::make_shared<MockRuntimeState>();
-        state->batsh_size = 10;
+        state->_batch_size = 10;
     }
 
     void create_op(int num_senders, bool is_merging, int offset, int limit) {

@@ -90,7 +90,7 @@ public class CancelAlterTableCommand extends CancelCommand {
      * validate
      */
     public void validate(ConnectContext ctx) throws AnalysisException {
-        tableNameInfo.analyze(ctx);
+        tableNameInfo.analyze(ctx.getNameSpaceContext());
         // disallow external catalog
         Util.prohibitExternalCatalog(tableNameInfo.getCtl(), this.getClass().getSimpleName());
 

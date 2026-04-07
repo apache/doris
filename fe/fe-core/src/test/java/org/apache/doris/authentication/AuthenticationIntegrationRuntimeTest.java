@@ -33,9 +33,12 @@ import org.mockito.Mockito;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 class AuthenticationIntegrationRuntimeTest {
     private static final String CREATE_USER = "creator";
@@ -115,6 +118,110 @@ class AuthenticationIntegrationRuntimeTest {
     }
 
     @Test
+    void testAuthenticatePreservesPluginGrantedRolesOnSuccess() throws Exception {
+        AuthenticationPluginManager pluginManager = new AuthenticationPluginManager();
+        pluginManager.registerFactory(new ChainTestPluginFactory());
+        AuthenticationIntegrationRuntime runtime = new AuthenticationIntegrationRuntime(pluginManager);
+
+        AuthenticationIntegrationMeta integration = meta("mapped", "chain_test",
+                map("result", "SUCCESS", "granted_role", "plugin_reader"));
+        runtime.activatePreparedAuthenticationIntegration(runtime.prepareAuthenticationIntegration(integration));
+
+        AuthenticationRequest request = AuthenticationRequest.builder()
+                .username("alice")
+                .credentialType(CredentialType.CLEAR_TEXT_PASSWORD)
+                .credential("secret".getBytes(StandardCharsets.UTF_8))
+                .remoteHost("127.0.0.1")
+                .clientType("mysql")
+                .build();
+        AuthenticationOutcome outcome = runtime.authenticate(Collections.singletonList(integration), request);
+
+        Assertions.assertTrue(outcome.isSuccess());
+        Assertions.assertEquals(Collections.singleton("plugin_reader"), outcome.getGrantedRoles());
+    }
+
+    @Test
+    void testAuthenticateIgnoresInlineRoleMappingProperties() throws Exception {
+        AuthenticationPluginManager pluginManager = new AuthenticationPluginManager();
+        pluginManager.registerFactory(new ChainTestPluginFactory());
+        AuthenticationIntegrationRuntime runtime = new AuthenticationIntegrationRuntime(pluginManager);
+
+        AuthenticationIntegrationMeta integration = meta("inline", "chain_test", map(
+                "result", "SUCCESS",
+                "granted_role", "plugin_reader",
+                "role_mapping.rule.oncall.condition", "has_group(\"oncall\") && has_scope(\"logs:write\")",
+                "role_mapping.rule.oncall.roles", "mapped_reader"));
+        runtime.activatePreparedAuthenticationIntegration(runtime.prepareAuthenticationIntegration(integration));
+
+        AuthenticationOutcome outcome = runtime.authenticate(Collections.singletonList(integration), request());
+
+        Assertions.assertTrue(outcome.isSuccess());
+        Assertions.assertEquals(Collections.singleton("plugin_reader"), outcome.getGrantedRoles());
+    }
+
+    @Test
+    void testAuthenticateMergesMetadataBackedRoleMappingRoles() throws Exception {
+        AuthenticationPluginManager pluginManager = new AuthenticationPluginManager();
+        pluginManager.registerFactory(new ChainTestPluginFactory());
+        AuthenticationIntegrationRuntime runtime = new AuthenticationIntegrationRuntime(pluginManager);
+
+        AuthenticationIntegrationMeta integration = meta("corp", "chain_test",
+                map("result", "SUCCESS", "granted_role", "plugin_reader"));
+        runtime.activatePreparedAuthenticationIntegration(runtime.prepareAuthenticationIntegration(integration));
+
+        Env env = Mockito.mock(Env.class);
+        RoleMappingMgr roleMappingMgr = Mockito.mock(RoleMappingMgr.class);
+        envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
+        Mockito.when(env.getRoleMappingMgr()).thenReturn(roleMappingMgr);
+        Mockito.when(roleMappingMgr.getRoleMappingByIntegration("corp")).thenReturn(new RoleMappingMeta(
+                "corp_mapping",
+                "corp",
+                Collections.singletonList(new RoleMappingMeta.RuleMeta(
+                        "has_group(\"oncall\") && has_scope(\"logs:write\")",
+                        set("mapped_reader"))),
+                null,
+                CREATE_USER,
+                1L,
+                CREATE_USER,
+                1L));
+
+        AuthenticationOutcome outcome = runtime.authenticate(Collections.singletonList(integration), request());
+
+        Assertions.assertTrue(outcome.isSuccess());
+        Assertions.assertEquals(set("plugin_reader", "mapped_reader"), outcome.getGrantedRoles());
+        Assertions.assertEquals(set("plugin_reader", "mapped_reader"), outcome.getAuthResult().getGrantedRoles());
+    }
+
+    @Test
+    void testAuthenticateFailsWhenRoleMappingMetadataIsInvalid() throws Exception {
+        AuthenticationPluginManager pluginManager = new AuthenticationPluginManager();
+        pluginManager.registerFactory(new ChainTestPluginFactory());
+        AuthenticationIntegrationRuntime runtime = new AuthenticationIntegrationRuntime(pluginManager);
+        AuthenticationIntegrationMeta integration = meta("corp", "chain_test", map("result", "SUCCESS"));
+        runtime.activatePreparedAuthenticationIntegration(runtime.prepareAuthenticationIntegration(integration));
+
+        Env env = Mockito.mock(Env.class);
+        RoleMappingMgr roleMappingMgr = Mockito.mock(RoleMappingMgr.class);
+        envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
+        Mockito.when(env.getRoleMappingMgr()).thenReturn(roleMappingMgr);
+        Mockito.when(roleMappingMgr.getRoleMappingByIntegration("corp")).thenReturn(new RoleMappingMeta(
+                "broken_mapping",
+                "corp",
+                Collections.singletonList(new RoleMappingMeta.RuleMeta("unknown_helper()", set("analyst"))),
+                null,
+                CREATE_USER,
+                1L,
+                CREATE_USER,
+                1L));
+
+        AuthenticationOutcome outcome = runtime.authenticate(Collections.singletonList(integration), request());
+
+        Assertions.assertTrue(outcome.isFailure());
+        Assertions.assertEquals(AuthenticationFailureType.MISCONFIGURED,
+                outcome.getAuthResult().getException().getFailureType());
+    }
+
+    @Test
     void testRebuildKeepsPluginInstancesLazy() throws Exception {
         List<String> initializedMarkers = new ArrayList<>();
         AuthenticationPluginManager pluginManager = new AuthenticationPluginManager();
@@ -181,6 +288,20 @@ class AuthenticationIntegrationRuntimeTest {
         return result;
     }
 
+    private static Set<String> set(String... roles) {
+        return new LinkedHashSet<>(Arrays.asList(roles));
+    }
+
+    private static AuthenticationRequest request() {
+        return AuthenticationRequest.builder()
+                .username("alice")
+                .credentialType(CredentialType.CLEAR_TEXT_PASSWORD)
+                .credential("secret".getBytes(StandardCharsets.UTF_8))
+                .remoteHost("127.0.0.1")
+                .clientType("mysql")
+                .build();
+    }
+
     private static class ChainTestPluginFactory implements AuthenticationPluginFactory {
         @Override
         public String name() {
@@ -216,10 +337,18 @@ class AuthenticationIntegrationRuntimeTest {
                     return AuthenticationResult.failure(
                             AuthenticationFailureType.BAD_CREDENTIAL, "Bad credential");
                 default:
-                    return AuthenticationResult.success(BasicPrincipal.builder()
+                    BasicPrincipal principal = BasicPrincipal.builder()
                             .name(request.getUsername())
                             .authenticator(integration.getName())
-                            .build());
+                            .externalGroups(Collections.singleton("oncall"))
+                            .multiValueAttributes(Collections.singletonMap(
+                                    "scope", Collections.singleton("logs:write")))
+                            .build();
+                    String grantedRole = integration.getProperty("granted_role", "");
+                    if (grantedRole.isEmpty()) {
+                        return AuthenticationResult.success(principal);
+                    }
+                    return AuthenticationResult.success(principal, Collections.singleton(grantedRole));
             }
         }
     }

@@ -1164,4 +1164,747 @@ TEST_F(VWindowFunnelV2Test, testIncreaseModeOldChainBetter) {
     }
 }
 
+// Test DEDUPLICATION mode: same-row multi-event matching should NOT break the chain.
+// This is the exact scenario from the bug report where V1 returns 3 but V2 returned 2.
+//
+// 3 conditions, window=1 day (86400s), DEDUPLICATION mode
+//   Row 0 (t=10:00): event1=T, event2=T, event3=F  → matches E0+E1 on same row
+//   Row 1 (t=11:00): event1=T, event2=T, event3=F  → matches E0+E1 on same row
+//   Row 2 (t=12:00): event1=T, event2=F, event3=T  → matches E0+E2 on same row
+//
+// V2 stores events in reverse order per row: [E1, E0] for each multi-match row.
+// After sort, events_list for row0: (t=10:00, E1-cont), (t=10:00, E0)
+// Bug: when processing E0 from row0 after E1 was already used to advance the chain,
+// old V2 would break the chain. With the fix, E0 is recognized as same-row and skipped.
+//
+// Expected chain: E0@row0 → E1@row1 → E2@row2 = 3
+TEST_F(VWindowFunnelV2Test, testDeduplicationSameRowMultiEvent) {
+    AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
+    DataTypes data_types_3 = {
+            std::make_shared<DataTypeInt64>(),      std::make_shared<DataTypeString>(),
+            std::make_shared<DataTypeDateTimeV2>(), std::make_shared<DataTypeUInt8>(),
+            std::make_shared<DataTypeUInt8>(),      std::make_shared<DataTypeUInt8>()};
+    auto agg_func_3 = factory.get("window_funnel_v2", data_types_3, nullptr, false,
+                                  BeExecVersionManager::get_newest_version());
+    ASSERT_NE(agg_func_3, nullptr);
+
+    const int NUM_ROWS = 3;
+    auto column_mode = ColumnString::create();
+    for (int i = 0; i < NUM_ROWS; i++) {
+        column_mode->insert(Field::create_field<TYPE_STRING>("deduplication"));
+    }
+    auto column_timestamp = ColumnDateTimeV2::create();
+    VecDateTimeValue tv0, tv1, tv2;
+    tv0.unchecked_set_time(2022, 3, 12, 10, 0, 0);
+    tv1.unchecked_set_time(2022, 3, 12, 11, 0, 0);
+    tv2.unchecked_set_time(2022, 3, 12, 12, 0, 0);
+    auto dtv2_0 = tv0.to_datetime_v2();
+    auto dtv2_1 = tv1.to_datetime_v2();
+    auto dtv2_2 = tv2.to_datetime_v2();
+    column_timestamp->insert_data((char*)&dtv2_0, 0);
+    column_timestamp->insert_data((char*)&dtv2_1, 0);
+    column_timestamp->insert_data((char*)&dtv2_2, 0);
+
+    // Row 0: event1=T, event2=T, event3=F  (matches E0 and E1)
+    // Row 1: event1=T, event2=T, event3=F  (matches E0 and E1)
+    // Row 2: event1=T, event2=F, event3=T  (matches E0 and E2)
+    auto column_event1 = ColumnUInt8::create();
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(1));
+
+    auto column_event2 = ColumnUInt8::create();
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(0));
+
+    auto column_event3 = ColumnUInt8::create();
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(1));
+
+    auto column_window = ColumnInt64::create();
+    for (int i = 0; i < NUM_ROWS; i++) {
+        column_window->insert(Field::create_field<TYPE_BIGINT>(86400));
+    }
+
+    std::unique_ptr<char[]> memory(new char[agg_func_3->size_of_data()]);
+    AggregateDataPtr place = memory.get();
+    agg_func_3->create(place);
+    const IColumn* column[6] = {column_window.get(), column_mode.get(),   column_timestamp.get(),
+                                column_event1.get(), column_event2.get(), column_event3.get()};
+    for (int i = 0; i < NUM_ROWS; i++) {
+        agg_func_3->add(place, column, i, arena);
+    }
+
+    ColumnInt32 column_result;
+    agg_func_3->insert_result_into(place, column_result);
+    // Chain: E0@row0 -> E1@row1 -> E2@row2 = 3
+    // Before fix: V2 returned 2 because same-row E0 broke the chain after E1 was used.
+    EXPECT_EQ(column_result.get_data()[0], 3);
+    agg_func_3->destroy(place);
+}
+
+// Test DEDUPLICATION mode: a true duplicate on a DIFFERENT row should still break the chain.
+// This ensures the fix doesn't over-suppress chain breaks.
+//
+// 3 conditions, window=86400s, DEDUPLICATION mode
+//   Row 0 (t=10:00): event1=T only
+//   Row 1 (t=11:00): event2=T only
+//   Row 2 (t=12:00): event1=T only  ← true duplicate E0 from different row → breaks chain
+//   Row 3 (t=13:00): event3=T only
+//
+// Expected: 2 (chain E0@row0 → E1@row1, then E0@row2 breaks it; new chain E0@row2 alone = 1)
+TEST_F(VWindowFunnelV2Test, testDeduplicationTrueDuplicateStillBreaks) {
+    AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
+    DataTypes data_types_3 = {
+            std::make_shared<DataTypeInt64>(),      std::make_shared<DataTypeString>(),
+            std::make_shared<DataTypeDateTimeV2>(), std::make_shared<DataTypeUInt8>(),
+            std::make_shared<DataTypeUInt8>(),      std::make_shared<DataTypeUInt8>()};
+    auto agg_func_3 = factory.get("window_funnel_v2", data_types_3, nullptr, false,
+                                  BeExecVersionManager::get_newest_version());
+    ASSERT_NE(agg_func_3, nullptr);
+
+    const int NUM_ROWS = 4;
+    auto column_mode = ColumnString::create();
+    for (int i = 0; i < NUM_ROWS; i++) {
+        column_mode->insert(Field::create_field<TYPE_STRING>("deduplication"));
+    }
+    auto column_timestamp = ColumnDateTimeV2::create();
+    VecDateTimeValue tv0, tv1, tv2, tv3;
+    tv0.unchecked_set_time(2022, 3, 12, 10, 0, 0);
+    tv1.unchecked_set_time(2022, 3, 12, 11, 0, 0);
+    tv2.unchecked_set_time(2022, 3, 12, 12, 0, 0);
+    tv3.unchecked_set_time(2022, 3, 12, 13, 0, 0);
+    auto dtv2_0 = tv0.to_datetime_v2();
+    auto dtv2_1 = tv1.to_datetime_v2();
+    auto dtv2_2 = tv2.to_datetime_v2();
+    auto dtv2_3 = tv3.to_datetime_v2();
+    column_timestamp->insert_data((char*)&dtv2_0, 0);
+    column_timestamp->insert_data((char*)&dtv2_1, 0);
+    column_timestamp->insert_data((char*)&dtv2_2, 0);
+    column_timestamp->insert_data((char*)&dtv2_3, 0);
+
+    // Row 0: event1=T only
+    // Row 1: event2=T only
+    // Row 2: event1=T only (true duplicate from different row)
+    // Row 3: event3=T only
+    auto column_event1 = ColumnUInt8::create();
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(0));
+
+    auto column_event2 = ColumnUInt8::create();
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(0));
+
+    auto column_event3 = ColumnUInt8::create();
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(1));
+
+    auto column_window = ColumnInt64::create();
+    for (int i = 0; i < NUM_ROWS; i++) {
+        column_window->insert(Field::create_field<TYPE_BIGINT>(86400));
+    }
+
+    std::unique_ptr<char[]> memory(new char[agg_func_3->size_of_data()]);
+    AggregateDataPtr place = memory.get();
+    agg_func_3->create(place);
+    const IColumn* column[6] = {column_window.get(), column_mode.get(),   column_timestamp.get(),
+                                column_event1.get(), column_event2.get(), column_event3.get()};
+    for (int i = 0; i < NUM_ROWS; i++) {
+        agg_func_3->add(place, column, i, arena);
+    }
+
+    ColumnInt32 column_result;
+    agg_func_3->insert_result_into(place, column_result);
+    // Chain: E0@row0 -> E1@row1 (level=2), then E0@row2 is a TRUE duplicate from a
+    // different row → breaks chain. New chain: E0@row2, no E1 → level=1.
+    // max(2, 1) = 2
+    EXPECT_EQ(column_result.get_data()[0], 2);
+    agg_func_3->destroy(place);
+}
+
+// Dedup mode: same-row E0 skip when chain is advanced by same-row events.
+// When a row matches all 3 conditions and its E2 advances the chain, E0 from
+// the same row should be skipped (not restart the chain) because the row already
+// contributed to chain advancement.
+TEST_F(VWindowFunnelV2Test, testDeduplicationE0PendingRestart) {
+    AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
+    DataTypes data_types_3 = {
+            std::make_shared<DataTypeInt64>(),      std::make_shared<DataTypeString>(),
+            std::make_shared<DataTypeDateTimeV2>(), std::make_shared<DataTypeUInt8>(),
+            std::make_shared<DataTypeUInt8>(),      std::make_shared<DataTypeUInt8>()};
+    auto agg_func_3 = factory.get("window_funnel_v2", data_types_3, nullptr, false,
+                                  BeExecVersionManager::get_newest_version());
+    ASSERT_NE(agg_func_3, nullptr);
+
+    // Scenario: 3 conditions, c1/c2/c3.
+    // Row 0 (t=10:00): c1=T only            → E0@R0, chain starts level=0
+    // Row 1 (t=11:00): c2=T only            → E1@R1, chain advances level=1
+    // Row 2 (t=12:00): c1=T, c2=T, c3=T    → E2(cont=0), E1(cont=1), E0(cont=1)
+    //   E2: predecessor E1 matched, not same row → promote level=2
+    //   E1(cont=1): duplicate, same row as E2@R2 → skip
+    //   E0(cont=1): same row as chain (E2@R2 at level 2) → skip
+    // Row 3 (t=13:00): c3=T only            → E2: duplicate level=2, different row → terminates chain
+    // Result: max(2+1, 0+1) = 3
+    const int NUM_ROWS = 4;
+    auto column_mode = ColumnString::create();
+    for (int i = 0; i < NUM_ROWS; i++) {
+        column_mode->insert(Field::create_field<TYPE_STRING>("deduplication"));
+    }
+    auto column_timestamp = ColumnDateTimeV2::create();
+    VecDateTimeValue tv0, tv1, tv2, tv3;
+    tv0.unchecked_set_time(2022, 3, 12, 10, 0, 0);
+    tv1.unchecked_set_time(2022, 3, 12, 11, 0, 0);
+    tv2.unchecked_set_time(2022, 3, 12, 12, 0, 0);
+    tv3.unchecked_set_time(2022, 3, 12, 13, 0, 0);
+    auto dtv2_0 = tv0.to_datetime_v2();
+    auto dtv2_1 = tv1.to_datetime_v2();
+    auto dtv2_2 = tv2.to_datetime_v2();
+    auto dtv2_3 = tv3.to_datetime_v2();
+    column_timestamp->insert_data((char*)&dtv2_0, 0);
+    column_timestamp->insert_data((char*)&dtv2_1, 0);
+    column_timestamp->insert_data((char*)&dtv2_2, 0);
+    column_timestamp->insert_data((char*)&dtv2_3, 0);
+
+    // Row 0: c1=T, c2=F, c3=F
+    // Row 1: c1=F, c2=T, c3=F
+    // Row 2: c1=T, c2=T, c3=T
+    // Row 3: c1=F, c2=F, c3=T
+    auto column_event1 = ColumnUInt8::create();
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(0));
+
+    auto column_event2 = ColumnUInt8::create();
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(0));
+
+    auto column_event3 = ColumnUInt8::create();
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(1));
+
+    auto column_window = ColumnInt64::create();
+    for (int i = 0; i < NUM_ROWS; i++) {
+        column_window->insert(Field::create_field<TYPE_BIGINT>(86400));
+    }
+
+    std::unique_ptr<char[]> memory(new char[agg_func_3->size_of_data()]);
+    AggregateDataPtr place = memory.get();
+    agg_func_3->create(place);
+    const IColumn* column[6] = {column_window.get(), column_mode.get(),   column_timestamp.get(),
+                                column_event1.get(), column_event2.get(), column_event3.get()};
+    for (int i = 0; i < NUM_ROWS; i++) {
+        agg_func_3->add(place, column, i, arena);
+    }
+
+    ColumnInt32 column_result;
+    agg_func_3->insert_result_into(place, column_result);
+    // Chain reaches level 2 (3 steps matched: E0→E1→E2) before E2@R3 duplicate terminates it.
+    EXPECT_EQ(column_result.get_data()[0], 3);
+    agg_func_3->destroy(place);
+}
+
+// Dedup mode: E0 restart after chain terminated by same-row duplicate.
+// When a row matches c1+c2, and c2 is a duplicate that terminates the chain,
+// the E0 from the same row should start a new chain because _eliminate_chain()
+// clears events_timestamp, so _is_same_row_as_chain won't trigger.
+TEST_F(VWindowFunnelV2Test, testDeduplicationE0PendingRestartApplied) {
+    AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
+    DataTypes data_types_3 = {
+            std::make_shared<DataTypeInt64>(),      std::make_shared<DataTypeString>(),
+            std::make_shared<DataTypeDateTimeV2>(), std::make_shared<DataTypeUInt8>(),
+            std::make_shared<DataTypeUInt8>(),      std::make_shared<DataTypeUInt8>()};
+    auto agg_func_3 = factory.get("window_funnel_v2", data_types_3, nullptr, false,
+                                  BeExecVersionManager::get_newest_version());
+    ASSERT_NE(agg_func_3, nullptr);
+
+    // Scenario: Row matches c1+c2 where c2 is a duplicate → chain terminated by duplicate.
+    // The pending E0 from same row should restart.
+    // Row 0 (t=10:00): c1=T only → chain level=0
+    // Row 1 (t=11:00): c2=T only → chain level=1
+    // Row 2 (t=12:00): c1=T, c2=T → E1(cont=0), E0(cont=1)
+    //   E1(cont=0): duplicate! R2 ≠ R0, R2 ≠ R1 → NOT same row as chain → terminate.
+    //   E0(cont=1): _is_same_row_as_chain → but chain just eliminated! events_timestamp[0] cleared.
+    //     Actually after eliminate, events_timestamp[0] has no value, so the _is_same_row_as_chain
+    //     check at E0 won't enter the if branch. E0 directly starts new chain.
+    // Row 3 (t=13:00): c2=T only → chain level=1
+    // Row 4 (t=14:00): c3=T only → chain level=2
+    // Result: max(1+1, 2+1) = 3
+    const int NUM_ROWS = 5;
+    auto column_mode = ColumnString::create();
+    for (int i = 0; i < NUM_ROWS; i++) {
+        column_mode->insert(Field::create_field<TYPE_STRING>("deduplication"));
+    }
+    auto column_timestamp = ColumnDateTimeV2::create();
+    VecDateTimeValue tv0, tv1, tv2, tv3, tv4;
+    tv0.unchecked_set_time(2022, 3, 12, 10, 0, 0);
+    tv1.unchecked_set_time(2022, 3, 12, 11, 0, 0);
+    tv2.unchecked_set_time(2022, 3, 12, 12, 0, 0);
+    tv3.unchecked_set_time(2022, 3, 12, 13, 0, 0);
+    tv4.unchecked_set_time(2022, 3, 12, 14, 0, 0);
+    auto dtv2_0 = tv0.to_datetime_v2();
+    auto dtv2_1 = tv1.to_datetime_v2();
+    auto dtv2_2 = tv2.to_datetime_v2();
+    auto dtv2_3 = tv3.to_datetime_v2();
+    auto dtv2_4 = tv4.to_datetime_v2();
+    column_timestamp->insert_data((char*)&dtv2_0, 0);
+    column_timestamp->insert_data((char*)&dtv2_1, 0);
+    column_timestamp->insert_data((char*)&dtv2_2, 0);
+    column_timestamp->insert_data((char*)&dtv2_3, 0);
+    column_timestamp->insert_data((char*)&dtv2_4, 0);
+
+    // Row 0: c1=T, c2=F, c3=F
+    // Row 1: c1=F, c2=T, c3=F
+    // Row 2: c1=T, c2=T, c3=F
+    // Row 3: c1=F, c2=T, c3=F
+    // Row 4: c1=F, c2=F, c3=T
+    auto column_event1 = ColumnUInt8::create();
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(0));
+
+    auto column_event2 = ColumnUInt8::create();
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(0));
+
+    auto column_event3 = ColumnUInt8::create();
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(1));
+
+    auto column_window = ColumnInt64::create();
+    for (int i = 0; i < NUM_ROWS; i++) {
+        column_window->insert(Field::create_field<TYPE_BIGINT>(86400));
+    }
+
+    std::unique_ptr<char[]> memory(new char[agg_func_3->size_of_data()]);
+    AggregateDataPtr place = memory.get();
+    agg_func_3->create(place);
+    const IColumn* column[6] = {column_window.get(), column_mode.get(),   column_timestamp.get(),
+                                column_event1.get(), column_event2.get(), column_event3.get()};
+    for (int i = 0; i < NUM_ROWS; i++) {
+        agg_func_3->add(place, column, i, arena);
+    }
+
+    ColumnInt32 column_result;
+    agg_func_3->insert_result_into(place, column_result);
+    // First chain: E0@R0→E1@R1 (level=2). E1@R2 duplicate terminates.
+    // E0@R2 restarts. New chain: E0@R2→E1@R3→E2@R4 (level=3).
+    // max(2, 3) = 3.
+    EXPECT_EQ(column_result.get_data()[0], 3);
+    agg_func_3->destroy(place);
+}
+
+// Fixed mode: same-row multi-condition level jump fix.
+// When a row matches both a high-index condition (c3) and a low-index condition (c2),
+// the high-index event was processed first and triggered a spurious level jump before
+// the low-index event could advance the chain.
+TEST_F(VWindowFunnelV2Test, testFixedSameRowMultiCondLevelJump) {
+    // Use 3 conditions: c1=event1, c2=event2, c3=event3
+    AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
+    DataTypes data_types_3 = {
+            std::make_shared<DataTypeInt64>(),      std::make_shared<DataTypeString>(),
+            std::make_shared<DataTypeDateTimeV2>(), std::make_shared<DataTypeUInt8>(),
+            std::make_shared<DataTypeUInt8>(),      std::make_shared<DataTypeUInt8>()};
+    auto agg_func_3 = factory.get("window_funnel_v2", data_types_3, nullptr, false,
+                                  BeExecVersionManager::get_newest_version());
+    ASSERT_NE(agg_func_3, nullptr);
+
+    const int NUM_ROWS = 2;
+    auto column_mode = ColumnString::create();
+    for (int i = 0; i < NUM_ROWS; i++) {
+        column_mode->insert(Field::create_field<TYPE_STRING>("fixed"));
+    }
+    auto column_timestamp = ColumnDateTimeV2::create();
+    VecDateTimeValue tv0, tv1;
+    tv0.unchecked_set_time(2020, 1, 1, 0, 0, 0);
+    tv1.unchecked_set_time(2020, 1, 2, 0, 0, 0);
+    auto dtv2_0 = tv0.to_datetime_v2();
+    auto dtv2_1 = tv1.to_datetime_v2();
+    column_timestamp->insert_data((char*)&dtv2_0, 0);
+    column_timestamp->insert_data((char*)&dtv2_1, 0);
+
+    // Row 0: c1=T, c2=T, c3=T (all match — starts chain via c1)
+    // Row 1: c1=F, c2=T, c3=T (c3 would trigger level jump before c2 can advance)
+    auto column_event1 = ColumnUInt8::create();
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(0));
+
+    auto column_event2 = ColumnUInt8::create();
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(1));
+
+    auto column_event3 = ColumnUInt8::create();
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(1));
+
+    auto column_window = ColumnInt64::create();
+    for (int i = 0; i < NUM_ROWS; i++) {
+        column_window->insert(Field::create_field<TYPE_BIGINT>(86400));
+    }
+
+    std::unique_ptr<char[]> memory(new char[agg_func_3->size_of_data()]);
+    AggregateDataPtr place = memory.get();
+    agg_func_3->create(place);
+    const IColumn* column[6] = {column_window.get(), column_mode.get(),   column_timestamp.get(),
+                                column_event1.get(), column_event2.get(), column_event3.get()};
+    for (int i = 0; i < NUM_ROWS; i++) {
+        agg_func_3->add(place, column, i, arena);
+    }
+
+    ColumnInt32 column_result;
+    agg_func_3->insert_result_into(place, column_result);
+    // Before fix: c3 from row 1 triggered level jump (c2 predecessor not matched) → result 1.
+    // After fix: same-row look-ahead finds c2 can advance → skip level jump → result 2.
+    EXPECT_EQ(column_result.get_data()[0], 2);
+    agg_func_3->destroy(place);
+}
+
+// Fixed mode: same-row duplicate should NOT suppress a level-jump break.
+// Counterexample from review: E0@r0, E1@r1, (E3,E1)@r2, E2@r3, E3@r4.
+// E1@r2 is a duplicate of an already-matched level (curr_level=2, sr_idx=1 ≤ curr_level),
+// so it must not be treated as an advancement. The chain should break at E3@r2.
+TEST_F(VWindowFunnelV2Test, testFixedSameRowDuplicateDoesNotSuppressJump) {
+    AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
+    // 4 conditions: window, mode, timestamp, c1, c2, c3, c4
+    DataTypes data_types_4 = {
+            std::make_shared<DataTypeInt64>(),      std::make_shared<DataTypeString>(),
+            std::make_shared<DataTypeDateTimeV2>(), std::make_shared<DataTypeUInt8>(),
+            std::make_shared<DataTypeUInt8>(),      std::make_shared<DataTypeUInt8>(),
+            std::make_shared<DataTypeUInt8>()};
+    auto agg_func = factory.get("window_funnel_v2", data_types_4, nullptr, false,
+                                BeExecVersionManager::get_newest_version());
+    ASSERT_NE(agg_func, nullptr);
+
+    const int NUM_ROWS = 5;
+    auto column_mode = ColumnString::create();
+    for (int i = 0; i < NUM_ROWS; i++) {
+        column_mode->insert(Field::create_field<TYPE_STRING>("fixed"));
+    }
+
+    // Timestamps: r0=t0, r1=t1, r2=t2, r3=t3, r4=t4 (all within window)
+    auto column_timestamp = ColumnDateTimeV2::create();
+    for (int i = 0; i < NUM_ROWS; i++) {
+        VecDateTimeValue tv;
+        tv.unchecked_set_time(2020, 1, 1 + i, 0, 0, 0);
+        auto dtv2 = tv.to_datetime_v2();
+        column_timestamp->insert_data((char*)&dtv2, 0);
+    }
+
+    // r0: c1=T, c2=F, c3=F, c4=F → E0
+    // r1: c1=F, c2=T, c3=F, c4=F → E1
+    // r2: c1=F, c2=T, c3=F, c4=T → E1(dup)+E3(jump)
+    // r3: c1=F, c2=F, c3=T, c4=F → E2
+    // r4: c1=F, c2=F, c3=F, c4=T → E3
+    auto column_c1 = ColumnUInt8::create();
+    for (int v : {1, 0, 0, 0, 0}) column_c1->insert(Field::create_field<TYPE_BOOLEAN>(v));
+
+    auto column_c2 = ColumnUInt8::create();
+    for (int v : {0, 1, 1, 0, 0}) column_c2->insert(Field::create_field<TYPE_BOOLEAN>(v));
+
+    auto column_c3 = ColumnUInt8::create();
+    for (int v : {0, 0, 0, 1, 0}) column_c3->insert(Field::create_field<TYPE_BOOLEAN>(v));
+
+    auto column_c4 = ColumnUInt8::create();
+    for (int v : {0, 0, 1, 0, 1}) column_c4->insert(Field::create_field<TYPE_BOOLEAN>(v));
+
+    auto column_window = ColumnInt64::create();
+    for (int i = 0; i < NUM_ROWS; i++) {
+        column_window->insert(Field::create_field<TYPE_BIGINT>(86400 * 10));
+    }
+
+    std::unique_ptr<char[]> memory(new char[agg_func->size_of_data()]);
+    AggregateDataPtr place = memory.get();
+    agg_func->create(place);
+    const IColumn* column[7] = {column_window.get(), column_mode.get(), column_timestamp.get(),
+                                column_c1.get(),     column_c2.get(),   column_c3.get(),
+                                column_c4.get()};
+    for (int i = 0; i < NUM_ROWS; i++) {
+        agg_func->add(place, column, i, arena);
+    }
+
+    ColumnInt32 column_result;
+    agg_func->insert_result_into(place, column_result);
+    // Chain: E0@r0 → E1@r1 → E3@r2 triggers level jump. E1@r2 is a duplicate
+    // (sr_idx=1 ≤ curr_level=2), so it must NOT suppress the break. Result = 2.
+    EXPECT_EQ(column_result.get_data()[0], 2);
+    agg_func->destroy(place);
+}
+
+// Fixed mode: when a row matches multiple conditions including E0 (c1),
+// the E0 continuation should NOT restart the chain if a same-row event
+// already advanced it. This emulates V1's row-based semantics where each
+// row is tested against exactly one expected condition.
+TEST_F(VWindowFunnelV2Test, testFixedContinuationE0DoesNotRestartChain) {
+    AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
+    DataTypes data_types_3 = {
+            std::make_shared<DataTypeInt64>(),      std::make_shared<DataTypeString>(),
+            std::make_shared<DataTypeDateTimeV2>(), std::make_shared<DataTypeUInt8>(),
+            std::make_shared<DataTypeUInt8>(),      std::make_shared<DataTypeUInt8>()};
+    auto agg_func_3 = factory.get("window_funnel_v2", data_types_3, nullptr, false,
+                                  BeExecVersionManager::get_newest_version());
+    ASSERT_NE(agg_func_3, nullptr);
+
+    // 3 rows, 3 conditions (c1, c2, c3):
+    //   r0: c1=T, c2=F, c3=F   -> E0 starts chain
+    //   r1: c1=T, c2=T, c3=F   -> c2 advances chain, c1(cont) should be skipped
+    //   r2: c1=F, c2=F, c3=T   -> c3 advances chain to level 2
+    // Expected result: 3 (c1@r0 -> c2@r1 -> c3@r2)
+    // Without E0-skip fix, c1@r1(cont) would restart chain, and result would be 2.
+    const int NUM_ROWS = 3;
+    auto column_mode = ColumnString::create();
+    for (int i = 0; i < NUM_ROWS; i++) {
+        column_mode->insert(Field::create_field<TYPE_STRING>("fixed"));
+    }
+    auto column_timestamp = ColumnDateTimeV2::create();
+    VecDateTimeValue tv;
+    for (int i = 0; i < NUM_ROWS; i++) {
+        tv.unchecked_set_time(2020, 1, i + 1, 0, 0, 0);
+        auto dtv2 = tv.to_datetime_v2();
+        column_timestamp->insert_data((char*)&dtv2, 0);
+    }
+
+    auto column_window = ColumnInt64::create();
+    for (int i = 0; i < NUM_ROWS; i++) {
+        column_window->insert(Field::create_field<TYPE_BIGINT>(86400 * 10));
+    }
+
+    // c1: r0=T, r1=T, r2=F
+    auto column_c1 = ColumnUInt8::create();
+    column_c1->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_c1->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_c1->insert(Field::create_field<TYPE_BOOLEAN>(0));
+
+    // c2: r0=F, r1=T, r2=F
+    auto column_c2 = ColumnUInt8::create();
+    column_c2->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_c2->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_c2->insert(Field::create_field<TYPE_BOOLEAN>(0));
+
+    // c3: r0=F, r1=F, r2=T
+    auto column_c3 = ColumnUInt8::create();
+    column_c3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_c3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_c3->insert(Field::create_field<TYPE_BOOLEAN>(1));
+
+    std::unique_ptr<char[]> memory(new char[agg_func_3->size_of_data()]);
+    AggregateDataPtr place = memory.get();
+    agg_func_3->create(place);
+    const IColumn* columns[6] = {column_window.get(), column_mode.get(), column_timestamp.get(),
+                                 column_c1.get(),     column_c2.get(),   column_c3.get()};
+    for (int i = 0; i < NUM_ROWS; i++) {
+        agg_func_3->add(place, columns, i, arena);
+    }
+
+    ColumnInt32 column_result;
+    agg_func_3->insert_result_into(place, column_result);
+    EXPECT_EQ(column_result.get_data()[0], 3);
+    agg_func_3->destroy(place);
+}
+
+// Dedup mode multi-pass: V1 reaches level 4 by starting from a later E0 and skipping
+// over rows that match higher-level conditions. The old single-pass V2 broke at level 3
+// because it greedily promoted from multi-condition rows, creating premature duplicates.
+// 7 conditions, 15 valid rows (after null filtering). Window ~35 years (effectively unlimited).
+// V1 chain: c1@R5(pk=8) → c2@R9(pk=6) → c3@R10(pk=12) → c4@R12(pk=5), then c1 dup at R13 → level=4.
+TEST_F(VWindowFunnelV2Test, testDeduplicationMultiPassGapCheck) {
+    AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
+    // 7 conditions
+    DataTypes data_types_7 = {
+            std::make_shared<DataTypeInt64>(),      std::make_shared<DataTypeString>(),
+            std::make_shared<DataTypeDateTimeV2>(), std::make_shared<DataTypeUInt8>(),
+            std::make_shared<DataTypeUInt8>(),      std::make_shared<DataTypeUInt8>(),
+            std::make_shared<DataTypeUInt8>(),      std::make_shared<DataTypeUInt8>(),
+            std::make_shared<DataTypeUInt8>(),      std::make_shared<DataTypeUInt8>()};
+    auto agg_func = factory.get("window_funnel_v2", data_types_7, nullptr, false,
+                                BeExecVersionManager::get_newest_version());
+    ASSERT_NE(agg_func, nullptr);
+
+    // 15 rows sorted by timestamp (null rows excluded at SQL level).
+    // Conditions: c1=val<4, c2=val<=2, c3=val!=6, c4=val<=4, c5=date='2023-12-13',
+    //             c6=val<=5, c7=val<=8
+    struct RowData {
+        int year, month, day;
+        int val;
+        bool date_is_2023_12_13;
+    };
+    // clang-format off
+    RowData rows[] = {
+        {2000, 3, 19, 3, false},  // pk=10
+        {2000, 4,  3, 8, false},  // pk=9
+        {2001,10, 12, 3, false},  // pk=2
+        {2002,11, 15, 8, false},  // pk=0
+        {2003, 9, 10, 0, false},  // pk=19
+        {2006, 6,  6, 0, false},  // pk=8  ← V1 best E0 start
+        {2008, 7,  3, 8, false},  // pk=3
+        {2009, 3,  3, 9, false},  // pk=11
+        {2009, 5, 16, 8, true},   // pk=16
+        {2009,11,  3, 0, true},   // pk=6  ← all 7 conditions match
+        {2011, 6, 25, 7, true},   // pk=12
+        {2014, 5, 16, 6, false},  // pk=14
+        {2014,11,  2, 0, false},  // pk=5
+        {2016, 1,  8, 3, false},  // pk=13
+        {2017, 1,  3, 8, true},   // pk=17
+    };
+    // clang-format on
+    const int NUM_ROWS = 15;
+
+    auto column_mode = ColumnString::create();
+    for (int i = 0; i < NUM_ROWS; i++) {
+        column_mode->insert(Field::create_field<TYPE_STRING>("deduplication"));
+    }
+
+    auto column_timestamp = ColumnDateTimeV2::create();
+    for (int i = 0; i < NUM_ROWS; i++) {
+        VecDateTimeValue tv;
+        tv.unchecked_set_time(rows[i].year, rows[i].month, rows[i].day, 0, 0, 0);
+        auto dtv2 = tv.to_datetime_v2();
+        column_timestamp->insert_data((char*)&dtv2, 0);
+    }
+
+    auto column_window = ColumnInt64::create();
+    for (int i = 0; i < NUM_ROWS; i++) {
+        column_window->insert(Field::create_field<TYPE_BIGINT>(1119906808));
+    }
+
+    // c1: val < 4
+    auto col_c1 = ColumnUInt8::create();
+    for (int i = 0; i < NUM_ROWS; i++)
+        col_c1->insert(Field::create_field<TYPE_BOOLEAN>(rows[i].val < 4 ? 1 : 0));
+    // c2: val <= 2
+    auto col_c2 = ColumnUInt8::create();
+    for (int i = 0; i < NUM_ROWS; i++)
+        col_c2->insert(Field::create_field<TYPE_BOOLEAN>(rows[i].val <= 2 ? 1 : 0));
+    // c3: val != 6
+    auto col_c3 = ColumnUInt8::create();
+    for (int i = 0; i < NUM_ROWS; i++)
+        col_c3->insert(Field::create_field<TYPE_BOOLEAN>(rows[i].val != 6 ? 1 : 0));
+    // c4: val <= 4
+    auto col_c4 = ColumnUInt8::create();
+    for (int i = 0; i < NUM_ROWS; i++)
+        col_c4->insert(Field::create_field<TYPE_BOOLEAN>(rows[i].val <= 4 ? 1 : 0));
+    // c5: date = '2023-12-13'
+    auto col_c5 = ColumnUInt8::create();
+    for (int i = 0; i < NUM_ROWS; i++)
+        col_c5->insert(Field::create_field<TYPE_BOOLEAN>(rows[i].date_is_2023_12_13 ? 1 : 0));
+    // c6: val <= 5
+    auto col_c6 = ColumnUInt8::create();
+    for (int i = 0; i < NUM_ROWS; i++)
+        col_c6->insert(Field::create_field<TYPE_BOOLEAN>(rows[i].val <= 5 ? 1 : 0));
+    // c7: val <= 8
+    auto col_c7 = ColumnUInt8::create();
+    for (int i = 0; i < NUM_ROWS; i++)
+        col_c7->insert(Field::create_field<TYPE_BOOLEAN>(rows[i].val <= 8 ? 1 : 0));
+
+    std::unique_ptr<char[]> memory(new char[agg_func->size_of_data()]);
+    AggregateDataPtr place = memory.get();
+    agg_func->create(place);
+    const IColumn* column[10] = {column_window.get(), column_mode.get(), column_timestamp.get(),
+                                 col_c1.get(),        col_c2.get(),      col_c3.get(),
+                                 col_c4.get(),        col_c5.get(),      col_c6.get(),
+                                 col_c7.get()};
+    for (int i = 0; i < NUM_ROWS; i++) {
+        agg_func->add(place, column, i, arena);
+    }
+
+    ColumnInt32 column_result;
+    agg_func->insert_result_into(place, column_result);
+    // V1 = 4: c1@R5(pk=8) → c2@R9(pk=6) → c3@R10(pk=12) → c4@R12(pk=5)
+    // c1 dup at R13(pk=13) breaks the chain before c5 can be matched.
+    EXPECT_EQ(column_result.get_data()[0], 4);
+    agg_func->destroy(place);
+}
+
+// FIXED mode "relevant-but-wrong row" break: when the next row after a matched
+// condition matches some condition but NOT the expected next one, the chain must
+// break. V1 checks consecutive rows, so a c2-only row after c1→c2 breaks when
+// expecting c3. Before the fix, V2 silently re-promoted c2 and kept searching.
+TEST_F(VWindowFunnelV2Test, testFixedRelevantButWrongRowBreaksChain) {
+    AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
+    DataTypes data_types_3 = {
+            std::make_shared<DataTypeInt64>(),      std::make_shared<DataTypeString>(),
+            std::make_shared<DataTypeDateTimeV2>(), std::make_shared<DataTypeUInt8>(),
+            std::make_shared<DataTypeUInt8>(),      std::make_shared<DataTypeUInt8>()};
+    auto agg_func_3 = factory.get("window_funnel_v2", data_types_3, nullptr, false,
+                                  BeExecVersionManager::get_newest_version());
+    ASSERT_NE(agg_func_3, nullptr);
+
+    // 4 rows, 3 conditions (c1, c2, c3):
+    //   r0: c1=T, c2=F, c3=F  → E0, chain level 0
+    //   r1: c1=F, c2=T, c3=F  → c2 advances chain to level 1
+    //   r2: c1=F, c2=T, c3=F  → c2 re-matches level 1 (expected c3). Chain BREAKS.
+    //   r3: c1=F, c2=F, c3=T  → c3 could advance but chain is already broken
+    // Expected: 2 (c1@r0 → c2@r1, break at r2)
+    const int NUM_ROWS = 4;
+    auto column_mode = ColumnString::create();
+    for (int i = 0; i < NUM_ROWS; i++) {
+        column_mode->insert(Field::create_field<TYPE_STRING>("fixed"));
+    }
+    auto column_timestamp = ColumnDateTimeV2::create();
+    VecDateTimeValue tv;
+    for (int i = 0; i < NUM_ROWS; i++) {
+        tv.unchecked_set_time(2020, 1, i + 1, 0, 0, 0);
+        auto dtv2 = tv.to_datetime_v2();
+        column_timestamp->insert_data((char*)&dtv2, 0);
+    }
+    auto column_window = ColumnInt64::create();
+    for (int i = 0; i < NUM_ROWS; i++) {
+        column_window->insert(Field::create_field<TYPE_BIGINT>(86400 * 10));
+    }
+
+    // c1: r0=T, r1=F, r2=F, r3=F
+    auto column_c1 = ColumnUInt8::create();
+    column_c1->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_c1->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_c1->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_c1->insert(Field::create_field<TYPE_BOOLEAN>(0));
+
+    // c2: r0=F, r1=T, r2=T, r3=F
+    auto column_c2 = ColumnUInt8::create();
+    column_c2->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_c2->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_c2->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_c2->insert(Field::create_field<TYPE_BOOLEAN>(0));
+
+    // c3: r0=F, r1=F, r2=F, r3=T
+    auto column_c3 = ColumnUInt8::create();
+    column_c3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_c3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_c3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_c3->insert(Field::create_field<TYPE_BOOLEAN>(1));
+
+    std::unique_ptr<char[]> memory(new char[agg_func_3->size_of_data()]);
+    AggregateDataPtr place = memory.get();
+    agg_func_3->create(place);
+    const IColumn* columns[6] = {column_window.get(), column_mode.get(), column_timestamp.get(),
+                                 column_c1.get(),     column_c2.get(),   column_c3.get()};
+    for (int i = 0; i < NUM_ROWS; i++) {
+        agg_func_3->add(place, columns, i, arena);
+    }
+
+    ColumnInt32 column_result;
+    agg_func_3->insert_result_into(place, column_result);
+    EXPECT_EQ(column_result.get_data()[0], 2);
+    agg_func_3->destroy(place);
+}
+
 } // namespace doris

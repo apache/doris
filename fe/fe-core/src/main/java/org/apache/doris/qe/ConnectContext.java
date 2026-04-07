@@ -28,10 +28,12 @@ import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.analysis.VariableExpr;
+import org.apache.doris.authentication.Principal;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
+import org.apache.doris.catalog.NameSpaceContext;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
@@ -90,6 +92,7 @@ import org.xnio.StreamConnection;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -170,6 +173,10 @@ public class ConnectContext {
     // In other word, currentUserIdentity is the entry that matched in Doris auth table.
     // This account determines user's access privileges.
     protected volatile UserIdentity currentUserIdentity;
+    // Authenticated external principal captured during the login flow.
+    protected volatile Principal authenticatedPrincipal;
+    // Roles granted during authentication and bound to the current session.
+    protected volatile Set<String> authenticatedRoles = Collections.emptySet();
     // Variables belong to this session.
     protected volatile SessionVariable sessionVariable;
     // Store user variable in this connection
@@ -661,6 +668,26 @@ public class ConnectContext {
         return currentUserIdentity;
     }
 
+    public Principal getAuthenticatedPrincipal() {
+        return authenticatedPrincipal;
+    }
+
+    public void setAuthenticatedPrincipal(Principal authenticatedPrincipal) {
+        this.authenticatedPrincipal = authenticatedPrincipal;
+    }
+
+    public Set<String> getAuthenticatedRoles() {
+        return authenticatedRoles;
+    }
+
+    public void setAuthenticatedRoles(Set<String> authenticatedRoles) {
+        if (authenticatedRoles.isEmpty()) {
+            this.authenticatedRoles = Collections.emptySet();
+            return;
+        }
+        this.authenticatedRoles = Collections.unmodifiableSet(new HashSet<>(authenticatedRoles));
+    }
+
     // used for select user(), select session_user();
     // return string similar with user@127.0.0.1
     public String getUserWithLoginRemoteIpString() {
@@ -843,6 +870,10 @@ public class ConnectContext {
 
     public String getDatabase() {
         return currentDb;
+    }
+
+    public NameSpaceContext getNameSpaceContext() {
+        return new NameSpaceContext(defaultCatalog, currentDb, currentDbId);
     }
 
     public void setDatabase(String db) {

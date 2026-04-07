@@ -70,7 +70,7 @@ public class DropRowPolicyCommand extends DropCommand {
      * validate
      */
     public void validate(ConnectContext ctx) throws AnalysisException {
-        tableNameInfo.analyze(ctx);
+        tableNameInfo.analyze(ctx.getNameSpaceContext());
         if (user != null) {
             user.analyze();
         }

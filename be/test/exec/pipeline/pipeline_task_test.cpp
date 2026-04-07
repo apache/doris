@@ -479,13 +479,67 @@ TEST_F(PipelineTaskTest, TEST_STATE_TRANSITION) {
         EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
         EXPECT_GT(task->_execution_dependencies.size(), 1);
     }
+    // Test normal LEGAL_STATE_TRANSITION table (with _wake_up_early = false).
+    task->_wake_up_early = false;
     for (int i = 0; i < task->LEGAL_STATE_TRANSITION.size(); i++) {
         auto target = (PipelineTask::State)i;
         for (int j = 0; j < task->LEGAL_STATE_TRANSITION.size(); j++) {
-            task->_exec_state = (PipelineTask::State)j;
+            auto from = (PipelineTask::State)j;
+            task->_exec_state = from;
             EXPECT_EQ(task->_state_transition(target).ok(),
-                      task->LEGAL_STATE_TRANSITION[i].contains((PipelineTask::State)j));
+                      task->LEGAL_STATE_TRANSITION[i].contains(from));
         }
+    }
+
+    // Test WAKE_UP_EARLY_LEGAL_STATE_TRANSITION table.
+    task->_wake_up_early = true;
+    for (int i = 0; i < task->WAKE_UP_EARLY_LEGAL_STATE_TRANSITION.size(); i++) {
+        auto target = (PipelineTask::State)i;
+        for (int j = 0; j < task->WAKE_UP_EARLY_LEGAL_STATE_TRANSITION.size(); j++) {
+            auto from = (PipelineTask::State)j;
+            task->_exec_state = from;
+            EXPECT_EQ(task->_state_transition(target).ok(),
+                      task->WAKE_UP_EARLY_LEGAL_STATE_TRANSITION[i].contains(from));
+        }
+    }
+
+    // FINISHED→RUNNABLE under wake_up_early is legal but no-op: state stays FINISHED.
+    task->_exec_state = PipelineTask::State::FINISHED;
+    EXPECT_TRUE(task->_state_transition(PipelineTask::State::RUNNABLE).ok());
+    EXPECT_EQ(task->_exec_state, PipelineTask::State::FINISHED);
+
+    // FINALIZED→RUNNABLE under wake_up_early is legal but no-op: state stays FINALIZED.
+    task->_exec_state = PipelineTask::State::FINALIZED;
+    EXPECT_TRUE(task->_state_transition(PipelineTask::State::RUNNABLE).ok());
+    EXPECT_EQ(task->_exec_state, PipelineTask::State::FINALIZED);
+
+    // BLOCKED→FINISHED under wake_up_early does transition.
+    task->_exec_state = PipelineTask::State::BLOCKED;
+    EXPECT_TRUE(task->_state_transition(PipelineTask::State::FINISHED).ok());
+    EXPECT_EQ(task->_exec_state, PipelineTask::State::FINISHED);
+    task->_wake_up_early = false;
+
+    // Test that wake_up() succeeds when the task has already finished (delayed wake_up race).
+    // _state_transition(RUNNABLE) is a no-op, and wake_up() should not re-submit the task.
+    {
+        task->_wake_up_early = true;
+        std::mutex mtx;
+        task->_exec_state = PipelineTask::State::FINISHED;
+        auto dep = std::make_shared<Dependency>(0, 0, "test_dep", true);
+        task->_blocked_dep = dep.get();
+        std::unique_lock<std::mutex> lc(mtx);
+        EXPECT_TRUE(task->wake_up(dep.get(), lc).ok());
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::FINISHED);
+    }
+    {
+        std::mutex mtx;
+        task->_exec_state = PipelineTask::State::FINALIZED;
+        auto dep = std::make_shared<Dependency>(0, 0, "test_dep", true);
+        task->_blocked_dep = dep.get();
+        std::unique_lock<std::mutex> lc(mtx);
+        EXPECT_TRUE(task->wake_up(dep.get(), lc).ok());
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::FINALIZED);
+        task->_wake_up_early = false;
     }
 }
 

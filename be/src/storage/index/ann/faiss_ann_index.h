@@ -49,8 +49,9 @@ struct FaissBuildParameter {
      * @brief Supported vector index types.
      */
     enum class IndexType {
-        HNSW, ///< Hierarchical Navigable Small World (HNSW) index for high performance
-        IVF   ///< Inverted File index
+        HNSW,       ///< Hierarchical Navigable Small World (HNSW) index for high performance
+        IVF,        ///< Inverted File index (in-memory)
+        IVF_ON_DISK ///< Inverted File index with on-disk inverted lists
     };
 
     /**
@@ -79,6 +80,8 @@ struct FaissBuildParameter {
             return IndexType::HNSW;
         } else if (type == "ivf") {
             return IndexType::IVF;
+        } else if (type == "ivf_on_disk") {
+            return IndexType::IVF_ON_DISK;
         } else {
             throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT, "Unsupported index type: {}",
                                    type);
@@ -284,10 +287,21 @@ public:
      */
     doris::Status load(lucene::store::Directory*) override;
 
+    /**
+     * @brief Sets a prefix string used as the cache key for ivfdata blocks.
+     *
+     * This must be called before load() when the index type is IVF_ON_DISK.
+     * The prefix should uniquely identify the index file (e.g. segment path).
+     */
+    void set_ivfdata_cache_key_prefix(std::string prefix) {
+        _ivfdata_cache_key_prefix = std::move(prefix);
+    }
+
 private:
     std::unique_ptr<faiss::Index> _index = nullptr; ///< Underlying FAISS index instance
     std::unique_ptr<faiss::Index> _quantizer = nullptr;
-    FaissBuildParameter _params; ///< Build parameters for the index
+    FaissBuildParameter _params;           ///< Build parameters for the index
+    std::string _ivfdata_cache_key_prefix; ///< Cache key prefix for ivfdata blocks
 };
 #include "common/compile_check_end.h"
 } // namespace doris::segment_v2
