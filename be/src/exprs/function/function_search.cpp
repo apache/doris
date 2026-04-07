@@ -41,6 +41,7 @@
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_query_context.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
+#include "storage/index/inverted/inverted_index_compound_reader.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
 #include "storage/index/inverted/inverted_index_parser.h"
 #include "storage/index/inverted/inverted_index_reader.h"
@@ -63,6 +64,7 @@
 #include "storage/segment/variant/nested_group_provider.h"
 #include "storage/segment/variant/variant_column_reader.h"
 #include "storage/types.h"
+#include "util/debug_points.h"
 #include "util/string_util.h"
 #include "util/thrift_util.h"
 
@@ -309,6 +311,26 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
         auto searcher_result =
                 DORIS_TRY(index_searcher_builder->get_index_searcher(directory.get()));
         auto reader_size = index_searcher_builder->get_reader_size();
+
+        // Initialization reads are done. Clear io_ctx on the main stream so the
+        // cached searcher does not carry a stale reference. Subsequent query-phase
+        // reads receive the caller's io_ctx through the CLucene API parameters
+        // (termDocs/termPositions/terms) — the same pattern used by the MATCH path
+        // in InvertedIndexReader::create_index_searcher().
+        auto* stream = static_cast<DorisCompoundReader*>(directory.get())->getDorisIndexInput();
+        DBUG_EXECUTE_IF(
+                "FieldReaderResolver.resolve.io_ctx", ({
+                    const auto* cur_io_ctx = (const io::IOContext*)stream->getIoContext();
+                    if (cur_io_ctx->file_cache_stats) {
+                        if (cur_io_ctx->file_cache_stats != &_context->stats->file_cache_stats) {
+                            LOG(FATAL) << "search: io_ctx file_cache_stats mismatch: "
+                                       << cur_io_ctx->file_cache_stats << " vs "
+                                       << &_context->stats->file_cache_stats;
+                        }
+                    }
+                }));
+        stream->setIoContext(nullptr);
+        stream->setIndexFile(false);
 
         auto* cache_value = new InvertedIndexSearcherCache::CacheValue(std::move(searcher_result),
                                                                        reader_size, UnixMillis());

@@ -137,7 +137,6 @@ CSIndexInput::CSIndexInput(const CSIndexInput& clone) : BufferedIndexInput(clone
     this->file_name = clone.file_name;
     this->fileOffset = clone.fileOffset;
     this->_length = clone._length;
-    this->_io_ctx = clone._io_ctx;
 }
 
 void CSIndexInput::close() {}
@@ -356,12 +355,7 @@ bool DorisCompoundReader::openInput(const char* name, lucene::store::IndexInput*
         bufferSize = _read_buffer_size;
     }
 
-    auto* cs_input = _CLNEW CSIndexInput(_stream, entry->file_name, entry->offset, entry->length,
-                                         bufferSize);
-    if (_io_ctx) {
-        cs_input->setIoContext(_io_ctx);
-    }
-    ret = cs_input;
+    ret = _CLNEW CSIndexInput(_stream, entry->file_name, entry->offset, entry->length, bufferSize);
     return true;
 }
 
@@ -413,7 +407,6 @@ CL_NS(store)::IndexInput* DorisCompoundReader::getDorisIndexInput() {
 }
 
 void DorisCompoundReader::initialize(const io::IOContext* io_ctx) {
-    _io_ctx = io_ctx;
     _stream->setIoContext(io_ctx);
     _stream->setIdxFileCache(true);
 }

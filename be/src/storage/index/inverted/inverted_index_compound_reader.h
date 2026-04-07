@@ -105,7 +105,6 @@ public:
 
 private:
     void initialize(const io::IOContext* io_ctx);
-    const io::IOContext* _io_ctx = nullptr;
 };
 
 } // namespace doris::segment_v2
