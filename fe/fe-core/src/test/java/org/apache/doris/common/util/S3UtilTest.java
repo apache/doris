@@ -456,5 +456,46 @@ public class S3UtilTest {
         // Malformed bracket (no closing ]) - [ kept as literal
         Assert.assertEquals("file[abc.csv", S3Util.expandBracketPatterns("file[abc.csv"));
     }
+
+    // Tests for limit-aware expandBracePatterns
+
+    @Test
+    public void testExpandBracePatterns_withinLimit() {
+        // Expansion within the limit should succeed
+        List<String> result = S3Util.expandBracePatterns("file{1,2,3}.csv", 10);
+        Assert.assertEquals(Arrays.asList("file1.csv", "file2.csv", "file3.csv"), result);
+    }
+
+    @Test
+    public void testExpandBracePatterns_exactlyAtLimit() {
+        // Expansion exactly at the limit should succeed
+        List<String> result = S3Util.expandBracePatterns("file{1,2,3}.csv", 3);
+        Assert.assertEquals(Arrays.asList("file1.csv", "file2.csv", "file3.csv"), result);
+    }
+
+    @Test(expected = S3Util.BraceExpansionTooLargeException.class)
+    public void testExpandBracePatterns_exceedsLimit() {
+        // Expansion exceeding the limit should throw
+        S3Util.expandBracePatterns("file{1,2,3,4,5}.csv", 3);
+    }
+
+    @Test(expected = S3Util.BraceExpansionTooLargeException.class)
+    public void testExpandBracePatterns_oneOverLimit() {
+        // maxPaths+1 items must also throw (boundary case)
+        S3Util.expandBracePatterns("file{1,2,3,4}.csv", 3);
+    }
+
+    @Test(expected = S3Util.BraceExpansionTooLargeException.class)
+    public void testExpandBracePatterns_cartesianExceedsLimit() {
+        // Cartesian product {a,b,c} x {1,2,3} = 9 paths, limit = 5
+        S3Util.expandBracePatterns("dir{a,b,c}/file{1,2,3}.csv", 5);
+    }
+
+    @Test
+    public void testExpandBracePatterns_zeroLimitMeansUnlimited() {
+        // maxPaths=0 means no limit (backward compatibility)
+        List<String> result = S3Util.expandBracePatterns("file{1,2,3,4,5}.csv", 0);
+        Assert.assertEquals(5, result.size());
+    }
 }
 

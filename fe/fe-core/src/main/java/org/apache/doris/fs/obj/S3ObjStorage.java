@@ -575,6 +575,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         long startTime = System.nanoTime();
         String currentMaxFile = "";
         boolean hasLimits = fileSizeLimit > 0 || fileNumLimit > 0;
+        boolean usedHeadPath = false;
         String bucket = "";
         String finalPrefix = "";
         try {
@@ -602,6 +603,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                 GlobListResult headResult = globListByHeadRequests(
                         bucket, keyPattern, result, fileNameOnly, startTime);
                 if (headResult != null) {
+                    usedHeadPath = true;
                     return headResult;
                 }
                 // If headResult is null, fall through to use listing
@@ -733,7 +735,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         } finally {
             long endTime = System.nanoTime();
             long duration = endTime - startTime;
-            if (LOG.isDebugEnabled()) {
+            if (!usedHeadPath && LOG.isDebugEnabled()) {
                 LOG.debug("process {} elements under prefix {} for {} round, match {} elements, take {} ms",
                         elementCnt, remotePath, roundCnt, matchCnt,
                         duration / 1000 / 1000);
@@ -756,15 +758,15 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             List<RemoteFile> result, boolean fileNameOnly, long startTime) {
         try {
             // First expand [...] brackets to {...} braces, then expand {..} ranges, then expand braces
+            // Use limit-aware expansion to avoid large allocations before checking the limit
             String expandedPattern = S3Util.expandBracketPatterns(keyPattern);
             expandedPattern = S3Util.extendGlobs(expandedPattern);
-            List<String> expandedPaths = S3Util.expandBracePatterns(expandedPattern);
-
-            // Fall back to listing if too many paths to avoid overwhelming S3 with HEAD requests
-            // Controlled by config: s3_head_request_max_paths
-            if (expandedPaths.size() > Config.s3_head_request_max_paths) {
-                LOG.info("Expanded path count {} exceeds limit {}, falling back to LIST",
-                        expandedPaths.size(), Config.s3_head_request_max_paths);
+            List<String> expandedPaths;
+            try {
+                expandedPaths = S3Util.expandBracePatterns(expandedPattern, Config.s3_head_request_max_paths);
+            } catch (S3Util.BraceExpansionTooLargeException e) {
+                LOG.info("Brace expansion exceeded limit {}, falling back to LIST",
+                        Config.s3_head_request_max_paths);
                 return null;
             }
 

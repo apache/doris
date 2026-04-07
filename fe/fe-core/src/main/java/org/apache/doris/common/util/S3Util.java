@@ -63,6 +63,9 @@ import java.util.regex.Pattern;
 
 public class S3Util {
     private static final Logger LOG = LogManager.getLogger(Util.class);
+    // Hard cap on the size of a single numeric range expansion (e.g. {1..N})
+    // to prevent OOM from patterns like {1..100000000}
+    private static final int MAX_RANGE_EXPANSION_SIZE = 10000;
 
     private static AwsCredentialsProvider getAwsCredencialsProvider(CloudCredential credential) {
         AwsCredentials awsCredential;
@@ -348,6 +351,10 @@ public class S3Util {
                         start = end;
                         end = temp;
                     }
+                    // Skip excessively large ranges to avoid OOM from patterns like {1..100000000}
+                    if ((long) end - start + 1 > MAX_RANGE_EXPANSION_SIZE) {
+                        continue;
+                    }
                     for (int i = start; i <= end; i++) {
                         if (!allNumbers.contains(i)) {
                             allNumbers.add(i);
@@ -584,6 +591,15 @@ public class S3Util {
     }
 
     /**
+     * Exception thrown when brace expansion exceeds the specified limit.
+     */
+    public static class BraceExpansionTooLargeException extends RuntimeException {
+        public BraceExpansionTooLargeException(int limit) {
+            super("Brace expansion exceeded limit of " + limit + " paths");
+        }
+    }
+
+    /**
      * Expand brace patterns in a path to generate all concrete file paths.
      * Handles nested and multiple brace patterns.
      *
@@ -597,11 +613,30 @@ public class S3Util {
      */
     public static List<String> expandBracePatterns(String pathPattern) {
         List<String> result = new ArrayList<>();
-        expandBracePatternsRecursive(pathPattern, result);
+        expandBracePatternsRecursive(pathPattern, result, 0);
         return result;
     }
 
-    private static void expandBracePatternsRecursive(String pattern, List<String> result) {
+    /**
+     * Expand brace patterns with a limit on the number of expanded paths.
+     * Stops expansion early if the limit is exceeded, avoiding large allocations.
+     *
+     * @param pathPattern Path with optional brace patterns
+     * @param maxPaths Maximum number of expanded paths allowed; 0 or negative means unlimited
+     * @return List of expanded concrete paths
+     * @throws BraceExpansionTooLargeException if expansion exceeds maxPaths (when maxPaths > 0)
+     */
+    public static List<String> expandBracePatterns(String pathPattern, int maxPaths) {
+        List<String> result = new ArrayList<>();
+        expandBracePatternsRecursive(pathPattern, result, maxPaths);
+        return result;
+    }
+
+    private static void expandBracePatternsRecursive(String pattern, List<String> result, int maxPaths) {
+        if (maxPaths > 0 && result.size() >= maxPaths) {
+            throw new BraceExpansionTooLargeException(maxPaths);
+        }
+
         int braceStart = pattern.indexOf('{');
         if (braceStart == -1) {
             // No more braces, add the pattern as-is
@@ -626,7 +661,7 @@ public class S3Util {
 
         for (String alt : alternatives) {
             // Recursively expand any remaining braces in the suffix
-            expandBracePatternsRecursive(prefix + alt + suffix, result);
+            expandBracePatternsRecursive(prefix + alt + suffix, result, maxPaths);
         }
     }
 
