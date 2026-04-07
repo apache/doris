@@ -113,62 +113,6 @@ enum class FileCachePolicy : uint8_t;
 
 namespace doris {
 
-namespace {
-Status build_iceberg_rowid_column(const DataTypePtr& type, const std::string& file_path,
-                                  int64_t start_row, size_t num_rows, int32_t partition_spec_id,
-                                  const std::string& partition_data_json,
-                                  MutableColumnPtr* column_out) {
-    if (type == nullptr || column_out == nullptr) {
-        return Status::InvalidArgument("Invalid iceberg rowid column type or output column");
-    }
-
-    MutableColumnPtr column = type->create_column();
-    ColumnNullable* nullable_col = check_and_get_column<ColumnNullable>(column.get());
-    ColumnStruct* struct_col = nullptr;
-    if (nullable_col != nullptr) {
-        struct_col =
-                check_and_get_column<ColumnStruct>(nullable_col->get_nested_column_ptr().get());
-    } else {
-        struct_col = check_and_get_column<ColumnStruct>(column.get());
-    }
-
-    if (struct_col == nullptr || struct_col->tuple_size() < 4) {
-        return Status::InternalError("Invalid iceberg rowid column structure");
-    }
-
-    auto& file_path_col = struct_col->get_column(0);
-    auto& row_pos_col = struct_col->get_column(1);
-    auto& spec_id_col = struct_col->get_column(2);
-    auto& partition_data_col = struct_col->get_column(3);
-
-    file_path_col.reserve(num_rows);
-    row_pos_col.reserve(num_rows);
-    spec_id_col.reserve(num_rows);
-    partition_data_col.reserve(num_rows);
-
-    for (size_t i = 0; i < num_rows; ++i) {
-        file_path_col.insert_data(file_path.data(), file_path.size());
-    }
-    for (size_t i = 0; i < num_rows; ++i) {
-        int64_t row_pos = start_row + static_cast<int64_t>(i);
-        row_pos_col.insert_data(reinterpret_cast<const char*>(&row_pos), sizeof(row_pos));
-    }
-    for (size_t i = 0; i < num_rows; ++i) {
-        int32_t spec_id = partition_spec_id;
-        spec_id_col.insert_data(reinterpret_cast<const char*>(&spec_id), sizeof(spec_id));
-    }
-    for (size_t i = 0; i < num_rows; ++i) {
-        partition_data_col.insert_data(partition_data_json.data(), partition_data_json.size());
-    }
-
-    if (nullable_col != nullptr) {
-        nullable_col->get_null_map_data().resize_fill(num_rows, 0);
-    }
-
-    *column_out = std::move(column);
-    return Status::OK();
-}
-} // namespace
 // TODO: we need to determine it by test.
 static constexpr uint32_t MAX_DICT_CODE_PREDICATE_TO_REWRITE = std::numeric_limits<uint32_t>::max();
 static constexpr char EMPTY_STRING_FOR_OVERFLOW[ColumnString::MAX_STRINGS_OVERFLOW_SIZE] = "";
@@ -528,23 +472,20 @@ Status OrcReader::_do_init_reader(ReaderInitContext* base_ctx) {
                 }
             }
         }
-        for (const auto& table_column_name : _table_column_names) {
-            if (_fill_missing_cols.contains(table_column_name)) {
-                continue;
-            }
-            const auto file_column_name =
-                    _table_info_node_ptr->children_file_column_name(table_column_name);
-            _read_file_cols.emplace_back(file_column_name);
-            _read_table_cols.emplace_back(table_column_name);
-        }
+        // Resolve file-column ↔ table-column mapping.
+        _init_file_column_mapping();
+    }
+    // Standalone callers (column_descs == nullptr) skip on_before_init_reader,
+    // so _read_file_cols etc. are not populated. Build them here as fallback.
+    if (_read_file_cols.empty()) {
+        _init_file_column_mapping();
     }
 
     // Register row-position-based synthesized column handler.
-    // _row_id_column_iterator_pair, _row_lineage_columns, and _iceberg_rowid_params
-    // are all set before init_reader by FileScanner.
-    // This must be outside has_column_descs() guard because standalone readers
-    // (e.g., orc_read_lines tests) also use row_id columns.
-    if (_row_id_column_iterator_pair.first != nullptr || _iceberg_rowid_params.enabled ||
+    // _row_id_column_iterator_pair and _row_lineage_columns are set before init_reader
+    // by FileScanner. This must be outside has_column_descs() guard because standalone
+    // readers (e.g., orc_read_lines tests) also use row_id columns.
+    if (_row_id_column_iterator_pair.first != nullptr ||
         (_row_lineage_columns != nullptr &&
          (_row_lineage_columns->need_row_ids() ||
           _row_lineage_columns->has_last_updated_sequence_number_column()))) {
@@ -552,21 +493,6 @@ Status OrcReader::_do_init_reader(ReaderInitContext* base_ctx) {
                 BeConsts::ROWID_COL, [this](Block* block, size_t rows) -> Status {
                     return _fill_row_id_columns(block, _row_reader->getRowNumber());
                 });
-    }
-
-    // Standalone callers (column_descs == nullptr) skip on_before_init_reader,
-    // so _read_file_cols etc. are not populated. Use table_info_node for name mapping
-    // when available (e.g., ACID delete reader), otherwise fall back to 1:1 mapping.
-    if (!has_column_descs() && _read_file_cols.empty()) {
-        for (const auto& col_name : _table_column_names) {
-            if (_table_info_node_ptr && _table_info_node_ptr->children_column_exists(col_name)) {
-                _read_file_cols.emplace_back(
-                        _table_info_node_ptr->children_file_column_name(col_name));
-            } else {
-                _read_file_cols.emplace_back(col_name);
-            }
-            _read_table_cols.emplace_back(col_name);
-        }
     }
 
     // ---- Inlined set_fill_columns logic (partition/missing/synthesized classification) ----
@@ -660,18 +586,6 @@ Status OrcReader::get_parsed_schema(std::vector<std::string>* col_names,
     return Status::OK();
 }
 
-void OrcReader::set_iceberg_rowid_params(const std::string& file_path, int32_t partition_spec_id,
-                                         const std::string& partition_data_json,
-                                         int row_id_column_pos) {
-    _iceberg_rowid_params.enabled = true;
-    _iceberg_rowid_params.file_path = file_path;
-    _iceberg_rowid_params.partition_spec_id = partition_spec_id;
-    _iceberg_rowid_params.partition_data_json = partition_data_json;
-    _iceberg_rowid_params.row_id_column_pos = row_id_column_pos;
-}
-
-// set_iceberg_rowid_params removed: now handled by ColumnProcessor
-
 Status OrcReader::_init_read_columns() {
     SCOPED_RAW_TIMER(&_statistics.init_column_time);
     const auto& root_type = _reader->getType();
@@ -717,6 +631,20 @@ Status OrcReader::_init_read_columns() {
     }
 
     return Status::OK();
+}
+
+void OrcReader::_init_file_column_mapping() {
+    for (const auto& col_name : _table_column_names) {
+        if (_fill_missing_cols.contains(col_name)) {
+            continue;
+        }
+        std::string file_col = col_name;
+        if (_table_info_node_ptr && _table_info_node_ptr->children_column_exists(col_name)) {
+            file_col = _table_info_node_ptr->children_file_column_name(col_name);
+        }
+        _read_file_cols.emplace_back(file_col);
+        _read_table_cols.emplace_back(col_name);
+    }
 }
 
 bool OrcReader::_check_acid_schema(const orc::Type& type) {
@@ -1613,53 +1541,6 @@ Status OrcReader::_fill_row_id_columns(Block* block, int64_t start_row) {
 
     return Status::OK();
 }
-
-Status OrcReader::_append_iceberg_rowid_column(Block* block, size_t rows, int64_t start_row) {
-    if (!_iceberg_rowid_params.enabled) {
-        return Status::OK();
-    }
-
-    int row_id_idx = block->get_position_by_name(doris::BeConsts::ICEBERG_ROWID_COL);
-    if (row_id_idx >= 0) {
-        auto& col_with_type = block->get_by_position(static_cast<size_t>(row_id_idx));
-        MutableColumnPtr row_id_column;
-        RETURN_IF_ERROR(build_iceberg_rowid_column(
-                col_with_type.type, _iceberg_rowid_params.file_path, start_row, rows,
-                _iceberg_rowid_params.partition_spec_id, _iceberg_rowid_params.partition_data_json,
-                &row_id_column));
-        col_with_type.column = std::move(row_id_column);
-    } else {
-        DataTypes field_types;
-        field_types.push_back(std::make_shared<DataTypeString>());
-        field_types.push_back(std::make_shared<DataTypeInt64>());
-        field_types.push_back(std::make_shared<DataTypeInt32>());
-        field_types.push_back(std::make_shared<DataTypeString>());
-
-        std::vector<std::string> field_names = {"file_path", "row_position", "partition_spec_id",
-                                                "partition_data"};
-        auto row_id_type = std::make_shared<DataTypeStruct>(field_types, field_names);
-        MutableColumnPtr row_id_column;
-        RETURN_IF_ERROR(build_iceberg_rowid_column(
-                row_id_type, _iceberg_rowid_params.file_path, start_row, rows,
-                _iceberg_rowid_params.partition_spec_id, _iceberg_rowid_params.partition_data_json,
-                &row_id_column));
-        int insert_pos = _iceberg_rowid_params.row_id_column_pos;
-        if (insert_pos < 0 || insert_pos > static_cast<int>(block->columns())) {
-            insert_pos = static_cast<int>(block->columns());
-        }
-        block->insert(static_cast<size_t>(insert_pos),
-                      ColumnWithTypeAndName(std::move(row_id_column), row_id_type,
-                                            doris::BeConsts::ICEBERG_ROWID_COL));
-    }
-
-    if (_col_name_to_block_idx != nullptr) {
-        *_col_name_to_block_idx = block->get_name_to_pos_map();
-    }
-
-    return Status::OK();
-}
-
-// _append_iceberg_rowid_column removed: now handled by ColumnProcessor.fill_synthesized_columns
 
 void OrcReader::_init_system_properties() {
     if (_scan_range.__isset.file_type) {

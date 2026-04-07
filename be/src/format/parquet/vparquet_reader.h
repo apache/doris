@@ -335,6 +335,7 @@ private:
 
     bool _exists_in_file(const std::string& expr_name) const;
     bool _type_matches(const int cid) const;
+    void _init_read_columns(const std::vector<std::string>& column_names);
 
     io::FileSystemProperties _system_properties;
     io::FileDescription _file_description;

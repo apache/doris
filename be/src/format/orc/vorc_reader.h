@@ -217,8 +217,6 @@ public:
                     iterator_pair) {
         _row_id_column_iterator_pair = iterator_pair;
     }
-    void set_iceberg_rowid_params(const std::string& file_path, int32_t partition_spec_id,
-                                  const std::string& partition_data_json, int row_id_column_pos);
     void set_row_lineage_columns(std::shared_ptr<RowLineageColumns> row_lineage_columns) {
         _row_lineage_columns = std::move(row_lineage_columns);
     }
@@ -282,14 +280,6 @@ protected:
     const RowDescriptor* get_row_descriptor() const { return _row_descriptor; }
 
 private:
-    struct IcebergRowIdParams {
-        bool enabled = false;
-        std::string file_path;
-        int32_t partition_spec_id = 0;
-        std::string partition_data_json;
-        int row_id_column_pos = -1;
-    };
-
     struct OrcProfile {
         RuntimeProfile::Counter* read_time = nullptr;
         RuntimeProfile::Counter* read_calls = nullptr;
@@ -354,6 +344,7 @@ private:
 
     void _init_profile();
     Status _init_read_columns();
+    void _init_file_column_mapping();
 
     static bool _check_acid_schema(const orc::Type& type);
 
@@ -698,7 +689,6 @@ private:
     }
 
     Status _fill_row_id_columns(Block* block, int64_t start_row);
-    Status _append_iceberg_rowid_column(Block* block, size_t rows, int64_t start_row);
 
     bool _seek_to_read_one_line() {
         if (_read_by_rows) {
@@ -839,7 +829,6 @@ private:
 
     std::pair<std::shared_ptr<segment_v2::RowIdColumnIteratorV2>, int>
             _row_id_column_iterator_pair = {nullptr, -1};
-    IcebergRowIdParams _iceberg_rowid_params;
     std::shared_ptr<RowLineageColumns> _row_lineage_columns;
 
     std::vector<rowid_t> _current_batch_row_positions;

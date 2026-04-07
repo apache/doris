@@ -472,25 +472,12 @@ Status ParquetReader::_do_init_reader(ReaderInitContext* base_ctx) {
             }
         }
         // Resolve file-column ↔ table-column mapping in file-schema order.
-        // Iterating schema_desc preserves the physical column order for efficient reads.
-        auto schema_desc = _file_metadata->schema();
-        std::map<std::string, std::string> required_file_columns;
-        for (const auto& table_column_name : base_ctx->column_names) {
-            if (_fill_missing_cols.contains(table_column_name)) {
-                continue;
-            }
-            auto file_col = _table_info_node_ptr->children_file_column_name(table_column_name);
-            required_file_columns.emplace(file_col, table_column_name);
-        }
-        for (int i = 0; i < schema_desc.size(); ++i) {
-            const auto& name = schema_desc.get_column(i)->name;
-            if (required_file_columns.contains(name)) {
-                _read_file_columns.emplace_back(name);
-                _read_table_columns.emplace_back(required_file_columns[name]);
-                _read_table_columns_set.insert(required_file_columns[name]);
-            }
-        }
-        // Register row-position-based synthesized column handler.
+        _init_read_columns(base_ctx->column_names);
+    }
+    // Standalone callers (column_descs == nullptr) skip on_before_init_reader,
+    // so _read_file_columns etc. are not populated. Build them here as fallback.
+    if (_read_file_columns.empty()) {
+        _init_read_columns(base_ctx->column_names);
     }
 
     // Register row-position-based synthesized column handler.
@@ -508,33 +495,6 @@ Status ParquetReader::_do_init_reader(ReaderInitContext* base_ctx) {
                     }
                     return Status::OK();
                 });
-    }
-
-    // Standalone callers (column_descs == nullptr) skip on_before_init_reader,
-    // so _read_file_columns etc. are not populated. Use table_info_node for name mapping
-    // when available, otherwise fall back to 1:1 mapping using file schema.
-    // Must iterate in file schema order (not user column order) so that
-    // _generate_random_access_ranges sees monotonically increasing chunk offsets.
-    if (!has_column_descs() && _read_file_columns.empty()) {
-        auto schema_desc = _file_metadata->schema();
-        // Build map: file_col_name -> table_col_name for requested columns.
-        std::unordered_map<std::string, std::string> required_file_columns;
-        for (const auto& col_name : base_ctx->column_names) {
-            std::string file_col_name = col_name;
-            if (_table_info_node_ptr && _table_info_node_ptr->children_column_exists(col_name)) {
-                file_col_name = _table_info_node_ptr->children_file_column_name(col_name);
-            }
-            required_file_columns[file_col_name] = col_name;
-        }
-        // Iterate file schema to preserve physical column order.
-        for (int i = 0; i < schema_desc.size(); ++i) {
-            const auto& name = schema_desc.get_column(i)->name;
-            if (required_file_columns.contains(name)) {
-                _read_file_columns.emplace_back(name);
-                _read_table_columns.emplace_back(required_file_columns[name]);
-                _read_table_columns_set.insert(required_file_columns[name]);
-            }
-        }
     }
 
     // build column predicates for column lazy read
@@ -574,6 +534,32 @@ Status ParquetReader::_do_init_reader(ReaderInitContext* base_ctx) {
     }
 
     return Status::OK();
+}
+
+void ParquetReader::_init_read_columns(const std::vector<std::string>& column_names) {
+    // Build file_col_name → table_col_name map, skipping missing columns.
+    // Must iterate file schema in physical order so that _generate_random_access_ranges
+    // sees monotonically increasing chunk offsets.
+    auto schema_desc = _file_metadata->schema();
+    std::map<std::string, std::string> required_file_columns;
+    for (const auto& col_name : column_names) {
+        if (_fill_missing_cols.contains(col_name)) {
+            continue;
+        }
+        std::string file_col = col_name;
+        if (_table_info_node_ptr && _table_info_node_ptr->children_column_exists(col_name)) {
+            file_col = _table_info_node_ptr->children_file_column_name(col_name);
+        }
+        required_file_columns[file_col] = col_name;
+    }
+    for (int i = 0; i < schema_desc.size(); ++i) {
+        const auto& name = schema_desc.get_column(i)->name;
+        if (required_file_columns.contains(name)) {
+            _read_file_columns.emplace_back(name);
+            _read_table_columns.emplace_back(required_file_columns[name]);
+            _read_table_columns_set.insert(required_file_columns[name]);
+        }
+    }
 }
 
 bool ParquetReader::_exists_in_file(const std::string& expr_name) const {
