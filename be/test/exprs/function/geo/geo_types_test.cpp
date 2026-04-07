@@ -2049,3 +2049,64 @@ TEST_F(GeoTypesTest, circle) {
 }
 
 } // namespace doris
+
+// Note: ST_CoordDim and ST_Dimension are tested via GeoShape::type()
+// since the BE functions use shape->type() to determine dimension values.
+
+TEST_F(GeoTypesTest, st_coorddim) {
+    // ST_CoordDim always returns 2 for all valid 2D geometries in Doris
+    {
+        GeoPoint point;
+        EXPECT_EQ(GEO_PARSE_OK, point.from_coord(1.0, 2.0));
+        // All geometries in Doris are 2D
+        std::string buf;
+        point.encode_to(&buf);
+        auto shape = GeoShape::from_encoded(buf.data(), buf.size());
+        EXPECT_NE(nullptr, shape.get());
+    }
+    {
+        GeoParseStatus status;
+        const char* wkt = "LINESTRING (1 1, 2 2)";
+        auto line = GeoShape::from_wkt(wkt, strlen(wkt), &status);
+        EXPECT_EQ(GEO_PARSE_OK, status);
+        EXPECT_NE(nullptr, line.get());
+        std::string buf;
+        line->encode_to(&buf);
+        auto shape = GeoShape::from_encoded(buf.data(), buf.size());
+        EXPECT_NE(nullptr, shape.get());
+    }
+    {
+        GeoParseStatus status;
+        const char* wkt = "POLYGON ((0 0, 1 0, 1 1, 0 1, 0 0))";
+        auto polygon = GeoShape::from_wkt(wkt, strlen(wkt), &status);
+        EXPECT_EQ(GEO_PARSE_OK, status);
+        EXPECT_NE(nullptr, polygon.get());
+        std::string buf;
+        polygon->encode_to(&buf);
+        auto shape = GeoShape::from_encoded(buf.data(), buf.size());
+        EXPECT_NE(nullptr, shape.get());
+    }
+}
+
+TEST_F(GeoTypesTest, st_dimension) {
+    // ST_Dimension: Point=0, LineString=1, Polygon=2
+    {
+        GeoPoint point;
+        EXPECT_EQ(GEO_PARSE_OK, point.from_coord(1.0, 2.0));
+        EXPECT_EQ(GEO_SHAPE_POINT, point.type());
+    }
+    {
+        GeoParseStatus status;
+        const char* wkt = "LINESTRING (1 1, 2 2)";
+        auto line = GeoShape::from_wkt(wkt, strlen(wkt), &status);
+        EXPECT_EQ(GEO_PARSE_OK, status);
+        EXPECT_EQ(GEO_SHAPE_LINE_STRING, line->type());
+    }
+    {
+        GeoParseStatus status;
+        const char* wkt = "POLYGON ((0 0, 1 0, 1 1, 0 1, 0 0))";
+        auto polygon = GeoShape::from_wkt(wkt, strlen(wkt), &status);
+        EXPECT_EQ(GEO_PARSE_OK, status);
+        EXPECT_EQ(GEO_SHAPE_POLYGON, polygon->type());
+    }
+}

@@ -511,4 +511,16 @@ suite("test_gis_function", "arrow_flight_sql") {
     sql "insert into test_gis_const values ('xxxx',78.73,31.5);"
     qt_sql_part_const_dis_sph "select st_distance_sphere(78.73,31.53,c_1,c_2) from test_gis_const; "
     qt_sql_part_const_ang_sph "select st_angle_sphere(78.73,31.53,c_1,c_2) from test_gis_const; "
+
+    // ST_CoordDim tests - always returns 2 for valid geometries
+    qt_sql "SELECT ST_CoordDim(ST_Point(1.0, 2.0));"
+    qt_sql "SELECT ST_CoordDim(ST_GeometryFromText(\"LINESTRING (1 1, 2 2)\"));"
+    qt_sql "SELECT ST_CoordDim(ST_GeometryFromText(\"POLYGON ((0 0, 1 0, 1 1, 0 1, 0 0))\"));"
+    qt_sql "SELECT ST_CoordDim(NULL);"
+
+    // ST_Dimension tests - Point=0, Line=1, Polygon=2
+    qt_sql "SELECT ST_Dimension(ST_Point(1.0, 2.0));"
+    qt_sql "SELECT ST_Dimension(ST_GeometryFromText(\"LINESTRING (1 1, 2 2)\"));"
+    qt_sql "SELECT ST_Dimension(ST_GeometryFromText(\"POLYGON ((0 0, 1 0, 1 1, 0 1, 0 0))\"));"
+    qt_sql "SELECT ST_Dimension(NULL);"
 }
