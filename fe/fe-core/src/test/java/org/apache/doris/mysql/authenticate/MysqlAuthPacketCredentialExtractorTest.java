@@ -56,7 +56,7 @@ class MysqlAuthPacketCredentialExtractorTest {
         AuthenticateRequest request = extractor.extractAuthenticateRequest(USER_NAME, channel, authPacket)
                 .orElseThrow(() -> new AssertionError("request is required"));
 
-        Assertions.assertEquals(CredentialType.OIDC_ID_TOKEN, request.getCredentialType());
+        Assertions.assertEquals(CredentialType.OAUTH_TOKEN, request.getCredentialType());
         Assertions.assertArrayEquals("token-from-client".getBytes(StandardCharsets.UTF_8), request.getCredential());
         Assertions.assertInstanceOf(ClearPassword.class, request.getPassword());
         Assertions.assertEquals("token-from-client", ((ClearPassword) request.getPassword()).getPassword());
@@ -75,7 +75,7 @@ class MysqlAuthPacketCredentialExtractorTest {
         AuthenticateRequest request = extractor.extractAuthenticateRequest(USER_NAME, channel, authPacket)
                 .orElseThrow(() -> new AssertionError("request is required"));
 
-        Assertions.assertEquals(CredentialType.OIDC_ID_TOKEN, request.getCredentialType());
+        Assertions.assertEquals(CredentialType.OAUTH_TOKEN, request.getCredentialType());
         Assertions.assertArrayEquals(token.getBytes(StandardCharsets.UTF_8), request.getCredential());
         Assertions.assertInstanceOf(ClearPassword.class, request.getPassword());
         Assertions.assertEquals(token, ((ClearPassword) request.getPassword()).getPassword());

@@ -21,6 +21,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.mysql.authenticate.AuthenticatorFactory;
 import org.apache.doris.mysql.privilege.AccessControllerFactory;
 
+import com.google.common.base.Splitter;
 import org.apache.commons.collections4.map.HashedMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -29,10 +30,15 @@ import java.io.File;
 import java.io.IOException;
 import java.net.URISyntaxException;
 import java.net.URL;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.ServiceLoader;
+import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 /**
  * Utility class for loading service implementations from external JAR files in specific plugin directories.
@@ -61,11 +67,24 @@ import java.util.ServiceLoader;
 public class ClassLoaderUtils {
     private static final Logger LOG = LogManager.getLogger(ClassLoaderUtils.class);
     // A mapping of service class simple names to their respective plugin directories.
-    private static final Map<String, String> pluginDirMapping = new HashedMap();
+    private static final Map<String, Supplier<String>> pluginDirMapping = new HashedMap<>();
 
     static {
-        pluginDirMapping.put(AuthenticatorFactory.class.getSimpleName(), Config.authentication_plugins_dir);
-        pluginDirMapping.put(AccessControllerFactory.class.getSimpleName(), Config.authorization_plugins_dir);
+        pluginDirMapping.put(AuthenticatorFactory.class.getSimpleName(), () -> Config.authentication_plugins_dir);
+        pluginDirMapping.put(AccessControllerFactory.class.getSimpleName(), () -> Config.authorization_plugins_dir);
+    }
+
+    public static List<Path> parsePluginRootDirectories(String pluginRootsConfig) {
+        if (pluginRootsConfig == null) {
+            return Collections.emptyList();
+        }
+        return Splitter.on(',')
+                .trimResults()
+                .omitEmptyStrings()
+                .splitToList(pluginRootsConfig)
+                .stream()
+                .map(Paths::get)
+                .collect(Collectors.toList());
     }
 
     /**
@@ -87,38 +106,45 @@ public class ClassLoaderUtils {
      */
     public static <T> List<T> loadServicesFromDirectory(Class<T> serviceClass) throws IOException {
         String pluginDirKey = serviceClass.getSimpleName();
-        String pluginDir = pluginDirMapping.get(pluginDirKey);
-        if (pluginDir == null) {
+        Supplier<String> pluginDirSupplier = pluginDirMapping.get(pluginDirKey);
+        if (pluginDirSupplier == null) {
             throw new RuntimeException("No mapping found for plugin directory key: " + pluginDirKey);
         }
-        File jarDir = new File(pluginDir);
-        // If the directory does not exist, return an empty list.
-        if (!jarDir.exists()) {
-            return new ArrayList<>();
-        }
-        if (!jarDir.isDirectory()) {
-            throw new IOException("The specified path is not a directory: " + pluginDir);
-        }
-
-        File[] jarFiles = jarDir.listFiles((dir, name) -> name.endsWith(".jar"));
-        if (jarFiles == null || jarFiles.length == 0) {
-            LOG.info("No JAR files found in the plugin directory: {}", pluginDir);
+        List<Path> pluginRoots = parsePluginRootDirectories(pluginDirSupplier.get());
+        if (pluginRoots.isEmpty()) {
             return new ArrayList<>();
         }
 
         List<T> services = new ArrayList<>();
-        for (File jarFile : jarFiles) {
-            URL[] jarURLs;
-            jarURLs = new URL[]{jarFile.toURI().toURL()};
+        for (Path pluginRoot : pluginRoots) {
+            File jarDir = pluginRoot.toFile();
+            // If the directory does not exist, skip it.
+            if (!jarDir.exists()) {
+                continue;
+            }
+            if (!jarDir.isDirectory()) {
+                throw new IOException("The specified path is not a directory: " + pluginRoot);
+            }
 
-            try (ChildFirstClassLoader urlClassLoader = new ChildFirstClassLoader(jarURLs,
-                    Thread.currentThread().getContextClassLoader())) {
-                ServiceLoader<T> serviceLoader = ServiceLoader.load(serviceClass, urlClassLoader);
-                for (T service : serviceLoader) {
-                    services.add(service);
+            File[] jarFiles = jarDir.listFiles((dir, name) -> name.endsWith(".jar"));
+            if (jarFiles == null || jarFiles.length == 0) {
+                LOG.info("No JAR files found in the plugin directory: {}", pluginRoot);
+                continue;
+            }
+
+            for (File jarFile : jarFiles) {
+                URL[] jarURLs;
+                jarURLs = new URL[]{jarFile.toURI().toURL()};
+
+                try (ChildFirstClassLoader urlClassLoader = new ChildFirstClassLoader(jarURLs,
+                        Thread.currentThread().getContextClassLoader())) {
+                    ServiceLoader<T> serviceLoader = ServiceLoader.load(serviceClass, urlClassLoader);
+                    for (T service : serviceLoader) {
+                        services.add(service);
+                    }
+                } catch (URISyntaxException e) {
+                    throw new RuntimeException(e);
                 }
-            } catch (URISyntaxException e) {
-                throw new RuntimeException(e);
             }
         }
         return services;

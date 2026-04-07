@@ -54,7 +54,7 @@ public class MysqlAuthPacketCredentialExtractor {
                 .password(new ClearPassword(token))
                 .remoteHost(channel.getRemoteIp())
                 .clientType("mysql")
-                .credentialType(CredentialType.OIDC_ID_TOKEN)
+                .credentialType(CredentialType.OAUTH_TOKEN)
                 .credential(oidcToken)
                 .build());
     }
