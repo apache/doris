@@ -241,6 +241,7 @@ public class CreateMTMVInfo extends CreateTableInfo {
         this.mvPartitionInfo = mtmvAnalyzeQueryInfo.getMvPartitionInfo();
         this.columns = mtmvAnalyzeQueryInfo.getColumnDefinitions();
         this.relation = mtmvAnalyzeQueryInfo.getRelation();
+        this.properties = mtmvAnalyzeQueryInfo.getProperties();
     }
 
     private List<Column> getPartitionColumn(String partitionColumnName) {

@@ -664,86 +664,7 @@ public class CreateTableInfo {
                 }
             }
 
-            // add hidden column
-            // do not add delete sign column when table has seq mapping
-            if (keysType.equals(KeysType.UNIQUE_KEYS) && !PropertyAnalyzer.hasSeqMapping(properties)) {
-                if (isEnableMergeOnWrite) {
-                    columns.add(ColumnDefinition.newDeleteSignColumnDefinition(AggregateType.NONE));
-                } else {
-                    columns.add(
-                            ColumnDefinition.newDeleteSignColumnDefinition(AggregateType.REPLACE));
-                }
-            }
-
-            // add a hidden column as row store
-            boolean storeRowColumn = false;
-            List<String> rowStoreColumns = null;
-            if (properties != null) {
-                try {
-                    storeRowColumn =
-                            PropertyAnalyzer.analyzeStoreRowColumn(Maps.newHashMap(properties));
-                    rowStoreColumns = PropertyAnalyzer.analyzeRowStoreColumns(Maps.newHashMap(properties),
-                                columns.stream()
-                                        .map(ColumnDefinition::getName)
-                                        .collect(Collectors.toList()));
-                } catch (Exception e) {
-                    throw new AnalysisException(e.getMessage(), e.getCause());
-                }
-            }
-            if (storeRowColumn || (rowStoreColumns != null && !rowStoreColumns.isEmpty())) {
-                if (keysType.equals(KeysType.AGG_KEYS)) {
-                    throw new AnalysisException("Aggregate table can't support row column now");
-                }
-                if (keysType.equals(KeysType.UNIQUE_KEYS)) {
-                    if (isEnableMergeOnWrite) {
-                        columns.add(
-                                ColumnDefinition.newRowStoreColumnDefinition(AggregateType.NONE));
-                    } else {
-                        columns.add(ColumnDefinition
-                                .newRowStoreColumnDefinition(AggregateType.REPLACE));
-                    }
-                } else {
-                    columns.add(ColumnDefinition.newRowStoreColumnDefinition(null));
-                }
-            }
-
-            if (Config.enable_hidden_version_column_by_default
-                    && keysType.equals(KeysType.UNIQUE_KEYS) && !PropertyAnalyzer.hasSeqMapping(properties)) {
-                if (isEnableMergeOnWrite) {
-                    columns.add(ColumnDefinition.newVersionColumnDefinition(AggregateType.NONE));
-                } else {
-                    columns.add(ColumnDefinition.newVersionColumnDefinition(AggregateType.REPLACE));
-                }
-            }
-
-            if (properties != null) {
-                if (properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN)
-                        && !(keysType.equals(KeysType.UNIQUE_KEYS) && isEnableMergeOnWrite)) {
-                    throw new AnalysisException("table property enable_unique_key_skip_bitmap_column can"
-                            + "only be set in merge-on-write unique table.");
-                }
-                // the merge-on-write table must have enable_unique_key_skip_bitmap_column table property
-                // and its value should be consistent with whether the table's full schema contains
-                // the skip bitmap hidden column
-                if (keysType.equals(KeysType.UNIQUE_KEYS) && isEnableMergeOnWrite) {
-                    properties = PropertyAnalyzer.addEnableUniqueKeySkipBitmapPropertyIfNotExists(properties);
-                    // `analyzeXXX` would modify `properties`, which will be used later,
-                    // so we just clone a properties map here.
-                    try {
-                        isEnableSkipBitmapColumn = PropertyAnalyzer.analyzeUniqueKeySkipBitmapColumn(
-                                new HashMap<>(properties));
-                    } catch (Exception e) {
-                        throw new AnalysisException(e.getMessage(), e.getCause());
-                    }
-                }
-            }
-
-            if (isEnableSkipBitmapColumn && keysType.equals(KeysType.UNIQUE_KEYS)) {
-                if (isEnableMergeOnWrite) {
-                    columns.add(ColumnDefinition.newSkipBitmapColumnDef(AggregateType.NONE));
-                }
-                // TODO(bobhan1): add support for mor table
-            }
+            properties = addOlapHiddenColumns(columns, keysType, isEnableMergeOnWrite, properties);
 
             // validate partition
             partitionTableInfo.extractPartitionColumns();
@@ -1171,6 +1092,90 @@ public class CreateTableInfo {
 
     public void setIsExternal(boolean isExternal) {
         this.isExternal = isExternal;
+    }
+
+    /**
+     * Reuse the standard OLAP create-table hidden-column rules so all UNIQUE+MOW schemas stay aligned,
+     * including async MTMVs that synthesize their ColumnDefinitions outside CreateTableInfo.
+     */
+    public static Map<String, String> addOlapHiddenColumns(List<ColumnDefinition> columns, KeysType keysType,
+            boolean isEnableMergeOnWrite, Map<String, String> properties) {
+        return addOlapHiddenColumns(columns, keysType, isEnableMergeOnWrite, properties, true);
+    }
+
+    /**
+     * Add OLAP hidden columns following the standard create-table rules, optionally skipping row-store
+     * columns when callers have already materialized their own row-store layout.
+     */
+    public static Map<String, String> addOlapHiddenColumns(List<ColumnDefinition> columns, KeysType keysType,
+            boolean isEnableMergeOnWrite, Map<String, String> properties, boolean includeRowStoreColumn) {
+        boolean hasSeqMapping = properties != null && PropertyAnalyzer.hasSeqMapping(properties);
+        if (keysType.equals(KeysType.UNIQUE_KEYS) && !hasSeqMapping) {
+            if (isEnableMergeOnWrite) {
+                columns.add(ColumnDefinition.newDeleteSignColumnDefinition(AggregateType.NONE));
+            } else {
+                columns.add(ColumnDefinition.newDeleteSignColumnDefinition(AggregateType.REPLACE));
+            }
+        }
+
+        if (includeRowStoreColumn) {
+            boolean storeRowColumn = false;
+            List<String> rowStoreColumns = null;
+            if (properties != null) {
+                try {
+                    storeRowColumn = PropertyAnalyzer.analyzeStoreRowColumn(Maps.newHashMap(properties));
+                    rowStoreColumns = PropertyAnalyzer.analyzeRowStoreColumns(Maps.newHashMap(properties),
+                            columns.stream().map(ColumnDefinition::getName).collect(Collectors.toList()));
+                } catch (Exception e) {
+                    throw new AnalysisException(e.getMessage(), e.getCause());
+                }
+            }
+            if (storeRowColumn || (rowStoreColumns != null && !rowStoreColumns.isEmpty())) {
+                if (keysType.equals(KeysType.AGG_KEYS)) {
+                    throw new AnalysisException("Aggregate table can't support row column now");
+                }
+                if (keysType.equals(KeysType.UNIQUE_KEYS)) {
+                    if (isEnableMergeOnWrite) {
+                        columns.add(ColumnDefinition.newRowStoreColumnDefinition(AggregateType.NONE));
+                    } else {
+                        columns.add(ColumnDefinition.newRowStoreColumnDefinition(AggregateType.REPLACE));
+                    }
+                } else {
+                    columns.add(ColumnDefinition.newRowStoreColumnDefinition(null));
+                }
+            }
+        }
+
+        if (Config.enable_hidden_version_column_by_default && keysType.equals(KeysType.UNIQUE_KEYS) && !hasSeqMapping) {
+            if (isEnableMergeOnWrite) {
+                columns.add(ColumnDefinition.newVersionColumnDefinition(AggregateType.NONE));
+            } else {
+                columns.add(ColumnDefinition.newVersionColumnDefinition(AggregateType.REPLACE));
+            }
+        }
+
+        boolean isEnableSkipBitmapColumn = false;
+        if (properties != null) {
+            if (properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN)
+                    && !(keysType.equals(KeysType.UNIQUE_KEYS) && isEnableMergeOnWrite)) {
+                throw new AnalysisException("table property enable_unique_key_skip_bitmap_column can"
+                        + "only be set in merge-on-write unique table.");
+            }
+            if (keysType.equals(KeysType.UNIQUE_KEYS) && isEnableMergeOnWrite) {
+                properties = PropertyAnalyzer.addEnableUniqueKeySkipBitmapPropertyIfNotExists(properties);
+                try {
+                    isEnableSkipBitmapColumn = PropertyAnalyzer.analyzeUniqueKeySkipBitmapColumn(
+                            new HashMap<>(properties));
+                } catch (Exception e) {
+                    throw new AnalysisException(e.getMessage(), e.getCause());
+                }
+            }
+        }
+
+        if (isEnableSkipBitmapColumn && keysType.equals(KeysType.UNIQUE_KEYS) && isEnableMergeOnWrite) {
+            columns.add(ColumnDefinition.newSkipBitmapColumnDef(AggregateType.NONE));
+        }
+        return properties;
     }
 
     private void generatedColumnCommonCheck() {

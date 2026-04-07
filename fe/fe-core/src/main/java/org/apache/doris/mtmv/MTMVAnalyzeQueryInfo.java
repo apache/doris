@@ -22,19 +22,22 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 
 import java.util.List;
+import java.util.Map;
 
 public class MTMVAnalyzeQueryInfo {
     private MTMVRelation relation;
     private MTMVPartitionInfo mvPartitionInfo;
     private List<ColumnDefinition> columnDefinitions;
+    private Map<String, String> properties;
     // set when IVM normalization is enabled; carries normalizedPlan + aggMeta
     private IvmNormalizeResult ivmNormalizeResult;
 
     public MTMVAnalyzeQueryInfo(List<ColumnDefinition> columnDefinitions, MTMVPartitionInfo mvPartitionInfo,
-            MTMVRelation relation) {
+            MTMVRelation relation, Map<String, String> properties) {
         this.columnDefinitions = columnDefinitions;
         this.mvPartitionInfo = mvPartitionInfo;
         this.relation = relation;
+        this.properties = properties;
     }
 
     public List<ColumnDefinition> getColumnDefinitions() {
@@ -51,6 +54,10 @@ public class MTMVAnalyzeQueryInfo {
 
     public IvmNormalizeResult getIvmNormalizeResult() {
         return ivmNormalizeResult;
+    }
+
+    public Map<String, String> getProperties() {
+        return properties;
     }
 
     public void setIvmNormalizeResult(IvmNormalizeResult ivmNormalizeResult) {
