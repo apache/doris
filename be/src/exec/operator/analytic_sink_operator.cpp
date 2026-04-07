@@ -429,8 +429,7 @@ void AnalyticSinkLocalState::_output_current_block(Block* block) {
     for (size_t i = 0; i < _result_window_columns.size(); ++i) {
         DCHECK(_result_window_columns[i]);
         DCHECK(_agg_functions[i]);
-        block->insert(
-                {std::move(_result_window_columns[i]), _agg_functions[i]->data_type(), ""});
+        block->insert({std::move(_result_window_columns[i]), _agg_functions[i]->data_type(), ""});
     }
 
     _output_block_index++;
