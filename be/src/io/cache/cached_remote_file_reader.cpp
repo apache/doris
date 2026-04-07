@@ -430,16 +430,20 @@ void launch_s3_race(std::shared_ptr<RaceState> race, size_t empty_start, size_t 
         race->cv.notify_all();
     };
 
-    // Hedge delay: give peer a head start.
+    // Hedge delay: give peer a head start, but wake up early if peer finishes.
+    // Uses cv.wait_for() instead of bthread_usleep() so the calling thread is
+    // unblocked as soon as the peer bthread signals completion, avoiding the
+    // unconditional 20ms sleep that dominated latency on cache-miss-heavy queries.
     bool peer_already_won = false;
     if (config::peer_race_hedge_delay_ms > 0) {
-        bthread_usleep(static_cast<int64_t>(config::peer_race_hedge_delay_ms) * 1000);
         std::unique_lock<bthread::Mutex> lk(race->mtx);
+        if (!race->peer_done) {
+            race->cv.wait_for(lk, static_cast<long>(config::peer_race_hedge_delay_ms) * 1000);
+        }
         peer_already_won = (race->winner == 0);
         if (peer_already_won) {
             race->s3_done = true;
             race->s3_status = Status::InternalError<false>("skipped: peer won during hedge delay");
-            race->cv.notify_all();
         }
     }
 
