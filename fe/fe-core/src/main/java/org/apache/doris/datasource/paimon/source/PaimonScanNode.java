@@ -443,7 +443,9 @@ public class PaimonScanNode extends FileQueryScanNode {
                 if (ignoreSplitType == SessionVariable.IgnoreSplitType.IGNORE_JNI) {
                     continue;
                 }
-                splits.add(new PaimonSplit(dataSplit));
+                PaimonSplit jniSplit = new PaimonSplit(dataSplit);
+                jniSplit.setPaimonPartitionValues(partitionInfoMap);
+                splits.add(jniSplit);
                 ++paimonSplitNum;
             }
 
