@@ -16,9 +16,6 @@
 // under the License.
 
 suite("test_decimalv2_v3", "nonConcurrent") {
-    sql """
-        admin set frontend config("enable_decimal_conversion" = "false");
-    """
 
     // test cast decimalv2 to decimal32
     def prepare_test_decimalv2_v3_1 = {
@@ -1221,9 +1218,5 @@ suite("test_decimalv2_v3", "nonConcurrent") {
     """
     qt_cast128_narrow_scale_5 """
         select cast(k1 as decimalv3(25, 8)) from test_decimalv2_v3_decimal128_cast1 order by 1;
-    """
-
-    sql """
-        admin set frontend config("enable_decimal_conversion" = "true");
     """
 }

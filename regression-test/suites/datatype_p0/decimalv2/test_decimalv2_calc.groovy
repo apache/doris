@@ -17,9 +17,6 @@
 
 suite("test_decimalv2_calc", "nonConcurrent") {
 
-    sql """
-        admin set frontend config("enable_decimal_conversion" = "false");
-    """
     sql "set check_overflow_for_decimal=false;"
 
     def table1 = "test_decimalv2_calc_tbl"
@@ -193,9 +190,5 @@ suite("test_decimalv2_calc", "nonConcurrent") {
             , decimal_value1 * 999.99999 v1
             , decimal_value2 * 0.9999999 v1
         from ${table1} order by 1, 2, 3, 4;
-    """
-
-    sql """
-        admin set frontend config("enable_decimal_conversion" = "true");
     """
 }

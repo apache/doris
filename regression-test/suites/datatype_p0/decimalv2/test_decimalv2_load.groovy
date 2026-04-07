@@ -20,9 +20,6 @@ suite("test_decimalv2_load", "nonConcurrent") {
     sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
     sql "USE $dbName"
 
-    sql """
-        admin set frontend config("enable_decimal_conversion" = "false");
-    """
     sql "set check_overflow_for_decimal=false;"
 
     def tableName = "test_decimalv2_load_tbl"
@@ -82,9 +79,5 @@ suite("test_decimalv2_load", "nonConcurrent") {
 
     qt_query2 """
         select * from ${tableName2} order by 1;
-    """
-
-    sql """
-        admin set frontend config("enable_decimal_conversion" = "true");
     """
 }

@@ -15,15 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import java.math.BigDecimal;
-import com.mysql.cj.MysqlType;
+import com.mysql.cj.MysqlType
 
 suite("test_prepared_stmt", "nonConcurrent") {
-    def config_row = sql """ ADMIN SHOW FRONTEND CONFIG LIKE 'enable_decimal_conversion'; """
-    String old_value = config_row[0][1]
-    sql """
-        admin set frontend config("enable_decimal_conversion" = "true");
-    """
     sql """ ADMIN SET FRONTEND CONFIG ("prepared_stmt_start_id" = "-1"); """
 
     def user = context.config.jdbcUser
@@ -402,7 +396,4 @@ suite("test_prepared_stmt", "nonConcurrent") {
         qe_overflow_6 stmt_read6
         stmt_read6.close()
     }
-
-    // restore enable_decimal_conversion to old_value
-    sql """ ADMIN SET FRONTEND CONFIG ("enable_decimal_conversion" = "${old_value}"); """
 }

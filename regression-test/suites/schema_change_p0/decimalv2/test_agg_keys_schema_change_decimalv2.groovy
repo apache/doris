@@ -23,12 +23,6 @@ suite("test_agg_keys_schema_change_decimalv2", "nonConcurrent") {
     def config_row = sql """ ADMIN SHOW FRONTEND CONFIG LIKE 'disable_decimalv2'; """
     String old_value1 = config_row[0][1]
 
-    config_row = sql """ ADMIN SHOW FRONTEND CONFIG LIKE 'enable_decimal_conversion'; """
-    String old_value2 = config_row[0][1]
-
-    sql """
-        admin set frontend config("enable_decimal_conversion" = "false");
-    """
     sql """
         admin set frontend config("disable_decimalv2" = "false");
     """
@@ -168,54 +162,6 @@ suite("test_agg_keys_schema_change_decimalv2", "nonConcurrent") {
     sql """sync"""
     qt_sql8 """select * from ${tbName} ORDER BY 1,2,3,4;"""
 
-
-    // DECIMALV3(21,3) -> decimalv2 OK
-    /*
-    sql """ alter table ${tbName} modify column decimalv2k2 DECIMALV2(21,3) key """
-    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(500, TimeUnit.MILLISECONDS).await().until(() -> {
-        String result = getJobState(tbName)
-        if (result == "FINISHED") {
-            return true;
-        }
-        return false;
-    });
-
-
-    sql """sync"""
-    qt_sql9 """select * from ${tbName} ORDER BY 1,2,3,4;"""
-
-    // DECIMALV3(26,8) -> decimalv2
-    sql """ alter table ${tbName} modify column decimalv2v1 DECIMALV2(25,7) sum """
-    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(500, TimeUnit.MILLISECONDS).await().until(() -> {
-        String result = getJobState(tbName)
-        if (result == "FINISHED") {
-            return true;
-        }
-        return false;
-    });
-
-
-    sql """sync"""
-    qt_sql9_2 """select * from ${tbName} ORDER BY 1,2,3,4;"""
-
-    // DECIMALV3(26,8) -> decimalv2, narrow integer
-    sql """ alter table ${tbName} modify column decimalv2v1 DECIMALV2(25,8) sum """
-    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(500, TimeUnit.MILLISECONDS).await().until(() -> {
-        String result = getJobState(tbName)
-        if (result == "FINISHED") {
-            return true;
-        }
-        return false;
-    });
-
-
-    sql """sync"""
-    qt_sql9_3 """select * from ${tbName} ORDER BY 1,2,3,4;"""
-    */
-
     // restore disable_decimalv2 to old_value
     sql """ ADMIN SET FRONTEND CONFIG ("disable_decimalv2" = "${old_value1}"); """
-
-    // restore enable_decimal_conversion to old_value
-    sql """ ADMIN SET FRONTEND CONFIG ("enable_decimal_conversion" = "${old_value2}"); """
 }

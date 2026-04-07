@@ -17,9 +17,6 @@
 
 suite("test_decimalv2_common", "nonConcurrent") {
 
-    sql """
-        admin set frontend config("enable_decimal_conversion" = "false");
-    """
     sql "set check_overflow_for_decimal=false;"
 
     def table_normal = "test_decimalv2_common_normal_tbl"
@@ -399,8 +396,4 @@ suite("test_decimalv2_common", "nonConcurrent") {
     // run_delete_test(table_agg, "`decimal_key1` = 7.77777")
     run_delete_test(table_dist, "`decimal_value1` = 8.8888")
     //run_delete_test(table_part, "`decimal_value1` > 10.9999")
-
-    sql """
-        admin set frontend config("enable_decimal_conversion" = "true");
-    """
 }

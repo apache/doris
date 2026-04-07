@@ -18,12 +18,7 @@
 suite("test_decimalv2_cast_to_string", "nonConcurrent") {
     def config_row = sql """ ADMIN SHOW FRONTEND CONFIG LIKE 'disable_decimalv2'; """
     String old_value1 = config_row[0][1]
-    config_row = sql """ ADMIN SHOW FRONTEND CONFIG LIKE 'enable_decimal_conversion'; """
-    String old_value2 = config_row[0][1]
 
-    sql """
-        admin set frontend config("enable_decimal_conversion" = "false");
-    """
     sql """
         admin set frontend config("disable_decimalv2" = "false");
     """
@@ -97,7 +92,4 @@ suite("test_decimalv2_cast_to_string", "nonConcurrent") {
 
     // restore disable_decimalv2 to old_value
     sql """ ADMIN SET FRONTEND CONFIG ("disable_decimalv2" = "${old_value1}"); """
-
-    // restore enable_decimal_conversion to old_value
-    sql """ ADMIN SET FRONTEND CONFIG ("enable_decimal_conversion" = "${old_value2}"); """
 }

@@ -17,9 +17,6 @@
 
 suite("test_decimalv2_calc_with_conversion", "nonConcurrent") {
 
-    sql """
-        admin set frontend config("enable_decimal_conversion" = "true");
-    """
     sql "set check_overflow_for_decimal=false;"
 
     def table1 = "test_decimalv2_calc_tbl"

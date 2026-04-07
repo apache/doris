@@ -16,9 +16,6 @@
 // under the License.
 
 suite("test_decimalv2_overflow", "nonConcurrent") {
-    sql """
-        admin set frontend config("enable_decimal_conversion" = "false");
-    """
 
     sql """ set check_overflow_for_decimal=false; """
 

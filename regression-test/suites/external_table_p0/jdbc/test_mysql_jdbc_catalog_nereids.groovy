@@ -53,7 +53,6 @@ suite("test_mysql_jdbc_catalog_nereids", "p0,external") {
 
         sql """create database if not exists ${internal_db_name}; """
 
-        sql """ADMIN SET FRONTEND CONFIG ("enable_decimal_conversion" = "true");"""
         sql """drop catalog if exists ${catalog_name} """
 
 	    sql """set enable_nereids_planner=true;"""
