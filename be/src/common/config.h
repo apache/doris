@@ -615,6 +615,9 @@ DECLARE_mInt32(base_compaction_trace_threshold);
 DECLARE_mInt32(cumulative_compaction_trace_threshold);
 DECLARE_mBool(disable_compaction_trace_log);
 
+DECLARE_mBool(enable_compaction_task_tracker);
+DECLARE_mInt32(compaction_task_tracker_max_records);
+
 // Interval to picking rowset to compact, in seconds
 DECLARE_mInt64(pick_rowset_to_compact_interval_sec);
 

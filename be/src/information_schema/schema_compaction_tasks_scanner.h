@@ -17,44 +17,34 @@
 
 #pragma once
 
-#include <optional>
-#include <string>
+#include <cstddef>
+#include <cstdint>
 #include <vector>
 
 #include "common/status.h"
-#include "io/io_common.h"
-#include "storage/compaction/compaction.h"
+#include "information_schema/schema_scanner.h"
 #include "storage/compaction_task_tracker.h"
 
 namespace doris {
+class RuntimeState;
+class Block;
 
-// BaseCompaction is derived from Compaction.
-// BaseCompaction will implements
-//   1. its policy to pick rowsets
-//   2. do compaction to produce new rowset.
+class SchemaCompactionTasksScanner : public SchemaScanner {
+    ENABLE_FACTORY_CREATOR(SchemaCompactionTasksScanner);
 
-class BaseCompaction final : public CompactionMixin {
 public:
-    BaseCompaction(StorageEngine& engine, const TabletSharedPtr& tablet);
-    ~BaseCompaction() override;
+    SchemaCompactionTasksScanner();
+    ~SchemaCompactionTasksScanner() override = default;
 
-    Status prepare_compact() override;
-
-    Status execute_compact() override;
-
-    std::optional<CompactionProfileType> profile_type() const override {
-        return CompactionProfileType::BASE;
-    }
+    Status start(RuntimeState* state) override;
+    Status get_next_block_internal(Block* block, bool* eos) override;
 
 private:
-    Status pick_rowsets_to_compact();
-    std::string_view compaction_name() const override { return "base compaction"; }
+    Status _fill_block_impl(Block* block);
 
-    ReaderType compaction_type() const override { return ReaderType::READER_BASE_COMPACTION; }
-
-    // filter input rowset in some case:
-    // 1. dup key without delete predicate
-    void _filter_input_rowset();
+    static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;
+    int64_t _backend_id = 0;
+    size_t _task_idx = 0;
+    std::vector<CompactionTaskInfo> _tasks;
 };
-
 } // namespace doris
