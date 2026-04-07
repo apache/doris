@@ -98,18 +98,10 @@ public:
               endpoint(t_info.__isset.endpoint ? t_info.endpoint : ""),
               begin_sequence_number(t_info.shard_begin_sequence_number),
               properties(t_info.__isset.properties ? t_info.properties
-                                                   : std::map<std::string, std::string>()) {
-        // Initialize committed sequence numbers with begin sequence numbers
-        for (const auto& p : t_info.shard_begin_sequence_number) {
-            cmt_sequence_number[p.first] = p.second;
-        }
-    }
+                                                   : std::map<std::string, std::string>()) {}
 
     void reset_sequence_numbers() {
-        // Reset committed sequence numbers to begin sequence numbers
-        for (auto& p : begin_sequence_number) {
-            cmt_sequence_number[p.first] = p.second;
-        }
+        cmt_sequence_number.clear();
     }
 
     std::string region;
@@ -124,7 +116,8 @@ public:
 
     // shard_id -> begin sequence number, inclusive
     std::map<std::string, std::string> begin_sequence_number;
-    // shard_id -> committed sequence number (last consumed)
+    // shard_id -> committed sequence number (last consumed).
+    // This starts empty and is populated only after records are successfully consumed.
     std::map<std::string, std::string> cmt_sequence_number;
     // shard_id -> millisBehindLatest from the last GetRecords call
     std::map<std::string, int64_t> millis_behind_latest;

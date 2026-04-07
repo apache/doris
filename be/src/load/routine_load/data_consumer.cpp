@@ -1088,21 +1088,40 @@ Status KinesisDataConsumer::get_shard_list(std::vector<std::string>* shard_ids) 
     // on the FE side (populated when BE reports shard exhaustion). Including CLOSED shards here
     // would cause retired parent shards to be re-added to the open list after reschedule,
     // leading to duplicate consumption from TRIM_HORIZON.
-    auto outcome = _kinesis_client->ListShards(request);
-    if (!outcome.IsSuccess()) {
-        auto& error = outcome.GetError();
-        return Status::InternalError("Failed to list shards for stream {}: {} ({})", _stream,
-                                     error.GetMessage(), static_cast<int>(error.GetErrorType()));
+    std::vector<std::string> discovered_shard_ids;
+    while (true) {
+        auto outcome = _kinesis_client->ListShards(request);
+        if (!outcome.IsSuccess()) {
+            auto& error = outcome.GetError();
+            return Status::InternalError("Failed to list shards for stream {}: {} ({})", _stream,
+                                         error.GetMessage(),
+                                         static_cast<int>(error.GetErrorType()));
+        }
+
+        const auto& result = outcome.GetResult();
+        for (const auto& shard : result.GetShards()) {
+            discovered_shard_ids.emplace_back(shard.GetShardId());
+        }
+
+        const Aws::String& next_token = result.GetNextToken();
+        if (next_token.empty()) {
+            break;
+        }
+
+        Aws::Kinesis::Model::ListShardsRequest next_request;
+        // AWS requires paginated ListShards requests to use NextToken instead of StreamName.
+        next_request.SetNextToken(next_token);
+        if (request.MaxResultsHasBeenSet()) {
+            next_request.SetMaxResults(request.GetMaxResults());
+        }
+        request = std::move(next_request);
     }
 
-    for (const auto& shard : outcome.GetResult().GetShards()) {
-        shard_ids->push_back(shard.GetShardId());
-    }
-
-    if (shard_ids->empty()) {
+    if (discovered_shard_ids.empty()) {
         return Status::InternalError("No shards found in Kinesis stream: {}", _stream);
     }
 
+    *shard_ids = std::move(discovered_shard_ids);
     LOG(INFO) << "Found " << shard_ids->size() << " shards in stream: " << _stream;
     return Status::OK();
 }
