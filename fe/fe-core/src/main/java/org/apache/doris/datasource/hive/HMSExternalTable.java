@@ -28,6 +28,8 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
+import org.apache.doris.catalog.constraint.UniqueConstraint;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -76,6 +78,7 @@ import org.apache.doris.thrift.TTableType;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.BiMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -1235,6 +1238,73 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             } else {
                 throw e;
             }
+        }
+    }
+
+    @Override
+    public Set<PrimaryKeyConstraint> getPrimaryKeyConstraints() {
+        makeSureInitialized();
+        // 1. Try Doris-side constraints
+        Set<PrimaryKeyConstraint> dorisConstraints = super.getPrimaryKeyConstraints();
+        if (!dorisConstraints.isEmpty()) {
+            return dorisConstraints;
+        }
+        // 2. Read from Hive TBLPROPERTIES
+        try {
+            Map<String, String> parameters = remoteTable.getParameters();
+            if (parameters == null) {
+                return ImmutableSet.of();
+            }
+
+            HiveConstraintExtractor.HivePrimaryKey pk = HiveConstraintExtractor.extractPrimaryKey(
+                    getName(), parameters);
+            if (pk == null) {
+                return ImmutableSet.of();
+            }
+
+            return ImmutableSet.of(
+                new PrimaryKeyConstraint(pk.getConstraintName(),
+                    ImmutableSet.copyOf(pk.getColumns()))
+            );
+        } catch (Exception e) {
+            LOG.warn("Failed to extract PK from Hive table {}", getName(), e);
+            return ImmutableSet.of();
+        }
+    }
+
+    @Override
+    public Set<UniqueConstraint> getUniqueConstraints() {
+        makeSureInitialized();
+        Set<UniqueConstraint> dorisConstraints = super.getUniqueConstraints();
+        if (!dorisConstraints.isEmpty()) {
+            return dorisConstraints;
+        }
+        try {
+            Map<String, String> parameters = remoteTable.getParameters();
+            if (parameters == null) {
+                return ImmutableSet.of();
+            }
+
+            ImmutableSet.Builder<UniqueConstraint> builder = ImmutableSet.builder();
+
+            // Explicit unique keys
+            for (HiveConstraintExtractor.HiveUniqueKey uk :
+                    HiveConstraintExtractor.extractUniqueKeys(getName(), parameters)) {
+                builder.add(new UniqueConstraint(uk.getConstraintName(), ImmutableSet.copyOf(uk.getColumns())));
+            }
+
+            // PK is also a unique key
+            // HiveConstraintExtractor.HivePrimaryKey pk = HiveConstraintExtractor.extractPrimaryKey(
+            //          getName(), parameters);
+            // if (pk != null) {
+            //     builder.add(new UniqueConstraint("hive_pk_as_uk_" + getName(),
+            //         ImmutableSet.copyOf(pk.getColumns())));
+            // }
+
+            return builder.build();
+        } catch (Exception e) {
+            LOG.warn("Failed to extract UK from Hive table {}", getName(), e);
+            return ImmutableSet.of();
         }
     }
 }
