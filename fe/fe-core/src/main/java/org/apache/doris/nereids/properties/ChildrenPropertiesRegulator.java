@@ -281,12 +281,12 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
         if (!isEnableBucketShuffleJoin) {
             return true;
         } else if (!(oneSidePlan instanceof GroupPlan)) {
-            return false;
+            return true;
         } else {
             PhysicalOlapScan candidate = findDownGradeBucketShuffleCandidate((GroupPlan) oneSidePlan);
             if (candidate == null || candidate.getTable() == null
                     || candidate.getTable().getDefaultDistributionInfo() == null) {
-                return false;
+                return true;
             } else {
                 int prunedPartNum = candidate.getSelectedPartitionIds().size();
                 int bucketNum = candidate.getTable().getDefaultDistributionInfo().getBucketNum();
