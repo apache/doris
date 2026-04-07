@@ -183,7 +183,7 @@ public class ShowDataCommand extends ShowCommand {
             return;
         }
         if (tableName != null) {
-            tableName.analyze(ctx);
+            tableName.analyze(ctx.getNameSpaceContext());
             // disallow external catalog
             Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
             dbName = tableName.getDb();

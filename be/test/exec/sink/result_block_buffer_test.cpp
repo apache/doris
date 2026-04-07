@@ -63,7 +63,7 @@ private:
 
 TEST_F(MysqlResultBlockBufferTest, TestMySQLResultBlockBuffer) {
     MockRuntimeState state;
-    state.batsh_size = 1;
+    state._batch_size = 1;
     int buffer_size = 16;
     auto dep = Dependency::create_shared(0, 0, "Test", true);
     auto ins_id = TUniqueId();
@@ -190,7 +190,7 @@ TEST_F(MysqlResultBlockBufferTest, TestMySQLResultBlockBuffer) {
 
 TEST_F(MysqlResultBlockBufferTest, TestCancelMySQLResultBlockBuffer) {
     MockRuntimeState state;
-    state.batsh_size = 1;
+    state._batch_size = 1;
     int buffer_size = 16;
     auto dep = Dependency::create_shared(0, 0, "Test", true);
     auto ins_id = TUniqueId();
@@ -265,7 +265,7 @@ TEST_F(MysqlResultBlockBufferTest, TestCancelMySQLResultBlockBuffer) {
 
 TEST_F(MysqlResultBlockBufferTest, TestErrorClose) {
     MockRuntimeState state;
-    state.batsh_size = 1;
+    state._batch_size = 1;
     int buffer_size = 16;
     auto dep = Dependency::create_shared(0, 0, "Test", true);
     auto ins_id = TUniqueId();

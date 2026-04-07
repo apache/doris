@@ -55,6 +55,7 @@
 #include "information_schema/schema_collations_scanner.h"
 #include "information_schema/schema_column_data_sizes_scanner.h"
 #include "information_schema/schema_columns_scanner.h"
+#include "information_schema/schema_compaction_tasks_scanner.h"
 #include "information_schema/schema_database_properties_scanner.h"
 #include "information_schema/schema_dummy_scanner.h"
 #include "information_schema/schema_encryption_keys_scanner.h"
@@ -271,6 +272,8 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaTableStreamsScanner::create_unique();
     case TSchemaTableType::SCH_TABLE_STREAM_CONSUMPTION:
         return SchemaTableStreamConsumptionScanner::create_unique();
+    case TSchemaTableType::SCH_BE_COMPACTION_TASKS:
+        return SchemaCompactionTasksScanner::create_unique();
     default:
         return SchemaDummyScanner::create_unique();
         break;

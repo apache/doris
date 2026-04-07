@@ -55,7 +55,7 @@ public:
                      ExecEnv* exec_env, QueryContext* ctx)
             : RuntimeState(query_id, fragment_id, query_options, query_globals, exec_env, ctx) {}
 
-    int batch_size() const override { return batsh_size; }
+    int batch_size() const override { return _batch_size; }
 
     bool enable_shared_exchange_sink_buffer() const override {
         return _enable_shared_exchange_sink_buffer;
@@ -75,7 +75,7 @@ public:
     bool enable_use_hybrid_sort() const override { return false; }
 
     // default batch size
-    int batsh_size = 4096;
+    int _batch_size = 4096;
     bool _enable_shared_exchange_sink_buffer = true;
     bool _enable_share_hash_table_for_broadcast_join = true;
     std::shared_ptr<MockContext> _mock_context = std::make_shared<MockContext>();

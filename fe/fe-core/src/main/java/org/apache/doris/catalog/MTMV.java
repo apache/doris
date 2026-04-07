@@ -609,6 +609,9 @@ public class MTMV extends OlapTable {
     @Override
     public void gsonPostProcess() throws IOException {
         super.gsonPostProcess();
+        if (sessionVariables == null) {
+            sessionVariables = Maps.newHashMap();
+        }
         Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots = refreshSnapshot.getPartitionSnapshots();
         compatiblePctSnapshot(partitionSnapshots);
     }

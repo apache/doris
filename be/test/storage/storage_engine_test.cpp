@@ -17,6 +17,7 @@
 
 #include "storage/storage_engine.h"
 
+#include <gen_cpp/olap_file.pb.h>
 #include <gmock/gmock-actions.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest-message.h>
@@ -25,12 +26,15 @@
 
 #include <filesystem>
 #include <memory>
+#include <string_view>
+#include <unordered_map>
 
 #include "common/status.h"
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
 #include "storage/data_dir.h"
 #include "storage/tablet/tablet_manager.h"
+#include "storage/tablet/tablet_meta_manager.h"
 #include "util/threadpool.h"
 
 namespace doris {
@@ -139,10 +143,28 @@ TEST_F(StorageEngineTest, TestAsyncPublish) {
     EXPECT_EQ(tablet->max_version().second, 10);
 
     for (int64_t i = 5; i < 12; ++i) {
-        _storage_engine->add_async_publish_task(partition_id, tablet_id, i, i, false);
+        _storage_engine->add_async_publish_task(partition_id, tablet_id, i, i, false, i * 10);
     }
     EXPECT_EQ(_storage_engine->_async_publish_tasks[tablet_id].size(), 7);
     EXPECT_EQ(_storage_engine->get_pending_publish_min_version(tablet_id), 5);
+
+    std::unordered_map<int64_t, int64_t> version_to_commit_tso;
+    st = TabletMetaManager::traverse_pending_publish(
+            _data_dir->get_meta(),
+            [&](int64_t traversed_tablet_id, int64_t publish_version, std::string_view info) {
+                if (traversed_tablet_id != tablet_id) {
+                    return true;
+                }
+                PendingPublishInfoPB pb;
+                bool parsed = pb.ParseFromArray(info.data(), static_cast<int>(info.size()));
+                EXPECT_TRUE(parsed);
+                version_to_commit_tso[publish_version] = pb.commit_tso();
+                return true;
+            });
+    EXPECT_TRUE(st.ok()) << st;
+    EXPECT_EQ(version_to_commit_tso[5], 50);
+    EXPECT_EQ(version_to_commit_tso[11], 110);
+
     for (int64_t i = 1; i < 8; ++i) {
         _storage_engine->_process_async_publish();
         EXPECT_EQ(_storage_engine->_async_publish_tasks[tablet_id].size(), 7 - i);
@@ -151,13 +173,13 @@ TEST_F(StorageEngineTest, TestAsyncPublish) {
     EXPECT_EQ(_storage_engine->_async_publish_tasks.size(), 0);
 
     for (int64_t i = 100; i < config::max_tablet_version_num + 120; ++i) {
-        _storage_engine->add_async_publish_task(partition_id, tablet_id, i, i, false);
+        _storage_engine->add_async_publish_task(partition_id, tablet_id, i, i, false, -1 /*tso*/);
     }
     EXPECT_EQ(_storage_engine->_async_publish_tasks[tablet_id].size(),
               config::max_tablet_version_num + 20);
 
     for (int64_t i = 90; i < 120; ++i) {
-        _storage_engine->add_async_publish_task(partition_id, tablet_id, i, i, false);
+        _storage_engine->add_async_publish_task(partition_id, tablet_id, i, i, false, -1 /*tso*/);
     }
     EXPECT_EQ(_storage_engine->_async_publish_tasks[tablet_id].size(),
               config::max_tablet_version_num + 30);

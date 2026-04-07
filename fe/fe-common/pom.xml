@@ -134,6 +134,54 @@ under the License.
         <finalName>doris-fe-common</finalName>
         <directory>${project.basedir}/target/</directory>
         <plugins>
+            <!-- run make to generate Version and builtin -->
+            <!-- also parse the proto for FE -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>gensrc</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <environmentVariables>
+                                <DORIS_HOME>${doris.home}</DORIS_HOME>
+                            </environmentVariables>
+                            <environmentScript>${doris.home}/env.sh</environmentScript>
+                            <executable>make</executable>
+                            <arguments>
+                                <argument>-C</argument>
+                                <argument>${doris.home}/gensrc/script</argument>
+                            </arguments>
+                            <skip>${skip.plugin}</skip>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- add generated Version.java as source -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>build-helper-maven-plugin</artifactId>
+                <version>3.2.0</version>
+                <executions>
+                    <execution>
+                        <id>add-source</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>add-source</goal>
+                        </goals>
+                        <configuration>
+                            <sources>
+                                <source>${basedir}/target/generated-sources/build/</source>
+                            </sources>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <!--antlr-->
             <plugin>
                 <groupId>org.antlr</groupId>

@@ -125,7 +125,7 @@ public class CreateMTMVInfo extends CreateTableInfo {
      */
     public void analyze(ConnectContext ctx) throws Exception {
         // analyze table name
-        tableNameInfo.analyze(ctx);
+        tableNameInfo.analyze(ctx.getNameSpaceContext());
         if (!InternalCatalog.INTERNAL_CATALOG_NAME.equals(tableNameInfo.getCtl())) {
             throw new AnalysisException("Only support creating asynchronous materialized views in internal catalog");
         }

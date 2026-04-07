@@ -3384,6 +3384,54 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static long mow_get_ms_lock_retry_backoff_interval = 80;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Whether to enable TSO."}, varType = VariableAnnotation.EXPERIMENTAL)
+    public static boolean enable_tso_feature = false;
+
+    @ConfField(mutable = false, masterOnly = true, description = {
+            "TSO service update interval in milliseconds. Default is 50, which means the TSO service "
+                    + "will perform timestamp update checks every 50 milliseconds."})
+    public static int tso_service_update_interval_ms = 50;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "TSO service max retry count. Default is 3, which means the TSO service will retry 3 times "
+                    + "to update the global timestamp."})
+    public static int tso_max_update_retry_count = 3;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "TSO get max retry count. Default is 10, which means the TSO service will retry 10 times "
+                    + "to generate TSO."})
+    public static int tso_max_get_retry_count = 10;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "TSO service time window in milliseconds. Default is 5000, which means the TSO service "
+                    + "will apply for a TSO time window of 5000ms from BDBJE once."})
+    public static int tso_service_window_duration_ms = 5000;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Max tolerated clock backward threshold during TSO calibration in milliseconds. "
+                    + "Exceeding this threshold will fail enabling TSO. Default is 30 minutes."})
+    public static long tso_clock_backward_startup_threshold_ms = 30L * 60 * 1000;
+
+    @ConfField(mutable = true, description = {
+            "TSO service time offset in milliseconds. Only for test. Default is 0, which means the TSO service "
+                    + "timestamp offset is 0 milliseconds."})
+    public static int tso_time_offset_debug_mode = 0;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Whether to enable persisting TSO window end into edit log. Enabling emits new op code, "
+                    + "which may break rollback to older versions."})
+    public static boolean enable_tso_persist_journal = false;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Whether to include TSO info as an image module in checkpoint. Older versions may need to ignore "
+                    + "unknown modules when reading new images."})
+    public static boolean enable_tso_checkpoint_module = false;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Whether to forward TSO 1ms when logical counter is nearly full. Default is true."})
+    public static boolean enable_tso_forward_when_counter_full = true;
+
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_notify_be_after_load_txn_commit = false;
 

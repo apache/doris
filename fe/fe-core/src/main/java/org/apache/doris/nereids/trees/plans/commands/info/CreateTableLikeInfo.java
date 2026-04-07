@@ -53,7 +53,7 @@ public class CreateTableLikeInfo {
 
     /** validate */
     public void validate(ConnectContext ctx) throws AnalysisException {
-        existedTableName.analyze(ctx);
+        existedTableName.analyze(ctx.getNameSpaceContext());
         // disallow external catalog
         Util.prohibitExternalCatalog(existedTableName.getCtl(), "CreateTableLikeCommand");
         //check privilege
@@ -63,7 +63,7 @@ public class CreateTableLikeInfo {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SELECT");
         }
 
-        tableName.analyze(ctx);
+        tableName.analyze(ctx.getNameSpaceContext());
         // disallow external catalog
         Util.prohibitExternalCatalog(tableName.getCtl(), "CreateTableLikeCommand");
         FeNameFormat.checkTableName(tableName.getTbl());
