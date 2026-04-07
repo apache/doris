@@ -459,7 +459,7 @@ public class EncryptSQLTest extends ParserTestBase {
         sql = "CREATE USER 'test_user62140'@'%' IDENTIFIED BY '123456'";
         res = "CREATE USER 'test_user62140'@'%' IDENTIFIED BY '*XXX'";
         parseAndCheck(sql, res);
-    }        
+    }
 
     @Test
     public void testCreateUserPasswordMasking() throws Exception {
@@ -472,12 +472,12 @@ public class EncryptSQLTest extends ParserTestBase {
         };
         ctx.setEnv(env);
         Config.enable_nereids_load = true;
-                
+
         // testing for https://github.com/apache/doris/issues/62140
         sql = "ALTER USER 'test_user62140'@'%' IDENTIFIED BY '123456'";
         res = "ALTER USER 'test_user62140'@'%' IDENTIFIED BY '*XXX'";
         parseAndCheck(sql, res);
-    }        
+    }
 
     private void parseAndCheck(String sql, String expected) throws Exception {
         processor.executeQuery(sql);
