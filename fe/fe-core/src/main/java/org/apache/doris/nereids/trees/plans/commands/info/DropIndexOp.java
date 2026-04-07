@@ -100,6 +100,18 @@ public class DropIndexOp extends AlterTableOp {
         if (tableName != null) {
             tableName.analyze(ctx);
         }
+        if (partitionNamesInfo != null) {
+            if (partitionNamesInfo.isTemp()) {
+                throw new AnalysisException(
+                        "DROP INDEX ON PARTITION does not support temporary partitions");
+            }
+            if (partitionNamesInfo.getPartitionNames() == null
+                    || partitionNamesInfo.getPartitionNames().isEmpty()) {
+                throw new AnalysisException(
+                        "DROP INDEX ON PARTITION requires explicit partition names, "
+                                + "PARTITIONS (*) is not supported");
+            }
+        }
     }
 
     @Override

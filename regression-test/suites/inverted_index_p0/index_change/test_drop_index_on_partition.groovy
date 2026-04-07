@@ -20,19 +20,29 @@ suite("test_drop_index_on_partition", "inverted_index") {
     def timeout = 300000
     def delta_time = 1000
 
-    def wait_for_build_index_on_partition_finish = { table_name, OpTimeout ->
+    def get_build_index_job_count = { table_name ->
+        def res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}";"""
+        return res.size()
+    }
+
+    def wait_for_build_index_on_partition_finish = { table_name, expected_job_count, OpTimeout ->
         def useTime = 0
         for (int t = delta_time; t <= OpTimeout; t += delta_time) {
             def alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}";"""
-            def expected_finished_num = alter_res.size();
+            // first verify the expected number of jobs exist
+            if (alter_res.size() < expected_job_count) {
+                useTime = t
+                sleep(delta_time)
+                continue
+            }
             def finished_num = 0;
-            for (int i = 0; i < expected_finished_num; i++) {
+            for (int i = 0; i < alter_res.size(); i++) {
                 logger.info(table_name + " build index job state: " + alter_res[i][7] + " idx: " + i)
                 if (alter_res[i][7] == "FINISHED") {
                     ++finished_num;
                 }
             }
-            if (finished_num == expected_finished_num) {
+            if (finished_num == alter_res.size()) {
                 logger.info(table_name + " all build index jobs finished, detail: " + alter_res)
                 break
             }
@@ -42,7 +52,7 @@ suite("test_drop_index_on_partition", "inverted_index") {
         assertTrue(useTime <= OpTimeout, "wait_for_build_index_on_partition_finish timeout")
     }
 
-    // case 1: basic DROP INDEX ON PARTITION
+    // case 1: basic DROP INDEX ON PARTITION with job count and fallback=false verification
     def tableName1 = "test_drop_idx_on_partition_basic"
     sql "DROP TABLE IF EXISTS ${tableName1}"
     sql """
@@ -74,21 +84,42 @@ suite("test_drop_index_on_partition", "inverted_index") {
     logger.info("show index: " + show_idx)
     assertTrue(show_idx.toString().contains("idx_v2"))
 
-    // drop index on partition p1 only
+    // record job count before DROP
+    def job_count_before = get_build_index_job_count(tableName1)
+    logger.info("job count before drop: " + job_count_before)
+
+    // drop index on partition p1 only — should create exactly 1 new job
     sql "DROP INDEX idx_v2 ON ${tableName1} PARTITION (p1)"
-    wait_for_build_index_on_partition_finish(tableName1, timeout)
+
+    def job_count_after = get_build_index_job_count(tableName1)
+    logger.info("job count after drop: " + job_count_after)
+    assertTrue(job_count_after > job_count_before,
+            "DROP INDEX ON PARTITION should create new build index jobs, " +
+            "before: ${job_count_before}, after: ${job_count_after}")
+
+    wait_for_build_index_on_partition_finish(tableName1, job_count_after, timeout)
 
     // verify index definition still exists in table schema
     show_idx = sql "SHOW INDEX FROM ${tableName1}"
     logger.info("show index after drop on partition: " + show_idx)
     assertTrue(show_idx.toString().contains("idx_v2"))
 
-    // query with fallback should work
+    // verify p2 (not dropped) still works with fallback=false
+    sql """set enable_fallback_on_missing_inverted_index = false"""
+    order_qt_select_p2_no_fallback """SELECT * FROM ${tableName1} WHERE v2 = 'abc def' AND k1 >= 100 AND k1 < 200 ORDER BY k1"""
+
+    // verify p1 (dropped) fails with fallback=false — proves index was actually deleted
+    sql """set enable_fallback_on_missing_inverted_index = false"""
+    test {
+        sql """SELECT * FROM ${tableName1} WHERE v2 MATCH 'foo' AND k1 >= 0 AND k1 < 100 ORDER BY k1"""
+        exception "INVERTED_INDEX_FILE_NOT_FOUND"
+    }
+
+    // verify p1 works with fallback=true
     sql """set enable_fallback_on_missing_inverted_index = true"""
     order_qt_select1 """SELECT * FROM ${tableName1} WHERE v2 = 'foo bar' ORDER BY k1"""
-    order_qt_select2 """SELECT * FROM ${tableName1} WHERE v2 = 'abc def' ORDER BY k1"""
 
-    // case 2: drop index on multiple partitions
+    // case 2: drop index on multiple partitions with job count verification
     def tableName2 = "test_drop_idx_on_multi_partitions"
     sql "DROP TABLE IF EXISTS ${tableName2}"
     sql """
@@ -111,17 +142,25 @@ suite("test_drop_index_on_partition", "inverted_index") {
     sql "CREATE INDEX idx_v1 ON ${tableName2}(v1) USING INVERTED"
     wait_for_last_build_index_finish(tableName2, timeout)
 
-    // drop index on p1 and p2
+    job_count_before = get_build_index_job_count(tableName2)
+
+    // drop index on p1 and p2 — should create 2 new jobs
     sql "DROP INDEX idx_v1 ON ${tableName2} PARTITIONS (p1, p2)"
-    wait_for_build_index_on_partition_finish(tableName2, timeout)
+
+    job_count_after = get_build_index_job_count(tableName2)
+    logger.info("multi-partition drop: job count before=${job_count_before}, after=${job_count_after}")
+    assertTrue(job_count_after >= job_count_before + 2,
+            "DROP INDEX ON 2 PARTITIONS should create at least 2 new jobs")
+
+    wait_for_build_index_on_partition_finish(tableName2, job_count_after, timeout)
 
     // index definition should still exist
     show_idx = sql "SHOW INDEX FROM ${tableName2}"
     assertTrue(show_idx.toString().contains("idx_v1"))
 
-    // queries should work with fallback
-    sql """set enable_fallback_on_missing_inverted_index = true"""
-    order_qt_select3 """SELECT * FROM ${tableName2} ORDER BY k1"""
+    // p3 (not dropped) should still work with fallback=false
+    sql """set enable_fallback_on_missing_inverted_index = false"""
+    order_qt_select_p3_no_fallback """SELECT * FROM ${tableName2} WHERE v1 = 'doris' AND k1 >= 200 AND k1 < 300 ORDER BY k1"""
 
     // case 3: error - non-partitioned table
     def tableName3 = "test_drop_idx_on_partition_non_partitioned"
@@ -189,7 +228,19 @@ suite("test_drop_index_on_partition", "inverted_index") {
     // case 7: IF EXISTS with non-existent index should succeed silently
     sql "DROP INDEX IF EXISTS non_existent_idx ON ${tableName1} PARTITION (p1)"
 
-    // case 8: ALTER TABLE form
+    // case 8: error - PARTITIONS (*) not supported
+    test {
+        sql "DROP INDEX idx_v2 ON ${tableName1} PARTITIONS (*)"
+        exception "PARTITIONS (*) is not supported"
+    }
+
+    // case 9: error - TEMPORARY PARTITION not supported
+    test {
+        sql "DROP INDEX idx_v2 ON ${tableName1} TEMPORARY PARTITION (p1)"
+        exception "does not support temporary partitions"
+    }
+
+    // case 10: ALTER TABLE form with verification
     def tableName5 = "test_drop_idx_on_partition_alter"
     sql "DROP TABLE IF EXISTS ${tableName5}"
     sql """
@@ -210,13 +261,24 @@ suite("test_drop_index_on_partition", "inverted_index") {
     sql "CREATE INDEX idx_v1 ON ${tableName5}(v1) USING INVERTED"
     wait_for_last_build_index_finish(tableName5, timeout)
 
+    job_count_before = get_build_index_job_count(tableName5)
+
     // use ALTER TABLE form
     sql "ALTER TABLE ${tableName5} DROP INDEX idx_v1 PARTITION (p1)"
-    wait_for_build_index_on_partition_finish(tableName5, timeout)
+
+    job_count_after = get_build_index_job_count(tableName5)
+    assertTrue(job_count_after > job_count_before,
+            "ALTER TABLE DROP INDEX ON PARTITION should create new jobs")
+
+    wait_for_build_index_on_partition_finish(tableName5, job_count_after, timeout)
 
     // index definition should still exist
     show_idx = sql "SHOW INDEX FROM ${tableName5}"
     assertTrue(show_idx.toString().contains("idx_v1"))
+
+    // p2 (not dropped) should work with fallback=false
+    sql """set enable_fallback_on_missing_inverted_index = false"""
+    order_qt_select_alter_p2 """SELECT * FROM ${tableName5} WHERE v1 = 'test data' AND k1 >= 100 AND k1 < 200 ORDER BY k1"""
 
     sql """set enable_fallback_on_missing_inverted_index = true"""
     order_qt_select4 """SELECT * FROM ${tableName5} ORDER BY k1"""
