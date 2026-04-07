@@ -321,6 +321,9 @@ public class StatementContext implements Closeable {
     private final Map<String, Integer> lowerCaseTableNamesCache = Maps.newHashMap();
     private final Map<String, Integer> lowerCaseDatabaseNamesCache = Maps.newHashMap();
 
+    // CTEs that must be materialized (e.g., containing non-deterministic functions)
+    private final Set<CTEId> forceMaterializeCTEs = new HashSet<>();
+
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
     }
@@ -1201,6 +1204,18 @@ public class StatementContext implements Closeable {
 
     public Set<CTEId> getMustInlineCTEs() {
         return mustInlineCTE;
+    }
+
+    public void addForceMaterializeCTE(CTEId cteId) {
+        forceMaterializeCTEs.add(cteId);
+    }
+
+    public boolean isForceMaterializeCTE(CTEId cteId) {
+        return forceMaterializeCTEs.contains(cteId);
+    }
+
+    public Set<CTEId> getForceMaterializeCTEs() {
+        return forceMaterializeCTEs;
     }
 
     public int getLowerCaseTableNames(String catalogName) {
