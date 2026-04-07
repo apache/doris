@@ -113,7 +113,7 @@ public class ConcurrentLong2LongHashMap extends AbstractLong2LongMap {
         if (inCallback.get()) {
             throw new IllegalStateException(
                     "Recursive ConcurrentLong2LongHashMap access from within a compute/merge callback. "
-                    + "Callbacks must not modify the same map instance.");
+                    + "Callbacks must not access the same map instance.");
         }
     }
 
@@ -121,6 +121,7 @@ public class ConcurrentLong2LongHashMap extends AbstractLong2LongMap {
 
     @Override
     public long get(long key) {
+        checkNotInCallback();
         Segment seg = segmentFor(key);
         seg.lock.readLock().lock();
         try {
@@ -131,6 +132,7 @@ public class ConcurrentLong2LongHashMap extends AbstractLong2LongMap {
     }
 
     public long getOrDefault(long key, long defaultValue) {
+        checkNotInCallback();
         Segment seg = segmentFor(key);
         seg.lock.readLock().lock();
         try {
@@ -142,6 +144,7 @@ public class ConcurrentLong2LongHashMap extends AbstractLong2LongMap {
 
     @Override
     public boolean containsKey(long key) {
+        checkNotInCallback();
         Segment seg = segmentFor(key);
         seg.lock.readLock().lock();
         try {
@@ -153,6 +156,7 @@ public class ConcurrentLong2LongHashMap extends AbstractLong2LongMap {
 
     @Override
     public boolean containsValue(long value) {
+        checkNotInCallback();
         for (Segment seg : segments) {
             seg.lock.readLock().lock();
             try {
@@ -168,6 +172,7 @@ public class ConcurrentLong2LongHashMap extends AbstractLong2LongMap {
 
     @Override
     public int size() {
+        checkNotInCallback();
         long total = 0;
         for (Segment seg : segments) {
             seg.lock.readLock().lock();
@@ -182,6 +187,7 @@ public class ConcurrentLong2LongHashMap extends AbstractLong2LongMap {
 
     @Override
     public boolean isEmpty() {
+        checkNotInCallback();
         for (Segment seg : segments) {
             seg.lock.readLock().lock();
             try {

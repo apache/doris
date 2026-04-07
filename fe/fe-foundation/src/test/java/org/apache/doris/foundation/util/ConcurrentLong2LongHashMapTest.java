@@ -469,6 +469,22 @@ class ConcurrentLong2LongHashMapTest {
         });
     }
 
+    @Test
+    void testReentrantReadFromCallbackThrowsIllegalStateException() {
+        ConcurrentLong2LongHashMap map = new ConcurrentLong2LongHashMap();
+        map.put(1L, 100L);
+        map.put(2L, 200L);
+
+        // Read access (get) from within a compute callback should also throw ISE
+        // to prevent cross-segment ABBA deadlocks
+        Assertions.assertThrows(IllegalStateException.class, () -> {
+            map.compute(1L, (k, v) -> {
+                map.get(2L);
+                return v;
+            });
+        });
+    }
+
     // ---- Gson serialization tests ----
 
     @Test

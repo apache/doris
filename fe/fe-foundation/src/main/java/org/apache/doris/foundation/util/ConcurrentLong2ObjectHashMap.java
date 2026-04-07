@@ -112,7 +112,7 @@ public class ConcurrentLong2ObjectHashMap<V> extends AbstractLong2ObjectMap<V> {
         if (inCallback.get()) {
             throw new IllegalStateException(
                     "Recursive ConcurrentLong2ObjectHashMap access from within a compute/merge callback. "
-                    + "Callbacks must not modify the same map instance.");
+                    + "Callbacks must not access the same map instance.");
         }
     }
 
@@ -120,6 +120,7 @@ public class ConcurrentLong2ObjectHashMap<V> extends AbstractLong2ObjectMap<V> {
 
     @Override
     public V get(long key) {
+        checkNotInCallback();
         Segment<V> seg = segmentFor(key);
         seg.lock.readLock().lock();
         try {
@@ -130,6 +131,7 @@ public class ConcurrentLong2ObjectHashMap<V> extends AbstractLong2ObjectMap<V> {
     }
 
     public V getOrDefault(long key, V defaultValue) {
+        checkNotInCallback();
         Segment<V> seg = segmentFor(key);
         seg.lock.readLock().lock();
         try {
@@ -142,6 +144,7 @@ public class ConcurrentLong2ObjectHashMap<V> extends AbstractLong2ObjectMap<V> {
 
     @Override
     public boolean containsKey(long key) {
+        checkNotInCallback();
         Segment<V> seg = segmentFor(key);
         seg.lock.readLock().lock();
         try {
@@ -153,6 +156,7 @@ public class ConcurrentLong2ObjectHashMap<V> extends AbstractLong2ObjectMap<V> {
 
     @Override
     public boolean containsValue(Object value) {
+        checkNotInCallback();
         for (Segment<V> seg : segments) {
             seg.lock.readLock().lock();
             try {
@@ -168,6 +172,7 @@ public class ConcurrentLong2ObjectHashMap<V> extends AbstractLong2ObjectMap<V> {
 
     @Override
     public int size() {
+        checkNotInCallback();
         long total = 0;
         for (Segment<V> seg : segments) {
             seg.lock.readLock().lock();
@@ -182,6 +187,7 @@ public class ConcurrentLong2ObjectHashMap<V> extends AbstractLong2ObjectMap<V> {
 
     @Override
     public boolean isEmpty() {
+        checkNotInCallback();
         for (Segment<V> seg : segments) {
             seg.lock.readLock().lock();
             try {
