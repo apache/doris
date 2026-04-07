@@ -93,8 +93,8 @@ public class NereidsParserDigestTest extends ParserTestBase {
         // test lambda
         sql = "SELECT ARRAY_MAP(x->x+1, ARRAY(87, 33, -49))";
         logicalPlanList = nereidsParser.parseMultiple(sql);
-        assertDigestEquals("SELECT ARRAY_MAP(x -> x + ?, ARRAY(?, ?, ?)) "
-                + "AS ARRAY_MAP(x->x+1, ARRAY(87, 33, -49))", logicalPlanList);
+        assertDigestEquals("SELECT ARRAY_MAP(x -> x + ?, ARRAY(?, ?, ?))",
+                logicalPlanList);
 
         // test set operation
         sql = "SELECT student_id, name\n"
@@ -216,7 +216,7 @@ public class NereidsParserDigestTest extends ParserTestBase {
         sql = "select k1, sum(k2), rank() over(partition by k1 order by k1) as ranking from t1 group by k1";
         logicalPlanList = nereidsParser.parseMultiple(sql);
         assertDigestEquals(
-                "SELECT k1, SUM(k2) AS sum(k2), RANK() OVER (PARTITION BY k1 ORDER BY k1 ASC NULLS FIRST) AS ranking FROM t1 GROUP BY k1",
+                "SELECT k1, SUM(k2), RANK() OVER (PARTITION BY k1 ORDER BY k1 ASC NULLS FIRST) AS ranking FROM t1 GROUP BY k1",
                 logicalPlanList);
 
         // test binary keyword
@@ -228,7 +228,7 @@ public class NereidsParserDigestTest extends ParserTestBase {
         sql = "SELECT a, b, sum(c) from test group by a ASC, b ASC WITH ROLLUP";
         logicalPlanList = nereidsParser.parseMultiple(sql);
         assertDigestEquals(
-                "SELECT a, b, SUM(c) AS sum(c) FROM test GROUP BY GROUPING SETS ((a,b), (a), ()) ORDER BY a ASC NULLS FIRST, b ASC NULLS FIRST",
+                "SELECT a, b, SUM(c) FROM test GROUP BY GROUPING SETS ((a,b), (a), ()) ORDER BY a ASC NULLS FIRST, b ASC NULLS FIRST",
                 logicalPlanList);
         sql = "SELECT a, b from test group by a, b WITH ROLLUP";
         logicalPlanList = nereidsParser.parseMultiple(sql);
