@@ -20,7 +20,6 @@ package org.apache.doris.load.routineload.kinesis;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.routineload.AbstractDataSourceProperties;
 import org.apache.doris.load.routineload.LoadDataSourceType;
 
@@ -37,7 +36,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.TimeZone;
 
 /**
  * AWS Kinesis data source properties for Routine Load.
@@ -74,7 +72,6 @@ public class KinesisDataSourceProperties extends AbstractDataSourceProperties {
      * - Actual sequence number string
      * - TRIM_HORIZON_VAL (-2) for oldest record
      * - LATEST_VAL (-1) for newest record
-     * - Timestamp value for AT_TIMESTAMP
      */
     @Getter
     @Setter
@@ -120,7 +117,6 @@ public class KinesisDataSourceProperties extends AbstractDataSourceProperties {
     // Standard position constants (similar to Kafka's OFFSET_BEGINNING/OFFSET_END)
     public static final String POSITION_TRIM_HORIZON = "TRIM_HORIZON";
     public static final String POSITION_LATEST = "LATEST";
-    public static final String POSITION_AT_TIMESTAMP = "AT_TIMESTAMP";
 
     // Configurable data source properties that can be set by user
     // Keep compatibility with existing ALTER/SHOW output key "kinesis_endpoint".
@@ -337,42 +333,20 @@ public class KinesisDataSourceProperties extends AbstractDataSourceProperties {
 
     /**
      * Parse position property and set positions for each shard.
-     * Returns true if positions are timestamps.
+     * All positions are interpreted as sequence-number semantics:
+     * TRIM_HORIZON, LATEST, or explicit sequence number.
      */
     private boolean analyzeKinesisPositionProperty(List<String> positions) throws UserException {
         if (positions.size() != kinesisShardPositions.size()) {
             throw new AnalysisException("Number of shards must equal number of positions");
         }
 
-        // Check if positions are timestamps
-        boolean foundTime = false;
-        boolean foundPosition = false;
-        for (String position : positions) {
-            if (TimeUtils.timeStringToLong(position) != -1) {
-                foundTime = true;
-            } else {
-                foundPosition = true;
-            }
+        for (int i = 0; i < positions.size(); i++) {
+            String position = positions.get(i);
+            validatePosition(position);
+            kinesisShardPositions.get(i).second = position;
         }
-        if (foundTime && foundPosition) {
-            throw new AnalysisException("Cannot mix timestamp and position values in "
-                    + KinesisConfiguration.KINESIS_POSITIONS.getName());
-        }
-
-        if (foundTime) {
-            TimeZone timeZone = TimeUtils.getOrSystemTimeZone(getTimezone());
-            for (int i = 0; i < positions.size(); i++) {
-                long timestamp = TimeUtils.timeStringToLong(positions.get(i), timeZone);
-                kinesisShardPositions.get(i).second = String.valueOf(timestamp);
-            }
-        } else {
-            for (int i = 0; i < positions.size(); i++) {
-                String position = positions.get(i);
-                validatePosition(position);
-                kinesisShardPositions.get(i).second = position;
-            }
-        }
-        return foundTime;
+        return false;
     }
 
     /**
@@ -381,10 +355,9 @@ public class KinesisDataSourceProperties extends AbstractDataSourceProperties {
     private void validatePosition(String position) throws AnalysisException {
         if (!position.equalsIgnoreCase(POSITION_TRIM_HORIZON)
                 && !position.equalsIgnoreCase(POSITION_LATEST)
-                && !position.equalsIgnoreCase(POSITION_AT_TIMESTAMP)
                 && !isValidSequenceNumber(position)) {
             throw new AnalysisException(KinesisConfiguration.KINESIS_POSITIONS.getName()
-                    + " must be TRIM_HORIZON, LATEST, AT_TIMESTAMP, or a valid sequence number. Got: " + position);
+                    + " must be TRIM_HORIZON, LATEST, or a valid sequence number. Got: " + position);
         }
     }
 
@@ -404,26 +377,20 @@ public class KinesisDataSourceProperties extends AbstractDataSourceProperties {
 
     /**
      * Analyze default position property.
-     * Returns true if position is a timestamp.
+     * Default position uses sequence-number semantics:
+     * TRIM_HORIZON, LATEST, or explicit sequence number.
      */
     private boolean analyzeKinesisDefaultPositionProperty() throws AnalysisException {
         customKinesisProperties.putIfAbsent("kinesis_default_pos", POSITION_LATEST);
         String defaultPosition = customKinesisProperties.get("kinesis_default_pos");
 
-        TimeZone timeZone = TimeUtils.getOrSystemTimeZone(this.getTimezone());
-        long timestamp = TimeUtils.timeStringToLong(defaultPosition, timeZone);
-        if (timestamp != -1) {
-            // This is a datetime format, convert to timestamp
-            customKinesisProperties.put("kinesis_default_pos", String.valueOf(timestamp));
-            return true;
-        } else {
-            if (!defaultPosition.equalsIgnoreCase(POSITION_TRIM_HORIZON)
-                    && !defaultPosition.equalsIgnoreCase(POSITION_LATEST)) {
-                throw new AnalysisException("property.kinesis_default_pos can only be set to TRIM_HORIZON, "
-                        + "LATEST, or a datetime string. Got: " + defaultPosition);
-            }
-            return false;
+        if (!defaultPosition.equalsIgnoreCase(POSITION_TRIM_HORIZON)
+                && !defaultPosition.equalsIgnoreCase(POSITION_LATEST)
+                && !isValidSequenceNumber(defaultPosition)) {
+            throw new AnalysisException("property.kinesis_default_pos can only be set to TRIM_HORIZON, "
+                    + "LATEST, or a valid sequence number. Got: " + defaultPosition);
         }
+        return false;
     }
 
     /**

@@ -67,7 +67,7 @@ public enum KinesisConfiguration {
 
     /**
      * Default starting position for new shards.
-     * Valid values: TRIM_HORIZON, LATEST, AT_TIMESTAMP
+     * Valid values: TRIM_HORIZON, LATEST, or sequence number
      */
     KINESIS_DEFAULT_POSITION("property.kinesis_default_pos", "LATEST", position -> position.trim()),
 

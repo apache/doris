@@ -678,10 +678,12 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
             List<Pair<String, String>> shardPositions = Lists.newArrayList();
             Map<String, String> customKinesisProperties = Maps.newHashMap();
             boolean resetProgress = false;
+            boolean hasExplicitShardPositions = false;
 
             if (MapUtils.isNotEmpty(dataSourceProperties.getOriginalDataSourceProperties())) {
                 shardPositions = dataSourceProperties.getKinesisShardPositions();
                 customKinesisProperties = dataSourceProperties.getCustomKinesisProperties();
+                hasExplicitShardPositions = !shardPositions.isEmpty();
             }
 
             // Update custom properties
@@ -708,6 +710,19 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
 
             if (resetProgress) {
                 this.progress = new KinesisProgress();
+                this.openKinesisShards.clear();
+                this.closedKinesisShards.clear();
+                this.cachedShardWithMillsBehindLatest.clear();
+            }
+
+            if (hasExplicitShardPositions) {
+                this.customKinesisShards.clear();
+                for (Pair<String, String> shardPosition : shardPositions) {
+                    this.customKinesisShards.add(shardPosition.first);
+                }
+            } else if (resetProgress) {
+                // Stream change without explicit shards should fall back to dynamic shard discovery.
+                this.customKinesisShards.clear();
             }
 
             if (!shardPositions.isEmpty()) {

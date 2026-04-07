@@ -46,7 +46,6 @@ import java.util.concurrent.locks.ReentrantLock;
  * Special position values:
  * - TRIM_HORIZON: Start from the oldest record in the shard
  * - LATEST: Start from the newest record (records arriving after the iterator is created)
- * - AT_TIMESTAMP: Start from a specific timestamp
  * - Specific sequence number: Start from or after a specific sequence number
  */
 public class KinesisProgress extends RoutineLoadProgress {
@@ -55,7 +54,6 @@ public class KinesisProgress extends RoutineLoadProgress {
     // Special position constants
     public static final String POSITION_TRIM_HORIZON = "TRIM_HORIZON";
     public static final String POSITION_LATEST = "LATEST";
-    public static final String POSITION_AT_TIMESTAMP = "AT_TIMESTAMP";
 
     // Internal representation for special positions
     // Using negative values since sequence numbers are always positive

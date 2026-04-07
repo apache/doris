@@ -17,6 +17,8 @@
 
 package org.apache.doris.load.routineload.kinesis;
 
+import org.apache.doris.common.AnalysisException;
+
 import com.google.common.collect.Maps;
 import org.junit.Assert;
 import org.junit.Test;
@@ -49,5 +51,33 @@ public class KinesisDataSourcePropertiesTest {
         properties.convertAndCheckDataSourceProperties();
 
         Assert.assertEquals("http://localhost:4566", properties.getEndpoint());
+    }
+
+    @Test
+    public void testPositionsShouldRejectDatetimeString() {
+        Map<String, String> dataSourceProperties = Maps.newHashMap();
+        dataSourceProperties.put(KinesisConfiguration.KINESIS_REGION.getName(), "us-east-1");
+        dataSourceProperties.put(KinesisConfiguration.KINESIS_STREAM.getName(), "test_stream");
+        dataSourceProperties.put(KinesisConfiguration.KINESIS_SHARDS.getName(), "shard-000");
+        dataSourceProperties.put(KinesisConfiguration.KINESIS_POSITIONS.getName(), "2026-04-08 00:00:00");
+
+        KinesisDataSourceProperties properties = new KinesisDataSourceProperties(dataSourceProperties);
+        AnalysisException e = Assert.assertThrows(AnalysisException.class,
+                properties::convertAndCheckDataSourceProperties);
+        Assert.assertTrue(e.getMessage().contains("must be TRIM_HORIZON, LATEST, or a valid sequence number"));
+    }
+
+    @Test
+    public void testDefaultPositionShouldRejectDatetimeString() {
+        Map<String, String> dataSourceProperties = Maps.newHashMap();
+        dataSourceProperties.put(KinesisConfiguration.KINESIS_REGION.getName(), "us-east-1");
+        dataSourceProperties.put(KinesisConfiguration.KINESIS_STREAM.getName(), "test_stream");
+        dataSourceProperties.put(KinesisConfiguration.KINESIS_DEFAULT_POSITION.getName(),
+                "2026-04-08 00:00:00");
+
+        KinesisDataSourceProperties properties = new KinesisDataSourceProperties(dataSourceProperties);
+        AnalysisException e = Assert.assertThrows(AnalysisException.class,
+                properties::convertAndCheckDataSourceProperties);
+        Assert.assertTrue(e.getMessage().contains("TRIM_HORIZON, LATEST, or a valid sequence number"));
     }
 }
