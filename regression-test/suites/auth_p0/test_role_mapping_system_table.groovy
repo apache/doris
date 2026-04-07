@@ -24,6 +24,8 @@ suite("test_role_mapping_system_table", "p0,auth") {
     String financeWriterRole = "test_role_mapping_fin_writer"
     String user = "${suiteName}_user"
     String pwd = 'C123_567p'
+    def jdbcUrlTokens = context.config.jdbcUrl.split('/')
+    String jdbcUrlWithoutSchema = jdbcUrlTokens[0] + "//" + jdbcUrlTokens[2] + "/?"
     String expectedRules = (
             """RULE (USING CEL 'has_group("analyst")' GRANT ROLE ${readerRole}); """
             + """RULE (USING CEL 'attr("department") == "finance"' """
@@ -61,7 +63,6 @@ suite("test_role_mapping_system_table", "p0,auth") {
         }
 
         sql """GRANT SELECT_PRIV ON internal.information_schema.* TO ${user}"""
-        sql """GRANT SELECT_PRIV ON regression_test TO ${user}"""
 
         sql """
             CREATE ROLE MAPPING ${mappingName}
@@ -100,7 +101,7 @@ suite("test_role_mapping_system_table", "p0,auth") {
         assertTrue(result[0][6] != null && result[0][6].length() > 0)
         assertEquals(result[0][5], result[0][7])
 
-        connect(user, "${pwd}", context.config.jdbcUrl) {
+        connect(user, "${pwd}", jdbcUrlWithoutSchema) {
             test {
                 sql """
                     SELECT NAME
