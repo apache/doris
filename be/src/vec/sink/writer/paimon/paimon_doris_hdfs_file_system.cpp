@@ -48,9 +48,7 @@
 namespace {
 
 std::string _extract_hdfs_fs_name(const std::string& uri) {
-    auto starts_with = [&](const char* prefix) {
-        return uri.rfind(prefix, 0) == 0;
-    };
+    auto starts_with = [&](const char* prefix) { return uri.rfind(prefix, 0) == 0; };
     std::string_view scheme;
     if (starts_with("hdfs://")) {
         scheme = "hdfs://";
@@ -196,7 +194,7 @@ public:
     DorisPaimonOutputStream(doris::io::FileWriterPtr writer, std::string uri)
             : _writer(std::move(writer)), _uri(std::move(uri)) {}
 
-    paimon::Status Close() override { return _to_paimon_status(_writer->finalize()); }
+    paimon::Status Close() override { return _to_paimon_status(_writer->close()); }
 
     paimon::Result<int32_t> Write(const char* buffer, uint32_t size) override {
         doris::Slice slice(buffer, size);
@@ -222,7 +220,8 @@ private:
 
 class DorisPaimonFileSystem final : public paimon::FileSystem {
 public:
-    explicit DorisPaimonFileSystem(std::shared_ptr<doris::io::FileSystem> fs) : _fs(std::move(fs)) {}
+    explicit DorisPaimonFileSystem(std::shared_ptr<doris::io::FileSystem> fs)
+            : _fs(std::move(fs)) {}
 
     paimon::Result<std::unique_ptr<paimon::InputStream>> Open(
             const std::string& path) const override {
@@ -389,21 +388,25 @@ private:
 
 class DorisHdfsFileSystemFactory final : public paimon::FileSystemFactory {
 public:
-    const char* Identifier() const override { return doris::vectorized::kPaimonDorisHdfsFsIdentifier; }
+    const char* Identifier() const override {
+        return doris::vectorized::kPaimonDorisHdfsFsIdentifier;
+    }
 
     paimon::Result<std::unique_ptr<paimon::FileSystem>> Create(
             const std::string& path,
             const std::map<std::string, std::string>& options) const override {
         doris::THdfsParams hdfs_params = doris::parse_properties(options);
-        std::string fs_name = hdfs_params.__isset.fs_name ? hdfs_params.fs_name : _extract_hdfs_fs_name(path);
+        std::string fs_name =
+                hdfs_params.__isset.fs_name ? hdfs_params.fs_name : _extract_hdfs_fs_name(path);
         if (fs_name.empty()) {
             return paimon::Status::Invalid("missing hdfs fs_name for path: ", path);
         }
         std::shared_ptr<doris::io::HdfsFileSystem> fs;
-        doris::Status st = doris::io::HdfsFileSystem::create(hdfs_params, fs_name, fs_name, nullptr, &fs);
-        if (!st.ok()) {
-            return paimon::Status::IOError(st.to_string());
+        auto fs_res = doris::io::HdfsFileSystem::create(hdfs_params, fs_name, fs_name, nullptr);
+        if (fs_res.has_value() == false) {
+            return paimon::Status::IOError(fs_res.error().to_string());
         }
+        fs = std::move(fs_res).value();
         return std::make_unique<DorisPaimonFileSystem>(std::move(fs));
     }
 };

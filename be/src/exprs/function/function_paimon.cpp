@@ -19,6 +19,7 @@
 
 #ifdef WITH_PAIMON_CPP
 
+#include <arrow/array.h>
 #include <arrow/c/bridge.h>
 #include <arrow/record_batch.h>
 
@@ -28,16 +29,16 @@
 #include <utility>
 #include <vector>
 
-#include "paimon/utils/bucket_id_calculator.h"
-#include "runtime/query_context.h"
-#include "runtime/runtime_state.h"
-#include "format/arrow/arrow_block_convertor.h"
-#include "format/arrow/arrow_row_batch.h"
 #include "core/column/column_const.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
-#include "format/parquet/arrow_memory_pool.h"
 #include "exprs/function/function.h"
+#include "format/arrow/arrow_block_convertor.h"
+#include "format/arrow/arrow_row_batch.h"
+#include "format/parquet/arrow_memory_pool.h"
+#include "paimon/utils/bucket_id_calculator.h"
+#include "runtime/query_context.h"
+#include "runtime/runtime_state.h"
 #include "vec/sink/writer/paimon/paimon_doris_memory_pool.h"
 
 namespace doris::vectorized {
@@ -120,7 +121,8 @@ public:
 
         ArrowMemoryPool<> arrow_pool;
         std::shared_ptr<arrow::Schema> arrow_schema;
-        RETURN_IF_ERROR(get_arrow_schema_from_block(key_block, &arrow_schema, context->state()->timezone()));
+        RETURN_IF_ERROR(get_arrow_schema_from_block(key_block, &arrow_schema,
+                                                    context->state()->timezone()));
         std::shared_ptr<arrow::RecordBatch> record_batch;
         RETURN_IF_ERROR(convert_to_arrow_batch(key_block, arrow_schema, &arrow_pool, &record_batch,
                                                context->state()->timezone_obj()));

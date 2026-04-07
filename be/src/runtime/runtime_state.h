@@ -20,9 +20,9 @@
 
 #pragma once
 
+#include <gen_cpp/DataSinks_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/Types_types.h>
-#include <gen_cpp/DataSinks_types.h>
 #include <gen_cpp/segment_v2.pb.h>
 #include <stdint.h>
 

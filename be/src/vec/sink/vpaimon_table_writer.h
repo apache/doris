@@ -25,10 +25,10 @@
 #include <vector>
 
 #include "common/status.h"
-#include "util/runtime_profile.h"
-#include "vec/core/block.h"
-#include "vec/exprs/vexpr_fwd.h"
-#include "vec/sink/writer/async_result_writer.h"
+#include "runtime/runtime_profile.h"
+#include "core/block/block.h"
+#include "exprs/vexpr_fwd.h"
+#include "exec/sink/writer/async_result_writer.h"
 
 #ifdef WITH_PAIMON_CPP
 namespace paimon {
@@ -52,6 +52,8 @@ class VPaimonPartitionWriter;
 class VPaimonTableWriter : public AsyncResultWriter {
 public:
     VPaimonTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs);
+    VPaimonTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
+                       std::shared_ptr<Dependency> dep, std::shared_ptr<Dependency> fin_dep);
 
     ~VPaimonTableWriter() override;
 
@@ -59,7 +61,7 @@ public:
 
     Status open(RuntimeState* state, RuntimeProfile* profile) override;
 
-    Status write(vectorized::Block& block) override;
+    Status write(RuntimeState* state, ::doris::Block& block) override;
 
     Status close(Status status) override;
 
@@ -88,13 +90,13 @@ private:
         }
     };
 
-    Status _extract_write_key(const Block& block, int row, WriteKey* key) const;
+    Status _extract_write_key(const ::doris::Block& block, int row, WriteKey* key) const;
 
     Status _get_or_create_writer(const WriteKey& key,
                                  std::shared_ptr<VPaimonPartitionWriter>* writer);
 
-    Status _filter_block(doris::vectorized::Block& block, const vectorized::IColumn::Filter* filter,
-                         doris::vectorized::Block* output_block);
+    Status _filter_block(::doris::Block& block, const IColumn::Filter* filter,
+                         ::doris::Block* output_block);
 
     RuntimeState* _state = nullptr;
     RuntimeProfile* _profile = nullptr;
@@ -114,8 +116,7 @@ private:
     RuntimeProfile::Counter* _serialize_commit_messages_timer = nullptr;
     RuntimeProfile::Counter* _commit_payload_bytes_counter = nullptr;
 
-    std::unordered_map<WriteKey, std::shared_ptr<VPaimonPartitionWriter>, WriteKeyHash>
-            _writers;
+    std::unordered_map<WriteKey, std::shared_ptr<VPaimonPartitionWriter>, WriteKeyHash> _writers;
 
     mutable bool _partition_indices_inited = false;
     mutable std::vector<int> _partition_column_indices;

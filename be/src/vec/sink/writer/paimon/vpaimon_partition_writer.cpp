@@ -22,10 +22,10 @@
 #include <map>
 #include <utility>
 
-#include "util/arrow/block_convertor.h"
-#include "util/arrow/row_batch.h"
-#include "util/doris_metrics.h"
 #include "runtime/runtime_state.h"
+#include "format/arrow/arrow_block_convertor.h"
+#include "format/arrow/arrow_row_batch.h"
+#include "common/metrics/doris_metrics.h"
 
 #ifdef WITH_PAIMON_CPP
 #include <arrow/c/bridge.h>
@@ -93,7 +93,7 @@ VPaimonPartitionWriter::VPaimonPartitionWriter(const TDataSink& t_sink,
                                                ::paimon::FileStoreWrite* file_store_write,
                                                std::shared_ptr<::paimon::MemoryPool> pool
 #endif
-)
+                                               )
         : _t_sink(t_sink),
           _partition_values(std::move(partition_values)),
           _bucket_id(bucket_id)
@@ -115,13 +115,15 @@ Status VPaimonPartitionWriter::open(RuntimeState* state, RuntimeProfile* profile
     _profile = profile;
 
     _arrow_convert_timer = ADD_CHILD_TIMER(_profile, "ArrowConvertTime", "PartitionsWriteTime");
-    _file_store_write_timer = ADD_CHILD_TIMER(_profile, "FileStoreWriteTime", "PartitionsWriteTime");
-    _buffer_flush_count = ADD_CHILD_COUNTER(_profile, "BufferFlushCount", TUnit::UNIT, "PartitionsWriteTime");
+    _file_store_write_timer =
+            ADD_CHILD_TIMER(_profile, "FileStoreWriteTime", "PartitionsWriteTime");
+    _buffer_flush_count =
+            ADD_CHILD_COUNTER(_profile, "BufferFlushCount", TUnit::UNIT, "PartitionsWriteTime");
 
     return Status::OK();
 }
 
-Status VPaimonPartitionWriter::write(vectorized::Block& block) {
+Status VPaimonPartitionWriter::write(::doris::Block& block) {
 #ifndef WITH_PAIMON_CPP
     return Status::NotSupported("paimon-cpp is not enabled");
 #else
@@ -140,7 +142,7 @@ Status VPaimonPartitionWriter::write(vectorized::Block& block) {
 #endif
 }
 
-Status VPaimonPartitionWriter::_write_block(vectorized::Block& block) {
+Status VPaimonPartitionWriter::_write_block(::doris::Block& block) {
 #ifndef WITH_PAIMON_CPP
     return Status::NotSupported("paimon-cpp is not enabled");
 #else
@@ -154,8 +156,8 @@ Status VPaimonPartitionWriter::_write_block(vectorized::Block& block) {
         RETURN_IF_ERROR(get_arrow_schema_from_block(block, &arrow_schema, _state->timezone()));
 
         std::shared_ptr<arrow::RecordBatch> record_batch;
-        RETURN_IF_ERROR(convert_to_arrow_batch(block, arrow_schema, _arrow_pool.get(), &record_batch,
-                                               _state->timezone_obj()));
+        RETURN_IF_ERROR(convert_to_arrow_batch(block, arrow_schema, _arrow_pool.get(),
+                                               &record_batch, _state->timezone_obj()));
 
         auto struct_array_result =
                 arrow::StructArray::Make(record_batch->columns(), arrow_schema->fields());
@@ -167,7 +169,8 @@ Status VPaimonPartitionWriter::_write_block(vectorized::Block& block) {
 
         auto arrow_status = arrow::ExportArray(*struct_array, &c_array);
         if (!arrow_status.ok()) {
-            return Status::InternalError("failed to export arrow array: {}", arrow_status.ToString());
+            return Status::InternalError("failed to export arrow array: {}",
+                                         arrow_status.ToString());
         }
 
         std::map<std::string, std::string> partition;
@@ -189,8 +192,8 @@ Status VPaimonPartitionWriter::_write_block(vectorized::Block& block) {
         }
         batch = std::move(batch_result).value();
     }
-    DorisMetrics::instance()->paimon_write_arrow_convert_latency_ms->add(
-            static_cast<uint64_t>(arrow_convert_ns <= 0 ? 0 : (arrow_convert_ns + 999999) / 1000000));
+    DorisMetrics::instance()->paimon_write_arrow_convert_latency_ms->add(static_cast<uint64_t>(
+            arrow_convert_ns <= 0 ? 0 : (arrow_convert_ns + 999999) / 1000000));
 
     int64_t file_store_write_ns = 0;
     auto write_status = [&]() {
@@ -201,19 +204,18 @@ Status VPaimonPartitionWriter::_write_block(vectorized::Block& block) {
     if (!write_status.ok()) {
         return Status::InternalError("paimon write failed: {}", write_status.ToString());
     }
-    DorisMetrics::instance()->paimon_write_file_store_write_latency_ms->add(
-            static_cast<uint64_t>(file_store_write_ns <= 0 ? 0
-                                                           : (file_store_write_ns + 999999) / 1000000));
+    DorisMetrics::instance()->paimon_write_file_store_write_latency_ms->add(static_cast<uint64_t>(
+            file_store_write_ns <= 0 ? 0 : (file_store_write_ns + 999999) / 1000000));
     return Status::OK();
 #endif
 }
 
-Status VPaimonPartitionWriter::_append_to_buffer(const vectorized::Block& block) {
+Status VPaimonPartitionWriter::_append_to_buffer(const ::doris::Block& block) {
 #ifndef WITH_PAIMON_CPP
     return Status::NotSupported("paimon-cpp is not enabled");
 #else
     if (!_buffer) {
-        _buffer = vectorized::Block::create_unique(block.clone_empty());
+        _buffer = ::doris::Block::create_unique(block.clone_empty());
         _buffered_rows = 0;
         _buffered_bytes = 0;
     }

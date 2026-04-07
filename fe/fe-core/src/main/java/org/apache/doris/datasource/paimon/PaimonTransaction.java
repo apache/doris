@@ -18,8 +18,10 @@
 package org.apache.doris.datasource.paimon;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TCommitMessage;
 import org.apache.doris.transaction.Transaction;
 
@@ -34,10 +36,13 @@ import org.apache.paimon.table.sink.StreamTableCommit;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 public class PaimonTransaction implements Transaction {
     private static final Logger LOG = LogManager.getLogger(PaimonTransaction.class);
@@ -46,8 +51,10 @@ public class PaimonTransaction implements Transaction {
     private PaimonExternalTable table;
     private long transactionId = -1L;
     private String commitUser = "";
+    private String hadoopUser = "";
 
     private final List<TCommitMessage> commitMessages = Lists.newArrayList();
+    private final Set<String> commitPayloadSet = new HashSet<>();
 
     public PaimonTransaction(PaimonMetadataOps ops) {
         this.ops = ops;
@@ -58,12 +65,34 @@ public class PaimonTransaction implements Transaction {
             return;
         }
         synchronized (this) {
-            commitMessages.addAll(messages);
+            for (TCommitMessage message : messages) {
+                if (message == null || !message.isSetPayload()) {
+                    continue;
+                }
+                byte[] payload = message.getPayload();
+                if (payload == null || payload.length == 0) {
+                    continue;
+                }
+                String key = Base64.getEncoder().encodeToString(payload);
+                if (commitPayloadSet.add(key)) {
+                    commitMessages.add(message);
+                }
+            }
         }
     }
 
     public void beginInsert(PaimonExternalTable table, Optional<InsertCommandContext> insertCtx) {
         this.table = table;
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx == null) {
+            return;
+        }
+        String user = ctx.getQualifiedUser();
+        int atPos = user.indexOf('@');
+        if (atPos > 0) {
+            user = user.substring(0, atPos);
+        }
+        this.hadoopUser = user;
     }
 
     public void finishInsert(PaimonExternalTable table, Optional<InsertCommandContext> insertCtx) {
@@ -71,12 +100,6 @@ public class PaimonTransaction implements Transaction {
 
     @Override
     public void commit() throws UserException {
-        if (table == null) {
-            throw new UserException("Missing paimon table for transaction");
-        }
-        if (transactionId <= 0) {
-            throw new UserException("Missing transaction id for paimon commit");
-        }
         List<TCommitMessage> rawMessages;
         synchronized (this) {
             rawMessages = Lists.newArrayList(commitMessages);
@@ -84,9 +107,16 @@ public class PaimonTransaction implements Transaction {
         if (rawMessages.isEmpty()) {
             return;
         }
+        if (table == null) {
+            throw new UserException("Missing paimon table for transaction");
+        }
+        if (transactionId <= 0) {
+            throw new UserException("Missing transaction id for paimon commit");
+        }
 
         try {
-            ops.dorisCatalog.getExecutionAuthenticator().execute(() -> {
+            ExecutionAuthenticator authenticator = ops.dorisCatalog.getExecutionAuthenticator();
+            authenticator.execute(() -> {
                 org.apache.paimon.table.Table paimonTable =
                         table.getPaimonTable(MvccUtil.getSnapshotFromContext(table));
                 if (!(paimonTable instanceof InnerTable)) {
@@ -104,8 +134,9 @@ public class PaimonTransaction implements Transaction {
                     }
                     allMessages.addAll(deserializeCommitMessagePayload(payload));
                 }
+                LOG.info("paimon: rawMessages size={}, allMessages size={}", rawMessages.size(), allMessages.size());
                 if (allMessages.isEmpty()) {
-                    return null;
+                    throw new RuntimeException("allMessages is empty! rawMessages size=" + rawMessages.size());
                 }
 
                 StreamTableCommit committer = ((InnerTable) paimonTable).newCommit(commitUser);
@@ -153,11 +184,22 @@ public class PaimonTransaction implements Transaction {
                 byte[] raw = new byte[len];
                 System.arraycopy(payload, 12, raw, 0, len);
                 try {
-                    return serializer.deserializeList(version, new DataInputDeserializer(raw));
+                    List<CommitMessage> msgs = serializer.deserializeList(version, new DataInputDeserializer(raw));
+                    if (msgs != null) {
+                        return msgs;
+                    } else {
+                        LOG.warn("paimon: deserialized msg list is null");
+                    }
                 } catch (Exception e) {
                     LOG.debug("Deserialize paimon commit message failed for header version {}", version, e);
                 }
+            } else {
+                LOG.warn("paimon: payload version or length mismatch: version={}, len={}, payload.length={}",
+                        version, len, payload.length);
             }
+        } else {
+            LOG.warn("paimon: payload header mismatch or too short: length={}, payload={}",
+                    payload == null ? 0 : payload.length, java.util.Arrays.toString(payload));
         }
 
         int[] candidateVersions = new int[] {11, 10, 9, 8, 7, 6, 5, 4, 3};

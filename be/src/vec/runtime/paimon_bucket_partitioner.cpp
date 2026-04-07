@@ -1,3 +1,20 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
 #include "vec/runtime/paimon_bucket_partitioner.h"
 
 #ifdef WITH_PAIMON_CPP
@@ -19,7 +36,8 @@
 
 namespace doris::vectorized {
 
-PaimonBucketPartitioner::PaimonBucketPartitioner(size_t partition_count, PaimonBucketShuffleParams params)
+PaimonBucketPartitioner::PaimonBucketPartitioner(size_t partition_count,
+                                                 PaimonBucketShuffleParams params)
         : PartitionerBase(partition_count), _params(std::move(params)) {}
 
 Status PaimonBucketPartitioner::init(const std::vector<TExpr>& texprs) {
@@ -35,7 +53,8 @@ Status PaimonBucketPartitioner::init(const std::vector<TExpr>& texprs) {
     return Status::OK();
 }
 
-Status PaimonBucketPartitioner::prepare(RuntimeState* /*state*/, const RowDescriptor& /*row_desc*/) {
+Status PaimonBucketPartitioner::prepare(RuntimeState* /*state*/,
+                                        const RowDescriptor& /*row_desc*/) {
     return Status::OK();
 }
 
@@ -43,8 +62,9 @@ Status PaimonBucketPartitioner::open(RuntimeState* state) {
     if (_calculator != nullptr) {
         return Status::OK();
     }
-    _pool = std::make_shared<PaimonDorisMemoryPool>(::doris::QueryThreadContext {
-            state->query_id(), state->query_mem_tracker(), state->get_query_ctx()->workload_group()});
+    _pool = std::make_shared<PaimonDorisMemoryPool>(
+            ::doris::QueryThreadContext {state->query_id(), state->query_mem_tracker(),
+                                         state->get_query_ctx()->workload_group()});
     auto calc_res = ::paimon::BucketIdCalculator::Create(false, _params.bucket_num, _pool);
     if (!calc_res.ok()) {
         return Status::InternalError("failed to create paimon bucket calculator: {}",
@@ -74,7 +94,8 @@ Status PaimonBucketPartitioner::_compute_bucket_ids(RuntimeState* state, const B
     for (const auto& key_name : _params.bucket_keys) {
         auto it = name_to_idx.find(key_name);
         if (it == name_to_idx.end()) {
-            return Status::InvalidArgument("paimon bucket key {} not found in input block", key_name);
+            return Status::InvalidArgument("paimon bucket key {} not found in input block",
+                                           key_name);
         }
         bucket_block.insert(block.get_by_position(it->second));
     }
@@ -85,8 +106,8 @@ Status PaimonBucketPartitioner::_compute_bucket_ids(RuntimeState* state, const B
     std::shared_ptr<arrow::RecordBatch> record_batch;
     {
         SCOPED_CONSUME_MEM_TRACKER(mem_tracker);
-        RETURN_IF_ERROR(convert_to_arrow_batch(bucket_block, arrow_schema, &arrow_pool, &record_batch,
-                                               state->timezone_obj()));
+        RETURN_IF_ERROR(convert_to_arrow_batch(bucket_block, arrow_schema, &arrow_pool,
+                                               &record_batch, state->timezone_obj()));
     }
 
     std::vector<std::shared_ptr<arrow::Field>> bucket_fields;
@@ -122,8 +143,7 @@ Status PaimonBucketPartitioner::_compute_bucket_ids(RuntimeState* state, const B
                                      arrow_status.ToString());
     }
 
-    auto paimon_st =
-            _calculator->CalculateBucketIds(&c_bucket_array, &c_bucket_schema, bucket_ids);
+    auto paimon_st = _calculator->CalculateBucketIds(&c_bucket_array, &c_bucket_schema, bucket_ids);
     if (c_bucket_array.release) {
         c_bucket_array.release(&c_bucket_array);
     }
@@ -159,7 +179,8 @@ Status PaimonBucketPartitioner::do_partitioning(RuntimeState* state, Block* bloc
     return Status::OK();
 }
 
-Status PaimonBucketPartitioner::clone(RuntimeState* state, std::unique_ptr<PartitionerBase>& partitioner) {
+Status PaimonBucketPartitioner::clone(RuntimeState* state,
+                                      std::unique_ptr<PartitionerBase>& partitioner) {
     auto* new_partitioner = new PaimonBucketPartitioner(_partition_count, _params);
     partitioner.reset(new_partitioner);
     RETURN_IF_ERROR(new_partitioner->init({}));

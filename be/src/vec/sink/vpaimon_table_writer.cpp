@@ -31,15 +31,15 @@
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "util/defer_op.h"
-#include "util/doris_metrics.h"
-#include "util/runtime_profile.h"
-#include "vec/columns/column.h"
-#include "vec/core/block.h"
-#include "vec/exprs/vexpr.h"
-#include "vec/exprs/vexpr_context.h"
+#include "common/metrics/doris_metrics.h"
+#include "runtime/runtime_profile.h"
+#include "core/column/column.h"
+#include "core/block/block.h"
+#include "exprs/vexpr.h"
+#include "exprs/vexpr_context.h"
 #include "vec/sink/paimon_writer_utils.h"
-#include "vec/sink/writer/paimon/vpaimon_partition_writer.h"
 #include "vec/sink/writer/paimon/paimon_doris_hdfs_file_system.h"
+#include "vec/sink/writer/paimon/vpaimon_partition_writer.h"
 
 #ifdef WITH_PAIMON_CPP
 #include <arrow/array.h>
@@ -49,25 +49,25 @@
 
 #include <cstdint>
 
-#include "paimon/commit_message.h"
-#include "paimon/file_store_write.h"
-#include "paimon/memory/memory_pool.h"
-#include "paimon/utils/bucket_id_calculator.h"
-#include "paimon/write_context.h"
-#include "paimon/factories/factory_creator.h"
-#include "vec/exec/format/parquet/arrow_memory_pool.h"
-#include "util/arrow/block_convertor.h"
-#include "util/arrow/row_batch.h"
-#include "vec/sink/writer/paimon/paimon_doris_memory_pool.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/hdfs_builder.h"
+#include "paimon/commit_message.h"
+#include "paimon/factories/factory_creator.h"
+#include "paimon/file_store_write.h"
+#include "paimon/memory/memory_pool.h"
+#include "paimon/metrics.h"
+#include "paimon/utils/bucket_id_calculator.h"
+#include "paimon/write_context.h"
+#include "format/arrow/arrow_block_convertor.h"
+#include "format/arrow/arrow_row_batch.h"
+#include "format/parquet/arrow_memory_pool.h"
+#include "vec/sink/writer/paimon/paimon_doris_memory_pool.h"
 
 // Force link paimon file format factories
 namespace paimon {
 namespace parquet {
-void ForceLinkParquetFileFormatFactory();
 }
-}
+} // namespace paimon
 
 #endif
 
@@ -108,7 +108,13 @@ VPaimonTableWriter::~VPaimonTableWriter() = default;
 
 VPaimonTableWriter::VPaimonTableWriter(const TDataSink& t_sink,
                                        const VExprContextSPtrs& output_exprs)
-        : AsyncResultWriter(output_exprs), _t_sink(t_sink) {
+        : VPaimonTableWriter(t_sink, output_exprs, nullptr, nullptr) {}
+
+VPaimonTableWriter::VPaimonTableWriter(const TDataSink& t_sink,
+                                       const VExprContextSPtrs& output_exprs,
+                                       std::shared_ptr<Dependency> dep,
+                                       std::shared_ptr<Dependency> fin_dep)
+        : AsyncResultWriter(output_exprs, std::move(dep), std::move(fin_dep)), _t_sink(t_sink) {
     DCHECK(_t_sink.__isset.paimon_table_sink);
 }
 
@@ -121,9 +127,6 @@ Status VPaimonTableWriter::init_properties(ObjectPool* /*pool*/) {
 Status VPaimonTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
     _state = state;
     _profile = profile;
-    if (_state->query_options().__isset.paimon_writer_queue_size) {
-        set_queue_size(_state->query_options().paimon_writer_queue_size);
-    }
 #ifndef WITH_PAIMON_CPP
     return Status::NotSupported("paimon-cpp is not enabled");
 #else
@@ -134,7 +137,8 @@ Status VPaimonTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
     _bucket_calc_timer = ADD_CHILD_TIMER(_profile, "BucketCalcTime", "SendDataTime");
     _partition_writers_dispatch_timer =
             ADD_CHILD_TIMER(_profile, "PartitionsDispatchTime", "SendDataTime");
-    _partition_writers_write_timer = ADD_CHILD_TIMER(_profile, "PartitionsWriteTime", "SendDataTime");
+    _partition_writers_write_timer =
+            ADD_CHILD_TIMER(_profile, "PartitionsWriteTime", "SendDataTime");
     _partition_writers_count = ADD_COUNTER(_profile, "PartitionsWriteCount", TUnit::UNIT);
     _partition_writer_created = ADD_COUNTER(_profile, "PartitionWriterCreated", TUnit::UNIT);
     _open_timer = ADD_TIMER(_profile, "OpenTime");
@@ -147,7 +151,6 @@ Status VPaimonTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
 
     ensure_paimon_doris_hdfs_file_system_registered();
 
-    paimon::parquet::ForceLinkParquetFileFormatFactory();
 
     auto registered_types = paimon::FactoryCreator::GetInstance()->GetRegisteredType();
     std::string types_str;
@@ -213,7 +216,8 @@ Status VPaimonTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
 
     int64_t buffer_size = 256 * 1024 * 1024L; // Default 256MB
 
-    if (_state->query_options().__isset.paimon_write_buffer_size && _state->query_options().paimon_write_buffer_size > 0) {
+    if (_state->query_options().__isset.paimon_write_buffer_size &&
+        _state->query_options().paimon_write_buffer_size > 0) {
         buffer_size = _state->query_options().paimon_write_buffer_size;
     }
 
@@ -226,25 +230,35 @@ Status VPaimonTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
         int bucket_num = paimon_sink.bucket_num;
         buffer_size = get_paimon_write_buffer_size(buffer_size, true, bucket_num);
         LOG(INFO) << "Adaptive Paimon Buffer Size: bucket_num=" << bucket_num
-                   << ", adjusted_buffer_size=" << buffer_size;
+                  << ", adjusted_buffer_size=" << buffer_size;
     }
-    LOG(INFO) << "Paimon Native Writer Final Buffer Size: " << buffer_size << " (enable_adaptive=" << enable_adaptive << ")";
+    LOG(INFO) << "Paimon Native Writer Final Buffer Size: " << buffer_size
+              << " (enable_adaptive=" << enable_adaptive << ")";
     options["write-buffer-size"] = std::to_string(buffer_size);
 
-    if (_state->query_options().__isset.paimon_target_file_size && _state->query_options().paimon_target_file_size > 0) {
-        options["target-file-size"] = std::to_string(_state->query_options().paimon_target_file_size);
-        LOG(INFO) << "Paimon Native Writer Target File Size: " << _state->query_options().paimon_target_file_size;
+    if (_state->query_options().__isset.paimon_target_file_size &&
+        _state->query_options().paimon_target_file_size > 0) {
+        options["target-file-size"] =
+                std::to_string(_state->query_options().paimon_target_file_size);
+        LOG(INFO) << "Paimon Native Writer Target File Size: "
+                  << _state->query_options().paimon_target_file_size;
     }
 
     options["file.format"] = "parquet";
     options["manifest.format"] = "parquet";
+    if ((!paimon_sink.__isset.bucket_num || paimon_sink.bucket_num <= 0) &&
+        paimon_sink.__isset.bucket_keys && !paimon_sink.bucket_keys.empty()) {
+        return Status::NotSupported(
+                "paimon-cpp native writer does not support primary-key table with dynamic bucket "
+                "(bucket=-1) yet; enable_paimon_jni_writer=true is required");
+    }
 
     ::paimon::WriteContextBuilder builder(table_location, commit_user);
     builder.SetOptions(options);
     builder.WithIgnorePreviousFiles(true);
     builder.WithMemoryPool(_pool);
-    builder.WithFileSystemSchemeToIdentifierMap({{"hdfs", kPaimonDorisHdfsFsIdentifier},
-                                                 {"dfs", kPaimonDorisHdfsFsIdentifier}});
+    builder.WithFileSystemSchemeToIdentifierMap(
+            {{"hdfs", kPaimonDorisHdfsFsIdentifier}, {"dfs", kPaimonDorisHdfsFsIdentifier}});
     auto ctx_result = builder.Finish();
     if (!ctx_result.ok()) {
         return Status::InternalError("failed to build paimon write context: {}",
@@ -268,7 +282,7 @@ Status VPaimonTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
 #endif
 }
 
-Status VPaimonTableWriter::_extract_write_key(const Block& block, int row, WriteKey* key) const {
+Status VPaimonTableWriter::_extract_write_key(const ::doris::Block& block, int row, WriteKey* key) const {
     key->partition_values.clear();
     key->bucket_id = -1;
 
@@ -283,7 +297,7 @@ Status VPaimonTableWriter::_extract_write_key(const Block& block, int row, Write
             std::string col_name = block.get_by_position(i).name;
             if (col_name.empty()) {
                 if (paimon_sink.__isset.column_names && i < paimon_sink.column_names.size()) {
-                     col_name = paimon_sink.column_names[i];
+                    col_name = paimon_sink.column_names[i];
                 }
             }
             name_to_idx.emplace(col_name, i);
@@ -317,7 +331,10 @@ Status VPaimonTableWriter::_extract_write_key(const Block& block, int row, Write
         if (col->is_null_at(row)) {
             key->partition_values.emplace_back(default_part);
         } else {
-            key->partition_values.emplace_back(type->to_string(*col, row));
+            {
+                DataTypeSerDe::FormatOptions options;
+                key->partition_values.emplace_back(type->to_string(*col, row, options));
+            }
         }
     }
     return Status::OK();
@@ -331,14 +348,13 @@ Status VPaimonTableWriter::_get_or_create_writer(const WriteKey& key,
         return Status::OK();
     }
 
-    auto new_writer = std::make_shared<VPaimonPartitionWriter>(_t_sink, key.partition_values,
-                                                               key.bucket_id
+    auto new_writer =
+            std::make_shared<VPaimonPartitionWriter>(_t_sink, key.partition_values, key.bucket_id
 #ifdef WITH_PAIMON_CPP
-                                                               ,
-                                                               _file_store_write.get(),
-                                                               _pool
+                                                     ,
+                                                     _file_store_write.get(), _pool
 #endif
-    );
+            );
     RETURN_IF_ERROR(new_writer->init_properties(nullptr));
     RETURN_IF_ERROR(new_writer->open(_state, _profile));
     COUNTER_UPDATE(_partition_writer_created, 1);
@@ -348,7 +364,7 @@ Status VPaimonTableWriter::_get_or_create_writer(const WriteKey& key,
     return Status::OK();
 }
 
-Status VPaimonTableWriter::write(vectorized::Block& block) {
+Status VPaimonTableWriter::write(RuntimeState* state, ::doris::Block& block) {
 #ifndef WITH_PAIMON_CPP
     return Status::NotSupported("paimon-cpp is not enabled");
 #else
@@ -364,8 +380,7 @@ Status VPaimonTableWriter::write(vectorized::Block& block) {
         return static_cast<uint64_t>((ns + 999999) / 1000000);
     };
     Defer record_send_data_latency {[&]() {
-        DorisMetrics::instance()->paimon_write_send_data_latency_ms->add(
-                to_ms_ceil(send_data_ns));
+        DorisMetrics::instance()->paimon_write_send_data_latency_ms->add(to_ms_ceil(send_data_ns));
     }};
     SCOPED_RAW_TIMER(&send_data_ns);
 
@@ -383,8 +398,8 @@ Status VPaimonTableWriter::write(vectorized::Block& block) {
     DorisMetrics::instance()->paimon_write_bytes->increment(output_block.bytes());
 
     static_cast<void>(output_block.get_columns_and_convert());
-    const int rows = output_block.rows();
-    std::vector<int32_t> bucket_ids(rows, -1);
+    const size_t rows = output_block.rows();
+    std::vector<int32_t> bucket_ids(rows, 0);
     const TPaimonTableSink& paimon_sink = _t_sink.paimon_table_sink;
     if (paimon_sink.__isset.bucket_num && paimon_sink.bucket_num > 0) {
         int64_t bucket_calc_ns = 0;
@@ -392,11 +407,11 @@ Status VPaimonTableWriter::write(vectorized::Block& block) {
         SCOPED_RAW_TIMER(&bucket_calc_ns);
 
         // Optimization: Check if bucket_id is already calculated and attached as a hidden column
-        const auto* bucket_col_ptr = output_block.try_get_by_name("__paimon_bucket_id");
-        if (bucket_col_ptr != nullptr) {
-            const auto& bucket_col = *bucket_col_ptr->column;
+        int bucket_pos = output_block.get_position_by_name("__paimon_bucket_id");
+        if (bucket_pos >= 0) {
+            const auto& bucket_col = *output_block.get_by_position(bucket_pos).column;
             for (int i = 0; i < rows; ++i) {
-                bucket_ids[i] = bucket_col.get_int(i);
+                bucket_ids[i] = static_cast<int32_t>(static_cast<int32_t>(bucket_col.get_int(i)));
             }
         } else {
             // Fallback to calculation if not found
@@ -410,7 +425,7 @@ Status VPaimonTableWriter::write(vectorized::Block& block) {
                 std::string col_name = output_block.get_by_position(i).name;
                 if (col_name.empty()) {
                     if (paimon_sink.__isset.column_names && i < paimon_sink.column_names.size()) {
-                         col_name = paimon_sink.column_names[i];
+                        col_name = paimon_sink.column_names[i];
                     }
                 }
                 name_to_idx.emplace(col_name, i);
@@ -426,9 +441,10 @@ Status VPaimonTableWriter::write(vectorized::Block& block) {
                 bucket_key_block.insert(output_block.get_by_position(it->second));
             }
 
-            doris::vectorized::ArrowMemoryPool<> arrow_pool;
+            ::doris::ArrowMemoryPool<> arrow_pool;
             std::shared_ptr<arrow::Schema> arrow_schema;
-            RETURN_IF_ERROR(get_arrow_schema_from_block(bucket_key_block, &arrow_schema, _state->timezone()));
+            RETURN_IF_ERROR(get_arrow_schema_from_block(bucket_key_block, &arrow_schema,
+                                                        _state->timezone()));
             std::shared_ptr<arrow::RecordBatch> record_batch;
             RETURN_IF_ERROR(convert_to_arrow_batch(bucket_key_block, arrow_schema, &arrow_pool,
                                                    &record_batch, _state->timezone_obj()));
@@ -460,7 +476,8 @@ Status VPaimonTableWriter::write(vectorized::Block& block) {
                                              arrow_status.ToString());
             }
 
-            auto calc_res = ::paimon::BucketIdCalculator::Create(false, paimon_sink.bucket_num, _pool);
+            auto calc_res =
+                    ::paimon::BucketIdCalculator::Create(false, paimon_sink.bucket_num, _pool);
             if (!calc_res.ok()) {
                 if (c_bucket_array.release) {
                     c_bucket_array.release(&c_bucket_array);
@@ -523,19 +540,17 @@ Status VPaimonTableWriter::write(vectorized::Block& block) {
             RETURN_IF_ERROR(writer->write(gathered_block));
         }
     }
-    DorisMetrics::instance()->paimon_write_project_latency_ms->add(
-            to_ms_ceil(project_ns));
-    DorisMetrics::instance()->paimon_write_dispatch_latency_ms->add(
-            to_ms_ceil(dispatch_ns));
+    DorisMetrics::instance()->paimon_write_project_latency_ms->add(to_ms_ceil(project_ns));
+    DorisMetrics::instance()->paimon_write_dispatch_latency_ms->add(to_ms_ceil(dispatch_ns));
     DorisMetrics::instance()->paimon_write_partitions_latency_ms->add(
             to_ms_ceil(partitions_write_ns));
     return Status::OK();
 #endif
 }
 
-Status VPaimonTableWriter::_filter_block(doris::vectorized::Block& block,
-                                        const vectorized::IColumn::Filter* filter,
-                                        doris::vectorized::Block* output_block) {
+Status VPaimonTableWriter::_filter_block(::doris::Block& block,
+                                         const IColumn::Filter* filter,
+                                         ::doris::Block* output_block) {
     *output_block = block;
     std::vector<uint32_t> columns_to_filter;
     int column_to_keep = output_block->columns();
@@ -562,9 +577,7 @@ Status VPaimonTableWriter::close(Status status) {
 
     if (_file_store_write) {
         ::paimon::Status close_status;
-        Defer do_close {[&]() {
-            close_status = _file_store_write->Close();
-        }};
+        Defer do_close {[&]() { close_status = _file_store_write->Close(); }};
         if (status.ok() && result_status.ok()) {
             int64_t prepare_commit_ns = 0;
             auto commit_result = [&]() {
@@ -579,7 +592,8 @@ Status VPaimonTableWriter::close(Status status) {
             }
             std::vector<TCommitMessage> msgs;
             const auto& commit_messages = commit_result.value();
-            DorisMetrics::instance()->paimon_prepare_commit_messages->increment(commit_messages.size());
+            DorisMetrics::instance()->paimon_prepare_commit_messages->increment(
+                    commit_messages.size());
             constexpr size_t kMaxPayloadBytes = 8 * 1024 * 1024;
             size_t chunk_size = 512;
             size_t total_messages = commit_messages.size();
@@ -591,8 +605,8 @@ Status VPaimonTableWriter::close(Status status) {
                 int64_t serialize_ns = 0;
                 Defer record_serialize_commit_messages_latency {[&]() {
                     DorisMetrics::instance()->paimon_serialize_commit_messages_latency_ms->add(
-                            static_cast<uint64_t>(serialize_ns <= 0 ? 0
-                                                                    : (serialize_ns + 999999) / 1000000));
+                            static_cast<uint64_t>(
+                                    serialize_ns <= 0 ? 0 : (serialize_ns + 999999) / 1000000));
                 }};
                 SCOPED_RAW_TIMER(&serialize_ns);
                 while (i < total_messages) {
@@ -629,7 +643,8 @@ Status VPaimonTableWriter::close(Status status) {
 
                     total_payload_bytes += wrapped.size();
                     COUNTER_UPDATE(_commit_payload_bytes_counter, wrapped.size());
-                    DorisMetrics::instance()->paimon_commit_payload_bytes->increment(wrapped.size());
+                    DorisMetrics::instance()->paimon_commit_payload_bytes->increment(
+                            wrapped.size());
                     DorisMetrics::instance()->paimon_commit_payload_chunks->increment(1);
                     TCommitMessage msg;
                     msg.__set_payload(wrapped);
@@ -637,13 +652,10 @@ Status VPaimonTableWriter::close(Status status) {
                     i = end;
                 }
             }
-            DorisMetrics::instance()->paimon_prepare_commit_latency_ms->add(
-                    static_cast<uint64_t>(prepare_commit_ns <= 0 ? 0
-                                                                 : (prepare_commit_ns + 999999) /
-                                                                           1000000));
-            VLOG(1) << "Prepared " << total_messages
-                    << " commit messages, serialized as " << msgs.size()
-                    << " payload chunks, total_payload_bytes=" << total_payload_bytes
+            DorisMetrics::instance()->paimon_prepare_commit_latency_ms->add(static_cast<uint64_t>(
+                    prepare_commit_ns <= 0 ? 0 : (prepare_commit_ns + 999999) / 1000000));
+            VLOG(1) << "Prepared " << total_messages << " commit messages, serialized as "
+                    << msgs.size() << " payload chunks, total_payload_bytes=" << total_payload_bytes
                     << ", serializer_version=" << serializer_version;
             _state->add_paimon_commit_messages(msgs);
         }
