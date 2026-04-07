@@ -2235,7 +2235,7 @@ void CloudCalcDeleteBitmapAsyncPublishWorkerPool::calc_delete_bitmap_async_publi
 
         int64_t enqueue_time = req.__isset.recv_time ? req.recv_time : time(nullptr);
         int64_t time_elapsed = time(nullptr) - enqueue_time;
-        if (time_elapsed > config::publish_version_task_timeout_s) {
+        if (time_elapsed > config::calc_delete_bitmap_async_publish_task_timeout_s) {
             LOG(INFO) << "calc delete bitmap async publish task elapsed " << time_elapsed
                       << " seconds since it is inserted to queue, it is timeout";
         } else {

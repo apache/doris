@@ -220,6 +220,8 @@ DEFINE_Int32(publish_version_worker_count, "8");
 DEFINE_Int32(tablet_publish_txn_max_thread, "32");
 // the timeout of EnginPublishVersionTask
 DEFINE_Int32(publish_version_task_timeout_s, "8");
+// the timeout of CloudCalcDeleteBitmapAsyncPublishWorkerPool local retry
+DEFINE_Int32(calc_delete_bitmap_async_publish_task_timeout_s, "30");
 // the count of thread to calc delete bitmap
 DEFINE_Int32(calc_delete_bitmap_max_thread, "32");
 // the num of threads to calc delete bitmap when building rowset, 0 = auto
