@@ -33,18 +33,19 @@
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
+#include "core/column/column_decimal.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
+#include "core/string_buffer.hpp"
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "exec/common/hash_table/phmap_fwd_decl.h"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
-#include "util/io_helper.h"
 
 namespace doris {} // namespace doris
 

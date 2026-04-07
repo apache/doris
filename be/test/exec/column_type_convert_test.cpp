@@ -1282,9 +1282,11 @@ TEST_F(ColumnTypeConverterTest, TestStringToIntegerTypes) {
         ASSERT_TRUE(st.ok());
 
         ASSERT_EQ(4, nested_col.size());
-        EXPECT_EQ("123456789012345678901234567890", int128_to_string(nested_col.get_data()[0]));
+        EXPECT_EQ("123456789012345678901234567890",
+                  CastToString::from_int128(nested_col.get_data()[0]));
 
-        EXPECT_EQ("-123456789012345678901234567890", int128_to_string(nested_col.get_data()[1]));
+        EXPECT_EQ("-123456789012345678901234567890",
+                  CastToString::from_int128(nested_col.get_data()[1]));
 
         // Check zero
         EXPECT_EQ(0, nested_col.get_data()[2]);
@@ -1440,7 +1442,8 @@ TEST_F(ColumnTypeConverterTest, TestDateTimeV2ToNumericConversions) {
     auto parse_datetimev2_str = [](const std::string& datetime_str) {
         DateV2Value<DateTimeV2ValueType> x;
         StringRef buf((char*)datetime_str.data(), datetime_str.size());
-        bool ok = read_datetime_v2_text_impl(x, buf, 6);
+        CastParameters params;
+        bool ok = CastToDatetimeV2::from_string_non_strict_mode(buf, x, nullptr, 6, params);
         CHECK(ok) << "parse_datetimev2_str failed for: " << datetime_str;
         return x;
     };

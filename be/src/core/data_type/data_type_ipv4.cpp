@@ -25,7 +25,6 @@
 #include "core/data_type/data_type.h"
 #include "core/string_buffer.hpp"
 #include "exprs/function/cast/cast_to_string.h"
-#include "util/io_helper.h"
 
 namespace doris {
 

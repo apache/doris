@@ -25,7 +25,6 @@
 #include "core/data_type/data_type_number.h"
 #include "core/types.h"
 #include "exprs/function/cast/cast_to_basic_number_common.h"
-#include "util/io_helper.h"
 
 namespace doris {
 
@@ -35,33 +34,51 @@ namespace doris {
                    "Arithmetic overflow when converting value {} from type {} to decimal({}, {})", \
                    value, from_type_name, precision, scale))
 struct CastToDecimal {
+    template <PrimitiveType P, typename T>
+    static inline StringParser::ParseResult read_text(T& x, const StringRef& buf, UInt32 precision,
+                                                      UInt32 scale) {
+        static_assert(IsDecimalNumber<T>);
+        if constexpr (!std::is_same_v<DecimalV2Value, T>) {
+            StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
+            x.value = StringParser::string_to_decimal<P>(buf.data, (int)buf.size, precision, scale,
+                                                         &result);
+            return result;
+        } else {
+            StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
+            x = DecimalV2Value(StringParser::string_to_decimal<TYPE_DECIMALV2>(
+                    buf.data, (int)buf.size, DecimalV2Value::PRECISION, DecimalV2Value::SCALE,
+                    &result));
+            return result;
+        }
+    }
+
     template <typename ToCppT>
         requires(IsDecimalNumber<ToCppT>)
     static inline bool from_string(const StringRef& from, ToCppT& to, UInt32 precision,
                                    UInt32 scale, CastParameters& params) {
         if constexpr (IsDecimalV2<ToCppT>) {
             return StringParser::PARSE_SUCCESS ==
-                   try_read_decimal_text<TYPE_DECIMALV2>(to, from, precision, scale);
+                   read_text<TYPE_DECIMALV2>(to, from, precision, scale);
         }
 
         if constexpr (IsDecimal32<ToCppT>) {
             return StringParser::PARSE_SUCCESS ==
-                   try_read_decimal_text<TYPE_DECIMAL32>(to, from, precision, scale);
+                   read_text<TYPE_DECIMAL32>(to, from, precision, scale);
         }
 
         if constexpr (IsDecimal64<ToCppT>) {
             return StringParser::PARSE_SUCCESS ==
-                   try_read_decimal_text<TYPE_DECIMAL64>(to, from, precision, scale);
+                   read_text<TYPE_DECIMAL64>(to, from, precision, scale);
         }
 
         if constexpr (IsDecimal128V3<ToCppT>) {
             return StringParser::PARSE_SUCCESS ==
-                   try_read_decimal_text<TYPE_DECIMAL128I>(to, from, precision, scale);
+                   read_text<TYPE_DECIMAL128I>(to, from, precision, scale);
         }
 
         if constexpr (IsDecimal256<ToCppT>) {
             return StringParser::PARSE_SUCCESS ==
-                   try_read_decimal_text<TYPE_DECIMAL256>(to, from, precision, scale);
+                   read_text<TYPE_DECIMAL256>(to, from, precision, scale);
         }
     }
 
@@ -1076,5 +1093,4 @@ public:
         return Status::OK();
     }
 };
-
 } // namespace doris

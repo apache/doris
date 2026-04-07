@@ -45,7 +45,7 @@
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"
-#include "util/io_helper.h"
+#include "exprs/function/cast/cast_to_basic_number_common.h"
 
 namespace doris {
 class Arena;

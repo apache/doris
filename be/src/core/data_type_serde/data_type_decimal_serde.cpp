@@ -36,7 +36,6 @@
 #include "exprs/function/cast/cast_to_string.h"
 #include "orc/Int128.hh"
 #include "storage/tablet/tablet_schema.h"
-#include "util/io_helper.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_document_cast.h"
 #include "util/jsonb_writer.h"
@@ -206,8 +205,8 @@ Status DataTypeDecimalSerDe<T>::deserialize_one_cell_from_json(IColumn& column, 
     auto& column_data = assert_cast<ColumnDecimal<T>&>(column).get_data();
     FieldType val = {};
     StringRef str_ref(slice.data, slice.size);
-    StringParser::ParseResult res =
-            read_decimal_text_impl<get_primitive_type(), FieldType>(val, str_ref, precision, scale);
+    StringParser::ParseResult res = CastToDecimal::read_text<get_primitive_type(), FieldType>(
+            val, str_ref, precision, scale);
     if (res == StringParser::PARSE_SUCCESS || res == StringParser::PARSE_UNDERFLOW) {
         column_data.emplace_back(val);
         return Status::OK();

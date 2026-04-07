@@ -27,7 +27,6 @@
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_base.h"
 #include "exprs/function/cast/cast_to_date_or_datetime_impl.hpp"
-#include "util/io_helper.h"
 
 namespace doris {
 
@@ -76,9 +75,13 @@ Status DataTypeDateSerDe<T>::deserialize_one_cell_from_json(
         slice.trim_quote();
     }
     VecDateTimeValue val;
-    if (StringRef str(slice.data, slice.size); !read_date_text_impl(val, str)) {
+    StringRef str(slice.data, slice.size);
+    CastParameters params;
+    if (!CastToDateOrDatetime::from_string_non_strict_mode<DatelikeTargetType::DATE>(
+                str, val, nullptr, params)) {
         return Status::InvalidArgument("parse date fail, string: '{}'", str.to_string());
     }
+    val.cast_to_date();
     column_data.insert_value(val);
     return Status::OK();
 }
@@ -123,9 +126,13 @@ Status DataTypeDateTimeSerDe::deserialize_one_cell_from_json(IColumn& column, Sl
         slice.trim_quote();
     }
     VecDateTimeValue val;
-    if (StringRef str(slice.data, slice.size); !read_datetime_text_impl(val, str)) {
+    StringRef str(slice.data, slice.size);
+    CastParameters params;
+    if (!CastToDateOrDatetime::from_string_non_strict_mode<DatelikeTargetType::DATE_TIME>(
+                str, val, nullptr, params)) {
         return Status::InvalidArgument("parse datetime fail, string: '{}'", str.to_string());
     }
+    val.to_datetime();
     column_data.insert_value(val);
     return Status::OK();
 }
@@ -332,10 +339,9 @@ Status DataTypeDateSerDe<T>::from_string_batch(
         // then we rely on return value to check success.
         // return value only represent OK or InvalidArgument for other error(like InternalError) in parser, MUST throw
         // Exception!
-        if (!CastToDateOrDatetime::from_string_non_strict_mode < IsDatetime
-                    ? DatelikeTargetType::DATE_TIME
-                    : DatelikeTargetType::DATE > (str, res, options.timezone, params))
-                [[unlikely]] {
+        if (!CastToDateOrDatetime::from_string_non_strict_mode<
+                    IsDatetime ? DatelikeTargetType::DATE_TIME : DatelikeTargetType::DATE>(
+                    str, res, options.timezone, params)) [[unlikely]] {
             col_nullmap.get_data()[i] = true;
             //TODO: we should set `for` functions who need it then skip to set default value for null rows.
             col_data.get_data()[i] = VecDateTimeValue::FIRST_DAY;
@@ -391,9 +397,9 @@ Status DataTypeDateSerDe<T>::from_string(StringRef& str, IColumn& column,
     // then we rely on return value to check success.
     // return value only represent OK or InvalidArgument for other error(like InternalError) in parser, MUST throw
     // Exception!
-    if (!CastToDateOrDatetime::from_string_non_strict_mode < IsDatetime
-                ? DatelikeTargetType::DATE_TIME
-                : DatelikeTargetType::DATE > (str, res, options.timezone, params)) [[unlikely]] {
+    if (!CastToDateOrDatetime::from_string_non_strict_mode<
+                IsDatetime ? DatelikeTargetType::DATE_TIME : DatelikeTargetType::DATE>(
+                str, res, options.timezone, params)) [[unlikely]] {
         return Status::InvalidArgument("parse date or datetime fail, string: '{}'",
                                        str.to_string());
     }
@@ -423,10 +429,9 @@ Status DataTypeDateSerDe<T>::from_olap_string(const std::string& str, Field& fie
     // then we rely on return value to check success.
     // return value only represent OK or InvalidArgument for other error(like InternalError) in parser, MUST throw
     // Exception!
-    if (!CastToDateOrDatetime::from_string_non_strict_mode < IsDatetime
-                ? DatelikeTargetType::DATE_TIME
-                : DatelikeTargetType::DATE > (StringRef(str), res, options.timezone, params))
-            [[unlikely]] {
+    if (!CastToDateOrDatetime::from_string_non_strict_mode<
+                IsDatetime ? DatelikeTargetType::DATE_TIME : DatelikeTargetType::DATE>(
+                StringRef(str), res, options.timezone, params)) [[unlikely]] {
         return Status::InvalidArgument("parse date or datetime fail, string: '{}'", str);
     }
     field = Field::create_field<T>(std::move(res));
@@ -467,10 +472,10 @@ Status DataTypeDateSerDe<T>::from_int_batch(const typename IntDataType::ColumnTy
     CastParameters params {.status = Status::OK(), .is_strict = false};
     for (size_t i = 0; i < int_col.size(); ++i) {
         CppType val;
-        if (CastToDateOrDatetime::from_integer < DatelikeParseMode::NON_STRICT,
-            IsDatetime ? DatelikeTargetType::DATE_TIME
-                       : DatelikeTargetType::DATE > (int_col.get_element(i), val, params))
-                [[likely]] {
+        if (CastToDateOrDatetime::from_integer<DatelikeParseMode::NON_STRICT,
+                                               IsDatetime ? DatelikeTargetType::DATE_TIME
+                                                          : DatelikeTargetType::DATE>(
+                    int_col.get_element(i), val, params)) [[likely]] {
             // did cast_to_type in `from_integer`
             col_data.get_data()[i] = val;
             col_nullmap.get_data()[i] = false;
@@ -519,10 +524,10 @@ Status DataTypeDateSerDe<T>::from_float_batch(const typename FloatDataType::Colu
     CastParameters params {.status = Status::OK(), .is_strict = false};
     for (size_t i = 0; i < float_col.size(); ++i) {
         CppType val;
-        if (CastToDateOrDatetime::from_float < DatelikeParseMode::NON_STRICT,
-            IsDatetime ? DatelikeTargetType::DATE_TIME
-                       : DatelikeTargetType::DATE > (float_col.get_data()[i], val, 0, params))
-                [[likely]] {
+        if (CastToDateOrDatetime::from_float<DatelikeParseMode::NON_STRICT,
+                                             IsDatetime ? DatelikeTargetType::DATE_TIME
+                                                        : DatelikeTargetType::DATE>(
+                    float_col.get_data()[i], val, 0, params)) [[likely]] {
             col_data.get_data()[i] = val;
             col_nullmap.get_data()[i] = false;
         } else {
@@ -570,12 +575,11 @@ Status DataTypeDateSerDe<T>::from_decimal_batch(
     CastParameters params {.status = Status::OK(), .is_strict = false};
     for (size_t i = 0; i < decimal_col.size(); ++i) {
         CppType val;
-        if (CastToDateOrDatetime::from_decimal < DatelikeParseMode::NON_STRICT,
-            IsDatetime ? DatelikeTargetType::DATE_TIME
-                       : DatelikeTargetType::DATE > (decimal_col.get_intergral_part(i),
-                                                     decimal_col.get_fractional_part(i),
-                                                     decimal_col.get_scale(), val, params))
-                [[likely]] {
+        if (CastToDateOrDatetime::from_decimal<DatelikeParseMode::NON_STRICT,
+                                               IsDatetime ? DatelikeTargetType::DATE_TIME
+                                                          : DatelikeTargetType::DATE>(
+                    decimal_col.get_intergral_part(i), decimal_col.get_fractional_part(i),
+                    decimal_col.get_scale(), val, params)) [[likely]] {
             col_data.get_data()[i] = val;
             col_nullmap.get_data()[i] = false;
         } else {

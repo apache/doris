@@ -35,6 +35,7 @@
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
+#include "core/column/column_decimal.h"
 #include "core/column/column_fixed_length_object.h"
 #include "core/column/column_string.h"
 #include "core/custom_allocator.h"
@@ -47,7 +48,6 @@
 #include "core/type_limit.h"
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"
-#include "util/io_helper.h"
 
 namespace doris {
 class Arena;

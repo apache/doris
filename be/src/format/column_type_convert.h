@@ -32,8 +32,12 @@
 #include "core/data_type/define_primitive_type.h"
 #include "core/types.h"
 #include "exec/common/arithmetic_overflow.h"
+#include "exprs/function/cast/cast_to_basic_number_common.h"
+#include "exprs/function/cast/cast_to_date_or_datetime_impl.hpp"
+#include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
+#include "exprs/function/cast/cast_to_datev2_impl.hpp"
+#include "exprs/function/cast/cast_to_decimal.h"
 #include "exprs/function/cast/cast_to_string.h"
-#include "util/io_helper.h"
 #include "util/to_string.h"
 
 namespace doris::converter {
@@ -291,7 +295,7 @@ public:
             } else {
                 std::string value;
                 if constexpr (SrcPrimitiveType == TYPE_LARGEINT) {
-                    value = int128_to_string(src_data[i]);
+                    value = CastToString::from_int128(src_data[i]);
                 } else {
                     value = std::to_string(src_data[i]);
                 }
@@ -482,7 +486,13 @@ struct SafeCastString<TYPE_DATETIME> {
     static bool safe_cast_string(
             const StringRef& str_ref,
             PrimitiveTypeTraits<TYPE_DATETIME>::ColumnType::value_type* value) {
-        return read_datetime_text_impl(*value, str_ref);
+        CastParameters params;
+        if (!CastToDateOrDatetime::from_string_non_strict_mode<DatelikeTargetType::DATE_TIME>(
+                    str_ref, *value, nullptr, params)) {
+            return false;
+        }
+        value->to_datetime();
+        return true;
     }
 };
 
@@ -491,7 +501,9 @@ struct SafeCastString<TYPE_DATETIMEV2> {
     static bool safe_cast_string(
             const StringRef& str_ref,
             PrimitiveTypeTraits<TYPE_DATETIMEV2>::ColumnType::value_type* value, int scale) {
-        return read_datetime_v2_text_impl(*value, str_ref, scale);
+        CastParameters params;
+        return CastToDatetimeV2::from_string_non_strict_mode(str_ref, *value, nullptr, scale,
+                                                             params);
     }
 };
 
@@ -499,7 +511,13 @@ template <>
 struct SafeCastString<TYPE_DATE> {
     static bool safe_cast_string(const StringRef& str_ref,
                                  PrimitiveTypeTraits<TYPE_DATE>::ColumnType::value_type* value) {
-        return read_date_text_impl(*value, str_ref);
+        CastParameters params;
+        if (!CastToDateOrDatetime::from_string_non_strict_mode<DatelikeTargetType::DATE>(
+                    str_ref, *value, nullptr, params)) {
+            return false;
+        }
+        value->cast_to_date();
+        return true;
     }
 };
 
@@ -507,7 +525,8 @@ template <>
 struct SafeCastString<TYPE_DATEV2> {
     static bool safe_cast_string(const StringRef& str_ref,
                                  PrimitiveTypeTraits<TYPE_DATEV2>::ColumnType::value_type* value) {
-        return read_date_v2_text_impl(*value, str_ref);
+        CastParameters params;
+        return CastToDateV2::from_string_non_strict_mode(str_ref, *value, nullptr, params);
     }
 };
 
@@ -517,8 +536,8 @@ struct SafeCastDecimalString {
 
     static bool safe_cast_string(const StringRef& str_ref, CppType* value, int precision,
                                  int scale) {
-        return read_decimal_text_impl<DstPrimitiveType, CppType>(
-                       *value, str_ref, precision, scale) == StringParser::PARSE_SUCCESS;
+        return CastToDecimal::read_text<DstPrimitiveType>(*value, str_ref, precision, scale) ==
+               StringParser::PARSE_SUCCESS;
     }
 };
 

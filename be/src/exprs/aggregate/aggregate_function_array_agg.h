@@ -30,7 +30,6 @@
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"
-#include "util/io_helper.h"
 
 namespace doris {
 class Arena;
