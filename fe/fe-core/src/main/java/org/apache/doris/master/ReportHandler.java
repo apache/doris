@@ -95,6 +95,8 @@ import org.apache.doris.thrift.TTabletMetaInfo;
 import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.base.Preconditions;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+
 import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.LinkedListMultimap;
 import com.google.common.collect.ListMultimap;
@@ -263,7 +265,7 @@ public class ReportHandler extends Daemon {
     }
 
     private Map<Long, TTablet> buildTabletMap(List<TTablet> tabletList) {
-        Map<Long, TTablet> tabletMap = Maps.newHashMap();
+        Map<Long, TTablet> tabletMap = new Long2ObjectOpenHashMap<>();
         for (TTablet tTablet : tabletList) {
             if (tTablet.getTabletInfos().isEmpty()) {
                 continue;

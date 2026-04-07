@@ -94,6 +94,8 @@ import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -176,7 +178,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     // index id -> index meta
     @SerializedName(value = "itm", alternate = {"indexIdToMeta"})
-    private Map<Long, MaterializedIndexMeta> indexIdToMeta = Maps.newHashMap();
+    private Long2ObjectOpenHashMap<MaterializedIndexMeta> indexIdToMeta = new Long2ObjectOpenHashMap<>();
     // index name -> index id
     @SerializedName(value = "inti", alternate = {"indexNameToId"})
     private Map<String, Long> indexNameToId = Maps.newHashMap();
@@ -840,7 +842,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
         // reset all 'indexIdToXXX' map
         Map<Long, MaterializedIndexMeta> origIdxIdToMeta = indexIdToMeta;
-        indexIdToMeta = Maps.newHashMap();
+        indexIdToMeta = new Long2ObjectOpenHashMap<>();
         for (Map.Entry<Long, String> entry : origIdxIdToName.entrySet()) {
             long newIdxId = env.getNextId();
             if (entry.getValue().equals(name)) {
@@ -3918,7 +3920,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         table.tempPartitions = new TempPartitions();
 
         table.state = state;
-        table.indexIdToMeta = ImmutableMap.copyOf(indexIdToMeta);
+        table.indexIdToMeta = new Long2ObjectOpenHashMap<>(indexIdToMeta);
         table.indexNameToId = ImmutableMap.copyOf(indexNameToId);
         table.keysType = keysType;
         table.partitionInfo = partitionInfo;

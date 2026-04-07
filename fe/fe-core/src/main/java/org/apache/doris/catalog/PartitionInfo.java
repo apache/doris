@@ -29,16 +29,16 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTabletType;
 
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -58,30 +58,30 @@ public class PartitionInfo {
     protected List<Column> partitionColumns = Lists.newArrayList();
     // formal partition id -> partition item
     @SerializedName("IdToItem")
-    protected Map<Long, PartitionItem> idToItem = Maps.newHashMap();
+    protected Long2ObjectOpenHashMap<PartitionItem> idToItem = new Long2ObjectOpenHashMap<>();
     @SerializedName("IdToTempItem")
     // temp partition id -> partition item
-    protected Map<Long, PartitionItem> idToTempItem = Maps.newHashMap();
+    protected Long2ObjectOpenHashMap<PartitionItem> idToTempItem = new Long2ObjectOpenHashMap<>();
     // partition id -> data property
     @SerializedName("IdToDataProperty")
-    protected Map<Long, DataProperty> idToDataProperty;
+    protected Long2ObjectOpenHashMap<DataProperty> idToDataProperty;
     // partition id -> storage policy
     @SerializedName("IdToStoragePolicy")
-    protected Map<Long, String> idToStoragePolicy;
+    protected Long2ObjectOpenHashMap<String> idToStoragePolicy;
     // partition id -> replication allocation
     @SerializedName("IdToReplicaAllocation")
-    protected Map<Long, ReplicaAllocation> idToReplicaAllocation;
+    protected Long2ObjectOpenHashMap<ReplicaAllocation> idToReplicaAllocation;
     // true if the partition has multi partition columns
     @SerializedName("isM")
     protected boolean isMultiColumnPartition = false;
 
     @SerializedName("IdToInMemory")
-    protected Map<Long, Boolean> idToInMemory;
+    protected Long2ObjectOpenHashMap<Boolean> idToInMemory;
 
     // partition id -> tablet type
     // Note: currently it's only used for testing, it may change/add more meta field later,
     // so we defer adding meta serialization until memory engine feature is more complete.
-    protected Map<Long, TTabletType> idToTabletType;
+    protected Long2ObjectOpenHashMap<TTabletType> idToTabletType;
 
     // the enable automatic partition will hold this, could create partition by expr result
     @SerializedName("PartitionExprs")
@@ -92,21 +92,21 @@ public class PartitionInfo {
 
     public PartitionInfo() {
         this.type = PartitionType.UNPARTITIONED;
-        this.idToDataProperty = new HashMap<>();
-        this.idToReplicaAllocation = new HashMap<>();
-        this.idToInMemory = new HashMap<>();
-        this.idToTabletType = new HashMap<>();
-        this.idToStoragePolicy = new HashMap<>();
+        this.idToDataProperty = new Long2ObjectOpenHashMap<>();
+        this.idToReplicaAllocation = new Long2ObjectOpenHashMap<>();
+        this.idToInMemory = new Long2ObjectOpenHashMap<>();
+        this.idToTabletType = new Long2ObjectOpenHashMap<>();
+        this.idToStoragePolicy = new Long2ObjectOpenHashMap<>();
         this.partitionExprs = new ArrayList<>();
     }
 
     public PartitionInfo(PartitionType type) {
         this.type = type;
-        this.idToDataProperty = new HashMap<>();
-        this.idToReplicaAllocation = new HashMap<>();
-        this.idToInMemory = new HashMap<>();
-        this.idToTabletType = new HashMap<>();
-        this.idToStoragePolicy = new HashMap<>();
+        this.idToDataProperty = new Long2ObjectOpenHashMap<>();
+        this.idToReplicaAllocation = new Long2ObjectOpenHashMap<>();
+        this.idToInMemory = new Long2ObjectOpenHashMap<>();
+        this.idToTabletType = new Long2ObjectOpenHashMap<>();
+        this.idToStoragePolicy = new Long2ObjectOpenHashMap<>();
         this.partitionExprs = new ArrayList<>();
     }
 
@@ -150,7 +150,7 @@ public class PartitionInfo {
      * @return both normal partition and temp partition
      */
     public Map<Long, PartitionItem> getAllPartitions() {
-        HashMap all = new HashMap<>();
+        Long2ObjectOpenHashMap<PartitionItem> all = new Long2ObjectOpenHashMap<>();
         all.putAll(idToTempItem);
         all.putAll(idToItem);
         return all;
@@ -420,11 +420,11 @@ public class PartitionInfo {
         Map<Long, PartitionItem> origIdToItem = idToItem;
         Map<Long, Boolean> origIdToInMemory = idToInMemory;
         Map<Long, String> origIdToStoragePolicy = idToStoragePolicy;
-        idToDataProperty = Maps.newHashMap();
-        idToReplicaAllocation = Maps.newHashMap();
-        idToItem = Maps.newHashMap();
-        idToInMemory = Maps.newHashMap();
-        idToStoragePolicy = Maps.newHashMap();
+        idToDataProperty = new Long2ObjectOpenHashMap<>();
+        idToReplicaAllocation = new Long2ObjectOpenHashMap<>();
+        idToItem = new Long2ObjectOpenHashMap<>();
+        idToInMemory = new Long2ObjectOpenHashMap<>();
+        idToStoragePolicy = new Long2ObjectOpenHashMap<>();
 
         for (Map.Entry<Long, Long> entry : partitionIdMap.entrySet()) {
             idToDataProperty.put(entry.getKey(), origIdToDataProperty.get(entry.getValue()));

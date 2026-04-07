@@ -63,6 +63,8 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.transaction.TransactionState;
 
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.EvictingQueue;
@@ -118,9 +120,9 @@ public class TabletScheduler extends MasterDaemon {
      * pendingTablets, allTabletTypes, runningTablets and schedHistory are protected by 'synchronized'
      */
     private MinMaxPriorityQueue<TabletSchedCtx> pendingTablets = MinMaxPriorityQueue.create();
-    private Map<Long, TabletSchedCtx.Type> allTabletTypes = Maps.newHashMap();
+    private Long2ObjectOpenHashMap<TabletSchedCtx.Type> allTabletTypes = new Long2ObjectOpenHashMap<>();
     // contains all tabletCtxs which state are RUNNING
-    private Map<Long, TabletSchedCtx> runningTablets = Maps.newHashMap();
+    private Long2ObjectOpenHashMap<TabletSchedCtx> runningTablets = new Long2ObjectOpenHashMap<>();
     // save the latest 1000 scheduled tablet info
     private Queue<TabletSchedCtx> schedHistory = EvictingQueue.create(1000);
 

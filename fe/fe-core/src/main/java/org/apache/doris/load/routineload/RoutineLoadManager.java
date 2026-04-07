@@ -25,6 +25,7 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ConcurrentLong2LongHashMap;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -87,12 +88,12 @@ public class RoutineLoadManager implements Writable {
     private Map<Long, RoutineLoadJob> idToRoutineLoadJob = Maps.newConcurrentMap();
     private Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newConcurrentMap();
 
-    private ConcurrentHashMap<Long, Long> multiLoadTaskTxnIdToRoutineLoadJobId = new ConcurrentHashMap<>();
+    private ConcurrentLong2LongHashMap multiLoadTaskTxnIdToRoutineLoadJobId = new ConcurrentLong2LongHashMap();
 
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
     // Map<beId, timestamp when added to blacklist>
-    private Map<Long, Long> blacklist = new ConcurrentHashMap<>();
+    private ConcurrentLong2LongHashMap blacklist = new ConcurrentLong2LongHashMap();
 
     private void readLock() {
         lock.readLock().lock();
@@ -964,10 +965,10 @@ public class RoutineLoadManager implements Writable {
     }
 
     public boolean isInBlacklist(long beId) {
-        Long timestamp = blacklist.get(beId);
-        if (timestamp == null) {
+        if (!blacklist.containsKey(beId)) {
             return false;
         }
+        long timestamp = blacklist.get(beId);
 
         if (System.currentTimeMillis() - timestamp > Config.routine_load_blacklist_expire_time_second * 1000) {
             blacklist.remove(beId);

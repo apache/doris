@@ -70,6 +70,9 @@ import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.TransactionState;
 
+import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.HashBasedTable;
@@ -109,22 +112,22 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
     protected Table<Long, Long, MaterializedIndex> partitionIndexMap = HashBasedTable.create();
     // shadow index id -> origin index id
     @SerializedName(value = "indexIdMap")
-    protected Map<Long, Long> indexIdMap = Maps.newHashMap();
+    protected Long2LongOpenHashMap indexIdMap = new Long2LongOpenHashMap();
     // partition id -> origin index id
     @SerializedName(value = "partitionOriginIndexIdMap")
-    private Map<Long, Long> partitionOriginIndexIdMap = Maps.newHashMap();
+    private Long2LongOpenHashMap partitionOriginIndexIdMap = new Long2LongOpenHashMap();
     // shadow index id -> shadow index name(__doris_shadow_xxx)
     @SerializedName(value = "indexIdToName")
-    private Map<Long, String> indexIdToName = Maps.newHashMap();
+    private Long2ObjectOpenHashMap<String> indexIdToName = new Long2ObjectOpenHashMap<>();
     // shadow index id -> index schema
     @SerializedName(value = "indexSchemaMap")
-    protected Map<Long, List<Column>> indexSchemaMap = Maps.newHashMap();
+    protected Long2ObjectOpenHashMap<List<Column>> indexSchemaMap = new Long2ObjectOpenHashMap<>();
     // shadow index id -> (shadow index schema version : schema hash)
     @SerializedName(value = "indexSchemaVersionAndHashMap")
-    protected Map<Long, SchemaVersionAndHash> indexSchemaVersionAndHashMap = Maps.newHashMap();
+    protected Long2ObjectOpenHashMap<SchemaVersionAndHash> indexSchemaVersionAndHashMap = new Long2ObjectOpenHashMap<>();
     // shadow index id -> shadow index short key count
     @SerializedName(value = "indexShortKeyMap")
-    protected Map<Long, Short> indexShortKeyMap = Maps.newHashMap();
+    protected Long2ObjectOpenHashMap<Short> indexShortKeyMap = new Long2ObjectOpenHashMap<>();
 
     // bloom filter info
     @SerializedName(value = "hasBfChange")
@@ -168,7 +171,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
     public void addTabletIdMap(long partitionId, long shadowIdxId, long shadowTabletId, long originTabletId) {
         Map<Long, Long> tabletMap = partitionIndexTabletMap.get(partitionId, shadowIdxId);
         if (tabletMap == null) {
-            tabletMap = Maps.newHashMap();
+            tabletMap = new Long2LongOpenHashMap();
             partitionIndexTabletMap.put(partitionId, shadowIdxId, tabletMap);
         }
         tabletMap.put(shadowTabletId, originTabletId);

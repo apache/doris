@@ -19,11 +19,12 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.persist.gson.GsonPostProcessable;
 
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -72,7 +73,7 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
 
     public MaterializedIndex() {
         this.state = IndexState.NORMAL;
-        this.idToTablets = new HashMap<>();
+        this.idToTablets = new Long2ObjectOpenHashMap<>();
         this.tablets = new ArrayList<>();
     }
 
@@ -84,7 +85,7 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
             this.state = IndexState.NORMAL;
         }
 
-        this.idToTablets = new HashMap<>();
+        this.idToTablets = new Long2ObjectOpenHashMap<>();
         this.tablets = new ArrayList<>();
 
         this.rowCount = -1;

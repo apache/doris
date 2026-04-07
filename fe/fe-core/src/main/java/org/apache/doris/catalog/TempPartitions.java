@@ -19,6 +19,8 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.persist.gson.GsonPostProcessable;
 
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -38,7 +40,7 @@ import java.util.Set;
 // to make a overwrite load.
 public class TempPartitions implements GsonPostProcessable {
     @SerializedName(value = "idToPartition")
-    private Map<Long, Partition> idToPartition = Maps.newHashMap();
+    private Long2ObjectOpenHashMap<Partition> idToPartition = new Long2ObjectOpenHashMap<>();
     private Map<String, Partition> nameToPartition = Maps.newHashMap();
     @Deprecated
     // the range info of temp partitions has been moved to "partitionInfo" in OlapTable.

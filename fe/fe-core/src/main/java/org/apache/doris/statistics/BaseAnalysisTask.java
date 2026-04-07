@@ -25,6 +25,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.ConcurrentLong2LongHashMap;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
@@ -56,7 +57,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.ConcurrentMap;
 
 public abstract class BaseAnalysisTask {
 
@@ -421,9 +421,9 @@ public abstract class BaseAnalysisTask {
             // Skip partitions that not changed after last analyze.
             // External table getPartition always return null. So external table doesn't skip any partitions.
             if (partition != null && tableStatsStatus != null && tableStatsStatus.partitionUpdateRows != null) {
-                ConcurrentMap<Long, Long> tableUpdateRows = tableStatsStatus.partitionUpdateRows;
+                ConcurrentLong2LongHashMap tableUpdateRows = tableStatsStatus.partitionUpdateRows;
                 if (columnStatsMeta != null && columnStatsMeta.partitionUpdateRows != null) {
-                    ConcurrentMap<Long, Long> columnUpdateRows = columnStatsMeta.partitionUpdateRows;
+                    ConcurrentLong2LongHashMap columnUpdateRows = columnStatsMeta.partitionUpdateRows;
                     long id = partition.getId();
                     if (Objects.equals(tableUpdateRows.getOrDefault(id, 0L), columnUpdateRows.get(id))) {
                         LOG.debug("Partition {} doesn't change after last analyze for column {}, skip it.",

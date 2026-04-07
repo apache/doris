@@ -18,6 +18,7 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.ConcurrentLong2LongHashMap;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -39,8 +40,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.StringJoiner;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 
 public class AnalysisInfo implements Writable {
 
@@ -186,7 +185,7 @@ public class AnalysisInfo implements Writable {
     @SerializedName("tv")
     public final long tableVersion;
 
-    public final Map<Long, Long> partitionUpdateRows = new ConcurrentHashMap<>();
+    public final ConcurrentLong2LongHashMap partitionUpdateRows = new ConcurrentLong2LongHashMap();
 
     @SerializedName("tblUpdateTime")
     public final long tblUpdateTime;
@@ -200,7 +199,7 @@ public class AnalysisInfo implements Writable {
     @SerializedName("ep")
     public final boolean enablePartition;
 
-    public final ConcurrentMap<Long, Long> indexesRowCount = new ConcurrentHashMap<>();
+    public final ConcurrentLong2LongHashMap indexesRowCount = new ConcurrentLong2LongHashMap();
 
     public AnalysisInfo(long jobId, long taskId, List<Long> taskIds, long catalogId, long dbId, long tblId,
             Set<Pair<String, String>> jobColumns, Set<String> partitionNames, String colName, Long indexId,

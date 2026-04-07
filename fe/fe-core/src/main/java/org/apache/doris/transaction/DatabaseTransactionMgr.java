@@ -35,6 +35,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ConcurrentLong2LongHashMap;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.FeConstants;
@@ -65,6 +66,8 @@ import org.apache.doris.task.ClearTransactionTask;
 import org.apache.doris.task.PublishVersionTask;
 import org.apache.doris.thrift.TTabletCommitInfo;
 import org.apache.doris.thrift.TUniqueId;
+
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
@@ -129,7 +132,7 @@ public class DatabaseTransactionMgr {
 
     // transactionId -> final status TransactionState
     private final Map<Long, TransactionState> idToFinalStatusTransactionState = Maps.newConcurrentMap();
-    private final Map<Long, Long> subTxnIdToTxnId = new ConcurrentHashMap<>();
+    private final ConcurrentLong2LongHashMap subTxnIdToTxnId = new ConcurrentLong2LongHashMap();
 
     // The following 2 queues are to store transactionStates with final status
     // These queues are mainly used to avoid traversing all txns and speed up the cleaning time
@@ -150,7 +153,7 @@ public class DatabaseTransactionMgr {
     // it must exists in dbIdToTxnLabels, and vice versa
     private final Map<String, Set<Long>> labelToTxnIds = Maps.newHashMap();
 
-    private final Map<Long, Long> tableCommittedTxnCount = Maps.newConcurrentMap();
+    private final ConcurrentLong2LongHashMap tableCommittedTxnCount = new ConcurrentLong2LongHashMap();
 
     private Long lastCommittedTxnCountUpdateTime = 0L;
 
@@ -455,7 +458,7 @@ public class DatabaseTransactionMgr {
             return;
         }
 
-        Set<Long> errorReplicaIds = Sets.newHashSet();
+        Set<Long> errorReplicaIds = new LongOpenHashSet();
         Set<Long> totalInvolvedBackends = Sets.newHashSet();
         Map<Long, Set<Long>> tableToPartition = new HashMap<>();
 
@@ -808,7 +811,7 @@ public class DatabaseTransactionMgr {
             return;
         }
 
-        Set<Long> errorReplicaIds = Sets.newHashSet();
+        Set<Long> errorReplicaIds = new LongOpenHashSet();
         Set<Long> totalInvolvedBackends = Sets.newHashSet();
         Map<Long, Set<Long>> tableToPartition = new HashMap<>();
         if (!is2PC) {
@@ -873,7 +876,7 @@ public class DatabaseTransactionMgr {
         }
 
         // error replica may be duplicated for different sub transaction, but it's ok
-        Set<Long> errorReplicaIds = Sets.newHashSet();
+        Set<Long> errorReplicaIds = new LongOpenHashSet();
         Map<Long, Set<Long>> subTxnToPartition = new HashMap<>();
         Set<Long> totalInvolvedBackends = Sets.newHashSet();
         for (SubTransactionState subTransactionState : subTransactionStates) {
@@ -3042,12 +3045,10 @@ public class DatabaseTransactionMgr {
     }
 
     private void cleanSubTransactions(long transactionId) {
-        Iterator<Entry<Long, Long>> iterator = subTxnIdToTxnId.entrySet().iterator();
-        while (iterator.hasNext()) {
-            Entry<Long, Long> entry = iterator.next();
-            if (entry.getValue() == transactionId) {
-                iterator.remove();
+        subTxnIdToTxnId.forEach((subTxnId, txnId) -> {
+            if (txnId == transactionId) {
+                subTxnIdToTxnId.remove(subTxnId);
             }
-        }
+        });
     }
 }

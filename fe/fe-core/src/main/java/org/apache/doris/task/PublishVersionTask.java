@@ -21,7 +21,8 @@ import org.apache.doris.thrift.TPartitionVersionInfo;
 import org.apache.doris.thrift.TPublishVersionRequest;
 import org.apache.doris.thrift.TTaskType;
 
-import com.google.common.collect.Maps;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+
 import com.google.common.collect.Sets;
 import lombok.Getter;
 import org.apache.logging.log4j.LogManager;
@@ -52,7 +53,7 @@ public class PublishVersionTask extends AgentTask {
     /**
      * To collect loaded rows for each tablet from each BE
      */
-    private final Map<Long, Map<Long, Long>> tableIdToTabletDeltaRows = Maps.newHashMap();
+    private final Long2ObjectOpenHashMap<Map<Long, Long>> tableIdToTabletDeltaRows = new Long2ObjectOpenHashMap<>();
 
     public PublishVersionTask(long backendId, long transactionId, long dbId,
             List<TPartitionVersionInfo> partitionVersionInfos, long createTime) {

@@ -19,7 +19,8 @@ package org.apache.doris.transaction;
 
 import org.apache.doris.thrift.TPartitionVersionInfo;
 
-import com.google.common.collect.Maps;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -34,7 +35,7 @@ public class TableCommitInfo {
     @SerializedName(value = "tableId")
     private long tableId;
     @SerializedName(value = "idToPartitionCommitInfo")
-    private Map<Long, PartitionCommitInfo> idToPartitionCommitInfo;
+    private Long2ObjectOpenHashMap<PartitionCommitInfo> idToPartitionCommitInfo;
     @SerializedName(value = "version")
     private long version;
     @SerializedName(value = "versionTime")
@@ -46,7 +47,7 @@ public class TableCommitInfo {
 
     public TableCommitInfo(long tableId) {
         this.tableId = tableId;
-        idToPartitionCommitInfo = Maps.newHashMap();
+        idToPartitionCommitInfo = new Long2ObjectOpenHashMap<>();
     }
 
     public long getTableId() {

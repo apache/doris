@@ -20,6 +20,7 @@ package org.apache.doris.statistics;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.ConcurrentLong2LongHashMap;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -34,7 +35,6 @@ import com.google.gson.annotations.SerializedName;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -100,10 +100,10 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
     public boolean userInjected;
 
     @SerializedName("pur")
-    public ConcurrentMap<Long, Long> partitionUpdateRows = new ConcurrentHashMap<>();
+    public ConcurrentLong2LongHashMap partitionUpdateRows = new ConcurrentLong2LongHashMap();
 
     @SerializedName("irc")
-    private ConcurrentMap<Long, Long> indexesRowCount = new ConcurrentHashMap<>();
+    private ConcurrentLong2LongHashMap indexesRowCount = new ConcurrentLong2LongHashMap();
 
     @VisibleForTesting
     public TableStatsMeta() {
@@ -184,7 +184,7 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
                 colStatsMeta.tableVersion = analyzedJob.tableVersion;
                 if (analyzedJob.enablePartition) {
                     if (colStatsMeta.partitionUpdateRows == null) {
-                        colStatsMeta.partitionUpdateRows = new ConcurrentHashMap<>();
+                        colStatsMeta.partitionUpdateRows = new ConcurrentLong2LongHashMap();
                     }
                     colStatsMeta.partitionUpdateRows.putAll(analyzedJob.partitionUpdateRows);
                 }
@@ -224,10 +224,10 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
     @Override
     public void gsonPostProcess() throws IOException {
         if (partitionUpdateRows == null) {
-            partitionUpdateRows = new ConcurrentHashMap<>();
+            partitionUpdateRows = new ConcurrentLong2LongHashMap();
         }
         if (indexesRowCount == null) {
-            indexesRowCount = new ConcurrentHashMap<>();
+            indexesRowCount = new ConcurrentLong2LongHashMap();
         }
         if (colToColStatsMeta == null) {
             colToColStatsMeta = new ConcurrentHashMap<>();
@@ -239,12 +239,10 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
     }
 
     protected void clearStaleIndexRowCount(OlapTable table) {
-        Iterator<Long> iterator = indexesRowCount.keySet().iterator();
         List<Long> indexIds = table.getIndexIdList();
-        while (iterator.hasNext()) {
-            long key = iterator.next();
+        for (long key : indexesRowCount.keySet()) {
             if (!indexIds.contains(key)) {
-                iterator.remove();
+                indexesRowCount.remove(key);
             }
         }
     }
