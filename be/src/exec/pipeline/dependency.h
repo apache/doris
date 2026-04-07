@@ -593,27 +593,6 @@ private:
     void _destroy_agg_status(AggregateDataPtr data);
 };
 
-struct BasicSpillSharedState {
-    virtual ~BasicSpillSharedState() = default;
-
-    // These two counters are shared to spill source operators as the initial value
-    // of 'SpillWriteFileCurrentBytes' and 'SpillWriteFileCurrentCount'.
-
-    // Total bytes of spill data written to disk file(after serialized)
-    RuntimeProfile::Counter* _spill_write_file_total_size = nullptr;
-    RuntimeProfile::Counter* _spill_file_total_count = nullptr;
-
-    void setup_shared_profile(RuntimeProfile* sink_profile) {
-        _spill_file_total_count =
-                ADD_COUNTER_WITH_LEVEL(sink_profile, "SpillWriteFileTotalCount", TUnit::UNIT, 1);
-        _spill_write_file_total_size =
-                ADD_COUNTER_WITH_LEVEL(sink_profile, "SpillWriteFileBytes", TUnit::BYTES, 1);
-    }
-
-    virtual void update_spill_stream_profiles(RuntimeProfile* source_profile) = 0;
-};
-
-struct AggSpillPartition;
 struct PartitionedAggSharedState : public BasicSharedState,
                                    public std::enable_shared_from_this<PartitionedAggSharedState> {
     ENABLE_FACTORY_CREATOR(PartitionedAggSharedState)
