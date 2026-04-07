@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -415,8 +416,10 @@ public class FrontendServiceImplTest {
             request.setSchemaTableParams(params);
 
             TFetchSchemaTableDataResult result = impl.fetchSchemaTableData(request);
-            Assert.assertEquals(TStatusCode.OK, result.getStatus().getStatusCode());
-            Assert.assertTrue(result.getDataBatch().isEmpty());
+            Assert.assertEquals(TStatusCode.INTERNAL_ERROR, result.getStatus().getStatusCode());
+            Assert.assertEquals(1, result.getStatus().getErrorMsgsSize());
+            Assert.assertEquals(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR.formatErrorMsg("ADMIN"),
+                    result.getStatus().getErrorMsgs().get(0));
         } finally {
             executeCommand("DROP ROLE MAPPING IF EXISTS " + mappingName);
             Env.getCurrentEnv().getAuthenticationIntegrationMgr().dropAuthenticationIntegration(integrationName, true);

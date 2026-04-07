@@ -100,13 +100,15 @@ suite("test_role_mapping_system_table", "p0,auth") {
         assertEquals(result[0][5], result[0][7])
 
         connect(user, "${pwd}", context.config.jdbcUrl) {
-            def nonAdminResult = sql """
-                SELECT NAME
-                FROM information_schema.role_mappings
-                WHERE NAME = '${mappingName}'
-                ORDER BY NAME
-            """
-            assertTrue(nonAdminResult == [])
+            test {
+                sql """
+                    SELECT NAME
+                    FROM information_schema.role_mappings
+                    WHERE NAME = '${mappingName}'
+                    ORDER BY NAME
+                """
+                exception "Access denied; you need (at least one of) the (ADMIN) privilege(s) for this operation"
+            }
         }
     } finally {
         try_sql("DROP ROLE MAPPING IF EXISTS ${mappingName}")
