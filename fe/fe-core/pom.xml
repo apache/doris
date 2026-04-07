@@ -69,6 +69,29 @@ under the License.
             <artifactId>fe-common</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!-- fe-filesystem-api: consumer-facing filesystem API (FileSystem, Location, FileEntry, etc.) -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-filesystem-api</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- fe-filesystem-spi: provider contracts (ObjFileSystem, ObjStorage, etc.) —
+             needed by S3Resource which directly invokes ObjStorage for connectivity validation. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-filesystem-spi</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- fe-filesystem impl modules: runtime dependencies removed in Phase 4 P4.1.
+             Providers are now loaded from plugins/filesystem/ directory at startup
+             via FileSystemPluginManager + DirectoryPluginRuntimeManager. -->
+        <!-- fe-filesystem-local: test-scope only, used for unit testing FileSystemTransferUtil etc. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-filesystem-local</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>fe-thrift</artifactId>
@@ -158,11 +181,6 @@ under the License.
         <dependency>
             <groupId>org.apache.hadoop</groupId>
             <artifactId>hadoop-azure</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.aliyun.oss</groupId>
-            <artifactId>aliyun-sdk-oss</artifactId>
-            <version>${aliyun-sdk-oss.version}</version>
         </dependency>
         <!-- https://mvnrepository.com/artifact/org.apache.commons/commons-lang3 -->
         <dependency>
@@ -300,13 +318,12 @@ under the License.
             <groupId>com.amazonaws</groupId>
             <artifactId>aws-java-sdk-sts</artifactId>
         </dependency>
+        <!-- hadoop-huaweicloud provides OBSFileSystem; loaded via reflection in OBSProperties
+             with graceful S3A fallback — runtime only, not needed at compile time -->
         <dependency>
             <groupId>com.huaweicloud</groupId>
             <artifactId>hadoop-huaweicloud</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.qcloud.cos</groupId>
-            <artifactId>hadoop-cos</artifactId>
+            <scope>runtime</scope>
         </dependency>
         <!-- antl4 The version of antlr-runtime in trino parser is need to be consistent with doris,
             when upgrade doris antlr-runtime version, should take care of trino-parser.-->
@@ -371,36 +388,6 @@ under the License.
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>s3</artifactId>
-        </dependency>
-        <!-- tencent cloud sts -->
-        <dependency>
-            <groupId>com.tencentcloudapi</groupId>
-            <artifactId>tencentcloud-sdk-java-sts</artifactId>
-            <exclusions>
-                <exclusion>
-                    <groupId>com.squareup.okhttp3</groupId>
-                    <artifactId>okhttp</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>com.squareup.okio</groupId>
-                    <artifactId>okio</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
-        <!-- huawei cloud sts -->
-        <dependency>
-            <groupId>com.huaweicloud.sdk</groupId>
-            <artifactId>huaweicloud-sdk-iam</artifactId>
-            <exclusions>
-                <exclusion>
-                    <groupId>com.squareup.okhttp3</groupId>
-                    <artifactId>okhttp</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>com.squareup.okio</groupId>
-                    <artifactId>okio</artifactId>
-                </exclusion>
-            </exclusions>
         </dependency>
         <!-- ICU4J for unicode normalization -->
         <dependency>
@@ -572,6 +559,10 @@ under the License.
                 </exclusion>
             </exclusions>
         </dependency>
+        <!-- Required at runtime by paimon-s3 and iceberg-aws (both direct deps): their S3 I/O
+             paths use software.amazon.awssdk.transfer.s3.model.ObjectTransfer and related
+             classes from this jar.  Without it the FE classloader throws NoClassDefFoundError
+             when loading Paimon/Iceberg catalog metadata. -->
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>s3-transfer-manager</artifactId>
@@ -637,18 +628,6 @@ under the License.
             <artifactId>okhttp-jvm</artifactId>
         </dependency>
 
-        <dependency>
-            <groupId>com.qcloud</groupId>
-            <artifactId>cos_api</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.qcloud</groupId>
-            <artifactId>qcloud-java-sdk</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.huaweicloud</groupId>
-            <artifactId>esdk-obs-java-bundle</artifactId>
-        </dependency>
         <dependency>
             <groupId>com.baidubce</groupId>
             <artifactId>bce-java-sdk</artifactId>
@@ -752,19 +731,6 @@ under the License.
             <groupId>me.bechberger</groupId>
             <artifactId>ap-loader-all</artifactId>
             <version>3.0-8</version>
-        </dependency>
-        <dependency>
-            <groupId>com.azure</groupId>
-            <artifactId>azure-storage-blob</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.azure</groupId>
-            <artifactId>azure-identity</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.azure</groupId>
-            <artifactId>azure-storage-blob-batch</artifactId>
-            <version>${azure.sdk.batch.version}</version>
         </dependency>
         <dependency>
             <groupId>software.amazon.awssdk</groupId>

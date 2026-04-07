@@ -226,7 +226,7 @@ public:
         outfile = std::move(result_file).ValueUnsafe();
 
         ::parquet::WriterProperties::Builder builder;
-        builder.version(::parquet::ParquetVersion::PARQUET_2_0);
+        builder.version(::parquet::ParquetVersion::PARQUET_2_6);
         builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
         builder.enable_write_page_index();
         builder.compression(::parquet::Compression::SNAPPY);

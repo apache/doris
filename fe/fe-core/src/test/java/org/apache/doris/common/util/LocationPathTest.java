@@ -19,8 +19,8 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.foundation.property.StoragePropertiesException;
-import org.apache.doris.fs.FileSystemType;
 import org.apache.doris.thrift.TFileType;
 
 import org.apache.commons.lang3.StringUtils;

@@ -433,6 +433,8 @@ public class OperationType {
     public static final short OP_BEGIN_SNAPSHOT = 1100;
     public static final short OP_META_SYNC_POINT = 1101;
 
+    public static final short OP_TSO_TIMESTAMP_WINDOW_END = 1200;
+
     /**
      * Get opcode name by op code.
      **/

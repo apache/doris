@@ -345,64 +345,13 @@ public class AuditLogHelper {
         }
 
         if (ctx.getState().isQuery()) {
-            if (MetricRepo.isInit) {
-                if (!ctx.getState().isInternal()) {
-                    MetricRepo.COUNTER_QUERY_ALL.increase(1L);
-                    MetricRepo.USER_COUNTER_QUERY_ALL.getOrAdd(ctx.getQualifiedUser()).increase(1L);
-                }
-                String physicalClusterName = "";
-                try {
-                    if (Config.isCloudMode()) {
-                        cloudCluster = ctx.getCloudCluster(false);
-                        physicalClusterName = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                            .getPhysicalCluster(cloudCluster);
-                        if (!cloudCluster.equals(physicalClusterName)) {
-                            // vcg
-                            MetricRepo.increaseClusterQueryAll(physicalClusterName);
-                        }
-                    }
-                } catch (ComputeGroupException e) {
-                    LOG.warn("Failed to get cloud cluster, cloudCluster={}, physicalClusterName={} ",
-                            cloudCluster, physicalClusterName, e);
-                    return;
-                }
-
-                MetricRepo.increaseClusterQueryAll(cloudCluster);
-                if (!ctx.getState().isInternal()) {
-                    if (ctx.getState().getStateType() == MysqlStateType.ERR
-                            && ctx.getState().getErrType() != QueryState.ErrType.ANALYSIS_ERR) {
-                        // err query
-                        MetricRepo.COUNTER_QUERY_ERR.increase(1L);
-                        MetricRepo.USER_COUNTER_QUERY_ERR.getOrAdd(ctx.getQualifiedUser()).increase(1L);
-                        if (cloudCluster.equals(physicalClusterName)) {
-                            // not vcg
-                            MetricRepo.increaseClusterQueryErr(cloudCluster);
-                        } else {
-                            // vcg
-                            MetricRepo.increaseClusterQueryErr(cloudCluster);
-                            MetricRepo.increaseClusterQueryErr(physicalClusterName);
-                        }
-                    } else if (ctx.getState().getStateType() == MysqlStateType.OK
-                            || ctx.getState().getStateType() == MysqlStateType.EOF) {
-                        // ok query
-                        MetricRepo.HISTO_QUERY_LATENCY.update(elapseMs);
-                        MetricRepo.USER_HISTO_QUERY_LATENCY.getOrAdd(ctx.getQualifiedUser()).update(elapseMs);
-                        if (cloudCluster.equals(physicalClusterName)) {
-                            // not vcg
-                            MetricRepo.updateClusterQueryLatency(cloudCluster, elapseMs);
-                        } else {
-                            // vcg
-                            MetricRepo.updateClusterQueryLatency(cloudCluster, elapseMs);
-                            MetricRepo.updateClusterQueryLatency(physicalClusterName, elapseMs);
-                        }
-                        if (elapseMs > Config.qe_slow_log_ms) {
-                            MetricRepo.COUNTER_QUERY_SLOW.increase(1L);
-                        }
-                        if (elapseMs > Config.sql_digest_generation_threshold_ms) {
-                            String sqlDigest = DigestUtils.md5Hex(((Queriable) parsedStmt).toDigest());
-                            auditEventBuilder.setSqlDigest(sqlDigest);
-                        }
-                    }
+            updateMetricsImpl(ctx);
+            if (MetricRepo.isInit && !ctx.getState().isInternal()) {
+                if ((ctx.getState().getStateType() == MysqlStateType.OK
+                        || ctx.getState().getStateType() == MysqlStateType.EOF)
+                        && elapseMs > Config.sql_digest_generation_threshold_ms) {
+                    String sqlDigest = DigestUtils.md5Hex(((Queriable) parsedStmt).toDigest());
+                    auditEventBuilder.setSqlDigest(sqlDigest);
                 }
             }
             auditEventBuilder.setScanBytesFromLocalStorage(
@@ -456,6 +405,91 @@ public class AuditLogHelper {
             queueToken = ctx.getExecutor().getCoord().getQueueToken();
         }
         return queueToken == null ? -1 : queueToken.getQueueEndTime() - queueToken.getQueueStartTime();
+    }
+
+    /**
+     * Update query metrics without writing audit log. This is used when
+     * enable_prepared_stmt_audit_log is disabled, to ensure QPS metrics
+     * are still counted for prepared statement executions.
+     */
+    public static void updateMetrics(ConnectContext ctx) {
+        if (Config.enable_bdbje_debug_mode) {
+            return;
+        }
+        try {
+            updateMetricsImpl(ctx);
+        } catch (Throwable t) {
+            LOG.warn("Failed to update query metrics.", t);
+        }
+    }
+
+    private static void updateMetricsImpl(ConnectContext ctx) {
+        if (!ctx.getState().isQuery()) {
+            return;
+        }
+        if (!MetricRepo.isInit) {
+            return;
+        }
+
+        long elapseMs = System.currentTimeMillis() - ctx.getStartTime();
+
+        if (!ctx.getState().isInternal()) {
+            MetricRepo.COUNTER_QUERY_ALL.increase(1L);
+            MetricRepo.USER_COUNTER_QUERY_ALL.getOrAdd(ctx.getQualifiedUser()).increase(1L);
+        }
+
+        String cloudCluster = "";
+        String physicalClusterName = "";
+        try {
+            if (Config.isCloudMode()) {
+                cloudCluster = ctx.getCloudCluster(false);
+                physicalClusterName = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                    .getPhysicalCluster(cloudCluster);
+                if (!cloudCluster.equals(physicalClusterName)) {
+                    // vcg
+                    MetricRepo.increaseClusterQueryAll(physicalClusterName);
+                }
+            }
+        } catch (ComputeGroupException e) {
+            LOG.warn("Failed to get cloud cluster, cloudCluster={}, physicalClusterName={} ",
+                    cloudCluster, physicalClusterName, e);
+            return;
+        }
+
+        MetricRepo.increaseClusterQueryAll(cloudCluster);
+
+        if (!ctx.getState().isInternal()) {
+            if (ctx.getState().getStateType() == MysqlStateType.ERR
+                    && ctx.getState().getErrType() != QueryState.ErrType.ANALYSIS_ERR) {
+                // err query
+                MetricRepo.COUNTER_QUERY_ERR.increase(1L);
+                MetricRepo.USER_COUNTER_QUERY_ERR.getOrAdd(ctx.getQualifiedUser()).increase(1L);
+                if (cloudCluster.equals(physicalClusterName)) {
+                    // not vcg
+                    MetricRepo.increaseClusterQueryErr(cloudCluster);
+                } else {
+                    // vcg
+                    MetricRepo.increaseClusterQueryErr(cloudCluster);
+                    MetricRepo.increaseClusterQueryErr(physicalClusterName);
+                }
+            } else if (ctx.getState().getStateType() == MysqlStateType.OK
+                    || ctx.getState().getStateType() == MysqlStateType.EOF) {
+                // ok query
+                MetricRepo.HISTO_QUERY_LATENCY.update(elapseMs);
+                MetricRepo.USER_HISTO_QUERY_LATENCY.getOrAdd(ctx.getQualifiedUser()).update(elapseMs);
+                if (cloudCluster.equals(physicalClusterName)) {
+                    // not vcg
+                    MetricRepo.updateClusterQueryLatency(cloudCluster, elapseMs);
+                } else {
+                    // vcg
+                    MetricRepo.updateClusterQueryLatency(cloudCluster, elapseMs);
+                    MetricRepo.updateClusterQueryLatency(physicalClusterName, elapseMs);
+                }
+                if (elapseMs > Config.qe_slow_log_ms) {
+                    MetricRepo.COUNTER_QUERY_SLOW.increase(1L);
+                }
+            }
+        }
     }
 
     private static String getStmtType(StatementBase stmt) {

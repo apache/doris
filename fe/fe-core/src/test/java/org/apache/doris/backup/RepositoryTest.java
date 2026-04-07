@@ -18,13 +18,23 @@
 package org.apache.doris.backup;
 
 import org.apache.doris.catalog.BrokerMgr;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.storage.BrokerProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.filesystem.DorisInputFile;
+import org.apache.doris.filesystem.DorisInputStream;
+import org.apache.doris.filesystem.DorisOutputFile;
+import org.apache.doris.filesystem.FileEntry;
+import org.apache.doris.filesystem.FileIterator;
+import org.apache.doris.filesystem.Location;
+import org.apache.doris.foundation.fs.FsStorageType;
+import org.apache.doris.fs.FileSystemDescriptor;
 import org.apache.doris.fs.FileSystemFactory;
-import org.apache.doris.fs.remote.RemoteFile;
-import org.apache.doris.fs.remote.RemoteFileSystem;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.service.FrontendOptions;
 
 import com.google.common.collect.Lists;
@@ -39,6 +49,7 @@ import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Test;
 
+import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
@@ -64,8 +75,17 @@ public class RepositoryTest {
     private SnapshotInfo info;
 
     @Mocked
-    private RemoteFileSystem fileSystem;
+    private org.apache.doris.filesystem.FileSystem mockFs;
+    @Mocked
+    private DorisOutputFile mockOutputFile;
+    @Mocked
+    private DorisInputFile mockInputFile;
+    @Mocked
+    private Env mockedEnv;
+    @Mocked
+    private BrokerMgr mockedBrokerMgr;
 
+    private final BrokerProperties testProps = BrokerProperties.of("broker", Maps.newHashMap());
 
     @Before
     public void setUp() {
@@ -81,26 +101,51 @@ public class RepositoryTest {
                 return "127.0.0.1";
             }
         };
+
+        // Route all FileSystemFactory.getFileSystem calls to mockFs so that
+        // acquireSpiFs() (broker path) returns the mock without a real connection.
+        new MockUp<FileSystemFactory>() {
+            @Mock
+            public org.apache.doris.filesystem.FileSystem getFileSystem(
+                    Map<String, String> properties) throws IOException {
+                return mockFs;
+            }
+
+            @Mock
+            public org.apache.doris.filesystem.FileSystem getFileSystem(
+                    StorageProperties storageProperties) throws IOException {
+                return mockFs;
+            }
+        };
+
         new Expectations() {
             {
-                fileSystem.getStorageProperties();
+                Env.getCurrentEnv();
                 minTimes = 0;
-                result = null;
+                result = mockedEnv;
+
+                mockedEnv.getBrokerMgr();
+                minTimes = 0;
+                result = mockedBrokerMgr;
+
+                try {
+                    mockedBrokerMgr.getBroker(anyString, anyString);
+                } catch (AnalysisException ignored) {
+                    // never thrown during JMockit recording phase
+                }
+                minTimes = 0;
+                result = new FsBroker("10.74.167.16", 8111);
             }
         };
 
-        new MockUp<BrokerMgr>() {
-            @Mock
-            public FsBroker getBroker(String name, String host) throws AnalysisException {
-                return new FsBroker("10.74.167.16", 8111);
-            }
-        };
-
+        // initRepository() and ping() short-circuit when runningUnitTest is true,
+        // which avoids real filesystem calls in those particular tests.
+        FeConstants.runningUnitTest = true;
     }
 
     @Test
     public void testGet() {
-        repo = new Repository(10000, "repo", false, location, fileSystem);
+        repo = new Repository(10000, "repo", false, location, testProps);
 
         Assert.assertEquals(repoId, repo.getId());
         Assert.assertEquals(name, repo.getName());
@@ -112,24 +157,9 @@ public class RepositoryTest {
 
     @Test
     public void testInit() throws UserException {
-        new Expectations() {
-            {
-                fileSystem.globList(anyString, (List<RemoteFile>) any);
-                minTimes = 0;
-                result = new Delegate<Status>() {
-                    public Status list(String remotePath, List<RemoteFile> result) {
-                        result.clear();
-                        return Status.OK;
-                    }
-                };
-                fileSystem.directUpload(anyString, anyString);
-                minTimes = 0;
-                result = Status.OK;
-            }
-        };
+        repo = new Repository(10000, "repo", false, location, testProps);
 
-        repo = new Repository(10000, "repo", false, location, fileSystem);
-
+        // initRepository() short-circuits with OK when FeConstants.runningUnitTest == true
         Status st = repo.initRepository();
         System.out.println(st);
         Assert.assertTrue(st.ok());
@@ -137,7 +167,7 @@ public class RepositoryTest {
 
     @Test
     public void testassemnblePath() throws MalformedURLException, URISyntaxException {
-        repo = new Repository(10000, "repo", false, location, fileSystem);
+        repo = new Repository(10000, "repo", false, location, testProps);
 
         // job info
         String label = "label";
@@ -170,15 +200,8 @@ public class RepositoryTest {
 
     @Test
     public void testPing() {
-        new Expectations() {
-            {
-                fileSystem.exists(anyString);
-                minTimes = 0;
-                result = Status.OK;
-            }
-        };
-
-        repo = new Repository(10000, "repo", false, location, fileSystem);
+        repo = new Repository(10000, "repo", false, location, testProps);
+        // ping() short-circuits with true when FeConstants.runningUnitTest == true
         Assert.assertTrue(repo.ping());
         Assert.assertTrue(repo.getErrorMsg() == null);
     }
@@ -187,19 +210,47 @@ public class RepositoryTest {
     public void testListSnapshots() {
         new Expectations() {
             {
-                fileSystem.globList(anyString, (List<RemoteFile>) any);
+                // Return one snapshot directory (__ss_a) and one non-directory (_ss_b).
+                // Only the directory with the correct prefix should appear in the result.
+                try {
+                    mockFs.list((Location) any);
+                } catch (IOException ignored) {
+                    // never thrown during JMockit recording phase
+                }
                 minTimes = 0;
-                result = new Delegate() {
-                    public Status list(String remotePath, List<RemoteFile> result) {
-                        result.add(new RemoteFile(Repository.PREFIX_SNAPSHOT_DIR + "a", false, 100, 0));
-                        result.add(new RemoteFile("_ss_b", true, 100, 0));
-                        return Status.OK;
+                result = new Delegate<FileIterator>() {
+                    public FileIterator list(Location loc) throws IOException {
+                        List<FileEntry> entries = Lists.newArrayList(
+                                new FileEntry(
+                                        Location.of(location + "/__palo_repository_repo/"
+                                                + Repository.PREFIX_SNAPSHOT_DIR + "a"),
+                                        100, true, 0L, null),
+                                new FileEntry(
+                                        Location.of(location + "/__palo_repository_repo/_ss_b"),
+                                        100, false, 0L, null));
+                        return new FileIterator() {
+                            private int idx = 0;
+
+                            @Override
+                            public boolean hasNext() {
+                                return idx < entries.size();
+                            }
+
+                            @Override
+                            public FileEntry next() throws IOException {
+                                return entries.get(idx++);
+                            }
+
+                            @Override
+                            public void close() {
+                            }
+                        };
                     }
                 };
             }
         };
 
-        repo = new Repository(10000, "repo", false, location, fileSystem);
+        repo = new Repository(10000, "repo", false, location, testProps);
         List<String> snapshotNames = Lists.newArrayList();
         Status st = repo.listSnapshots(snapshotNames);
         Assert.assertTrue(st.ok());
@@ -207,25 +258,102 @@ public class RepositoryTest {
         Assert.assertEquals("a", snapshotNames.get(0));
     }
 
+    /**
+     * Tests that listSnapshots correctly extracts snapshot names from flat S3 object keys
+     * that contain nested {@code __ss_content} segments. Before the fix, {@code lastIndexOf}
+     * matched the later {@code /__ss_content} instead of the earlier {@code /__ss_snap1},
+     * producing a spurious "content" snapshot name.
+     */
+    @Test
+    public void testListSnapshotsFlatObjectKeys() {
+        String repoRoot = location + "/__palo_repository_repo";
+        new Expectations() {
+            {
+                try {
+                    mockFs.list((Location) any);
+                } catch (IOException ignored) {
+                    // never thrown during JMockit recording phase
+                }
+                minTimes = 0;
+                result = new Delegate<FileIterator>() {
+                    public FileIterator list(Location loc) throws IOException {
+                        List<FileEntry> entries = Lists.newArrayList(
+                                // A meta file directly under __ss_snap1 (single __ss_ segment)
+                                new FileEntry(
+                                        Location.of(repoRoot + "/__ss_snap1/__meta__abc"),
+                                        50, false, 0L, null),
+                                // A data file under __ss_snap1/__ss_content (two __ss_ segments)
+                                new FileEntry(
+                                        Location.of(repoRoot
+                                                + "/__ss_snap1/__ss_content/__db_1/__tbl_2/data.dat"),
+                                        200, false, 0L, null),
+                                // A second snapshot
+                                new FileEntry(
+                                        Location.of(repoRoot + "/__ss_snap2/__meta__def"),
+                                        50, false, 0L, null),
+                                // An entry without __ss_ prefix — should be skipped
+                                new FileEntry(
+                                        Location.of(repoRoot + "/__repo_info"),
+                                        10, false, 0L, null));
+                        return new FileIterator() {
+                            private int idx = 0;
+
+                            @Override
+                            public boolean hasNext() {
+                                return idx < entries.size();
+                            }
+
+                            @Override
+                            public FileEntry next() throws IOException {
+                                return entries.get(idx++);
+                            }
+
+                            @Override
+                            public void close() {
+                            }
+                        };
+                    }
+                };
+            }
+        };
+
+        repo = new Repository(10000, "repo", false, location, testProps);
+        List<String> snapshotNames = Lists.newArrayList();
+        Status st = repo.listSnapshots(snapshotNames);
+        Assert.assertTrue(st.ok());
+        Assert.assertEquals(2, snapshotNames.size());
+        Assert.assertTrue(snapshotNames.contains("snap1"));
+        Assert.assertTrue(snapshotNames.contains("snap2"));
+        // "content" must NOT appear — it is a nested directory, not a snapshot
+        Assert.assertFalse(snapshotNames.contains("content"));
+    }
+
     @Test
     public void testUpload() {
         new Expectations() {
             {
-                fileSystem.upload(anyString, anyString);
-                minTimes = 0;
-                result = Status.OK;
+                // BROKER path: delete(tmp), upload via newOutputFile, rename, delete(final) are called
+                try {
+                    mockFs.delete((Location) any, anyBoolean);
+                    minTimes = 0;
 
-                fileSystem.rename(anyString, anyString);
-                minTimes = 0;
-                result = Status.OK;
+                    mockFs.newOutputFile((Location) any);
+                    minTimes = 0;
+                    result = mockOutputFile;
 
-                fileSystem.delete(anyString);
-                minTimes = 0;
-                result = Status.OK;
+                    mockOutputFile.create();
+                    minTimes = 0;
+                    result = new ByteArrayOutputStream();
+
+                    mockFs.rename((Location) any, (Location) any);
+                    minTimes = 0;
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
             }
         };
 
-        repo = new Repository(10000, "repo", false, location, fileSystem);
+        repo = new Repository(10000, "repo", false, location, testProps);
         String localFilePath = "./tmp_" + System.currentTimeMillis();
         try (PrintWriter out = new PrintWriter(localFilePath)) {
             out.print("a");
@@ -257,22 +385,58 @@ public class RepositoryTest {
 
             new Expectations() {
                 {
-                    fileSystem.globList(anyString, (List<RemoteFile>) any);
-                    minTimes = 0;
-                    result = new Delegate() {
-                        public Status list(String remotePath, List<RemoteFile> result) {
-                            result.add(new RemoteFile("remote_file.0cc175b9c0f1b6a831c399e269772661", true, 100, 0));
-                            return Status.OK;
-                        }
-                    };
+                    // The remote file has an md5 checksum suffix matching content "a"
+                    try {
+                        // Broker does not support globListWithLimit; fall back to listFiles.
+                        mockFs.globListWithLimit((Location) any, anyString, anyLong, anyLong);
+                        minTimes = 0;
+                        result = new UnsupportedOperationException("broker does not support globListWithLimit");
 
-                    fileSystem.downloadWithFileSize(anyString, anyString, anyLong);
-                    minTimes = 0;
-                    result = Status.OK;
+                        mockFs.listFiles((Location) any);
+                        minTimes = 0;
+                        result = Lists.newArrayList(
+                                new FileEntry(
+                                        Location.of(location + "/remote_file"
+                                                + ".0cc175b9c0f1b6a831c399e269772661"),
+                                        1, false, 0L, null));
+
+                        mockFs.newInputFile((Location) any);
+                        minTimes = 0;
+                        result = mockInputFile;
+
+                        mockInputFile.newStream();
+                        minTimes = 0;
+                        // Return a DorisInputStream wrapping content "a"
+                        result = new DorisInputStream() {
+                            private final java.io.InputStream delegate =
+                                    new java.io.ByteArrayInputStream("a".getBytes());
+
+                            @Override
+                            public int read() throws IOException {
+                                return delegate.read();
+                            }
+
+                            @Override
+                            public int read(byte[] b, int off, int len) throws IOException {
+                                return delegate.read(b, off, len);
+                            }
+
+                            @Override
+                            public long getPos() throws IOException {
+                                return 0;
+                            }
+
+                            @Override
+                            public void seek(long newPos) throws IOException {
+                            }
+                        };
+                    } catch (IOException e) {
+                        throw new RuntimeException(e);
+                    }
                 }
             };
 
-            repo = new Repository(10000, "repo", false, location, fileSystem);
+            repo = new Repository(10000, "repo", false, location, testProps);
             String remoteFilePath = location + "/remote_file";
             Status st = repo.download(remoteFilePath, localFilePath);
             Assert.assertTrue(st.ok());
@@ -285,26 +449,57 @@ public class RepositoryTest {
     public void testGetSnapshotInfo() {
         new Expectations() {
             {
-                fileSystem.globList(anyString, (List<RemoteFile>) any);
-                minTimes = 0;
-                result = new Delegate() {
-                    public Status list(String remotePath, List<RemoteFile> result) {
-                        if (remotePath.contains(Repository.PREFIX_JOB_INFO)) {
-                            result.add(new RemoteFile(" __info_2018-04-18-20-11-00.12345678123456781234567812345678",
-                                    true,
-                                    100,
-                                    0));
-                        } else {
-                            result.add(new RemoteFile(Repository.PREFIX_SNAPSHOT_DIR + "s1", false, 100, 0));
-                            result.add(new RemoteFile(Repository.PREFIX_SNAPSHOT_DIR + "s2", false, 100, 0));
+                try {
+                    // listSnapshots calls fs.list; return two snapshot directories
+                    mockFs.list((Location) any);
+                    minTimes = 0;
+                    result = new Delegate<FileIterator>() {
+                        public FileIterator list(Location loc) throws IOException {
+                            List<FileEntry> entries = Lists.newArrayList(
+                                    new FileEntry(
+                                            Location.of(location + "/__palo_repository_repo/"
+                                                    + Repository.PREFIX_SNAPSHOT_DIR + "s1"),
+                                            100, true, 0L, null),
+                                    new FileEntry(
+                                            Location.of(location + "/__palo_repository_repo/"
+                                                    + Repository.PREFIX_SNAPSHOT_DIR + "s2"),
+                                            100, true, 0L, null));
+                            return new FileIterator() {
+                                private int idx = 0;
+
+                                @Override
+                                public boolean hasNext() {
+                                    return idx < entries.size();
+                                }
+
+                                @Override
+                                public FileEntry next() throws IOException {
+                                    return entries.get(idx++);
+                                }
+
+                                @Override
+                                public void close() {
+                                }
+                            };
                         }
-                        return Status.OK;
-                    }
-                };
+                    };
+
+                    // getSnapshotInfo calls fs.listFiles to find __info_* files
+                    mockFs.listFiles((Location) any);
+                    minTimes = 0;
+                    result = Lists.newArrayList(
+                            new FileEntry(
+                                    Location.of(location + "/__palo_repository_repo/__ss_s1/"
+                                            + "__info_2018-04-18-20-11-00"
+                                            + ".12345678123456781234567812345678"),
+                                    100, false, 0L, null));
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
             }
         };
 
-        repo = new Repository(10000, "repo", false, location, fileSystem);
+        repo = new Repository(10000, "repo", false, location, testProps);
         String snapshotName = "";
         String timestamp = "";
         try {
@@ -324,8 +519,7 @@ public class RepositoryTest {
         properties.put("bos_endpoint", "http://gz.bcebos.com");
         properties.put("bos_accesskey", "a");
         properties.put("bos_secret_accesskey", "b");
-        RemoteFileSystem fs = FileSystemFactory.get(StorageProperties.createPrimary(properties));
-        repo = new Repository(10000, "repo", false, location, fs);
+        repo = new Repository(10000, "repo", false, location, StorageProperties.createPrimary(properties));
 
         File file = new File("./Repository");
         try {
@@ -355,7 +549,7 @@ public class RepositoryTest {
     public void testPathNormalize() {
 
         String newLoc = "bos://cmy_bucket/bos_repo/";
-        repo = new Repository(10000, "repo", false, newLoc, fileSystem);
+        repo = new Repository(10000, "repo", false, newLoc, testProps);
         String path = repo.getRepoPath("label1", "/_ss_my_ss/_ss_content/__db_10000/");
         Assert.assertEquals("bos://cmy_bucket/bos_repo/__palo_repository_repo/__ss_label1/__ss_content/_ss_my_ss/_ss_content/__db_10000/", path);
 
@@ -363,10 +557,138 @@ public class RepositoryTest {
         Assert.assertEquals("bos://cmy_bucket/bos_repo/__palo_repository_repo/__ss_label1/__ss_content/_ss_my_ss/_ss_content/__db_10000", path);
 
         newLoc = "hdfs://path/to/repo";
-        repo = new Repository(10000, "repo", false, newLoc, fileSystem);
+        repo = new Repository(10000, "repo", false, newLoc, testProps);
         SnapshotInfo snapshotInfo = new SnapshotInfo(1, 2, 3, 4, 5, 6, 7, "/path", Lists.newArrayList());
         path = repo.getRepoTabletPathBySnapshotInfo("label1", snapshotInfo);
         Assert.assertEquals("hdfs://path/to/repo/__palo_repository_repo/__ss_label1/__ss_content/__db_1/__tbl_2/__part_3/__idx_4/__5", path);
+    }
+
+    /**
+     * H1: Verify that a Repository serialized in the pre-SPI format (where the filesystem was
+     * stored as {@code "fs": {"n":"brokerName","prop":{...}}}) is correctly migrated to a
+     * {@link FileSystemDescriptor} during {@code gsonPostProcess()}.
+     *
+     * <p>Covers the backward-compatible deserialization path added as the H1 fix.
+     */
+    @Test
+    public void testGsonPostProcessLegacyBrokerFormat() {
+        // JSON shape produced by old PersistentFileSystem serialization:
+        // "fs": { "n": "<brokerName>", "prop": {} }
+        // No "fs_descriptor" field present.
+        String legacyJson = "{"
+                + "\"id\":10000,"
+                + "\"name\":\"legacyRepo\","
+                + "\"read_only\":false,"
+                + "\"location\":\"bos://backup/legacy\","
+                + "\"create_time\":-1,"
+                + "\"fs\":{\"n\":\"broker\",\"prop\":{}}"
+                + "}";
+
+        // GsonUtils.GSON triggers gsonPostProcess() automatically via PostProcessTypeAdapterFactory.
+        // FileSystemFactory is already mocked in setUp() to return mockFs for non-broker types.
+        Repository deserialized = GsonUtils.GSON.fromJson(legacyJson, Repository.class);
+
+        // The migration must produce a non-null FileSystemDescriptor.
+        FileSystemDescriptor fd = deserialized.getFileSystemDescriptor();
+        Assert.assertNotNull("fileSystemDescriptor must be migrated from legacy 'fs' field", fd);
+        // Broker fallback is expected: props are empty so no primary storage type matches.
+        Assert.assertEquals(FsStorageType.BROKER, fd.getStorageType());
+        Assert.assertEquals("broker", fd.getName());
+    }
+
+    /**
+     * H1: Verify migration when legacy props contain HDFS-specific keys that are recognized by
+     * {@link StorageProperties#createPrimary(java.util.Map)} (primary path, not broker fallback).
+     */
+    @Test
+    public void testGsonPostProcessLegacyHdfsFormat() {
+        // "hdfs.authentication.type" triggers HdfsProperties.guessIsMe() → primary storage detection succeeds.
+        // Deliberately avoids "dfs.nameservices" to skip HA validation in initNormalizeAndCheckProps().
+        String legacyJson = "{"
+                + "\"id\":20000,"
+                + "\"name\":\"hdfsRepo\","
+                + "\"read_only\":false,"
+                + "\"location\":\"hdfs://ns/backup\","
+                + "\"create_time\":-1,"
+                + "\"fs\":{\"n\":\"\",\"prop\":{\"hdfs.authentication.type\":\"simple\"}}"
+                + "}";
+
+        Repository deserialized = GsonUtils.GSON.fromJson(legacyJson, Repository.class);
+
+        FileSystemDescriptor fd = deserialized.getFileSystemDescriptor();
+        Assert.assertNotNull("fileSystemDescriptor must be migrated from legacy HDFS 'fs' field", fd);
+        Assert.assertEquals(FsStorageType.HDFS, fd.getStorageType());
+    }
+
+    /**
+     * M2: {@code acquireSpiFs()} must pass {@code FrontendOptions.getLocalHostAddress()} to
+     * {@link BrokerMgr#getBroker(String, String)} when resolving the broker endpoint.
+     *
+     * <p>The setUp() already mocks {@code FrontendOptions.getLocalHostAddress()} to return
+     * {@code "127.0.0.1"}.  This test uses a JMockit {@link Delegate} to capture the actual
+     * host argument forwarded to {@code getBroker()} and asserts it equals the mocked value.
+     */
+    @Test
+    public void testAcquireSpiFsBrokerUsesLocalHostAddress() throws Exception {
+        java.util.concurrent.atomic.AtomicReference<String> capturedHost =
+                new java.util.concurrent.atomic.AtomicReference<>();
+
+        new Expectations() {
+            {
+                // Override the setUp() expectation for getBroker() with a Delegate that captures
+                // the host argument so we can assert it equals FrontendOptions.getLocalHostAddress().
+                try {
+                    mockedBrokerMgr.getBroker(anyString, anyString);
+                } catch (AnalysisException ignored) {
+                    // never thrown during JMockit recording phase
+                }
+                minTimes = 0;
+                result = new Delegate<FsBroker>() {
+                    FsBroker getBroker(String brokerName, String host) throws AnalysisException {
+                        capturedHost.set(host);
+                        return new FsBroker("10.74.167.16", 8111);
+                    }
+                };
+
+                // listSnapshots() calls fs.list(); return an empty iterator so the method
+                // completes normally without further interaction.
+                try {
+                    mockFs.list((Location) any);
+                } catch (IOException ignored) {
+                    // never thrown during JMockit recording phase
+                }
+                minTimes = 0;
+                result = new Delegate<FileIterator>() {
+                    public FileIterator list(Location loc) throws IOException {
+                        return new FileIterator() {
+                            @Override
+                            public boolean hasNext() {
+                                return false;
+                            }
+
+                            @Override
+                            public FileEntry next() throws IOException {
+                                throw new java.util.NoSuchElementException();
+                            }
+
+                            @Override
+                            public void close() {
+                            }
+                        };
+                    }
+                };
+            }
+        };
+
+        repo = new Repository(10000, "repo", false, location, testProps);
+        List<String> snapshotNames = Lists.newArrayList();
+        repo.listSnapshots(snapshotNames); // triggers acquireSpiFs() → getBroker(name, host)
+
+        Assert.assertNotNull(
+                "getBroker() must have been called during listSnapshots()", capturedHost.get());
+        Assert.assertEquals(
+                "acquireSpiFs() must pass FrontendOptions.getLocalHostAddress() to getBroker()",
+                "127.0.0.1", capturedHost.get());
     }
 
 }

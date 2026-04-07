@@ -446,7 +446,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     continue;
                 }
                 ((DownloadTask) task).updateBrokerProperties(
-                        repo.getRemoteFileSystem().getStorageProperties().getBackendConfigProperties());
+                        repo.getFileSystemDescriptor().getBackendConfigProperties());
                 AgentTaskQueue.updateTask(beId, TTaskType.DOWNLOAD, signature, task);
             }
             LOG.info("finished to update download job properties. {}", this);
@@ -2003,8 +2003,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     protected DownloadTask createDownloadTask(long beId, long signature, long jobId, long dbId,
                                               Map<String, String> srcToDest, FsBroker brokerAddr) {
         return new DownloadTask(null, beId, signature, jobId, dbId, srcToDest,
-            brokerAddr, repo.getRemoteFileSystem().getStorageProperties().getBackendConfigProperties(),
-            repo.getRemoteFileSystem().getStorageType(), repo.getLocation(), "");
+            brokerAddr, repo.getFileSystemDescriptor().getBackendConfigProperties(),
+            repo.getFileSystemDescriptor().getThriftStorageType(), repo.getLocation(), "");
     }
 
     // Get the id mapping for snapshot, user should hold the lock of table.

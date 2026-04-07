@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.property.storage;
 
+import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 import org.apache.doris.foundation.property.ConnectorProperty;
 
 import com.google.common.base.Strings;
@@ -132,6 +133,14 @@ public class OBSProperties extends AbstractS3CompatibleProperties {
     public OBSProperties(Map<String, String> origProps) {
         super(Type.OBS, origProps);
         // Initialize fields from origProps
+    }
+
+    public static OBSProperties of(Map<String, String> properties) {
+        OBSProperties propertiesObj = new OBSProperties(properties);
+        ConnectorPropertiesUtils.bindConnectorProperties(propertiesObj, properties);
+        propertiesObj.initNormalizeAndCheckProps();
+        propertiesObj.initializeHadoopStorageConfig();
+        return propertiesObj;
     }
 
     protected static boolean guessIsMe(Map<String, String> origProps) {

@@ -426,6 +426,7 @@ public class SchemaTable extends Table {
                             .column("CREATION_TIME", ScalarType.createType(PrimitiveType.DATETIME))
                             .column("NEWEST_WRITE_TIMESTAMP", ScalarType.createType(PrimitiveType.DATETIME))
                             .column("SCHEMA_VERSION", ScalarType.createType(PrimitiveType.INT))
+                            .column("COMMIT_TSO", ScalarType.createType(PrimitiveType.BIGINT))
                             .build()))
             .put("parameters", new SchemaTable(SystemIdGenerator.getNextId(), "parameters", TableType.SCHEMA,
                     builder().column("SPECIFIC_CATALOG", ScalarType.createVarchar(64))

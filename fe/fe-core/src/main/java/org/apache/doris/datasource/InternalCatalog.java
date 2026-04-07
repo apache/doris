@@ -1554,6 +1554,10 @@ public class InternalCatalog implements CatalogIf<Database> {
                 properties.put(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION,
                         olapTable.enableSingleReplicaCompaction().toString());
             }
+            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_TSO)) {
+                properties.put(PropertyAnalyzer.PROPERTIES_ENABLE_TSO,
+                        olapTable.enableTso().toString());
+            }
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN,
                         olapTable.storeRowColumn().toString());
@@ -2663,6 +2667,14 @@ public class InternalCatalog implements CatalogIf<Database> {
                 + " property is not supported for merge-on-write table");
         }
         olapTable.setEnableSingleReplicaCompaction(enableSingleReplicaCompaction);
+
+        boolean enableTso = false;
+        try {
+            enableTso = PropertyAnalyzer.analyzeEnableTso(properties);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+        olapTable.setEnableTso(enableTso);
 
         if (Config.isCloudMode() && ((CloudEnv) env).getEnableStorageVault()) {
             // <storageVaultName, storageVaultId>

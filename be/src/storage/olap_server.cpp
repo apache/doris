@@ -1710,7 +1710,7 @@ void StorageEngine::_follow_cooldown_meta(TabletSharedPtr t) {
 
 void StorageEngine::add_async_publish_task(int64_t partition_id, int64_t tablet_id,
                                            int64_t publish_version, int64_t transaction_id,
-                                           bool is_recovery) {
+                                           bool is_recovery, int64_t commit_tso) {
     if (!is_recovery) {
         bool exists = false;
         {
@@ -1735,6 +1735,7 @@ void StorageEngine::add_async_publish_task(int64_t partition_id, int64_t tablet_
         PendingPublishInfoPB pending_publish_info_pb;
         pending_publish_info_pb.set_partition_id(partition_id);
         pending_publish_info_pb.set_transaction_id(transaction_id);
+        pending_publish_info_pb.set_commit_tso(commit_tso);
         static_cast<void>(TabletMetaManager::save_pending_publish_info(
                 tablet->data_dir(), tablet->tablet_id(), publish_version,
                 pending_publish_info_pb.SerializeAsString()));
@@ -1743,7 +1744,7 @@ void StorageEngine::add_async_publish_task(int64_t partition_id, int64_t tablet_
               << " version: " << publish_version << " txn_id:" << transaction_id
               << " is_recovery: " << is_recovery;
     std::unique_lock<std::shared_mutex> wlock(_async_publish_lock);
-    _async_publish_tasks[tablet_id][publish_version] = {transaction_id, partition_id};
+    _async_publish_tasks[tablet_id][publish_version] = {transaction_id, partition_id, commit_tso};
 }
 
 int64_t StorageEngine::get_pending_publish_min_version(int64_t tablet_id) {
@@ -1780,8 +1781,9 @@ void StorageEngine::_process_async_publish() {
 
             auto task_iter = tablet_iter->second.begin();
             int64_t version = task_iter->first;
-            int64_t transaction_id = task_iter->second.first;
-            int64_t partition_id = task_iter->second.second;
+            int64_t transaction_id = std::get<0>(task_iter->second);
+            int64_t partition_id = std::get<1>(task_iter->second);
+            int64_t commit_tso = std::get<2>(task_iter->second);
             int64_t max_version = tablet->max_version().second;
 
             if (version <= max_version) {
@@ -1803,7 +1805,7 @@ void StorageEngine::_process_async_publish() {
             }
 
             auto async_publish_task = std::make_shared<AsyncTabletPublishTask>(
-                    *this, tablet, partition_id, transaction_id, version);
+                    *this, tablet, partition_id, transaction_id, version, commit_tso);
             static_cast<void>(_tablet_publish_txn_thread_pool->submit_func(
                     [=]() { async_publish_task->handle(); }));
             tablet_iter->second.erase(task_iter);

@@ -251,6 +251,7 @@ under the License.
         <module>fe-foundation</module>
         <module>fe-common</module>
         <module>fe-catalog</module>
+        <module>fe-filesystem</module>
         <module>fe-extension-spi</module>
         <module>fe-extension-loader</module>
         <module>fe-core</module>

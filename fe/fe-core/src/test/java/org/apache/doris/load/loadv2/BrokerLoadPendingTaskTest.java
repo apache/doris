@@ -21,10 +21,12 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.common.util.BrokerUtil;
+import org.apache.doris.filesystem.FileEntry;
+import org.apache.doris.filesystem.FileIterator;
+import org.apache.doris.filesystem.Location;
+import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
-import org.apache.doris.thrift.TBrokerFileStatus;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -34,19 +36,79 @@ import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
 import org.junit.Assert;
-import org.junit.BeforeClass;
 import org.junit.Test;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
 public class BrokerLoadPendingTaskTest {
 
-    private static TBrokerFileStatus tBrokerFileStatus = new TBrokerFileStatus();
+    /** Minimal FileSystem stub that lists a single file entry for any location. */
+    private static final class SingleFileSystem implements org.apache.doris.filesystem.FileSystem {
+        private final long fileSize;
 
-    @BeforeClass
-    public static void setUp() {
-        tBrokerFileStatus.size = 1;
+        SingleFileSystem(long fileSize) {
+            this.fileSize = fileSize;
+        }
+
+        @Override
+        public FileIterator list(Location location) {
+            FileEntry entry = new FileEntry(location, fileSize, false, 0L, null);
+            return new FileIterator() {
+                boolean consumed = false;
+
+                @Override
+                public boolean hasNext() {
+                    return !consumed;
+                }
+
+                @Override
+                public FileEntry next() {
+                    consumed = true;
+                    return entry;
+                }
+
+                @Override
+                public void close() {
+                }
+            };
+        }
+
+        @Override
+        public boolean exists(Location location) {
+            return true;
+        }
+
+        @Override
+        public void mkdirs(Location location) {
+        }
+
+        @Override
+        public void delete(Location location, boolean recursive) {
+        }
+
+        @Override
+        public void deleteFiles(Collection<Location> locations) {
+        }
+
+        @Override
+        public void rename(Location src, Location dst) {
+        }
+
+        @Override
+        public org.apache.doris.filesystem.DorisInputFile newInputFile(Location location) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public org.apache.doris.filesystem.DorisOutputFile newOutputFile(Location location) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void close() {
+        }
     }
 
     @Test
@@ -68,10 +130,10 @@ public class BrokerLoadPendingTaskTest {
             }
         };
 
-        new MockUp<BrokerUtil>() {
+        new MockUp<FileSystemFactory>() {
             @Mock
-            public void parseFile(String path, BrokerDesc brokerDesc, List<TBrokerFileStatus> fileStatuses) {
-                fileStatuses.add(tBrokerFileStatus);
+            public org.apache.doris.filesystem.FileSystem getFileSystem(BrokerDesc desc) {
+                return new SingleFileSystem(1L);
             }
         };
 
@@ -79,6 +141,6 @@ public class BrokerLoadPendingTaskTest {
         brokerLoadPendingTask.executeTask();
         BrokerPendingTaskAttachment brokerPendingTaskAttachment = Deencapsulation.getField(brokerLoadPendingTask, "attachment");
         Assert.assertEquals(1, brokerPendingTaskAttachment.getFileNumByTable(aggKey));
-        Assert.assertEquals(tBrokerFileStatus, brokerPendingTaskAttachment.getFileStatusByTable(aggKey).get(0).get(0));
+        Assert.assertEquals(1L, brokerPendingTaskAttachment.getFileStatusByTable(aggKey).get(0).get(0).size);
     }
 }

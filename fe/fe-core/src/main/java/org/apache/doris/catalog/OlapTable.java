@@ -2654,6 +2654,22 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return false;
     }
 
+    public void setEnableTso(boolean enableTso) {
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(new HashMap<>());
+        }
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_ENABLE_TSO,
+                Boolean.valueOf(enableTso).toString());
+        tableProperty.buildEnableTso();
+    }
+
+    public Boolean enableTso() {
+        if (tableProperty != null) {
+            return tableProperty.enableTso();
+        }
+        return false;
+    }
+
     public void setStoreRowColumn(boolean storeRowColumn) {
         TableProperty tableProperty = getOrCreatTableProperty();
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN,

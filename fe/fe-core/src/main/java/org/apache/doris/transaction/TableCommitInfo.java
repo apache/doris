@@ -39,6 +39,8 @@ public class TableCommitInfo {
     private long version;
     @SerializedName(value = "versionTime")
     private long versionTime;
+    @SerializedName(value = "ctso", alternate = {"commitTSO"})
+    private long commitTSO = -1;
 
     public TableCommitInfo() {
 
@@ -81,6 +83,14 @@ public class TableCommitInfo {
         this.versionTime = versionTime;
     }
 
+    public long getCommitTSO() {
+        return commitTSO;
+    }
+
+    public void setCommitTSO(long commitTSO) {
+        this.commitTSO = commitTSO;
+    }
+
     public List<TPartitionVersionInfo> generateTPartitionVersionInfos() {
         return idToPartitionCommitInfo
                 .values().stream()
@@ -89,8 +99,10 @@ public class TableCommitInfo {
                         LOG.debug("try to publish version info partitionid [{}], version [{}]",
                                 commitInfo.getPartitionId(), commitInfo.getVersion());
                     }
-                    return new TPartitionVersionInfo(commitInfo.getPartitionId(),
-                            commitInfo.getVersion(), 0);
+                    TPartitionVersionInfo info = new TPartitionVersionInfo(commitInfo.getPartitionId(),
+                            commitInfo.getVersion(), 0L);
+                    info.setCommitTso(commitTSO);
+                    return info;
                 }).collect(Collectors.toList());
     }
 
@@ -99,6 +111,7 @@ public class TableCommitInfo {
         return new StringBuilder("TableCommitInfo{tableId=").append(tableId)
                 .append(", idToPartitionCommitInfo=").append(idToPartitionCommitInfo)
                 .append(", version=").append(version).append(", versionTime=").append(versionTime)
+                .append(", commitTSO=").append(commitTSO)
                 .append('}').toString();
     }
 }
