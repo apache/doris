@@ -15,20 +15,30 @@
 # specific language governing permissions and limitations
 # under the License.
 
-# where to put generated libraries
-set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/format")
+[workspace]
+members = ["crates/doris-ffi"]
+resolver = "2"
 
-# where to put generated binaries
-set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/format")
+[workspace.package]
+edition = "2021"
+license = "Apache-2.0"
 
-file(GLOB_RECURSE SRC_FILES CONFIGURE_DEPENDS *.cpp)
+[workspace.dependencies]
+lance = "0.20"
+lance-io = "0.20"
+lance-index = "0.20"
+lance-linalg = "0.20"
+arrow = { version = "53", features = ["ffi"] }
+arrow-array = "53"
+arrow-schema = { version = "53", features = ["ffi"] }
+tokio = { version = "1", features = ["rt"] }
+futures = "0.3"
 
-# Lance reader requires Rust static library (BUILD_RUST_READERS=ON)
-if (NOT BUILD_RUST_READERS)
-    file(GLOB_RECURSE LANCE_FILES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/lance/*.cpp)
-    list(REMOVE_ITEM SRC_FILES ${LANCE_FILES})
-endif()
+[profile.release]
+panic = "unwind"
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
 
-add_library(Format STATIC ${SRC_FILES})
-
-pch_reuse(Format)
+[profile.dev]
+panic = "unwind"

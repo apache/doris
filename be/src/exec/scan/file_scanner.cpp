@@ -78,6 +78,9 @@
 #include "format/table/transactional_hive_reader.h"
 #include "format/table/trino_connector_jni_reader.h"
 #include "format/text/text_reader.h"
+#ifdef BUILD_RUST_READERS
+#include "format/lance/lance_rust_reader.h"
+#endif
 #include "io/cache/block_file_cache_profile.h"
 #include "load/group_commit/wal/wal_reader.h"
 #include "runtime/descriptors.h"
@@ -1176,6 +1179,21 @@ Status FileScanner::_get_next_reader() {
             }
             break;
         }
+#ifdef BUILD_RUST_READERS
+        case TFileFormatType::FORMAT_LANCE: {
+            if (!_state->query_options().__isset.enable_rust_lance_reader ||
+                !_state->query_options().enable_rust_lance_reader) {
+                return Status::NotSupported(
+                        "Lance reader requires: SET enable_rust_lance_reader = true");
+            }
+            auto lance_reader = LanceRustReader::create_unique(_file_slot_descs, _state, _profile,
+                                                               range, _params);
+            init_status = lance_reader->init_reader();
+            _cur_reader = std::move(lance_reader);
+            need_to_get_parsed_schema = true;
+            break;
+        }
+#endif
         default:
             return Status::NotSupported("Not supported create reader for file format: {}.",
                                         to_string(_params->format_type));
