@@ -72,7 +72,6 @@
 #include "exec/operator/iceberg_delete_sink_operator.h"
 #include "exec/operator/iceberg_merge_sink_operator.h"
 #include "exec/operator/iceberg_table_sink_operator.h"
-#include "pipeline/exec/paimon_table_sink_operator.h"
 #include "exec/operator/jdbc_scan_operator.h"
 #include "exec/operator/jdbc_table_sink_operator.h"
 #include "exec/operator/local_merge_sort_source_operator.h"
@@ -123,6 +122,7 @@
 #include "exec/spill/spill_file.h"
 #include "io/fs/stream_load_pipe.h"
 #include "load/stream_load/new_load_stream_mgr.h"
+#include "pipeline/exec/paimon_table_sink_operator.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/result_block_buffer.h"
@@ -1141,8 +1141,8 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
         if (!thrift_sink.__isset.paimon_table_sink) {
             return Status::InternalError("Missing paimon table sink.");
         }
-        _sink = std::make_shared<PaimonTableSinkOperatorX>(pool, next_sink_operator_id(),
-                                                                     row_desc, output_exprs);
+        _sink = std::make_shared<PaimonTableSinkOperatorX>(pool, next_sink_operator_id(), row_desc,
+                                                           output_exprs);
         break;
     }
     case TDataSinkType::ICEBERG_DELETE_SINK: {

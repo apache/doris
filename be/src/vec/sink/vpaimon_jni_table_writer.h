@@ -30,7 +30,6 @@
 namespace doris {
 namespace vectorized {
 
-
 class VPaimonJniTableWriter : public VPaimonTableWriter {
 public:
     VPaimonJniTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs);

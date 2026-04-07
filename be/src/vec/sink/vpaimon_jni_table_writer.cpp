@@ -23,20 +23,20 @@
 #include <arrow/record_batch.h>
 #include <arrow/type.h>
 
-#include "storage/options.h"
-#include "storage/storage_engine.h"
-#include "paimon/commit_message.h"
-#include "runtime/exec_env.h"
-#include "runtime/runtime_state.h"
-#include "service/backend_options.h"
+#include "common/metrics/doris_metrics.h"
+#include "core/block/block.h"
 #include "format/arrow/arrow_block_convertor.h"
 #include "format/arrow/arrow_row_batch.h"
+#include "paimon/commit_message.h"
+#include "runtime/exec_env.h"
+#include "runtime/runtime_profile.h"
+#include "runtime/runtime_state.h"
+#include "service/backend_options.h"
+#include "storage/options.h"
+#include "storage/storage_engine.h"
 #include "util/defer_op.h"
-#include "common/metrics/doris_metrics.h"
 #include "util/jni-util.h"
 #include "util/jni_native_method.h"
-#include "runtime/runtime_profile.h"
-#include "core/block/block.h"
 #include "vec/sink/paimon_writer_utils.h"
 
 namespace doris::vectorized {
@@ -101,7 +101,7 @@ Status VPaimonJniTableWriter::_get_jni_env(JNIEnv** env) {
 Status VPaimonJniTableWriter::_check_jni_exception(JNIEnv* env, const std::string& method_name) {
     if (env->ExceptionCheck()) {
         Status st = Jni::Env::GetJniExceptionMsg(env, true,
-                                                "JNI exception occurred in " + method_name + ": ");
+                                                 "JNI exception occurred in " + method_name + ": ");
         LOG(WARNING) << st.to_string();
         return st;
     }
@@ -239,7 +239,8 @@ Status VPaimonJniTableWriter::open(RuntimeState* state, RuntimeProfile* profile)
     jobjectArray j_cols = nullptr;
     jclass string_cls = env->FindClass("java/lang/String");
     if (paimon_sink.__isset.column_names) {
-        j_cols = env->NewObjectArray(static_cast<jsize>(paimon_sink.column_names.size()), string_cls, nullptr);
+        j_cols = env->NewObjectArray(static_cast<jsize>(paimon_sink.column_names.size()),
+                                     string_cls, nullptr);
         for (size_t i = 0; i < paimon_sink.column_names.size(); ++i) {
             jstring str = env->NewStringUTF(paimon_sink.column_names[i].c_str());
             env->SetObjectArrayElement(j_cols, static_cast<jsize>(i), str);
@@ -268,8 +269,7 @@ Status VPaimonJniTableWriter::write(RuntimeState* state, ::doris::Block& block) 
     SCOPED_TIMER(_send_data_timer);
     int64_t send_data_ns = 0;
     Defer record_send_data_latency {[&]() {
-        DorisMetrics::instance()->paimon_write_send_data_latency_ms->add(
-                to_ms_ceil(send_data_ns));
+        DorisMetrics::instance()->paimon_write_send_data_latency_ms->add(to_ms_ceil(send_data_ns));
     }};
     SCOPED_RAW_TIMER(&send_data_ns);
 
@@ -460,7 +460,8 @@ Status VPaimonJniTableWriter::close(Status status) {
                     if (len > 0) {
                         jbyte* bytes = env->GetByteArrayElements(j_bytes, nullptr);
                         if (bytes != nullptr) {
-                            std::string payload(reinterpret_cast<char*>(bytes), static_cast<size_t>(len));
+                            std::string payload(reinterpret_cast<char*>(bytes),
+                                                static_cast<size_t>(len));
                             TCommitMessage msg;
                             msg.__set_payload(payload);
                             msgs.emplace_back(std::move(msg));

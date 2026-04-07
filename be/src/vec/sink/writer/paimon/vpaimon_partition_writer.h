@@ -24,8 +24,8 @@
 #include <vector>
 
 #include "common/status.h"
-#include "runtime/runtime_profile.h"
 #include "core/block/block.h"
+#include "runtime/runtime_profile.h"
 
 namespace paimon {
 class FileStoreWrite;
@@ -43,7 +43,6 @@ class RuntimeProfile;
 class RuntimeState;
 
 namespace vectorized {
-
 
 // Single write unit for a specific Paimon partition + bucket.
 // It writes RecordBatch into a shared paimon-cpp FileStoreWrite instance.

@@ -28,15 +28,15 @@
 #include <utility>
 #include <vector>
 
-#include "runtime/query_context.h"
-#include "runtime/runtime_state.h"
-#include "util/defer_op.h"
 #include "common/metrics/doris_metrics.h"
-#include "runtime/runtime_profile.h"
-#include "core/column/column.h"
 #include "core/block/block.h"
+#include "core/column/column.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
+#include "runtime/query_context.h"
+#include "runtime/runtime_profile.h"
+#include "runtime/runtime_state.h"
+#include "util/defer_op.h"
 #include "vec/sink/paimon_writer_utils.h"
 #include "vec/sink/writer/paimon/paimon_doris_hdfs_file_system.h"
 #include "vec/sink/writer/paimon/vpaimon_partition_writer.h"
@@ -49,6 +49,9 @@
 
 #include <cstdint>
 
+#include "format/arrow/arrow_block_convertor.h"
+#include "format/arrow/arrow_row_batch.h"
+#include "format/parquet/arrow_memory_pool.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/hdfs_builder.h"
 #include "paimon/commit_message.h"
@@ -58,15 +61,11 @@
 #include "paimon/metrics.h"
 #include "paimon/utils/bucket_id_calculator.h"
 #include "paimon/write_context.h"
-#include "format/arrow/arrow_block_convertor.h"
-#include "format/arrow/arrow_row_batch.h"
-#include "format/parquet/arrow_memory_pool.h"
 #include "vec/sink/writer/paimon/paimon_doris_memory_pool.h"
 
 // Force link paimon file format factories
 namespace paimon {
-namespace parquet {
-}
+namespace parquet {}
 } // namespace paimon
 
 #endif
@@ -150,7 +149,6 @@ Status VPaimonTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
     SCOPED_TIMER(_open_timer);
 
     ensure_paimon_doris_hdfs_file_system_registered();
-
 
     auto registered_types = paimon::FactoryCreator::GetInstance()->GetRegisteredType();
     std::string types_str;
@@ -282,7 +280,8 @@ Status VPaimonTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
 #endif
 }
 
-Status VPaimonTableWriter::_extract_write_key(const ::doris::Block& block, int row, WriteKey* key) const {
+Status VPaimonTableWriter::_extract_write_key(const ::doris::Block& block, int row,
+                                              WriteKey* key) const {
     key->partition_values.clear();
     key->bucket_id = -1;
 
@@ -548,8 +547,7 @@ Status VPaimonTableWriter::write(RuntimeState* state, ::doris::Block& block) {
 #endif
 }
 
-Status VPaimonTableWriter::_filter_block(::doris::Block& block,
-                                         const IColumn::Filter* filter,
+Status VPaimonTableWriter::_filter_block(::doris::Block& block, const IColumn::Filter* filter,
                                          ::doris::Block* output_block) {
     *output_block = block;
     std::vector<uint32_t> columns_to_filter;

@@ -38,13 +38,11 @@ Status PaimonTableSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& 
         }
     }
     if (use_jni) {
-        _writer.reset(new vectorized::VPaimonJniTableWriter(info.tsink, _output_vexpr_ctxs,
-                                                            _async_writer_dependency,
-                                                            _finish_dependency));
+        _writer.reset(new vectorized::VPaimonJniTableWriter(
+                info.tsink, _output_vexpr_ctxs, _async_writer_dependency, _finish_dependency));
     } else {
-        _writer.reset(new vectorized::VPaimonTableWriter(info.tsink, _output_vexpr_ctxs,
-                                                         _async_writer_dependency,
-                                                         _finish_dependency));
+        _writer.reset(new vectorized::VPaimonTableWriter(
+                info.tsink, _output_vexpr_ctxs, _async_writer_dependency, _finish_dependency));
     }
 
     auto& p = _parent->cast<Parent>();
