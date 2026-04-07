@@ -27,14 +27,12 @@ import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.analysis.VariableExpr;
 import org.apache.doris.authentication.Principal;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.catalog.NameSpaceContext;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
@@ -607,36 +605,6 @@ public class ConnectContext {
         } else {
             // If there are no such user defined var, just return the NULL value.
             return Literal.of(null);
-        }
-    }
-
-    // Get variable value through variable name, used to satisfy statement like `SELECT @@comment_version`
-    public void fillValueForUserDefinedVar(VariableExpr desc) {
-        String varName = desc.getName().toLowerCase();
-        if (userVars.containsKey(varName)) {
-            LiteralExpr literalExpr = userVars.get(varName);
-            desc.setType(literalExpr.getType());
-            if (literalExpr instanceof BoolLiteral) {
-                desc.setBoolValue(((BoolLiteral) literalExpr).getValue());
-            } else if (literalExpr instanceof IntLiteral) {
-                desc.setIntValue(((IntLiteral) literalExpr).getValue());
-            } else if (literalExpr instanceof FloatLiteral) {
-                desc.setFloatValue(((FloatLiteral) literalExpr).getValue());
-            } else if (literalExpr instanceof DecimalLiteral) {
-                desc.setDecimalValue(((DecimalLiteral) literalExpr).getValue());
-            } else if (literalExpr instanceof StringLiteral) {
-                desc.setStringValue(((StringLiteral) literalExpr).getValue());
-            } else if (literalExpr instanceof NullLiteral) {
-                desc.setType(Type.NULL);
-                desc.setIsNull();
-            } else {
-                desc.setType(Type.VARCHAR);
-                desc.setStringValue(literalExpr.getStringValue());
-            }
-        } else {
-            // If there are no such user defined var, just fill the NULL value.
-            desc.setType(Type.NULL);
-            desc.setIsNull();
         }
     }
 

@@ -115,13 +115,13 @@ public class ExprToStringValueVisitorTest {
 
     @Test
     public void testDecimalLiteralPlainString() throws Exception {
-        DecimalLiteral d = new DecimalLiteral("123.45");
+        DecimalLiteral d = DecimalLiteralUtils.create("123.45", false);
         Assertions.assertEquals("123.45", V.visitDecimalLiteral(d, StringValueContext.forQuery(FormatOptions.getDefault())));
     }
 
     @Test
     public void testDecimalLiteralNoScientificNotation() throws Exception {
-        DecimalLiteral d = new DecimalLiteral("100000000000000000.123");
+        DecimalLiteral d = DecimalLiteralUtils.create("100000000000000000.123", false);
         // toPlainString avoids scientific notation
         Assertions.assertFalse(V.visitDecimalLiteral(d,
                 StringValueContext.forQuery(FormatOptions.getDefault())).contains("E"));
