@@ -43,6 +43,52 @@ else()
     endif ()
 endif ()
 
+# On macOS, CMake's FindOpenMP auto-detection often fails because:
+# - Apple Clang doesn't support -fopenmp natively
+# - Homebrew LLVM's clang supports -fopenmp but doesn't bundle libomp
+# - libomp from Homebrew is in a non-standard path that try_compile can't find
+# We provide explicit hints and add -L/-I flags to CMAKE_C/CXX_FLAGS so that
+# FindOpenMP's internal try_compile (check_c_source_compiles) can find libomp.
+if (CMAKE_SYSTEM_NAME MATCHES "Darwin")
+    # Try Homebrew's standalone libomp formula first (most common case)
+    execute_process(COMMAND brew --prefix libomp
+        OUTPUT_VARIABLE _LIBOMP_PREFIX OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+    if (_LIBOMP_PREFIX AND EXISTS "${_LIBOMP_PREFIX}/lib/libomp.dylib")
+        set(_OMP_LIB_DIR "${_LIBOMP_PREFIX}/lib")
+        set(_OMP_INC_DIR "${_LIBOMP_PREFIX}/include")
+        set(_OMP_LIB "${_OMP_LIB_DIR}/libomp.dylib")
+    else()
+        # Fallback: check if libomp is bundled with the compiler (some LLVM distributions)
+        get_filename_component(_COMPILER_DIR "${CMAKE_C_COMPILER}" DIRECTORY)
+        get_filename_component(_COMPILER_PREFIX "${_COMPILER_DIR}" DIRECTORY)
+        if (EXISTS "${_COMPILER_PREFIX}/lib/libomp.dylib")
+            set(_OMP_LIB_DIR "${_COMPILER_PREFIX}/lib")
+            set(_OMP_INC_DIR "${_COMPILER_PREFIX}/include")
+            set(_OMP_LIB "${_OMP_LIB_DIR}/libomp.dylib")
+        endif()
+    endif()
+    if (DEFINED _OMP_LIB)
+        # Detect the correct OpenMP flag based on compiler type
+        if (CMAKE_C_COMPILER_ID MATCHES "AppleClang")
+            set(_OMP_FLAG "-Xclang -fopenmp")
+        else()
+            set(_OMP_FLAG "-fopenmp")
+        endif()
+
+        # Add lib/include paths to CMAKE_C/CXX_FLAGS so they are propagated to
+        # FindOpenMP's internal try_compile (check_c_source_compiles).
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -I${_OMP_INC_DIR} -L${_OMP_LIB_DIR}")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -I${_OMP_INC_DIR} -L${_OMP_LIB_DIR}")
+
+        # Set OpenMP cache hints so FindOpenMP knows exactly which flags/libs to use
+        set(OpenMP_C_FLAGS "${_OMP_FLAG}" CACHE STRING "C compiler flags for OpenMP" FORCE)
+        set(OpenMP_CXX_FLAGS "${_OMP_FLAG}" CACHE STRING "CXX compiler flags for OpenMP" FORCE)
+        set(OpenMP_C_LIB_NAMES "omp" CACHE STRING "C OpenMP lib names" FORCE)
+        set(OpenMP_CXX_LIB_NAMES "omp" CACHE STRING "CXX OpenMP lib names" FORCE)
+        set(OpenMP_omp_LIBRARY "${_OMP_LIB}" CACHE FILEPATH "Path to libomp" FORCE)
+    endif()
+endif()
+
 # EXCLUDE_FROM_ALL so that binary in openblas is not installed.
 add_subdirectory(${PROJECT_SOURCE_DIR}/../contrib/openblas ${PROJECT_BINARY_DIR}/openblas EXCLUDE_FROM_ALL)
 

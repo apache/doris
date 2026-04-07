@@ -77,24 +77,40 @@ jobs:
             'gettext'
             'wget'
             'pcre'
-            'openjdk@11'
+            'openjdk@17'
             'maven'
             'node'
-            'llvm@16'
+            'llvm@18'
+            'libomp'
           )
           brew install "${cellars[@]}" || true
 
           pushd thirdparty
           branch="${{ github.base_ref }}"
           if [[ -z "${branch}" ]] || [[ "${branch}" == 'master' ]]; then
-            curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-darwin-x86_64.tar.xz \
-              -o doris-thirdparty-prebuilt-darwin-x86_64.tar.xz
+            curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-darwin-arm64.tar.xz \
+              -o doris-thirdparty-prebuilt-darwin-arm64.tar.xz
           else
-            curl -L "https://github.com/apache/doris-thirdparty/releases/download/automation-${branch/branch-/}/doris-thirdparty-prebuilt-darwin-x86_64.tar.xz" \
-              -o doris-thirdparty-prebuilt-darwin-x86_64.tar.xz
+            curl -L "https://github.com/apache/doris-thirdparty/releases/download/automation-${branch/branch-/}/doris-thirdparty-prebuilt-darwin-arm64.tar.xz" \
+              -o doris-thirdparty-prebuilt-darwin-arm64.tar.xz
           fi
-          tar -xvf doris-thirdparty-prebuilt-darwin-x86_64.tar.xz
+          tar -xvf doris-thirdparty-prebuilt-darwin-arm64.tar.xz
           popd
 
-          export JAVA_HOME="${JAVA_HOME_17_X64%\/}"
+          export JAVA_HOME="${JAVA_HOME_17_arm64%\/}"
+          export DORIS_CLANG_HOME="$(brew --prefix llvm@18)"
+          LIBOMP_PREFIX="$(brew --prefix libomp)"
+
+          # Debug: verify libomp availability
+          echo "LIBOMP_PREFIX=${LIBOMP_PREFIX}"
+          ls -la "${LIBOMP_PREFIX}/lib/libomp"* || true
+          ls -la "${LIBOMP_PREFIX}/include/omp.h" || true
+
+          # Set CFLAGS/CXXFLAGS so cmake initializes CMAKE_C/CXX_FLAGS (cached globally)
+          # with the libomp lib/include paths. This ensures FindOpenMP's try_compile can
+          # find libomp.dylib during linking (macOS -isysroot restricts default search paths).
+          # Homebrew's llvm@18 does NOT bundle libomp, so we use the standalone libomp formula.
+          export CFLAGS="-I${LIBOMP_PREFIX}/include -L${LIBOMP_PREFIX}/lib"
+          export CXXFLAGS="-I${LIBOMP_PREFIX}/include -L${LIBOMP_PREFIX}/lib"
+
           ./run-be-ut.sh --run -j "$(nproc)" --clean
