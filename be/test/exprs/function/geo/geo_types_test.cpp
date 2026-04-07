@@ -2048,8 +2048,6 @@ TEST_F(GeoTypesTest, circle) {
     }
 }
 
-} // namespace doris
-
 // Note: ST_CoordDim and ST_Dimension are tested via GeoShape::type()
 // since the BE functions use shape->type() to determine dimension values.
 
@@ -2110,3 +2108,5 @@ TEST_F(GeoTypesTest, st_dimension) {
         EXPECT_EQ(GEO_SHAPE_POLYGON, polygon->type());
     }
 }
+
+} // namespace doris
