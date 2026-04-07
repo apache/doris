@@ -1296,10 +1296,10 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = ENABLE_DISTINCT_STREAMING_AGGREGATION, fuzzy = true)
     public boolean enableDistinctStreamingAggregation = true;
 
-    @VariableMgr.VarAttr(name = ENABLE_SORTED_DISTINCT, fuzzy = true)
+    @VarAttrDef.VarAttr(name = ENABLE_SORTED_DISTINCT, fuzzy = true)
     public boolean enableSortedDistinct = true;
 
-    @VariableMgr.VarAttr(name = ENABLE_STREAMING_AGG_HASH_JOIN_FORCE_PASSTHROUGH, fuzzy = true)
+    @VarAttrDef.VarAttr(name = ENABLE_STREAMING_AGG_HASH_JOIN_FORCE_PASSTHROUGH, fuzzy = true)
     public boolean enableStreamingAggHashJoinForcePassthrough = true;
 
     @VarAttrDef.VarAttr(name = ENABLE_DISTINCT_STREAMING_AGG_FORCE_PASSTHROUGH, fuzzy = true)
