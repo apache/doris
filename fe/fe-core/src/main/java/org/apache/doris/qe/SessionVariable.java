@@ -3456,7 +3456,7 @@ public class SessionVariable implements Serializable, Writable {
             })
     public String defaultAIResource = "";
 
-    @VariableMgr.VarAttr(name = FILE_PRESIGNED_URL_TTL_SECONDS, needForward = true,
+    @VarAttrDef.VarAttr(name = FILE_PRESIGNED_URL_TTL_SECONDS, needForward = true,
             description = {
                     "EMBED 多模态场景中，S3 预签名 URL 的有效期（秒）。",
                     "Expiration time in seconds for S3 presigned URL used by multimodal EMBED."

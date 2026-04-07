@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateResourceInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
@@ -295,4 +296,11 @@ public abstract class Resource implements Writable, GsonPostProcessable {
     }
 
     public void applyDefaultProperties() {}
+
+    public static void registerUsedAIResourceName(String resourceName) {
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx != null && ctx.getStatementContext() != null) {
+            ctx.getStatementContext().registerUsedAIResourceName(resourceName);
+        }
+    }
 }

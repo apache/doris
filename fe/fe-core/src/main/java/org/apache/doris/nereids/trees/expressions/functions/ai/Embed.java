@@ -31,7 +31,6 @@ import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.JsonType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -125,11 +124,7 @@ public class Embed extends AIFunction {
         if (!(resource instanceof AIResource)) {
             throw new AnalysisException("AI resource '" + resourceName + "' does not exist");
         }
-
-        ConnectContext ctx = ConnectContext.get();
-        if (ctx != null && ctx.getStatementContext() != null) {
-            ctx.getStatementContext().registerUsedAIResourceName(resourceName);
-        }
+        Resource.registerUsedAIResourceName(resourceName);
     }
 
 }
