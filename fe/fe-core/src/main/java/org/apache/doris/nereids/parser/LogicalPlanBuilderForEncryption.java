@@ -85,6 +85,17 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
         return super.visitSetPassword(ctx);
     }
 
+    // create user clause
+    @Override
+    public LogicalPlan visitCreateUser(DorisParser.CreateUserContext ctx) {
+        // get grantUserIdentify ctx with password
+        DorisParser.GrantUserIdentifyContext grantCtx = ctx.grantUserIdentify();
+        if (grantCtx.pwd != null) {
+            encryptPassword(grantCtx.pwd.getStartIndex(), grantCtx.pwd.getStopIndex());
+        }
+        return super.visitCreateUser(ctx);
+    }
+
     // set ldap password clause
     @Override
     public SetVarOp visitSetLdapAdminPassword(DorisParser.SetLdapAdminPasswordContext ctx) {
