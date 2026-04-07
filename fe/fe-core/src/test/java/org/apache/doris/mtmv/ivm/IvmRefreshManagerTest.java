@@ -217,7 +217,7 @@ public class IvmRefreshManagerTest {
     }
 
     private static List<DeltaCommandBundle> makeBundles(Command deltaWriteCommand, MTMV mtmv) {
-        return Collections.singletonList(new DeltaCommandBundle(new BaseTableInfo(mtmv, 0L), deltaWriteCommand));
+        return Collections.singletonList(new DeltaCommandBundle(deltaWriteCommand));
     }
 
     private static class TestDeltaExecutor extends IvmDeltaExecutor {

@@ -17,7 +17,6 @@
 
 package org.apache.doris.mtmv.ivm;
 
-import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 
 import java.util.Objects;
@@ -27,18 +26,11 @@ import java.util.Objects;
  * Produced by a per-pattern IVM Nereids rule and consumed by IvmDeltaExecutor.
  */
 public class DeltaCommandBundle {
-    // the base table whose changes this bundle handles
-    private final BaseTableInfo baseTableInfo;
     // the logical delta write command (INSERT / DELETE / MERGE INTO)
     private final Command command;
 
-    public DeltaCommandBundle(BaseTableInfo baseTableInfo, Command command) {
-        this.baseTableInfo = Objects.requireNonNull(baseTableInfo, "baseTableInfo can not be null");
+    public DeltaCommandBundle(Command command) {
         this.command = Objects.requireNonNull(command, "command can not be null");
-    }
-
-    public BaseTableInfo getBaseTableInfo() {
-        return baseTableInfo;
     }
 
     public Command getCommand() {
@@ -48,8 +40,7 @@ public class DeltaCommandBundle {
     @Override
     public String toString() {
         return "DeltaCommandBundle{"
-                + "baseTableInfo=" + baseTableInfo
-                + ", command=" + command.getClass().getSimpleName()
+                + "command=" + command.getClass().getSimpleName()
                 + '}';
     }
 }
