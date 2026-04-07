@@ -511,6 +511,8 @@ struct TCalcDeleteBitmapAsyncPublishRequest {
     2: required list<TCalcDeleteBitmapPartitionInfo> partitions
     // Only used by BE local retry to skip tablets that have already succeeded.
     3: optional set<Types.TTabletId> already_succeeded_tablet_ids
+    // Only used by BE local retry to record how many times the whole task has been re-enqueued.
+    4: optional i64 be_local_retry_count
 }
 
 struct TClearAlterTaskRequest {

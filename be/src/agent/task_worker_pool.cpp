@@ -2216,6 +2216,9 @@ void CloudCalcDeleteBitmapAsyncPublishWorkerPool::calc_delete_bitmap_async_publi
                     ? async_publish_req.already_succeeded_tablet_ids.size()
                     : 0;
     int64_t pending_tablet_num = total_tablet_num - already_succeeded_tablet_num;
+    int64_t be_local_retry_count = async_publish_req.__isset.be_local_retry_count
+                                           ? async_publish_req.be_local_retry_count
+                                           : 0;
     int64_t queue_wait_s = req.__isset.recv_time ? time(nullptr) - req.recv_time : -1;
     LOG_INFO("begin to execute calc delete bitmap async publish task")
             .tag("signature", req.signature)
@@ -2224,7 +2227,8 @@ void CloudCalcDeleteBitmapAsyncPublishWorkerPool::calc_delete_bitmap_async_publi
             .tag("total_partition_num", total_partition_num)
             .tag("total_tablet_num", total_tablet_num)
             .tag("already_succeeded_tablet_num", already_succeeded_tablet_num)
-            .tag("pending_tablet_num", pending_tablet_num);
+            .tag("pending_tablet_num", pending_tablet_num)
+            .tag("be_local_retry_count", be_local_retry_count);
 
     CloudCalcDeleteBitmapAsyncPublishTask engine_task(_engine, async_publish_req, &error_tablet_ids,
                                                       &succ_tablet_ids);
@@ -2232,13 +2236,16 @@ void CloudCalcDeleteBitmapAsyncPublishWorkerPool::calc_delete_bitmap_async_publi
     Status status = engine_task.execute();
     if (status.is<PUBLISH_VERSION_NOT_CONTINUOUS>()) {
         LOG_EVERY_SECOND(INFO) << "wait for previous cloud publish task to be done, "
-                               << "transaction_id: " << async_publish_req.transaction_id;
+                               << "transaction_id: " << async_publish_req.transaction_id
+                               << ", be_local_retry_count: " << be_local_retry_count;
 
         int64_t enqueue_time = req.__isset.recv_time ? req.recv_time : time(nullptr);
         int64_t time_elapsed = time(nullptr) - enqueue_time;
         if (time_elapsed > config::calc_delete_bitmap_async_publish_task_timeout_s) {
             LOG(INFO) << "calc delete bitmap async publish task elapsed " << time_elapsed
-                      << " seconds since it is inserted to queue, it is timeout";
+                      << " seconds since it is inserted to queue, it is timeout"
+                      << ", transaction_id=" << async_publish_req.transaction_id
+                      << ", be_local_retry_count=" << be_local_retry_count;
         } else {
             TAgentTaskRequest next_req = req;
             auto next_async_publish_req = next_req.calc_delete_bitmap_async_publish_req;
@@ -2251,7 +2258,20 @@ void CloudCalcDeleteBitmapAsyncPublishWorkerPool::calc_delete_bitmap_async_publi
             already_succeeded_tablet_ids.insert(succ_tablet_ids.begin(), succ_tablet_ids.end());
             next_async_publish_req.__set_already_succeeded_tablet_ids(
                     std::move(already_succeeded_tablet_ids));
+            int64_t next_be_local_retry_count = be_local_retry_count + 1;
+            next_async_publish_req.__set_be_local_retry_count(next_be_local_retry_count);
+            int64_t next_already_succeeded_tablet_num =
+                    next_async_publish_req.already_succeeded_tablet_ids.size();
+            int64_t next_pending_tablet_num = total_tablet_num - next_already_succeeded_tablet_num;
             next_req.__set_calc_delete_bitmap_async_publish_req(std::move(next_async_publish_req));
+            LOG_INFO("re-enqueue calc delete bitmap async publish task")
+                    .tag("signature", req.signature)
+                    .tag("transaction_id", async_publish_req.transaction_id)
+                    .tag("be_local_retry_count", next_be_local_retry_count)
+                    .tag("total_tablet_num", total_tablet_num)
+                    .tag("already_succeeded_tablet_num", next_already_succeeded_tablet_num)
+                    .tag("pending_tablet_num", next_pending_tablet_num)
+                    .tag("worker_pool_queue_size", _thread_pool->get_queue_size());
             CALC_DELETE_BITMAP_ASYNC_PUBLISH_count << 1;
             auto st = _thread_pool->submit_func([this, next_req] {
                 this->calc_delete_bitmap_async_publish_callback(next_req);

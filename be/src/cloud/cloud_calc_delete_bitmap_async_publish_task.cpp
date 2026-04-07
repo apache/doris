@@ -73,6 +73,10 @@ int64_t count_total_partitions(const TCalcDeleteBitmapAsyncPublishRequest& reque
     return request.partitions.size();
 }
 
+int64_t get_be_local_retry_count(const TCalcDeleteBitmapAsyncPublishRequest& request) {
+    return request.__isset.be_local_retry_count ? request.be_local_retry_count : 0;
+}
+
 } // namespace
 
 CloudCalcDeleteBitmapAsyncPublishTask::CloudCalcDeleteBitmapAsyncPublishTask(
@@ -108,13 +112,15 @@ Status CloudCalcDeleteBitmapAsyncPublishTask::execute() {
     const int64_t total_tablet_num = count_total_tablets(_request);
     const int64_t pending_tablet_num = count_pending_tablets(_request);
     const int64_t already_succeeded_tablet_num = total_tablet_num - pending_tablet_num;
+    const int64_t be_local_retry_count = get_be_local_retry_count(_request);
     OlapStopWatch watch;
     LOG(INFO) << "begin to calculate delete bitmap for async publish on transaction"
               << ", transaction_id=" << transaction_id
               << ", total_partition_num=" << total_partition_num
               << ", total_tablet_num=" << total_tablet_num
               << ", already_succeeded_tablet_num=" << already_succeeded_tablet_num
-              << ", pending_tablet_num=" << pending_tablet_num << ", thread_pool="
+              << ", pending_tablet_num=" << pending_tablet_num
+              << ", be_local_retry_count=" << be_local_retry_count << ", thread_pool="
               << _engine.calc_tablet_delete_bitmap_task_thread_pool().get_info();
     std::unique_ptr<ThreadPoolToken> token =
             _engine.calc_tablet_delete_bitmap_task_thread_pool().new_token(
@@ -162,6 +168,7 @@ Status CloudCalcDeleteBitmapAsyncPublishTask::execute() {
               << ", total_tablet_num=" << total_tablet_num
               << ", already_succeeded_tablet_num=" << already_succeeded_tablet_num
               << ", pending_tablet_num=" << pending_tablet_num
+              << ", be_local_retry_count=" << be_local_retry_count
               << ", submit_tablet_task_time_us=" << MonotonicMicros() - transaction_start_time_us
               << ", thread_pool="
               << _engine.calc_tablet_delete_bitmap_task_thread_pool().get_info();
@@ -170,6 +177,7 @@ Status CloudCalcDeleteBitmapAsyncPublishTask::execute() {
 
     LOG(INFO) << "finish to calculate delete bitmap for async publish on transaction."
               << "transaction_id=" << transaction_id << ", cost(us): " << watch.get_elapse_time_us()
+              << ", be_local_retry_count=" << be_local_retry_count
               << ", error_tablet_size=" << _error_tablet_ids->size()
               << ", res=" << _res.to_string();
     return _res;
