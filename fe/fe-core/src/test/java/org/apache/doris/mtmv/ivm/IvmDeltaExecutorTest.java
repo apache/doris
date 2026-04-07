@@ -19,7 +19,6 @@ package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.commands.Command;
@@ -79,8 +78,7 @@ public class IvmDeltaExecutorTest {
             }
         };
 
-        BaseTableInfo baseTableInfo = new BaseTableInfo(mtmv, 0L);
-        DeltaCommandBundle bundle = new DeltaCommandBundle(baseTableInfo, command);
+        DeltaCommandBundle bundle = new DeltaCommandBundle(command);
 
         deltaExecutor.execute(newContext(mtmv), Collections.singletonList(bundle));
         Assertions.assertEquals(1, runCalled.size());
@@ -104,8 +102,7 @@ public class IvmDeltaExecutorTest {
             }
         };
 
-        BaseTableInfo baseTableInfo = new BaseTableInfo(mtmv, 0L);
-        DeltaCommandBundle bundle = new DeltaCommandBundle(baseTableInfo, command);
+        DeltaCommandBundle bundle = new DeltaCommandBundle(command);
 
         AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
                 () -> deltaExecutor.execute(newContext(mtmv), Collections.singletonList(bundle)));
@@ -136,8 +133,7 @@ public class IvmDeltaExecutorTest {
             }
         };
 
-        BaseTableInfo baseTableInfo = new BaseTableInfo(mtmv, 0L);
-        DeltaCommandBundle bundle = new DeltaCommandBundle(baseTableInfo, command);
+        DeltaCommandBundle bundle = new DeltaCommandBundle(command);
 
         AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
                 () -> deltaExecutor.execute(newContext(mtmv), Collections.singletonList(bundle)));
@@ -189,10 +185,9 @@ public class IvmDeltaExecutorTest {
         };
 
         List<DeltaCommandBundle> bundles = new ArrayList<>();
-        BaseTableInfo baseTableInfo = new BaseTableInfo(mtmv, 0L);
-        bundles.add(new DeltaCommandBundle(baseTableInfo, okCommand));
-        bundles.add(new DeltaCommandBundle(baseTableInfo, failCommand));
-        bundles.add(new DeltaCommandBundle(baseTableInfo, thirdCommand));
+        bundles.add(new DeltaCommandBundle(okCommand));
+        bundles.add(new DeltaCommandBundle(failCommand));
+        bundles.add(new DeltaCommandBundle(thirdCommand));
 
         Assertions.assertThrows(AnalysisException.class,
                 () -> deltaExecutor.execute(newContext(mtmv), bundles));

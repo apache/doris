@@ -29,7 +29,6 @@ import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -39,9 +38,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash364;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidNumeric;
-import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -51,14 +48,12 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
-import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
-import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -85,7 +80,7 @@ import java.util.stream.Collectors;
 public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements CustomRewriter {
 
     private static final Set<Class<? extends AggregateFunction>> SUPPORTED_AGG_FUNCTIONS =
-            ImmutableSet.of(Count.class, Sum.class, Avg.class, Min.class, Max.class);
+            ImmutableSet.of(Count.class, Sum.class, Avg.class);
 
     private final IvmNormalizeResult normalizeResult = new IvmNormalizeResult();
 
@@ -213,9 +208,7 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
         // Build wrapping Project that computes row-id and exposes all slots
         // Layout: [row_id, original visible outputs, hidden state outputs]
         // groupByExprs are already Slots after NormalizeAggregate
-        Expression rowIdExpr = scalarAgg
-                ? new LargeIntLiteral(BigInteger.ZERO)
-                : buildRowIdHash(groupByExprs);
+        Expression rowIdExpr = IvmUtil.buildRowIdHash(groupByExprs);
         Alias rowIdAlias = new Alias(rowIdExpr, Column.IVM_ROW_ID_COL);
 
         // Replace base scan row-id in IvmNormalizeResult with the agg-level row-id
@@ -327,9 +320,11 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
         List<Slot> exprSlots = ImmutableList.of();
         if (!(aggFunc instanceof Count && ((Count) aggFunc).isStar())) {
             Expression child0 = aggFunc.child(0);
-            if (child0 instanceof Slot) {
-                exprSlots = ImmutableList.of((Slot) child0);
+            if (!(child0 instanceof Slot)) {
+                throw new AnalysisException(
+                        "IVM: aggregate argument must be a Slot after NormalizeAggregate: " + child0);
             }
+            exprSlots = ImmutableList.of((Slot) child0);
         }
 
         aggTargets.add(new AggTarget(ordinal, aggType, origAlias.toSlot(),
@@ -492,7 +487,7 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
                 throw new AnalysisException("IVM: no unique key columns found for MOW table: "
                         + table.getName());
             }
-            return Pair.of(buildRowIdHash(keySlots), true);
+            return Pair.of(IvmUtil.buildRowIdHash(keySlots), true);
         }
         if (keysType == KeysType.DUP_KEYS) {
             return Pair.of(new UuidNumeric(), false);
@@ -503,24 +498,13 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
     }
 
     /**
-     * Builds a hash expression over the given key slots for use as a deterministic row-id.
-     * Currently uses murmur_hash3_64 (64-bit) which is not collision-safe for large tables.
-     * TODO: replace with a 128-bit hash once BE supports it or a Java UDF is available.
-     */
-    private Expression buildRowIdHash(List<Expression> keySlots) {
-        Expression first = keySlots.get(0);
-        Expression[] rest = keySlots.subList(1, keySlots.size()).toArray(new Expression[0]);
-        return new Cast(new MurmurHash364(first, rest), LargeIntType.INSTANCE);
-    }
-
-    /**
      * Validates that all aggregate functions are supported for IVM.
      *
      * <p>Rules enforced:
      * <ol>
      *   <li>At least one aggregate function must be present (bare GROUP BY is not supported).</li>
      *   <li>DISTINCT aggregates are not supported.</li>
-     *   <li>Only count, sum, avg, min, and max are supported.</li>
+     *   <li>Only count, sum, and avg are supported.</li>
      * </ol>
      *
      * @throws AnalysisException if validation fails
@@ -534,6 +518,10 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
             if (aggFunc.isDistinct()) {
                 throw new AnalysisException(
                         "Aggregate DISTINCT is not supported for IVM: " + aggFunc.toSql());
+            }
+            if (aggFunc instanceof Min || aggFunc instanceof Max) {
+                throw new AnalysisException(
+                        "Aggregate min/max is not yet supported for IVM: " + aggFunc.toSql());
             }
             if (!SUPPORTED_AGG_FUNCTIONS.contains(aggFunc.getClass())) {
                 throw new AnalysisException(

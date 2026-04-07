@@ -38,15 +38,15 @@ public class IvmDeltaExecutor {
     private void executeBundle(IvmRefreshContext context, DeltaCommandBundle bundle)
             throws AnalysisException {
         StatementContext stmtCtx = new StatementContext();
-        String auditStmt = String.format("IVM delta refresh, mvName: %s, baseTable: %s",
-                context.getMtmv().getName(), bundle.getBaseTableInfo());
+        String auditStmt = String.format("IVM delta refresh, mvName: %s, bundle: %s",
+                context.getMtmv().getName(), bundle);
         try {
             // normalPlan had applied ivm normal mtmv plan rule, so no need enable this rule then.
             MTMVPlanUtil.executeCommand(context.getMtmv(), bundle.getCommand(),
                     stmtCtx, auditStmt, false);
         } catch (Exception e) {
             throw new AnalysisException("IVM delta execution failed for "
-                    + bundle.getBaseTableInfo() + ": " + e.getMessage(), e);
+                    + bundle + ": " + e.getMessage(), e);
         }
     }
 }
