@@ -25,9 +25,19 @@
 #include "olap/wal/wal_manager.h"
 #include "runtime/runtime_state.h"
 #include "vec/core/block.h"
+#include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
+
+namespace {
+
+bool is_variant_slot_type(const DataTypePtr& type) {
+    return type != nullptr && remove_nullable(type)->get_primitive_type() == PrimitiveType::TYPE_VARIANT;
+}
+
+} // namespace
+
 WalReader::WalReader(RuntimeState* state) : _state(state) {
     _wal_id = state->wal_id();
 }
@@ -85,9 +95,24 @@ Status WalReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
             return Status::InternalError("read wal {} fail, pos {}, columns size {}", _wal_path,
                                          pos, src_block.columns());
         }
-        vectorized::ColumnPtr column_ptr = src_block.get_by_position(pos).column;
+        const auto& src_column = src_block.get_by_position(pos);
+        vectorized::ColumnPtr column_ptr = src_column.column;
         if (!column_ptr && slot_desc->is_nullable()) {
             column_ptr = make_nullable(column_ptr);
+        }
+        if (is_variant_slot_type(output_block_columns[index].type)) {
+            LOG(INFO) << "[opensource298 replay diag] wal_id=" << _wal_id
+                      << ", slot=" << slot_desc->col_name()
+                      << ", slot_unique_id=" << slot_desc->col_unique_id()
+                      << ", src_pos=" << pos
+                      << ", src_data_type="
+                      << (src_column.type ? src_column.type->get_name() : "<null>")
+                      << ", src_column="
+                      << (src_column.column ? src_column.column->get_name() : "<null>")
+                      << ", dst_data_type="
+                      << (output_block_columns[index].type ? output_block_columns[index].type->get_name()
+                                                           : "<null>")
+                      << ", dst_column_name=" << output_block_columns[index].name;
         }
         dst_block.insert(index, vectorized::ColumnWithTypeAndName(
                                         std::move(column_ptr), output_block_columns[index].type,

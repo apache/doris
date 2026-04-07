@@ -98,6 +98,19 @@ namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
+namespace {
+
+bool is_variant_slot_type(const DataTypePtr& type) {
+    return type != nullptr && remove_nullable(type)->get_primitive_type() == PrimitiveType::TYPE_VARIANT;
+}
+
+bool is_variant_physical_column(const ColumnPtr& column) {
+    return column != nullptr &&
+           check_and_get_column<ColumnVariant>(remove_nullable(column).get()) != nullptr;
+}
+
+} // namespace
+
 const std::string FileScanner::FileReadBytesProfile = "FileReadBytes";
 const std::string FileScanner::FileReadTimeProfile = "FileReadTime";
 
@@ -762,14 +775,19 @@ Status FileScanner::_convert_to_output_block(Block* block) {
     for (int j = 0; j < mutable_output_columns.size(); ++j) {
         auto* slot_desc = _output_tuple_desc->slots()[j];
         int dest_index = ctx_idx;
-        vectorized::ColumnPtr column_ptr;
+        ColumnWithTypeAndName result_data;
 
         auto& ctx = _dest_vexpr_ctx[dest_index];
         // PT1 => dest primitive type
-        RETURN_IF_ERROR(ctx->execute(_src_block_ptr, column_ptr));
+        RETURN_IF_ERROR(ctx->execute(_src_block_ptr, result_data));
+        vectorized::ColumnPtr column_ptr = result_data.column;
         // column_ptr maybe a ColumnConst, convert it to a normal column
         column_ptr = column_ptr->convert_to_full_column_if_const();
         DCHECK(column_ptr);
+        const auto expr_output_column_before_variant_cast = column_ptr->get_name();
+        const auto expr_output_type_before_variant_cast =
+                result_data.type ? result_data.type->get_name() : "<null>";
+        bool variant_cast_triggered = false;
 
         // because of src_slot_desc is always be nullable, so the column_ptr after do dest_expr
         // is likely to be nullable
@@ -819,6 +837,45 @@ Status FileScanner::_convert_to_output_block(Block* block) {
             }
         } else if (slot_desc->is_nullable()) {
             column_ptr = make_nullable(column_ptr);
+        }
+        if (is_variant_slot_type(slot_desc->get_data_type_ptr()) &&
+            !is_variant_physical_column(column_ptr)) {
+            variant_cast_triggered = true;
+            auto cast_src_type = result_data.type;
+            auto cast_src_column = column_ptr;
+            auto cast_dest_type = slot_desc->is_nullable()
+                                          ? slot_desc->get_data_type_ptr()
+                                          : make_nullable(slot_desc->get_data_type_ptr());
+            if (!cast_src_column->is_nullable()) {
+                cast_src_column = make_nullable(cast_src_column);
+                cast_src_type = make_nullable(cast_src_type);
+            }
+            RETURN_IF_ERROR(schema_util::cast_column(
+                    {cast_src_column, cast_src_type, slot_desc->col_name()}, cast_dest_type,
+                    &column_ptr));
+            if (!slot_desc->is_nullable()) {
+                column_ptr = remove_nullable(column_ptr);
+            }
+        }
+        if (is_variant_slot_type(slot_desc->get_data_type_ptr())) {
+            const auto* src_slot_desc =
+                    dest_index < _src_slot_descs_order_by_dest.size() ? _src_slot_descs_order_by_dest[dest_index]
+                                                                      : nullptr;
+            LOG(INFO) << "[opensource298 replay diag] dest_slot=" << slot_desc->col_name()
+                      << ", dest_slot_unique_id=" << slot_desc->col_unique_id()
+                      << ", dest_type=" << slot_desc->get_data_type_ptr()->get_name()
+                      << ", expr_output_type_before_cast="
+                      << expr_output_type_before_variant_cast
+                      << ", expr_output_column_before_cast="
+                      << expr_output_column_before_variant_cast
+                      << ", variant_cast_triggered=" << variant_cast_triggered
+                      << ", expr_output_column=" << column_ptr->get_name()
+                      << ", expr_output_nullable=" << column_ptr->is_nullable()
+                      << ", rows=" << rows
+                      << ", src_slot="
+                      << (src_slot_desc != nullptr ? src_slot_desc->col_name() : "<null>")
+                      << ", src_slot_unique_id="
+                      << (src_slot_desc != nullptr ? src_slot_desc->col_unique_id() : -1);
         }
         mutable_output_columns[j]->insert_range_from(*column_ptr, 0, rows);
         ctx_idx++;

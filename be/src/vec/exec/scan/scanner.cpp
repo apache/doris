@@ -25,12 +25,28 @@
 #include "runtime/descriptors.h"
 #include "util/defer_op.h"
 #include "util/runtime_profile.h"
+#include "vec/common/schema_util.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_variant.h"
 #include "vec/columns/column_nothing.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/exec/scan/scan_node.h"
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
+
+namespace {
+
+bool is_variant_slot_type(const DataTypePtr& type) {
+    return type != nullptr && remove_nullable(type)->get_primitive_type() == PrimitiveType::TYPE_VARIANT;
+}
+
+bool is_variant_physical_column(const ColumnPtr& column) {
+    return column != nullptr &&
+           check_and_get_column<ColumnVariant>(remove_nullable(column).get()) != nullptr;
+}
+
+} // namespace
 
 Scanner::Scanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state, int64_t limit,
                  RuntimeProfile* profile)
@@ -174,9 +190,37 @@ Status Scanner::_do_projections(vectorized::Block* origin_block, vectorized::Blo
     DCHECK_EQ(mutable_columns.size(), _projections.size());
 
     for (int i = 0; i < mutable_columns.size(); ++i) {
-        ColumnPtr column_ptr;
-        RETURN_IF_ERROR(_projections[i]->execute(&input_block, column_ptr));
+        ColumnWithTypeAndName result_data;
+        RETURN_IF_ERROR(_projections[i]->execute(&input_block, result_data));
+        ColumnPtr column_ptr = result_data.column;
         column_ptr = column_ptr->convert_to_full_column_if_const();
+        const auto& dest_type = output_block->get_by_position(i).type;
+        const auto projection_output_column_before_variant_cast = column_ptr->get_name();
+        const auto projection_output_type_before_variant_cast =
+                result_data.type ? result_data.type->get_name() : "<null>";
+        if (is_variant_slot_type(dest_type) && !is_variant_physical_column(column_ptr)) {
+            auto cast_src_type = result_data.type;
+            auto cast_src_column = column_ptr;
+            auto cast_dest_type = dest_type->is_nullable() ? dest_type : make_nullable(dest_type);
+            if (!cast_src_column->is_nullable()) {
+                cast_src_column = make_nullable(cast_src_column);
+                cast_src_type = make_nullable(cast_src_type);
+            }
+            RETURN_IF_ERROR(schema_util::cast_column(
+                    {cast_src_column, cast_src_type, output_block->get_by_position(i).name},
+                    cast_dest_type, &column_ptr));
+            if (!dest_type->is_nullable()) {
+                column_ptr = remove_nullable(column_ptr);
+            }
+            LOG(INFO) << "[opensource298 replay diag] projection_variant_cast_triggered"
+                      << ", dest_name=" << output_block->get_by_position(i).name
+                      << ", dest_type=" << dest_type->get_name()
+                      << ", expr_output_type_before_cast="
+                      << projection_output_type_before_variant_cast
+                      << ", expr_output_column_before_cast="
+                      << projection_output_column_before_variant_cast
+                      << ", expr_output_column_after_cast=" << column_ptr->get_name();
+        }
         if (mutable_columns[i]->is_nullable() != column_ptr->is_nullable()) {
             throw Exception(ErrorCode::INTERNAL_ERROR, "Nullable mismatch");
         }
