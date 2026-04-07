@@ -116,7 +116,7 @@ TEST_F(TabletMetaManagerTest, TestLoad) {
 TEST_F(TabletMetaManagerTest, TestLoadFailed) {
     Status s = TabletMetaManager::load_json_meta(_data_dir, "/path/to/non_existent_file.json");
     EXPECT_FALSE(s.ok());
-    EXPECT_TRUE(s.is<INTERNAL_ERROR>());
+    EXPECT_TRUE(s.is<ErrorCode::INTERNAL_ERROR>());
 }
 
 TEST_F(TabletMetaManagerTest, TestDeleteBitmapEncode) {
