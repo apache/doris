@@ -280,9 +280,8 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
     private void updateProgressAndOffsetsCache(RLTaskTxnCommitAttachment attachment) {
         KinesisProgress taskProgress = (KinesisProgress) attachment.getProgress();
 
-        // Update cachedShardWithMillsBehindLatest
-        taskProgress.getShardIdToMillsBehindLatest().forEach((shardId, millis) ->
-                cachedShardWithMillsBehindLatest.merge(shardId, millis, Math::max));
+        // Keep the latest observed MillisBehindLatest per shard instead of the historical max.
+        taskProgress.getShardIdToMillsBehindLatest().forEach(cachedShardWithMillsBehindLatest::put);
 
         // Handle closed shards: move from open to closed list
         if (taskProgress.getClosedShardIds() != null && !taskProgress.getClosedShardIds().isEmpty()) {
@@ -298,6 +297,10 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
 
         // Update progress (this will remove fully consumed shards from progress)
         this.progress.update(attachment);
+
+        if (taskProgress.getClosedShardIds() != null && !taskProgress.getClosedShardIds().isEmpty()) {
+            taskProgress.getClosedShardIds().forEach(cachedShardWithMillsBehindLatest::remove);
+        }
 
         // Remove fully consumed shards from closed list
         closedKinesisShards.removeIf(shardId -> !((KinesisProgress) progress).containsShard(shardId));
@@ -387,28 +390,16 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
 
         Preconditions.checkNotNull(this.newCurrentKinesisShards);
 
-        // newCurrentKinesisShards contains only OPEN shards (BE ListShards returns OPEN only).
-        // Compare against openKinesisShards only; closedKinesisShards is managed separately
-        // via BE task progress reports and must not be included here to avoid false positives.
+        // newCurrentKinesisShards contains only OPEN shards. When an existing shard disappears
+        // from this list but still has progress, it has become a retired parent shard after
+        // split/merge and must continue draining from closedKinesisShards.
         Set<String> newShards = new HashSet<>(this.newCurrentKinesisShards);
-        Set<String> currentOpenShards = new HashSet<>(openKinesisShards);
-
-        // Detect new shards
-        if (!newShards.equals(currentOpenShards)) {
-            openKinesisShards = new ArrayList<>(newShards);
-
-            if (LOG.isDebugEnabled()) {
-                LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
-                        .add("open_kinesis_shards", Joiner.on(",").join(openKinesisShards))
-                        .add("closed_kinesis_shards", Joiner.on(",").join(closedKinesisShards))
-                        .add("msg", "kinesis shards changed")
-                        .build());
-            }
+        if (syncShardTrackingFromLatestOpenShards(newShards)) {
             return true;
         }
 
         // Check if progress is consistent for all tracked shards (open + closed)
-        Set<String> allTrackedShards = new HashSet<>(currentOpenShards);
+        Set<String> allTrackedShards = new HashSet<>(newShards);
         allTrackedShards.addAll(closedKinesisShards);
         for (String shardId : allTrackedShards) {
             if (!((KinesisProgress) progress).containsShard(shardId)) {
@@ -416,6 +407,37 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
             }
         }
         return false;
+    }
+
+    private boolean syncShardTrackingFromLatestOpenShards(Set<String> latestOpenShards) {
+        Set<String> currentOpenShards = new HashSet<>(openKinesisShards);
+        Set<String> currentClosedShards = new HashSet<>(closedKinesisShards);
+        Set<String> updatedClosedShards = new HashSet<>(currentClosedShards);
+
+        for (String shardId : currentOpenShards) {
+            if (!latestOpenShards.contains(shardId) && ((KinesisProgress) progress).containsShard(shardId)) {
+                if (updatedClosedShards.add(shardId)) {
+                    LOG.info("Moved shard from open to closed after shard refresh: {}, job: {}", shardId, id);
+                }
+            }
+        }
+
+        boolean openChanged = !latestOpenShards.equals(currentOpenShards);
+        boolean closedChanged = !updatedClosedShards.equals(currentClosedShards);
+        if (!openChanged && !closedChanged) {
+            return false;
+        }
+
+        openKinesisShards = new ArrayList<>(latestOpenShards);
+        closedKinesisShards = new ArrayList<>(updatedClosedShards);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
+                    .add("open_kinesis_shards", Joiner.on(",").join(openKinesisShards))
+                    .add("closed_kinesis_shards", Joiner.on(",").join(closedKinesisShards))
+                    .add("msg", "kinesis shards changed")
+                    .build());
+        }
+        return true;
     }
 
     @Override

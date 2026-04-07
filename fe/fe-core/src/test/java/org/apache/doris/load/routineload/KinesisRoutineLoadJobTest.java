@@ -24,13 +24,16 @@ import org.apache.doris.load.routineload.kinesis.KinesisConfiguration;
 import org.apache.doris.load.routineload.kinesis.KinesisDataSourceProperties;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 public class KinesisRoutineLoadJobTest {
@@ -112,6 +115,40 @@ public class KinesisRoutineLoadJobTest {
     }
 
     @Test
+    public void testLagCacheShouldUseLatestReportInsteadOfHistoricalMax() throws Exception {
+        KinesisRoutineLoadJob routineLoadJob =
+                new KinesisRoutineLoadJob(1L, "kinesis_routine_load_job", 1L,
+                        1L, "ap-southeast-1", "stream-1", UserIdentity.ADMIN);
+
+        Map<String, String> shardToSeqNum = new HashMap<>();
+        shardToSeqNum.put("shard-0", "100");
+        Deencapsulation.setField(routineLoadJob, "progress", new KinesisProgress(shardToSeqNum));
+
+        Map<String, Long> cachedLag = new HashMap<>();
+        cachedLag.put("shard-0", 60_000L);
+        Deencapsulation.setField(routineLoadJob, "cachedShardWithMillsBehindLatest", cachedLag);
+
+        Map<String, String> updatedSeqNum = new HashMap<>();
+        updatedSeqNum.put("shard-0", "101");
+        Map<String, Long> latestLag = new HashMap<>();
+        latestLag.put("shard-0", 100L);
+        RLTaskTxnCommitAttachment attachment =
+                createCommitAttachment(createProgress(updatedSeqNum, latestLag));
+        Deencapsulation.invoke(routineLoadJob, "updateProgressAndOffsetsCache", attachment);
+
+        Map<String, Long> updatedLagCache = Deencapsulation.getField(routineLoadJob, "cachedShardWithMillsBehindLatest");
+        Assert.assertEquals(100L, updatedLagCache.get("shard-0").longValue());
+
+        Gson gson = new Gson();
+        Map<String, Object> statistic = gson.fromJson(routineLoadJob.getStatistic(), Map.class);
+        Assert.assertEquals(100L, ((Number) statistic.get("totalMillisBehindLatest")).longValue());
+        Assert.assertEquals(100L, ((Number) statistic.get("maxMillisBehindLatest")).longValue());
+
+        Map<String, Object> lag = gson.fromJson(routineLoadJob.getLag(), Map.class);
+        Assert.assertEquals(100L, ((Number) lag.get("shard-0")).longValue());
+    }
+
+    @Test
     public void testModifyPropertiesShouldClearStaleCustomShardsWhenStreamChanges() throws Exception {
         KinesisRoutineLoadJob routineLoadJob =
                 new KinesisRoutineLoadJob(1L, "kinesis_routine_load_job", 1L,
@@ -187,5 +224,111 @@ public class KinesisRoutineLoadJobTest {
         KinesisProgress progress = Deencapsulation.getField(routineLoadJob, "progress");
         Assert.assertEquals("101", progress.getSequenceNumberByShard("shard-1"));
         Assert.assertEquals("202", progress.getSequenceNumberByShard("shard-2"));
+    }
+
+    @Test
+    public void testShardRefreshShouldMoveRetiredParentToClosedUntilConsumed() throws Exception {
+        KinesisRoutineLoadJob routineLoadJob =
+                new KinesisRoutineLoadJob(1L, "kinesis_routine_load_job", 1L,
+                        1L, "ap-southeast-1", "stream-1", UserIdentity.ADMIN);
+
+        Map<String, String> shardToSeqNum = new HashMap<>();
+        shardToSeqNum.put("shard-parent", "100");
+        Deencapsulation.setField(routineLoadJob, "progress", new KinesisProgress(shardToSeqNum));
+        Deencapsulation.setField(routineLoadJob, "openKinesisShards", Lists.newArrayList("shard-parent"));
+        Deencapsulation.setField(routineLoadJob, "closedKinesisShards", Lists.newArrayList());
+        Deencapsulation.setField(routineLoadJob, "newCurrentKinesisShards",
+                Lists.newArrayList("shard-child-0", "shard-child-1"));
+
+        Assert.assertTrue((Boolean) Deencapsulation.invoke(routineLoadJob, "isKinesisShardsChanged"));
+        List<String> openKinesisShards = Deencapsulation.getField(routineLoadJob, "openKinesisShards");
+        List<String> closedKinesisShards = Deencapsulation.getField(routineLoadJob, "closedKinesisShards");
+        Assert.assertEquals(new HashSet<>(Lists.newArrayList("shard-child-0", "shard-child-1")),
+                new HashSet<>(openKinesisShards));
+        Assert.assertEquals(new HashSet<>(Lists.newArrayList("shard-parent")),
+                new HashSet<>(closedKinesisShards));
+
+        Deencapsulation.invoke(routineLoadJob, "updateNewShardProgress");
+        KinesisProgress progress = Deencapsulation.getField(routineLoadJob, "progress");
+        Assert.assertTrue(progress.containsShard("shard-parent"));
+        Assert.assertTrue(progress.containsShard("shard-child-0"));
+        Assert.assertTrue(progress.containsShard("shard-child-1"));
+
+        Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.NEED_SCHEDULE);
+        routineLoadJob.divideRoutineLoadJob(2);
+        Assert.assertEquals(new HashSet<>(Lists.newArrayList("shard-parent", "shard-child-0", "shard-child-1")),
+                collectAssignedShards(routineLoadJob));
+    }
+
+    @Test
+    public void testFullyConsumedClosedParentShouldNotReappearOnRefresh() throws Exception {
+        KinesisRoutineLoadJob routineLoadJob =
+                new KinesisRoutineLoadJob(1L, "kinesis_routine_load_job", 1L,
+                        1L, "ap-southeast-1", "stream-1", UserIdentity.ADMIN);
+
+        Map<String, String> parentProgress = new HashMap<>();
+        parentProgress.put("shard-parent", "100");
+        Deencapsulation.setField(routineLoadJob, "progress", new KinesisProgress(parentProgress));
+        Deencapsulation.setField(routineLoadJob, "openKinesisShards", Lists.newArrayList("shard-parent"));
+        Deencapsulation.setField(routineLoadJob, "closedKinesisShards", Lists.newArrayList());
+        Deencapsulation.setField(routineLoadJob, "newCurrentKinesisShards",
+                Lists.newArrayList("shard-child-0", "shard-child-1"));
+
+        Assert.assertTrue((Boolean) Deencapsulation.invoke(routineLoadJob, "isKinesisShardsChanged"));
+        Deencapsulation.invoke(routineLoadJob, "updateNewShardProgress");
+
+        Map<String, String> childProgress = new HashMap<>();
+        childProgress.put("shard-child-0", "200");
+        childProgress.put("shard-child-1", "300");
+        Map<String, Long> oldLag = new HashMap<>();
+        oldLag.put("shard-parent", 60_000L);
+        Deencapsulation.setField(routineLoadJob, "cachedShardWithMillsBehindLatest", oldLag);
+        Map<String, Long> childLag = new HashMap<>();
+        childLag.put("shard-child-0", 0L);
+        childLag.put("shard-child-1", 100L);
+        RLTaskTxnCommitAttachment attachment =
+                createCommitAttachment(createProgress(childProgress, childLag, "shard-parent"));
+        Deencapsulation.invoke(routineLoadJob, "updateProgressAndOffsetsCache", attachment);
+
+        KinesisProgress progress = Deencapsulation.getField(routineLoadJob, "progress");
+        Assert.assertFalse(progress.containsShard("shard-parent"));
+        Assert.assertTrue(progress.containsShard("shard-child-0"));
+        Assert.assertTrue(progress.containsShard("shard-child-1"));
+        List<String> openKinesisShards = Deencapsulation.getField(routineLoadJob, "openKinesisShards");
+        Assert.assertEquals(new HashSet<>(Lists.newArrayList("shard-child-0", "shard-child-1")),
+                new HashSet<>(openKinesisShards));
+        Assert.assertTrue(((List<String>) Deencapsulation.getField(routineLoadJob, "closedKinesisShards")).isEmpty());
+        Map<String, Long> cachedLag = Deencapsulation.getField(routineLoadJob, "cachedShardWithMillsBehindLatest");
+        Assert.assertFalse(cachedLag.containsKey("shard-parent"));
+        Assert.assertEquals(0L, cachedLag.get("shard-child-0").longValue());
+        Assert.assertEquals(100L, cachedLag.get("shard-child-1").longValue());
+
+        Deencapsulation.setField(routineLoadJob, "newCurrentKinesisShards",
+                Lists.newArrayList("shard-child-0", "shard-child-1"));
+        Assert.assertFalse((Boolean) Deencapsulation.invoke(routineLoadJob, "isKinesisShardsChanged"));
+    }
+
+    private Set<String> collectAssignedShards(KinesisRoutineLoadJob routineLoadJob) {
+        List<RoutineLoadTaskInfo> routineLoadTaskInfoList =
+                Deencapsulation.getField(routineLoadJob, "routineLoadTaskInfoList");
+        Set<String> assignedShards = new HashSet<>();
+        for (RoutineLoadTaskInfo taskInfo : routineLoadTaskInfoList) {
+            assignedShards.addAll(((KinesisTaskInfo) taskInfo).getShards());
+        }
+        return assignedShards;
+    }
+
+    private RLTaskTxnCommitAttachment createCommitAttachment(KinesisProgress progress) {
+        RLTaskTxnCommitAttachment attachment = new RLTaskTxnCommitAttachment();
+        Deencapsulation.setField(attachment, "progress", progress);
+        return attachment;
+    }
+
+    private KinesisProgress createProgress(Map<String, String> shardToSeqNum, Map<String, Long> lagMap,
+            String... closedShards) {
+        KinesisProgress progress = new KinesisProgress(shardToSeqNum);
+        Deencapsulation.setField(progress, "shardIdToMillsBehindLatest", Maps.newConcurrentMap(lagMap));
+        Deencapsulation.setField(progress, "closedShardIds", new HashSet<>(Lists.newArrayList(closedShards)));
+        return progress;
     }
 }

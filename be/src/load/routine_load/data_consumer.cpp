@@ -1084,11 +1084,12 @@ Status KinesisDataConsumer::get_shard_list(std::vector<std::string>* shard_ids) 
                                      st.to_string());
     }
 
-    // Only return OPEN shards. CLOSED shards are tracked separately via closedKinesisShards
-    // on the FE side (populated when BE reports shard exhaustion). Including CLOSED shards here
-    // would cause retired parent shards to be re-added to the open list after reschedule,
-    // leading to duplicate consumption from TRIM_HORIZON.
+    // Only return OPEN shards here. FE will keep recently retired parent shards in its
+    // closed list until they are fully drained, then remove them permanently. Returning
+    // CLOSED shards from ListShards would make already-drained parents look newly discovered
+    // and cause them to restart from TRIM_HORIZON.
     std::vector<std::string> discovered_shard_ids;
+    bool saw_any_shard = false;
     while (true) {
         auto outcome = _kinesis_client->ListShards(request);
         if (!outcome.IsSuccess()) {
@@ -1099,7 +1100,15 @@ Status KinesisDataConsumer::get_shard_list(std::vector<std::string>* shard_ids) 
         }
 
         const auto& result = outcome.GetResult();
+        if (!result.GetShards().empty()) {
+            saw_any_shard = true;
+        }
         for (const auto& shard : result.GetShards()) {
+            const auto& ending_sequence_number =
+                    shard.GetSequenceNumberRange().GetEndingSequenceNumber();
+            if (!ending_sequence_number.empty()) {
+                continue;
+            }
             discovered_shard_ids.emplace_back(shard.GetShardId());
         }
 
@@ -1117,12 +1126,12 @@ Status KinesisDataConsumer::get_shard_list(std::vector<std::string>* shard_ids) 
         request = std::move(next_request);
     }
 
-    if (discovered_shard_ids.empty()) {
+    if (discovered_shard_ids.empty() && !saw_any_shard) {
         return Status::InternalError("No shards found in Kinesis stream: {}", _stream);
     }
 
     *shard_ids = std::move(discovered_shard_ids);
-    LOG(INFO) << "Found " << shard_ids->size() << " shards in stream: " << _stream;
+    LOG(INFO) << "Found " << shard_ids->size() << " open shards in stream: " << _stream;
     return Status::OK();
 }
 

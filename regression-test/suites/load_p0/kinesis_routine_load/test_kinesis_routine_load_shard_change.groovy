@@ -144,26 +144,64 @@ suite("test_kinesis_routine_load_shard_change") {
         return result[0][8].toString()
     }
 
-    def waitForDataSourceShardView = { List<String> expectedShardIds, int timeoutSec ->
-        def expected = expectedShardIds.findAll { it != null }
+    def parseShardSet = { Object value ->
+        if (value == null) {
+            return [] as Set
+        }
+        def shardText = value.toString().trim()
+        if (shardText.length() == 0) {
+            return [] as Set
+        }
+        return shardText.split(",")
+            .collect { it.toString().trim() }
+            .findAll { it.length() > 0 }
+            .toSet()
+    }
+
+    def getCurrentShardView = {
+        def result = sql "SHOW ROUTINE LOAD FOR ${jobName}"
+        assertTrue(result.size() > 0, "SHOW ROUTINE LOAD returned empty result for ${jobName}")
+        def dataSourceProperties = parseJson(result[0][12].toString())
+        return [
+            open: parseShardSet(dataSourceProperties.get("openKinesisShards")),
+            closed: parseShardSet(dataSourceProperties.get("closedKinesisShards"))
+        ]
+    }
+
+    def waitForShardView = { Set expectedOpenShards, Set expectedClosedShards, Set absentShards, int timeoutSec ->
+        def lastView = [open: [] as Set, closed: [] as Set]
         for (int i = 0; i < timeoutSec; i++) {
-            def result = sql "SHOW ROUTINE LOAD FOR ${jobName}"
-            assertTrue(result.size() > 0, "SHOW ROUTINE LOAD returned empty result for ${jobName}")
-            def dataSourceProperties = result[0][12].toString()
-            def allFound = true
-            for (String shardId : expected) {
-                if (!dataSourceProperties.contains(shardId)) {
-                    allFound = false
-                    break
-                }
-            }
-            if (allFound) {
-                logger.info("Routine load datasource shard view contains expected shard ids: ${expected}")
+            lastView = getCurrentShardView()
+            if (lastView.open == expectedOpenShards
+                    && lastView.closed == expectedClosedShards
+                    && absentShards.every { shardId ->
+                        !lastView.open.contains(shardId) && !lastView.closed.contains(shardId)
+                    }) {
+                logger.info("Routine load shard view reached expected state. open=${expectedOpenShards}, " +
+                    "closed=${expectedClosedShards}, absent=${absentShards}")
                 return
             }
             Thread.sleep(1000)
         }
-        assertTrue(false, "Timeout waiting datasource shard view to include ${expected}")
+        assertTrue(false, "Timeout waiting shard view. expectedOpen=${expectedOpenShards}, " +
+            "expectedClosed=${expectedClosedShards}, absent=${absentShards}, " +
+            "lastOpen=${lastView.open}, lastClosed=${lastView.closed}")
+    }
+
+    def assertShardViewStableAcrossRefresh = { Set expectedOpenShards, Set expectedClosedShards,
+            Set absentShards, int observeSec ->
+        for (int i = 0; i < observeSec; i++) {
+            def shardView = getCurrentShardView()
+            assertEquals(expectedOpenShards, shardView.open)
+            assertEquals(expectedClosedShards, shardView.closed)
+            absentShards.each { shardId ->
+                assertFalse(shardView.open.contains(shardId),
+                    "Shard ${shardId} unexpectedly reappeared in open shards: ${shardView.open}")
+                assertFalse(shardView.closed.contains(shardId),
+                    "Shard ${shardId} unexpectedly reappeared in closed shards: ${shardView.closed}")
+            }
+            Thread.sleep(1000)
+        }
     }
 
     def streamCreated = false
@@ -296,8 +334,11 @@ suite("test_kinesis_routine_load_shard_change") {
             // Step 4: verify post-split data is imported.
             waitForExactCount(100, 240)
 
-            // Extra check: shard relation/progress is visible in SHOW ROUTINE LOAD.
-            waitForDataSourceShardView([parentShardId, leftChild.getShardId(), rightChild.getShardId()], 180)
+            def expectedOpenChildShards = [leftChild.getShardId(), rightChild.getShardId()] as Set
+            // Wait until the retired parent shard is fully drained and removed from FE tracking.
+            waitForShardView(expectedOpenChildShards, [] as Set, [parentShardId] as Set, 180)
+            // Cross at least two FE scheduler cycles so the parent cannot be rediscovered from ListShards.
+            assertShardViewStableAcrossRefresh(expectedOpenChildShards, [] as Set, [parentShardId] as Set, 25)
             test2PreparedForReuse = true
         } finally {
             if (!test2PreparedForReuse) {
@@ -343,8 +384,8 @@ suite("test_kinesis_routine_load_shard_change") {
             // Step 7: verify post-merge data is imported.
             waitForExactCount(150, 240)
 
-            // Extra check: progress inheritance across old/new shards is visible.
-            waitForDataSourceShardView([leftChild.getShardId(), rightChild.getShardId(), mergedShard.getShardId()], 180)
+            waitForShardView([mergedShard.getShardId()] as Set, [] as Set,
+                [leftChild.getShardId(), rightChild.getShardId()] as Set, 180)
 
             def finalResult = sql "SELECT COUNT(*), COUNT(DISTINCT id), MIN(id), MAX(id) FROM test_kinesis_shard_change"
             assertEquals(150L, toLongValue(finalResult[0][0]))
