@@ -90,7 +90,6 @@ Status AggSinkLocalState::open(RuntimeState* state) {
     Base::_shared_state->align_aggregate_states = p._align_aggregate_states;
     Base::_shared_state->total_size_of_aggregate_states = p._total_size_of_aggregate_states;
     Base::_shared_state->offsets_of_aggregate_states = p._offsets_of_aggregate_states;
-    Base::_shared_state->make_nullable_keys = p._make_nullable_keys;
     Base::_shared_state->probe_expr_ctxs.resize(p._probe_expr_ctxs.size());
 
     Base::_shared_state->limit = p._limit;
@@ -919,14 +918,6 @@ Status AggSinkOperatorX::_init_probe_expr_ctx(RuntimeState* state) {
 
 Status AggSinkOperatorX::_init_aggregate_evaluators(RuntimeState* state) {
     size_t j = _probe_expr_ctxs.size();
-    for (size_t i = 0; i < j; ++i) {
-        auto nullable_output = _output_tuple_desc->slots()[i]->is_nullable();
-        auto nullable_input = _probe_expr_ctxs[i]->root()->is_nullable();
-        if (nullable_output != nullable_input) {
-            DCHECK(nullable_output);
-            _make_nullable_keys.emplace_back(i);
-        }
-    }
     for (size_t i = 0; i < _aggregate_evaluators.size(); ++i, ++j) {
         SlotDescriptor* intermediate_slot_desc = _intermediate_tuple_desc->slots()[j];
         SlotDescriptor* output_slot_desc = _output_tuple_desc->slots()[j];

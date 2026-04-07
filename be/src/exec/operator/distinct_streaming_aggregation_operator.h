@@ -54,7 +54,6 @@ private:
     Status _init_hash_method(const VExprContextSPtrs& probe_exprs);
     void _emplace_into_hash_table_to_distinct(IColumn::Selector& distinct_row,
                                               ColumnRawPtrs& key_columns, const uint32_t num_rows);
-    void _make_nullable_output_key(Block* block);
     bool _should_expand_preagg_hash_tables();
 
     void _swap_cache_block(Block* block) {
@@ -139,16 +138,12 @@ public:
 
 private:
     friend class DistinctStreamingAggLocalState;
-    void init_make_nullable(RuntimeState* state);
-    TupleId _output_tuple_id;
-    TupleDescriptor* _output_tuple_desc = nullptr;
     const bool _needs_finalize;
     const bool _is_first_phase;
     std::vector<TExpr> _partition_exprs;
     const bool _is_colocate;
     // group by k1,k2
     VExprContextSPtrs _probe_expr_ctxs;
-    std::vector<size_t> _make_nullable_keys;
 
     // If _is_streaming_preagg = true, deduplication will be abandoned in cases where the deduplication rate is low.
     bool _is_streaming_preagg = false;

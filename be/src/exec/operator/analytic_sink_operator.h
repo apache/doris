@@ -263,7 +263,6 @@ private:
     size_t _total_size_of_aggregate_states = 0;
     /// The max align size for functions
     size_t _align_aggregate_states = 1;
-    std::vector<bool> _change_to_nullable_flags;
 };
 
 } // namespace doris

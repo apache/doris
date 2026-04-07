@@ -38,7 +38,6 @@ public:
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status close(RuntimeState* state) override;
 
-    void make_nullable_output_key(Block* block);
     Status merge_with_serialized_key_helper(Block* block);
     void do_agg_limit(Block* block, bool* eos);
 
@@ -50,16 +49,6 @@ protected:
     Status _get_with_serialized_key_result(RuntimeState* state, Block* block, bool* eos);
     Status _get_results_with_serialized_key(RuntimeState* state, Block* block, bool* eos);
     Status _create_agg_status(AggregateDataPtr data);
-    void _make_nullable_output_key(Block* block) {
-        if (block->rows() != 0) {
-            auto& shared_state = *Base ::_shared_state;
-            for (auto cid : shared_state.make_nullable_keys) {
-                block->get_by_position(cid).column =
-                        make_nullable(block->get_by_position(cid).column);
-                block->get_by_position(cid).type = make_nullable(block->get_by_position(cid).type);
-            }
-        }
-    }
 
     void _emplace_into_hash_table(AggregateDataPtr* places, ColumnRawPtrs& key_columns,
                                   uint32_t num_rows);
@@ -125,10 +114,6 @@ private:
 
     bool _needs_finalize;
     bool _without_key;
-
-    // left / full join will change the key nullable make output/input solt
-    // nullable diff. so we need make nullable of it.
-    std::vector<size_t> _make_nullable_keys;
 };
 
 } // namespace doris

@@ -222,7 +222,6 @@ protected:
     // group by k1,k2
     VExprContextSPtrs _probe_expr_ctxs;
     ObjectPool* _pool = nullptr;
-    std::vector<size_t> _make_nullable_keys;
     int64_t _limit; // -1: no limit
     // do sort limit and directions
     bool _do_sort_limit = false;

@@ -425,18 +425,12 @@ void AnalyticSinkLocalState::_insert_result_info(int64_t start, int64_t end) {
 void AnalyticSinkLocalState::_output_current_block(Block* block) {
     block->swap(std::move(_input_blocks[_output_block_index]));
     _blocks_memory_usage->add(-block->allocated_bytes());
-    DCHECK(_parent->cast<AnalyticSinkOperatorX>()._change_to_nullable_flags.size() ==
-           _result_window_columns.size());
+    DCHECK(_result_window_columns.size() == _agg_functions.size());
     for (size_t i = 0; i < _result_window_columns.size(); ++i) {
         DCHECK(_result_window_columns[i]);
         DCHECK(_agg_functions[i]);
-        if (_parent->cast<AnalyticSinkOperatorX>()._change_to_nullable_flags[i]) {
-            block->insert({make_nullable(std::move(_result_window_columns[i])),
-                           make_nullable(_agg_functions[i]->data_type()), ""});
-        } else {
-            block->insert(
-                    {std::move(_result_window_columns[i]), _agg_functions[i]->data_type(), ""});
-        }
+        block->insert(
+                {std::move(_result_window_columns[i]), _agg_functions[i]->data_type(), ""});
     }
 
     _output_block_index++;
@@ -688,15 +682,12 @@ Status AnalyticSinkOperatorX::prepare(RuntimeState* state) {
     }
     _intermediate_tuple_desc = state->desc_tbl().get_tuple_descriptor(_intermediate_tuple_id);
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
-    _change_to_nullable_flags.resize(_agg_functions_size);
     for (size_t i = 0; i < _agg_functions_size; ++i) {
         SlotDescriptor* intermediate_slot_desc = _intermediate_tuple_desc->slots()[i];
         SlotDescriptor* output_slot_desc = _output_tuple_desc->slots()[i];
         RETURN_IF_ERROR(_agg_functions[i]->prepare(state, _child->row_desc(),
                                                    intermediate_slot_desc, output_slot_desc));
         _agg_functions[i]->set_version(state->be_exec_version());
-        _change_to_nullable_flags[i] =
-                output_slot_desc->is_nullable() && (!_agg_functions[i]->data_type()->is_nullable());
     }
     if (!_partition_by_eq_expr_ctxs.empty() || !_order_by_eq_expr_ctxs.empty()) {
         std::vector<TTupleId> tuple_ids;

@@ -108,8 +108,7 @@ Status AggLocalState::_get_results_with_serialized_key(RuntimeState* state, Bloc
     MutableColumns value_columns(agg_size);
     DataTypes value_data_types(agg_size);
 
-    // non-nullable column(id in `_make_nullable_keys`) will be converted to nullable.
-    bool mem_reuse = shared_state.make_nullable_keys.empty() && block->mem_reuse();
+    bool mem_reuse = block->mem_reuse();
 
     MutableColumns key_columns;
     for (int i = 0; i < key_size; ++i) {
@@ -283,8 +282,7 @@ Status AggLocalState::_get_results_with_serialized_key(RuntimeState* state, Bloc
 Status AggLocalState::_get_with_serialized_key_result(RuntimeState* state, Block* block,
                                                       bool* eos) {
     auto& shared_state = *_shared_state;
-    // non-nullable column(id in `_make_nullable_keys`) will be converted to nullable.
-    bool mem_reuse = shared_state.make_nullable_keys.empty() && block->mem_reuse();
+    bool mem_reuse = block->mem_reuse();
 
     auto columns_with_schema = VectorizedUtils::create_columns_with_type_and_name(
             _parent->cast<AggSourceOperatorX>().row_descriptor());
@@ -550,7 +548,6 @@ Status AggSourceOperatorX::get_block(RuntimeState* state, Block* block, bool* eo
     SCOPED_TIMER(local_state.exec_time_counter());
     SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
     RETURN_IF_ERROR(local_state._executor.get_result(state, block, eos));
-    local_state.make_nullable_output_key(block);
     // dispose the having clause, should not be execute in prestreaming agg
     RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts, block));
     local_state.do_agg_limit(block, eos);
@@ -570,15 +567,6 @@ void AggLocalState::do_agg_limit(Block* block, bool* eos) {
     } else {
         if (auto rows = block->rows()) {
             _num_rows_returned += rows;
-        }
-    }
-}
-
-void AggLocalState::make_nullable_output_key(Block* block) {
-    if (block->rows() != 0) {
-        for (auto cid : _shared_state->make_nullable_keys) {
-            block->get_by_position(cid).column = make_nullable(block->get_by_position(cid).column);
-            block->get_by_position(cid).type = make_nullable(block->get_by_position(cid).type);
         }
     }
 }

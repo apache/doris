@@ -185,8 +185,7 @@ Status DistinctStreamingAggLocalState::_distinct_pre_agg_with_serialized_key(
                 << "_distinct_row size should be less than or equal to rows";
     }
 
-    bool mem_reuse = _parent->cast<DistinctStreamingAggOperatorX>()._make_nullable_keys.empty() &&
-                     out_block->mem_reuse();
+    bool mem_reuse = out_block->mem_reuse();
     SCOPED_TIMER(_insert_keys_to_column_timer);
     if (mem_reuse) {
         if (_stop_emplace_flag && !out_block->empty()) {
@@ -251,15 +250,6 @@ Status DistinctStreamingAggLocalState::_distinct_pre_agg_with_serialized_key(
     return Status::OK();
 }
 
-void DistinctStreamingAggLocalState::_make_nullable_output_key(Block* block) {
-    if (block->rows() != 0) {
-        for (auto cid : Base::_parent->cast<DistinctStreamingAggOperatorX>()._make_nullable_keys) {
-            block->get_by_position(cid).column = make_nullable(block->get_by_position(cid).column);
-            block->get_by_position(cid).type = make_nullable(block->get_by_position(cid).type);
-        }
-    }
-}
-
 void DistinctStreamingAggLocalState::_emplace_into_hash_table_to_distinct(
         IColumn::Selector& distinct_row, ColumnRawPtrs& key_columns, const uint32_t num_rows) {
     std::visit(
@@ -302,7 +292,6 @@ DistinctStreamingAggOperatorX::DistinctStreamingAggOperatorX(ObjectPool* pool, i
                                                              const TPlanNode& tnode,
                                                              const DescriptorTbl& descs)
         : StatefulOperatorX<DistinctStreamingAggLocalState>(pool, tnode, operator_id, descs),
-          _output_tuple_id(tnode.agg_node.output_tuple_id),
           _needs_finalize(tnode.agg_node.need_finalize),
           _is_first_phase(tnode.agg_node.__isset.is_first_phase && tnode.agg_node.is_first_phase),
           _is_colocate(tnode.agg_node.__isset.is_colocate && tnode.agg_node.is_colocate) {
@@ -329,21 +318,7 @@ Status DistinctStreamingAggOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(StatefulOperatorX<DistinctStreamingAggLocalState>::prepare(state));
     RETURN_IF_ERROR(VExpr::prepare(_probe_expr_ctxs, state, _child->row_desc()));
     RETURN_IF_ERROR(VExpr::open(_probe_expr_ctxs, state));
-    init_make_nullable(state);
     return Status::OK();
-}
-
-void DistinctStreamingAggOperatorX::init_make_nullable(RuntimeState* state) {
-    _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
-
-    for (size_t i = 0; i < _probe_expr_ctxs.size(); ++i) {
-        auto nullable_output = _output_tuple_desc->slots()[i]->is_nullable();
-        auto nullable_input = _probe_expr_ctxs[i]->root()->is_nullable();
-        if (nullable_output != nullable_input) {
-            DCHECK(nullable_output);
-            _make_nullable_keys.emplace_back(i);
-        }
-    }
 }
 
 Status DistinctStreamingAggOperatorX::push(RuntimeState* state, Block* in_block, bool eos) const {
@@ -376,7 +351,6 @@ Status DistinctStreamingAggOperatorX::pull(RuntimeState* state, Block* block, bo
         }
     }
 
-    local_state._make_nullable_output_key(block);
     if (!_is_streaming_preagg) {
         // dispose the having clause, should not be execute in prestreaming agg
         RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts, block));

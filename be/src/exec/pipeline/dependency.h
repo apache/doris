@@ -315,7 +315,6 @@ public:
     size_t align_aggregate_states = 1;
     /// The offset to the n-th aggregate function in a row of aggregate functions.
     Sizes offsets_of_aggregate_states;
-    std::vector<size_t> make_nullable_keys;
 
     bool agg_data_created_without_key = false;
     bool enable_spill = false;

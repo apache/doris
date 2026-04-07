@@ -342,6 +342,9 @@ Status OperatorXBase::do_projections(RuntimeState* state, Block* origin_block,
     }
     auto insert_column_datas = [&](auto& to, ColumnPtr& from, size_t rows) {
         if (to->is_nullable() && !from->is_nullable()) {
+            DCHECK(false) << "projection output type mismatch: non-nullable expr result written to "
+                             "nullable column. expr type: "
+                          << from->get_name() << ", output type: " << to->get_name();
             if (_keep_origin || !from->is_exclusive()) {
                 auto& null_column = reinterpret_cast<ColumnNullable&>(*to);
                 null_column.get_nested_column().insert_range_from(*from, 0, rows);

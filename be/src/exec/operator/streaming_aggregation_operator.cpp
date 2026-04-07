@@ -188,7 +188,6 @@ Status StreamingAggLocalState::do_pre_agg(RuntimeState* state, Block* input_bloc
 
     // pre stream agg need use _num_row_return to decide whether to do pre stream agg
     _cur_num_rows_returned += output_block->rows();
-    make_nullable_output_key(output_block);
     _update_memusage_with_serialized_key();
     return Status::OK();
 }
@@ -364,7 +363,7 @@ Status StreamingAggLocalState::_pre_agg_with_serialized_key(doris::Block* in_blo
                 }
             }
         }
-        bool mem_reuse = p._make_nullable_keys.empty() && out_block->mem_reuse();
+        bool mem_reuse = out_block->mem_reuse();
 
         std::vector<DataTypePtr> data_types;
         MutableColumns value_columns;
@@ -457,8 +456,7 @@ Status StreamingAggLocalState::_get_results_with_serialized_key(RuntimeState* st
     MutableColumns value_columns(agg_size);
     DataTypes value_data_types(agg_size);
 
-    // non-nullable column(id in `_make_nullable_keys`) will be converted to nullable.
-    bool mem_reuse = p._make_nullable_keys.empty() && block->mem_reuse();
+    bool mem_reuse = block->mem_reuse();
 
     MutableColumns key_columns;
     for (int i = 0; i < key_size; ++i) {
@@ -621,15 +619,6 @@ Status StreamingAggLocalState::_get_results_with_serialized_key(RuntimeState* st
     }
 
     return Status::OK();
-}
-
-void StreamingAggLocalState::make_nullable_output_key(Block* block) {
-    if (block->rows() != 0) {
-        for (auto cid : _parent->cast<StreamingAggOperatorX>()._make_nullable_keys) {
-            block->get_by_position(cid).column = make_nullable(block->get_by_position(cid).column);
-            block->get_by_position(cid).type = make_nullable(block->get_by_position(cid).type);
-        }
-    }
 }
 
 void StreamingAggLocalState::_destroy_agg_status(AggregateDataPtr data) {
@@ -1011,14 +1000,6 @@ Status StreamingAggOperatorX::_init_probe_expr_ctx(RuntimeState* state) {
 
 Status StreamingAggOperatorX::_init_aggregate_evaluators(RuntimeState* state) {
     size_t j = _probe_expr_ctxs.size();
-    for (size_t i = 0; i < j; ++i) {
-        auto nullable_output = _output_tuple_desc->slots()[i]->is_nullable();
-        auto nullable_input = _probe_expr_ctxs[i]->root()->is_nullable();
-        if (nullable_output != nullable_input) {
-            DCHECK(nullable_output);
-            _make_nullable_keys.emplace_back(i);
-        }
-    }
     for (size_t i = 0; i < _aggregate_evaluators.size(); ++i, ++j) {
         SlotDescriptor* intermediate_slot_desc = _intermediate_tuple_desc->slots()[j];
         SlotDescriptor* output_slot_desc = _output_tuple_desc->slots()[j];
@@ -1100,7 +1081,6 @@ Status StreamingAggOperatorX::pull(RuntimeState* state, Block* block, bool* eos)
         local_state._pre_aggregated_block->swap(*block);
     } else {
         RETURN_IF_ERROR(local_state._get_results_with_serialized_key(state, block, eos));
-        local_state.make_nullable_output_key(block);
         // dispose the having clause, should not be execute in prestreaming agg
         RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts, block));
     }

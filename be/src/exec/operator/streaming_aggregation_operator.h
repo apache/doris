@@ -44,7 +44,6 @@ public:
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
     Status do_pre_agg(RuntimeState* state, Block* input_block, Block* output_block);
-    void make_nullable_output_key(Block* block);
     void build_limit_heap(size_t hash_table_size);
 
 private:
@@ -269,7 +268,6 @@ private:
     VExprContextSPtrs _probe_expr_ctxs;
     std::vector<AggFnEvaluator*> _aggregate_evaluators;
     bool _can_short_circuit = false;
-    std::vector<size_t> _make_nullable_keys;
     RowDescriptor _agg_fn_output_row_descriptor;
 
     // For sort limit
