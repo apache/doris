@@ -354,7 +354,7 @@ BOOTSTRAP_TABLE_CSS_NAME="bootstrap-table.min.css"
 BOOTSTRAP_TABLE_CSS_FILE="bootstrap-table.min.css"
 BOOTSTRAP_TABLE_CSS_MD5SUM="23389d4456da412e36bae30c469a766a"
 
-# aws sdk
+# aws sdk (includes kinesis client for routine load)
 AWS_SDK_DOWNLOAD="https://github.com/aws/aws-sdk-cpp/archive/refs/tags/1.11.219.tar.gz"
 AWS_SDK_NAME="aws-sdk-cpp-1.11.219.tar.gz"
 AWS_SDK_SOURCE="aws-sdk-cpp-1.11.219"

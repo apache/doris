@@ -22,7 +22,7 @@ import com.amazonaws.services.kinesis.AmazonKinesisClientBuilder
 import com.amazonaws.services.kinesis.model.*
 import java.nio.ByteBuffer
 
-suite("test_kinesis_routine_load_pause_resume", "nonConcurrent") {
+suite("test_kinesis_routine_load_pause_resume") {
     def region = context.config.awsRegion ?: context.config.otherConfigs.get("awsRegion")
     def ak = context.config.awsAccessKey ?: context.config.otherConfigs.get("awsAccessKey")
     def sk = context.config.awsSecretKey ?: context.config.otherConfigs.get("awsSecretKey")

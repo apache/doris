@@ -1084,13 +1084,10 @@ Status KinesisDataConsumer::get_shard_list(std::vector<std::string>* shard_ids) 
                                      st.to_string());
     }
 
-    // Include CLOSED shards to ensure we don't miss data during split/merge
-    // By default, ListShards only returns OPEN shards
-    // Use FROM_TRIM_HORIZON to get both OPEN and CLOSED shards
-    Aws::Kinesis::Model::ShardFilter filter;
-    filter.SetType(Aws::Kinesis::Model::ShardFilterType::FROM_TRIM_HORIZON);
-    request.SetShardFilter(filter);
-
+    // Only return OPEN shards. CLOSED shards are tracked separately via closedKinesisShards
+    // on the FE side (populated when BE reports shard exhaustion). Including CLOSED shards here
+    // would cause retired parent shards to be re-added to the open list after reschedule,
+    // leading to duplicate consumption from TRIM_HORIZON.
     auto outcome = _kinesis_client->ListShards(request);
     if (!outcome.IsSuccess()) {
         auto& error = outcome.GetError();

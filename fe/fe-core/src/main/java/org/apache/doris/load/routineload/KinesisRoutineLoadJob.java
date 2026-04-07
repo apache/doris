@@ -387,18 +387,15 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
 
         Preconditions.checkNotNull(this.newCurrentKinesisShards);
 
+        // newCurrentKinesisShards contains only OPEN shards (BE ListShards returns OPEN only).
+        // Compare against openKinesisShards only; closedKinesisShards is managed separately
+        // via BE task progress reports and must not be included here to avoid false positives.
         Set<String> newShards = new HashSet<>(this.newCurrentKinesisShards);
-        Set<String> currentShards = new HashSet<>(openKinesisShards);
-        currentShards.addAll(closedKinesisShards);
+        Set<String> currentOpenShards = new HashSet<>(openKinesisShards);
 
         // Detect new shards
-        if (!newShards.equals(currentShards)) {
-            // Update open shards with newly discovered shards
-            Set<String> addedShards = new HashSet<>(newShards);
-            addedShards.removeAll(currentShards);
-
+        if (!newShards.equals(currentOpenShards)) {
             openKinesisShards = new ArrayList<>(newShards);
-            openKinesisShards.removeAll(closedKinesisShards);
 
             if (LOG.isDebugEnabled()) {
                 LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
@@ -410,8 +407,10 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
             return true;
         }
 
-        // Check if progress is consistent
-        for (String shardId : currentShards) {
+        // Check if progress is consistent for all tracked shards (open + closed)
+        Set<String> allTrackedShards = new HashSet<>(currentOpenShards);
+        allTrackedShards.addAll(closedKinesisShards);
+        for (String shardId : allTrackedShards) {
             if (!((KinesisProgress) progress).containsShard(shardId)) {
                 return true;
             }
