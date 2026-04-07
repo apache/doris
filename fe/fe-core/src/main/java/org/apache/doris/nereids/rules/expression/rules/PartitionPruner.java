@@ -21,7 +21,7 @@ import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.profile.SummaryProfile;
+import org.apache.doris.common.profile.QueryTrace;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges.PartitionItemAndId;
@@ -150,9 +150,10 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
                     partitionTableType,
                     sortedPartitionRanges);
         } finally {
-            SummaryProfile profile = SummaryProfile.getSummaryProfile(cascadesContext.getConnectContext());
-            if (profile != null) {
-                profile.addNereidsPartitiionPruneTime(System.currentTimeMillis() - startAt);
+            QueryTrace trace = cascadesContext.getStatementContext().getQueryTrace();
+            if (trace != null) {
+                trace.recordDuration("Nereids Partition Prune Time",
+                        System.currentTimeMillis() - startAt);
             }
         }
     }

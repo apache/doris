@@ -21,7 +21,7 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.profile.SummaryProfile;
+import org.apache.doris.common.profile.QueryTrace;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.mtmv.BaseColInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
@@ -148,9 +148,9 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             }
             long elapsed = statementContext.getMaterializedViewStopwatch().elapsed(TimeUnit.MILLISECONDS);
             statementContext.addMaterializedViewRewriteDuration(elapsed);
-            SummaryProfile profile = SummaryProfile.getSummaryProfile(cascadesContext.getConnectContext());
-            if (profile != null) {
-                profile.addNereidsMvRewriteTime(elapsed);
+            QueryTrace trace = statementContext.getQueryTrace();
+            if (trace != null) {
+                trace.recordDuration("Nereids MV Rewrite Time", elapsed);
             }
             for (StructInfo queryStructInfo : queryStructInfos) {
                 statementContext.getMaterializedViewStopwatch().reset().start();
@@ -175,8 +175,8 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 } finally {
                     elapsed = statementContext.getMaterializedViewStopwatch().elapsed(TimeUnit.MILLISECONDS);
                     statementContext.addMaterializedViewRewriteDuration(elapsed);
-                    if (profile != null) {
-                        profile.addNereidsMvRewriteTime(elapsed);
+                    if (trace != null) {
+                        trace.recordDuration("Nereids MV Rewrite Time", elapsed);
                     }
                 }
             }
@@ -454,9 +454,10 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             try {
                 MaterializedViewUtils.collectTableUsedPartitions(rewrittenPlan, cascadesContext);
             } finally {
-                SummaryProfile summaryProfile = SummaryProfile.getSummaryProfile(cascadesContext.getConnectContext());
-                if (summaryProfile != null) {
-                    summaryProfile.addCollectTablePartitionTime(TimeUtils.getElapsedTimeMs(startTimeMs));
+                QueryTrace traceForPartition = cascadesContext.getStatementContext().getQueryTrace();
+                if (traceForPartition != null) {
+                    traceForPartition.recordDuration("Nereids Collect Table Partition Time",
+                            TimeUtils.getElapsedTimeMs(startTimeMs));
                 }
             }
             trySetStatistics(materializationContext, cascadesContext);

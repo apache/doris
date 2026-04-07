@@ -37,6 +37,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.profile.QueryTrace;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.FileFormatConstants;
@@ -167,9 +168,13 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         } catch (UserException e) {
             throw new AnalysisException("parse file failed, err: " + e.getMessage(), e);
         } finally {
-            SummaryProfile profile = SummaryProfile.getSummaryProfile(ConnectContext.get());
-            if (profile != null) {
-                profile.addExternalTvfInitTime(System.currentTimeMillis() - startAt);
+            SummaryProfile summaryProfile = SummaryProfile.getSummaryProfile(ConnectContext.get());
+            if (summaryProfile != null) {
+                QueryTrace trace = summaryProfile.getQueryTrace();
+                if (trace != null) {
+                    trace.recordDuration("External TVF Init Time",
+                            System.currentTimeMillis() - startAt);
+                }
             }
         }
     }

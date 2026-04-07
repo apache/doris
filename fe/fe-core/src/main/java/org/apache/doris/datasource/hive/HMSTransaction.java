@@ -24,6 +24,7 @@ package org.apache.doris.datasource.hive;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.profile.QueryTrace;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.statistics.CommonStatistics;
@@ -91,7 +92,7 @@ public class HMSTransaction implements Transaction {
     private static final Logger LOG = LogManager.getLogger(HMSTransaction.class);
     private final HiveMetadataOps hiveOps;
     private final FileSystem fs;
-    private Optional<SummaryProfile> summaryProfile = Optional.empty();
+    private Optional<QueryTrace> queryTrace = Optional.empty();
     private String queryId;
     private boolean isOverwrite = false;
     TFileType fileType;
@@ -145,7 +146,10 @@ public class HMSTransaction implements Transaction {
             throw new RuntimeException("fs should be SwitchingFileSystem");
         }
         if (ConnectContext.get().getExecutor() != null) {
-            summaryProfile = Optional.of(ConnectContext.get().getExecutor().getSummaryProfile());
+            SummaryProfile sp = ConnectContext.get().getExecutor().getSummaryProfile();
+            if (sp != null && sp.getQueryTrace() != null) {
+                queryTrace = Optional.of(sp.getQueryTrace());
+            }
         }
         this.fileSystemExecutor = fileSystemExecutor;
     }
@@ -1490,35 +1494,38 @@ public class HMSTransaction implements Transaction {
 
 
         private void waitForAsyncFileSystemTasks() {
-            summaryProfile.ifPresent(SummaryProfile::setTempStartTime);
+            long startTime = System.currentTimeMillis();
 
             for (CompletableFuture<?> future : asyncFileSystemTaskFutures) {
                 MoreFutures.getFutureValue(future, RuntimeException.class);
             }
 
-            summaryProfile.ifPresent(SummaryProfile::freshFilesystemOptTime);
+            queryTrace.ifPresent(qt ->
+                    qt.recordDuration("FileSystem Operator Time",
+                            System.currentTimeMillis() - startTime));
         }
 
         private void doAddPartitionsTask() {
+            queryTrace.ifPresent(qt ->
+                    qt.addCounter("HMS Add Partition Count",
+                            addPartitionsTask.getPartitions().size()));
 
-            summaryProfile.ifPresent(profile -> {
-                profile.setTempStartTime();
-                profile.addHmsAddPartitionCnt(addPartitionsTask.getPartitions().size());
-            });
-
+            long startTime = System.currentTimeMillis();
             if (!addPartitionsTask.isEmpty()) {
                 addPartitionsTask.run(hiveOps);
             }
 
-            summaryProfile.ifPresent(SummaryProfile::setHmsAddPartitionTime);
+            queryTrace.ifPresent(qt ->
+                    qt.recordDuration("HMS Add Partition Time",
+                            System.currentTimeMillis() - startTime));
         }
 
         private void doUpdateStatisticsTasks() {
-            summaryProfile.ifPresent(profile -> {
-                profile.setTempStartTime();
-                profile.addHmsUpdatePartitionCnt(updateStatisticsTasks.size());
-            });
+            queryTrace.ifPresent(qt ->
+                    qt.addCounter("HMS Update Partition Count",
+                            updateStatisticsTasks.size()));
 
+            long startTime = System.currentTimeMillis();
             ImmutableList.Builder<CompletableFuture<?>> updateStatsFutures = ImmutableList.builder();
             List<String> failedTaskDescriptions = new ArrayList<>();
             List<Throwable> suppressedExceptions = new ArrayList<>();
@@ -1547,7 +1554,9 @@ public class HMSTransaction implements Transaction {
                 throw exception;
             }
 
-            summaryProfile.ifPresent(SummaryProfile::setHmsUpdatePartitionTime);
+            queryTrace.ifPresent(qt ->
+                    qt.recordDuration("HMS Update Partition Time",
+                            System.currentTimeMillis() - startTime));
         }
 
         private void pruneAndDeleteStagingDirectories() {
@@ -1765,38 +1774,38 @@ public class HMSTransaction implements Transaction {
     public Status wrapperRenameDirWithProfileSummary(String origFilePath,
             String destFilePath,
             Runnable runWhenPathNotExist) {
-        summaryProfile.ifPresent(profile -> {
-            profile.setTempStartTime();
-            profile.incRenameDirCnt();
-        });
+        queryTrace.ifPresent(qt -> qt.addCounter("Rename Dir Count", 1));
 
+        long startTime = System.currentTimeMillis();
         Status status = fs.renameDir(origFilePath, destFilePath, runWhenPathNotExist);
 
-        summaryProfile.ifPresent(SummaryProfile::freshFilesystemOptTime);
+        queryTrace.ifPresent(qt ->
+                qt.recordDuration("FileSystem Operator Time",
+                        System.currentTimeMillis() - startTime));
         return status;
     }
 
     public Status wrapperDeleteWithProfileSummary(String remotePath) {
-        summaryProfile.ifPresent(profile -> {
-            profile.setTempStartTime();
-            profile.incDeleteFileCnt();
-        });
+        queryTrace.ifPresent(qt -> qt.addCounter("Delete File Count", 1));
 
+        long startTime = System.currentTimeMillis();
         Status status = fs.delete(remotePath);
 
-        summaryProfile.ifPresent(SummaryProfile::freshFilesystemOptTime);
+        queryTrace.ifPresent(qt ->
+                qt.recordDuration("FileSystem Operator Time",
+                        System.currentTimeMillis() - startTime));
         return status;
     }
 
     public Status wrapperDeleteDirWithProfileSummary(String remotePath) {
-        summaryProfile.ifPresent(profile -> {
-            profile.setTempStartTime();
-            profile.incDeleteDirRecursiveCnt();
-        });
+        queryTrace.ifPresent(qt -> qt.addCounter("Delete Dir Count", 1));
 
+        long startTime = System.currentTimeMillis();
         Status status = fs.deleteDirectory(remotePath);
 
-        summaryProfile.ifPresent(SummaryProfile::freshFilesystemOptTime);
+        queryTrace.ifPresent(qt ->
+                qt.recordDuration("FileSystem Operator Time",
+                        System.currentTimeMillis() - startTime));
         return status;
     }
 
@@ -1808,7 +1817,7 @@ public class HMSTransaction implements Transaction {
             List<String> fileNames) {
         FileSystemUtil.asyncRenameFiles(
                 fs, executor, renameFileFutures, cancelled, origFilePath, destFilePath, fileNames);
-        summaryProfile.ifPresent(profile -> profile.addRenameFileCnt(fileNames.size()));
+        queryTrace.ifPresent(qt -> qt.addCounter("Rename File Count", fileNames.size()));
     }
 
     public void wrapperAsyncRenameDirWithProfileSummary(Executor executor,
@@ -1819,7 +1828,7 @@ public class HMSTransaction implements Transaction {
             Runnable runWhenPathNotExist) {
         FileSystemUtil.asyncRenameDir(
                 fs, executor, renameFileFutures, cancelled, origFilePath, destFilePath, runWhenPathNotExist);
-        summaryProfile.ifPresent(SummaryProfile::incRenameDirCnt);
+        queryTrace.ifPresent(qt -> qt.addCounter("Rename Dir Count", 1));
     }
 
     /**

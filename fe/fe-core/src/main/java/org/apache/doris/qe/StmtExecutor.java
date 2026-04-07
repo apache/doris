@@ -55,6 +55,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.profile.Profile;
 import org.apache.doris.common.profile.ProfileManager.ProfileType;
+import org.apache.doris.common.profile.QueryTrace;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.profile.SummaryProfile.SummaryBuilder;
 import org.apache.doris.common.util.BrokerUtil;
@@ -682,6 +683,12 @@ public class StmtExecutor {
         context.setStartTime();
 
         profile.getSummaryProfile().setQueryBeginTime(TimeUtils.getStartTimeMs());
+        // Also record the query begin time in QueryTrace for the new profiling system
+        QueryTrace queryTrace = profile.getSummaryProfile().getQueryTrace();
+        if (queryTrace != null) {
+            queryTrace.setText("Query Begin Time",
+                    TimeUtils.longToTimeString(TimeUtils.getStartTimeMs()));
+        }
         // short circuit query should not dump changed session var since it will impact the performance.
         if (context.getSessionVariable().enableProfile && !statementContext.isShortCircuitQuery()) {
             List<List<String>> changedSessionVar = VariableMgr.dumpChangedVars(context.getSessionVariable());
@@ -814,6 +821,7 @@ public class StmtExecutor {
             // t3: observer fe receive editlog creating the table from the master fe
             syncJournalIfNeeded(context);
             planner = new NereidsPlanner(statementContext);
+            long planStartTime = TimeUtils.getStartTimeMs();
             try {
                 checkBlockRulesByRegex(originStmt);
                 planner.plan(parsedStmt, context.getSessionVariable().toThrift());
@@ -823,6 +831,10 @@ public class StmtExecutor {
                 throw new NereidsException(new AnalysisException(e.getMessage(), e));
             }
             profile.getSummaryProfile().setQueryPlanFinishTime(TimeUtils.getStartTimeMs());
+            QueryTrace planQt = profile.getSummaryProfile().getQueryTrace();
+            if (planQt != null) {
+                planQt.recordDuration("Plan Time", TimeUtils.getStartTimeMs() - planStartTime);
+            }
             if (MetricRepo.isInit) {
                 SummaryProfile summaryProfile = profile.getSummaryProfile();
                 int nereidsAnalysisTimeMs = summaryProfile.getNereidsAnalysisTimeMs();
@@ -919,10 +931,16 @@ public class StmtExecutor {
         }
         List<StatementBase> statements;
         try {
-            getProfile().getSummaryProfile().setParseSqlStartTime(System.currentTimeMillis());
+            long parseStartTime = System.currentTimeMillis();
+            getProfile().getSummaryProfile().setParseSqlStartTime(parseStartTime);
             statements = new NereidsParser().parseSQL(originStmt.originStmt, context.getSessionVariable());
-            getProfile().getSummaryProfile().setParseSqlFinishTime(System.currentTimeMillis());
+            long parseEndTime = System.currentTimeMillis();
+            getProfile().getSummaryProfile().setParseSqlFinishTime(parseEndTime);
             getProfile().getSummaryProfile().parsedByConnectionProcess = false;
+            QueryTrace parseQt = getProfile().getSummaryProfile().getQueryTrace();
+            if (parseQt != null) {
+                parseQt.recordDuration("Parse SQL Time", parseEndTime - parseStartTime);
+            }
             if (MetricRepo.isInit) {
                 MetricRepo.HISTO_PLAN_PARSE_DURATION.update(getProfile().getSummaryProfile().getParseSqlTimeMs());
             }
@@ -1287,6 +1305,10 @@ public class StmtExecutor {
                 if (context.getSessionVariable().enableProfile()) {
                     if (profile != null) {
                         this.profile.getSummaryProfile().setExecutedByFrontend(true);
+                        QueryTrace qt = profile.getSummaryProfile().getQueryTrace();
+                        if (qt != null) {
+                            qt.setText("Executed By Frontend", "true");
+                        }
                     }
                 }
                 return;
@@ -1372,8 +1394,14 @@ public class StmtExecutor {
             if (outFileClause != null) {
                 deleteExistingOutfileFilesInFe(outFileClause);
             }
+            long scheduleStartTime = TimeUtils.getStartTimeMs();
             coordBase.exec();
-            profile.getSummaryProfile().setQueryScheduleFinishTime(TimeUtils.getStartTimeMs());
+            long scheduleFinishTime = TimeUtils.getStartTimeMs();
+            profile.getSummaryProfile().setQueryScheduleFinishTime(scheduleFinishTime);
+            QueryTrace schedQt = profile.getSummaryProfile().getQueryTrace();
+            if (schedQt != null) {
+                schedQt.recordDuration("Schedule Time", scheduleFinishTime - scheduleStartTime);
+            }
             updateProfile(false);
 
             if (context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
@@ -1385,9 +1413,15 @@ public class StmtExecutor {
             boolean isDryRun = ConnectContext.get() != null && ConnectContext.get().getSessionVariable().dryRunQuery;
             while (true) {
                 // register the fetch result time.
+                long fetchStartTime = TimeUtils.getStartTimeMs();
                 profile.getSummaryProfile().setTempStartTime();
                 batch = coordBase.getNext();
                 profile.getSummaryProfile().freshFetchResultConsumeTime();
+                QueryTrace fetchQt = profile.getSummaryProfile().getQueryTrace();
+                if (fetchQt != null) {
+                    fetchQt.recordDuration("Fetch Result Time",
+                            TimeUtils.getStartTimeMs() - fetchStartTime);
+                }
 
                 // for outfile query, there will be only one empty batch send back with eos flag
                 // call `copyRowBatch()` first, because batch.getBatch() may be null, if result set is empty
@@ -1396,6 +1430,7 @@ public class StmtExecutor {
                 }
                 if (batch.getBatch() != null) {
                     // register send field result time.
+                    long writeStartTime = TimeUtils.getStartTimeMs();
                     profile.getSummaryProfile().setTempStartTime();
                     // For some language driver, getting error packet after fields packet
                     // will be recognized as a success result
@@ -1416,6 +1451,11 @@ public class StmtExecutor {
                         channel.sendOnePacket(row);
                     }
                     profile.getSummaryProfile().freshWriteResultConsumeTime();
+                    QueryTrace writeQt = profile.getSummaryProfile().getQueryTrace();
+                    if (writeQt != null) {
+                        writeQt.recordDuration("Write Result Time",
+                                TimeUtils.getStartTimeMs() - writeStartTime);
+                    }
                     context.updateReturnRows(batch.getBatch().getRows().size());
                     context.addResultAttachedInfo(batch.getBatch().getAttachedInfos());
                 }

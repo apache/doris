@@ -23,6 +23,8 @@ package org.apache.doris.planner;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.profile.QueryTrace;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
@@ -199,9 +201,7 @@ public class HiveTableSink extends BaseExternalTableDataSink {
     }
 
     private void setPartitionValues(THiveTableSink tSink) throws AnalysisException {
-        if (ConnectContext.get().getExecutor() != null) {
-            ConnectContext.get().getExecutor().getSummaryProfile().setSinkGetPartitionsStartTime();
-        }
+        long startTime = System.currentTimeMillis();
 
         List<THivePartition> partitions = new ArrayList<>();
 
@@ -235,8 +235,15 @@ public class HiveTableSink extends BaseExternalTableDataSink {
 
         tSink.setPartitions(partitions);
 
-        if (ConnectContext.get().getExecutor() != null) {
-            ConnectContext.get().getExecutor().getSummaryProfile().setSinkGetPartitionsFinishTime();
+        if (ConnectContext.get() != null && ConnectContext.get().getExecutor() != null) {
+            SummaryProfile sp = ConnectContext.get().getExecutor().getSummaryProfile();
+            if (sp != null) {
+                QueryTrace trace = sp.getQueryTrace();
+                if (trace != null) {
+                    trace.recordDuration(SummaryProfile.SINK_SET_PARTITION_VALUES_TIME,
+                            System.currentTimeMillis() - startTime);
+                }
+            }
         }
     }
 

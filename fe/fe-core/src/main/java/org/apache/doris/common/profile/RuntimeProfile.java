@@ -90,6 +90,8 @@ public class RuntimeProfile {
     @SerializedName(value = "infoStringsDisplayOrder")
     private List<String> infoStringsDisplayOrder = Lists.newArrayList();
     private transient ReentrantReadWriteLock infoStringsLock = new ReentrantReadWriteLock();
+    // Self-contained indentation levels for info strings, decoupling from SummaryProfile
+    private transient Map<String, Integer> infoStringIndents = Maps.newHashMap();
 
     @SerializedName(value = "counterMap")
     private ConcurrentMap<String, Counter> counterMap = Maps.newConcurrentMap();
@@ -153,6 +155,7 @@ public class RuntimeProfile {
         this.infoStringsLock = new ReentrantReadWriteLock();
         this.childLock = new ReentrantReadWriteLock();
         this.counterLock = new ReentrantReadWriteLock();
+        this.infoStringIndents = Maps.newHashMap();
     }
 
     public Boolean getIsCancel() {
@@ -411,8 +414,13 @@ public class RuntimeProfile {
         try {
             for (String key : this.infoStringsDisplayOrder) {
                 builder.append(prefix);
-                if (SummaryProfile.EXECUTION_SUMMARY_KEYS_INDENTATION.containsKey(key)) {
-                    for (int i = 0; i < SummaryProfile.EXECUTION_SUMMARY_KEYS_INDENTATION.get(key); i++) {
+                // Use self-contained indent if available, fall back to legacy static map
+                Integer indent = this.infoStringIndents.get(key);
+                if (indent == null) {
+                    indent = SummaryProfile.EXECUTION_SUMMARY_KEYS_INDENTATION.get(key);
+                }
+                if (indent != null) {
+                    for (int i = 0; i < indent; i++) {
                         builder.append("  ");
                     }
                 }
@@ -807,6 +815,30 @@ public class RuntimeProfile {
             this.infoStrings.put(key, value);
             if (target == null) {
                 this.infoStringsDisplayOrder.add(key);
+            }
+        } finally {
+            infoStringsLock.writeLock().unlock();
+        }
+    }
+
+    /**
+     * Add an info string with an explicit indentation level.
+     * This decouples indentation from the legacy SummaryProfile.EXECUTION_SUMMARY_KEYS_INDENTATION map.
+     *
+     * @param key the info string key
+     * @param value the info string value
+     * @param indentLevel the indentation level (0 = no indent, 1 = one level, etc.)
+     */
+    public void addInfoString(String key, String value, int indentLevel) {
+        infoStringsLock.writeLock().lock();
+        try {
+            String target = this.infoStrings.get(key);
+            this.infoStrings.put(key, value);
+            if (target == null) {
+                this.infoStringsDisplayOrder.add(key);
+            }
+            if (indentLevel > 0) {
+                this.infoStringIndents.put(key, indentLevel);
             }
         } finally {
             infoStringsLock.writeLock().unlock();

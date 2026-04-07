@@ -46,6 +46,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.profile.QueryTrace;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.Util;
@@ -295,6 +296,11 @@ public abstract class ConnectProcessor {
                 executor.getProfile().getSummaryProfile().setParseSqlStartTime(parseSqlStartTime);
                 executor.getProfile().getSummaryProfile().setParseSqlFinishTime(parseSqlFinishTime);
                 executor.getProfile().getSummaryProfile().parsedByConnectionProcess = true;
+                QueryTrace parseQt =
+                        executor.getProfile().getSummaryProfile().getQueryTrace();
+                if (parseQt != null) {
+                    parseQt.recordDuration("Parse SQL Time", parseSqlFinishTime - parseSqlStartTime);
+                }
                 // Here we set the MoreStmtExists flag without considering CLIENT_MULTI_STATEMENTS.
                 // So the master will always set SERVER_MORE_RESULTS_EXISTS when the statement is not the last one.
                 // When the Follower/Observer received the return result of Master, the Follower/Observer

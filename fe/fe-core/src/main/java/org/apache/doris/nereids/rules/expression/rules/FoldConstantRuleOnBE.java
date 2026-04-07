@@ -26,6 +26,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
@@ -337,7 +338,14 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             }
             PConstantExprResult result = future.get(5, TimeUnit.SECONDS);
             if (context.getExecutor() != null && context.getSessionVariable().enableProfile()) {
-                context.getExecutor().getSummaryProfile().sumBeFoldTime(TimeUtils.getStartTimeMs() - beFoldStartTime);
+                org.apache.doris.common.profile.QueryTrace trace = null;
+                if (context.getExecutor().getSummaryProfile() != null) {
+                    trace = context.getExecutor().getSummaryProfile().getQueryTrace();
+                }
+                if (trace != null) {
+                    trace.recordDuration(SummaryProfile.NEREIDS_BE_FOLD_CONST_TIME,
+                            TimeUtils.getStartTimeMs() - beFoldStartTime);
+                }
             }
 
             if (result.getStatus().getStatusCode() == 0) {

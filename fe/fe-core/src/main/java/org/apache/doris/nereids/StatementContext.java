@@ -30,6 +30,8 @@ import org.apache.doris.catalog.View;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.profile.QueryTrace;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
@@ -461,6 +463,22 @@ public class StatementContext implements Closeable {
 
     public ConnectContext getConnectContext() {
         return connectContext;
+    }
+
+    /**
+     * Get the QueryTrace for the current query, shortcut for
+     * getConnectContext().getExecutor().getSummaryProfile().getQueryTrace().
+     *
+     * @return the QueryTrace, or null if not available (e.g. no executor context)
+     */
+    public QueryTrace getQueryTrace() {
+        if (connectContext != null && connectContext.getExecutor() != null) {
+            SummaryProfile summaryProfile = connectContext.getExecutor().getSummaryProfile();
+            if (summaryProfile != null) {
+                return summaryProfile.getQueryTrace();
+            }
+        }
+        return null;
     }
 
     public void setOriginStatement(OriginStatement originStatement) {

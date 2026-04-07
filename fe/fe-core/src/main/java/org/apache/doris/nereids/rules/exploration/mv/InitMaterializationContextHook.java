@@ -27,7 +27,6 @@ import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mtmv.MTMVUtil;
@@ -77,8 +76,8 @@ public class InitMaterializationContextHook implements PlannerHook {
         }
         StatementContext statementContext = cascadesContext.getStatementContext();
         if (statementContext.getConnectContext().getExecutor() != null) {
-            statementContext.getConnectContext().getExecutor().getSummaryProfile()
-                    .setNereidsCollectTablePartitionFinishTime(TimeUtils.getStartTimeMs());
+            // The "collect table partition" timing is recorded by the Nereids rewrite phase
+            // as a cumulative span via QueryTrace.
         }
         initMaterializationContext(cascadesContext);
     }

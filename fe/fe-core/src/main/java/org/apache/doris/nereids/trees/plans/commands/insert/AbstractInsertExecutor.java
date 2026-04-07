@@ -25,6 +25,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.profile.QueryTrace;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.loadv2.InsertLoadJob;
@@ -180,9 +181,16 @@ public abstract class AbstractInsertExecutor {
         QueryInfo queryInfo = new QueryInfo(ConnectContext.get(), executor.getOriginStmtInString(), coordinator);
         QeProcessorImpl.INSTANCE.registerQuery(ctx.queryId(), queryInfo);
         executor.updateProfile(false);
+        long scheduleStartTime = TimeUtils.getStartTimeMs();
         coordinator.exec();
-        executor.getSummaryProfile().setQueryScheduleFinishTime(TimeUtils.getStartTimeMs());
+        long scheduleFinishTime = TimeUtils.getStartTimeMs();
+        executor.getSummaryProfile().setQueryScheduleFinishTime(scheduleFinishTime);
+        QueryTrace schedQt = executor.getSummaryProfile().getQueryTrace();
+        if (schedQt != null) {
+            schedQt.recordDuration("Schedule Time", scheduleFinishTime - scheduleStartTime);
+        }
         executor.getSummaryProfile().setTempStartTime();
+        long fetchStartTime = TimeUtils.getStartTimeMs();
         int execTimeout = ctx.getExecTimeoutS();
         if (LOG.isDebugEnabled()) {
             LOG.debug("insert [{}] with query id {} execution timeout is {}", labelName, queryId, execTimeout);
@@ -190,6 +198,11 @@ public abstract class AbstractInsertExecutor {
         boolean notTimeout = coordinator.join(execTimeout);
         executor.getSummaryProfile().freshFetchResultConsumeTime();
         executor.getSummaryProfile().setQueryFetchResultFinishTime(TimeUtils.getStartTimeMs());
+        QueryTrace fetchQt = executor.getSummaryProfile().getQueryTrace();
+        if (fetchQt != null) {
+            fetchQt.recordDuration("Fetch Result Time",
+                    TimeUtils.getStartTimeMs() - fetchStartTime);
+        }
         if (!coordinator.isDone()) {
             coordinator.cancel(new Status(TStatusCode.CANCELLED, "insert timeout"));
             if (notTimeout) {
