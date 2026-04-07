@@ -632,7 +632,7 @@ public class LineageInfoExtractor {
                 }
             }
             for (Object expr : expression.collectToList(If.class::isInstance)) {
-                conditions.add(((If) expr).getCondition());
+                conditions.add(((If) expr).child(0));
             }
             for (Object expr : expression.collectToList(Coalesce.class::isInstance)) {
                 conditions.addAll(((Coalesce) expr).children());
