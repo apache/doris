@@ -194,9 +194,6 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
     auto cache_it = _cache.find(binding_key);
     if (cache_it != _cache.end()) {
         *binding = cache_it->second;
-        if (_context->stats) {
-            _context->stats->inverted_index_searcher_cache_hit++;
-        }
         return Status::OK();
     }
 
@@ -271,13 +268,25 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
                 "index file reader is null for field '{}'", field_name);
     }
 
-    // Use InvertedIndexSearcherCache to avoid re-opening index files repeatedly
+    // Use InvertedIndexSearcherCache to avoid re-opening index files repeatedly,
+    // respecting the enable_inverted_index_searcher_cache session variable.
     auto index_file_key =
             index_file_reader->get_index_file_cache_key(&inverted_reader->get_index_meta());
     InvertedIndexSearcherCache::CacheKey searcher_cache_key(index_file_key);
     InvertedIndexCacheHandle searcher_cache_handle;
-    bool cache_hit = InvertedIndexSearcherCache::instance()->lookup(searcher_cache_key,
-                                                                    &searcher_cache_handle);
+
+    bool searcher_cache_enabled =
+            _context->runtime_state != nullptr &&
+            _context->runtime_state->query_options().enable_inverted_index_searcher_cache;
+
+    bool cache_hit = false;
+    if (searcher_cache_enabled) {
+        int64_t lookup_dummy = 0;
+        SCOPED_RAW_TIMER(_context->stats ? &_context->stats->inverted_index_lookup_timer
+                                         : &lookup_dummy);
+        cache_hit = InvertedIndexSearcherCache::instance()->lookup(searcher_cache_key,
+                                                                   &searcher_cache_handle);
+    }
 
     std::shared_ptr<lucene::index::IndexReader> reader_holder;
     if (cache_hit) {
@@ -430,6 +439,13 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
         return Status::OK();
     }
 
+    // Track overall query time (equivalent to inverted_index_query_timer in MATCH path).
+    // Must be declared before the DSL cache lookup so that cache-hit fast paths are
+    // also covered by the timer.
+    int64_t query_timer_dummy = 0;
+    OlapReaderStatistics* outer_stats = index_query_context ? index_query_context->stats : nullptr;
+    SCOPED_RAW_TIMER(outer_stats ? &outer_stats->inverted_index_query_timer : &query_timer_dummy);
+
     // DSL result cache: reuse InvertedIndexQueryCache with SEARCH_DSL_QUERY type
     auto* dsl_cache = enable_cache ? InvertedIndexQueryCache::instance() : nullptr;
     std::string seg_prefix;
@@ -445,9 +461,19 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
                     dsl_sig};
             cache_usable = true;
             InvertedIndexQueryCacheHandle dsl_cache_handle;
-            if (dsl_cache->lookup(dsl_cache_key, &dsl_cache_handle)) {
+            bool dsl_hit = false;
+            {
+                int64_t lookup_dummy = 0;
+                SCOPED_RAW_TIMER(outer_stats ? &outer_stats->inverted_index_lookup_timer
+                                             : &lookup_dummy);
+                dsl_hit = dsl_cache->lookup(dsl_cache_key, &dsl_cache_handle);
+            }
+            if (dsl_hit) {
                 auto cached_bitmap = dsl_cache_handle.get_bitmap();
                 if (cached_bitmap) {
+                    if (outer_stats) {
+                        outer_stats->inverted_index_query_cache_hit++;
+                    }
                     // Also retrieve cached null bitmap for three-valued SQL logic
                     // (needed by compound operators NOT, OR, AND in VCompoundPred)
                     auto null_cache_key = InvertedIndexQueryCache::CacheKey {
@@ -466,13 +492,11 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
                     return Status::OK();
                 }
             }
+            if (outer_stats) {
+                outer_stats->inverted_index_query_cache_miss++;
+            }
         }
     }
-
-    // Track overall query time (equivalent to inverted_index_query_timer in MATCH path)
-    int64_t query_timer_dummy = 0;
-    OlapReaderStatistics* outer_stats = index_query_context ? index_query_context->stats : nullptr;
-    SCOPED_RAW_TIMER(outer_stats ? &outer_stats->inverted_index_query_timer : &query_timer_dummy);
 
     std::shared_ptr<IndexQueryContext> context;
     if (index_query_context) {

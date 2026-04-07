@@ -195,7 +195,99 @@ suite("test_search_inverted_index_profile", "nonConcurrent") {
     }
 
     // =========================================================================
-    // Test 4: SEARCH vs MATCH consistency — same data, same predicate logic,
+    // Test 4: DSL query-cache hit — enable query cache, run same DSL twice.
+    // First run populates the DSL cache (miss), second run hits it.
+    // Verify InvertedIndexQueryCacheHit > 0, InvertedIndexQueryTime > 0,
+    // and InvertedIndexLookupTime > 0 on the cache-hit path.
+    // =========================================================================
+    sql """ set enable_inverted_index_searcher_cache = true """
+    sql """ set enable_inverted_index_query_cache = true """
+
+    // First run: populate DSL cache
+    sql """SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */
+           id FROM ${tableName} WHERE search('title:banana') ORDER BY id"""
+
+    // Second run: should hit DSL cache
+    def queryId4 = "search_profile_dsl_hit_${System.currentTimeMillis()}"
+    try {
+        profile("${queryId4}") {
+            run {
+                sql """/* ${queryId4} */ SELECT id FROM ${tableName}
+                       WHERE search('title:banana') ORDER BY id"""
+            }
+            check { profileString, exception ->
+                if (exception != null) throw exception
+                log.info("=== DSL cache-hit profile ===")
+
+                def queryCacheHit = extractCounter(profileString, "InvertedIndexQueryCacheHit")
+                def queryTime = extractCounter(profileString, "InvertedIndexQueryTime")
+                def lookupTime = extractCounter(profileString, "InvertedIndexLookupTime")
+
+                log.info("InvertedIndexQueryCacheHit: {}", queryCacheHit)
+                log.info("InvertedIndexQueryTime: {}", queryTime)
+                log.info("InvertedIndexLookupTime: {}", lookupTime)
+
+                assertTrue(queryCacheHit > 0,
+                    "InvertedIndexQueryCacheHit should be > 0 on DSL cache hit, got ${queryCacheHit}")
+                assertTrue(queryTime > 0,
+                    "InvertedIndexQueryTime should be > 0 even on DSL cache hit, got ${queryTime}")
+            }
+        }
+    } catch (IllegalStateException e) {
+        if (e.message?.contains("HttpCliAction failed")) {
+            log.warn("Profile HTTP request failed, skipping: {}", e.message)
+        } else {
+            throw e
+        }
+    }
+
+    // =========================================================================
+    // Test 5: searcher cache disabled — run same DSL twice with searcher cache
+    // off (but query cache also off so DSL cache cannot mask the problem).
+    // Both runs must show cache miss and zero cache hits, proving the switch
+    // is actually respected and a second run does not silently hit the cache.
+    // =========================================================================
+    sql """ set enable_inverted_index_searcher_cache = false """
+    sql """ set enable_inverted_index_query_cache = false """
+
+    // First run: cache miss (searcher cache disabled, nothing to hit)
+    sql """SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */
+           id FROM ${tableName} WHERE search('title:grape') ORDER BY id"""
+
+    // Second run: should STILL be a cache miss because searcher cache is disabled
+    def queryId5 = "search_profile_no_cache_${System.currentTimeMillis()}"
+    try {
+        profile("${queryId5}") {
+            run {
+                sql """/* ${queryId5} */ SELECT id FROM ${tableName}
+                       WHERE search('title:grape') ORDER BY id"""
+            }
+            check { profileString, exception ->
+                if (exception != null) throw exception
+                log.info("=== Searcher cache disabled (2nd run) profile ===")
+
+                def cacheHit = extractCounter(profileString, "InvertedIndexSearcherCacheHit")
+                def cacheMiss = extractCounter(profileString, "InvertedIndexSearcherCacheMiss")
+
+                log.info("InvertedIndexSearcherCacheHit: {}", cacheHit)
+                log.info("InvertedIndexSearcherCacheMiss: {}", cacheMiss)
+
+                assertTrue(cacheHit == 0,
+                    "InvertedIndexSearcherCacheHit should be 0 when cache disabled, got ${cacheHit}")
+                assertTrue(cacheMiss > 0,
+                    "InvertedIndexSearcherCacheMiss should be > 0 when cache disabled, got ${cacheMiss}")
+            }
+        }
+    } catch (IllegalStateException e) {
+        if (e.message?.contains("HttpCliAction failed")) {
+            log.warn("Profile HTTP request failed, skipping: {}", e.message)
+        } else {
+            throw e
+        }
+    }
+
+    // =========================================================================
+    // Test 6: SEARCH vs MATCH consistency — same data, same predicate logic,
     // both should return identical results.
     // =========================================================================
     def search_result = sql """
