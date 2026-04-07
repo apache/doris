@@ -2471,6 +2471,12 @@ public class Coordinator implements CoordInterface {
             }
         }
 
+        long reportTxnId = params.isSetTxnId() ? params.getTxnId() : txnId;
+        if (params.isSetPaimonCommitMessages() && reportTxnId > 0) {
+            ((PaimonTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr()
+                    .getTxnById(reportTxnId)).updateCommitMessages(params.getPaimonCommitMessages());
+        }
+
         PipelineExecContext ctx = pipelineExecContexts.get(Pair.of(params.getFragmentId(), params.getBackendId()));
         if (ctx == null || !ctx.updatePipelineStatus(params)) {
             LOG.debug("Fragment {} is not done, ignore report status: {}",
@@ -2535,10 +2541,6 @@ public class Coordinator implements CoordInterface {
         if (params.isSetIcebergCommitDatas()) {
             ((IcebergTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId))
                 .updateIcebergCommitData(params.getIcebergCommitDatas());
-        }
-        if (params.isSetPaimonCommitMessages()) {
-            ((PaimonTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId))
-                    .updateCommitMessages(params.getPaimonCommitMessages());
         }
         if (params.isSetMcCommitDatas()) {
             ((MCTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId))

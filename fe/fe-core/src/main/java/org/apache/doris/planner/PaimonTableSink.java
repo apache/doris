@@ -20,6 +20,7 @@ package org.apache.doris.planner;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.mvcc.MvccUtil;
+import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.nereids.trees.plans.commands.insert.BaseExternalTableInsertCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
@@ -33,8 +34,10 @@ import org.apache.doris.thrift.TPaimonWriteShuffleMode;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.paimon.options.CatalogOptions;
 import org.apache.paimon.utils.InstantiationUtil;
 
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
@@ -99,6 +102,15 @@ public class PaimonTableSink extends BaseExternalTableDataSink {
         Map<String, String> catalogProps = targetTable.getCatalog().getCatalogProperty().getHadoopProperties();
         Map<String, String> options = new HashMap<>();
         options.putAll(catalogProps);
+        String warehouse = ((PaimonExternalCatalog) targetTable.getCatalog()).getPaimonOptionsMap()
+                .get(CatalogOptions.WAREHOUSE.key());
+        String defaultFsName = resolveDefaultFsName(warehouse);
+        if (defaultFsName != null && !defaultFsName.isEmpty()) {
+            String currentDefaultFs = options.get("fs.defaultFS");
+            if (currentDefaultFs == null || currentDefaultFs.isEmpty() || currentDefaultFs.startsWith("file:/")) {
+                options.put("fs.defaultFS", defaultFsName);
+            }
+        }
         if (insertCtx.isPresent() && insertCtx.get() instanceof BaseExternalTableInsertCommandContext) {
             BaseExternalTableInsertCommandContext ctx = (BaseExternalTableInsertCommandContext) insertCtx.get();
             if (ctx.getTxnId() > 0) {
@@ -114,13 +126,16 @@ public class PaimonTableSink extends BaseExternalTableDataSink {
                     String.valueOf(ConnectContext.get().getSessionVariable().paimonTargetFileSize));
             options.put("write-buffer-size",
                     String.valueOf(ConnectContext.get().getSessionVariable().paimonWriteBufferSize));
-            boolean enableJni = ConnectContext.get().getSessionVariable().enablePaimonJniWriter;
-            options.put("paimon_use_jni", String.valueOf(enableJni));
-            boolean enableJniCompact = ConnectContext.get().getSessionVariable().enablePaimonJniCompact;
-            options.put("paimon_use_jni_compact", String.valueOf(enableJniCompact));
+            String hadoopUser = options.get("hadoop.username");
+            if (hadoopUser == null || hadoopUser.isEmpty()) {
+                hadoopUser = options.get("hadoop.user.name");
+            }
+            if (hadoopUser == null || hadoopUser.isEmpty()) {
+                hadoopUser = "hadoop";
+            }
+            options.put("hadoop.user.name", hadoopUser);
+            options.put("hadoop.username", hadoopUser);
         }
-
-        tSink.setOptions(options);
 
         String tableLocation = null;
         org.apache.paimon.table.Table paimonTable =
@@ -128,18 +143,33 @@ public class PaimonTableSink extends BaseExternalTableDataSink {
         if (paimonTable instanceof org.apache.paimon.table.FileStoreTable) {
             tableLocation = ((org.apache.paimon.table.FileStoreTable) paimonTable).location().toString();
         }
+        tableLocation = normalizeTableLocation(tableLocation);
         if (tableLocation == null || tableLocation.isEmpty()) {
-            String warehouse = catalogProps.get("warehouse");
             if (warehouse != null && !warehouse.isEmpty()) {
                 String base = warehouse.endsWith("/") ? warehouse : warehouse + "/";
                 tableLocation = base + targetTable.getDbName() + ".db/" + targetTable.getName() + "/";
             }
+        } else if (defaultFsName != null && !defaultFsName.isEmpty() && tableLocation.startsWith("hdfs://")) {
+            try {
+                URI tableLocationUri = URI.create(tableLocation);
+                String path = tableLocationUri.getPath();
+                if (path != null && !path.isEmpty()) {
+                    tableLocation = defaultFsName + path;
+                }
+            } catch (Exception e) {
+                LOG.warn("paimon: failed to align table location {} with default fs {}", tableLocation, defaultFsName);
+            }
+        } else if (!tableLocation.contains("://") && defaultFsName != null && !defaultFsName.isEmpty()) {
+            String tablePath = tableLocation.startsWith("/") ? tableLocation : "/" + tableLocation;
+            tableLocation = defaultFsName + tablePath;
         }
         if (tableLocation != null && !tableLocation.isEmpty()) {
             tSink.setTableLocation(tableLocation);
         }
 
-        tSink.setSerializedTable(encodeObjectToString(paimonTable));
+        if (paimonTable != null) {
+            tSink.setSerializedTable(encodeObjectToString(paimonTable));
+        }
 
         ArrayList<String> partitionKeys = new ArrayList<>();
         try {
@@ -180,6 +210,19 @@ public class PaimonTableSink extends BaseExternalTableDataSink {
             tSink.setShuffleMode(TPaimonWriteShuffleMode.PAIMON_SHUFFLE_RANDOM);
         }
 
+        boolean enableJni = false;
+        if (ConnectContext.get() != null) {
+            enableJni = ConnectContext.get().getSessionVariable().enablePaimonJniWriter;
+        }
+        options.put("paimon_use_jni", String.valueOf(enableJni));
+        if (ConnectContext.get() != null) {
+            boolean enableJniCompact = ConnectContext.get().getSessionVariable().enablePaimonJniCompact;
+            options.put("paimon_use_jni_compact", String.valueOf(enableJniCompact));
+        } else {
+            options.put("paimon_use_jni_compact", "false");
+        }
+        tSink.setOptions(options);
+
         // Pass column names to BE because PipelineX may strip them from Block
         ArrayList<String> columnNames = new ArrayList<>();
         for (Column col : cols) {
@@ -198,5 +241,48 @@ public class PaimonTableSink extends BaseExternalTableDataSink {
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
+    }
+
+    private String resolveDefaultFsName(String warehouse) {
+        if (warehouse == null || warehouse.isEmpty()) {
+            return null;
+        }
+        try {
+            URI uri = URI.create(warehouse);
+            String scheme = uri.getScheme();
+            String authority = uri.getAuthority();
+            if (scheme == null || scheme.isEmpty() || authority == null || authority.isEmpty()) {
+                return null;
+            }
+            return scheme + "://" + authority;
+        } catch (Exception e) {
+            LOG.warn("paimon: invalid warehouse uri {}, skip default fs resolve", warehouse);
+            return null;
+        }
+    }
+
+    private String normalizeTableLocation(String tableLocation) {
+        if (tableLocation == null || tableLocation.isEmpty()) {
+            return tableLocation;
+        }
+        try {
+            URI uri = URI.create(tableLocation);
+            String scheme = uri.getScheme();
+            if ("hdfs".equalsIgnoreCase(scheme)) {
+                String authority = uri.getAuthority();
+                if (authority != null && !authority.isEmpty()) {
+                    return tableLocation;
+                }
+                String path = uri.getPath();
+                if (path != null && !path.isEmpty()) {
+                    return path;
+                }
+            }
+        } catch (Exception e) {
+            if (tableLocation.startsWith("hdfs:/") && !tableLocation.startsWith("hdfs://")) {
+                return "/" + tableLocation.substring("hdfs:/".length());
+            }
+        }
+        return tableLocation;
     }
 }

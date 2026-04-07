@@ -159,7 +159,7 @@ public class PaimonJniWriter {
                 if (options.containsKey("serialized_table")) {
                     table = PaimonUtils.deserialize(options.get("serialized_table"));
                 } else {
-                    Catalog catalog = createCatalog(paimonOptionParams, options);
+                    Catalog catalog = createCatalog(paimonOptionParams, hadoopOptionParams);
                     String dbName = options.getOrDefault("db_name", "default");
                     String tblName = options.getOrDefault("table_name", "paimon_table");
                     table = catalog.getTable(Identifier.create(dbName, tblName));
@@ -175,7 +175,12 @@ public class PaimonJniWriter {
                 copyIfPresent(options, dynamicOptions, "spill-compression");
                 boolean enableJniCompact = Boolean.parseBoolean(
                         options.getOrDefault("paimon_use_jni_compact", "false"));
-                if (enableJniCompact) {
+                boolean enableInlineCompact = enableJniCompact;
+                if (enableJniCompact && table instanceof org.apache.paimon.table.FileStoreTable) {
+                    int tableBuckets = ((org.apache.paimon.table.FileStoreTable) table).schema().numBuckets();
+                    enableInlineCompact = tableBuckets > 0;
+                }
+                if (enableInlineCompact) {
                     LOG.info("paimon: enabling inline compaction for JNI writer");
                     dynamicOptions.put("write-only", "false");
                     dynamicOptions.put("num-sorted-run.compaction-trigger", "10");
@@ -275,9 +280,21 @@ public class PaimonJniWriter {
             try {
                 writer.write(reusedRow);
             } catch (Throwable t) {
-                throw contextException("writeBatch.write",
-                        "row=" + i + ", rowCount=" + rowCount + ", colCount=" + colCount,
-                        t);
+                if (t instanceof IllegalArgumentException
+                        && t.getMessage() != null
+                        && t.getMessage().contains("dynamic bucket mode")) {
+                    try {
+                        writer.write(reusedRow, 0);
+                    } catch (Throwable retryThrowable) {
+                        throw contextException("writeBatch.write",
+                                "row=" + i + ", rowCount=" + rowCount + ", colCount=" + colCount,
+                                retryThrowable);
+                    }
+                } else {
+                    throw contextException("writeBatch.write",
+                            "row=" + i + ", rowCount=" + rowCount + ", colCount=" + colCount,
+                            t);
+                }
             }
         }
     }
@@ -493,7 +510,23 @@ public class PaimonJniWriter {
                     int end = Math.min(i + chunkSize, messages.size());
                     DataOutputSerializer outputView = new DataOutputSerializer(1024);
                     serializer.serializeList(messages.subList(i, end), outputView);
-                    byte[] payload = outputView.getCopyOfBuffer();
+                    byte[] data = outputView.getCopyOfBuffer();
+                    int len = data.length;
+                    int version = serializer.getVersion();
+                    byte[] payload = new byte[12 + len];
+                    payload[0] = 'D';
+                    payload[1] = 'P';
+                    payload[2] = 'C';
+                    payload[3] = 'M';
+                    payload[4] = (byte) ((version >>> 24) & 0xFF);
+                    payload[5] = (byte) ((version >>> 16) & 0xFF);
+                    payload[6] = (byte) ((version >>> 8) & 0xFF);
+                    payload[7] = (byte) (version & 0xFF);
+                    payload[8] = (byte) ((len >>> 24) & 0xFF);
+                    payload[9] = (byte) ((len >>> 16) & 0xFF);
+                    payload[10] = (byte) ((len >>> 8) & 0xFF);
+                    payload[11] = (byte) (len & 0xFF);
+                    System.arraycopy(data, 0, payload, 12, len);
                     if (payload.length > maxPayloadBytes && chunkSize > 1) {
                         chunkSize = Math.max(1, chunkSize / 2);
                         continue;
@@ -554,7 +587,7 @@ public class PaimonJniWriter {
     }
 
     private RuntimeException contextException(String phase, String detail, Throwable cause) {
-        return new RuntimeException("PAIMON_DEBUG phase=" + phase + ", detail={" + detail + "}, state={"
+        return new RuntimeException("Paimon JNI writer failed in phase=" + phase + ", detail={" + detail + "}, state={"
                 + currentStateSummary() + "}", cause);
     }
 

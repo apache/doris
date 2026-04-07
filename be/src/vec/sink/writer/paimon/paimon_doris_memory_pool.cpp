@@ -23,6 +23,8 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "util/defer_op.h"
+
 namespace doris::vectorized {
 
 namespace {
@@ -60,7 +62,12 @@ void PaimonDorisMemoryPool::_ensure_thread_context(
         return;
     }
 
-    auto* tctx = ::doris::thread_context(true);
+    ::doris::ThreadContext* tctx = nullptr;
+    try {
+        tctx = ::doris::thread_context();
+    } catch (const ::doris::Exception&) {
+        return;
+    }
     if (tctx == nullptr) {
         if (tls_attach == nullptr) {
             tls_attach = std::make_unique<::doris::AttachTask>(_query_mem_tracker);
@@ -68,15 +75,15 @@ void PaimonDorisMemoryPool::_ensure_thread_context(
         return;
     }
 
-    if (!tctx->thread_mem_tracker_mgr->is_attach_query()) {
+    if (!(tctx->thread_mem_tracker_mgr->limiter_mem_tracker()->type() == doris::MemTrackerLimiter::Type::QUERY)) {
         if (tls_attach == nullptr ||
-            _query_mem_tracker != tctx->thread_mem_tracker_mgr->limiter_mem_tracker()) {
+            _query_mem_tracker.get() != tctx->thread_mem_tracker_mgr->limiter_mem_tracker()) {
             tls_attach = std::make_unique<::doris::AttachTask>(_query_mem_tracker);
         }
         return;
     }
 
-    if (_query_mem_tracker != tctx->thread_mem_tracker_mgr->limiter_mem_tracker()) {
+    if (_query_mem_tracker.get() != tctx->thread_mem_tracker_mgr->limiter_mem_tracker()) {
         *switcher = std::make_unique<::doris::SwitchThreadMemTrackerLimiter>(_query_mem_tracker);
     }
 }
@@ -85,6 +92,8 @@ void* PaimonDorisMemoryPool::Malloc(uint64_t size, uint64_t alignment) {
     if (size == 0) {
         return _zero_size_ptr();
     }
+    ::doris::ThreadLocalHandle::create_thread_local_if_not_exits();
+    Defer clear_thread_local {[&]() { ::doris::ThreadLocalHandle::del_thread_local_if_count_is_zero(); }};
     std::unique_ptr<::doris::SwitchThreadMemTrackerLimiter> switcher;
     _ensure_thread_context(&switcher);
     void* ptr = _allocator.alloc(size, _normalize_alignment(alignment));
@@ -96,7 +105,8 @@ void* PaimonDorisMemoryPool::Malloc(uint64_t size, uint64_t alignment) {
     return ptr;
 }
 
-void* PaimonDorisMemoryPool::Realloc(void* p, size_t old_size, size_t new_size, uint64_t alignment) {
+void* PaimonDorisMemoryPool::Realloc(void* p, size_t old_size, size_t new_size,
+                                     uint64_t alignment) {
     if (p == _zero_size_ptr()) {
         old_size = 0;
     }
@@ -108,9 +118,12 @@ void* PaimonDorisMemoryPool::Realloc(void* p, size_t old_size, size_t new_size, 
     }
 
     void* previous = p == _zero_size_ptr() ? nullptr : p;
+    ::doris::ThreadLocalHandle::create_thread_local_if_not_exits();
+    Defer clear_thread_local {[&]() { ::doris::ThreadLocalHandle::del_thread_local_if_count_is_zero(); }};
     std::unique_ptr<::doris::SwitchThreadMemTrackerLimiter> switcher;
     _ensure_thread_context(&switcher);
-    void* new_ptr = _allocator.realloc(previous, old_size, new_size, _normalize_alignment(alignment));
+    void* new_ptr =
+            _allocator.realloc(previous, old_size, new_size, _normalize_alignment(alignment));
     if (new_ptr == nullptr) {
         return nullptr;
     }
@@ -132,6 +145,8 @@ void PaimonDorisMemoryPool::Free(void* p, uint64_t size) {
     if (p == _zero_size_ptr()) {
         return;
     }
+    ::doris::ThreadLocalHandle::create_thread_local_if_not_exits();
+    Defer clear_thread_local {[&]() { ::doris::ThreadLocalHandle::del_thread_local_if_count_is_zero(); }};
     std::unique_ptr<::doris::SwitchThreadMemTrackerLimiter> switcher;
     _ensure_thread_context(&switcher);
     _allocator.free(p, size);

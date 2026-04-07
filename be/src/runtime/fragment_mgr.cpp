@@ -581,7 +581,6 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
             }
         }
     }
-
     // Send new errors to coordinator
     req.runtime_state->get_unreported_errors(&(params.error_log));
     params.__isset.error_log = (!params.error_log.empty());

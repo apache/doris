@@ -472,18 +472,18 @@ struct TQueryOptions {
   209: optional i32 spill_repartition_max_depth = 8
 
   // For paimon write benchmark/debug
-  210: optional i32 paimon_writer_queue_size = 3;
-  211: optional bool enable_paimon_distributed_bucket_shuffle = true;
-  212: optional bool enable_paimon_adaptive_buffer_size = true;
-  213: optional i64 paimon_target_file_size = 134217728;
-  214: optional i64 paimon_write_buffer_size = 268435456;
-  215: optional bool enable_paimon_jni_spill = false;
-  216: optional i64 paimon_spill_max_disk_size = 53687091200; // 50GB
-  217: optional i64 paimon_spill_sort_buffer_size = 67108864; // 64MB
-  218: optional i32 paimon_spill_sort_threshold = 10;
-  219: optional string paimon_spill_compression = "zstd";
-  220: optional i64 paimon_global_memory_pool_size = 1073741824; // 1GB default
-  221: optional bool enable_paimon_jni_writer = false;
+  320: optional i32 paimon_writer_queue_size = 3;
+  321: optional bool enable_paimon_distributed_bucket_shuffle = true;
+  322: optional bool enable_paimon_adaptive_buffer_size = true;
+  323: optional i64 paimon_target_file_size = 134217728;
+  324: optional i64 paimon_write_buffer_size = 268435456;
+  325: optional bool enable_paimon_jni_spill = false;
+  326: optional i64 paimon_spill_max_disk_size = 53687091200; // 50GB
+  327: optional i64 paimon_spill_sort_buffer_size = 67108864; // 64MB
+  328: optional i32 paimon_spill_sort_threshold = 10;
+  329: optional string paimon_spill_compression = "zstd";
+  330: optional i64 paimon_global_memory_pool_size = 1073741824; // 1GB default
+  331: optional bool enable_paimon_jni_writer = false;
 
   210: optional double max_scan_mem_ratio = 0.3;
   211: optional bool enable_adaptive_scan = false;

@@ -16,9 +16,9 @@
 // under the License.
 
 #include "vec/sink/vpaimon_table_sink.h"
+
 #include "vec/sink/vpaimon_jni_table_writer.h"
 #include "vec/sink/vpaimon_table_writer.h"
-
 
 namespace doris {
 class TExpr;
@@ -27,8 +27,7 @@ namespace vectorized {
 
 VPaimonTableSink::VPaimonTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
                                    const std::vector<TExpr>& texprs)
-        : AsyncWriterSink<VPaimonTableWriter, VPAIMON_TABLE_SINK>(row_desc, texprs),
-          _pool(pool) {}
+        : AsyncWriterSink<VPaimonTableWriter, VPAIMON_TABLE_SINK>(row_desc, texprs), _pool(pool) {}
 
 VPaimonTableSink::~VPaimonTableSink() = default;
 

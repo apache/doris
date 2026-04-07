@@ -19,46 +19,46 @@
 
 #include "common/status.h"
 #include "vec/sink/vpaimon_jni_table_writer.h"
+#include "vec/sink/vpaimon_table_writer.h"
 
-namespace doris::pipeline {
-
-OperatorPtr PaimonTableSinkOperatorBuilder::build_operator() {
-    return std::make_shared<PaimonTableSinkOperator>(this, _sink);
-}
+namespace doris {
+#include "common/compile_check_begin.h"
 
 Status PaimonTableSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
+    SCOPED_TIMER(_init_timer);
+
     bool use_jni = false;
     if (info.tsink.__isset.paimon_table_sink) {
         const auto& options = info.tsink.paimon_table_sink.options;
         auto it = options.find("paimon_use_jni");
         if (it != options.end()) {
-            use_jni = (it->second == "true" || it->second == "1");
+            use_jni = it->second == "true" || it->second == "1";
         }
     }
     if (use_jni) {
-        _writer.reset(new vectorized::VPaimonJniTableWriter(info.tsink, _output_vexpr_ctxs));
-        _writer->set_dependency(_async_writer_dependency.get(), _finish_dependency.get());
-        VLOG(1) << "PipelineX paimon sink uses JNI writer";
+        _writer.reset(new vectorized::VPaimonJniTableWriter(info.tsink, _output_vexpr_ctxs,
+                                                            _async_writer_dependency,
+                                                            _finish_dependency));
+    } else {
+        _writer.reset(new vectorized::VPaimonTableWriter(info.tsink, _output_vexpr_ctxs,
+                                                         _async_writer_dependency,
+                                                         _finish_dependency));
     }
+
     auto& p = _parent->cast<Parent>();
     RETURN_IF_ERROR(_writer->init_properties(p._pool));
     return Status::OK();
 }
 
 Status PaimonTableSinkLocalState::close(RuntimeState* state, Status exec_status) {
-    if (Base::_closed) {
+    if (_closed) {
         return Status::OK();
     }
     SCOPED_TIMER(_close_timer);
     SCOPED_TIMER(exec_time_counter());
-    if (_closed) {
-        return _close_status;
-    }
-    _close_status = Base::close(state, exec_status);
-    return _close_status;
+    return Base::close(state, exec_status);
 }
 
-} // namespace doris::pipeline
+} // namespace doris

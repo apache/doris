@@ -164,8 +164,7 @@ Status HdfsFileSystem::exists_impl(const Path& path, bool* res) const {
     int is_exists = hdfsExists(_fs_handler->hdfs_fs, real_path.string().c_str());
     if (is_exists != 0 && errno == 0) {
         errno = 0;
-        hdfsFileInfo* file_info =
-                hdfsGetPathInfo(_fs_handler->hdfs_fs, real_path.string().c_str());
+        hdfsFileInfo* file_info = hdfsGetPathInfo(_fs_handler->hdfs_fs, real_path.string().c_str());
         if (file_info != nullptr) {
             hdfsFreeFileInfo(file_info, 1);
             *res = true;
@@ -187,12 +186,14 @@ Status HdfsFileSystem::exists_impl(const Path& path, bool* res) const {
     //  hadoop-hdfs-project/hadoop-hdfs-native-client/src/main/native/libhdfs/hdfs.c#L1923-L1924
     if (is_exists != 0 && errno != ENOENT && errno != EINPROGRESS && errno != 0) {
         char* root_cause = hdfsGetLastExceptionRootCause();
-        return Status::IOError("failed to check path existence {} on fs {}, errno={}: {}", path.native(),
-                               _fs_name, errno, (root_cause ? root_cause : "unknown"));
+        return Status::IOError("failed to check path existence {} on fs {}, errno={}: {}",
+                               path.native(), _fs_name, errno,
+                               (root_cause ? root_cause : "unknown"));
     }
 #else
     if (is_exists != 0 && errno != ENOENT && errno != EINPROGRESS && errno != 0) {
-        return Status::IOError("failed to check path existence {}: {}", path.native(), hdfs_error());
+        return Status::IOError("failed to check path existence {}: {}", path.native(),
+                               hdfs_error());
     }
 #endif
     *res = (is_exists == 0);

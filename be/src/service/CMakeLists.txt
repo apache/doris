@@ -31,6 +31,8 @@ pch_reuse(Service)
 if (${MAKE_TEST} STREQUAL "OFF" AND ${BUILD_BENCHMARK} STREQUAL "OFF")
     add_executable(doris_be
         doris_main.cpp
+        ${CMAKE_SOURCE_DIR}/src/common/rawlog_compat.cpp
+        rawlog_compat_paimon.cpp
     )
 
     if (ENABLE_CLANG_COVERAGE AND ENABLE_CLANG_COVERAGE STREQUAL ON AND COMPILER_CLANG)

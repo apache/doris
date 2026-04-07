@@ -24,7 +24,8 @@
 #include <vector>
 
 #include "common/status.h"
-#include "util/runtime_profile.h"
+#include "runtime/runtime_profile.h"
+#include "core/block/block.h"
 
 namespace paimon {
 class FileStoreWrite;
@@ -43,7 +44,6 @@ class RuntimeState;
 
 namespace vectorized {
 
-class Block;
 
 // Single write unit for a specific Paimon partition + bucket.
 // It writes RecordBatch into a shared paimon-cpp FileStoreWrite instance.
@@ -63,13 +63,13 @@ public:
 
     Status open(RuntimeState* state, RuntimeProfile* profile);
 
-    Status write(vectorized::Block& block);
+    Status write(::doris::Block& block);
 
     Status close(const Status& status);
 
 private:
-    Status _write_block(vectorized::Block& block);
-    Status _append_to_buffer(const vectorized::Block& block);
+    Status _write_block(::doris::Block& block);
+    Status _append_to_buffer(const ::doris::Block& block);
     Status _flush_buffer();
 
     [[maybe_unused]] const TDataSink& _t_sink;
@@ -88,7 +88,7 @@ private:
     size_t _batch_max_bytes = 4 * 1024 * 1024;
     size_t _buffered_rows = 0;
     size_t _buffered_bytes = 0;
-    std::unique_ptr<vectorized::Block> _buffer;
+    std::unique_ptr<::doris::Block> _buffer;
 #endif
 
 #ifdef WITH_PAIMON_CPP

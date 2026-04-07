@@ -67,6 +67,7 @@
 #include "exec/operator/iceberg_delete_sink_operator.h"
 #include "exec/operator/iceberg_merge_sink_operator.h"
 #include "exec/operator/iceberg_table_sink_operator.h"
+#include "pipeline/exec/paimon_table_sink_operator.h"
 #include "exec/operator/jdbc_scan_operator.h"
 #include "exec/operator/jdbc_table_sink_operator.h"
 #include "exec/operator/local_merge_sort_source_operator.h"
@@ -1121,6 +1122,14 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
         }
         break;
     }
+    case TDataSinkType::PAIMON_TABLE_SINK: {
+        if (!thrift_sink.__isset.paimon_table_sink) {
+            return Status::InternalError("Missing paimon table sink.");
+        }
+        _sink = std::make_shared<PaimonTableSinkOperatorX>(pool, next_sink_operator_id(),
+                                                                     row_desc, output_exprs);
+        break;
+    }
     case TDataSinkType::ICEBERG_DELETE_SINK: {
         if (!thrift_sink.__isset.iceberg_delete_sink) {
             return Status::InternalError("Missing iceberg delete sink.");
@@ -1965,7 +1974,25 @@ Status PipelineFragmentContext::send_report(bool done) {
     // Load will set _is_report_success to true because load wants to know
     // the process.
     if (!_is_report_success && done && exec_status.ok()) {
-        return Status::OK();
+        bool has_task_states = false;
+        bool has_paimon_commit_messages = !_runtime_state->paimon_commit_messages().empty();
+        if (!has_paimon_commit_messages) {
+            for (auto& tasks : _tasks) {
+                for (auto& task : tasks) {
+                    has_task_states = true;
+                    if (!task.second->paimon_commit_messages().empty()) {
+                        has_paimon_commit_messages = true;
+                        break;
+                    }
+                }
+                if (has_paimon_commit_messages) {
+                    break;
+                }
+            }
+        }
+        if (has_task_states && !has_paimon_commit_messages) {
+            return Status::OK();
+        }
     }
 
     // If both _is_report_success and _is_report_on_cancel are false,

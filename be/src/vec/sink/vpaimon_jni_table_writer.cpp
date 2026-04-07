@@ -1,3 +1,20 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
 #include "vec/sink/vpaimon_jni_table_writer.h"
 
 #include <arrow/buffer.h>
@@ -6,22 +23,21 @@
 #include <arrow/record_batch.h>
 #include <arrow/type.h>
 
+#include "storage/options.h"
+#include "storage/storage_engine.h"
+#include "paimon/commit_message.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
-#include "util/arrow/block_convertor.h"
-#include "util/arrow/row_batch.h"
+#include "service/backend_options.h"
+#include "format/arrow/arrow_block_convertor.h"
+#include "format/arrow/arrow_row_batch.h"
 #include "util/defer_op.h"
-#include "util/doris_metrics.h"
+#include "common/metrics/doris_metrics.h"
 #include "util/jni-util.h"
 #include "util/jni_native_method.h"
-#include "runtime/exec_env.h"
-#include "olap/storage_engine.h"
-#include "olap/options.h"
-#include "util/runtime_profile.h"
-#include "vec/core/block.h"
+#include "runtime/runtime_profile.h"
+#include "core/block/block.h"
 #include "vec/sink/paimon_writer_utils.h"
-
-#include "paimon/commit_message.h"
-#include "service/backend_options.h"
 
 namespace doris::vectorized {
 
@@ -32,13 +48,19 @@ uint64_t to_ms_ceil(int64_t ns) {
     }
     return static_cast<uint64_t>((ns + 999999) / 1000000);
 }
-}
+} // namespace
 
 const std::string PAIMON_JNI_CLASS = "org/apache/doris/paimon/PaimonJniWriter";
 
 VPaimonJniTableWriter::VPaimonJniTableWriter(const TDataSink& t_sink,
                                              const VExprContextSPtrs& output_exprs)
         : VPaimonTableWriter(t_sink, output_exprs) {}
+
+VPaimonJniTableWriter::VPaimonJniTableWriter(const TDataSink& t_sink,
+                                             const VExprContextSPtrs& output_exprs,
+                                             std::shared_ptr<Dependency> dep,
+                                             std::shared_ptr<Dependency> fin_dep)
+        : VPaimonTableWriter(t_sink, output_exprs, std::move(dep), std::move(fin_dep)) {}
 
 VPaimonJniTableWriter::~VPaimonJniTableWriter() {
     JNIEnv* env = nullptr;
@@ -78,7 +100,8 @@ Status VPaimonJniTableWriter::_get_jni_env(JNIEnv** env) {
 
 Status VPaimonJniTableWriter::_check_jni_exception(JNIEnv* env, const std::string& method_name) {
     if (env->ExceptionCheck()) {
-        Status st = JniUtil::GetJniExceptionMsg(env, true, "JNI exception occurred in " + method_name + ": ");
+        Status st = Jni::Env::GetJniExceptionMsg(env, true,
+                                                "JNI exception occurred in " + method_name + ": ");
         LOG(WARNING) << st.to_string();
         return st;
     }
@@ -108,15 +131,10 @@ Status VPaimonJniTableWriter::open(RuntimeState* state, RuntimeProfile* profile)
     RETURN_IF_ERROR(_get_jni_env(&env));
     _arrow_pool = std::make_unique<ArrowMemoryPool<>>();
 
-
-    jclass local_cls;
-    Status status = JniUtil::get_jni_scanner_class(env, PAIMON_JNI_CLASS.c_str(), &local_cls);
-    if (!status.ok()) {
-        if (env->ExceptionCheck()) {
-            env->ExceptionDescribe();
-            env->ExceptionClear();
-        }
-        return Status::InternalError("Failed to load class {}: {}", PAIMON_JNI_CLASS, status.to_string());
+    jclass local_cls = env->FindClass(PAIMON_JNI_CLASS.c_str());
+    if (local_cls == nullptr) {
+        RETURN_IF_ERROR(_check_jni_exception(env, "FindClass"));
+        return Status::InternalError("Failed to load class {}", PAIMON_JNI_CLASS);
     }
 
     _jni_writer_cls = (jclass)env->NewGlobalRef(local_cls);
@@ -125,10 +143,9 @@ Status VPaimonJniTableWriter::open(RuntimeState* state, RuntimeProfile* profile)
         return Status::InternalError("Failed to create global ref for class {}", PAIMON_JNI_CLASS);
     }
 
-
     _ctor_id = env->GetMethodID(_jni_writer_cls, "<init>", "()V");
     _open_id = env->GetMethodID(_jni_writer_cls, "open",
-            "(Ljava/lang/String;Ljava/util/Map;[Ljava/lang/String;)V");
+                                "(Ljava/lang/String;Ljava/util/Map;[Ljava/lang/String;)V");
     _write_id = env->GetMethodID(_jni_writer_cls, "write", "(JI)V");
     _prepare_commit_id = env->GetMethodID(_jni_writer_cls, "prepareCommit", "()[[B");
     _abort_id = env->GetMethodID(_jni_writer_cls, "abort", "()V");
@@ -147,10 +164,13 @@ Status VPaimonJniTableWriter::open(RuntimeState* state, RuntimeProfile* profile)
     std::map<std::string, std::string> jni_options = paimon_sink.options;
     jni_options["db_name"] = paimon_sink.db_name;
     jni_options["table_name"] = paimon_sink.tb_name;
-    jni_options["serialized_table"] = paimon_sink.serialized_table;
+    if (paimon_sink.__isset.serialized_table && !paimon_sink.serialized_table.empty()) {
+        jni_options["serialized_table"] = paimon_sink.serialized_table;
+    }
     int64_t buffer_size = 256 * 1024 * 1024L; // Default 256MB
 
-    if (_state->query_options().__isset.paimon_write_buffer_size && _state->query_options().paimon_write_buffer_size > 0) {
+    if (_state->query_options().__isset.paimon_write_buffer_size &&
+        _state->query_options().paimon_write_buffer_size > 0) {
         buffer_size = _state->query_options().paimon_write_buffer_size;
     }
 
@@ -165,13 +185,17 @@ Status VPaimonJniTableWriter::open(RuntimeState* state, RuntimeProfile* profile)
         LOG(INFO) << "Adaptive Paimon JNI Buffer Size: bucket_num=" << bucket_num
                   << ", adjusted_buffer_size=" << buffer_size;
     }
-    LOG(INFO) << "Paimon JNI Writer Final Buffer Size: " << buffer_size << " (enable_adaptive=" << enable_adaptive << ")";
+    LOG(INFO) << "Paimon JNI Writer Final Buffer Size: " << buffer_size
+              << " (enable_adaptive=" << enable_adaptive << ")";
 
     jni_options["write-buffer-size"] = std::to_string(buffer_size);
 
-    if (_state->query_options().__isset.paimon_target_file_size && _state->query_options().paimon_target_file_size > 0) {
-        jni_options["target-file-size"] = std::to_string(_state->query_options().paimon_target_file_size);
-        LOG(INFO) << "Paimon JNI Writer Target File Size: " << _state->query_options().paimon_target_file_size;
+    if (_state->query_options().__isset.paimon_target_file_size &&
+        _state->query_options().paimon_target_file_size > 0) {
+        jni_options["target-file-size"] =
+                std::to_string(_state->query_options().paimon_target_file_size);
+        LOG(INFO) << "Paimon JNI Writer Target File Size: "
+                  << _state->query_options().paimon_target_file_size;
     }
 
     bool enable_spill = false;
@@ -185,32 +209,27 @@ Status VPaimonJniTableWriter::open(RuntimeState* state, RuntimeProfile* profile)
 
         // Pass Spill Options
         if (_state->query_options().__isset.paimon_spill_max_disk_size) {
-            jni_options["write-buffer-spill.max-disk-size"] = std::to_string(_state->query_options().paimon_spill_max_disk_size);
+            jni_options["write-buffer-spill.max-disk-size"] =
+                    std::to_string(_state->query_options().paimon_spill_max_disk_size);
         }
         if (_state->query_options().__isset.paimon_spill_sort_buffer_size) {
-            jni_options["sort-spill-buffer-size"] = std::to_string(_state->query_options().paimon_spill_sort_buffer_size);
+            jni_options["sort-spill-buffer-size"] =
+                    std::to_string(_state->query_options().paimon_spill_sort_buffer_size);
         }
         if (_state->query_options().__isset.paimon_spill_sort_threshold) {
-            jni_options["sort-spill-threshold"] = std::to_string(_state->query_options().paimon_spill_sort_threshold);
+            jni_options["sort-spill-threshold"] =
+                    std::to_string(_state->query_options().paimon_spill_sort_threshold);
         }
         if (_state->query_options().__isset.paimon_spill_compression) {
             jni_options["spill-compression"] = _state->query_options().paimon_spill_compression;
         }
         if (_state->query_options().__isset.paimon_global_memory_pool_size) {
-            jni_options["paimon_global_memory_pool_size"] = std::to_string(_state->query_options().paimon_global_memory_pool_size);
+            jni_options["paimon_global_memory_pool_size"] =
+                    std::to_string(_state->query_options().paimon_global_memory_pool_size);
         }
 
         // Auto-detect Spill Directory from BE Storage
-        std::string spill_dir = "";
-        if (ExecEnv::GetInstance()->get_storage_engine() != nullptr) {
-             auto stores = ExecEnv::GetInstance()->get_storage_engine()->get_stores();
-             if (!stores.empty()) {
-                 spill_dir = stores[0]->path() + "/tmp/paimon_spill";
-             }
-        }
-        if (spill_dir.empty()) {
-             spill_dir = "/tmp/paimon_spill";
-        }
+        std::string spill_dir = "/tmp/paimon_spill";
         jni_options["paimon_jni_spill_dir"] = spill_dir;
         LOG(INFO) << "Paimon JNI Spill Directory: " << spill_dir;
     }
@@ -220,10 +239,10 @@ Status VPaimonJniTableWriter::open(RuntimeState* state, RuntimeProfile* profile)
     jobjectArray j_cols = nullptr;
     jclass string_cls = env->FindClass("java/lang/String");
     if (paimon_sink.__isset.column_names) {
-        j_cols = env->NewObjectArray(paimon_sink.column_names.size(), string_cls, nullptr);
+        j_cols = env->NewObjectArray(static_cast<jsize>(paimon_sink.column_names.size()), string_cls, nullptr);
         for (size_t i = 0; i < paimon_sink.column_names.size(); ++i) {
             jstring str = env->NewStringUTF(paimon_sink.column_names[i].c_str());
-            env->SetObjectArrayElement(j_cols, i, str);
+            env->SetObjectArrayElement(j_cols, static_cast<jsize>(i), str);
             env->DeleteLocalRef(str);
         }
     } else {
@@ -241,7 +260,7 @@ Status VPaimonJniTableWriter::open(RuntimeState* state, RuntimeProfile* profile)
     return st;
 }
 
-Status VPaimonJniTableWriter::write(Block& block) {
+Status VPaimonJniTableWriter::write(RuntimeState* state, ::doris::Block& block) {
     if (block.rows() == 0) {
         return Status::OK();
     }
@@ -249,11 +268,12 @@ Status VPaimonJniTableWriter::write(Block& block) {
     SCOPED_TIMER(_send_data_timer);
     int64_t send_data_ns = 0;
     Defer record_send_data_latency {[&]() {
-        DorisMetrics::instance()->paimon_jni_write_send_data_latency_ms->add(to_ms_ceil(send_data_ns));
+        DorisMetrics::instance()->paimon_write_send_data_latency_ms->add(
+                to_ms_ceil(send_data_ns));
     }};
     SCOPED_RAW_TIMER(&send_data_ns);
 
-    Block output_block;
+    ::doris::Block output_block;
     int64_t project_ns = 0;
     {
         SCOPED_TIMER(_project_timer);
@@ -261,7 +281,7 @@ Status VPaimonJniTableWriter::write(Block& block) {
         RETURN_IF_ERROR(_projection_block(block, &output_block));
     }
 
-    DorisMetrics::instance()->paimon_jni_write_project_latency_ms->add(to_ms_ceil(project_ns));
+    DorisMetrics::instance()->paimon_write_project_latency_ms->add(to_ms_ceil(project_ns));
 
     RETURN_IF_ERROR(_append_to_buffer(output_block));
     if (_buffered_rows >= _batch_max_rows || _buffered_bytes >= _batch_max_bytes) {
@@ -270,7 +290,7 @@ Status VPaimonJniTableWriter::write(Block& block) {
     return Status::OK();
 }
 
-Status VPaimonJniTableWriter::_write_projected_block(Block& block) {
+Status VPaimonJniTableWriter::_write_projected_block(::doris::Block& block) {
     if (block.rows() == 0) {
         return Status::OK();
     }
@@ -279,8 +299,8 @@ Status VPaimonJniTableWriter::_write_projected_block(Block& block) {
 
     COUNTER_UPDATE(_written_rows_counter, block.rows());
     COUNTER_UPDATE(_written_bytes_counter, block.bytes());
-    DorisMetrics::instance()->paimon_jni_write_rows->increment(block.rows());
-    DorisMetrics::instance()->paimon_jni_write_bytes->increment(block.bytes());
+    DorisMetrics::instance()->paimon_write_rows->increment(block.rows());
+    DorisMetrics::instance()->paimon_write_bytes->increment(block.bytes());
 
     _state->update_num_rows_load_total(block.rows());
     _state->update_num_bytes_load_total(block.bytes());
@@ -296,8 +316,7 @@ Status VPaimonJniTableWriter::_write_projected_block(Block& block) {
 
         std::shared_ptr<arrow::RecordBatch> record_batch;
         RETURN_IF_ERROR(convert_to_arrow_batch(block, arrow_schema, _arrow_pool.get(),
-                                           &record_batch, _state->timezone_obj()));
-
+                                               &record_batch, _state->timezone_obj()));
 
         auto out_stream_res = arrow::io::BufferOutputStream::Create();
         if (!out_stream_res.ok()) {
@@ -324,7 +343,8 @@ Status VPaimonJniTableWriter::_write_projected_block(Block& block) {
         buffer = *buffer_res;
     }
 
-    DorisMetrics::instance()->paimon_jni_write_arrow_convert_latency_ms->add(to_ms_ceil(arrow_convert_ns));
+    DorisMetrics::instance()->paimon_write_arrow_convert_latency_ms->add(
+            to_ms_ceil(arrow_convert_ns));
 
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(_get_jni_env(&env));
@@ -332,7 +352,7 @@ Status VPaimonJniTableWriter::_write_projected_block(Block& block) {
     auto address = reinterpret_cast<jlong>(buffer->data());
     jint length = static_cast<jint>(buffer->size());
 
-     int64_t file_store_write_ns = 0;
+    int64_t file_store_write_ns = 0;
     {
         SCOPED_TIMER(_file_store_write_timer);
         SCOPED_RAW_TIMER(&file_store_write_ns);
@@ -340,15 +360,15 @@ Status VPaimonJniTableWriter::_write_projected_block(Block& block) {
     }
     Status st = _check_jni_exception(env, "write");
     if (st.ok()) {
-        DorisMetrics::instance()->paimon_jni_write_file_store_write_latency_ms->add(
+        DorisMetrics::instance()->paimon_write_file_store_write_latency_ms->add(
                 to_ms_ceil(file_store_write_ns));
     }
     return st;
 }
 
-Status VPaimonJniTableWriter::_append_to_buffer(const Block& block) {
+Status VPaimonJniTableWriter::_append_to_buffer(const ::doris::Block& block) {
     if (!_buffer) {
-        _buffer = vectorized::Block::create_unique(block.clone_empty());
+        _buffer = ::doris::Block::create_unique(block.clone_empty());
         _buffered_rows = 0;
         _buffered_bytes = 0;
     }
@@ -410,20 +430,21 @@ Status VPaimonJniTableWriter::close(Status status) {
             j_payloads_obj = env->CallObjectMethod(_jni_writer_obj, _prepare_commit_id);
         }
         Status st = _check_jni_exception(env, "prepareCommit");
-        DorisMetrics::instance()->paimon_jni_prepare_commit_latency_ms->add(to_ms_ceil(prepare_commit_ns));
+        DorisMetrics::instance()->paimon_prepare_commit_latency_ms->add(
+                to_ms_ceil(prepare_commit_ns));
 
         if (st.ok() && j_payloads_obj != nullptr) {
             auto* j_payloads = (jobjectArray)j_payloads_obj;
             jsize num_payloads = env->GetArrayLength(j_payloads);
 
-            DorisMetrics::instance()->paimon_jni_prepare_commit_messages->increment(num_payloads);
-            DorisMetrics::instance()->paimon_jni_commit_payload_chunks->increment(num_payloads);
+            DorisMetrics::instance()->paimon_prepare_commit_messages->increment(num_payloads);
+            DorisMetrics::instance()->paimon_commit_payload_chunks->increment(num_payloads);
 
             std::vector<TCommitMessage> msgs;
-            msgs.reserve(num_payloads);
+            msgs.reserve(static_cast<size_t>(num_payloads));
             int64_t serialize_ns = 0;
             Defer record_serialize_commit_messages_latency {[&]() {
-                DorisMetrics::instance()->paimon_jni_serialize_commit_messages_latency_ms->add(
+                DorisMetrics::instance()->paimon_serialize_commit_messages_latency_ms->add(
                         to_ms_ceil(serialize_ns));
             }};
             {
@@ -439,7 +460,7 @@ Status VPaimonJniTableWriter::close(Status status) {
                     if (len > 0) {
                         jbyte* bytes = env->GetByteArrayElements(j_bytes, nullptr);
                         if (bytes != nullptr) {
-                            std::string payload(reinterpret_cast<char*>(bytes), len);
+                            std::string payload(reinterpret_cast<char*>(bytes), static_cast<size_t>(len));
                             TCommitMessage msg;
                             msg.__set_payload(payload);
                             msgs.emplace_back(std::move(msg));
@@ -450,17 +471,20 @@ Status VPaimonJniTableWriter::close(Status status) {
                 }
             }
 
-
             env->DeleteLocalRef(j_payloads);
 
             if (!msgs.empty()) {
                 _state->add_paimon_commit_messages(msgs);
+                LOG(INFO) << "paimon: added " << msgs.size() << " commit messages to state";
+            } else {
+                LOG(INFO) << "paimon: no commit messages to add to state";
             }
         } else if (!st.ok()) {
             status = st;
             Status abort_st = _abort(env);
             if (!abort_st.ok()) {
-                LOG(WARNING) << "paimon: failed to abort writer during cleanup: " << abort_st.to_string();
+                LOG(WARNING) << "paimon: failed to abort writer during cleanup: "
+                             << abort_st.to_string();
             }
         }
     } else {
@@ -483,22 +507,22 @@ Status VPaimonJniTableWriter::close(Status status) {
     return status;
 }
 
-
 Status VPaimonJniTableWriter::_abort(JNIEnv* env) {
     if (_jni_writer_obj) {
         env->CallVoidMethod(_jni_writer_obj, _abort_id);
         if (env->ExceptionCheck()) {
-            return JniUtil::GetJniExceptionMsg(env, true, "JNI exception occurred in abort: ");
+            return Jni::Env::GetJniExceptionMsg(env, true, "JNI exception occurred in abort: ");
         }
     }
     return Status::OK();
 }
 
-jobject VPaimonJniTableWriter::_to_java_options(JNIEnv* env, const std::map<std::string, std::string>& options) {
+jobject VPaimonJniTableWriter::_to_java_options(JNIEnv* env,
+                                                const std::map<std::string, std::string>& options) {
     jclass map_cls = env->FindClass("java/util/HashMap");
     jmethodID map_ctor = env->GetMethodID(map_cls, "<init>", "()V");
-    jmethodID put_method = env->GetMethodID(map_cls, "put",
-            "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");
+    jmethodID put_method = env->GetMethodID(
+            map_cls, "put", "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");
 
     jobject map_obj = env->NewObject(map_cls, map_ctor);
 

@@ -24,17 +24,18 @@
 #include <cstdint>
 #include <memory>
 
+#include "core/allocator.h"
+#include "core/allocator_fwd.h"
 #include "paimon/memory/memory_pool.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
-#include "core/allocator.h"
-#include "core/allocator_fwd.h"
 
 namespace doris::vectorized {
 
 class PaimonDorisMemoryPool final : public ::paimon::MemoryPool {
 public:
-    explicit PaimonDorisMemoryPool(const std::shared_ptr<::doris::MemTrackerLimiter>& query_mem_tracker);
+    explicit PaimonDorisMemoryPool(
+            const std::shared_ptr<::doris::MemTrackerLimiter>& query_mem_tracker);
     ~PaimonDorisMemoryPool() override = default;
 
     void* Malloc(uint64_t size, uint64_t alignment) override;

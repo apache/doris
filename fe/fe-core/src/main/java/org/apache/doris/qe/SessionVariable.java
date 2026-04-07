@@ -20,7 +20,6 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StringLiteral;
-import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.common.Config;
@@ -102,8 +101,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String MIN_SCAN_SCHEDULER_CONCURRENCY = "min_scan_scheduler_concurrency";
     public static final String QUERY_TIMEOUT = "query_timeout";
     public static final String ANALYZE_TIMEOUT = "analyze_timeout";
-    public static final String ENABLE_GEMINI = "enable_gemini";
-
     public static final String INTERNAL_CACHE_HOT_SPOT_TIMEOUT = "cache_hot_spot_insert_timeout_second";
 
     public static final String MAX_EXECUTION_TIME = "max_execution_time";
@@ -1167,13 +1164,6 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = "runtime_filter_jump_threshold")
     public int runtimeFilterJumpThreshold = 2;
-
-    @VariableMgr.VarAttr(name = ENABLE_GEMINI, setter = "setEnableGemini", description = {
-            "是否在当前 session 启用 Gemini 鉴权（默认取 FE 配置 enable_gemini；仅 root/admin 可修改）",
-            "Whether to enable Gemini auth in current session (default from FE config enable_gemini; "
-                    + "only root/admin can set)"
-    })
-    public boolean enableGemini = false;
 
     // using hashset instead of group by + count can improve performance
     //        but may cause rpc failed when cluster has less BE
@@ -4214,34 +4204,6 @@ public class SessionVariable implements Serializable, Writable {
             LOG.warn("Invalid query timeout: {}", newQueryTimeoutS, new RuntimeException(""));
         }
         this.queryTimeoutS = newQueryTimeoutS;
-    }
-
-    public void setEnableGemini(String value) throws DdlException {
-        boolean newValue;
-        if (value.equalsIgnoreCase("ON")
-                || value.equalsIgnoreCase("TRUE")
-                || value.equalsIgnoreCase("1")) {
-            newValue = true;
-        } else if (value.equalsIgnoreCase("OFF")
-                || value.equalsIgnoreCase("FALSE")
-                || value.equalsIgnoreCase("0")) {
-            newValue = false;
-        } else {
-            throw new DdlException("Invalid value for enable_gemini: " + value);
-        }
-
-        ConnectContext connectContext = ConnectContext.get();
-        if (connectContext != null) {
-            UserIdentity userIdentity = connectContext.getCurrentUserIdentity();
-            if (userIdentity != null && !userIdentity.isSystemUser()) {
-                throw new DdlException("Access denied; only root/admin can set enable_gemini");
-            }
-        }
-        this.enableGemini = newValue;
-    }
-
-    public boolean isEnableGemini() {
-        return enableGemini;
     }
 
     public void setAnalyzeTimeoutS(int analyzeTimeoutS) {

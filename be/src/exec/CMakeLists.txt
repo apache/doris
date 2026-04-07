@@ -23,6 +23,15 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/exec")
 
 file(GLOB_RECURSE EXEC_FILES CONFIGURE_DEPENDS *.cpp)
 
+list(APPEND EXEC_FILES
+    ${CMAKE_CURRENT_SOURCE_DIR}/../pipeline/exec/paimon_table_sink_operator.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../vec/sink/writer/paimon/paimon_doris_memory_pool.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../vec/sink/writer/paimon/paimon_doris_hdfs_file_system.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../vec/sink/vpaimon_table_writer.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../vec/sink/vpaimon_jni_table_writer.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../vec/sink/writer/paimon/vpaimon_partition_writer.cpp
+)
+
 # Task executor simulator files are built as a separate executable
 list(FILTER EXEC_FILES EXCLUDE REGEX ".*scan/task_executor/tools/simulator/.*")
 
