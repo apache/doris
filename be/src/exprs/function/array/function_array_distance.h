@@ -187,12 +187,18 @@ public:
         const ColumnFloat32* float2 = nullptr;
         const ColumnOffset64* offset1 = nullptr;
         const ColumnOffset64* offset2 = nullptr;
+        const IColumn::Offsets64* offsets_data1 = nullptr;
+        const IColumn::Offsets64* offsets_data2 = nullptr;
+        const float* float_data1 = nullptr;
+        const float* float_data2 = nullptr;
 
         if (!const_info1) {
             materialized_col1 = arg1.column->convert_to_full_column_if_const();
             arr1 = _extract_array_column(materialized_col1.get(), "First argument", get_name());
             float1 = _extract_float_data(arr1, "First argument", get_name());
             offset1 = assert_cast<const ColumnArray::ColumnOffsets*>(arr1->get_offsets_ptr().get());
+            offsets_data1 = &offset1->get_data();
+            float_data1 = float1->get_data().data();
         }
 
         if (!const_info2) {
@@ -200,6 +206,8 @@ public:
             arr2 = _extract_array_column(materialized_col2.get(), "Second argument", get_name());
             float2 = _extract_float_data(arr2, "Second argument", get_name());
             offset2 = assert_cast<const ColumnArray::ColumnOffsets*>(arr2->get_offsets_ptr().get());
+            offsets_data2 = &offset2->get_data();
+            float_data2 = float2->get_data().data();
         }
 
         // prepare return data
@@ -210,23 +218,25 @@ public:
             const float* data_ptr1;
             const float* data_ptr2;
             ssize_t size1, size2;
+            const auto idx = static_cast<ssize_t>(row);
 
             if (const_info1) {
                 data_ptr1 = const_info1->data;
                 size1 = const_info1->dim;
             } else {
-                size1 = offset1->get_data()[row] - (row == 0 ? 0 : offset1->get_data()[row - 1]);
-                data_ptr1 =
-                        float1->get_data().data() + (row == 0 ? 0 : offset1->get_data()[row - 1]);
+                // -1 is valid for PaddedPODArray-backed offsets.
+                const auto prev_offset1 = (*offsets_data1)[idx - 1];
+                size1 = (*offsets_data1)[idx] - prev_offset1;
+                data_ptr1 = float_data1 + prev_offset1;
             }
 
             if (const_info2) {
                 data_ptr2 = const_info2->data;
                 size2 = const_info2->dim;
             } else {
-                size2 = offset2->get_data()[row] - (row == 0 ? 0 : offset2->get_data()[row - 1]);
-                data_ptr2 =
-                        float2->get_data().data() + (row == 0 ? 0 : offset2->get_data()[row - 1]);
+                const auto prev_offset2 = (*offsets_data2)[idx - 1];
+                size2 = (*offsets_data2)[idx] - prev_offset2;
+                data_ptr2 = float_data2 + prev_offset2;
             }
 
             if (size1 != size2) [[unlikely]] {
