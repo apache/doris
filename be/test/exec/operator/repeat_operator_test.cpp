@@ -34,7 +34,7 @@ struct RepeatOperatorTest : public ::testing::Test {
         op = std::make_unique<RepeatOperatorX>();
         mock_op = std::make_shared<MockOperatorX>();
         state = std::make_shared<MockRuntimeState>();
-        state->batsh_size = 10;
+        state->_batch_size = 10;
         op->_child = mock_op;
     }
 

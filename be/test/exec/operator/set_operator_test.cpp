@@ -42,7 +42,7 @@ template <bool is_intersect>
 struct SetOperatorTest : public ::testing::Test {
     void SetUp() override {
         state = std::make_shared<MockRuntimeState>();
-        state->batsh_size = 5;
+        state->_batch_size = 5;
     }
 
     void init_op(int child_size, DataTypes output_type) {
@@ -352,7 +352,7 @@ TEST_F(ExceptOperatorTest, test_build_not_ignore_null) {
 TEST_F(ExceptOperatorTest, test_output_null_batsh_size) {
     init_op(2, {std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt64>())});
 
-    state->batsh_size = 3; // set batch size to 3
+    state->_batch_size = 3; // set batch size to 3
     sink_op->_child_exprs = MockSlotRef::create_mock_contexts(
             DataTypes {std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt64>())});
     probe_sink_ops[0]->_child_exprs = MockSlotRef::create_mock_contexts(
