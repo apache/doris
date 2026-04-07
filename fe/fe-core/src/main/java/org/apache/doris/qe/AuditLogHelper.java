@@ -425,7 +425,7 @@ public class AuditLogHelper {
             }
         } else {
             if (!ctx.getState().isQuery() && (parsedStmt != null && parsedStmt.needAuditEncryption())) {
-                encryptSql = parsedStmt.toSql();
+                encryptSql = "";
             }
         }
         auditEventBuilder.setStmt(handleStmt(encryptSql, parsedStmt));

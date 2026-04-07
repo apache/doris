@@ -20,7 +20,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.common.UserException;
 import org.apache.doris.qe.OriginStatement;
 
 import com.google.common.base.Preconditions;
@@ -28,7 +27,7 @@ import com.google.common.base.Preconditions;
 import java.util.Collections;
 import java.util.List;
 
-public abstract class StatementBase implements ParseNode {
+public abstract class StatementBase {
     // Set this variable if this QueryStmt is the top level query from an EXPLAIN <query>
     protected ExplainOptions explainOptions = null;
     private OriginStatement origStmt;
@@ -42,18 +41,6 @@ public abstract class StatementBase implements ParseNode {
      */
     protected StatementBase(StatementBase other) {
         explainOptions = other.explainOptions;
-    }
-
-    /**
-     * Analyzes the statement and throws an AnalysisException if analysis fails. A failure
-     * could be due to a problem with the statement or because one or more tables/views
-     * were missing from the catalog.
-     * It is up to the analysis() implementation to ensure the maximum number of missing
-     * tables/views get collected in the Analyzer before failing analyze().
-     * Should call the method firstly when override the method, the analyzer param should be
-     * the one which statement would use.
-     */
-    public void analyze() throws UserException {
     }
 
     public void setIsExplain(ExplainOptions options) {
@@ -74,16 +61,6 @@ public abstract class StatementBase implements ParseNode {
 
     public boolean isPrepared() {
         return this.isPrepared;
-    }
-
-    /*
-     * Print SQL syntax corresponding to this node.
-     *
-     * @see org.apache.doris.parser.ParseNode#toSql()
-     */
-    @Override
-    public String toSql() {
-        return "";
     }
 
     public StmtType stmtType() {
