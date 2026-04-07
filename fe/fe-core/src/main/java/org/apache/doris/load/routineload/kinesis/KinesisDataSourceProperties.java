@@ -47,6 +47,7 @@ import java.util.TimeZone;
  * - kinesis_shards: Comma-separated list of shard IDs (optional)
  * - kinesis_shards_pos: Comma-separated list of positions for each shard (optional)
  * - aws.region: AWS region (required)
+ * - aws.endpoint: Custom Kinesis endpoint URL (optional, e.g. LocalStack)
  * - aws.access_key: AWS access key (optional)
  * - aws.secret_key: AWS secret key (optional)
  * - aws.session_key: AWS session token (optional)
@@ -122,9 +123,14 @@ public class KinesisDataSourceProperties extends AbstractDataSourceProperties {
     public static final String POSITION_AT_TIMESTAMP = "AT_TIMESTAMP";
 
     // Configurable data source properties that can be set by user
+    // Keep compatibility with existing ALTER/SHOW output key "kinesis_endpoint".
+    private static final String LEGACY_KINESIS_ENDPOINT_KEY = "kinesis_endpoint";
+
     private static final ImmutableSet<String> CONFIGURABLE_DATA_SOURCE_PROPERTIES_SET =
             new ImmutableSet.Builder<String>()
                     .add(KinesisConfiguration.KINESIS_REGION.getName())
+                    .add(KinesisConfiguration.KINESIS_ENDPOINT.getName())
+                    .add(LEGACY_KINESIS_ENDPOINT_KEY)
                     .add(KinesisConfiguration.KINESIS_STREAM.getName())
                     .add(KinesisConfiguration.KINESIS_SHARDS.getName())
                     .add(KinesisConfiguration.KINESIS_POSITIONS.getName())
@@ -176,6 +182,12 @@ public class KinesisDataSourceProperties extends AbstractDataSourceProperties {
         if (StringUtils.isNotBlank(region)) {
             validateRegion(region);
         }
+
+        // Parse custom endpoint (optional)
+        this.endpoint = KinesisConfiguration.KINESIS_ENDPOINT.getParameterValue(
+                originalDataSourceProperties.containsKey(KinesisConfiguration.KINESIS_ENDPOINT.getName())
+                        ? originalDataSourceProperties.get(KinesisConfiguration.KINESIS_ENDPOINT.getName())
+                        : originalDataSourceProperties.get(LEGACY_KINESIS_ENDPOINT_KEY));
 
         // Parse stream name (required)
         this.stream = KinesisConfiguration.KINESIS_STREAM.getParameterValue(

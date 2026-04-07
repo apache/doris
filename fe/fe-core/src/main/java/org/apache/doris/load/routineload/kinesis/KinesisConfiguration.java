@@ -39,6 +39,12 @@ public enum KinesisConfiguration {
     KINESIS_REGION("aws.region", null, value -> value.trim()),
 
     /**
+     * Optional custom endpoint URL for Kinesis service.
+     * Useful for LocalStack or VPC endpoints.
+     */
+    KINESIS_ENDPOINT("aws.endpoint", null, value -> value.trim()),
+
+    /**
      * Name of the Kinesis stream to consume from.
      * Required property.
      */
