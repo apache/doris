@@ -19,12 +19,14 @@
 
 #include <butil/macros.h>
 
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "common/status.h"
 #include "io/io_common.h"
 #include "olap/compaction.h"
+#include "olap/compaction_task_tracker.h"
 
 namespace doris {
 
@@ -37,6 +39,10 @@ public:
     Status prepare_compact() override;
 
     Status execute_compact() override;
+
+    std::optional<CompactionProfileType> profile_type() const override {
+        return CompactionProfileType::FULL;
+    }
 
 private:
     Status pick_rowsets_to_compact();
