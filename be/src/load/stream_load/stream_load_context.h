@@ -100,9 +100,7 @@ public:
               properties(t_info.__isset.properties ? t_info.properties
                                                    : std::map<std::string, std::string>()) {}
 
-    void reset_sequence_numbers() {
-        cmt_sequence_number.clear();
-    }
+    void reset_sequence_numbers() { cmt_sequence_number.clear(); }
 
     std::string region;
     std::string stream;
