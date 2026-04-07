@@ -94,6 +94,10 @@ public class PartitionValuesTableValuedFunction extends MetadataTableValuedFunct
         }
     }
 
+    public TableIf getPartitionedTable() {
+        return table;
+    }
+
     public static TableIf analyzeAndGetTable(String catalogName, String dbName, String tableName, boolean checkAuth) {
         if (checkAuth) {
             // This method will be called at 2 places:
@@ -157,6 +161,9 @@ public class PartitionValuesTableValuedFunction extends MetadataTableValuedFunct
             BDPAuthContext bdpAuthContext = BDPAuthContext.get();
             metaScanRange.setBdpAuthContext(new TBDPAuthContext(bdpAuthContext.getSource(), bdpAuthContext.getErp(),
                     bdpAuthContext.getHadoopUserName(), bdpAuthContext.getUserToken()));
+            if (ConnectContext.get() != null) {
+                metaScanRange.getBdpAuthContext().setViewBased(ConnectContext.get().isViewBased());
+            }
         }
         TPartitionValuesMetadataParams partitionParam = new TPartitionValuesMetadataParams();
         partitionParam.setCatalog(catalogName);

@@ -411,6 +411,9 @@ public enum RuleType {
 
     // topn opts
     DEFER_MATERIALIZE_TOP_N_RESULT(RuleTypeClass.REWRITE),
+
+    PARTITION_VALUES_WITH_FILTER_FOR_TVF_RELATION(RuleTypeClass.REWRITE),
+    PARTITION_VALUES_WITHOUT_FILTER_FOR_TVF_RELATION(RuleTypeClass.REWRITE),
     // short circuit rule
     SHOR_CIRCUIT_POINT_QUERY(RuleTypeClass.REWRITE),
     // skew rewrtie

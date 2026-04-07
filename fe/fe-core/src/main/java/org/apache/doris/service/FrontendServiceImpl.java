@@ -2399,13 +2399,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 BDPAuthContext bdpAuthContext = new BDPAuthContext(request.getBdpAuthContext());
                 bdpAuthContext.setThreadLocalInfo();
                 ConnectContext connectContext = new ConnectContext();
-                connectContext.setThreadLocalInfo();
-                String hadoopUserName = bdpAuthContext.getHadoopUserName();
-                if (hadoopUserName.endsWith("$")) {
-                    hadoopUserName = hadoopUserName.substring(0, hadoopUserName.length() - 1);
-                    bdpAuthContext.setHadoopUserName(hadoopUserName);
-                    connectContext.setViewBased(true);
+                if (request.getBdpAuthContext().isSetViewBased()) {
+                    connectContext.setViewBased(request.getBdpAuthContext().isViewBased());
                 }
+                connectContext.setThreadLocalInfo();
             }
             if (!request.isSetSchemaTableName()) {
                 return MetadataGenerator.errorResult("Fetch schema table name is not set");

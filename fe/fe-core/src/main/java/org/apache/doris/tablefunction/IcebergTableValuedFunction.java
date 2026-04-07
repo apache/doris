@@ -153,6 +153,9 @@ public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
             BDPAuthContext bdpAuthContext = BDPAuthContext.get();
             tMetaScanRange.setBdpAuthContext(new TBDPAuthContext(bdpAuthContext.getSource(), bdpAuthContext.getErp(),
                     bdpAuthContext.getHadoopUserName(), bdpAuthContext.getUserToken()));
+            if (ConnectContext.get() != null) {
+                tMetaScanRange.getBdpAuthContext().setViewBased(ConnectContext.get().isViewBased());
+            }
         }
         tMetaScanRange.setMetadataType(TMetadataType.ICEBERG);
         tMetaScanRange.setHadoopProps(hadoopProps);

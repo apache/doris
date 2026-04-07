@@ -41,6 +41,13 @@ public class AutoCloseConnectContext implements AutoCloseable {
         this.previousBDPAuthContext = BDPAuthContext.get();
         this.connectContext = connectContext;
         this.connectContext.setBdpAuthContext(authContext);
+        if (authContext.getHadoopUserName() != null) {
+            String hadoopUserName = authContext.getHadoopUserName();
+            if (hadoopUserName.endsWith("$")) {
+                authContext.setHadoopUserName(hadoopUserName.substring(0, hadoopUserName.length() - 1));
+                connectContext.setViewBased(true);
+            }
+        }
         connectContext.setThreadLocalInfo();
         authContext.setThreadLocalInfo();
     }

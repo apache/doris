@@ -114,6 +114,7 @@ import org.apache.doris.nereids.rules.rewrite.NestedColumnPruning;
 import org.apache.doris.nereids.rules.rewrite.NormalizeSort;
 import org.apache.doris.nereids.rules.rewrite.OperativeColumnDerive;
 import org.apache.doris.nereids.rules.rewrite.OrExpansion;
+import org.apache.doris.nereids.rules.rewrite.PartitionValuesRewrite;
 import org.apache.doris.nereids.rules.rewrite.ProjectOtherJoinConditionForNestedLoopJoin;
 import org.apache.doris.nereids.rules.rewrite.PruneEmptyPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneFileScanPartition;
@@ -180,6 +181,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
@@ -402,6 +404,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                             new PruneEmptyPartition(),
                                             new PruneHMSScanPartition(),
                                             new PruneFileScanPartition(),
+                                            new PartitionValuesRewrite(),
                                             new PushDownFilterIntoSchemaScan()
                                     )
                             ),
@@ -710,7 +713,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 ),
                 // TODO: these rules should be implementation rules, and generate alternative physical plans.
                 topic("Table/Physical optimization",
-                        cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalCatalogRelation.class),
+                        cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalCatalogRelation.class)
+                                || cascadesContext.rewritePlanContainsTypes(LogicalTVFRelation.class),
                         topDown(
                                 // Mark short-circuit point query before pruning empty partitions,
                                 // otherwise PRUNE_EMPTY_PARTITION may replace LogicalOlapScan with LogicalEmptyRelation
@@ -720,6 +724,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new PruneEmptyPartition(),
                                 new PruneHMSScanPartition(),
                                 new PruneFileScanPartition(),
+                                new PartitionValuesRewrite(),
                                 new PushDownFilterIntoSchemaScan(),
                                 new PruneOlapScanTablet()
                         ),
