@@ -1050,6 +1050,13 @@ Status PipelineTask::wake_up(Dependency* dep, std::unique_lock<std::mutex>& /* d
     _blocked_dep = nullptr;
     auto holder = std::dynamic_pointer_cast<PipelineTask>(shared_from_this());
     RETURN_IF_ERROR(_state_transition(PipelineTask::State::RUNNABLE));
+    // Under _wake_up_early, FINISHED/FINALIZED → RUNNABLE is a legal no-op
+    // (_state_transition returns OK but state stays unchanged). We must not
+    // resubmit a terminated task: finalize() clears _sink/_operators, and
+    // submit() → is_blockable() would dereference them → SIGSEGV.
+    if (_exec_state == State::FINISHED || _exec_state == State::FINALIZED) {
+        return Status::OK();
+    }
     if (auto f = _fragment_context.lock(); f) {
         RETURN_IF_ERROR(_state->get_query_ctx()->get_pipe_exec_scheduler()->submit(holder));
     }
@@ -1057,12 +1064,6 @@ Status PipelineTask::wake_up(Dependency* dep, std::unique_lock<std::mutex>& /* d
 }
 
 Status PipelineTask::_state_transition(State new_state) {
-    if (_exec_state != new_state) {
-        _state_change_watcher.reset();
-        _state_change_watcher.start();
-    }
-    _task_profile->add_info_string("TaskState", _to_string(new_state));
-    _task_profile->add_info_string("BlockedByDependency", _blocked_dep ? _blocked_dep->name() : "");
     const auto& table =
             _wake_up_early ? WAKE_UP_EARLY_LEGAL_STATE_TRANSITION : LEGAL_STATE_TRANSITION;
     if (!table[(int)new_state].contains(_exec_state)) {
@@ -1071,10 +1072,18 @@ Status PipelineTask::_state_transition(State new_state) {
                 _to_string(_exec_state), _to_string(new_state), debug_string());
     }
     // FINISHED/FINALIZED → RUNNABLE is legal under wake_up_early (delayed wake_up() arriving
-    // after the task already terminated), but we must not actually move the state backwards.
+    // after the task already terminated), but we must not actually move the state backwards
+    // or update profile info (which would misleadingly show RUNNABLE for a terminated task).
     bool need_move = !((_exec_state == State::FINISHED || _exec_state == State::FINALIZED) &&
                        new_state == State::RUNNABLE);
     if (need_move) {
+        if (_exec_state != new_state) {
+            _state_change_watcher.reset();
+            _state_change_watcher.start();
+        }
+        _task_profile->add_info_string("TaskState", _to_string(new_state));
+        _task_profile->add_info_string("BlockedByDependency",
+                                       _blocked_dep ? _blocked_dep->name() : "");
         _exec_state = new_state;
     }
     return Status::OK();

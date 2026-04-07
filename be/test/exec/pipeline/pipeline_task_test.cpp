@@ -520,9 +520,11 @@ TEST_F(PipelineTaskTest, TEST_STATE_TRANSITION) {
     task->_wake_up_early = false;
 
     // Test that wake_up() succeeds when the task has already finished (delayed wake_up race).
-    // _state_transition(RUNNABLE) is a no-op, and wake_up() should not re-submit the task.
+    // _state_transition(RUNNABLE) is a no-op, and wake_up() must NOT re-submit the task to the
+    // scheduler. Submitting a finalized task causes SIGSEGV in is_blockable() because _sink is null.
     {
         task->_wake_up_early = true;
+        _task_scheduler->reset_submit_count();
         std::mutex mtx;
         task->_exec_state = PipelineTask::State::FINISHED;
         auto dep = std::make_shared<Dependency>(0, 0, "test_dep", true);
@@ -530,8 +532,10 @@ TEST_F(PipelineTaskTest, TEST_STATE_TRANSITION) {
         std::unique_lock<std::mutex> lc(mtx);
         EXPECT_TRUE(task->wake_up(dep.get(), lc).ok());
         EXPECT_EQ(task->_exec_state, PipelineTask::State::FINISHED);
+        EXPECT_EQ(_task_scheduler->submit_count(), 0);
     }
     {
+        _task_scheduler->reset_submit_count();
         std::mutex mtx;
         task->_exec_state = PipelineTask::State::FINALIZED;
         auto dep = std::make_shared<Dependency>(0, 0, "test_dep", true);
@@ -539,7 +543,20 @@ TEST_F(PipelineTaskTest, TEST_STATE_TRANSITION) {
         std::unique_lock<std::mutex> lc(mtx);
         EXPECT_TRUE(task->wake_up(dep.get(), lc).ok());
         EXPECT_EQ(task->_exec_state, PipelineTask::State::FINALIZED);
+        EXPECT_EQ(_task_scheduler->submit_count(), 0);
         task->_wake_up_early = false;
+    }
+    // Positive test: wake_up() on a BLOCKED task DOES submit to the scheduler.
+    {
+        _task_scheduler->reset_submit_count();
+        std::mutex mtx;
+        task->_exec_state = PipelineTask::State::BLOCKED;
+        auto dep = std::make_shared<Dependency>(0, 0, "test_dep", true);
+        task->_blocked_dep = dep.get();
+        std::unique_lock<std::mutex> lc(mtx);
+        EXPECT_TRUE(task->wake_up(dep.get(), lc).ok());
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
+        EXPECT_EQ(_task_scheduler->submit_count(), 1);
     }
 }
 
