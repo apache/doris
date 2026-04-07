@@ -17,6 +17,7 @@
 
 package org.apache.doris.service;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -379,6 +380,47 @@ public class FrontendServiceImplTest {
             Env.getCurrentEnv().getAuthenticationIntegrationMgr().dropAuthenticationIntegration(integrationName, true);
             executeCommand("DROP ROLE IF EXISTS " + financeWriterRole);
             executeCommand("DROP ROLE IF EXISTS " + financeReaderRole);
+            executeCommand("DROP ROLE IF EXISTS " + readerRole);
+        }
+    }
+
+    @Test
+    public void testFetchRoleMappingsSchemaTableDataWithoutAdmin() throws Exception {
+        String mappingName = "test_role_mapping_non_admin_system_table";
+        String integrationName = "test_role_mapping_non_admin_system_table_ldap";
+        String readerRole = "test_role_mapping_non_admin_reader";
+        String normalUser = "test_role_mapping_non_admin_user";
+
+        executeCommand("DROP ROLE MAPPING IF EXISTS " + mappingName);
+        Env.getCurrentEnv().getAuthenticationIntegrationMgr().dropAuthenticationIntegration(integrationName, true);
+        executeCommand("DROP USER IF EXISTS " + normalUser);
+        executeCommand("DROP ROLE IF EXISTS " + readerRole);
+
+        try {
+            executeCommand("CREATE ROLE " + readerRole);
+            executeCommand("CREATE USER " + normalUser);
+            executeCommand("CREATE AUTHENTICATION INTEGRATION " + integrationName
+                    + " PROPERTIES ('type'='ldap', 'ldap.server'='ldap://127.0.0.1:389') "
+                    + "COMMENT 'role mapping auth'");
+            executeCommand("CREATE ROLE MAPPING " + mappingName
+                    + " ON AUTHENTICATION INTEGRATION " + integrationName
+                    + " RULE (USING CEL 'has_group(\"analyst\")' GRANT ROLE " + readerRole + ")"
+                    + " COMMENT 'role mapping comment'");
+
+            FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+            TFetchSchemaTableDataRequest request = new TFetchSchemaTableDataRequest();
+            request.setSchemaTableName(TSchemaTableName.ROLE_MAPPINGS);
+            TSchemaTableRequestParams params = new TSchemaTableRequestParams();
+            params.setCurrentUserIdent(UserIdentity.createAnalyzedUserIdentWithIp(normalUser, "%").toThrift());
+            request.setSchemaTableParams(params);
+
+            TFetchSchemaTableDataResult result = impl.fetchSchemaTableData(request);
+            Assert.assertEquals(TStatusCode.OK, result.getStatus().getStatusCode());
+            Assert.assertTrue(result.getDataBatch().isEmpty());
+        } finally {
+            executeCommand("DROP ROLE MAPPING IF EXISTS " + mappingName);
+            Env.getCurrentEnv().getAuthenticationIntegrationMgr().dropAuthenticationIntegration(integrationName, true);
+            executeCommand("DROP USER IF EXISTS " + normalUser);
             executeCommand("DROP ROLE IF EXISTS " + readerRole);
         }
     }
