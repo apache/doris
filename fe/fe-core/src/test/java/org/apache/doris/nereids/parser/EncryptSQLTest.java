@@ -462,7 +462,7 @@ public class EncryptSQLTest extends ParserTestBase {
     }
 
     @Test
-    public void AlterUserPasswordMasking() throws Exception {
+    public void testAlterUserPasswordMasking() throws Exception {
         ctx.setDatabase("test");
         new MockUp<StmtExecutor>() {
             @Mock
@@ -472,7 +472,7 @@ public class EncryptSQLTest extends ParserTestBase {
         };
         ctx.setEnv(env);
         Config.enable_nereids_load = true;
-                
+    
         // testing for https://github.com/apache/doris/issues/62140
         String sql = "ALTER USER 'test_user62140'@'%' IDENTIFIED BY '123456'";
         String res = "ALTER USER 'test_user62140'@'%' IDENTIFIED BY '*XXX'";
