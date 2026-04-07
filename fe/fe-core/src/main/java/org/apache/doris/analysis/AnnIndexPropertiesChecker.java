@@ -34,9 +34,10 @@ public class AnnIndexPropertiesChecker {
             switch (key) {
                 case "index_type":
                     type = properties.get(key);
-                    if (!type.equals("hnsw") && !type.equals("ivf") && !type.equals("ivf_on_disk")) {
+                    if (!type.equals("hnsw") && !type.equals("ivf") && !type.equals("ivf_on_disk")
+                            && !type.equals("pq_on_disk")) {
                         throw new AnalysisException(
-                                "only support ann index with type hnsw, ivf or ivf_on_disk, got: " + type);
+                                "only support ann index with type hnsw, ivf, ivf_on_disk or pq_on_disk, got: " + type);
                     }
                     break;
                 case "metric_type":
@@ -142,6 +143,19 @@ public class AnnIndexPropertiesChecker {
         if (type != null && (type.equals("ivf") || type.equals("ivf_on_disk"))) {
             if (nlist == 0) {
                 throw new AnalysisException("nlist of ann index must be specified for ivf/ivf_on_disk type");
+            }
+        }
+
+        if (type != null && type.equals("pq_on_disk")) {
+            if (numSubQuantizers == 0) {
+                throw new AnalysisException("pq_m of ann index must be specified for pq_on_disk type");
+            }
+            if (dimension == 0) {
+                throw new AnalysisException("dim of ann index must be specified for pq_on_disk type");
+            }
+            if (dimension % numSubQuantizers != 0) {
+                throw new AnalysisException("The dimension of the vector (dim) should be a multiple of the number of "
+                        + "subquantizers (pq_m) for pq_on_disk type");
             }
         }
 

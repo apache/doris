@@ -21,12 +21,9 @@
 #include <faiss/invlists/OnDiskInvertedLists.h>
 #include <faiss/invlists/PreadInvertedLists.h>
 #include <gen_cpp/segment_v2.pb.h>
-#include <omp.h>
-#include <pthread.h>
 
 #include <algorithm>
 #include <cmath>
-#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -56,19 +53,15 @@
 #include "io/io_common.h"
 #include "storage/cache/ann_index_ivf_list_cache.h"
 #include "storage/cache/page_cache.h"
+#include "storage/index/ann/ann_build_utils.h"
 #include "storage/index/ann/ann_index.h"
 #include "storage/index/ann/ann_index_files.h"
 #include "storage/index/ann/ann_search_params.h"
-#include "util/thread.h"
 #include "util/time.h"
 
 namespace doris::segment_v2 {
 
 namespace {
-
-std::mutex g_omp_thread_mutex;
-std::condition_variable g_omp_thread_cv;
-int g_index_threads_in_use = 0;
 
 struct IvfOnDiskCacheStats {
     int64_t hit_cnt = 0;
@@ -92,79 +85,6 @@ public:
     ~ScopedIoCtxBinding() { g_current_io_ctx = nullptr; }
     ScopedIoCtxBinding(const ScopedIoCtxBinding&) = delete;
     ScopedIoCtxBinding& operator=(const ScopedIoCtxBinding&) = delete;
-};
-
-// Guard that ensures the total OpenMP threads used by concurrent index builds
-// never exceed the configured omp_threads_limit.
-class ScopedOmpThreadBudget {
-public:
-    // For each index build, reserve at most half of the remaining threads, at least 1 thread.
-    ScopedOmpThreadBudget() {
-        std::unique_lock<std::mutex> lock(g_omp_thread_mutex);
-        auto omp_threads_limit = get_omp_threads_limit();
-        // Block until there is at least one OpenMP slot available under the global cap.
-        g_omp_thread_cv.wait(lock, [&] { return g_index_threads_in_use < omp_threads_limit; });
-        auto thread_cap = omp_threads_limit - g_index_threads_in_use;
-        // Keep headroom for other concurrent index builds: take up to half of remaining budget.
-        _reserved_threads = std::max(1, thread_cap / 2);
-        g_index_threads_in_use += _reserved_threads;
-        DorisMetrics::instance()->ann_index_build_index_threads->increment(_reserved_threads);
-        omp_set_num_threads(_reserved_threads);
-        VLOG_DEBUG << fmt::format(
-                "ScopedOmpThreadBudget reserve threads reserved={}, in_use={}, limit={}",
-                _reserved_threads, g_index_threads_in_use, get_omp_threads_limit());
-    }
-
-    ~ScopedOmpThreadBudget() {
-        std::lock_guard<std::mutex> lock(g_omp_thread_mutex);
-        g_index_threads_in_use -= _reserved_threads;
-        DorisMetrics::instance()->ann_index_build_index_threads->increment(-_reserved_threads);
-        if (g_index_threads_in_use < 0) {
-            g_index_threads_in_use = 0;
-        }
-        // Wake waiting index builders so they can compete for the released OpenMP budget.
-        g_omp_thread_cv.notify_all();
-        VLOG_DEBUG << fmt::format(
-                "ScopedOmpThreadBudget release threads reserved={}, remaining_in_use={}, limit={}",
-                _reserved_threads, g_index_threads_in_use, get_omp_threads_limit());
-    }
-
-    static int get_omp_threads_limit() {
-        if (config::omp_threads_limit > 0) {
-            return config::omp_threads_limit;
-        }
-        int core_cap = std::max(1, CpuInfo::num_cores());
-        // Use at most 80% of the available CPU cores.
-        return std::max(1, core_cap * 4 / 5);
-    }
-
-private:
-    int _reserved_threads = 1;
-};
-
-// Temporarily rename the current thread so FAISS build phases are easier to spot in debuggers.
-class ScopedThreadName {
-public:
-    explicit ScopedThreadName(const std::string& new_name) {
-        // POSIX limits thread names to 15 visible chars plus the null terminator.
-        char current_name[16] = {0};
-        int ret = pthread_getname_np(pthread_self(), current_name, sizeof(current_name));
-        if (ret == 0) {
-            _has_previous_name = true;
-            _previous_name = current_name;
-        }
-        Thread::set_self_name(new_name);
-    }
-
-    ~ScopedThreadName() {
-        if (_has_previous_name) {
-            Thread::set_self_name(_previous_name);
-        }
-    }
-
-private:
-    bool _has_previous_name = false;
-    std::string _previous_name;
 };
 
 class IDSelectorRoaring : public faiss::IDSelector {

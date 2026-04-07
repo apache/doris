@@ -58,6 +58,7 @@ public:
         CONDITION_CACHE = 23,
         ANN_INDEX_IVF_LIST_CACHE = 24,
         ANN_INDEX_RESULT_CACHE = 25,
+        ANN_INDEX_PQ_CHUNK_CACHE = 26,
     };
 
     static std::string type_string(CacheType type) {
@@ -112,6 +113,8 @@ public:
             return "AnnIndexIVFListCache";
         case CacheType::ANN_INDEX_RESULT_CACHE:
             return "AnnIndexResultCache";
+        case CacheType::ANN_INDEX_PQ_CHUNK_CACHE:
+            return "AnnIndexPqChunkCache";
         default:
             throw Exception(Status::FatalError("not match type of cache policy :{}",
                                                static_cast<int>(type)));
@@ -143,7 +146,8 @@ public:
             {"TabletColumnObjectPool", CacheType::TABLET_COLUMN_OBJECT_POOL},
             {"ConditionCache", CacheType::CONDITION_CACHE},
             {"AnnIndexIVFListCache", CacheType::ANN_INDEX_IVF_LIST_CACHE},
-            {"AnnIndexResultCache", CacheType::ANN_INDEX_RESULT_CACHE}};
+            {"AnnIndexResultCache", CacheType::ANN_INDEX_RESULT_CACHE},
+            {"AnnIndexPqChunkCache", CacheType::ANN_INDEX_PQ_CHUNK_CACHE}};
 
     static CacheType string_to_type(std::string type) {
         if (StringToType.contains(type)) {

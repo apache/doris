@@ -897,6 +897,7 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
     bool has_common_expr_push_down = !_common_expr_ctxs_push_down.empty();
     bool has_column_predicate = std::any_of(_is_pred_column.begin(), _is_pred_column.end(),
                                             [](bool is_pred) { return is_pred; });
+
     if (!has_ann_index || has_common_expr_push_down || has_column_predicate) {
         VLOG_DEBUG << fmt::format(
                 "Ann topn can not be evaluated by ann index, has_ann_index: {}, "

@@ -34,6 +34,7 @@
 #include "storage/index/ann/ann_index_writer.h"
 #include "storage/index/ann/ann_search_params.h"
 #include "storage/index/ann/faiss_ann_index.h"
+#include "storage/index/ann/pq_on_disk_vector_index.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/inverted/inverted_index_compound_reader.h"
 #include "util/once.h"
@@ -86,17 +87,27 @@ Status AnnIndexReader::load_index(io::IOContext* io_ctx) {
                 return Status::IOError("Failed to open index file: {}",
                                        compound_dir.error().to_string());
             }
-            _vector_index = std::make_unique<FaissVectorIndex>();
-            _vector_index->set_metric(_metric_type);
-            _vector_index->set_type(_index_type);
-            // Provide a cache key prefix so IVF_ON_DISK can cache ivfdata
-            // blocks in StoragePageCache. Use cache_key (which includes
-            // index_id) rather than file_path, because the idx file is a
-            // compound file shared by multiple indexes.
-            static_cast<FaissVectorIndex*>(_vector_index.get())
-                    ->set_ivfdata_cache_key_prefix(
-                            _index_file_reader->get_index_file_cache_key(&_index_meta));
-            RETURN_IF_ERROR(_vector_index->load(compound_dir->get()));
+            if (_index_type == AnnIndexType::PQ_ON_DISK) {
+                auto pq_index = std::make_unique<PqOnDiskVectorIndex>();
+                pq_index->set_metric(_metric_type);
+                pq_index->set_type(_index_type);
+                pq_index->set_pqdata_cache_key_prefix(
+                        _index_file_reader->get_index_file_cache_key(&_index_meta));
+                RETURN_IF_ERROR(pq_index->load(compound_dir->get()));
+                _vector_index = std::move(pq_index);
+            } else {
+                _vector_index = std::make_unique<FaissVectorIndex>();
+                _vector_index->set_metric(_metric_type);
+                _vector_index->set_type(_index_type);
+                // Provide a cache key prefix so IVF_ON_DISK can cache ivfdata
+                // blocks in StoragePageCache. Use cache_key (which includes
+                // index_id) rather than file_path, because the idx file is a
+                // compound file shared by multiple indexes.
+                static_cast<FaissVectorIndex*>(_vector_index.get())
+                        ->set_ivfdata_cache_key_prefix(
+                                _index_file_reader->get_index_file_cache_key(&_index_meta));
+                RETURN_IF_ERROR(_vector_index->load(compound_dir->get()));
+            }
             // Keep the compound directory alive. For IVF_ON_DISK the
             // CachedRandomAccessReader holds a cloned CSIndexInput whose
             // `base` raw pointer references the compound reader's underlying
@@ -202,6 +213,16 @@ Status AnnIndexReader::query(io::IOContext* io_ctx, AnnTopNParam* param, AnnInde
                         DorisMetrics::instance()->ann_ivf_on_disk_cache_miss_cnt->increment(
                                 index_search_result.ivf_on_disk_cache_miss_cnt);
                     }
+                } else if (_index_type == AnnIndexType::PQ_ON_DISK) {
+                    IndexSearchParameters pq_search_params;
+                    pq_search_params.roaring = param->roaring;
+                    pq_search_params.rows_of_segment = param->rows_of_segment;
+                    pq_search_params.io_ctx = io_ctx;
+                    RETURN_IF_ERROR(_vector_index->ann_topn_search(
+                            query_vec, limit, pq_search_params, index_search_result));
+                    stats->engine_search_ns.update(index_search_result.engine_search_ns);
+                    stats->engine_convert_ns.update(index_search_result.engine_convert_ns);
+                    stats->engine_prepare_ns.update(index_search_result.engine_prepare_ns);
                 } else {
                     throw Exception(Status::NotSupported("Unsupported index type: {}",
                                                          ann_index_type_to_string(_index_type)));
@@ -288,6 +309,8 @@ Status AnnIndexReader::range_search(const AnnRangeSearchParams& params,
                     auto ivf_param = std::make_unique<segment_v2::IVFSearchParameters>();
                     ivf_param->nprobe = custom_params.ivf_nprobe;
                     search_param = std::move(ivf_param);
+                } else if (_index_type == AnnIndexType::PQ_ON_DISK) {
+                    search_param = std::make_unique<segment_v2::IndexSearchParameters>();
                 } else {
                     throw Exception(Status::NotSupported("Unsupported index type: {}",
                                                          ann_index_type_to_string(_index_type)));

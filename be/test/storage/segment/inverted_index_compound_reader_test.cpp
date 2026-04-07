@@ -1056,4 +1056,47 @@ TEST_F(DorisCompoundReaderTest, InitializeThenClearIoCtxForCacheSafety) {
     reader.close();
 }
 
+TEST_F(DorisCompoundReaderTest, CloneReadClearsStaleIoCtx) {
+    std::string index_path = kTestDir + "/test_clone_read_clears_io_ctx.idx";
+    std::vector<std::string> file_names = {"posting.dat"};
+    std::vector<int64_t> lengths = {17 * 1024 * 1024};
+
+    CL_NS(store)::IndexInput* index_input =
+            create_mock_index_input(index_path, file_names, lengths);
+
+    DorisCompoundReader reader(index_input, 4096, nullptr);
+
+    io::FileCacheStatistics stale_stats;
+    io::IOContext io_ctx;
+    io_ctx.reader_type = ReaderType::READER_QUERY;
+    io_ctx.file_cache_stats = &stale_stats;
+    reader.initialize(&io_ctx);
+
+    auto* stream = reader.getDorisIndexInput();
+    auto* stale_ctx = (const io::IOContext*)stream->getIoContext();
+    ASSERT_EQ(stale_ctx->file_cache_stats, &stale_stats);
+
+    CLuceneError err;
+    lucene::store::IndexInput* sub_input = nullptr;
+    ASSERT_TRUE(reader.openInput("posting.dat", sub_input, err, 4096));
+    ASSERT_NE(sub_input, nullptr);
+
+    lucene::store::IndexInput* cloned = sub_input->clone();
+    ASSERT_NE(cloned, nullptr);
+    cloned->setIoContext(nullptr);
+
+    uint8_t buffer[8];
+    ASSERT_NO_THROW(cloned->readBytes(buffer, 8));
+
+    auto* cleared_ctx = (const io::IOContext*)stream->getIoContext();
+    EXPECT_EQ(cleared_ctx->reader_type, ReaderType::UNKNOWN);
+    EXPECT_EQ(cleared_ctx->file_cache_stats, nullptr);
+
+    sub_input->close();
+    cloned->close();
+    _CLLDELETE(sub_input);
+    _CLLDELETE(cloned);
+    reader.close();
+}
+
 } // namespace doris::segment_v2

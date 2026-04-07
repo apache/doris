@@ -65,6 +65,8 @@ public:
 
     AnnIndexMetric get_metric_type() const { return _metric_type; }
 
+    AnnIndexType get_ann_index_type() const { return _index_type; }
+
     size_t get_dimension() const;
 
 private:
