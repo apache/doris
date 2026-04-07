@@ -61,6 +61,7 @@ suite("test_role_mapping_system_table", "p0,auth") {
         }
 
         sql """GRANT SELECT_PRIV ON internal.information_schema.* TO ${user}"""
+        sql """GRANT SELECT_PRIV ON regression_test TO ${user}"""
 
         sql """
             CREATE ROLE MAPPING ${mappingName}
