@@ -7603,7 +7603,7 @@ TEST(RecyclerTest, concurrent_recycle_txn_label_failure_test) {
                       [&](auto&& args) {
                           auto* recycle_txn_info_keys =
                                   try_any_cast<std::vector<std::string>*>(args[0]);
-                          recycle_txn_info_keys_cnt = recycle_txn_info_keys->size();
+                          recycle_txn_info_keys_cnt += recycle_txn_info_keys->size();
                       });
     sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.failure", [](auto&& args) {
         auto* ret = try_any_cast<int*>(args[0]);
