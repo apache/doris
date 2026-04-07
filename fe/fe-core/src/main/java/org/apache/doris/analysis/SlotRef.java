@@ -32,7 +32,6 @@ import org.apache.commons.collections4.CollectionUtils;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -164,14 +163,6 @@ public class SlotRef extends Expr {
     @Override
     public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
         return visitor.visitSlotRef(this, context);
-    }
-
-    @Override
-    public String getExprName() {
-        if (!this.exprName.isPresent()) {
-            this.exprName = Optional.of(accept(ExprToColumnLabelVisitor.INSTANCE, null));
-        }
-        return this.exprName.get();
     }
 
     @Override

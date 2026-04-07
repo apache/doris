@@ -499,8 +499,6 @@ public class Checkpoint extends MasterDaemon {
                         continue;
                     }
                     replica.setDataSize(servingReplica.getDataSize());
-                    replica.setRowsetCount(servingReplica.getRowsetCount());
-                    replica.setSegmentCount(servingReplica.getSegmentCount());
                     replica.setRowCount(servingReplica.getRowCount());
                     replica.setLocalInvertedIndexSize(servingReplica.getLocalInvertedIndexSize());
                     replica.setLocalSegmentSize(servingReplica.getLocalSegmentSize());

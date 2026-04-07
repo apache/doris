@@ -24,7 +24,6 @@ import org.apache.doris.catalog.AggStateType;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.NameFormatUtils;
 import org.apache.doris.common.TreeNode;
 
 import com.google.common.base.Joiner;
@@ -41,7 +40,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
 
@@ -64,8 +62,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
     // Cached value of IsConstant(), set during analyze() and valid if isAnalyzed_ is true.
     private Supplier<Boolean> isConstant = Suppliers.memoize(this::isConstantImpl);
 
-    protected Optional<String> exprName = Optional.empty();
-
     protected Expr() {
         super();
         type = Type.INVALID;
@@ -81,16 +77,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
     }
 
     public void checkValueValid() throws AnalysisException {
-    }
-
-    // Name of expr, this is used by generating column name automatically when there is no
-    // alias or is not slotRef
-    public String getExprName() {
-        if (!this.exprName.isPresent()) {
-            this.exprName = Optional.of(
-                    NameFormatUtils.normalizeName(this.getClass().getSimpleName(), DEFAULT_EXPR_NAME));
-        }
-        return this.exprName.get();
     }
 
     public Type getType() {

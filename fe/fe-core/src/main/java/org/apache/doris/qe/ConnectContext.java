@@ -33,6 +33,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
+import org.apache.doris.catalog.NameSpaceContext;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
@@ -869,6 +870,10 @@ public class ConnectContext {
 
     public String getDatabase() {
         return currentDb;
+    }
+
+    public NameSpaceContext getNameSpaceContext() {
+        return new NameSpaceContext(defaultCatalog, currentDb, currentDbId);
     }
 
     public void setDatabase(String db) {

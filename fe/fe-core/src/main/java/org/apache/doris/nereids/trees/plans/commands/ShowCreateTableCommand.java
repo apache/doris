@@ -94,7 +94,7 @@ public class ShowCreateTableCommand extends ShowCommand {
     }
 
     private void validate(ConnectContext ctx) throws AnalysisException {
-        tblNameInfo.analyze(ctx);
+        tblNameInfo.analyze(ctx.getNameSpaceContext());
 
         DatabaseIf db = Env.getCurrentEnv().getCatalogMgr()
                 .getCatalogOrAnalysisException(tblNameInfo.getCtl())

@@ -38,6 +38,7 @@ import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshTrigger;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -395,7 +396,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     }
 
     public boolean isTableExist(String tableName) {
-        if (Env.isTableNamesCaseInsensitive()) {
+        if (GlobalVariable.isTableNamesCaseInsensitive()) {
             tableName = lowerCaseToTableName.get(tableName.toLowerCase());
             if (tableName == null) {
                 return false;
@@ -424,7 +425,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         boolean isTableExist = false;
         table.setQualifiedDbName(fullQualifiedName);
         String tableName = table.getName();
-        if (Env.isStoredTableNamesLowerCase()) {
+        if (GlobalVariable.isStoredTableNamesLowerCase()) {
             tableName = tableName.toLowerCase();
         }
         if (isTableExist(tableName)) {
@@ -458,7 +459,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         Table olapTable = (Table) table;
         olapTable.setQualifiedDbName(fullQualifiedName);
         String tableName = olapTable.getName();
-        if (Env.isStoredTableNamesLowerCase()) {
+        if (GlobalVariable.isStoredTableNamesLowerCase()) {
             tableName = tableName.toLowerCase();
         }
         if (isTableExist(tableName)) {
@@ -477,7 +478,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
 
     @Override
     public void unregisterTable(String tableName) {
-        if (Env.isStoredTableNamesLowerCase()) {
+        if (GlobalVariable.isStoredTableNamesLowerCase()) {
             tableName = tableName.toLowerCase();
         }
         Table table = getTableNullable(tableName);
@@ -601,10 +602,10 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
      */
     @Override
     public Table getTableNullable(String tableName) {
-        if (Env.isStoredTableNamesLowerCase()) {
+        if (GlobalVariable.isStoredTableNamesLowerCase()) {
             tableName = tableName.toLowerCase();
         }
-        if (Env.isTableNamesCaseInsensitive()) {
+        if (GlobalVariable.isTableNamesCaseInsensitive()) {
             tableName = lowerCaseToTableName.get(tableName.toLowerCase());
             if (tableName == null) {
                 return null;
@@ -625,10 +626,10 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
      */
     @Override
     public Table getNonTempTableNullable(String tableName) {
-        if (Env.isStoredTableNamesLowerCase()) {
+        if (GlobalVariable.isStoredTableNamesLowerCase()) {
             tableName = tableName.toLowerCase();
         }
-        if (Env.isTableNamesCaseInsensitive()) {
+        if (GlobalVariable.isTableNamesCaseInsensitive()) {
             tableName = lowerCaseToTableName.get(tableName.toLowerCase());
             if (tableName == null) {
                 return null;

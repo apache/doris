@@ -81,7 +81,7 @@ public class ShowColumnHistogramStatsCommand extends ShowCommand {
      * validate
      */
     public void validate(ConnectContext ctx) throws UserException {
-        tableNameInfo.analyze(ctx);
+        tableNameInfo.analyze(ctx.getNameSpaceContext());
 
         // disallow external catalog
         Util.prohibitExternalCatalog(tableNameInfo.getCtl(), this.getClass().getSimpleName());

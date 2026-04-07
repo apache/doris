@@ -31,6 +31,7 @@ import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.base.Preconditions;
@@ -919,7 +920,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         table.writeLock();
         try {
             if (!Strings.isNullOrEmpty(newTableName)) {
-                if (Env.isStoredTableNamesLowerCase()) {
+                if (GlobalVariable.isStoredTableNamesLowerCase()) {
                     newTableName = newTableName.toLowerCase();
                 }
                 if (!tableName.equals(newTableName)) {

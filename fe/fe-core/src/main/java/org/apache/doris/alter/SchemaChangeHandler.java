@@ -24,6 +24,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ColumnToThrift;
 import org.apache.doris.catalog.ColumnType;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DistributionInfo;
@@ -74,7 +75,7 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.AlterCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
@@ -409,7 +410,9 @@ public class SchemaChangeHandler extends AlterHandler {
         String dropColName = dropColumnOp.getColName();
 
         String constraintName = Env.getCurrentEnv().getConstraintManager()
-                .findConstraintWithColumn(new TableNameInfo(externalTable), dropColName);
+                .findConstraintWithColumn(TableNameInfoUtils.fromCatalogDb(
+                        externalTable.getDatabase().getCatalog(),
+                        externalTable.getDatabase(), externalTable), dropColName);
         if (constraintName != null) {
             throw new DdlException(String.format(
                     "Cannot drop column '%s' because it is used by constraint '%s'. "
@@ -455,7 +458,9 @@ public class SchemaChangeHandler extends AlterHandler {
         String dropColName = dropColumnOp.getColName();
 
         String constraintName = Env.getCurrentEnv().getConstraintManager()
-                .findConstraintWithColumn(new TableNameInfo(olapTable), dropColName);
+                .findConstraintWithColumn(TableNameInfoUtils.fromCatalogDb(
+                        olapTable.getDatabase().getCatalog(),
+                        olapTable.getDatabase(), olapTable), dropColName);
         if (constraintName != null) {
             throw new DdlException(String.format(
                     "Cannot drop column '%s' because it is used by constraint '%s'. "
@@ -2574,6 +2579,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 add(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES);
                 add(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE);
                 add(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION);
+                add(PropertyAnalyzer.PROPERTIES_ENABLE_TSO);
                 add(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION);
                 add(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD);
                 add(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD);
@@ -2686,6 +2692,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_MODE)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD)
+                && !properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_TSO)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT)) {
@@ -3536,8 +3543,8 @@ public class SchemaChangeHandler extends AlterHandler {
                 MaterializedIndexMeta indexMeta = olapTable.getIndexMetaByIndexId(originIndexId);
                 List<Column> colList = indexMeta.getSchema(true);
                 for (Column col : colList) {
-                    TColumn tColumn = col.toThrift();
-                    col.setIndexFlag(tColumn, olapTable);
+                    TColumn tColumn = ColumnToThrift.toThrift(col);
+                    ColumnToThrift.setIndexFlag(tColumn, olapTable);
                 }
                 List<Index> indexList = indexMeta.getIndexes();
                 int schemaVersion = indexMeta.getSchemaVersion();

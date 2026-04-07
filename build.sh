@@ -80,7 +80,8 @@ Usage: $0 <options>
     DISABLE_BE_JAVA_EXTENSIONS  If set DISABLE_BE_JAVA_EXTENSIONS=ON, we will do not build binary with java-udf,hadoop-hudi-scanner,jdbc-scanner and so on Default is OFF.
     DISABLE_JAVA_CHECK_STYLE    If set DISABLE_JAVA_CHECK_STYLE=ON, it will skip style check of java code in FE.
     DISABLE_BUILD_AZURE         If set DISABLE_BUILD_AZURE=ON, it will not build azure into BE.
-    DISABLE_BUILD_JUICEFS       If set DISABLE_BUILD_JUICEFS=ON, it will skip packaging juicefs-hadoop jar into FE/BE output.
+    DISABLE_BUILD_JUICEFS       If set DISABLE_BUILD_JUICEFS=OFF, it will package juicefs-hadoop jar into FE/BE output. Default is ON (skip).
+    DISABLE_BUILD_JINDOFS       If set DISABLE_BUILD_JINDOFS=OFF, it will package jindofs jars into FE/BE output. Default is ON (skip).
 
   Eg.
     $0                                      build all
@@ -142,46 +143,6 @@ function copy_common_files() {
     cp -r -p "${DORIS_HOME}/NOTICE.txt" "$1/"
     cp -r -p "${DORIS_HOME}/dist/LICENSE-dist.txt" "$1/"
     cp -r -p "${DORIS_HOME}/dist/licenses" "$1/"
-}
-
-. "${DORIS_HOME}/docker/thirdparties/juicefs-helpers.sh"
-. "${DORIS_HOME}/docker/thirdparties/jindofs-helpers.sh"
-
-find_juicefs_hadoop_jar() {
-    juicefs_find_hadoop_jar_by_globs \
-        "${DORIS_THIRDPARTY}/installed/juicefs_libs/juicefs-hadoop-[0-9]*.jar" \
-        "${DORIS_THIRDPARTY}/src/juicefs-hadoop-[0-9]*.jar" \
-        "${DORIS_HOME}/thirdparty/installed/juicefs_libs/juicefs-hadoop-[0-9]*.jar" \
-        "${DORIS_HOME}/thirdparty/src/juicefs-hadoop-[0-9]*.jar"
-}
-
-detect_juicefs_version() {
-    local juicefs_jar
-    juicefs_jar=$(find_juicefs_hadoop_jar || true)
-    juicefs_detect_hadoop_version "${juicefs_jar}" "${JUICEFS_DEFAULT_VERSION}"
-}
-
-download_juicefs_hadoop_jar() {
-    local juicefs_version="$1"
-    local cache_dir="${DORIS_HOME}/thirdparty/installed/juicefs_libs"
-    juicefs_download_hadoop_jar_to_cache "${juicefs_version}" "${cache_dir}"
-}
-
-copy_juicefs_hadoop_jar() {
-    local target_dir="$1"
-    local source_jar=""
-    source_jar=$(find_juicefs_hadoop_jar || true)
-    if [[ -z "${source_jar}" ]]; then
-        local juicefs_version
-        juicefs_version=$(detect_juicefs_version)
-        source_jar=$(download_juicefs_hadoop_jar "${juicefs_version}" || true)
-    fi
-    if [[ -z "${source_jar}" ]]; then
-        echo "WARN: skip copying juicefs-hadoop jar, not found in thirdparty and download failed"
-        return 0
-    fi
-    cp -r -p "${source_jar}" "${target_dir}/"
-    echo "Copy JuiceFS Hadoop jar to ${target_dir}: $(basename "${source_jar}")"
 }
 
 if ! OPTS="$(getopt \
@@ -541,17 +502,19 @@ if [[ "$(echo "${DISABLE_BUILD_AZURE}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]
     BUILD_AZURE='OFF'
 fi
 
-if [[ "$(echo "${DISABLE_BUILD_JINDOFS}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]; then
-    BUILD_JINDOFS='OFF'
-else
+if [[ "$(echo "${DISABLE_BUILD_JINDOFS}" | tr '[:lower:]' '[:upper:]')" == "OFF" ]]; then
     BUILD_JINDOFS='ON'
-fi
-
-if [[ "$(echo "${DISABLE_BUILD_JUICEFS}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]; then
-    BUILD_JUICEFS='OFF'
 else
-    BUILD_JUICEFS='ON'
+    BUILD_JINDOFS='OFF'
 fi
+export DISABLE_BUILD_JINDOFS
+
+if [[ "$(echo "${DISABLE_BUILD_JUICEFS}" | tr '[:lower:]' '[:upper:]')" == "OFF" ]]; then
+    BUILD_JUICEFS='ON'
+else
+    BUILD_JUICEFS='OFF'
+fi
+export DISABLE_BUILD_JUICEFS
 
 if [[ -z "${ENABLE_INJECTION_POINT}" ]]; then
     ENABLE_INJECTION_POINT='OFF'
@@ -602,6 +565,7 @@ echo "Get params:
     BUILD_BE_CDC_CLIENT                 -- ${BUILD_BE_CDC_CLIENT}
     BUILD_HIVE_UDF                      -- ${BUILD_HIVE_UDF}
     BUILD_JUICEFS                       -- ${BUILD_JUICEFS}
+    BUILD_JINDOFS                       -- ${BUILD_JINDOFS}
     PARALLEL                            -- ${PARALLEL}
     CLEAN                               -- ${CLEAN}
     GLIBC_COMPATIBILITY                 -- ${GLIBC_COMPATIBILITY}
@@ -908,12 +872,6 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     cp -r -p "${DORIS_HOME}/conf/ldap.conf" "${DORIS_OUTPUT}/fe/conf"/
     cp -r -p "${DORIS_HOME}/conf/mysql_ssl_default_certificate" "${DORIS_OUTPUT}/fe/"/
     rm -rf "${DORIS_OUTPUT}/fe/lib"/*
-    if [[ "${BUILD_JINDOFS}" == "ON" ]]; then
-        install -d "${DORIS_OUTPUT}/fe/lib/jindofs"
-    fi
-    if [[ "${BUILD_JUICEFS}" == "ON" ]]; then
-        install -d "${DORIS_OUTPUT}/fe/lib/juicefs"
-    fi
     cp -r -p "${DORIS_HOME}/fe/fe-core/target/lib"/* "${DORIS_OUTPUT}/fe/lib"/
     cp -r -p "${DORIS_HOME}/fe/fe-core/target/doris-fe.jar" "${DORIS_OUTPUT}/fe/lib"/
     if [[ "${WITH_TDE_DIR}" != "" ]]; then
@@ -922,16 +880,8 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
 
     #cp -r -p "${DORIS_HOME}/docs/build/help-resource.zip" "${DORIS_OUTPUT}/fe/lib"/
 
-    # copy jindofs jars, including common jars and the matching platform jar
-    if [[ "${BUILD_JINDOFS}" == "ON" ]]; then
-        jindofs_copy_jars "${DORIS_THIRDPARTY}/installed/jindofs_libs" "${DORIS_OUTPUT}/fe/lib/jindofs" \
-            "${TARGET_SYSTEM}" "${TARGET_ARCH}"
-    fi
-
-    # copy juicefs hadoop client jar
-    if [[ "${BUILD_JUICEFS}" == "ON" ]]; then
-        copy_juicefs_hadoop_jar "${DORIS_OUTPUT}/fe/lib/juicefs"
-    fi
+    # Third-party filesystem jars (JuiceFS, JindoFS) are packaged by post-build.sh
+    "${DORIS_HOME}/post-build.sh" --fe --output "${DORIS_OUTPUT}"
 
     cp -r -p "${DORIS_HOME}/minidump" "${DORIS_OUTPUT}/fe"/
     cp -r -p "${DORIS_HOME}/webroot/static" "${DORIS_OUTPUT}/fe/webroot"/
@@ -1106,18 +1056,8 @@ EOF
         fi
     done        
 
-    # copy jindofs jars, including common jars and the matching platform jar
-    if [[ "${BUILD_JINDOFS}" == "ON" ]]; then
-        install -d "${DORIS_OUTPUT}/be/lib/java_extensions/jindofs"/
-        jindofs_copy_jars "${DORIS_THIRDPARTY}/installed/jindofs_libs" "${DORIS_OUTPUT}/be/lib/java_extensions/jindofs" \
-            "${TARGET_SYSTEM}" "${TARGET_ARCH}"
-    fi
-    if [[ "${BUILD_JUICEFS}" == "ON" ]]; then
-        install -d "${DORIS_OUTPUT}/be/lib/java_extensions/juicefs"/
-
-        # copy juicefs hadoop client jar
-        copy_juicefs_hadoop_jar "${DORIS_OUTPUT}/be/lib/java_extensions/juicefs"
-    fi
+    # Third-party filesystem jars (JuiceFS, JindoFS) are packaged by post-build.sh
+    "${DORIS_HOME}/post-build.sh" --be --output "${DORIS_OUTPUT}"
 
     cp -r -p "${DORIS_THIRDPARTY}/installed/webroot"/* "${DORIS_OUTPUT}/be/www"/
     copy_common_files "${DORIS_OUTPUT}/be/"

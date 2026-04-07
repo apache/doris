@@ -71,6 +71,7 @@ import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
 import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentBoundedBatchTask;
@@ -999,7 +1000,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 }
                 // set restored table's new name after all 'genFileMapping'
                 String tableName = jobInfo.getAliasByOriginNameIfSet(restoreTbl.getName());
-                if (Env.isStoredTableNamesLowerCase()) {
+                if (GlobalVariable.isStoredTableNamesLowerCase()) {
                     tableName = tableName.toLowerCase();
                 }
                 if ((restoreTbl.getType() == TableType.OLAP || restoreTbl
@@ -2538,7 +2539,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     private Status atomicReplaceOlapTables(Database db, boolean isReplay) {
         for (String tableName : jobInfo.backupOlapTableObjects.keySet()) {
             String originName = jobInfo.getAliasByOriginNameIfSet(tableName);
-            if (Env.isStoredTableNamesLowerCase()) {
+            if (GlobalVariable.isStoredTableNamesLowerCase()) {
                 originName = originName.toLowerCase();
             }
             String aliasName = tableAliasWithAtomicRestore(originName);
@@ -2620,7 +2621,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         }
         for (BackupJobInfo.BackupViewInfo backupViewInfo : jobInfo.newBackupObjects.views) {
             String originName = jobInfo.getAliasByOriginNameIfSet(backupViewInfo.name);
-            if (Env.isStoredTableNamesLowerCase()) {
+            if (GlobalVariable.isStoredTableNamesLowerCase()) {
                 originName = originName.toLowerCase();
             }
             String aliasName = tableAliasWithAtomicRestore(originName);

@@ -100,7 +100,7 @@ public class AnalyzeTableCommand extends AnalyzeCommand {
     @Override
     public void validate(ConnectContext ctx) throws UserException {
         super.validate(ctx);
-        tableNameInfo.analyze(ctx);
+        tableNameInfo.analyze(ctx.getNameSpaceContext());
         String catalogName = tableNameInfo.getCtl();
         String dbName = tableNameInfo.getDb();
         String tblName = tableNameInfo.getTbl();

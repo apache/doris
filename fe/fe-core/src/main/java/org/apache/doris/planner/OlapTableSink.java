@@ -26,6 +26,7 @@ import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ColumnToThrift;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.Env;
@@ -411,14 +412,14 @@ public class OlapTableSink extends DataSink {
             List<TOlapTableIndex> indexDesc = Lists.newArrayList();
             columns.addAll(indexMeta.getSchema().stream().map(Column::getNonShadowName).collect(Collectors.toList()));
             for (Column column : indexMeta.getSchema()) {
-                TColumn tColumn = column.toThrift();
+                TColumn tColumn = ColumnToThrift.toThrift(column);
                 // When schema change is doing, some modified column has prefix in name. Columns here
                 // is for the schema in rowset meta, which should be no column with shadow prefix.
                 // So we should remove the shadow prefix here.
                 if (column.getName().startsWith(Column.SHADOW_NAME_PREFIX)) {
                     tColumn.setColumnName(column.getNonShadowName());
                 }
-                column.setIndexFlag(tColumn, table);
+                ColumnToThrift.setIndexFlag(tColumn, table);
                 columnsDesc.add(tColumn);
             }
             List<Index> indexes = indexMeta.getIndexes();
