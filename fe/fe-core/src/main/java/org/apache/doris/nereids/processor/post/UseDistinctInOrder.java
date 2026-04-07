@@ -117,8 +117,10 @@ public class UseDistinctInOrder extends PlanPostProcessor {
         }
 
         // Full coverage confirmed! Mark the aggregate.
-        LOG.debug("UseDistinctInOrder: marking aggregate {} for sorted distinct on table {}",
-                agg.getId(), table.getName());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("UseDistinctInOrder: marking aggregate {} for sorted distinct on table {}",
+                    agg.getId(), table.getName());
+        }
         agg.setUseSortedDistinct(true);
         return agg;
     }

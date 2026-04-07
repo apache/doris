@@ -237,6 +237,9 @@ public class AggregationNode extends PlanNode {
             output.append(detailPrefix).append("having: ").append(getExplainString(conjuncts)).append("\n");
         }
         output.append(detailPrefix).append("sortByGroupKey:").append(sortByGroupKey != null).append("\n");
+        if (useSortedDistinct) {
+            output.append(detailPrefix).append("useSortedDistinct:true").append("\n");
+        }
         output.append(detailPrefix).append(String.format(
                 "cardinality=%,d", cardinality)).append("\n");
         return output.toString();
