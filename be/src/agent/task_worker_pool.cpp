@@ -401,7 +401,8 @@ bool handle_report(const TReportRequest& request, const ClusterInfo* cluster_inf
 }
 
 Status _submit_task(const TAgentTaskRequest& task,
-                    std::function<Status(const TAgentTaskRequest&)> submit_op) {
+                    std::function<Status(const TAgentTaskRequest&)> submit_op,
+                    std::function<size_t()> get_queue_size) {
     const TTaskType::type task_type = task.task_type;
     int64_t signature = task.signature;
 
@@ -427,7 +428,10 @@ Status _submit_task(const TAgentTaskRequest& task,
         return st;
     }
 
-    LOG_INFO("successfully submit task").tag("type", type_str).tag("signature", signature);
+    LOG_INFO("successfully submit task")
+            .tag("type", type_str)
+            .tag("signature", signature)
+            .tag("queue_size", get_queue_size());
     return Status::OK();
 }
 
@@ -556,16 +560,19 @@ void TaskWorkerPool::stop() {
 }
 
 Status TaskWorkerPool::submit_task(const TAgentTaskRequest& task) {
-    return _submit_task(task, [this](auto&& task) {
-        if (_pre_submit_callback) {
-            _pre_submit_callback(task);
-        }
-        add_task_count(task, 1);
-        return _thread_pool->submit_func([this, task]() {
-            _callback(task);
-            add_task_count(task, -1);
-        });
-    });
+    return _submit_task(
+            task,
+            [this](auto&& task) {
+                if (_pre_submit_callback) {
+                    _pre_submit_callback(task);
+                }
+                add_task_count(task, 1);
+                return _thread_pool->submit_func([this, task]() {
+                    _callback(task);
+                    add_task_count(task, -1);
+                });
+            },
+            [this]() { return _thread_pool->get_queue_size(); });
 }
 
 PriorTaskWorkerPool::PriorTaskWorkerPool(
@@ -609,21 +616,27 @@ void PriorTaskWorkerPool::stop() {
 }
 
 Status PriorTaskWorkerPool::submit_task(const TAgentTaskRequest& task) {
-    return _submit_task(task, [this](auto&& task) {
-        auto req = std::make_unique<TAgentTaskRequest>(task);
-        add_task_count(*req, 1);
-        if (req->__isset.priority && req->priority == TPriority::HIGH) {
-            std::lock_guard lock(_mtx);
-            _high_prior_queue.push_back(std::move(req));
-            _high_prior_condv.notify_one();
-            _normal_condv.notify_one();
-        } else {
-            std::lock_guard lock(_mtx);
-            _normal_queue.push_back(std::move(req));
-            _normal_condv.notify_one();
-        }
-        return Status::OK();
-    });
+    return _submit_task(
+            task,
+            [this](auto&& task) {
+                auto req = std::make_unique<TAgentTaskRequest>(task);
+                add_task_count(*req, 1);
+                if (req->__isset.priority && req->priority == TPriority::HIGH) {
+                    std::lock_guard lock(_mtx);
+                    _high_prior_queue.push_back(std::move(req));
+                    _high_prior_condv.notify_one();
+                    _normal_condv.notify_one();
+                } else {
+                    std::lock_guard lock(_mtx);
+                    _normal_queue.push_back(std::move(req));
+                    _normal_condv.notify_one();
+                }
+                return Status::OK();
+            },
+            [this]() {
+                std::lock_guard lock(_mtx);
+                return _normal_queue.size() + _high_prior_queue.size();
+            });
 }
 
 Status PriorTaskWorkerPool::submit_high_prior_and_cancel_low(TAgentTaskRequest& task) {
@@ -668,7 +681,15 @@ Status PriorTaskWorkerPool::submit_high_prior_and_cancel_low(TAgentTaskRequest& 
     // Set the receiving time of task so that we can determine whether it is timed out later
     task.__set_recv_time(time(nullptr));
 
-    LOG_INFO("successfully submit task").tag("type", type_str).tag("signature", signature);
+    size_t queue_size = 0;
+    {
+        std::lock_guard lock(_mtx);
+        queue_size = _normal_queue.size() + _high_prior_queue.size();
+    }
+    LOG_INFO("successfully submit task")
+            .tag("type", type_str)
+            .tag("signature", signature)
+            .tag("queue_size", queue_size);
     return Status::OK();
 }
 
@@ -2185,11 +2206,18 @@ void CloudCalcDeleteBitmapAsyncPublishWorkerPool::calc_delete_bitmap_async_publi
     std::vector<TTabletId> error_tablet_ids;
     std::vector<TTabletId> succ_tablet_ids;
     const auto& async_publish_req = req.calc_delete_bitmap_async_publish_req;
-    if (req.signature != async_publish_req.transaction_id) {
-        LOG_INFO("begin to execute calc delete bitmap async publish task")
-                .tag("signature", req.signature)
-                .tag("transaction_id", async_publish_req.transaction_id);
+    int64_t total_partition_num = async_publish_req.partitions.size();
+    int64_t total_tablet_num = 0;
+    for (const auto& partition : async_publish_req.partitions) {
+        total_tablet_num += partition.tablet_ids.size();
     }
+    int64_t queue_wait_s = req.__isset.recv_time ? time(nullptr) - req.recv_time : -1;
+    LOG_INFO("begin to execute calc delete bitmap async publish task")
+            .tag("signature", req.signature)
+            .tag("transaction_id", async_publish_req.transaction_id)
+            .tag("worker_pool_queue_wait_s", queue_wait_s)
+            .tag("total_partition_num", total_partition_num)
+            .tag("total_tablet_num", total_tablet_num);
 
     CloudCalcDeleteBitmapAsyncPublishTask engine_task(
             _engine, async_publish_req, &error_tablet_ids, &succ_tablet_ids);

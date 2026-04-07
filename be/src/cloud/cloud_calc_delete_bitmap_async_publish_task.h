@@ -19,6 +19,7 @@
 
 #include <gen_cpp/AgentService_types.h>
 
+#include <atomic>
 #include <memory>
 #include <mutex>
 
@@ -36,7 +37,12 @@ public:
     CloudTabletCalcDeleteBitmapAsyncPublishTask(CloudStorageEngine& engine, int64_t tablet_id,
                                                 int64_t transaction_id, int64_t version,
                                                 int64_t db_id, int64_t table_id, int64_t index_id,
-                                                int64_t partition_id);
+                                                int64_t partition_id,
+                                                int64_t transaction_start_time_us,
+                                                int64_t transaction_total_partition_num,
+                                                int64_t transaction_total_tablet_num,
+                                                std::shared_ptr<std::atomic_bool>
+                                                        first_tablet_start_logged);
     ~CloudTabletCalcDeleteBitmapAsyncPublishTask() = default;
 
     Status handle() const;
@@ -66,6 +72,10 @@ private:
     int64_t _table_id;
     int64_t _index_id;
     int64_t _partition_id;
+    int64_t _transaction_start_time_us;
+    int64_t _transaction_total_partition_num;
+    int64_t _transaction_total_tablet_num;
+    std::shared_ptr<std::atomic_bool> _first_tablet_start_logged;
 };
 
 class CloudCalcDeleteBitmapAsyncPublishTask : public EngineTask {

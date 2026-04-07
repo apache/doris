@@ -41,6 +41,22 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 
+namespace {
+
+int64_t count_total_tablets(const TCalcDeleteBitmapAsyncPublishRequest& request) {
+    int64_t total_tablet_num = 0;
+    for (const auto& partition : request.partitions) {
+        total_tablet_num += partition.tablet_ids.size();
+    }
+    return total_tablet_num;
+}
+
+int64_t count_total_partitions(const TCalcDeleteBitmapAsyncPublishRequest& request) {
+    return request.partitions.size();
+}
+
+} // namespace
+
 CloudCalcDeleteBitmapAsyncPublishTask::CloudCalcDeleteBitmapAsyncPublishTask(
         CloudStorageEngine& engine, const TCalcDeleteBitmapAsyncPublishRequest& request,
         std::vector<TTabletId>* error_tablet_ids, std::vector<TTabletId>* succ_tablet_ids)
@@ -69,12 +85,19 @@ void CloudCalcDeleteBitmapAsyncPublishTask::add_succ_tablet_id(int64_t tablet_id
 
 Status CloudCalcDeleteBitmapAsyncPublishTask::execute() {
     int64_t transaction_id = _request.transaction_id;
+    const int64_t transaction_start_time_us = MonotonicMicros();
+    const int64_t total_partition_num = count_total_partitions(_request);
+    const int64_t total_tablet_num = count_total_tablets(_request);
     OlapStopWatch watch;
-    VLOG_NOTICE << "begin to calculate delete bitmap for async publish. transaction_id="
-                << transaction_id;
+    LOG(INFO) << "begin to calculate delete bitmap for async publish on transaction"
+              << ", transaction_id=" << transaction_id
+              << ", total_partition_num=" << total_partition_num
+              << ", total_tablet_num=" << total_tablet_num << ", thread_pool="
+              << _engine.calc_tablet_delete_bitmap_task_thread_pool().get_info();
     std::unique_ptr<ThreadPoolToken> token =
             _engine.calc_tablet_delete_bitmap_task_thread_pool().new_token(
                     ThreadPool::ExecutionMode::CONCURRENT);
+    auto first_tablet_start_logged = std::make_shared<std::atomic_bool>(false);
     for (const auto& partition : _request.partitions) {
         int64_t version = partition.version;
         int64_t db_id = partition.__isset.db_id ? partition.db_id : -1;
@@ -86,7 +109,9 @@ Status CloudCalcDeleteBitmapAsyncPublishTask::execute() {
                                        : -1;
             auto tablet_task = std::make_shared<CloudTabletCalcDeleteBitmapAsyncPublishTask>(
                     _engine, tablet_id, transaction_id, version, db_id, table_id, index_id,
-                    partition.partition_id);
+                    partition.partition_id, transaction_start_time_us, total_partition_num,
+                    total_tablet_num,
+                    first_tablet_start_logged);
             auto submit_st = token->submit_func([tablet_id, tablet_task, this]() {
                 auto st = tablet_task->handle();
                 if (st.ok()) {
@@ -97,14 +122,23 @@ Status CloudCalcDeleteBitmapAsyncPublishTask::execute() {
                     add_error_tablet_id(tablet_id, st);
                 }
             });
-            VLOG_DEBUG << "submit CloudTabletCalcDeleteBitmapAsyncPublishTask for tablet="
-                       << tablet_id;
             if (!submit_st.ok()) {
                 _res = submit_st;
                 break;
             }
+            LOG(INFO) << "successfully submit async publish tablet task"
+                      << ", transaction_id=" << transaction_id << ", tablet_id=" << tablet_id
+                      << ", tablet_task_queue_size="
+                      << _engine.calc_tablet_delete_bitmap_task_thread_pool().get_queue_size();
         }
     }
+    LOG(INFO) << "submitted tablet tasks for async publish transaction"
+              << ", transaction_id=" << transaction_id
+              << ", total_partition_num=" << total_partition_num
+              << ", total_tablet_num=" << total_tablet_num
+              << ", submit_tablet_task_time_us="
+              << MonotonicMicros() - transaction_start_time_us << ", thread_pool="
+              << _engine.calc_tablet_delete_bitmap_task_thread_pool().get_info();
     // wait for all finished
     token->wait();
 
@@ -117,7 +151,10 @@ Status CloudCalcDeleteBitmapAsyncPublishTask::execute() {
 
 CloudTabletCalcDeleteBitmapAsyncPublishTask::CloudTabletCalcDeleteBitmapAsyncPublishTask(
         CloudStorageEngine& engine, int64_t tablet_id, int64_t transaction_id, int64_t version,
-        int64_t db_id, int64_t table_id, int64_t index_id, int64_t partition_id)
+        int64_t db_id, int64_t table_id, int64_t index_id, int64_t partition_id,
+        int64_t transaction_start_time_us, int64_t transaction_total_partition_num,
+        int64_t transaction_total_tablet_num,
+        std::shared_ptr<std::atomic_bool> first_tablet_start_logged)
         : _engine(engine),
           _tablet_id(tablet_id),
           _transaction_id(transaction_id),
@@ -125,7 +162,11 @@ CloudTabletCalcDeleteBitmapAsyncPublishTask::CloudTabletCalcDeleteBitmapAsyncPub
           _db_id(db_id),
           _table_id(table_id),
           _index_id(index_id),
-          _partition_id(partition_id) {
+          _partition_id(partition_id),
+          _transaction_start_time_us(transaction_start_time_us),
+          _transaction_total_partition_num(transaction_total_partition_num),
+          _transaction_total_tablet_num(transaction_total_tablet_num),
+          _first_tablet_start_logged(std::move(first_tablet_start_logged)) {
     _mem_tracker = MemTrackerLimiter::create_shared(
             MemTrackerLimiter::Type::OTHER,
             fmt::format("CloudTabletCalcDeleteBitmapAsyncPublishTask#_transaction_id={}",
@@ -133,8 +174,21 @@ CloudTabletCalcDeleteBitmapAsyncPublishTask::CloudTabletCalcDeleteBitmapAsyncPub
 }
 
 Status CloudTabletCalcDeleteBitmapAsyncPublishTask::handle() const {
+    const int64_t tablet_start_time_us = MonotonicMicros();
+    const int64_t queue_wait_us = tablet_start_time_us - _transaction_start_time_us;
+    bool expected = false;
+    if (_first_tablet_start_logged &&
+        _first_tablet_start_logged->compare_exchange_strong(expected, true,
+                                                            std::memory_order_relaxed)) {
+        LOG(INFO) << "first tablet task starts for async publish transaction"
+                  << ", transaction_id=" << _transaction_id << ", tablet_id=" << _tablet_id
+                  << ", queue_wait_us=" << queue_wait_us
+                  << ", total_partition_num=" << _transaction_total_partition_num
+                  << ", total_tablet_num=" << _transaction_total_tablet_num << ", thread_pool="
+                  << _engine.calc_tablet_delete_bitmap_task_thread_pool().get_info();
+    }
     VLOG_DEBUG << "start calculate delete bitmap for async publish on tablet " << _tablet_id
-               << ", txn_id=" << _transaction_id;
+               << ", txn_id=" << _transaction_id << ", queue_wait_us=" << queue_wait_us;
     SCOPED_ATTACH_TASK(_mem_tracker);
     int64_t t1 = MonotonicMicros();
     auto base_tablet = DORIS_TRY(_engine.get_tablet(_tablet_id));
