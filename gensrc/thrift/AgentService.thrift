@@ -509,6 +509,8 @@ struct TCalcDeleteBitmapRequest {
 struct TCalcDeleteBitmapAsyncPublishRequest {
     1: required Types.TTransactionId transaction_id
     2: required list<TCalcDeleteBitmapPartitionInfo> partitions
+    // Only used by BE local retry to skip tablets that have already succeeded.
+    3: optional set<Types.TTabletId> already_succeeded_tablet_ids
 }
 
 struct TClearAlterTaskRequest {

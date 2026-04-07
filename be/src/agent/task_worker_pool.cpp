@@ -2211,13 +2211,19 @@ void CloudCalcDeleteBitmapAsyncPublishWorkerPool::calc_delete_bitmap_async_publi
     for (const auto& partition : async_publish_req.partitions) {
         total_tablet_num += partition.tablet_ids.size();
     }
+    int64_t already_succeeded_tablet_num = async_publish_req.__isset.already_succeeded_tablet_ids
+                                                   ? async_publish_req.already_succeeded_tablet_ids.size()
+                                                   : 0;
+    int64_t pending_tablet_num = total_tablet_num - already_succeeded_tablet_num;
     int64_t queue_wait_s = req.__isset.recv_time ? time(nullptr) - req.recv_time : -1;
     LOG_INFO("begin to execute calc delete bitmap async publish task")
             .tag("signature", req.signature)
             .tag("transaction_id", async_publish_req.transaction_id)
             .tag("worker_pool_queue_wait_s", queue_wait_s)
             .tag("total_partition_num", total_partition_num)
-            .tag("total_tablet_num", total_tablet_num);
+            .tag("total_tablet_num", total_tablet_num)
+            .tag("already_succeeded_tablet_num", already_succeeded_tablet_num)
+            .tag("pending_tablet_num", pending_tablet_num);
 
     CloudCalcDeleteBitmapAsyncPublishTask engine_task(
             _engine, async_publish_req, &error_tablet_ids, &succ_tablet_ids);
@@ -2233,9 +2239,23 @@ void CloudCalcDeleteBitmapAsyncPublishWorkerPool::calc_delete_bitmap_async_publi
             LOG(INFO) << "calc delete bitmap async publish task elapsed " << time_elapsed
                       << " seconds since it is inserted to queue, it is timeout";
         } else {
+            TAgentTaskRequest next_req = req;
+            auto next_async_publish_req = next_req.calc_delete_bitmap_async_publish_req;
+            std::set<TTabletId> already_succeeded_tablet_ids;
+            if (next_async_publish_req.__isset.already_succeeded_tablet_ids) {
+                already_succeeded_tablet_ids =
+                        next_async_publish_req.already_succeeded_tablet_ids;
+            }
+            // Keep the original partition list unchanged for FE stale checking and only
+            // shrink the BE-local retry scope by skipping tablets that already succeeded.
+            already_succeeded_tablet_ids.insert(succ_tablet_ids.begin(), succ_tablet_ids.end());
+            next_async_publish_req.__set_already_succeeded_tablet_ids(
+                    std::move(already_succeeded_tablet_ids));
+            next_req.__set_calc_delete_bitmap_async_publish_req(
+                    std::move(next_async_publish_req));
             CALC_DELETE_BITMAP_ASYNC_PUBLISH_count << 1;
-            auto st = _thread_pool->submit_func([this, req] {
-                this->calc_delete_bitmap_async_publish_callback(req);
+            auto st = _thread_pool->submit_func([this, next_req] {
+                this->calc_delete_bitmap_async_publish_callback(next_req);
                 CALC_DELETE_BITMAP_ASYNC_PUBLISH_count << -1;
             });
             if (!st.ok()) [[unlikely]] {

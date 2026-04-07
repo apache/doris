@@ -51,6 +51,24 @@ int64_t count_total_tablets(const TCalcDeleteBitmapAsyncPublishRequest& request)
     return total_tablet_num;
 }
 
+bool is_already_succeeded_tablet(const TCalcDeleteBitmapAsyncPublishRequest& request,
+                                 TTabletId tablet_id) {
+    return request.__isset.already_succeeded_tablet_ids &&
+           request.already_succeeded_tablet_ids.contains(tablet_id);
+}
+
+int64_t count_pending_tablets(const TCalcDeleteBitmapAsyncPublishRequest& request) {
+    int64_t pending_tablet_num = 0;
+    for (const auto& partition : request.partitions) {
+        for (auto tablet_id : partition.tablet_ids) {
+            if (!is_already_succeeded_tablet(request, tablet_id)) {
+                ++pending_tablet_num;
+            }
+        }
+    }
+    return pending_tablet_num;
+}
+
 int64_t count_total_partitions(const TCalcDeleteBitmapAsyncPublishRequest& request) {
     return request.partitions.size();
 }
@@ -88,11 +106,15 @@ Status CloudCalcDeleteBitmapAsyncPublishTask::execute() {
     const int64_t transaction_start_time_us = MonotonicMicros();
     const int64_t total_partition_num = count_total_partitions(_request);
     const int64_t total_tablet_num = count_total_tablets(_request);
+    const int64_t pending_tablet_num = count_pending_tablets(_request);
+    const int64_t already_succeeded_tablet_num = total_tablet_num - pending_tablet_num;
     OlapStopWatch watch;
     LOG(INFO) << "begin to calculate delete bitmap for async publish on transaction"
               << ", transaction_id=" << transaction_id
               << ", total_partition_num=" << total_partition_num
-              << ", total_tablet_num=" << total_tablet_num << ", thread_pool="
+              << ", total_tablet_num=" << total_tablet_num
+              << ", already_succeeded_tablet_num=" << already_succeeded_tablet_num
+              << ", pending_tablet_num=" << pending_tablet_num << ", thread_pool="
               << _engine.calc_tablet_delete_bitmap_task_thread_pool().get_info();
     std::unique_ptr<ThreadPoolToken> token =
             _engine.calc_tablet_delete_bitmap_task_thread_pool().new_token(
@@ -104,6 +126,9 @@ Status CloudCalcDeleteBitmapAsyncPublishTask::execute() {
         int64_t table_id = partition.__isset.table_id ? partition.table_id : -1;
         for (size_t i = 0; i < partition.tablet_ids.size(); i++) {
             auto tablet_id = partition.tablet_ids[i];
+            if (is_already_succeeded_tablet(_request, tablet_id)) {
+                continue;
+            }
             int64_t index_id = (partition.__isset.index_ids && i < partition.index_ids.size())
                                        ? partition.index_ids[i]
                                        : -1;
@@ -136,6 +161,8 @@ Status CloudCalcDeleteBitmapAsyncPublishTask::execute() {
               << ", transaction_id=" << transaction_id
               << ", total_partition_num=" << total_partition_num
               << ", total_tablet_num=" << total_tablet_num
+              << ", already_succeeded_tablet_num=" << already_succeeded_tablet_num
+              << ", pending_tablet_num=" << pending_tablet_num
               << ", submit_tablet_task_time_us="
               << MonotonicMicros() - transaction_start_time_us << ", thread_pool="
               << _engine.calc_tablet_delete_bitmap_task_thread_pool().get_info();
