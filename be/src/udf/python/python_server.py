@@ -835,13 +835,13 @@ class ModuleUDFLoader(UDFLoader):
     @classmethod
     def _get_import_lock(cls, module_name: str) -> threading.Lock:
         """
-        Get or create a reentrant lock for the given module name.
+        Get or create an import lock for the given module namespace.
 
         Uses double-checked locking pattern for optimal performance:
         - Fast path: return existing lock without acquiring global lock
         - Slow path: create new lock under global lock protection
         """
-        cache_key = module_name
+        cache_key = module_name.split(".", 1)[0]
 
         # Fast path: check without lock (read-only, safe for most cases)
         if cache_key in cls._import_locks:
