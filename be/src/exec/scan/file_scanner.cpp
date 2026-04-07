@@ -776,96 +776,22 @@ Status FileScanner::_process_src_block_after_read_for_query(Block* block) {
     return Status::OK();
 }
 
-Status FileScanner::_fill_columns_from_path(size_t rows) {
-    if (_partition_col_descs.empty()) {
-        return Status::OK();
-    }
-    DataTypeSerDe::FormatOptions text_format_options;
-    for (auto& kv : _partition_col_descs) {
-        auto doris_column =
-                _src_block_ptr->get_by_position(_src_block_name_to_idx[kv.first]).column;
-        IColumn* col_ptr = const_cast<IColumn*>(doris_column.get());
-        // Skip if the reader already filled this column (e.g. ORC/Parquet readers
-        // fill partition columns internally via on_fill_partition_columns).
-        if (col_ptr->size() >= rows) {
-            continue;
-        }
-        auto& [value, slot_desc] = kv.second;
-        auto text_serde = slot_desc->get_data_type_ptr()->get_serde();
-        Slice slice(value.data(), value.size());
-        uint64_t num_deserialized = 0;
-        if (_partition_value_is_null.contains(kv.first) && _partition_value_is_null[kv.first]) {
-            col_ptr->insert_many_defaults(rows);
-        } else if (text_serde->deserialize_column_from_fixed_json(
-                           *col_ptr, slice, rows, &num_deserialized, text_format_options) !=
-                   Status::OK()) {
-            return Status::InternalError("Failed to fill partition column: {}={}",
-                                         slot_desc->col_name(), value);
-        } else if (num_deserialized != rows) {
-            return Status::InternalError(
-                    "Failed to fill partition column: {}={}. "
-                    "Number of rows expected: {}, actual: {}",
-                    slot_desc->col_name(), value, rows, num_deserialized);
-        }
-    }
-    return Status::OK();
-}
-
-Status FileScanner::_fill_missing_columns(size_t rows) {
-    // For columns in the table that are not from the file and not partition columns,
-    // fill with default values or NULL.
-    for (const auto& col_desc : _column_descs) {
-        if (col_desc.category != ColumnCategory::REGULAR &&
-            col_desc.category != ColumnCategory::GENERATED) {
-            continue;
-        }
-        if (_is_file_slot.contains(col_desc.slot_desc->id())) {
-            continue;
-        }
-        auto it = _src_block_name_to_idx.find(col_desc.name);
-        if (it == _src_block_name_to_idx.end()) {
-            continue;
-        }
-        auto doris_column = _src_block_ptr->get_by_position(it->second).column;
-        IColumn* col_ptr = const_cast<IColumn*>(doris_column.get());
-        if (col_ptr->size() >= rows) {
-            continue;
-        }
-        size_t need_rows = rows - col_ptr->size();
-        if (col_desc.default_expr != nullptr) {
-            Block default_block;
-            default_block.insert(
-                    ColumnWithTypeAndName(col_desc.slot_desc->get_data_type_ptr()->create_column(),
-                                          col_desc.slot_desc->get_data_type_ptr(), col_desc.name));
-            int result_column_id = 0;
-            RETURN_IF_ERROR(col_desc.default_expr->execute(&default_block, &result_column_id));
-            auto& default_col = default_block.get_by_position(result_column_id).column;
-            for (size_t i = 0; i < need_rows; ++i) {
-                col_ptr->insert_from(*default_col, 0);
-            }
-        } else {
-            col_ptr->insert_many_defaults(need_rows);
-        }
-    }
-    return Status::OK();
-}
-
 Status FileScanner::_process_src_block_after_read_for_load(Block* block) {
     // Convert the src block columns type in-place.
     RETURN_IF_ERROR(_cast_to_input_block(block));
-    // Compute row count from file columns (partition columns may be empty at this point).
-    size_t rows = 0;
-    for (size_t i = 0; i < _src_block_ptr->columns(); ++i) {
-        size_t s = _src_block_ptr->get_by_position(i).column->size();
-        if (s > rows) {
-            rows = s;
+    // All readers fill partition and missing columns inside get_next_block:
+    //   ORC/Parquet: in _do_get_next_block via on_fill_partition_columns/on_fill_missing_columns
+    //   CSV/JSON/others: in on_after_read_block via fill_remaining_columns
+    // Assert all columns have consistent row counts.
+    if (_src_block_ptr->columns() > 0) {
+        size_t rows = _src_block_ptr->get_by_position(0).column->size();
+        for (size_t i = 1; i < _src_block_ptr->columns(); ++i) {
+            DCHECK_EQ(_src_block_ptr->get_by_position(i).column->size(), rows)
+                    << "Column " << _src_block_ptr->get_by_position(i).name << " has "
+                    << _src_block_ptr->get_by_position(i).column->size() << " rows, expected "
+                    << rows;
         }
     }
-    // Fill partition columns from path for readers that do not handle them internally
-    // (e.g., CSV, JSON readers in broker/stream load).
-    RETURN_IF_ERROR(_fill_columns_from_path(rows));
-    // Fill missing columns (non-file, non-partition) with default values or NULL.
-    RETURN_IF_ERROR(_fill_missing_columns(rows));
     // Apply _pre_conjunct_ctxs to filter src block.
     RETURN_IF_ERROR(_pre_filter_src_block());
 
