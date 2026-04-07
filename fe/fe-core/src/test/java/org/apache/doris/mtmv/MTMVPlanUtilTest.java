@@ -382,6 +382,52 @@ public class MTMVPlanUtilTest extends SqlTestBase {
     }
 
     @Test
+    public void testAnalyzeQueryIvmAddsMowHiddenColumns() throws Exception {
+        String querySql = "select id from test.T4";
+        MTMVPartitionDefinition mtmvPartitionDefinition = new MTMVPartitionDefinition();
+        mtmvPartitionDefinition.setPartitionType(MTMVPartitionType.SELF_MANAGE);
+        DistributionDescriptor distributionDescriptor = new DistributionDescriptor(false, true, 10,
+                Lists.newArrayList("id"));
+        StatementBase parsedStmt = new NereidsParser().parseSQL(querySql).get(0);
+        LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
+
+        MTMVAnalyzeQueryInfo queryInfo = MTMVPlanUtil.analyzeQuery(connectContext, Maps.newHashMap(),
+                mtmvPartitionDefinition, distributionDescriptor, null, Maps.newHashMap(),
+                Lists.newArrayList(), logicalPlan, true);
+        List<String> columnNames = queryInfo.getColumnDefinitions().stream()
+                .map(ColumnDefinition::getName)
+                .collect(java.util.stream.Collectors.toList());
+
+        Assertions.assertTrue(columnNames.contains(Column.IVM_ROW_ID_COL));
+        Assertions.assertTrue(columnNames.contains(Column.DELETE_SIGN));
+        if (Config.enable_hidden_version_column_by_default) {
+            Assertions.assertTrue(columnNames.contains(Column.VERSION_COL));
+        }
+        Assertions.assertEquals(Boolean.toString(Config.enable_skip_bitmap_column_by_default),
+                queryInfo.getProperties().get(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN));
+    }
+
+    @Test
+    public void testAnalyzeQueryWithSqlDoesNotMutateMtmvProperties() throws Exception {
+        createMvByNereids("create materialized view mv_ivm_analyze_query_props "
+                + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1') \n"
+                + "as select * from test.T4;");
+
+        Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test");
+        MTMV mtmv = (MTMV) db.getTableOrAnalysisException("mv_ivm_analyze_query_props");
+        Assertions.assertNull(
+                mtmv.getTableProperty().getProperties().get(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN));
+
+        MTMVPlanUtil.analyzeQueryWithSql(mtmv,
+                MTMVPlanUtil.createMTMVContext(mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE), true);
+
+        Assertions.assertNull(
+                mtmv.getTableProperty().getProperties().get(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN));
+    }
+
+    @Test
     public void testEnsureMTMVQueryUsableEnableIvmRewriteByRefreshMethod() throws Exception {
         createMvByNereids("create materialized view mv_auto_refresh BUILD DEFERRED REFRESH AUTO ON MANUAL\n"
                 + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"

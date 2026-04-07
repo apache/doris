@@ -20,6 +20,10 @@ package org.apache.doris.nereids.trees.plans;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MTMV;
+import org.apache.doris.common.Config;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
@@ -224,6 +228,12 @@ public class CreateMTMVCommandTest extends TestWithFeService {
         return command.getCreateMTMVInfo();
     }
 
+    private void createMtmv(String sql) throws Exception {
+        LogicalPlan logicalPlan = new NereidsParser().parseSingle(sql);
+        Assertions.assertTrue(logicalPlan instanceof CreateMTMVCommand);
+        ((CreateMTMVCommand) logicalPlan).run(connectContext, null);
+    }
+
     @Test
     public void testMTMVRejectVarbinary() throws Exception {
         String mv = "CREATE MATERIALIZED VIEW mv_vb\n"
@@ -421,13 +431,38 @@ public class CreateMTMVCommandTest extends TestWithFeService {
         // __DORIS_IVM_AGG_1_COUNT_COL__ (SUM count hidden)
         List<Column> hiddenCols = cols.stream()
                 .filter(c -> !c.isVisible()).collect(Collectors.toList());
-        Assertions.assertEquals(5, hiddenCols.size()); // row_id + 4 trailing
+        int expectedHiddenCols = 6 + (Config.enable_hidden_version_column_by_default ? 1 : 0);
+        Assertions.assertEquals(expectedHiddenCols, hiddenCols.size()); // row_id + 4 agg states + delete_sign [+ version]
         List<String> hiddenNames = hiddenCols.stream()
                 .map(Column::getName).collect(Collectors.toList());
+        Assertions.assertTrue(hiddenNames.contains(Column.DELETE_SIGN));
         Assertions.assertTrue(hiddenNames.contains(Column.IVM_AGG_COUNT_COL));
         Assertions.assertTrue(hiddenNames.contains("__DORIS_IVM_AGG_0_COUNT_COL__"));
         Assertions.assertTrue(hiddenNames.contains("__DORIS_IVM_AGG_1_SUM_COL__"));
         Assertions.assertTrue(hiddenNames.contains("__DORIS_IVM_AGG_1_COUNT_COL__"));
+        if (Config.enable_hidden_version_column_by_default) {
+            Assertions.assertTrue(hiddenNames.contains(Column.VERSION_COL));
+        }
+    }
+
+    @Test
+    public void testCreateIvmPersistsAnalyzedHiddenColumnProperties() throws Exception {
+        createTable("create table test.mtmv_ivm_properties_base (id int, score int)\n"
+                + "duplicate key(id)\n"
+                + "distributed by hash(id) buckets 1\n"
+                + "properties('replication_num' = '1');");
+
+        createMtmv("create materialized view mtmv_ivm_properties\n"
+                + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')\n"
+                + "AS select * from test.mtmv_ivm_properties_base;");
+
+        Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test");
+        MTMV mtmv = (MTMV) db.getTableOrAnalysisException("mtmv_ivm_properties");
+        Assertions.assertEquals(Config.enable_skip_bitmap_column_by_default, mtmv.getEnableUniqueKeySkipBitmap());
+        Assertions.assertEquals(Config.enable_skip_bitmap_column_by_default,
+                mtmv.getBaseSchema(true).stream().anyMatch(col -> Column.SKIP_BITMAP_COL.equals(col.getName())));
     }
 
     @Test
@@ -479,13 +514,18 @@ public class CreateMTMVCommandTest extends TestWithFeService {
                 .filter(Column::isVisible).collect(Collectors.toList());
         Assertions.assertEquals(2, visibleCols.size());
 
-        // hidden: row_id + IVM_AGG_COUNT_COL + AGG_0_COUNT + AGG_1_SUM + AGG_1_COUNT = 5
+        // hidden: row_id + IVM_AGG_COUNT_COL + AGG_0_COUNT + AGG_1_SUM + AGG_1_COUNT + delete_sign [+ version]
         List<Column> hiddenCols = cols.stream()
                 .filter(c -> !c.isVisible()).collect(Collectors.toList());
-        Assertions.assertEquals(5, hiddenCols.size());
+        int expectedHiddenCols = 6 + (Config.enable_hidden_version_column_by_default ? 1 : 0);
+        Assertions.assertEquals(expectedHiddenCols, hiddenCols.size());
         List<String> hiddenNames = hiddenCols.stream()
                 .map(Column::getName).collect(Collectors.toList());
+        Assertions.assertTrue(hiddenNames.contains(Column.DELETE_SIGN));
         Assertions.assertTrue(hiddenNames.contains(Column.IVM_AGG_COUNT_COL));
+        if (Config.enable_hidden_version_column_by_default) {
+            Assertions.assertTrue(hiddenNames.contains(Column.VERSION_COL));
+        }
     }
 
     @Test
@@ -531,35 +571,16 @@ public class CreateMTMVCommandTest extends TestWithFeService {
                 + "distributed by hash(k1) buckets 1\n"
                 + "properties('replication_num' = '1');");
 
-        CreateMTMVInfo info = getPartitionTableInfo(
-                "CREATE MATERIALIZED VIEW agg_minmax_mv\n"
-                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
-                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
-                + " PROPERTIES ('replication_num' = '1')\n"
-                + " AS\n"
-                + " SELECT k1, MIN(v1), MAX(v2) FROM agg_minmax_base GROUP BY k1;");
-
-        List<Column> cols = info.getColumns();
-
-        // row_id hidden at index 0
-        Assertions.assertEquals(Column.IVM_ROW_ID_COL, cols.get(0).getName());
-        Assertions.assertFalse(cols.get(0).isVisible());
-
-        // 3 visible: k1, min(v1), max(v2)
-        List<Column> visibleCols = cols.stream()
-                .filter(Column::isVisible).collect(Collectors.toList());
-        Assertions.assertEquals(3, visibleCols.size());
-
-        // MIN(ordinal=0): __DORIS_IVM_AGG_0_MIN_COL__, __DORIS_IVM_AGG_0_COUNT_COL__
-        // MAX(ordinal=1): __DORIS_IVM_AGG_1_MAX_COL__, __DORIS_IVM_AGG_1_COUNT_COL__
-        // plus group count: __DORIS_IVM_AGG_COUNT_COL__
-        List<String> hiddenNames = cols.stream()
-                .filter(c -> !c.isVisible())
-                .map(Column::getName).collect(Collectors.toList());
-        Assertions.assertTrue(hiddenNames.contains(Column.IVM_AGG_COUNT_COL));
-        Assertions.assertTrue(hiddenNames.contains("__DORIS_IVM_AGG_0_MIN_COL__"));
-        Assertions.assertTrue(hiddenNames.contains("__DORIS_IVM_AGG_0_COUNT_COL__"));
-        Assertions.assertTrue(hiddenNames.contains("__DORIS_IVM_AGG_1_MAX_COL__"));
-        Assertions.assertTrue(hiddenNames.contains("__DORIS_IVM_AGG_1_COUNT_COL__"));
+        org.apache.doris.nereids.exceptions.AnalysisException ex = Assertions.assertThrows(
+                org.apache.doris.nereids.exceptions.AnalysisException.class,
+                () -> getPartitionTableInfo(
+                        "CREATE MATERIALIZED VIEW agg_minmax_mv\n"
+                        + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                        + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                        + " PROPERTIES ('replication_num' = '1')\n"
+                        + " AS\n"
+                        + " SELECT k1, MIN(v1), MAX(v2) FROM agg_minmax_base GROUP BY k1;"));
+        Assertions.assertTrue(ex.getMessage().contains("min/max is not yet supported"),
+                "unexpected message: " + ex.getMessage());
     }
 }

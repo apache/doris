@@ -67,6 +67,7 @@ import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateMTMVInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DistributionDescriptor;
 import org.apache.doris.nereids.trees.plans.commands.info.MTMVPartitionDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.SimpleColumnDefinition;
@@ -397,7 +398,7 @@ public class MTMVPlanUtil {
             columns.add(IvmUtil.newIvmAggHiddenColumnDefinition(
                     hiddenSlot.getName(), hiddenSlot.getDataType().conversion(), hiddenSlot.nullable()));
         }
-        // add a hidden column as row store
+        // Preserve existing generateColumns()/generateColumnsBySql behavior for row-store properties.
         if (properties != null) {
             try {
                 boolean storeRowColumn =
@@ -461,7 +462,7 @@ public class MTMVPlanUtil {
     }
 
     public static MTMVAnalyzeQueryInfo analyzeQueryWithSql(MTMV mtmv, ConnectContext ctx,
-            boolean enableIvmNormalize) throws UserException {
+            boolean isIvm) throws UserException {
         String querySql = mtmv.getQuerySql();
         MTMVPartitionInfo mvPartitionInfo = mtmv.getMvPartitionInfo();
         MTMVPartitionDefinition mtmvPartitionDefinition = new MTMVPartitionDefinition();
@@ -489,13 +490,13 @@ public class MTMVPlanUtil {
                 DistributionInfoType.HASH), defaultDistributionInfo.getAutoBucket(),
                 defaultDistributionInfo.getBucketNum(), Lists.newArrayList(mtmv.getDistributionColumnNames()));
         return analyzeQuery(ctx, mtmv.getMvProperties(), mtmvPartitionDefinition, distribution, null,
-                mtmv.getTableProperty().getProperties(), keys, logicalPlan, enableIvmNormalize);
+                Maps.newHashMap(mtmv.getTableProperty().getProperties()), keys, logicalPlan, isIvm);
     }
 
     public static MTMVAnalyzeQueryInfo analyzeQuery(ConnectContext ctx, Map<String, String> mvProperties,
             MTMVPartitionDefinition mvPartitionDefinition, DistributionDescriptor distribution,
             List<SimpleColumnDefinition> simpleColumnDefinitions, Map<String, String> properties, List<String> keys,
-            LogicalPlan logicalQuery, boolean enableIvmNormalize) throws UserException {
+            LogicalPlan logicalQuery, boolean isIvm) throws UserException {
         try (StatementContext statementContext = ctx.getStatementContext()) {
             NereidsPlanner planner = new NereidsPlanner(statementContext);
             // this is for expression column name infer when not use alias
@@ -509,7 +510,7 @@ public class MTMVPlanUtil {
             try {
                 // must disable constant folding by be, because be constant folding may return wrong type
                 ctx.getSessionVariable().setVarOnce(SessionVariable.ENABLE_FOLD_CONSTANT_BY_BE, "false");
-                if (enableIvmNormalize) {
+                if (isIvm) {
                     ctx.getSessionVariable().setVarOnce(SessionVariable.ENABLE_IVM_NORMAL_REWRITE, "true");
                 }
                 plan = planner.planWithLock(logicalSink, PhysicalProperties.ANY, ExplainLevel.ALL_PLAN);
@@ -517,7 +518,7 @@ public class MTMVPlanUtil {
                 // after operate, roll back the disable rules
                 ctx.getSessionVariable().setDisableNereidsRules(String.join(",", tempDisableRules));
                 statementContext.invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
-                if (enableIvmNormalize) {
+                if (isIvm) {
                     ctx.getSessionVariable().setVarOnce(SessionVariable.ENABLE_IVM_NORMAL_REWRITE, "false");
                 }
             }
@@ -551,14 +552,17 @@ public class MTMVPlanUtil {
                     (distribution == null || CollectionUtils.isEmpty(distribution.getCols())) ? Sets.newHashSet()
                             : Sets.newHashSet(distribution.getCols()),
                     simpleColumnDefinitions, properties);
-            keys = analyzeKeys(keys, properties, columns, enableIvmNormalize);
+            keys = analyzeKeys(keys, properties, columns, isIvm);
+            properties = CreateTableInfo.addOlapHiddenColumns(
+                    columns, isIvm ? KeysType.UNIQUE_KEYS : KeysType.DUP_KEYS,
+                    isIvm, properties, false);
             // analyze column
-            final boolean finalEnableMergeOnWrite = enableIvmNormalize;
+            final boolean finalEnableMergeOnWrite = isIvm;
             Set<String> keysSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
             keysSet.addAll(keys);
             validateColumns(columns, keysSet, finalEnableMergeOnWrite);
-            MTMVAnalyzeQueryInfo queryInfo = new MTMVAnalyzeQueryInfo(columns, mvPartitionInfo, relation);
-            if (enableIvmNormalize) {
+            MTMVAnalyzeQueryInfo queryInfo = new MTMVAnalyzeQueryInfo(columns, mvPartitionInfo, relation, properties);
+            if (isIvm) {
                 planner.getCascadesContext().getIvmNormalizeResult().ifPresent(
                         queryInfo::setIvmNormalizeResult);
             }
