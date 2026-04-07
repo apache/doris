@@ -39,13 +39,13 @@ public:
     Status execute() override;
 
 private:
-    virtual Status _init();
+    Status _init();
 
     // The process of push data to olap engine
     //
     // Output parameters:
     // * tablet_infos: The info of pushed tablet after push data
-    virtual Status _process();
+    Status _process();
 
     // Delete data of specified tablet according to delete conditions,
     // once delete_data command submit success, deleted data is not visible,
@@ -55,7 +55,7 @@ private:
     // @param [out] tablet_info_vec return tablet last status, which
     //              include version info, row count, data size, etc
     // @return OK if submit delete_data success
-    virtual Status _delete_data(const TPushReq& request, std::vector<TTabletInfo>* tablet_info_vec);
+    Status _delete_data(const TPushReq& request, std::vector<TTabletInfo>* tablet_info_vec);
 
     Status _get_tmp_file_dir(const std::string& root_path, std::string* local_path);
     Status _push(const TPushReq& request, std::vector<TTabletInfo>* tablet_info_vec);
