@@ -153,15 +153,19 @@ public class CloudPluginDownloader {
         props.put("s3.bucket", objInfo.getBucket());
 
         // Auto-detect storage type (S3, COS, OSS, etc.)
-        StorageProperties storageProps;
+        AbstractS3CompatibleProperties storageProps;
         try {
             storageProps = StorageProperties.createAll(props).stream()
+                    .filter(AbstractS3CompatibleProperties.class::isInstance)
+                    .map(AbstractS3CompatibleProperties.class::cast)
                     .findFirst()
-                    .orElseThrow(() -> new RuntimeException("Failed to create storage properties"));
+                    .orElseThrow(() -> new RuntimeException(
+                            "No S3-compatible storage properties could be built from the provided object store "
+                                    + "parameters"));
         } catch (UserException e) {
             throw new RuntimeException(e);
         }
 
-        return new S3ObjStorage((AbstractS3CompatibleProperties) storageProps);
+        return new S3ObjStorage(storageProps);
     }
 }
