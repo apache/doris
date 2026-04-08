@@ -31,9 +31,6 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections4.CollectionUtils;
 
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.TreeSet;
 
 public class SlotRef extends Expr {
     @SerializedName("tn")
@@ -234,31 +231,6 @@ public class SlotRef extends Expr {
     @Override
     public boolean isBound(SlotId slotId) {
         return desc.getId().equals(slotId);
-    }
-
-    @Override
-    public void getTableIdToColumnNames(Map<Long, Set<String>> tableIdToColumnNames) {
-        if (desc == null) {
-            return;
-        }
-
-        if (col == null) {
-            for (Expr expr : desc.getSourceExprs()) {
-                expr.getTableIdToColumnNames(tableIdToColumnNames);
-            }
-        } else {
-            if (desc.getParent().getTable() == null) {
-                // Maybe this column comes from inline view.
-                return;
-            }
-            Long tableId = desc.getParent().getTable().getId();
-            Set<String> columnNames = tableIdToColumnNames.get(tableId);
-            if (columnNames == null) {
-                columnNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-                tableIdToColumnNames.put(tableId, columnNames);
-            }
-            columnNames.add(desc.getColumn().getName());
-        }
     }
 
     public void setLabel(String label) {

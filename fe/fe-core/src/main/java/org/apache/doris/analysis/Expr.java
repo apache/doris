@@ -36,10 +36,8 @@ import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.function.Supplier;
 
@@ -290,19 +288,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
             }
         }
         return true;
-    }
-
-    public Map<Long, Set<String>> getTableIdToColumnNames() {
-        Map<Long, Set<String>> tableIdToColumnNames = new HashMap<Long, Set<String>>();
-        getTableIdToColumnNames(tableIdToColumnNames);
-        return tableIdToColumnNames;
-    }
-
-    public void getTableIdToColumnNames(Map<Long, Set<String>> tableIdToColumnNames) {
-        Preconditions.checkState(tableIdToColumnNames != null);
-        for (Expr child : children) {
-            child.getTableIdToColumnNames(tableIdToColumnNames);
-        }
     }
 
     /**

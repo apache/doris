@@ -172,13 +172,13 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
     }
 
     /**getWhereClauseItemColumn*/
-    public Column getWhereClauseItemColumn(OlapTable olapTable) throws DdlException {
+    public Column getWhereClauseItemColumn() throws DdlException {
         if (whereClauseItem == null) {
             return null;
         }
         // sessionVars is null because in BindSink, the where clause guard expr
         // can directly use the session var in materialized view metadata.
-        return whereClauseItem.toMVColumn(olapTable, null);
+        return whereClauseItem.toMVColumn(null);
     }
 
     public MVColumnItem getWhereClauseItem() {

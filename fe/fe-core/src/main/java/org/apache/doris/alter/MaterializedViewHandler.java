@@ -241,7 +241,7 @@ public class MaterializedViewHandler extends AlterHandler {
             // Step2: create mv job
             RollupJobV2 rollupJobV2 =
                     createMaterializedViewJob(null, mvIndexName, baseIndexName, mvColumns,
-                            createMvCommand.getWhereClauseItemColumn(olapTable),
+                            createMvCommand.getWhereClauseItemColumn(),
                             createMvCommand.getProperties(), olapTable, db, baseIndexId,
                             createMvCommand.getMVKeysType(), createMvCommand.getOriginStatement(),
                             sessionVariables);
@@ -594,7 +594,7 @@ public class MaterializedViewHandler extends AlterHandler {
                                 "The mvItem[" + mvColumnItem.getName() + "] require slot because it is value column");
                     }
                 }
-                newMVColumns.add(mvColumnItem.toMVColumn(olapTable, sessionVariables));
+                newMVColumns.add(mvColumnItem.toMVColumn(sessionVariables));
             }
         } else {
             for (MVColumnItem mvColumnItem : mvColumnItemList) {
@@ -603,7 +603,7 @@ public class MaterializedViewHandler extends AlterHandler {
                     throw new DdlException("Base columns is null");
                 }
 
-                newMVColumns.add(mvColumnItem.toMVColumn(olapTable, sessionVariables));
+                newMVColumns.add(mvColumnItem.toMVColumn(sessionVariables));
             }
         }
 
