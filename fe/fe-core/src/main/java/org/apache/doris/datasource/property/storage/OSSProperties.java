@@ -318,6 +318,9 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
         hadoopStorageConfig.set("fs.AbstractFileSystem.oss.impl", JINDO_OSS_ABSTRACT_FILE_SYSTEM_IMPL);
         hadoopStorageConfig.set("fs.oss.accessKeyId", accessKey);
         hadoopStorageConfig.set("fs.oss.accessKeySecret", secretKey);
+        if (StringUtils.isNotBlank(sessionToken)) {
+            hadoopStorageConfig.set("fs.oss.securityToken", sessionToken);
+        }
         hadoopStorageConfig.set("fs.oss.endpoint", endpoint);
         hadoopStorageConfig.set("fs.oss.region", region);
     }
