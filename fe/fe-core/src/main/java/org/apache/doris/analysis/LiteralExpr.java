@@ -64,7 +64,7 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
             case DECIMAL64:
             case DECIMAL128:
             case DECIMAL256:
-                literalExpr = new DecimalLiteral(value);
+                literalExpr = DecimalLiteralUtils.create(value);
                 break;
             case CHAR:
             case VARCHAR:
@@ -81,7 +81,7 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
             case DATEV2:
             case DATETIMEV2:
             case TIMESTAMPTZ:
-                literalExpr = new DateLiteral(value, type);
+                literalExpr = DateLiteralUtils.createDateLiteral(value, type);
                 break;
             case IPV4:
                 literalExpr = new IPv4Literal(value);

@@ -99,7 +99,7 @@ HttpFileReader::HttpFileReader(const OpenFileInfo& fileInfo, std::string url, in
         }
     }
 
-    _read_buffer = std::make_unique<char[]>(READ_BUFFER_SIZE);
+    _read_buffer.resize(READ_BUFFER_SIZE);
 }
 
 HttpFileReader::~HttpFileReader() {
@@ -214,8 +214,8 @@ Status HttpFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
     VLOG(2) << "HttpFileReader::read_at_impl offset=" << offset << " size=" << result.size
             << " url=" << _url << " range_supported=" << _range_supported;
 
-    if (!_read_buffer) {
-        _read_buffer = std::make_unique<char[]>(READ_BUFFER_SIZE);
+    if (_read_buffer.empty()) {
+        _read_buffer.resize(READ_BUFFER_SIZE);
     }
 
     size_t to_read = result.size;
@@ -252,7 +252,7 @@ Status HttpFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
                 << "Buffer overflow: buffer_idx=" << buffer_idx << " copy_len=" << copy_len
                 << " READ_BUFFER_SIZE=" << READ_BUFFER_SIZE;
 
-        std::memcpy(result.data, _read_buffer.get() + buffer_idx, copy_len);
+        std::memcpy(result.data, _read_buffer.data() + buffer_idx, copy_len);
         buffer_offset += copy_len;
         to_read -= copy_len;
         offset += copy_len;
@@ -419,12 +419,12 @@ Status HttpFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
         buffer_offset += buf.size();
     } else {
         size_t cached = std::min(buf.size(), (size_t)READ_BUFFER_SIZE);
-        std::memcpy(_read_buffer.get(), buf.data(), cached);
+        std::memcpy(_read_buffer.data(), buf.data(), cached);
         _buffer_start = offset;
         _buffer_end = offset + cached;
 
         size_t copy_len = std::min(remaining, cached);
-        std::memcpy(result.data + buffer_offset, _read_buffer.get(), copy_len);
+        std::memcpy(result.data + buffer_offset, _read_buffer.data(), copy_len);
         buffer_offset += copy_len;
     }
 
@@ -443,7 +443,7 @@ Status HttpFileReader::close() {
     }
 
     // Release buffer memory (1MB)
-    _read_buffer.reset();
+    PODArray<char>().swap(_read_buffer);
     _buffer_start = 0;
     _buffer_end = 0;
 

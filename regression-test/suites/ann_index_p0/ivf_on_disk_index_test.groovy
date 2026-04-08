@@ -45,9 +45,8 @@ suite ("ivf_on_disk_index_test") {
     (5, [50.0, 20.0, 20.0]),
     (6, [60.0, 20.0, 20.0]);
     """
-    qt_sql "select * from tbl_ivf_on_disk_l2;"
-    // approximate search with l2_distance
-    sql "select id, l2_distance_approximate(embedding, [1.0,2.0,3.0]) as dist from tbl_ivf_on_disk_l2 order by dist limit 2;"
+    qt_sql "select * from tbl_ivf_on_disk_l2 order by id;"
+    qt_sql_l2_topn "select id from tbl_ivf_on_disk_l2 order by l2_distance_approximate(embedding, [1.0,2.0,3.0]) limit 2;"
 
     // ========== Error: missing nlist for ivf_on_disk ==========
     sql "drop table if exists tbl_ivf_on_disk_l2"
@@ -121,9 +120,8 @@ suite ("ivf_on_disk_index_test") {
     (5, [50.0, 20.0, 20.0]),
     (6, [60.0, 20.0, 20.0]);
     """
-    qt_sql "select * from tbl_ivf_on_disk_ip;"
-    // approximate search with inner_product
-    sql "select id, inner_product_approximate(embedding, [1.0,2.0,3.0]) as dist from tbl_ivf_on_disk_ip order by dist desc limit 2;"
+    qt_sql "select * from tbl_ivf_on_disk_ip order by id;"
+    qt_sql_ip_topn "select id from tbl_ivf_on_disk_ip order by inner_product_approximate(embedding, [1.0,2.0,3.0]) desc limit 2;"
 
     // ========== IVF_ON_DISK with stream load ==========
     sql "drop table if exists tbl_ivf_on_disk_stream_load"
@@ -163,6 +161,8 @@ suite ("ivf_on_disk_index_test") {
             assertEquals(0, json.NumberFilteredRows)
         }
     }
+    qt_sql_stream_load_rows "select * from tbl_ivf_on_disk_stream_load order by id;"
+    qt_sql_stream_load_topn "select id from tbl_ivf_on_disk_stream_load order by l2_distance_approximate(embedding, [1.0,2.0,3.0]) limit 2;"
 
     // ========== IVF_ON_DISK with larger dataset (more rows than nlist) ==========
     sql "drop table if exists tbl_ivf_on_disk_large"
@@ -196,8 +196,7 @@ suite ("ivf_on_disk_index_test") {
     (10, [30.0, 30.0, 30.0]);
     """
     qt_sql "select * from tbl_ivf_on_disk_large order by id;"
-    // approximate search on larger dataset
-    sql "select id, l2_distance_approximate(embedding, [1.0,2.0,3.0]) as dist from tbl_ivf_on_disk_large order by dist limit 3;"
+    qt_sql_large_topn "select id from tbl_ivf_on_disk_large order by l2_distance_approximate(embedding, [1.0,2.0,3.0]) limit 3;"
 
     // ========== IVF_ON_DISK range search with l2_distance ==========
     sql "drop table if exists tbl_ivf_on_disk_range"
@@ -226,6 +225,5 @@ suite ("ivf_on_disk_index_test") {
     (5, [50.0, 20.0, 20.0]),
     (6, [60.0, 20.0, 20.0]);
     """
-    // range search: find vectors within distance threshold
-    sql "select id from tbl_ivf_on_disk_range where l2_distance_approximate(embedding, [1.0, 2.0, 3.0]) < 20.0 order by id;"
+    qt_sql_range_search "select id from tbl_ivf_on_disk_range where l2_distance_approximate(embedding, [1.0, 2.0, 3.0]) < 20.0 order by id;"
 }

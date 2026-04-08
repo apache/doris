@@ -39,6 +39,7 @@
 #include "librdkafka/rdkafkacpp.h"
 #include "load/routine_load/kinesis_conf.h"
 #include "load/stream_load/stream_load_context.h"
+#include "runtime/aws_msk_iam_auth.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -174,6 +175,9 @@ private:
 
     KafkaEventCb _k_event_cb;
     RdKafka::KafkaConsumer* _k_consumer = nullptr;
+
+    // AWS MSK IAM authentication callback (must outlive _k_consumer)
+    std::unique_ptr<AwsMskIamOAuthCallback> _aws_msk_oauth_callback;
 };
 
 // AWS Kinesis Data Consumer
