@@ -34,7 +34,7 @@ public class IvmDeltaRewriter {
      * Rewrites the normalized plan into a list of delta command bundles.
      * Dispatches to the appropriate strategy based on the normalize result.
      */
-    public List<DeltaCommandBundle> rewrite(Plan normalizedPlan, IvmDeltaRewriteContext ctx) {
+    public List<IvmDeltaCommandBundle> rewrite(Plan normalizedPlan, IvmDeltaRewriteContext ctx) {
         IvmNormalizeResult normalizeResult = ctx.getNormalizeResult();
         if (normalizeResult != null && normalizeResult.isAggMv()) {
             return new IvmAggDeltaStrategy().rewrite(normalizedPlan, ctx);

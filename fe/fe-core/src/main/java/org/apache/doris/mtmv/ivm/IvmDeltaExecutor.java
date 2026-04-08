@@ -23,19 +23,19 @@ import org.apache.doris.nereids.StatementContext;
 
 import java.util.List;
 
-/**
- * Executes IVM delta command bundles against the MV target table.
- */
+    /**
+     * Executes IVM delta command bundles against the MV target table.
+     */
 public class IvmDeltaExecutor {
 
-    public void execute(IvmRefreshContext context, List<DeltaCommandBundle> bundles)
+    public void execute(IvmRefreshContext context, List<IvmDeltaCommandBundle> bundles)
             throws AnalysisException {
-        for (DeltaCommandBundle bundle : bundles) {
+        for (IvmDeltaCommandBundle bundle : bundles) {
             executeBundle(context, bundle);
         }
     }
 
-    private void executeBundle(IvmRefreshContext context, DeltaCommandBundle bundle)
+    private void executeBundle(IvmRefreshContext context, IvmDeltaCommandBundle bundle)
             throws AnalysisException {
         StatementContext stmtCtx = new StatementContext();
         String auditStmt = String.format("IVM delta refresh, mvName: %s, bundle: %s",

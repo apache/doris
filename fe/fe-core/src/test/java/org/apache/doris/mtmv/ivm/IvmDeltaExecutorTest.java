@@ -78,7 +78,7 @@ public class IvmDeltaExecutorTest {
             }
         };
 
-        DeltaCommandBundle bundle = new DeltaCommandBundle(command);
+        IvmDeltaCommandBundle bundle = new IvmDeltaCommandBundle(command);
 
         deltaExecutor.execute(newContext(mtmv), Collections.singletonList(bundle));
         Assertions.assertEquals(1, runCalled.size());
@@ -102,7 +102,7 @@ public class IvmDeltaExecutorTest {
             }
         };
 
-        DeltaCommandBundle bundle = new DeltaCommandBundle(command);
+        IvmDeltaCommandBundle bundle = new IvmDeltaCommandBundle(command);
 
         AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
                 () -> deltaExecutor.execute(newContext(mtmv), Collections.singletonList(bundle)));
@@ -133,7 +133,7 @@ public class IvmDeltaExecutorTest {
             }
         };
 
-        DeltaCommandBundle bundle = new DeltaCommandBundle(command);
+        IvmDeltaCommandBundle bundle = new IvmDeltaCommandBundle(command);
 
         AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
                 () -> deltaExecutor.execute(newContext(mtmv), Collections.singletonList(bundle)));
@@ -184,10 +184,10 @@ public class IvmDeltaExecutorTest {
             }
         };
 
-        List<DeltaCommandBundle> bundles = new ArrayList<>();
-        bundles.add(new DeltaCommandBundle(okCommand));
-        bundles.add(new DeltaCommandBundle(failCommand));
-        bundles.add(new DeltaCommandBundle(thirdCommand));
+        List<IvmDeltaCommandBundle> bundles = new ArrayList<>();
+        bundles.add(new IvmDeltaCommandBundle(okCommand));
+        bundles.add(new IvmDeltaCommandBundle(failCommand));
+        bundles.add(new IvmDeltaCommandBundle(thirdCommand));
 
         Assertions.assertThrows(AnalysisException.class,
                 () -> deltaExecutor.execute(newContext(mtmv), bundles));
