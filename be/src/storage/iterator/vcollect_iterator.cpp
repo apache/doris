@@ -84,30 +84,34 @@ void VCollectIterator::init(TabletReader* reader, bool ori_data_overlapping, boo
     }
     _is_reverse = is_reverse;
 
-    // use topn_next opt only for DUP_KEYS and UNIQUE_KEYS with MOW
-    if (_reader->_reader_context.read_orderby_key_limit > 0 &&
-        (_reader->_tablet->keys_type() == KeysType::DUP_KEYS ||
-         (_reader->_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
-          _reader->_tablet->enable_unique_key_merge_on_write()))) {
+    // TopN limit. Whether we reach here is decided by the scanner;
+    // it only sets read_orderby_key_limit on the no-merge tablet types.
+    if (_reader->_reader_context.read_orderby_key_limit > 0) {
         _topn_limit = _reader->_reader_context.read_orderby_key_limit;
-    } else {
-        _topn_limit = 0;
     }
-
-    // General limit pushdown: only for non-merge path (DUP_KEYS or UNIQUE_KEYS with MOW).
-    // The scanner already guards this with _storage_no_merge(), but we also check !_merge
-    // here because _merge can be forced true by overlapping data (force_merge), in which
-    // case limit pushdown is not safe.
-    if (!_merge && _reader->_reader_context.general_read_limit > 0) {
-        _general_read_limit = _reader->_reader_context.general_read_limit;
+    // General limit. Applied after filter_block_conjuncts in next() so
+    // the row count reflects post-filter rows.
+    if (_reader->_reader_context.general_read_limit > 0) {
+        _general_read_limit = static_cast<size_t>(_reader->_reader_context.general_read_limit);
     }
 }
 
 Status VCollectIterator::add_child(const RowSetSplits& rs_splits) {
+    // Forward the per-segment row cap to SegmentIterator so it can stop
+    // early. This is only safe when no filter is applied above the segment;
+    // otherwise the segment may EOF before producing enough post-filter
+    // rows to satisfy the limit. When the cap is suppressed here, limit
+    // enforcement still happens above (topn merge / general truncate).
     if (use_topn_next()) {
-        rs_splits.rs_reader->set_topn_limit(_topn_limit);
+        if (_reader->_reader_context.filter_block_conjuncts.empty()) {
+            rs_splits.rs_reader->set_topn_limit(_topn_limit);
+        }
         _rs_splits.push_back(rs_splits);
         return Status::OK();
+    }
+    if (!_merge && _general_read_limit > 0 &&
+        _reader->_reader_context.filter_block_conjuncts.empty()) {
+        rs_splits.rs_reader->set_topn_limit(_general_read_limit);
     }
 
     _children.push_back(std::make_unique<Level0Iterator>(rs_splits.rs_reader, _reader));
@@ -255,7 +259,7 @@ Status VCollectIterator::next(Block* block) {
         return _topn_next(block);
     }
 
-    // Fast path: if general limit already reached, return EOF immediately
+    // Stop early once the general limit budget is reached.
     if (_general_read_limit > 0 && _general_rows_returned >= _general_read_limit) {
         return Status::Error<END_OF_FILE>("");
     }
@@ -266,27 +270,20 @@ Status VCollectIterator::next(Block* block) {
             return st;
         }
 
-        // Apply filter_block_conjuncts that were moved from Scanner::_conjuncts.
-        // This must happen BEFORE limit counting so that _general_rows_returned
-        // reflects post-filter rows (same pattern as _topn_next).
-        // Intentionally not gated by _general_read_limit > 0:
-        // filter_block_conjuncts is only populated when the general-limit or
-        // topn branches move conjuncts into the storage layer (topn takes
-        // the _topn_next path and never reaches here).
+        // Apply filter_block_conjuncts pushed down by the scanner. Must
+        // happen before limit accounting so the row count matches the
+        // operator-visible LIMIT.
         if (!_reader->_reader_context.filter_block_conjuncts.empty()) {
             RETURN_IF_ERROR(VExprContext::filter_block(
                     _reader->_reader_context.filter_block_conjuncts, block, block->columns()));
         }
 
-        // Enforce general read limit: truncate block if needed
         if (_general_read_limit > 0) {
             _general_rows_returned += block->rows();
             if (_general_rows_returned > _general_read_limit) {
-                // Truncate block to return exactly the remaining rows needed
-                int64_t excess = _general_rows_returned - _general_read_limit;
-                int64_t keep = block->rows() - excess;
-                DCHECK_GT(keep, 0);
-                block->set_num_rows(keep);
+                size_t excess = _general_rows_returned - _general_read_limit;
+                DORIS_CHECK(block->rows() >= excess);
+                block->set_num_rows(block->rows() - excess);
                 _general_rows_returned = _general_read_limit;
             }
         }

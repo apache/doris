@@ -136,7 +136,11 @@ public:
     // slots that cast may be eliminated in storage layer
     std::map<std::string, DataTypePtr> target_cast_type_for_variants;
     RowRanges row_ranges;
-    size_t topn_limit = 0;
+
+    // Per-segment row budget pushed down from the scanner (topn or general
+    // limit). SegmentIterator stops after `read_limit` rows. Only used when
+    // _can_opt_limit_reads() holds. 0 disables the optimization.
+    size_t read_limit = 0;
 
     std::map<ColumnId, VExprContextSPtr> virtual_column_exprs;
     std::shared_ptr<segment_v2::AnnTopNRuntime> ann_topn_runtime;

@@ -112,27 +112,6 @@ ScannerContext::ScannerContext(RuntimeState* state, ScanLocalStateBase* local_st
     DorisMetrics::instance()->scanner_ctx_cnt->increment(1);
 }
 
-int64_t ScannerContext::acquire_limit_quota(int64_t desired) {
-    DCHECK(desired > 0);
-    int64_t remaining = _shared_scan_limit->load(std::memory_order_acquire);
-    while (true) {
-        if (remaining < 0) {
-            // No limit set, grant all desired rows.
-            return desired;
-        }
-        if (remaining == 0) {
-            return 0;
-        }
-        int64_t granted = std::min(desired, remaining);
-        if (_shared_scan_limit->compare_exchange_weak(remaining, remaining - granted,
-                                                      std::memory_order_acq_rel,
-                                                      std::memory_order_acquire)) {
-            return granted;
-        }
-        // CAS failed, `remaining` is updated to current value, retry.
-    }
-}
-
 void ScannerContext::_adjust_scan_mem_limit(int64_t old_value, int64_t new_value) {
     if (!_enable_adaptive_scanners) {
         return;
@@ -421,9 +400,6 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, Block* block, b
         }
     }
 
-    // Mark finished when either:
-    // (1) all scanners completed normally, or
-    // (2) shared limit exhausted and no scanners are still running.
     if (_completed_tasks.empty() &&
         (_num_finished_scanners == _all_scanners.size() ||
          (_shared_scan_limit->load(std::memory_order_acquire) == 0 && _in_flight_tasks_num == 0))) {
@@ -757,9 +733,9 @@ std::shared_ptr<ScanTask> ScannerContext::_pull_next_scan_task(
     }
 
     if (!_pending_tasks.empty()) {
-        // If shared limit quota is exhausted, do not submit new scanners from pending queue.
-        int64_t remaining = _shared_scan_limit->load(std::memory_order_acquire);
-        if (remaining == 0) {
+        // Skip submitting more pending scanners once the LIMIT budget is
+        // exhausted; they would only open and immediately EOF.
+        if (_shared_scan_limit->load(std::memory_order_acquire) == 0) {
             return nullptr;
         }
         std::shared_ptr<ScanTask> next_scan_task;

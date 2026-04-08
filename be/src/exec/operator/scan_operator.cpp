@@ -1042,6 +1042,14 @@ int64_t ScanLocalState<Derived>::limit_per_scanner() {
 }
 
 template <typename Derived>
+std::atomic<int64_t>* ScanLocalState<Derived>::shared_scan_limit_ptr() {
+    auto* p = &_parent->cast<typename Derived::Parent>()._shared_scan_limit;
+    // -1 means "no SQL LIMIT" — return nullptr so callers naturally skip
+    // all limit logic.
+    return p->load(std::memory_order_relaxed) < 0 ? nullptr : p;
+}
+
+template <typename Derived>
 Status ScanLocalState<Derived>::_init_profile() {
     // 1. counters for scan node
     _rows_read_counter = ADD_COUNTER(custom_profile(), profile::ROWS_READ, TUnit::UNIT);

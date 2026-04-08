@@ -443,14 +443,11 @@ Status OlapScanner::_init_tablet_reader_params(
             _tablet_reader_params.enable_mor_value_predicate_pushdown = true;
         }
 
-        // Skip topn / general-limit storage-layer optimizations when runtime
-        // filters exist.  Late-arriving filters would re-populate _conjuncts
-        // at the scanner level while the storage layer has already committed
-        // to a row budget counted before those filters, causing the scan to
-        // return fewer rows than the limit requires.
+        // Push limit and conjuncts into the storage layer. Skipped when
+        // runtime filters are present because they may arrive late and
+        // re-populate _conjuncts after the storage layer has committed to
+        // a row budget that ignored them.
         if (_total_rf_num == 0) {
-            // order by table keys optimization for topn
-            // will only read head/tail of data file since it's already sorted by keys
             if (olap_scan_node.__isset.sort_info &&
                 !olap_scan_node.sort_info.is_asc_order.empty()) {
                 _limit = _local_state->limit_per_scanner();
@@ -460,28 +457,40 @@ Status OlapScanner::_init_tablet_reader_params(
                 }
                 _tablet_reader_params.read_orderby_key_num_prefix_columns =
                         olap_scan_node.sort_info.is_asc_order.size();
-                _tablet_reader_params.read_orderby_key_limit = _limit;
 
-                if (_tablet_reader_params.read_orderby_key_limit > 0 &&
-                    olap_scan_local_state->_storage_no_merge()) {
-                    _tablet_reader_params.filter_block_conjuncts = _conjuncts;
-                    _conjuncts.clear();
+                if (_limit > 0 && olap_scan_local_state->_storage_no_merge()) {
+                    // Tells VCollectIterator to use the topn reader path
+                    // (use_topn_next). Whether the per-segment row cap is
+                    // also forwarded to SegmentIterator is decided inside
+                    // VCollectIterator::add_child, which skips the cap when
+                    // filter_block_conjuncts is non-empty so that filters
+                    // applied above the segment do not cause the segment to
+                    // EOF before producing enough post-filter rows.
+                    _tablet_reader_params.read_orderby_key_limit = _limit;
                 }
             } else if (_limit > 0 && olap_scan_local_state->_storage_no_merge()) {
-                // General limit pushdown for DUP_KEYS and UNIQUE_KEYS with MOW
-                // (non-merge path). Only when topn optimization is NOT active.
-                // NOTE: _limit is the global query limit (TPlanNode.limit), not a
-                // per-scanner budget. With N scanners each scanner may read up to
-                // _limit rows, so up to N * _limit rows are read in total before
-                // the _shared_scan_limit coordinator stops them. This is
-                // acceptable because _shared_scan_limit guarantees correctness,
-                // and the over-read is bounded by (N-1) * _limit which is small
-                // for typical LIMIT values.
+                // Limit truncate inside VCollectIterator. The truncate runs
+                // after filter_block_conjuncts so the row count matches the
+                // operator-visible LIMIT. Forwarding the cap further down
+                // to SegmentIterator is decided in add_child().
                 _tablet_reader_params.general_read_limit = _limit;
+            }
+
+            if (olap_scan_local_state->_storage_no_merge() && !_conjuncts.empty()) {
                 _tablet_reader_params.filter_block_conjuncts = _conjuncts;
                 _conjuncts.clear();
             }
         }
+
+        // Each topn scanner must independently produce its full local top-N
+        // candidates, so the cross-scanner shared limit cannot apply here.
+        if (_tablet_reader_params.read_orderby_key) {
+            _shared_scan_limit = nullptr;
+        }
+        // Note: _shared_scan_limit is intentionally not pushed into the
+        // storage layer. SegmentIterator's _process_eof() is irreversible,
+        // so a concurrently-decremented atomic could reach 0 while a segment
+        // still has data needed by other scanners.
 
         // set push down topn filter
         _tablet_reader_params.topn_filter_source_node_ids =

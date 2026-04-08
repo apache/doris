@@ -68,6 +68,7 @@ public:
     [[nodiscard]] virtual const TupleDescriptor* output_tuple_desc() const = 0;
 
     virtual int64_t limit_per_scanner() = 0;
+    virtual std::atomic<int64_t>* shared_scan_limit_ptr() = 0;
 
     virtual void set_scan_ranges(RuntimeState* state,
                                  const std::vector<TScanRangeParams>& scan_ranges) = 0;
@@ -235,6 +236,7 @@ class ScanLocalState : public ScanLocalStateBase {
     [[nodiscard]] const TupleDescriptor* output_tuple_desc() const override;
 
     int64_t limit_per_scanner() override;
+    std::atomic<int64_t>* shared_scan_limit_ptr() override;
 
     void set_scan_ranges(RuntimeState* state,
                          const std::vector<TScanRangeParams>& scan_ranges) override {}

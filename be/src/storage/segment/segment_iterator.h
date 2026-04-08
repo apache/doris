@@ -320,7 +320,7 @@ private:
 
     bool _has_delete_predicate(ColumnId cid);
 
-    bool _can_opt_topn_reads();
+    bool _can_opt_limit_reads();
 
     void _initialize_predicate_results();
     bool _check_all_conditions_passed_inverted_index_for_column(ColumnId cid,
@@ -439,6 +439,10 @@ private:
     // used for compaction, record selectd rowids of current batch
     uint16_t _selected_size;
     std::vector<uint16_t> _sel_rowid_idx;
+
+    // Rows already produced by this iterator. Used together with
+    // _opts.read_limit to compute the remaining per-batch budget.
+    size_t _rows_returned = 0;
 
     std::unique_ptr<ObjectPool> _pool;
 

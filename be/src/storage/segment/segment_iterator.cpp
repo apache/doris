@@ -2686,14 +2686,19 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
     // If the row bitmap size is smaller than nrows_read_limit, there's no need to reserve that many column rows.
     uint32_t nrows_read_limit =
             std::min(cast_set<uint32_t>(_row_bitmap.cardinality()), _opts.block_row_max);
-    if (_can_opt_topn_reads()) {
-        nrows_read_limit = std::min(static_cast<uint32_t>(_opts.topn_limit), nrows_read_limit);
+    if (_can_opt_limit_reads()) {
+        // Cap each batch by the remaining budget; emit EOF naturally when 0.
+        size_t cap = (_opts.read_limit > _rows_returned) ? (_opts.read_limit - _rows_returned) : 0;
+        if (cap < nrows_read_limit) {
+            nrows_read_limit = static_cast<uint32_t>(cap);
+        }
     }
     DBUG_EXECUTE_IF("segment_iterator.topn_opt_1", {
         if (nrows_read_limit != 1) {
             return Status::Error<ErrorCode::INTERNAL_ERROR>(
-                    "topn opt 1 execute failed: nrows_read_limit={}, _opts.topn_limit={}",
-                    nrows_read_limit, _opts.topn_limit);
+                    "topn opt 1 execute failed: nrows_read_limit={}, "
+                    "_opts.read_limit={}",
+                    nrows_read_limit, _opts.read_limit);
         }
     })
 
@@ -2807,6 +2812,9 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
     RETURN_IF_ERROR(_materialization_of_virtual_column(block));
     // shrink char_type suffix zero data
     block->shrink_char_type_column_suffix_zero(_char_type_idx);
+    if (_opts.read_limit > 0) {
+        _rows_returned += block->rows();
+    }
     return _check_output_block(block);
 }
 
@@ -3240,8 +3248,8 @@ bool SegmentIterator::_has_delete_predicate(ColumnId cid) {
     return delete_columns_set.contains(cid);
 }
 
-bool SegmentIterator::_can_opt_topn_reads() {
-    if (_opts.topn_limit <= 0) {
+bool SegmentIterator::_can_opt_limit_reads() {
+    if (_opts.read_limit == 0) {
         return false;
     }
 
