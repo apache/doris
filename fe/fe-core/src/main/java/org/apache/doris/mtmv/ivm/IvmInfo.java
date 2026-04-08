@@ -28,6 +28,10 @@ import java.util.Map;
  * Thin persistent IVM metadata stored on MTMV.
  */
 public class IvmInfo {
+
+    @SerializedName("en")
+    private boolean enableIvm = false;
+
     @SerializedName("bb")
     private boolean binlogBroken = false;
 
@@ -36,6 +40,14 @@ public class IvmInfo {
 
     public IvmInfo() {
         this.baseTableStreams = Maps.newHashMap();
+    }
+
+    public boolean isEnableIvm() {
+        return enableIvm;
+    }
+
+    public void setEnableIvm(boolean enableIvm) {
+        this.enableIvm = enableIvm;
     }
 
     public boolean isBinlogBroken() {
@@ -57,7 +69,8 @@ public class IvmInfo {
     @Override
     public String toString() {
         return "IvmInfo{"
-                + "binlogBroken=" + binlogBroken
+                + "enableIvm=" + enableIvm
+                + ", binlogBroken=" + binlogBroken
                 + ", baseTableStreams=" + baseTableStreams
                 + '}';
     }
