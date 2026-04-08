@@ -419,7 +419,6 @@ struct TQueryOptions {
   180: optional i32 max_file_scanners_concurrency = 0;
   181: optional i32 min_file_scanners_concurrency = 0;
   182: optional i32 ivf_nprobe = 32;
-  184: optional i32 cte_max_recursion_depth;
 
   179: optional bool enable_parquet_filter_by_bloom_filter = true;
 
