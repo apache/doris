@@ -124,7 +124,8 @@ TEST_F(TabletMgrTest, CreateTablet) {
     EXPECT_TRUE(tablet.has_value());
     // check dir exist
     bool dir_exist = false;
-    EXPECT_TRUE(io::global_local_filesystem()->exists(tablet.value()->tablet_path(), &dir_exist).ok());
+    EXPECT_TRUE(
+            io::global_local_filesystem()->exists(tablet.value()->tablet_path(), &dir_exist).ok());
     EXPECT_TRUE(dir_exist);
     // check meta has this tablet
     TabletMetaSharedPtr new_tablet_meta(new TabletMeta());
@@ -185,7 +186,8 @@ TEST_F(TabletMgrTest, CreateTabletWithSequence) {
     EXPECT_TRUE(tablet.has_value());
     // check dir exist
     bool dir_exist = false;
-    EXPECT_TRUE(io::global_local_filesystem()->exists(tablet.value()->tablet_path(), &dir_exist).ok());
+    EXPECT_TRUE(
+            io::global_local_filesystem()->exists(tablet.value()->tablet_path(), &dir_exist).ok());
     EXPECT_TRUE(dir_exist);
     // check meta has this tablet
     TabletMetaSharedPtr new_tablet_meta(new TabletMeta());
@@ -390,7 +392,8 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
         ASSERT_TRUE(tablet.has_value());
         // check dir exist
         bool dir_exist = false;
-        Status exist_st = io::global_local_filesystem()->exists(tablet.value()->tablet_path(), &dir_exist);
+        Status exist_st =
+                io::global_local_filesystem()->exists(tablet.value()->tablet_path(), &dir_exist);
         ASSERT_TRUE(exist_st.ok()) << exist_st;
         ASSERT_TRUE(dir_exist);
         // check meta has this tablet
@@ -406,7 +409,8 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
             rowset_meta->set_tablet_id(tablet.value()->tablet_id());
             rowset_meta->set_tablet_uid(tablet.value()->tablet_uid());
             rowset_meta->set_rowset_id(k_engine->next_rowset_id());
-            return std::make_shared<BetaRowset>(tablet.value()->tablet_schema(), std::move(rowset_meta),
+            return std::make_shared<BetaRowset>(tablet.value()->tablet_schema(),
+                                                std::move(rowset_meta),
                                                 tablet.value()->tablet_path());
         };
         auto st = tablet.value()->init();

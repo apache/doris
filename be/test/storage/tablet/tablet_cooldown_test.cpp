@@ -368,7 +368,9 @@ static void write_rowset(TabletSharedPtr* tablet, PUniqueId load_id, int64_t rep
     ASSERT_EQ(Status::OK(), st);
 
     // publish version success
-    *tablet = engine_ref->tablet_manager()->get_tablet(write_req.tablet_id, write_req.schema_hash).value();
+    *tablet = engine_ref->tablet_manager()
+                      ->get_tablet(write_req.tablet_id, write_req.schema_hash)
+                      .value();
     OlapMeta* meta = (*tablet)->data_dir()->get_meta();
     Version version;
     version.first = (*tablet)->get_rowset_with_max_version()->end_version() + 1;
