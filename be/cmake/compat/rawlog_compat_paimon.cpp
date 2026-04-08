@@ -14,7 +14,7 @@ void raw_log_impl(int severity, const char* file, int line, const char* format, 
         sev = "FATAL";
     std::fprintf(stderr, "[%s] %s:%d %s\n", sev, file ? file : "", line, buffer);
 }
-} // namespace
+}
 
 extern "C" void rawlog_compat_paimon(int severity, const char* file, int line, const char* format,
                                      ...) __asm__("_ZN6google8RawLog__ENS_11LogSeverityEPKciS2_z");

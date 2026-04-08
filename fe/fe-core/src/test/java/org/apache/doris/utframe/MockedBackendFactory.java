@@ -187,6 +187,12 @@ public class MockedBackendFactory {
                             // ATTR: backend.getFeAddress must after taskQueue.take, because fe addr thread race
                             TAgentTaskRequest request = taskQueue.take();
                             address = backend.getFeAddress();
+                            if (address == null) {
+                                System.out.println("fe addr thread race, please check it");
+                            }
+                            System.out.println(backend.getHost() + ":" + backend.getHeartbeatPort() + " "
+                                    + "get agent task request. type: " + request.getTaskType() + ", signature: "
+                                    + request.getSignature() + ", fe addr: " + address);
                             TFinishTaskRequest finishTaskRequest = new TFinishTaskRequest(tBackend,
                                     request.getTaskType(), request.getSignature(), new TStatus(TStatusCode.OK));
                             TTaskType taskType = request.getTaskType();
@@ -345,6 +351,9 @@ public class MockedBackendFactory {
         public TAgentResult submitTasks(List<TAgentTaskRequest> tasks) throws TException {
             for (TAgentTaskRequest request : tasks) {
                 taskQueue.add(request);
+                System.out.println(backend.getHost() + ":" + backend.getHeartbeatPort() + " "
+                        + "receive agent task request. type: " + request.getTaskType() + ", signature: "
+                        + request.getSignature());
             }
             return new TAgentResult(new TStatus(TStatusCode.OK));
         }
@@ -477,6 +486,7 @@ public class MockedBackendFactory {
         @Override
         public void execPlanFragment(InternalService.PExecPlanFragmentRequest request,
                                      StreamObserver<InternalService.PExecPlanFragmentResult> responseObserver) {
+            System.out.println("get exec_plan_fragment request");
             responseObserver.onNext(InternalService.PExecPlanFragmentResult.newBuilder()
                     .setStatus(Types.PStatus.newBuilder().setStatusCode(0)).build());
             responseObserver.onCompleted();
@@ -485,6 +495,7 @@ public class MockedBackendFactory {
         @Override
         public void execPlanFragmentPrepare(InternalService.PExecPlanFragmentRequest request,
                                             StreamObserver<InternalService.PExecPlanFragmentResult> responseObserver) {
+            System.out.println("get exec_plan_fragment_prepare request");
             responseObserver.onNext(InternalService.PExecPlanFragmentResult.newBuilder()
                     .setStatus(Types.PStatus.newBuilder().setStatusCode(0)).build());
             responseObserver.onCompleted();
@@ -493,6 +504,7 @@ public class MockedBackendFactory {
         @Override
         public void execPlanFragmentStart(InternalService.PExecPlanFragmentStartRequest request,
                                           StreamObserver<InternalService.PExecPlanFragmentResult> responseObserver) {
+            System.out.println("get exec_plan_fragment_start request");
             responseObserver.onNext(InternalService.PExecPlanFragmentResult.newBuilder()
                     .setStatus(Types.PStatus.newBuilder().setStatusCode(0)).build());
             responseObserver.onCompleted();
@@ -501,6 +513,7 @@ public class MockedBackendFactory {
         @Override
         public void cancelPlanFragment(InternalService.PCancelPlanFragmentRequest request,
                                        StreamObserver<InternalService.PCancelPlanFragmentResult> responseObserver) {
+            System.out.println("get cancel_plan_fragment request");
             responseObserver.onNext(InternalService.PCancelPlanFragmentResult.newBuilder()
                     .setStatus(Types.PStatus.newBuilder().setStatusCode(0)).build());
             responseObserver.onCompleted();
@@ -509,6 +522,7 @@ public class MockedBackendFactory {
         @Override
         public void fetchData(InternalService.PFetchDataRequest request,
                               StreamObserver<InternalService.PFetchDataResult> responseObserver) {
+            System.out.println("get fetch_data request");
             responseObserver.onNext(InternalService.PFetchDataResult.newBuilder()
                     .setStatus(Types.PStatus.newBuilder().setStatusCode(0))
                     .setQueryStatistics(Data.PQueryStatistics.newBuilder()
@@ -537,6 +551,7 @@ public class MockedBackendFactory {
         @Override
         public void getInfo(InternalService.PProxyRequest request,
                             StreamObserver<InternalService.PProxyResult> responseObserver) {
+            System.out.println("get get_info request");
             responseObserver.onNext(InternalService.PProxyResult.newBuilder()
                     .setStatus(Types.PStatus.newBuilder().setStatusCode(0)).build());
             responseObserver.onCompleted();
