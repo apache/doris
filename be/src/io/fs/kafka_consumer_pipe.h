@@ -28,20 +28,6 @@ public:
 
     ~KafkaConsumerPipe() override = default;
 
-    virtual Status append_with_line_delimiter(const char* data, size_t size) {
-        Status st = append(data, size);
-        if (!st.ok()) {
-            return st;
-        }
-
-        // append the line delimiter
-        st = append("\n", 1);
-        return st;
-    }
-
-    virtual Status append_json(const char* data, size_t size) {
-        return append_and_flush(data, size);
-    }
 };
 } // namespace io
 } // end namespace doris

@@ -327,7 +327,9 @@ public class KinesisRoutineLoadJobTest {
     private KinesisProgress createProgress(Map<String, String> shardToSeqNum, Map<String, Long> lagMap,
             String... closedShards) {
         KinesisProgress progress = new KinesisProgress(shardToSeqNum);
-        Deencapsulation.setField(progress, "shardIdToMillsBehindLatest", Maps.newConcurrentMap(lagMap));
+        Map<String, Long> shardIdToMillsBehindLatest = Maps.newConcurrentMap();
+        shardIdToMillsBehindLatest.putAll(lagMap);
+        Deencapsulation.setField(progress, "shardIdToMillsBehindLatest", shardIdToMillsBehindLatest);
         Deencapsulation.setField(progress, "closedShardIds", new HashSet<>(Lists.newArrayList(closedShards)));
         return progress;
     }
