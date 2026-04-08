@@ -63,11 +63,11 @@ std::string ExchangeSourceOperatorX::debug_string(int indentation_level) const {
     return fmt::to_string(debug_string_buffer);
 }
 
-void ExchangeLocalState::create_stream_recvr(RuntimeState* state, int num_senders) {
+void ExchangeLocalState::create_stream_recvr(RuntimeState* state) {
     auto& p = _parent->cast<ExchangeSourceOperatorX>();
     stream_recvr = state->exec_env()->vstream_mgr()->create_recvr(
-            state, _memory_used_counter, state->fragment_instance_id(), p.node_id(), num_senders,
-            custom_profile(), p.is_merging(),
+            state, _memory_used_counter, state->fragment_instance_id(), p.node_id(),
+            p.num_senders(), custom_profile(), p.is_merging(),
             std::max(20480, config::exchg_node_buffer_size_bytes /
                                     (p.is_merging() ? p.num_senders() : 1)));
 }
@@ -76,11 +76,7 @@ Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
-    auto& p = _parent->cast<ExchangeSourceOperatorX>();
-    _task_idx = info.task_idx;
-    const bool is_destination = p.is_destination_instance(_task_idx);
-    const int num_senders = is_destination ? p.num_senders() : 0;
-    create_stream_recvr(state, num_senders);
+    create_stream_recvr(state);
     const auto& queues = stream_recvr->sender_queues();
     deps.resize(queues.size());
     metrics.resize(queues.size());
@@ -90,9 +86,6 @@ Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
         deps[i] = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
                                             fmt::format("SHUFFLE_DATA_DEPENDENCY_{}", i));
         queues[i]->set_dependency(deps[i]);
-        if (!is_destination) {
-            deps[i]->set_ready();
-        }
         metrics[i] = custom_profile()->add_nonzero_counter(fmt::format("WaitForData{}", i),
                                                            TUnit ::TIME_NS, timer_name, 1);
     }
@@ -234,27 +227,5 @@ Status ExchangeSourceOperatorX::close(RuntimeState* state) {
 Status ExchangeSourceOperatorX::reset(RuntimeState* state) {
     auto& local_state = get_local_state(state);
     return local_state.reset(state);
-}
-
-Status ExchangeLocalState::reset(RuntimeState* state) {
-    auto& p = _parent->cast<ExchangeSourceOperatorX>();
-    if (stream_recvr) {
-        stream_recvr->close();
-    }
-    int num_senders = p.is_destination_instance(_task_idx) ? p.num_senders() : 0;
-    create_stream_recvr(state, num_senders);
-
-    is_ready = false;
-    num_rows_skipped = 0;
-
-    const auto& queues = stream_recvr->sender_queues();
-    for (size_t i = 0; i < queues.size(); i++) {
-        deps[i]->block();
-        queues[i]->set_dependency(deps[i]);
-        if (num_senders == 0) {
-            deps[i]->set_ready();
-        }
-    }
-    return Status::OK();
 }
 } // namespace doris

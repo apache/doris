@@ -321,9 +321,9 @@ void VDataStreamRecvr::SenderQueue::decrement_senders(int be_number) {
     _sender_eos_set.insert(be_number);
     DCHECK_GT(_num_remaining_senders, 0);
     _num_remaining_senders--;
-    VLOG_FILE << "decrement_senders: frag=" << print_id(_recvr->fragment_instance_id())
-              << " node=" << _recvr->dest_node_id() << " be_number=" << be_number
-              << " remaining=" << _num_remaining_senders;
+    VLOG_FILE << "decremented senders: fragment_instance_id="
+              << print_id(_recvr->fragment_instance_id()) << " node_id=" << _recvr->dest_node_id()
+              << " #senders=" << _num_remaining_senders;
     if (_num_remaining_senders == 0) {
         set_source_ready(l);
     }

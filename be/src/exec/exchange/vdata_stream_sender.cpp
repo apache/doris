@@ -118,7 +118,10 @@ Status Channel::_find_local_recvr(RuntimeState* state) {
     if (!st.ok()) {
         // If could not find local receiver, then it means the channel is EOF.
         // Maybe downstream task is finished already.
-        VLOG_FILE << "Query: " << print_id(state->query_id())
+        //if (_receiver_status.ok()) {
+        //    _receiver_status = Status::EndOfFile("local data stream receiver is deconstructed");
+        //}
+        LOG(INFO) << "Query: " << print_id(state->query_id())
                   << " recvr is not found, maybe downstream task is finished. error st is: "
                   << st.to_string();
     }

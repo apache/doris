@@ -1343,22 +1343,8 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
                                   ? _params.per_exch_num_senders.find(tnode.node_id)->second
                                   : 0;
         DCHECK_GT(num_senders, 0);
-        auto exchange_op = std::make_shared<ExchangeSourceOperatorX>(
-                pool, tnode, next_operator_id(), descs, num_senders);
-        // For non-serial BUCKET_SHUFFLE exchanges, compute destination instances from
-        // bucket_seq_to_instance_idx. Padding instances (not in the destination set)
-        // will create recvrs with 0 senders to avoid hanging.
-        if (!_params.bucket_seq_to_instance_idx.empty() &&
-            tnode.exchange_node.__isset.partition_type &&
-            tnode.exchange_node.partition_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED &&
-            !(tnode.__isset.is_serial_operator && tnode.is_serial_operator)) {
-            std::unordered_set<int> dest_instances;
-            for (const auto& [bucket, idx] : _params.bucket_seq_to_instance_idx) {
-                dest_instances.insert(idx);
-            }
-            exchange_op->set_destination_instances(std::move(dest_instances));
-        }
-        op = exchange_op;
+        op = std::make_shared<ExchangeSourceOperatorX>(pool, tnode, next_operator_id(), descs,
+                                                       num_senders);
         RETURN_IF_ERROR(cur_pipe->add_operator(op, _parallel_instances));
         fe_with_old_version = !tnode.__isset.is_serial_operator;
         break;

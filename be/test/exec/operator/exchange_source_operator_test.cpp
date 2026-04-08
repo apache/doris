@@ -62,7 +62,7 @@ struct MOCKVDataStreamRecvr : public VDataStreamRecvr {
 struct MockExchangeSourceLocalState : public ExchangeLocalState {
     MockExchangeSourceLocalState(RuntimeState* state, OperatorXBase* parent)
             : ExchangeLocalState(state, parent) {}
-    void create_stream_recvr(RuntimeState* state, int num_senders) override {}
+    void create_stream_recvr(RuntimeState* state) override {}
 };
 
 struct ExchangeSourceOperatorXTest : public ::testing::Test {
