@@ -35,6 +35,7 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.datasource.kinesis.KinesisUtil;
+import org.apache.doris.load.routineload.kinesis.KinesisConfiguration;
 import org.apache.doris.load.routineload.kinesis.KinesisDataSourceProperties;
 import org.apache.doris.nereids.load.NereidsImportColumnDesc;
 import org.apache.doris.nereids.load.NereidsLoadTaskInfo;
@@ -649,7 +650,7 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
     @Override
     public Map<String, String> getDataSourceProperties() {
         Map<String, String> dataSourceProperties = Maps.newHashMap();
-        dataSourceProperties.put("kinesis_region", region);
+        dataSourceProperties.put(KinesisConfiguration.KINESIS_REGION.getName(), region);
         dataSourceProperties.put("kinesis_stream", stream);
         if (endpoint != null) {
             dataSourceProperties.put("kinesis_endpoint", endpoint);
