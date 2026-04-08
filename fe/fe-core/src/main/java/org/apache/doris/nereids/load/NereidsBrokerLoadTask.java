@@ -36,18 +36,21 @@ public class NereidsBrokerLoadTask implements NereidsLoadTaskInfo {
     private int sendBatchParallelism;
     private boolean strictMode;
     private boolean memtableOnSinkNode;
+    private boolean loadToSingleTablet;
     private PartitionNames partitions;
 
     /**
      * NereidsBrokerLoadTask
      */
     public NereidsBrokerLoadTask(long txnId, int timeout, int sendBatchParallelism,
-            boolean strictMode, boolean memtableOnSinkNode, PartitionNames partitions) {
+            boolean strictMode, boolean memtableOnSinkNode, boolean loadToSingleTablet,
+            PartitionNames partitions) {
         this.txnId = txnId;
         this.timeout = timeout;
         this.sendBatchParallelism = sendBatchParallelism;
         this.strictMode = strictMode;
         this.memtableOnSinkNode = memtableOnSinkNode;
+        this.loadToSingleTablet = loadToSingleTablet;
         this.partitions = partitions;
     }
 
@@ -173,7 +176,7 @@ public class NereidsBrokerLoadTask implements NereidsLoadTaskInfo {
 
     @Override
     public boolean isLoadToSingleTablet() {
-        return false;
+        return loadToSingleTablet;
     }
 
     @Override

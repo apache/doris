@@ -163,7 +163,7 @@ public class NereidsLoadingTaskPlanner {
         }
         NereidsBrokerLoadTask nereidsBrokerLoadTask = new NereidsBrokerLoadTask(txnId, (int) txnTimeout,
                 sendBatchParallelism,
-                strictMode, enableMemtableOnSinkNode, partitionNames);
+                strictMode, enableMemtableOnSinkNode, singleTabletLoadPerSink, partitionNames);
 
         TupleDescriptor scanTupleDesc = descTable.createTupleDescriptor();
         scanTupleDesc.setTable(table);
