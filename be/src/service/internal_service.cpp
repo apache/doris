@@ -1122,7 +1122,7 @@ void PInternalServiceImpl::_get_column_ids_by_tablet_ids(
         std::set<std::set<int32_t>> filter_set;
         std::map<int32_t, const TabletColumn*> id_to_column;
         for (const int64_t tablet_id : tablet_ids) {
-            auto tablet = tablet_mgr->get_tablet_temp(tablet_id);
+            auto tablet = tablet_mgr->get_tablet(tablet_id);
             if (!tablet.has_value()) {
                 std::stringstream ss;
                 ss << "cannot get tablet by id:" << tablet_id;
@@ -1178,7 +1178,7 @@ void PInternalServiceImpl::_get_column_ids_by_tablet_ids(
             return;
         }
         // consistency check passed, use the first tablet to be the representative
-        auto tablet = tablet_mgr->get_tablet_temp(tablet_ids[0]);
+        auto tablet = tablet_mgr->get_tablet(tablet_ids[0]);
         const auto& columns = tablet.value()->tablet_schema()->columns();
         auto entry = response->add_entries();
         entry->set_index_id(index_id);
@@ -1951,7 +1951,7 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
     int64_t node_id = request->node_id();
     bool ret = _heavy_work_pool.try_offer([rowset_meta_pb, host, brpc_port, node_id, segments_size,
                                            indices_size, http_port, token, rowset_path, this]() {
-        auto tablet = _engine.tablet_manager()->get_tablet_temp(
+        auto tablet = _engine.tablet_manager()->get_tablet(
                 rowset_meta_pb.tablet_id(), rowset_meta_pb.tablet_schema_hash());
         if (!tablet.has_value()) {
             LOG(WARNING) << "failed to pull rowset for slave replica. tablet ["

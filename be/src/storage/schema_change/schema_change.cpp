@@ -844,8 +844,8 @@ Status SchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& request) {
 SchemaChangeJob::SchemaChangeJob(StorageEngine& local_storage_engine,
                                  const TAlterTabletReqV2& request, const std::string& job_id)
         : _local_storage_engine(local_storage_engine) {
-    _base_tablet = _local_storage_engine.tablet_manager()->get_tablet_temp(request.base_tablet_id);
-    _new_tablet = _local_storage_engine.tablet_manager()->get_tablet_temp(request.new_tablet_id);
+    _base_tablet = _local_storage_engine.tablet_manager()->get_tablet(request.base_tablet_id);
+    _new_tablet = _local_storage_engine.tablet_manager()->get_tablet(request.new_tablet_id);
     if (_base_tablet.has_value() && _new_tablet.has_value()) {
         _base_tablet_schema = std::make_shared<TabletSchema>();
         _base_tablet_schema->update_tablet_columns(*_base_tablet.value()->tablet_schema(), request.columns);

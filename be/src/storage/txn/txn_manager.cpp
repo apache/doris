@@ -462,7 +462,7 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
                                TabletPublishStatistics* stats,
                                std::shared_ptr<TabletTxnInfo>& extend_tablet_txn_info,
                                const int64_t commit_tso) {
-    auto tablet = _engine.tablet_manager()->get_tablet_temp(tablet_id);
+    auto tablet = _engine.tablet_manager()->get_tablet(tablet_id);
     if (!tablet.has_value()) {
         return Status::OK();
     }

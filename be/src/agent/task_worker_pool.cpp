@@ -324,7 +324,7 @@ void alter_cloud_tablet(CloudStorageEngine& engine, const TAgentTaskRequest& age
 Status check_migrate_request(StorageEngine& engine, const TStorageMediumMigrateReq& req,
                              TabletSharedPtr& tablet, DataDir** dest_store) {
     int64_t tablet_id = req.tablet_id;
-    tablet = DORIS_TRY(engine.tablet_manager()->get_tablet_temp(tablet_id));
+    tablet = DORIS_TRY(engine.tablet_manager()->get_tablet(tablet_id));
 
     if (req.__isset.data_dir) {
         // request specify the data dir
@@ -824,7 +824,7 @@ void alter_inverted_index_callback(StorageEngine& engine, const TAgentTaskReques
               << ", job_id=" << alter_inverted_index_rq.job_id;
 
     Status status = Status::OK();
-    auto res = engine.tablet_manager()->get_tablet_temp(alter_inverted_index_rq.tablet_id);
+    auto res = engine.tablet_manager()->get_tablet(alter_inverted_index_rq.tablet_id);
     if (res.has_value()) {
         EngineIndexChangeTask engine_task(engine, alter_inverted_index_rq);
         SCOPED_ATTACH_TASK(engine_task.mem_tracker());
@@ -866,7 +866,7 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
     Status status;
     const auto& update_tablet_meta_req = req.update_tablet_meta_info_req;
     for (const auto& tablet_meta_info : update_tablet_meta_req.tabletMetaInfos) {
-        auto tablet_res = engine.tablet_manager()->get_tablet_temp(tablet_meta_info.tablet_id);
+        auto tablet_res = engine.tablet_manager()->get_tablet(tablet_meta_info.tablet_id);
         if (!tablet_res.has_value()) {
             status = Status::NotFound("tablet not found");
             LOG(WARNING) << "could not find tablet when update tablet meta. tablet_id="
@@ -1535,7 +1535,7 @@ void move_dir_callback(StorageEngine& engine, ExecEnv* env, const TAgentTaskRequ
     LOG(INFO) << "get move dir task. signature=" << req.signature
               << ", job_id=" << move_dir_req.job_id;
     Status status;
-    auto res = engine.tablet_manager()->get_tablet_temp(move_dir_req.tablet_id);
+    auto res = engine.tablet_manager()->get_tablet(move_dir_req.tablet_id);
     if (!res.has_value()) {
         status = res.error();
     } else {
@@ -1612,7 +1612,7 @@ void submit_table_compaction_callback(StorageEngine& engine, const TAgentTaskReq
         compaction_type = CompactionType::CUMULATIVE_COMPACTION;
     }
 
-    auto res = engine.tablet_manager()->get_tablet_temp(compaction_req.tablet_id);
+    auto res = engine.tablet_manager()->get_tablet(compaction_req.tablet_id);
     if (res.has_value()) {
         auto* data_dir = res.value()->data_dir();
         if (!res.value()->can_do_compaction(data_dir->path_hash(), compaction_type)) {
@@ -1753,7 +1753,7 @@ void push_cooldown_conf_callback(StorageEngine& engine, const TAgentTaskRequest&
     const auto& push_cooldown_conf_req = req.push_cooldown_conf;
     for (const auto& cooldown_conf : push_cooldown_conf_req.cooldown_confs) {
         int64_t tablet_id = cooldown_conf.tablet_id;
-        auto tablet = engine.tablet_manager()->get_tablet_temp(tablet_id);
+        auto tablet = engine.tablet_manager()->get_tablet(tablet_id);
         if (!tablet.has_value()) {
             LOG(WARNING) << "failed to get tablet. tablet_id=" << tablet_id;
             continue;
@@ -1803,7 +1803,7 @@ void create_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req)
         std::string error_msg;
         {
             SCOPED_TIMER(ADD_TIMER(profile, "GetTablet"));
-            auto tablet_res = engine.tablet_manager()->get_tablet_temp(create_tablet_req.tablet_id, false,
+            auto tablet_res = engine.tablet_manager()->get_tablet(create_tablet_req.tablet_id, false,
                                                          &error_msg);
             if (tablet_res.has_value()) {
                 tablet = tablet_res.value();
@@ -1850,7 +1850,7 @@ void create_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req)
 void drop_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
     const auto& drop_tablet_req = req.drop_tablet_req;
     Status status;
-    auto res = engine.tablet_manager()->get_tablet_temp(drop_tablet_req.tablet_id, false);
+    auto res = engine.tablet_manager()->get_tablet(drop_tablet_req.tablet_id, false);
     if (res.has_value()) {
         status = engine.tablet_manager()->drop_tablet(drop_tablet_req.tablet_id,
                                                       drop_tablet_req.replica_id,
@@ -2135,7 +2135,7 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
             (!config::enable_compaction_pause_on_high_memory ||
              !GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE))) {
             for (auto [tablet_id, _] : succ_tablets) {
-                auto tablet = _engine.tablet_manager()->get_tablet_temp(tablet_id);
+                auto tablet = _engine.tablet_manager()->get_tablet(tablet_id);
                 if (tablet.has_value()) {
                     if (!tablet.value()->tablet_meta()->tablet_schema()->disable_auto_compaction()) {
                         tablet.value()->published_count.fetch_add(1);

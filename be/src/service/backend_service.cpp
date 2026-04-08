@@ -1020,7 +1020,7 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
     auto txn_id = request.txn_id;
     // Step 1: get local tablet
     auto const& local_tablet_id = request.local_tablet_id;
-    auto local_tablet = _engine.tablet_manager()->get_tablet_temp(local_tablet_id);
+    auto local_tablet = _engine.tablet_manager()->get_tablet(local_tablet_id);
     if (!local_tablet.has_value()) {
         auto error_msg = fmt::format("tablet {} not found", local_tablet_id);
         LOG(WARNING) << error_msg;
@@ -1115,7 +1115,7 @@ void BackendService::query_ingest_binlog(TQueryIngestBinlogResult& result,
     auto tablet_id = request.tablet_id;
 
     // Step 1: get local tablet
-    auto local_tablet = _engine.tablet_manager()->get_tablet_temp(tablet_id);
+    auto local_tablet = _engine.tablet_manager()->get_tablet(tablet_id);
     if (!local_tablet.has_value()) {
         auto error_msg = fmt::format("tablet {} not found", tablet_id);
         LOG(WARNING) << error_msg;

@@ -400,7 +400,7 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetSharedPtr>& to_add,
             }
             calc_delete_bitmap_rowsets = std::move(ret->rowsets);
             // FIXME(plat1ko): Use `const TabletSharedPtr&` as parameter
-            auto self = _engine.tablet_manager()->get_tablet_temp(tablet_id());
+            auto self = _engine.tablet_manager()->get_tablet(tablet_id());
             CHECK(self.has_value());
             for (auto rs : calc_delete_bitmap_rowsets) {
                 if (is_incremental_clone) {
@@ -1959,7 +1959,7 @@ Result<std::unique_ptr<RowsetWriter>> Tablet::create_transient_rowset_writer(
     context.enable_segcompaction = false;
     // ATTN: context.tablet is a shared_ptr, can't simply set it's value to `this`. We should
     // get the shared_ptr from tablet_manager.
-    auto tablet = _engine.tablet_manager()->get_tablet_temp(tablet_id());
+    auto tablet = _engine.tablet_manager()->get_tablet(tablet_id());
     if (!tablet.has_value()) {
         LOG(WARNING) << "cant find tablet by tablet_id=" << tablet_id();
         return ResultError(tablet.error());
@@ -2131,7 +2131,7 @@ Status Tablet::_cooldown_data(RowsetSharedPtr rowset) {
     // Upload cooldowned rowset meta to remote fs
     // ATTN: Even if it is an empty rowset, in order for the followers to synchronize, the coolown meta must be
     // uploaded, otherwise followers may never completely cooldown.
-    if (auto t = _engine.tablet_manager()->get_tablet_temp(tablet_id());
+    if (auto t = _engine.tablet_manager()->get_tablet(tablet_id());
         t.has_value()) { // `t` can be nullptr if it has been dropped
         async_write_cooldown_meta(std::move(t.value()));
     }

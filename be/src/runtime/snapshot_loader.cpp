@@ -937,7 +937,7 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
             return Status::InternalError(ss.str());
         }
 
-        auto tablet = DORIS_TRY(_engine.tablet_manager()->get_tablet_temp(local_tablet_id));
+        auto tablet = DORIS_TRY(_engine.tablet_manager()->get_tablet(local_tablet_id));
         DataDir* data_dir = tablet->data_dir();
 
         for (auto& remote_iter : remote_files) {
@@ -1077,7 +1077,7 @@ Status SnapshotLoader::remote_http_download(
                 "download snapshots via http. job: {}, task id: {}, local dir: {}, remote dir: {}",
                 _job_id, _task_id, local_path, remote_path);
 
-        auto tablet = DORIS_TRY(_engine.tablet_manager()->get_tablet_temp(local_tablet_id));
+        auto tablet = DORIS_TRY(_engine.tablet_manager()->get_tablet(local_tablet_id));
 
         if (downloaded_tablet_ids != nullptr) {
             downloaded_tablet_ids->push_back(local_tablet_id);

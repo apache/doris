@@ -189,7 +189,7 @@ Status EngineCloneTask::_do_clone() {
     }};
 
     // Check local tablet exist or not
-    auto tablet = _engine.tablet_manager()->get_tablet_temp(_clone_req.tablet_id);
+    auto tablet = _engine.tablet_manager()->get_tablet(_clone_req.tablet_id);
 
     // The status of a tablet is not ready, indicating that it is a residual tablet after a schema
     // change failure. Clone a new tablet from remote be to overwrite it. This situation basically only
@@ -306,7 +306,7 @@ Status EngineCloneTask::_do_clone() {
         RETURN_IF_ERROR_(status, tablet_manager->load_tablet_from_dir(store, _clone_req.tablet_id,
                                                                       _clone_req.schema_hash,
                                                                       tablet_dir, false));
-        auto nested_tablet = tablet_manager->get_tablet_temp(_clone_req.tablet_id);
+        auto nested_tablet = tablet_manager->get_tablet(_clone_req.tablet_id);
         if (!nested_tablet) {
             status = Status::NotFound("tablet not found, tablet_id={}", _clone_req.tablet_id);
             return status;

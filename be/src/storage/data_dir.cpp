@@ -475,7 +475,7 @@ Status DataDir::load() {
     }
 
     for (int64_t tablet_id : tablet_ids) {
-        auto tablet = _engine.tablet_manager()->get_tablet_temp(tablet_id);
+        auto tablet = _engine.tablet_manager()->get_tablet(tablet_id);
         if (tablet.has_value() && tablet.value()->set_tablet_schema_into_rowset_meta()) {
             RETURN_IF_ERROR(TabletMetaManager::save(this, tablet.value()->tablet_id(),
                                                     tablet.value()->schema_hash(), tablet.value()->tablet_meta()));
@@ -523,7 +523,7 @@ Status DataDir::load() {
     // ignore any errors when load tablet or rowset, because fe will repair them after report
     int64_t invalid_rowset_counter = 0;
     for (auto&& rowset_meta : dir_rowset_metas) {
-        auto tablet = _engine.tablet_manager()->get_tablet_temp(rowset_meta->tablet_id());
+        auto tablet = _engine.tablet_manager()->get_tablet(rowset_meta->tablet_id());
         // tablet maybe dropped, but not drop related rowset meta
         if (!tablet.has_value()) {
             VLOG_NOTICE << "could not find tablet id: " << rowset_meta->tablet_id()
@@ -611,7 +611,7 @@ Status DataDir::load() {
     auto load_delete_bitmap_func = [this, &dbm_cnt, &unknown_dbm_cnt](int64_t tablet_id,
                                                                       int64_t version,
                                                                       std::string_view val) {
-        auto tablet = _engine.tablet_manager()->get_tablet_temp(tablet_id);
+        auto tablet = _engine.tablet_manager()->get_tablet(tablet_id);
         if (!tablet.has_value()) {
             return true;
         }
@@ -685,7 +685,7 @@ void DataDir::_perform_tablet_gc(const std::string& tablet_schema_hash_path, int
         return;
     }
 
-    auto tablet = _engine.tablet_manager()->get_tablet_temp(tablet_id);
+    auto tablet = _engine.tablet_manager()->get_tablet(tablet_id);
     if (!tablet || tablet.value()->data_dir() != this) {
         if (tablet) {
             LOG(INFO) << "The tablet in path " << tablet_schema_hash_path
@@ -715,7 +715,7 @@ void DataDir::_perform_rowset_gc(const std::string& tablet_schema_hash_path) {
         return;
     }
 
-    auto tablet = _engine.tablet_manager()->get_tablet_temp(tablet_id);
+    auto tablet = _engine.tablet_manager()->get_tablet(tablet_id);
     if (!tablet) {
         // Could not found the tablet, maybe it's a dropped tablet, will be reclaimed
         // in the next time `_perform_path_gc_by_tablet`

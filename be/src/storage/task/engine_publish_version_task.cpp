@@ -282,7 +282,7 @@ Status EnginePublishVersionTask::execute() {
                                                                 &partition_related_tablet_infos);
         Version version(par_ver_info.version, par_ver_info.version);
         for (auto& tablet_info : partition_related_tablet_infos) {
-            TabletSharedPtr tablet = DORIS_TRY(_engine.tablet_manager()->get_tablet_temp(tablet_info.tablet_id));
+            TabletSharedPtr tablet = DORIS_TRY(_engine.tablet_manager()->get_tablet(tablet_info.tablet_id));
             auto tablet_id = tablet_info.tablet_id;
             if (tablet == nullptr) {
                 add_error_tablet_id(tablet_id);
@@ -390,7 +390,7 @@ void EnginePublishVersionTask::_handle_publish_version_not_continuous(
 void EnginePublishVersionTask::_calculate_tbl_num_delta_rows(
         const std::unordered_map<int64_t, int64_t>& tablet_id_to_num_delta_rows) {
     for (const auto& kv : tablet_id_to_num_delta_rows) {
-        auto tablet = _engine.tablet_manager()->get_tablet_temp(kv.first);
+        auto tablet = _engine.tablet_manager()->get_tablet(kv.first);
         if (!tablet.has_value()) {
             LOG(WARNING) << "cant find tablet by tablet_id=" << kv.first;
             continue;

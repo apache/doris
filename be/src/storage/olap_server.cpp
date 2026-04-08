@@ -814,7 +814,7 @@ void StorageEngine::_update_replica_infos_callback() {
             std::unique_lock<std::mutex> lock(_peer_replica_infos_mutex);
             for (const auto& it : result.tablet_replica_infos) {
                 auto tablet_id = it.first;
-                auto tablet = _tablet_manager->get_tablet_temp(tablet_id);
+                auto tablet = _tablet_manager->get_tablet(tablet_id);
                 if (tablet == nullptr) {
                     VLOG_CRITICAL << "tablet ptr is nullptr";
                     continue;
@@ -902,7 +902,7 @@ Status StorageEngine::_submit_single_replica_compaction_task(TabletSharedPtr tab
 
 void StorageEngine::get_tablet_rowset_versions(const PGetTabletVersionsRequest* request,
                                                PGetTabletVersionsResponse* response) {
-    auto tablet = _tablet_manager->get_tablet_temp(request->tablet_id());
+    auto tablet = _tablet_manager->get_tablet(request->tablet_id());
     if (!tablet.has_value()) {
         response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
         return;
@@ -1327,7 +1327,7 @@ Status StorageEngine::submit_seg_compaction_task(std::shared_ptr<SegcompactionWo
 
 Status StorageEngine::process_index_change_task(const TAlterInvertedIndexReq& request) {
     auto tablet_id = request.tablet_id;
-    auto tablet = _tablet_manager->get_tablet_temp(tablet_id);
+    auto tablet = _tablet_manager->get_tablet(tablet_id);
     DBUG_EXECUTE_IF("StorageEngine::process_index_change_task_tablet_error",
                     { tablet = ResultError(Status::InternalError("get tablet error")); })
     if (!tablet.has_value()) {
@@ -1725,7 +1725,7 @@ void StorageEngine::add_async_publish_task(int64_t partition_id, int64_t tablet_
         if (exists) {
             return;
         }
-        auto tablet = tablet_manager()->get_tablet_temp(tablet_id);
+        auto tablet = tablet_manager()->get_tablet(tablet_id);
         if (!tablet.has_value()) {
             LOG(INFO) << "tablet may be dropped when add async publish task, tablet_id: "
                       << tablet_id;
@@ -1770,7 +1770,7 @@ void StorageEngine::_process_async_publish() {
                 continue;
             }
             int64_t tablet_id = tablet_iter->first;
-            auto tablet = tablet_manager()->get_tablet_temp(tablet_id);
+            auto tablet = tablet_manager()->get_tablet(tablet_id);
             if (!tablet.has_value()) {
                 LOG(WARNING) << "tablet does not exist when async publush, tablet_id: "
                              << tablet_id;

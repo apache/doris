@@ -86,7 +86,7 @@ public:
             const std::unordered_map<std::string_view, std::shared_ptr<CumulativeCompactionPolicy>>&
                     all_cumulative_compaction_policies);
 
-    Result<TabletSharedPtr> get_tablet_temp(TTabletId tablet_id, bool include_deleted = false,
+    Result<TabletSharedPtr> get_tablet(TTabletId tablet_id, bool include_deleted = false,
                                std::string* err = nullptr);
 
     TabletSharedPtr get_tablet(TTabletId tablet_id, TabletUid tablet_uid,

@@ -105,7 +105,7 @@ Status EngineBatchLoadTask::_init() {
 
     // Check replica exist
     TabletSharedPtr tablet;
-    tablet = DORIS_TRY(_engine.tablet_manager()->get_tablet_temp(_push_req.tablet_id));
+    tablet = DORIS_TRY(_engine.tablet_manager()->get_tablet(_push_req.tablet_id));
 
     // check disk capacity
     if (_push_req.push_type == TPushType::LOAD_V2) {
@@ -273,7 +273,7 @@ Status EngineBatchLoadTask::_push(const TPushReq& request,
         return Status::InvalidArgument("invalid tablet_info_vec which is nullptr");
     }
 
-    TabletSharedPtr tablet = DORIS_TRY(_engine.tablet_manager()->get_tablet_temp(request.tablet_id));
+    TabletSharedPtr tablet = DORIS_TRY(_engine.tablet_manager()->get_tablet(request.tablet_id));
 
     PushType type = PushType::PUSH_NORMAL_V2;
     int64_t duration_ns = 0;
@@ -315,7 +315,7 @@ Status EngineBatchLoadTask::_delete_data(const TPushReq& request,
     }
 
     // 1. Get all tablets with same tablet_id
-    TabletSharedPtr tablet = DORIS_TRY(_engine.tablet_manager()->get_tablet_temp(request.tablet_id));
+    TabletSharedPtr tablet = DORIS_TRY(_engine.tablet_manager()->get_tablet(request.tablet_id));
 
     // 2. Process delete data by push interface
     PushHandler push_handler(_engine);

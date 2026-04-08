@@ -955,7 +955,7 @@ void StorageEngine::_clean_unused_rowset_metas() {
             return true;
         }
 
-        auto tablet = _tablet_manager->get_tablet_temp(rowset_meta->tablet_id());
+        auto tablet = _tablet_manager->get_tablet(rowset_meta->tablet_id());
         if (!tablet.has_value()) {
             // tablet may be dropped
             // TODO(cmy): this is better to be a VLOG, because drop table is a very common case.
@@ -995,7 +995,7 @@ void StorageEngine::_clean_unused_rowset_metas() {
         // 1. delete delete_bitmap
         std::set<int64_t> tablets_to_save_meta;
         for (auto& rowset_meta : invalid_rowset_metas) {
-            auto tablet = _tablet_manager->get_tablet_temp(rowset_meta->tablet_id());
+            auto tablet = _tablet_manager->get_tablet(rowset_meta->tablet_id());
             if (tablet.has_value() && tablet.value()->tablet_meta()->enable_unique_key_merge_on_write()) {
                 tablet.value()->tablet_meta()->remove_rowset_delete_bitmap(rowset_meta->rowset_id(),
                                                                    rowset_meta->version());
@@ -1003,7 +1003,7 @@ void StorageEngine::_clean_unused_rowset_metas() {
             }
         }
         for (const auto& tablet_id : tablets_to_save_meta) {
-            auto tablet = _tablet_manager->get_tablet_temp(tablet_id);
+            auto tablet = _tablet_manager->get_tablet(tablet_id);
             if (tablet) {
                 std::shared_lock rlock(tablet.value()->get_header_lock());
                 tablet.value()->save_meta();
@@ -1030,7 +1030,7 @@ void StorageEngine::_clean_unused_binlog_metas() {
             if (UNLIKELY(!binlog_meta_pb.ParseFromArray(value.data(),
                                                         cast_set<int>(value.size())))) {
                 LOG(WARNING) << "parse rowset meta string failed for binlog meta key: " << key;
-            } else if (_tablet_manager->get_tablet_temp(binlog_meta_pb.tablet_id()) == nullptr) {
+            } else if (_tablet_manager->get_tablet(binlog_meta_pb.tablet_id()) == nullptr) {
                 LOG(INFO) << "failed to find tablet " << binlog_meta_pb.tablet_id()
                           << " for binlog rowset: " << binlog_meta_pb.rowset_id()
                           << ", tablet may be dropped";
@@ -1059,7 +1059,7 @@ void StorageEngine::_clean_unused_delete_bitmap() {
     std::unordered_set<int64_t> removed_tablets;
     auto clean_delete_bitmap_func = [this, &removed_tablets](int64_t tablet_id, int64_t version,
                                                              std::string_view val) -> bool {
-        auto tablet = _tablet_manager->get_tablet_temp(tablet_id);
+        auto tablet = _tablet_manager->get_tablet(tablet_id);
         if (!tablet.has_value()) {
             if (removed_tablets.insert(tablet_id).second) {
                 LOG(INFO) << "clean ununsed delete bitmap for deleted tablet, tablet_id: "
@@ -1087,7 +1087,7 @@ void StorageEngine::_clean_unused_pending_publish_info() {
     auto clean_pending_publish_info_func = [this, &removed_infos](int64_t tablet_id,
                                                                   int64_t publish_version,
                                                                   std::string_view info) -> bool {
-        auto tablet = _tablet_manager->get_tablet_temp(tablet_id);
+        auto tablet = _tablet_manager->get_tablet(tablet_id);
         if (!tablet.has_value()) {
             removed_infos.emplace_back(tablet_id, publish_version);
         }
@@ -1112,7 +1112,7 @@ void StorageEngine::_clean_unused_partial_update_info() {
     auto unused_partial_update_info_collector =
             [this, &remove_infos](int64_t tablet_id, int64_t partition_id, int64_t txn_id,
                                   std::string_view value) -> bool {
-        auto tablet = _tablet_manager->get_tablet_temp(tablet_id);
+        auto tablet = _tablet_manager->get_tablet(tablet_id);
         if (!tablet.has_value()) {
             remove_infos.emplace_back(tablet_id, partition_id, txn_id);
             return true;
@@ -1140,7 +1140,7 @@ void StorageEngine::gc_binlogs(const std::unordered_map<int64_t, int64_t>& gc_ta
         LOG(INFO) << fmt::format("start to gc binlogs for tablet_id: {}, version: {}", tablet_id,
                                  version);
 
-        auto tablet = _tablet_manager->get_tablet_temp(tablet_id);
+        auto tablet = _tablet_manager->get_tablet(tablet_id);
         if (!tablet.has_value()) {
             LOG(WARNING) << fmt::format("tablet_id: {} not found", tablet_id);
             continue;
@@ -1281,7 +1281,7 @@ void StorageEngine::start_delete_unused_rowset() {
         // check remove delete bitmaps
         for (auto it = _unused_delete_bitmap.begin(); it != _unused_delete_bitmap.end();) {
             auto tablet_id = std::get<0>(*it);
-            auto tablet = _tablet_manager->get_tablet_temp(tablet_id);
+            auto tablet = _tablet_manager->get_tablet(tablet_id);
             if (tablet == nullptr) {
                 it = _unused_delete_bitmap.erase(it);
                 continue;
@@ -1316,7 +1316,7 @@ void StorageEngine::start_delete_unused_rowset() {
         VLOG_NOTICE << "start to remove rowset:" << rs->rowset_id()
                     << ", version:" << rs->version();
         // delete delete_bitmap of unused rowsets
-        if (auto tablet = _tablet_manager->get_tablet_temp(rs->rowset_meta()->tablet_id());
+        if (auto tablet = _tablet_manager->get_tablet(rs->rowset_meta()->tablet_id());
             tablet.has_value() && tablet.value()->enable_unique_key_merge_on_write()) {
             tablet.value()->tablet_meta()->remove_rowset_delete_bitmap(rs->rowset_id(), rs->version());
             tablets_to_save_meta.emplace(tablet.value()->tablet_id());
@@ -1326,7 +1326,7 @@ void StorageEngine::start_delete_unused_rowset() {
         VLOG_NOTICE << "remove rowset:" << rs->rowset_id() << " finished. status:" << status;
     }
     for (const auto& tablet_id : tablets_to_save_meta) {
-        auto tablet = _tablet_manager->get_tablet_temp(tablet_id);
+        auto tablet = _tablet_manager->get_tablet(tablet_id);
         if (tablet.has_value()) {
             std::shared_lock rlock(tablet.value()->get_header_lock());
             tablet.value()->save_meta();
@@ -1377,7 +1377,7 @@ Status StorageEngine::create_tablet(const TCreateTabletReq& request, RuntimeProf
 Result<BaseTabletSPtr> StorageEngine::get_tablet(int64_t tablet_id, SyncRowsetStats* sync_stats,
                                                  bool force_use_only_cached, bool cache_on_miss) {
     std::string err;
-    Result<BaseTabletSPtr> tablet = _tablet_manager->get_tablet_temp(tablet_id, true, &err);
+    Result<BaseTabletSPtr> tablet = _tablet_manager->get_tablet(tablet_id, true, &err);
     if (!tablet.has_value()) {
         return unexpected(
                 Status::InternalError("failed to get tablet: {}, reason: {}", tablet_id, err));
@@ -1542,7 +1542,7 @@ PendingRowsetGuard StorageEngine::add_pending_rowset(const RowsetWriterContext& 
 
 bool StorageEngine::get_peer_replica_info(int64_t tablet_id, TReplicaInfo* replica,
                                           std::string* token) {
-    auto tablet = _tablet_manager->get_tablet_temp(tablet_id);
+    auto tablet = _tablet_manager->get_tablet(tablet_id);
     if (!tablet.has_value()) {
         LOG(WARNING) << "tablet is no longer exist: tablet_id=" << tablet_id;
         return false;
@@ -1558,7 +1558,7 @@ bool StorageEngine::get_peer_replica_info(int64_t tablet_id, TReplicaInfo* repli
 }
 
 bool StorageEngine::get_peers_replica_backends(int64_t tablet_id, std::vector<TBackend>* backends) {
-    auto tablet = _tablet_manager->get_tablet_temp(tablet_id);
+    auto tablet = _tablet_manager->get_tablet(tablet_id);
     if (!tablet.has_value()) {
         LOG(WARNING) << "tablet is no longer exist: tablet_id=" << tablet_id;
         return false;
@@ -1642,7 +1642,7 @@ bool StorageEngine::should_fetch_from_peer(int64_t tablet_id) {
     }
     return false;
 #endif
-    auto tablet = _tablet_manager->get_tablet_temp(tablet_id);
+    auto tablet = _tablet_manager->get_tablet(tablet_id);
     if (!tablet.has_value()) {
         LOG(WARNING) << "tablet is no longer exist: tablet_id=" << tablet_id;
         return false;

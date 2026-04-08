@@ -111,7 +111,7 @@ Status SnapshotManager::make_snapshot(const TSnapshotRequest& request, string* s
         return Status::Error<INVALID_ARGUMENT>("output parameter cannot be null");
     }
 
-    TabletSharedPtr target_tablet = DORIS_TRY(_engine.tablet_manager()->get_tablet_temp(request.tablet_id));
+    TabletSharedPtr target_tablet = DORIS_TRY(_engine.tablet_manager()->get_tablet(request.tablet_id));
 
     // TODO: remove
     DBUG_EXECUTE_IF("SnapshotManager::make_snapshot.inject_failure", { target_tablet = nullptr; })
@@ -123,7 +123,7 @@ Status SnapshotManager::make_snapshot(const TSnapshotRequest& request, string* s
     TabletSharedPtr ref_tablet = target_tablet;
     if (request.__isset.ref_tablet_id) {
         int64_t ref_tablet_id = request.ref_tablet_id;
-        TabletSharedPtr base_tablet = DORIS_TRY(_engine.tablet_manager()->get_tablet_temp(ref_tablet_id));
+        TabletSharedPtr base_tablet = DORIS_TRY(_engine.tablet_manager()->get_tablet(ref_tablet_id));
 
         // Some tasks, like medium migration, cause the target tablet and base tablet to stay on
         // different disks. In this case, we fall through to the normal restore path.
@@ -183,7 +183,7 @@ Result<std::vector<PendingRowsetGuard>> SnapshotManager::convert_rowset_ids(
                 "clone dir not existed when convert rowsetids. clone_dir={}", clone_dir));
     }
 
-    auto target_tablet = _engine.tablet_manager()->get_tablet_temp(tablet_id);
+    auto target_tablet = _engine.tablet_manager()->get_tablet(tablet_id);
     TabletSchemaSPtr target_tablet_schema = nullptr;
     if (target_tablet.has_value()) {
         target_tablet_schema = std::make_shared<TabletSchema>();
