@@ -21,6 +21,7 @@ import org.apache.doris.catalog.CatalogTestUtil;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FakeEditLog;
 import org.apache.doris.catalog.FakeEnv;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -33,6 +34,7 @@ import org.apache.doris.task.PublishVersionTask;
 import org.apache.doris.thrift.TPartitionVersionInfo;
 import org.apache.doris.transaction.GlobalTransactionMgrTest.SubTransactionInfo;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
+import org.apache.doris.tso.TSOService;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -43,7 +45,9 @@ import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
+import org.mockito.Mockito;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -591,5 +595,121 @@ public class DatabaseTransactionMgrTest {
         LabelToTxnId.put(CatalogTestUtil.testTxnLabel6, transactionState6.getTransactionId());
         LabelToTxnId.put(CatalogTestUtil.testTxnLabel7, transactionState7.getTransactionId());
         LabelToTxnId.put(CatalogTestUtil.testTxnLabel8, transactionState8.getTransactionId());
+    }
+
+    @Test
+    public void testCommitTransactionSetsCommitTSOWhenEnableTso() throws Exception {
+        boolean originalEnableTsoFeature = Config.enable_tso_feature;
+        try {
+            Config.enable_tso_feature = true;
+            FakeEnv.setEnv(masterEnv);
+
+            OlapTable table = (OlapTable) masterEnv.getInternalCatalog()
+                    .getDbOrMetaException(CatalogTestUtil.testDbId1)
+                    .getTableOrMetaException(CatalogTestUtil.testTableId1);
+            table.setEnableTso(true);
+
+            long expectedCommitTSO = 12345L;
+            TSOService tsoService = Mockito.mock(TSOService.class);
+            Mockito.when(tsoService.getTSO()).thenReturn(expectedCommitTSO);
+            setEnvTSOService(masterEnv, tsoService);
+
+            String label = "commitTSO_test_" + System.nanoTime();
+            long txnId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                    Lists.newArrayList(CatalogTestUtil.testTableId1),
+                    label, transactionSource, TransactionState.LoadJobSourceType.FRONTEND,
+                    Config.stream_load_default_timeout_second);
+            List<TabletCommitInfo> transTablets = GlobalTransactionMgrTest.generateTabletCommitInfos(
+                    CatalogTestUtil.testTabletId1, allBackends);
+            masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(table),
+                    txnId, transTablets, null);
+
+            TransactionState transactionState = fakeEditLog.getTransaction(txnId);
+            Assert.assertNotNull(transactionState);
+            Assert.assertEquals(expectedCommitTSO, transactionState.getCommitTSO());
+            TableCommitInfo tableCommitInfo = transactionState.getIdToTableCommitInfos().get(CatalogTestUtil.testTableId1);
+            Assert.assertNotNull(tableCommitInfo);
+            Assert.assertEquals(expectedCommitTSO, tableCommitInfo.getCommitTSO());
+        } finally {
+            Config.enable_tso_feature = originalEnableTsoFeature;
+        }
+    }
+
+    @Test
+    public void testCommitTransactionCommitTSORemainsMinusOneWhenTableDisableTso() throws Exception {
+        boolean originalEnableTsoFeature = Config.enable_tso_feature;
+        try {
+            Config.enable_tso_feature = true;
+            FakeEnv.setEnv(masterEnv);
+
+            OlapTable table = (OlapTable) masterEnv.getInternalCatalog()
+                    .getDbOrMetaException(CatalogTestUtil.testDbId1)
+                    .getTableOrMetaException(CatalogTestUtil.testTableId1);
+            table.setEnableTso(false);
+
+            TSOService tsoService = Mockito.mock(TSOService.class);
+            Mockito.when(tsoService.getTSO()).thenReturn(12345L);
+            setEnvTSOService(masterEnv, tsoService);
+
+            String label = "commitTSO_tableDisable_test_" + System.nanoTime();
+            long txnId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                    Lists.newArrayList(CatalogTestUtil.testTableId1),
+                    label, transactionSource, TransactionState.LoadJobSourceType.FRONTEND,
+                    Config.stream_load_default_timeout_second);
+            List<TabletCommitInfo> transTablets = GlobalTransactionMgrTest.generateTabletCommitInfos(
+                    CatalogTestUtil.testTabletId1, allBackends);
+            masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(table),
+                    txnId, transTablets, null);
+
+            TransactionState transactionState = fakeEditLog.getTransaction(txnId);
+            Assert.assertNotNull(transactionState);
+            Assert.assertEquals(-1L, transactionState.getCommitTSO());
+            TableCommitInfo tableCommitInfo = transactionState.getIdToTableCommitInfos().get(CatalogTestUtil.testTableId1);
+            Assert.assertNotNull(tableCommitInfo);
+            Assert.assertEquals(-1L, tableCommitInfo.getCommitTSO());
+        } finally {
+            Config.enable_tso_feature = originalEnableTsoFeature;
+        }
+    }
+
+    @Test
+    public void testCommitTransactionFailsWhenGetTSOInvalid() throws Exception {
+        boolean originalEnableTsoFeature = Config.enable_tso_feature;
+        try {
+            Config.enable_tso_feature = true;
+            FakeEnv.setEnv(masterEnv);
+
+            OlapTable table = (OlapTable) masterEnv.getInternalCatalog()
+                    .getDbOrMetaException(CatalogTestUtil.testDbId1)
+                    .getTableOrMetaException(CatalogTestUtil.testTableId1);
+            table.setEnableTso(true);
+
+            TSOService tsoService = Mockito.mock(TSOService.class);
+            Mockito.when(tsoService.getTSO()).thenReturn(-1L);
+            setEnvTSOService(masterEnv, tsoService);
+
+            String label = "commitTSO_getTSOInvalid_test_" + System.nanoTime();
+            long txnId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                    Lists.newArrayList(CatalogTestUtil.testTableId1),
+                    label, transactionSource, TransactionState.LoadJobSourceType.FRONTEND,
+                    Config.stream_load_default_timeout_second);
+            List<TabletCommitInfo> transTablets = GlobalTransactionMgrTest.generateTabletCommitInfos(
+                    CatalogTestUtil.testTabletId1, allBackends);
+            try {
+                masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(table),
+                        txnId, transTablets, null);
+                Assert.fail();
+            } catch (UserException e) {
+                Assert.assertTrue(e.getMessage().contains("failed to get TSO"));
+            }
+        } finally {
+            Config.enable_tso_feature = originalEnableTsoFeature;
+        }
+    }
+
+    private static void setEnvTSOService(Env env, TSOService service) throws Exception {
+        Field f = Env.class.getDeclaredField("tsoService");
+        f.setAccessible(true);
+        f.set(env, service);
     }
 }

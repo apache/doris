@@ -24,6 +24,7 @@ import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToExprNameVisitor;
 import org.apache.doris.analysis.FloatLiteral;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.InPredicate;
@@ -530,32 +531,36 @@ public class IcebergUtils {
             if (expr instanceof SlotRef) {
                 builder.identity(((SlotRef) expr).getColumnName());
             } else if (expr instanceof FunctionCallExpr) {
-                String exprName = expr.getExprName();
+                String exprName = expr.accept(ExprToExprNameVisitor.INSTANCE, null);
                 List<Expr> params = ((FunctionCallExpr) expr).getParams().exprs();
                 switch (exprName.toLowerCase()) {
                     case "bucket":
-                        builder.bucket(params.get(1).getExprName(), Integer.parseInt(params.get(0).getStringValue()));
+                        builder.bucket(
+                                params.get(1).accept(ExprToExprNameVisitor.INSTANCE, null),
+                                Integer.parseInt(params.get(0).getStringValue()));
                         break;
                     case "year":
                     case "years":
-                        builder.year(params.get(0).getExprName());
+                        builder.year(params.get(0).accept(ExprToExprNameVisitor.INSTANCE, null));
                         break;
                     case "month":
                     case "months":
-                        builder.month(params.get(0).getExprName());
+                        builder.month(params.get(0).accept(ExprToExprNameVisitor.INSTANCE, null));
                         break;
                     case "date":
                     case "day":
                     case "days":
-                        builder.day(params.get(0).getExprName());
+                        builder.day(params.get(0).accept(ExprToExprNameVisitor.INSTANCE, null));
                         break;
                     case "date_hour":
                     case "hour":
                     case "hours":
-                        builder.hour(params.get(0).getExprName());
+                        builder.hour(params.get(0).accept(ExprToExprNameVisitor.INSTANCE, null));
                         break;
                     case "truncate":
-                        builder.truncate(params.get(1).getExprName(), Integer.parseInt(params.get(0).getStringValue()));
+                        builder.truncate(
+                                params.get(1).accept(ExprToExprNameVisitor.INSTANCE, null),
+                                Integer.parseInt(params.get(0).getStringValue()));
                         break;
                     default:
                         throw new UserException("unsupported partition for " + exprName);

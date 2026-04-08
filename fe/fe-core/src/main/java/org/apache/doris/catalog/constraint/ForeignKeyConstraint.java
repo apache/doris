@@ -60,7 +60,10 @@ public class ForeignKeyConstraint extends Constraint implements GsonPostProcessa
         Preconditions.checkArgument(ImmutableSet.copyOf(referencedColumns).size() == referencedColumns.size(),
                 "Reference keys contains duplicate slots.");
         this.referencedTable = new TableIdentifier(refTable);
-        this.referencedTableInfo = new TableNameInfo(refTable);
+        this.referencedTableInfo = new TableNameInfo(
+                refTable.getDatabase().getCatalog().getName(),
+                refTable.getDatabase().getFullName(),
+                refTable.getName());
         this.referencedTableNameStr = referencedTableInfo.getCtl() + "."
                 + referencedTableInfo.getDb() + "." + referencedTableInfo.getTbl();
         for (int i = 0; i < columns.size(); i++) {

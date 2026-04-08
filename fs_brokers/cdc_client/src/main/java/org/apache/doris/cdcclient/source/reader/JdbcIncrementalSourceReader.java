@@ -351,6 +351,18 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
         }
         Tuple2<SourceSplitBase, Boolean> splitFlag = createStreamSplit(offsetMeta, baseReq);
         this.streamSplit = splitFlag.f0.asStreamSplit();
+
+        // Close previous stream reader to release resources (e.g. PG replication slot)
+        // before creating a new one. This prevents connection leaks when a cancelled
+        // task's reader is still active while a new task arrives.
+        if (this.streamReader != null) {
+            LOG.info(
+                    "Closing previous stream reader before creating new one for job {}",
+                    baseReq.getJobId());
+            closeReaderInternal(this.streamReader);
+            this.streamReader = null;
+        }
+
         this.streamReader = getBinlogSplitReader(baseReq);
 
         LOG.info("Prepare stream split: {}", this.streamSplit.toString());

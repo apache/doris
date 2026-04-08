@@ -142,7 +142,7 @@ public class ShowTableStatsCommand extends ShowCommand {
             return;
         }
         assert tableNameInfo != null;
-        tableNameInfo.analyze(ctx);
+        tableNameInfo.analyze(ctx.getNameSpaceContext());
         if (partitionNamesInfo != null) {
             partitionNamesInfo.validate();
         }

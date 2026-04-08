@@ -67,6 +67,7 @@
 #include "format/table/hudi_jni_reader.h"
 #include "format/table/hudi_reader.h"
 #include "format/table/iceberg_reader.h"
+#include "format/table/iceberg_sys_table_jni_reader.h"
 #include "format/table/jdbc_jni_reader.h"
 #include "format/table/max_compute_jni_reader.h"
 #include "format/table/paimon_cpp_reader.h"
@@ -351,7 +352,10 @@ Status FileScanner::_process_conjuncts() {
 Status FileScanner::_process_late_arrival_conjuncts() {
     if (_push_down_conjuncts.size() < _conjuncts.size()) {
         _push_down_conjuncts = _conjuncts;
-        _conjuncts.clear();
+        // Do not clear _conjuncts here!
+        // We must keep it for fallback filtering, especially when mixing
+        // Native readers (which use _push_down_conjuncts) and JNI readers (which rely on _conjuncts).
+        // _conjuncts.clear();
         RETURN_IF_ERROR(_process_conjuncts());
     }
     if (_applied_rf_num == _total_rf_num) {
@@ -1049,6 +1053,11 @@ Status FileScanner::_get_next_reader() {
                 _cur_reader = JdbcJniReader::create_unique(_file_slot_descs, _state, _profile,
                                                            jdbc_params);
                 init_status = ((JdbcJniReader*)(_cur_reader.get()))->init_reader();
+            } else if (range.__isset.table_format_params &&
+                       range.table_format_params.table_format_type == "iceberg") {
+                _cur_reader = IcebergSysTableJniReader::create_unique(_file_slot_descs, _state,
+                                                                      _profile, range, _params);
+                init_status = ((IcebergSysTableJniReader*)(_cur_reader.get()))->init_reader();
             }
             // Set col_name_to_block_idx for JNI readers to avoid repeated map creation
             if (_cur_reader) {

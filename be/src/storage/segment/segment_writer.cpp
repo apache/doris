@@ -630,6 +630,11 @@ Status SegmentWriter::append_block_with_partial_content(const Block* block, size
             use_default_or_null_flag, has_default_or_nullable,
             cast_set<uint32_t>(segment_start_pos), block));
 
+    if (_tablet_schema->num_variant_columns() > 0) {
+        RETURN_IF_ERROR(variant_util::parse_and_materialize_variant_columns(
+                full_block, *_tablet_schema, missing_cids));
+    }
+
     // convert block to row store format
     _serialize_block_to_row_column(full_block);
 

@@ -49,6 +49,7 @@ struct PageBuilderOptions {
 
 struct PageDecoderOptions {
     bool need_check_bitmap = true;
+    bool only_read_offsets = false;
 };
 
 } // namespace segment_v2

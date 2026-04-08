@@ -73,6 +73,46 @@ suite("regression_test_variant_delete_and_update", "variant_type"){
     sql """delete from ${table_name} where vs = 'xxx' or vs = 'yyy'"""
     qt_sql "select * from ${table_name} order by k"
 
+    def partialUpdateVariantTable = "var_partial_update_keep_subcolumn"
+    sql "DROP TABLE IF EXISTS ${partialUpdateVariantTable}"
+    sql """
+        CREATE TABLE IF NOT EXISTS ${partialUpdateVariantTable} (
+            event_id bigint,
+            oneid string,
+            event_property_variant variant
+        )
+        UNIQUE KEY(`event_id`)
+        DISTRIBUTED BY HASH(event_id) BUCKETS 1
+        properties(
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "true",
+            "store_row_column" = "true"
+        );
+    """
+    sql """insert into ${partialUpdateVariantTable} values
+            (1, 'old-oneid', '{"base_id":"100000000009523363","other_key":"abc"}')"""
+    sql "sync"
+
+    def beforeUpdate = sql """select cast(event_property_variant['base_id'] as string)
+                              from ${partialUpdateVariantTable}
+                              where event_id = 1"""
+    assertEquals("100000000009523363", beforeUpdate[0][0])
+
+    sql """update ${partialUpdateVariantTable}
+           set oneid = 'new-oneid'
+           where event_id = 1"""
+    sql "sync"
+
+    def afterUpdate = sql """select cast(event_property_variant['base_id'] as string)
+                             from ${partialUpdateVariantTable}
+                             where event_id = 1"""
+    assertEquals("100000000009523363", afterUpdate[0][0])
+
+    def wholeVariant = sql """select cast(event_property_variant as string)
+                              from ${partialUpdateVariantTable}
+                              where event_id = 1"""
+    assertEquals('{"base_id":"100000000009523363","other_key":"abc"}', wholeVariant[0][0])
+
     // delete & insert concurrently
     sql "set enable_unique_key_partial_update=true;"
     sql "sync"

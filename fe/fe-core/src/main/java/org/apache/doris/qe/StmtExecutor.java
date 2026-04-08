@@ -57,7 +57,6 @@ import org.apache.doris.common.profile.Profile;
 import org.apache.doris.common.profile.ProfileManager.ProfileType;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.profile.SummaryProfile.SummaryBuilder;
-import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.common.util.DebugUtil;
@@ -66,7 +65,10 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.FileScanNode;
 import org.apache.doris.datasource.tvf.source.TVFScanNode;
+import org.apache.doris.filesystem.FileSystemUtil;
+import org.apache.doris.filesystem.Location;
 import org.apache.doris.foundation.format.FormatOptions;
+import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.FieldInfo;
 import org.apache.doris.mysql.MysqlChannel;
@@ -1557,7 +1559,12 @@ public class StmtExecutor {
                 "delete_existing_files requires a remote outfile sink");
         Preconditions.checkState(outFileClause.getBrokerDesc().storageType() != StorageType.LOCAL,
                 "delete_existing_files is not supported for local outfile sinks");
-        BrokerUtil.deleteParentDirectoryWithFileSystem(outFileClause.getFilePath(), outFileClause.getBrokerDesc());
+        try (org.apache.doris.filesystem.FileSystem fs =
+                FileSystemFactory.getFileSystem(outFileClause.getBrokerDesc())) {
+            fs.delete(Location.of(FileSystemUtil.extractParentDirectory(outFileClause.getFilePath())), true);
+        } catch (java.io.IOException e) {
+            throw new UserException("Failed to delete existing files: " + e.getMessage(), e);
+        }
         clearDeleteExistingFilesInPlan();
     }
 

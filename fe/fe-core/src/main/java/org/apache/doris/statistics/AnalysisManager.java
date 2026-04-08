@@ -44,6 +44,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -254,8 +255,8 @@ public class AnalysisManager implements Writable {
             if (table instanceof View) {
                 continue;
             }
-            TableNameInfo tableNameInfo = new TableNameInfo(db.getCatalog().getName(),
-                    db.getFullName(), table.getName());
+            TableNameInfo tableNameInfo = TableNameInfoUtils.fromCatalogDb(db.getCatalog(),
+                    db, table);
             // columnNames null means to add all visible columns.
             // Will get all the visible columns in analyzeTableOp.check()
             AnalyzeTableCommand command = new AnalyzeTableCommand(analyzeProperties, tableNameInfo,

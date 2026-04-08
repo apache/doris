@@ -20,6 +20,7 @@ package org.apache.doris.statistics.util;
 import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
+import org.apache.doris.analysis.DecimalLiteralUtils;
 import org.apache.doris.analysis.FloatLiteral;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LargeIntLiteral;
@@ -274,12 +275,12 @@ public class StatisticsUtil {
                 return new FloatLiteral(columnValue);
             case DECIMALV2:
                 // no need to check precision and scale, since V2 is fixed point
-                return new DecimalLiteral(columnValue);
+                return DecimalLiteralUtils.create(columnValue);
             case DECIMAL32:
             case DECIMAL64:
             case DECIMAL128:
             case DECIMAL256:
-                DecimalLiteral decimalLiteral = new DecimalLiteral(columnValue);
+                DecimalLiteral decimalLiteral = DecimalLiteralUtils.create(columnValue);
                 decimalLiteral.checkPrecisionAndScale(scalarType.getScalarPrecision(), scalarType.getScalarScale());
                 return decimalLiteral;
             case DATE:

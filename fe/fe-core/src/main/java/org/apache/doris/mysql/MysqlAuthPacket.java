@@ -106,7 +106,7 @@ public class MysqlAuthPacket extends MysqlPacket {
         if (buffer.remaining() > 0 && capability.isPluginAuth()) {
             pluginName = new String(MysqlProto.readNulTerminateString(buffer));
         }
-        // attribute map, no use now.
+        // connection attributes (e.g. scheduleInfo for lineage tracking)
         if (buffer.remaining() > 0 && capability.isConnectAttrs()) {
             connectAttributes = Maps.newHashMap();
             long attrsLength = MysqlProto.readVInt(buffer);
