@@ -62,7 +62,7 @@ void Dependency::_add_block_task(std::shared_ptr<PipelineTask> task) {
     _blocked_task.push_back(task);
 }
 
-void Dependency::set_ready() noexcept {
+void Dependency::set_ready() {
     if (_ready) {
         return;
     }
@@ -77,39 +77,9 @@ void Dependency::set_ready() noexcept {
         local_block_task.swap(_blocked_task);
     }
     for (auto task : local_block_task) {
-        try {
-            if (auto t = task.lock()) {
-                try {
-                    std::unique_lock<std::mutex> lc(_task_lock);
-                    THROW_IF_ERROR(t->wake_up(this, lc));
-                } catch (const doris::Exception& e) {
-                    if (t->is_finalized()) {
-                        // Task already completed, wake_up failure is expected and benign.
-                    } else {
-                        // Task is not finalized but wake_up failed — it may be stuck in BLOCKED
-                        // with no one to reschedule it. Cancel the query to prevent a hang.
-                        LOG(WARNING) << "Dependency::set_ready(): wake_up failed for non-finalized "
-                                        "task, cancelling query. dep="
-                                     << _name << ", status=" << e.code() << ": " << e.to_string();
-                        if (auto frag = t->fragment_context().lock()) {
-                            frag->cancel(Status::InternalError(
-                                    "wake_up failed in Dependency::set_ready: {}", e.to_string()));
-                        }
-                    }
-                } catch (const std::exception& e) {
-                    // Non-Doris exceptions (e.g. std::bad_alloc from scheduler submit path).
-                    LOG(WARNING) << "Dependency::set_ready(): unexpected exception during wake_up, "
-                                    "cancelling query. dep="
-                                 << _name << ": " << e.what();
-                    if (auto frag = t->fragment_context().lock()) {
-                        frag->cancel(Status::InternalError(
-                                "unexpected exception in Dependency::set_ready: {}", e.what()));
-                    }
-                }
-            }
-        } catch (...) {
-            // Recovery itself threw (e.g. double OOM during logging/cancel).
-            // Best effort: nothing more we can do for this task.
+        if (auto t = task.lock()) {
+            std::unique_lock<std::mutex> lc(_task_lock);
+            THROW_IF_ERROR(t->wake_up(this, lc));
         }
     }
 }
