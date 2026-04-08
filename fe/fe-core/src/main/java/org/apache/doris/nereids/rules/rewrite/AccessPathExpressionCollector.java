@@ -25,6 +25,8 @@ import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference.ArrayItemSlot;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.IsNull;
+import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayExists;
@@ -133,8 +135,8 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         if (dataType.isStringLikeType()) {
             int slotId = slotReference.getExprId().asInt();
             if (!context.accessPathBuilder.isEmpty()) {
-                // Accessed via an offset-only function (e.g. length()).
-                // Builder already has "offset" at the tail; add the column name as prefix.
+                // Accessed via an offset-only function (e.g. length()) or null-check (IS NULL).
+                // Builder already has "OFFSET"/"NULL" at the tail; add the column name as prefix.
                 context.accessPathBuilder.addPrefix(slotReference.getName());
                 ImmutableList<String> path = ImmutableList.copyOf(context.accessPathBuilder.accessPath);
                 slotToAccessPaths.put(slotId,
@@ -146,6 +148,18 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
                 slotToAccessPaths.put(slotId,
                         new CollectAccessPathResult(path, context.bottomFilter, TAccessPathType.DATA));
             }
+            return null;
+        }
+        // For any other nullable column type (e.g. INT, BIGINT) accessed via IS NULL / IS NOT NULL:
+        // record the [col_name, NULL] path so NestedColumnPruning can emit null-only access paths.
+        // Skip NestedColumnPrunable types (already handled above) and string types (handled above).
+        if (!(dataType instanceof NestedColumnPrunable) && !dataType.isStringLikeType()
+                && !context.accessPathBuilder.isEmpty() && slotReference.nullable()) {
+            context.accessPathBuilder.addPrefix(slotReference.getName());
+            ImmutableList<String> path = ImmutableList.copyOf(context.accessPathBuilder.accessPath);
+            int slotId = slotReference.getExprId().asInt();
+            slotToAccessPaths.put(slotId,
+                    new CollectAccessPathResult(path, context.bottomFilter, TAccessPathType.DATA));
         }
         return null;
     }
@@ -491,14 +505,30 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         return visit(arraySortBy, context);
     }
 
-    // @Override
-    // public Void visitIsNull(IsNull isNull, CollectorContext context) {
-    //     if (context.accessPathBuilder.isEmpty()) {
-    //         context.setType(TAccessPathType.META);
-    //         return continueCollectAccessPath(isNull.child(), context);
-    //     }
-    //     return visit(isNull, context);
-    // }
+    @Override
+    public Void visitIsNull(IsNull isNull, CollectorContext context) {
+        Expression arg = isNull.child();
+        // Only optimize when IS NULL is directly on a top-level scan column (SlotReference
+        // without sub-column path). For nested expressions like struct_element(s, 'city') IS NULL
+        // or variant sub-column v['k'] IS NULL, fall through to default visitor.
+        if (arg instanceof SlotReference && arg.nullable() && context.accessPathBuilder.isEmpty()
+                && !((SlotReference) arg).hasSubColPath()) {
+            CollectorContext nullContext =
+                    new CollectorContext(context.statementContext, context.bottomFilter);
+            nullContext.accessPathBuilder.addSuffix(AccessPathInfo.ACCESS_NULL);
+            return arg.accept(this, nullContext);
+        }
+        return visit(isNull, context);
+    }
+
+    @Override
+    public Void visitNot(Not not, CollectorContext context) {
+        // NOT(IS NULL) == IS NOT NULL: same null-only access pattern
+        if (not.child() instanceof IsNull) {
+            return not.child().accept(this, context);
+        }
+        return visit(not, context);
+    }
 
     private Void collectArrayPathInLambda(Lambda lambda, CollectorContext context) {
         List<Expression> arguments = lambda.getArguments();

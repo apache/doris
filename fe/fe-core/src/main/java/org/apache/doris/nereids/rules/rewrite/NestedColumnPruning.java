@@ -23,6 +23,8 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.rewrite.AccessPathExpressionCollector.CollectAccessPathResult;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.IsNull;
+import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cardinality;
@@ -51,6 +53,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -58,6 +61,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 
 /**
  * <li> 1. prune the data type of struct/map
@@ -84,7 +88,8 @@ public class NestedColumnPruning implements CustomRewriter {
             if (!sessionVariable.enablePruneNestedColumns
                     || (!statementContext.hasNestedColumns()
                         && !containsVariant(plan)
-                        && !(containsStringLength(plan)))) {
+                        && !containsStringLength(plan)
+                        && !containsNullCheck(plan))) {
                 return plan;
             }
 
@@ -163,6 +168,40 @@ public class NestedColumnPruning implements CustomRewriter {
             }
         });
         return hasVariant.get();
+    }
+
+    /** Returns true when the plan tree contains IS NULL or IS NOT NULL on a nullable slot. */
+    private static boolean containsNullCheck(Plan plan) {
+        AtomicBoolean found = new AtomicBoolean(false);
+        plan.foreachUp(node -> {
+            if (found.get()) {
+                return;
+            }
+            Plan current = (Plan) node;
+            for (Expression expression : current.getExpressions()) {
+                if (expressionContainsNullCheck(expression)) {
+                    found.set(true);
+                    return;
+                }
+            }
+        });
+        return found.get();
+    }
+
+    private static boolean expressionContainsNullCheck(Expression expr) {
+        if (expr instanceof IsNull && expr.child(0).nullable()) {
+            return true;
+        }
+        if (expr instanceof Not && expr.child(0) instanceof IsNull
+                && expr.child(0).child(0).nullable()) {
+            return true;
+        }
+        for (Expression child : expr.children()) {
+            if (expressionContainsNullCheck(child)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static Map<Integer, AccessPathInfo> pruneDataType(
@@ -247,6 +286,15 @@ public class NestedColumnPruning implements CustomRewriter {
                 continue;
             }
 
+            // Null-check-only access (e.g. col IS NULL / col IS NOT NULL): type stays unchanged,
+            // but we must send the [col, NULL] access path to BE so it only reads the null flag.
+            if (accessTree.hasNullCheckOnlyAccess()) {
+                List<TColumnAccessPath> allPaths = buildColumnAccessPaths(slot, allAccessPaths);
+                result.put(slot.getExprId().asInt(),
+                        new AccessPathInfo(slot.getDataType(), allPaths, new ArrayList<>()));
+                continue;
+            }
+
             if (slot.getDataType().isMapType() && accessTree.hasMapValueOffsetOnlyAccess()) {
                 // length(map_col['key']): keys read in full (element lookup) + values offset-only.
                 // Emit [col, KEYS] and [col, VALUES, OFFSET] directly instead of the collected
@@ -291,6 +339,28 @@ public class NestedColumnPruning implements CustomRewriter {
                                 && AccessPathInfo.ACCESS_STRING_OFFSET.equals(
                                         path.get(path.size() - 1));
                     });
+                }
+            }
+
+            // Strip NULL-suffix paths when a non-NULL path also exists for the same slot.
+            // E.g. `SELECT col FROM t WHERE col IS NULL` — full data is needed, NULL path is redundant.
+            {
+                int slotId = slot.getExprId().asInt();
+                Collection<Pair<TAccessPathType, List<String>>> slotPaths = allAccessPaths.get(slotId);
+                boolean hasNonNullPath = slotPaths.stream().anyMatch(p -> {
+                    List<String> path = p.second;
+                    return path.isEmpty()
+                            || !AccessPathInfo.ACCESS_NULL.equals(path.get(path.size() - 1));
+                });
+                if (hasNonNullPath) {
+                    List<Pair<TAccessPathType, List<String>>> toRemove = slotPaths.stream()
+                            .filter(p -> !p.second.isEmpty()
+                                    && AccessPathInfo.ACCESS_NULL.equals(
+                                            p.second.get(p.second.size() - 1)))
+                            .collect(Collectors.toList());
+                    for (Pair<TAccessPathType, List<String>> r : toRemove) {
+                        allAccessPaths.remove(slotId, r);
+                    }
                 }
             }
             List<TColumnAccessPath> allPaths = buildColumnAccessPaths(slot, allAccessPaths);
@@ -390,6 +460,10 @@ public class NestedColumnPruning implements CustomRewriter {
         // When this flag is set and accessAll is NOT set, pruneDataType() returns BigIntType
         // to signal that the BE only needs to read the offset array, not the chars data.
         private boolean isStringOffsetOnly;
+        // True when this column node is accessed ONLY via IS NULL / IS NOT NULL.
+        // When this flag is set and accessAll is NOT set, the BE only needs to read the null flag,
+        // not the actual column data.
+        private boolean isNullCheckOnly;
         // for the future, only access the meta of the column,
         // e.g. `is not null` can only access the column's offset, not need to read the data
         private TAccessPathType pathType;
@@ -497,6 +571,17 @@ public class NestedColumnPruning implements CustomRewriter {
             return type.isStringLikeType() && isStringOffsetOnly && !accessAll;
         }
 
+        /** True when the column is accessed ONLY via IS NULL / IS NOT NULL,
+         *  meaning the BE only needs to read the null flag, not the actual data. */
+        public boolean hasNullCheckOnlyAccess() {
+            if (isRoot) {
+                DataTypeAccessTree child = children.values().iterator().next();
+                return child.isNullCheckOnly && !child.accessAll
+                        && !child.isStringOffsetOnly && !child.accessPartialChild;
+            }
+            return isNullCheckOnly && !accessAll && !isStringOffsetOnly && !accessPartialChild;
+        }
+
         /** pruneCastType */
         public DataType pruneCastType(DataTypeAccessTree origin, DataTypeAccessTree cast) {
             if (type instanceof StructType) {
@@ -589,6 +674,13 @@ public class NestedColumnPruning implements CustomRewriter {
 
             if (pathType == TAccessPathType.DATA) {
                 this.pathType = TAccessPathType.DATA;
+            }
+
+            // NULL path component: the column is accessed only via IS NULL / IS NOT NULL.
+            // Mark null-check-only and return without setting accessAll.
+            if (path.get(accessIndex).equals(AccessPathInfo.ACCESS_NULL)) {
+                isNullCheckOnly = true;
+                return;
             }
 
             if (this.type.isStructType()) {
@@ -692,6 +784,10 @@ public class NestedColumnPruning implements CustomRewriter {
             } else if (isStringOffsetOnly) {
                 // Only the offset array is accessed (e.g. length(str_col)).
                 // The slot type stays unchanged (varchar); the access path tells BE to skip char data.
+                return Optional.empty();
+            } else if (isNullCheckOnly && !accessPartialChild) {
+                // Only the null flag is accessed (e.g. col IS NULL).
+                // The slot type stays unchanged; the access path tells BE to skip data reading.
                 return Optional.empty();
             } else if (!accessPartialChild) {
                 return Optional.empty();

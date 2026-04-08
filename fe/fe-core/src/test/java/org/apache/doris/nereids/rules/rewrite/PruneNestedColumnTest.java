@@ -436,14 +436,18 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     public void testFilter() throws Throwable {
         assertColumn("select 100 from tbl where s is not null",
                 "struct<city:text,data:array<map<int,struct<a:int,b:double>>>>",
-                ImmutableList.of(path("s")),
-                ImmutableList.of(path("s"))
+                ImmutableList.of(path("s", "NULL")),
+                ImmutableList.of(path("s", "NULL"))
         );
 
+        // After optimizer simplification, if(id=1, null, s) IS NOT NULL becomes s IS NOT NULL,
+        // which triggers null-only access. Combined with struct_element(s, 'city'), the struct
+        // is pruned to just the city field, and NULL path is stripped from allPaths.
+        // predicateAccessPaths retains [s, NULL] since it describes the predicate's specific access.
         assertColumn("select 100 from tbl where if(id = 1, null, s) is not null or struct_element(s, 'city') = 'beijing'",
-                "struct<city:text,data:array<map<int,struct<a:int,b:double>>>>",
-                ImmutableList.of(path("s")),
-                ImmutableList.of(path("s"))
+                "struct<city:text>",
+                ImmutableList.of(path("s", "city")),
+                ImmutableList.of(path("s", "NULL"), path("s", "city"))
         );
 
         assertColumn("select 100 from tbl where struct_element(s, 'city') is not null",
@@ -1185,6 +1189,36 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
 
     // @Test
     // public void testStringLengthPruning() {
+
+    @Test
+    public void testStructIsNullPruning() throws Exception {
+        // struct column IS NULL → null-only access, emit [s, NULL] path, type stays struct
+        assertColumn("select 1 from tbl where s is null",
+                "struct<city:text,data:array<map<int,struct<a:int,b:double>>>>",
+                ImmutableList.of(path("s", "NULL")),
+                ImmutableList.of(path("s", "NULL")));
+    }
+
+    @Test
+    public void testStructIsNotNullPruning() throws Exception {
+        // struct column IS NOT NULL → same null-only access pattern
+        assertColumn("select 1 from tbl where s is not null",
+                "struct<city:text,data:array<map<int,struct<a:int,b:double>>>>",
+                ImmutableList.of(path("s", "NULL")),
+                ImmutableList.of(path("s", "NULL")));
+    }
+
+    @Test
+    public void testStructIsNullMixedAccess() throws Exception {
+        // struct column IS NULL + data access → NULL path stripped from allPaths, predPaths keeps [s, NULL]
+        assertColumn("select struct_element(s, 'city') from tbl where s is null",
+                "struct<city:text>",
+                ImmutableList.of(path("s", "city")),
+                ImmutableList.of(path("s", "NULL")));
+    }
+
+    // @Test
+    // public void testStringLengthPruningOld() {
     //     // ── Case 1: length(str_col) only ─ offset-only optimization applied ──────────
     //     assertStringColumn(
     //             "select length(str_col) from str_tbl",
