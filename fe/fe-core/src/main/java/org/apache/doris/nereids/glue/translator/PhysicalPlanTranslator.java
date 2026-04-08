@@ -1461,15 +1461,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         multiCastDataSink.getDestinations().add(Lists.newArrayList());
 
         // update expr to slot mapping
-        TupleDescriptor tupleDescriptor = null;
         for (Slot producerSlot : cteProducer.getOutput()) {
             SlotRef slotRef = context.findSlotRef(producerSlot.getExprId());
-            tupleDescriptor = slotRef.getDesc().getParent();
             for (Slot consumerSlot : cteConsumer.getProducerToConsumerSlotMap().get(producerSlot)) {
                 context.addExprIdSlotRefPair(consumerSlot.getExprId(), slotRef);
             }
         }
-        CTEScanNode cteScanNode = new CTEScanNode(tupleDescriptor, context.getScanContext());
+        CTEScanNode cteScanNode = new CTEScanNode(context.getScanContext());
         translateRuntimeFilter(cteConsumer, cteScanNode, context);
         context.getCteScanNodeMap().put(multiCastFragment.getFragmentId(), cteScanNode);
 
