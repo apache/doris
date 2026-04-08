@@ -554,7 +554,7 @@ TEST_F(PipelineTaskTest, TEST_STATE_TRANSITION) {
         auto dep = std::make_shared<Dependency>(0, 0, "test_dep", true);
         task->_blocked_dep = dep.get();
         std::unique_lock<std::mutex> lc(mtx);
-        EXPECT_TRUE(task->wake_up(dep.get(), lc).ok());
+        task->wake_up(dep.get(), lc);
         EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
         EXPECT_EQ(_task_scheduler->submit_count(), 1);
     }
