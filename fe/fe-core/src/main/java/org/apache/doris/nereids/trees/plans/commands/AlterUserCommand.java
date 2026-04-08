@@ -29,7 +29,7 @@ import org.apache.doris.qe.StmtExecutor;
 /**
  * AlterUserCommand
  */
-public class AlterUserCommand extends AlterCommand {
+public class AlterUserCommand extends AlterCommand, NeedAuditEncryption {
 
     private final AlterUserInfo alterUserInfo;
 
@@ -56,5 +56,10 @@ public class AlterUserCommand extends AlterCommand {
     @Override
     public StmtType stmtType() {
         return StmtType.ALTER;
+    }
+
+    @Override
+    public boolean needAuditEncryption() {
+        return true;
     }
 }
