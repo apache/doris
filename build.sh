@@ -340,13 +340,28 @@ fi
 if [[ "${HELP}" -eq 1 ]]; then
     usage
 fi
-# build thirdparty libraries if necessary. check last thirdparty lib installation
+# build thirdparty libraries if necessary.
+# On Linux, kinesis static lib is required by BE kinesis routine load.
 if [[ "${TARGET_SYSTEM}" == 'Darwin' ]]; then
-    LAST_THIRDPARTY_LIB='libbrotlienc.a'
+    REQUIRED_THIRDPARTY_LIBS=(
+        'lib/libbrotlienc.a'
+    )
 else
-    LAST_THIRDPARTY_LIB='hadoop_hdfs/native/libhdfs.a'
+    REQUIRED_THIRDPARTY_LIBS=(
+        'lib/hadoop_hdfs/native/libhdfs.a'
+        'lib64/libaws-cpp-sdk-kinesis.a'
+    )
 fi
-if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/${LAST_THIRDPARTY_LIB}" ]]; then
+
+need_build_thirdparty=0
+for required_lib in "${REQUIRED_THIRDPARTY_LIBS[@]}"; do
+    if [[ ! -f "${DORIS_THIRDPARTY}/installed/${required_lib}" ]]; then
+        need_build_thirdparty=1
+        break
+    fi
+done
+
+if [[ "${need_build_thirdparty}" -eq 1 ]]; then
     echo "Thirdparty libraries need to be build ..."
     # need remove all installed pkgs because some lib like lz4 will throw error if its lib alreay exists
     rm -rf "${DORIS_THIRDPARTY}/installed"
