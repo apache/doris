@@ -50,7 +50,7 @@ public class AlterSqlBlockRuleCommand extends SqlBlockRuleCommand {
     public void doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         Env.getCurrentEnv().getSqlBlockRuleMgr().alterSqlBlockRule(new SqlBlockRule(ruleName,
                     sql, sqlHash, partitionNum,
-                    tabletNum, cardinality, global, enable));
+                    tabletNum, cardinality, global, enable, requirePartitionFilter));
     }
 
     @Override
@@ -70,10 +70,14 @@ public class AlterSqlBlockRuleCommand extends SqlBlockRuleCommand {
         String partitionNumString = properties.get(SCANNED_PARTITION_NUM);
         String tabletNumString = properties.get(SCANNED_TABLET_NUM);
         String cardinalityString = properties.get(SCANNED_CARDINALITY);
+        String requirePartitionFilterString = properties.get(REQUIRE_PARTITION_FILTER_PROPERTY);
+        this.requirePartitionFilter = StringUtils.isNotEmpty(requirePartitionFilterString)
+                ? Boolean.parseBoolean(requirePartitionFilterString) : null;
 
         SqlBlockUtil.checkSqlAndSqlHashSetBoth(sql, sqlHash);
         SqlBlockUtil.checkSqlAndLimitationsSetBoth(sql, sqlHash,
-                partitionNumString, tabletNumString, cardinalityString);
+                partitionNumString, tabletNumString, cardinalityString,
+                Boolean.TRUE.equals(requirePartitionFilter));
         this.partitionNum = Util.getLongPropertyOrDefault(partitionNumString, SqlBlockRuleCommand.LONG_NOT_SET, null,
                 SCANNED_PARTITION_NUM + " should be a long");
         this.tabletNum = Util.getLongPropertyOrDefault(tabletNumString, SqlBlockRuleCommand.LONG_NOT_SET, null,

@@ -198,6 +198,8 @@ public class OlapScanNode extends ScanNode {
     private final PartitionPruneV2ForShortCircuitPlan cachedPartitionPruner =
                         new PartitionPruneV2ForShortCircuitPlan();
 
+    private boolean hasPartitionPruningPredicate = false;
+
     private boolean isTopnLazyMaterialize = false;
     private List<Column> topnLazyMaterializeOutputColumns = new ArrayList<>();
 
@@ -283,6 +285,14 @@ public class OlapScanNode extends ScanNode {
 
     public Collection<Long> getSelectedPartitionIds() {
         return selectedPartitionIds;
+    }
+
+    public boolean hasPartitionPruningPredicate() {
+        return hasPartitionPruningPredicate;
+    }
+
+    public void setHasPartitionPruningPredicate(boolean hasPartitionPruningPredicate) {
+        this.hasPartitionPruningPredicate = hasPartitionPruningPredicate;
     }
 
     // only used for UT and Nereids
@@ -688,8 +698,11 @@ public class OlapScanNode extends ScanNode {
         // Step1: compute partition ids
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
         if (partitionInfo.getType() == PartitionType.RANGE || partitionInfo.getType() == PartitionType.LIST) {
+            hasPartitionPruningPredicate = ScanNode.hasUsablePartitionPruningPredicate(
+                    partitionInfo.getPartitionColumns(), desc, conjuncts, partitionInfo);
             selectedPartitionIds = partitionPrune(partitionInfo);
         } else {
+            hasPartitionPruningPredicate = false;
             selectedPartitionIds = olapTable.getPartitionIds();
         }
         selectedPartitionIds = olapTable.selectNonEmptyPartitionIds(selectedPartitionIds);

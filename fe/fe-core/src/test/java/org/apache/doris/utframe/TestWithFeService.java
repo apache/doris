@@ -764,7 +764,8 @@ public abstract class TestWithFeService {
         Env.getCurrentEnv().getSqlBlockRuleMgr()
                 .createSqlBlockRule(new SqlBlockRule(command.getRuleName(), command.getSql(), command.getSqlHash(),
                 command.getPartitionNum(), command.getTabletNum(), command.getCardinality(),
-                command.getGlobal(), command.getEnable()), command.isIfNotExists());
+                command.getGlobal(), command.getEnable(), command.getRequirePartitionFilter()),
+                command.isIfNotExists());
     }
 
     protected void alterSqlBlockRule(String sql) throws Exception {
@@ -773,7 +774,7 @@ public abstract class TestWithFeService {
         Env.getCurrentEnv().getSqlBlockRuleMgr()
                 .alterSqlBlockRule(new SqlBlockRule(command.getRuleName(), command.getSql(), command.getSqlHash(),
                 command.getPartitionNum(), command.getTabletNum(), command.getCardinality(),
-                command.getGlobal(), command.getEnable()));
+                command.getGlobal(), command.getEnable(), command.getRequirePartitionFilter()));
     }
 
     protected void dropSqlBlockRule(String sql) throws Exception {

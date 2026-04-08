@@ -42,6 +42,7 @@ std::vector<SchemaScanner::ColumnDesc>
                 {"CARDINALITY", TYPE_BIGINT, sizeof(int64_t), true},
                 {"GLOBAL", TYPE_BOOLEAN, sizeof(bool), true},
                 {"ENABLE", TYPE_BOOLEAN, sizeof(bool), true},
+                {"REQUIRE_PARTITION_FILTER", TYPE_BOOLEAN, sizeof(bool), true},
                 {"BLOCKS", TYPE_BIGINT, sizeof(int64_t), true},
                 {"AVERAGE_DURATION", TYPE_BIGINT, sizeof(int64_t), true},
                 {"LONGEST_DURATION", TYPE_BIGINT, sizeof(int64_t), true},

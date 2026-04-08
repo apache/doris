@@ -64,6 +64,7 @@ import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.FileScanNode;
+import org.apache.doris.datasource.hive.source.HiveScanNode;
 import org.apache.doris.datasource.tvf.source.TVFScanNode;
 import org.apache.doris.filesystem.FileSystemUtil;
 import org.apache.doris.filesystem.Location;
@@ -666,10 +667,23 @@ public class StmtExecutor {
         List<ScanNode> scanNodeList = planner.getScanNodes();
         for (ScanNode scanNode : scanNodeList) {
             if (scanNode instanceof OlapScanNode || scanNode instanceof FileScanNode) {
+                boolean isPartitionedTable = false;
+                boolean hasPartitionPredicate = false;
+                if (scanNode instanceof OlapScanNode) {
+                    OlapScanNode olapScanNode = (OlapScanNode) scanNode;
+                    isPartitionedTable = olapScanNode.getOlapTable().isPartitionedTable();
+                    hasPartitionPredicate = olapScanNode.hasPartitionPruningPredicate();
+                } else if (scanNode instanceof HiveScanNode) {
+                    HiveScanNode hiveScanNode = (HiveScanNode) scanNode;
+                    isPartitionedTable = !hiveScanNode.getPathPartitionKeys().isEmpty();
+                    hasPartitionPredicate = hiveScanNode.hasPartitionPredicate();
+                }
                 Env.getCurrentEnv().getSqlBlockRuleMgr().checkLimitations(
                         scanNode.getSelectedPartitionNum(),
                         scanNode.getSelectedSplitNum(),
                         scanNode.getCardinality(),
+                        isPartitionedTable,
+                        hasPartitionPredicate,
                         context.getQualifiedUser());
 
             }

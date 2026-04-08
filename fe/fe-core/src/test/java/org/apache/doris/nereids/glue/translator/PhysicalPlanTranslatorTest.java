@@ -70,6 +70,15 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
         createDatabase("test_db");
         createTable("create table test_db.t(a int, b int) distributed by hash(a) buckets 3 "
                 + "properties('replication_num' = '1');");
+        createTable("create table test_db.partitioned_t(k1 int, p1 int)\n"
+                + "duplicate key(k1, p1)\n"
+                + "partition by range(`p1`)\n"
+                + "(\n"
+                + "partition p1 values less than(\"10\"),\n"
+                + "partition p2 values less than(\"20\")\n"
+                + ")\n"
+                + "distributed by hash(k1) buckets 3\n"
+                + "properties('replication_num' = '1');");
         connectContext.getSessionVariable().setDisableNereidsRules("prune_empty_partition");
     }
 
@@ -141,6 +150,17 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
     }
 
     @Test
+    public void testNereidsOlapScanCarryPartitionPredicateSignal() throws Exception {
+        OlapScanNode filteredScanNode = getFirstOlapScanNode(
+                "select * from test_db.partitioned_t where p1 = 1");
+        Assertions.assertTrue(filteredScanNode.hasPartitionPruningPredicate());
+
+        OlapScanNode nonPartitionFilteredScanNode = getFirstOlapScanNode(
+                "select * from test_db.partitioned_t where k1 = 1");
+        Assertions.assertFalse(nonPartitionFilteredScanNode.hasPartitionPruningPredicate());
+    }
+
+    @Test
     public void testRepeatInputOutputOrder() throws Exception {
         String sql = "select grouping(a), grouping(b), grouping_id(a, b), sum(a + 2 * b), sum(a + 3 * b) + grouping_id(b, a, b), b, a, b, a"
                 + " from test_db.t"
@@ -165,5 +185,19 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
                     }
                 }
         );
+    }
+
+    private OlapScanNode getFirstOlapScanNode(String sql) throws Exception {
+        Planner planner = getSQLPlanner(sql);
+        Assertions.assertNotNull(planner);
+        List<OlapScanNode> scanNodes = new ArrayList<>();
+        for (PlanFragment fragment : planner.getFragments()) {
+            PlanNode root = fragment.getPlanRoot();
+            if (root != null) {
+                root.collect(OlapScanNode.class::isInstance, scanNodes);
+            }
+        }
+        Assertions.assertFalse(scanNodes.isEmpty());
+        return scanNodes.get(0);
     }
 }

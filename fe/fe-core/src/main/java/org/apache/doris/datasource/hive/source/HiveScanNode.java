@@ -125,6 +125,10 @@ public class HiveScanNode extends FileQueryScanNode {
         this.directoryLister = directoryLister;
     }
 
+    public boolean hasPartitionPredicate() {
+        return selectedPartitions != null && selectedPartitions.hasPartitionPredicate;
+    }
+
     @Override
     protected void doInitialize() throws UserException {
         super.doInitialize();

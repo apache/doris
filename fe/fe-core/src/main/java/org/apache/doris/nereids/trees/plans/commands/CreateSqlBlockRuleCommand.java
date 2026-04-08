@@ -62,7 +62,7 @@ public class CreateSqlBlockRuleCommand extends SqlBlockRuleCommand {
         }
         Env.getCurrentEnv().getSqlBlockRuleMgr().createSqlBlockRule(new SqlBlockRule(ruleName, sql,
                     sqlHash, partitionNum,
-                    tabletNum, cardinality, global, enable), ifNotExists);
+                    tabletNum, cardinality, global, enable, requirePartitionFilter), ifNotExists);
     }
 
     @Override
@@ -72,9 +72,13 @@ public class CreateSqlBlockRuleCommand extends SqlBlockRuleCommand {
         String partitionNumString = properties.get(SCANNED_PARTITION_NUM);
         String tabletNumString = properties.get(SCANNED_TABLET_NUM);
         String cardinalityString = properties.get(SCANNED_CARDINALITY);
+        this.requirePartitionFilter = Util.getBooleanPropertyOrDefault(
+                properties.get(REQUIRE_PARTITION_FILTER_PROPERTY), false,
+                REQUIRE_PARTITION_FILTER_PROPERTY + " should be a boolean");
 
         SqlBlockUtil.checkSqlAndSqlHashSetBoth(sql, sqlHash);
-        SqlBlockUtil.checkPropertiesValidate(sql, sqlHash, partitionNumString, tabletNumString, cardinalityString);
+        SqlBlockUtil.checkPropertiesValidate(sql, sqlHash, partitionNumString, tabletNumString,
+                cardinalityString, requirePartitionFilter);
 
         this.partitionNum = Util.getLongPropertyOrDefault(partitionNumString, 0L, null,
                 SCANNED_PARTITION_NUM + " should be a long");

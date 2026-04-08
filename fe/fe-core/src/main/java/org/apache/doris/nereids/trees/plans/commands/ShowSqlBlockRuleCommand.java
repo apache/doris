@@ -49,6 +49,7 @@ public class ShowSqlBlockRuleCommand extends ShowCommand {
                     .addColumn(new Column("Cardinality", ScalarType.createVarchar(20)))
                     .addColumn(new Column("Global", ScalarType.createVarchar(4)))
                     .addColumn(new Column("Enable", ScalarType.createVarchar(4)))
+                    .addColumn(new Column("RequirePartitionFilter", ScalarType.createVarchar(5)))
                     .build();
     private final String ruleName; // optional
 

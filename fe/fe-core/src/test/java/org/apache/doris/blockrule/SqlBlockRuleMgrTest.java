@@ -17,15 +17,24 @@
 
 package org.apache.doris.blockrule;
 
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import org.junit.Assert;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class SqlBlockRuleMgrTest {
+    @BeforeClass
+    public static void setUp() {
+        MetricRepo.init();
+    }
+
     @Test
     public void testToInfoString() {
         SqlBlockRuleMgr mgr = new SqlBlockRuleMgr();
@@ -39,4 +48,50 @@ public class SqlBlockRuleMgrTest {
         Assert.assertTrue(nameToSqlBlockRuleMap.containsKey("r1"));
     }
 
+    @Test
+    public void testRuleSerializeRequirePartitionFilter() {
+        SqlBlockRule rule = new SqlBlockRule("r1", "NULL", "NULL", 0L, 0L, 0L,
+                true, true, true);
+        String json = GsonUtils.GSON.toJson(rule);
+        SqlBlockRule roundTrip = GsonUtils.GSON.fromJson(json, SqlBlockRule.class);
+        Assert.assertTrue(roundTrip.getRequirePartitionFilter());
+    }
+
+    @Test
+    public void testShowInfoContainRequirePartitionFilter() {
+        SqlBlockRule rule = new SqlBlockRule("r1", "NULL", "NULL", 0L, 0L, 0L,
+                true, true, true);
+        List<String> showInfo = rule.getShowInfo();
+        Assert.assertEquals(9, showInfo.size());
+        Assert.assertEquals("true", showInfo.get(8));
+    }
+
+    @Test
+    public void testRequirePartitionFilterBlocksPartitionedScanWithoutFilter() {
+        SqlBlockRuleMgr mgr = new SqlBlockRuleMgr();
+        SqlBlockRule rule = new SqlBlockRule("r1", "NULL", "NULL", 0L, 0L, 0L,
+                true, true, true);
+
+        AnalysisException exception = Assert.assertThrows(AnalysisException.class,
+                () -> mgr.checkLimitations(rule, 2L, 3L, 4L, true, false));
+        Assert.assertTrue(exception.getMessage().contains("sql hits sql block rule: r1, missing partition filter"));
+    }
+
+    @Test
+    public void testRequirePartitionFilterAllowsPartitionedScanWithFilter() throws AnalysisException {
+        SqlBlockRuleMgr mgr = new SqlBlockRuleMgr();
+        SqlBlockRule rule = new SqlBlockRule("r1", "NULL", "NULL", 0L, 0L, 0L,
+                true, true, true);
+
+        mgr.checkLimitations(rule, 2L, 3L, 4L, true, true);
+    }
+
+    @Test
+    public void testRequirePartitionFilterAllowsUnpartitionedScan() throws AnalysisException {
+        SqlBlockRuleMgr mgr = new SqlBlockRuleMgr();
+        SqlBlockRule rule = new SqlBlockRule("r1", "NULL", "NULL", 0L, 0L, 0L,
+                true, true, true);
+
+        mgr.checkLimitations(rule, 0L, 3L, 4L, false, false);
+    }
 }
