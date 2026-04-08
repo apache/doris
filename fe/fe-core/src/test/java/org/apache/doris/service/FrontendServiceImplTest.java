@@ -22,10 +22,12 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.DatasourcePrintableMap;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
@@ -35,20 +37,26 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.tablefunction.BackendsTableValuedFunction;
 import org.apache.doris.thrift.TBackendsMetadataParams;
+import org.apache.doris.thrift.TCommitTxnRequest;
 import org.apache.doris.thrift.TCreatePartitionRequest;
 import org.apache.doris.thrift.TCreatePartitionResult;
 import org.apache.doris.thrift.TFetchSchemaTableDataRequest;
 import org.apache.doris.thrift.TFetchSchemaTableDataResult;
 import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
+import org.apache.doris.thrift.TLoadTxnCommitRequest;
+import org.apache.doris.thrift.TLoadTxnRollbackRequest;
 import org.apache.doris.thrift.TMetadataTableRequestParams;
 import org.apache.doris.thrift.TMetadataType;
 import org.apache.doris.thrift.TNullableStringLiteral;
+import org.apache.doris.thrift.TRollbackTxnRequest;
 import org.apache.doris.thrift.TSchemaTableName;
 import org.apache.doris.thrift.TSchemaTableRequestParams;
 import org.apache.doris.thrift.TShowUserRequest;
 import org.apache.doris.thrift.TShowUserResult;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.transaction.GlobalTransactionMgrIface;
+import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import org.junit.AfterClass;
@@ -57,10 +65,14 @@ import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -424,6 +436,113 @@ public class FrontendServiceImplTest {
             Env.getCurrentEnv().getAuthenticationIntegrationMgr().dropAuthenticationIntegration(integrationName, true);
             executeCommand("DROP USER IF EXISTS " + normalUser);
             executeCommand("DROP ROLE IF EXISTS " + readerRole);
+        }
+    }
+
+    @Test
+    public void testLoadTxnCommitRejectsInvalidToken() {
+        FrontendServiceImpl impl = Mockito.spy(new FrontendServiceImpl(exeEnv));
+        TLoadTxnCommitRequest request = new TLoadTxnCommitRequest();
+        request.setToken("bad-token");
+        Mockito.doReturn(false).when(impl).checkToken("bad-token");
+
+        assertInvalidToken(impl, "loadTxnCommitImpl", request);
+    }
+
+    @Test
+    public void testLoadTxnRollbackRejectsInvalidToken() {
+        FrontendServiceImpl impl = Mockito.spy(new FrontendServiceImpl(exeEnv));
+        TLoadTxnRollbackRequest request = new TLoadTxnRollbackRequest();
+        request.setToken("bad-token");
+        Mockito.doReturn(false).when(impl).checkToken("bad-token");
+
+        assertInvalidToken(impl, "loadTxnRollbackImpl", request);
+    }
+
+    @Test
+    public void testCommitTxnRejectsInvalidToken() {
+        FrontendServiceImpl impl = Mockito.spy(new FrontendServiceImpl(exeEnv));
+        TCommitTxnRequest request = new TCommitTxnRequest();
+        request.setUser("root");
+        request.setPasswd("");
+        request.setDb("test");
+        request.setTxnId(100L);
+        request.setCommitInfos(Collections.emptyList());
+        request.setToken("bad-token");
+        Mockito.doReturn(false).when(impl).checkToken("bad-token");
+
+        mockTransactionForTokenValidation(100L);
+        try {
+            assertInvalidToken(impl, "commitTxnImpl", request);
+        } finally {
+            closeTransactionValidationMock();
+        }
+    }
+
+    @Test
+    public void testRollbackTxnRejectsInvalidToken() {
+        FrontendServiceImpl impl = Mockito.spy(new FrontendServiceImpl(exeEnv));
+        TRollbackTxnRequest request = new TRollbackTxnRequest();
+        request.setUser("root");
+        request.setPasswd("");
+        request.setDb("test");
+        request.setTxnId(100L);
+        request.setToken("bad-token");
+        Mockito.doReturn(false).when(impl).checkToken("bad-token");
+
+        mockTransactionForTokenValidation(100L);
+        try {
+            assertInvalidToken(impl, "rollbackTxnImpl", request);
+        } finally {
+            closeTransactionValidationMock();
+        }
+    }
+
+    private MockedStatic<Env> transactionValidationEnvMock;
+
+    private void mockTransactionForTokenValidation(long txnId) {
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Database db = Mockito.mock(Database.class);
+        TransactionState transactionState = Mockito.mock(TransactionState.class);
+        GlobalTransactionMgrIface globalTransactionMgr = Mockito.mock(GlobalTransactionMgrIface.class);
+        List<Long> tableIds = Collections.singletonList(10L);
+
+        Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getDbNullable("test")).thenReturn(db);
+        Mockito.when(db.getId()).thenReturn(1L);
+        Mockito.when(globalTransactionMgr.getTransactionState(1L, txnId)).thenReturn(transactionState);
+        Mockito.when(transactionState.getTableIdList()).thenReturn(tableIds);
+        try {
+            Mockito.doReturn(Collections.emptyList()).when(db).getTablesOnIdOrderOrThrowException(tableIds);
+        } catch (Exception e) {
+            throw new AssertionError(e);
+        }
+
+        transactionValidationEnvMock = Mockito.mockStatic(Env.class);
+        transactionValidationEnvMock.when(Env::getCurrentEnv).thenReturn(env);
+        transactionValidationEnvMock.when(Env::getCurrentGlobalTransactionMgr).thenReturn(globalTransactionMgr);
+    }
+
+    private void closeTransactionValidationMock() {
+        if (transactionValidationEnvMock != null) {
+            transactionValidationEnvMock.close();
+            transactionValidationEnvMock = null;
+        }
+    }
+
+    private void assertInvalidToken(FrontendServiceImpl impl, String methodName, Object request) {
+        try {
+            Method method = FrontendServiceImpl.class.getDeclaredMethod(methodName, request.getClass());
+            method.setAccessible(true);
+            method.invoke(impl, request);
+            Assert.fail("expected invalid token");
+        } catch (InvocationTargetException e) {
+            Assert.assertTrue(e.getCause() instanceof AuthenticationException);
+            Assert.assertTrue(e.getCause().getMessage().contains("Invalid token"));
+            Assert.assertFalse(e.getCause().getMessage().contains("bad-token"));
+        } catch (ReflectiveOperationException e) {
+            throw new AssertionError(e);
         }
     }
 }

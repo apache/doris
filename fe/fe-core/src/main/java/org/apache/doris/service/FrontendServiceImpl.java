@@ -1739,9 +1739,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isSetAuthCode()) {
             // TODO: deprecated, removed in 3.1, use token instead.
         } else if (request.isSetToken()) {
-            if (!checkToken(request.getToken())) {
-                throw new AuthenticationException("Invalid token: " + request.getToken());
-            }
+            checkTokenOrThrow(request.getToken());
         } else {
             if (CollectionUtils.isNotEmpty(request.getTbls())) {
                 checkPasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
@@ -1878,9 +1876,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isSetAuthCode()) {
             // TODO: deprecated, removed in 3.1, use token instead.
         } else if (request.isSetToken()) {
-            if (!checkToken(request.getToken())) {
-                throw new AuthenticationException("Invalid token: " + request.getToken());
-            }
+            checkTokenOrThrow(request.getToken());
         } else {
             List<String> tables = tableList.stream().map(Table::getName).collect(Collectors.toList());
             checkPasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(), tables,
@@ -1965,7 +1961,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isSetAuthCode()) {
             // TODO: deprecated, removed in 3.1, use token instead.
         } else if (request.isSetToken()) {
-            checkToken(request.getToken());
+            checkTokenOrThrow(request.getToken());
         } else {
             // multi table load
             if (CollectionUtils.isNotEmpty(request.getTbls())) {
@@ -2084,7 +2080,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isSetAuthCode()) {
             // TODO: deprecated, removed in 3.1, use token instead.
         } else if (request.isSetToken()) {
-            checkToken(request.getToken());
+            checkTokenOrThrow(request.getToken());
         } else {
             List<String> tables = tableList.stream().map(Table::getName).collect(Collectors.toList());
             checkPasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(), tables,
@@ -2095,6 +2091,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         Env.getCurrentGlobalTransactionMgr().abortTransaction(db.getId(), request.getTxnId(),
                 request.isSetReason() ? request.getReason() : "system cancel",
                 TxnCommitAttachment.fromThrift(request.getTxnCommitAttachment()), tableList);
+    }
+
+    private void checkTokenOrThrow(String token) throws AuthenticationException {
+        if (!checkToken(token)) {
+            throw new AuthenticationException("Invalid token");
+        }
     }
 
     @Override
