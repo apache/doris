@@ -395,6 +395,7 @@ struct TMasterOpRequest {
     30: optional TGroupCommitInfo groupCommitInfo
     31: optional binary prepareExecuteBuffer
     32: optional bool moreResultExists // Server has more result to send
+    33: optional map<string, string> connect_attributes
 
     // selectdb cloud
     1000: optional string cloud_cluster

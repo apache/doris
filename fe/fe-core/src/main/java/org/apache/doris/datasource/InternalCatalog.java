@@ -109,7 +109,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.event.DropPartitionEvent;
 import org.apache.doris.foundation.type.ResultOr;
-import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -193,7 +193,9 @@ import java.util.stream.Collectors;
  * There is only one internal catalog in a cluster. And its id is always 0.
  */
 public class InternalCatalog implements CatalogIf<Database> {
-    public static final String INTERNAL_CATALOG_NAME = "internal";
+    /** @deprecated Use {@link org.apache.doris.catalog.NameSpaceContext#INTERNAL_CATALOG_NAME} instead. */
+    @Deprecated
+    public static final String INTERNAL_CATALOG_NAME = org.apache.doris.catalog.NameSpaceContext.INTERNAL_CATALOG_NAME;
     public static final long INTERNAL_CATALOG_ID = 0L;
 
     private static final Logger LOG = LogManager.getLogger(InternalCatalog.class);
@@ -1038,7 +1040,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         Env.getCurrentEnv().getDictionaryManager().dropTableDictionaries(db.getName(), table.getName());
         Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentInternalCatalog().getId(), db.getId(), table.getId());
         Env.getCurrentEnv().getConstraintManager().checkAndDropTableConstraints(
-                new TableNameInfo(table), !isForceDrop && !isReplay);
+                TableNameInfoUtils.fromDb(db, table.getName()),
+                !isForceDrop && !isReplay);
         db.unregisterTable(table.getId());
         StopWatch watch = StopWatch.createStarted();
         Env.getCurrentRecycleBin().recycleTable(db.getId(), table, isReplay, isForceDrop, recycleTime);
@@ -1550,6 +1553,10 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION,
                         olapTable.enableSingleReplicaCompaction().toString());
+            }
+            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_TSO)) {
+                properties.put(PropertyAnalyzer.PROPERTIES_ENABLE_TSO,
+                        olapTable.enableTso().toString());
             }
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN,
@@ -2660,6 +2667,14 @@ public class InternalCatalog implements CatalogIf<Database> {
                 + " property is not supported for merge-on-write table");
         }
         olapTable.setEnableSingleReplicaCompaction(enableSingleReplicaCompaction);
+
+        boolean enableTso = false;
+        try {
+            enableTso = PropertyAnalyzer.analyzeEnableTso(properties);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+        olapTable.setEnableTso(enableTso);
 
         if (Config.isCloudMode() && ((CloudEnv) env).getEnableStorageVault()) {
             // <storageVaultName, storageVaultId>

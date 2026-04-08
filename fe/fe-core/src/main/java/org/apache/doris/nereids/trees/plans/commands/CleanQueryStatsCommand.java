@@ -109,7 +109,7 @@ public class CleanQueryStatsCommand extends Command implements ForwardWithSync {
                 }
                 break;
             case TABLE:
-                tableNameInfo.analyze(ctx);
+                tableNameInfo.analyze(ctx.getNameSpaceContext());
                 dbName = tableNameInfo.getDb();
                 if (StringUtils.isEmpty(dbName)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);

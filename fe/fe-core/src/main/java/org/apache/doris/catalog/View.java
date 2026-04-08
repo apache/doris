@@ -24,6 +24,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
@@ -169,6 +170,9 @@ public class View extends Table implements GsonPostProcessable, ViewIf {
     @Override
     public void gsonPostProcess() throws IOException {
         originalViewDef = "";
+        if (sessionVariables == null) {
+            sessionVariables = Maps.newHashMap();
+        }
     }
 
     public Map<String, String> getSessionVariables() {

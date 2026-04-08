@@ -12,3 +12,17 @@ condition = "AND"
 regexTarget = "line"
 paths = ['''^fe/fe-core/src/test/java/org/apache/doris/mysql/authenticate/AuthenticatorManagerTest\.java$''']
 regexes = ['''OIDC_ID_TOKEN\s*=\s*"eyJhbGciOiJub25lIn0\.eyJzdWIiOiJhbGljZSJ9\.signature"''']
+
+[[rules.allowlists]]
+description = "Ignore fake ETag hash fixture in StageUtilTest"
+condition = "AND"
+regexTarget = "line"
+paths = ['''^fe/fe-core/src/test/java/org/apache/doris/cloud/stage/StageUtilTest\.java$''']
+regexes = ['''RemoteObject\(.*"[A-F0-9]{32}-\d+"''']
+
+[[rules.allowlists]]
+description = "Ignore fake test credentials in S3ObjStorageTest"
+condition = "AND"
+regexTarget = "line"
+paths = ['''^fe/fe-filesystem/fe-filesystem-s3/src/test/java/org/apache/doris/filesystem/s3/S3ObjStorageTest\.java$''']
+regexes = ['''(access_key|secret_key).*"(ak-|sk-|canonical|sess-tok)''']

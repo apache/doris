@@ -45,7 +45,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.property.storage.BrokerProperties;
-import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TSortType;
@@ -90,7 +89,7 @@ public class CloudRestoreJobTest {
 
     @Injectable
     private Repository repo = new Repository(repoId, "repo", false, "bos://my_repo",
-            FileSystemFactory.get(BrokerProperties.of("broker", Maps.newHashMap())));
+            BrokerProperties.of("broker", Maps.newHashMap()));
 
     @Before
     public void setUp() throws Exception {

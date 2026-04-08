@@ -17,27 +17,33 @@
 
 package org.apache.doris.backup;
 
-import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.Status.ErrCode;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DatasourcePrintableMap;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.property.storage.BrokerProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.filesystem.DorisInputFile;
+import org.apache.doris.filesystem.DorisOutputFile;
+import org.apache.doris.filesystem.FileEntry;
+import org.apache.doris.filesystem.FileIterator;
+import org.apache.doris.filesystem.GlobListing;
+import org.apache.doris.filesystem.Location;
+import org.apache.doris.foundation.fs.FsStorageType;
+import org.apache.doris.fs.FileSystemDescriptor;
 import org.apache.doris.fs.FileSystemFactory;
-import org.apache.doris.fs.PersistentFileSystem;
-import org.apache.doris.fs.remote.BrokerFileSystem;
-import org.apache.doris.fs.remote.RemoteFile;
-import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
 
 import com.google.common.base.Joiner;
@@ -46,7 +52,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.codec.digest.DigestUtils;
-import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.simple.JSONObject;
@@ -64,8 +69,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /*
@@ -129,27 +136,61 @@ public class Repository implements Writable, GsonPostProcessable {
     @SerializedName("lo")
     private String location;
 
-    @SerializedName("fs")
-    private PersistentFileSystem fileSystem;
+    /** New field: lightweight descriptor used for new metadata serialization. */
+    @SerializedName("fs_descriptor")
+    private FileSystemDescriptor fileSystemDescriptor;
 
-    public PersistentFileSystem getFileSystem() {
-        return fileSystem;
+    /**
+     * Legacy field: used by Doris versions prior to the filesystem SPI refactoring.
+     * Retained read-only for backward-compatible deserialization — never written in new code.
+     * In old JSON this was serialized as {@code "fs": {"n": "...", "prop": {...}}}.
+     */
+    @SerializedName("fs")
+    private LegacyFsRecord legacyFs;
+
+    /** Minimal POJO that captures the old {@code PersistentFileSystem} serialization shape. */
+    private static class LegacyFsRecord {
+        @SerializedName("n")
+        String name;
+        @SerializedName("prop")
+        Map<String, String> properties;
+    }
+
+    /** SPI filesystem for I/O operations; transient — rebuilt in {@link #gsonPostProcess()}.
+     *  Null for BROKER repositories, which resolve a live broker endpoint per I/O call. */
+    private transient org.apache.doris.filesystem.FileSystem spiFs;
+
+    public FileSystemDescriptor getFileSystemDescriptor() {
+        return fileSystemDescriptor;
     }
 
     private Repository() {
         // for persist
     }
 
-    public Repository(long id, String name, boolean isReadOnly, String location, RemoteFileSystem fileSystem) {
+    public Repository(long id, String name, boolean isReadOnly, String location,
+            StorageProperties storageProperties) {
         this.id = id;
         this.name = name;
         this.isReadOnly = isReadOnly;
         this.location = location;
-        this.fileSystem = fileSystem;
+        String fsName = (storageProperties instanceof BrokerProperties)
+                ? ((BrokerProperties) storageProperties).getBrokerName() : "";
+        this.fileSystemDescriptor = FileSystemDescriptor.fromStorageProperties(storageProperties, fsName);
         this.createTime = System.currentTimeMillis();
+        // Initialize SPI filesystem for I/O; broker resolves a live endpoint per I/O call
+        if (fileSystemDescriptor.getStorageType() != FsStorageType.BROKER
+                && !FeConstants.runningUnitTest) {
+            try {
+                this.spiFs = FileSystemFactory.getFileSystem(storageProperties);
+            } catch (IOException e) {
+                throw new IllegalStateException(
+                        "Failed to initialize SPI filesystem for repository '" + name + "': " + e.getMessage(), e);
+            }
+        }
     }
 
-    // join job info file name with timestamp
+
     // eg: __info_2018-01-01-08-00-00
     private static String jobInfoFileNameWithTimestamp(long createTime) {
         if (createTime == -1) {
@@ -201,19 +242,43 @@ public class Repository implements Writable, GsonPostProcessable {
 
     @Override
     public void gsonPostProcess() {
-        try {
-            StorageProperties storageProperties = StorageProperties.createPrimary(this.fileSystem.properties);
-            this.fileSystem = FileSystemFactory.get(storageProperties);
-        } catch (RuntimeException exception) {
-            LOG.warn("File system initialization failed due to incompatible configuration parameters. "
-                            + "The system has reverted to BrokerFileSystem as a fallback. "
-                            + "However, the current configuration is not supported by this version and"
-                            + " cannot be used as is. "
-                            + "Please review the configuration and update it to match the supported parameter"
-                            + " format. Root cause: {}",
-                    ExceptionUtils.getRootCause(exception), exception);
-            BrokerProperties brokerProperties = BrokerProperties.of(this.fileSystem.name, this.fileSystem.properties);
-            this.fileSystem = FileSystemFactory.get(brokerProperties);
+        // Determine source of properties: prefer new descriptor, fall back to legacy field.
+        Map<String, String> fsProps;
+        if (fileSystemDescriptor != null) {
+            fsProps = fileSystemDescriptor.getProperties();
+        } else if (legacyFs != null) {
+            // Backward compatibility: upgrade from pre-SPI serialization format.
+            // The old "fs" field used PersistentFileSystem with "n" (name) and "prop" (properties).
+            LOG.info("Repository '{}': migrating legacy 'fs' field to 'fs_descriptor'", name);
+            Map<String, String> props = legacyFs.properties != null ? legacyFs.properties : new HashMap<>();
+            String fsName = legacyFs.name != null ? legacyFs.name : "";
+            try {
+                StorageProperties storageProperties = StorageProperties.createPrimary(props);
+                fileSystemDescriptor = FileSystemDescriptor.fromStorageProperties(storageProperties, "");
+            } catch (RuntimeException e) {
+                LOG.warn("Repository '{}': primary storage migration failed ({}), trying broker fallback",
+                        name, e.getMessage());
+                try {
+                    BrokerProperties brokerProperties = BrokerProperties.of(fsName, props);
+                    fileSystemDescriptor = FileSystemDescriptor.fromStorageProperties(brokerProperties, fsName);
+                } catch (RuntimeException e2) {
+                    LOG.error("Repository '{}': failed to migrate legacy filesystem metadata: {}",
+                            name, e2.getMessage());
+                    return;
+                }
+            }
+            fsProps = fileSystemDescriptor.getProperties();
+        } else {
+            LOG.error("Repository '{}': metadata corrupt — both 'fs' and 'fs_descriptor' fields are missing", name);
+            return;
+        }
+        // Initialize SPI filesystem for I/O; broker resolves a live endpoint per I/O call
+        if (fileSystemDescriptor.getStorageType() != FsStorageType.BROKER) {
+            try {
+                this.spiFs = FileSystemFactory.getFileSystem(StorageProperties.createPrimary(fsProps));
+            } catch (IOException | RuntimeException e) {
+                LOG.warn("Failed to initialize SPI filesystem for repository {}: {}", name, e.getMessage());
+            }
         }
     }
 
@@ -230,15 +295,13 @@ public class Repository implements Writable, GsonPostProcessable {
     }
 
     public String getLocation() {
-        if (null == fileSystem) {
+        if (fileSystemDescriptor == null
+                || fileSystemDescriptor.getStorageType() == FsStorageType.BROKER) {
             return location;
         }
         try {
-            if (null == fileSystem.getStorageProperties()) {
-                return location;
-            } else {
-                return fileSystem.getStorageProperties().validateAndNormalizeUri(location);
-            }
+            return StorageProperties.createPrimary(fileSystemDescriptor.getProperties())
+                    .validateAndNormalizeUri(location);
         } catch (UserException e) {
             throw new RuntimeException(e);
         }
@@ -248,8 +311,72 @@ public class Repository implements Writable, GsonPostProcessable {
         return errMsg;
     }
 
-    public PersistentFileSystem getRemoteFileSystem() {
-        return fileSystem;
+    /**
+     * Acquires an SPI FileSystem for I/O operations.
+     * <ul>
+     *   <li>Non-broker: returns the shared {@link #spiFs} instance (do not close it).</li>
+     *   <li>Broker: resolves a live broker endpoint via BrokerMgr and creates a per-call
+     *       instance that <b>must</b> be closed by calling {@link #releaseSpiFs}.</li>
+     * </ul>
+     */
+    private org.apache.doris.filesystem.FileSystem acquireSpiFs() throws IOException {
+        if (spiFs != null) {
+            return spiFs;
+        }
+        if (fileSystemDescriptor.getStorageType() != FsStorageType.BROKER) {
+            // spiFs should have been initialized in the constructor or gsonPostProcess.
+            // If it is null here, initialization failed silently during deserialization.
+            throw new IOException("Repository '" + name + "' filesystem is not available — "
+                    + "SPI filesystem failed to initialize during metadata load. "
+                    + "Check the prior WARN log for the root cause.");
+        }
+        // Broker: resolve live endpoint and create a per-call filesystem
+        try {
+            BrokerProperties bp = BrokerProperties.of(fileSystemDescriptor.getName(),
+                    fileSystemDescriptor.getProperties());
+            FsBroker broker = Env.getCurrentEnv().getBrokerMgr().getBroker(fileSystemDescriptor.getName(),
+                    FrontendOptions.getLocalHostAddress());
+            String clientId = NetUtils.getHostPortInAccessibleFormat(
+                    FrontendOptions.getLocalHostAddress(), Config.edit_log_port);
+            return FileSystemFactory.getBrokerFileSystem(broker.host, broker.port, clientId,
+                    bp.getBrokerParams());
+        } catch (AnalysisException e) {
+            throw new IOException("Failed to acquire broker filesystem for repository " + name
+                    + ": " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Releases an SPI FileSystem acquired via {@link #acquireSpiFs}.
+     * Closes broker per-call instances; leaves the shared non-broker instance open.
+     */
+    private void releaseSpiFs(org.apache.doris.filesystem.FileSystem fs) {
+        if (fs != spiFs) {
+            try {
+                fs.close();
+            } catch (IOException e) {
+                LOG.warn("Failed to close broker filesystem for repository {}", name, e);
+            }
+        }
+    }
+
+    /** Uploads a local file to a remote path via the SPI filesystem. */
+    private static void spiUploadFile(org.apache.doris.filesystem.FileSystem fs,
+            String localFilePath, String remotePath) throws IOException {
+        DorisOutputFile outputFile = fs.newOutputFile(Location.of(remotePath));
+        try (java.io.InputStream in = Files.newInputStream(Paths.get(localFilePath));
+                java.io.OutputStream out = outputFile.create()) {
+            copyStream(in, out);
+        }
+    }
+
+    /** Copies all bytes from {@code in} to {@code out} (Java-8-compatible alternative to transferTo). */
+    private static void copyStream(java.io.InputStream in, java.io.OutputStream out) throws IOException {
+        byte[] buf = new byte[8192];
+        int n;
+        while ((n = in.read(buf)) >= 0) {
+            out.write(buf, 0, n);
+        }
     }
 
     public long getCreateTime() {
@@ -263,59 +390,58 @@ public class Repository implements Writable, GsonPostProcessable {
         }
 
         String repoInfoFilePath = assembleRepoInfoFilePath();
-        // check if the repo is already exist in remote
-        List<RemoteFile> remoteFiles = Lists.newArrayList();
-        Status st = fileSystem.globList(repoInfoFilePath, remoteFiles);
-        if (!st.ok()) {
-            return st;
+        org.apache.doris.filesystem.FileSystem fs;
+        try {
+            fs = acquireSpiFs();
+        } catch (IOException e) {
+            return new Status(ErrCode.COMMON_ERROR, "Failed to acquire filesystem: " + e.getMessage());
         }
-        if (remoteFiles.size() == 1) {
-            RemoteFile remoteFile = remoteFiles.get(0);
-            if (!remoteFile.isFile()) {
-                return new Status(ErrCode.COMMON_ERROR, "the existing repo info is not a file");
-            }
-
-            // exist, download and parse the repo info file
-            String localFilePath = BackupHandler.BACKUP_ROOT_DIR + "/tmp_info_" + allocLocalFileSuffix();
-            try {
-                st = fileSystem.downloadWithFileSize(repoInfoFilePath, localFilePath, remoteFile.getSize());
-                if (!st.ok()) {
-                    return st;
+        try {
+            if (fs.exists(Location.of(repoInfoFilePath))) {
+                // Repo info file exists: download and parse it
+                String localFilePath = BackupHandler.BACKUP_ROOT_DIR + "/tmp_info_" + allocLocalFileSuffix();
+                try {
+                    DorisInputFile inputFile = fs.newInputFile(Location.of(repoInfoFilePath));
+                    try (java.io.InputStream in = inputFile.newStream();
+                            java.io.OutputStream localOut = Files.newOutputStream(Paths.get(localFilePath))) {
+                        copyStream(in, localOut);
+                    }
+                    byte[] bytes = Files.readAllBytes(Paths.get(localFilePath));
+                    String json = new String(bytes, StandardCharsets.UTF_8);
+                    JSONObject root = (JSONObject) JSONValue.parse(json);
+                    if (name.compareTo((String) root.get("name")) != 0) {
+                        return new Status(ErrCode.COMMON_ERROR,
+                                "Invalid repository __repo_info, expected repo '" + name + "', but get name '"
+                                        + root.get("name") + "' from " + repoInfoFilePath);
+                    }
+                    name = (String) root.get("name");
+                    createTime = TimeUtils.timeStringToLong((String) root.get("create_time"));
+                    if (createTime == -1) {
+                        return new Status(ErrCode.COMMON_ERROR,
+                                "failed to parse create time of repository: " + root.get("create_time"));
+                    }
+                    return Status.OK;
+                } catch (IOException e) {
+                    return new Status(ErrCode.COMMON_ERROR, "failed to read repo info file: " + e.getMessage());
+                } finally {
+                    new File(localFilePath).delete();
                 }
-
-                byte[] bytes = Files.readAllBytes(Paths.get(localFilePath));
-                String json = new String(bytes, StandardCharsets.UTF_8);
-                JSONObject root = (JSONObject) JSONValue.parse(json);
-                if (name.compareTo((String) root.get("name")) != 0) {
-                    return new Status(ErrCode.COMMON_ERROR,
-                            "Invalid repository __repo_info, expected repo '" + name + "', but get name '"
-                                    + (String) root.get("name") + "' from " + repoInfoFilePath);
+            } else {
+                // Repo doesn't exist yet: create the info file
+                JSONObject root = new JSONObject();
+                root.put("name", name);
+                root.put("create_time", TimeUtils.longToTimeString(createTime));
+                String repoInfoContent = root.toString();
+                DorisOutputFile outputFile = fs.newOutputFile(Location.of(repoInfoFilePath));
+                try (java.io.OutputStream out = outputFile.create()) {
+                    out.write(repoInfoContent.getBytes(StandardCharsets.UTF_8));
                 }
-                name = (String) root.get("name");
-                createTime = TimeUtils.timeStringToLong((String) root.get("create_time"));
-                if (createTime == -1) {
-                    return new Status(ErrCode.COMMON_ERROR,
-                            "failed to parse create time of repository: " + root.get("create_time"));
-                }
-
                 return Status.OK;
-            } catch (IOException e) {
-                return new Status(ErrCode.COMMON_ERROR, "failed to read repo info file: " + e.getMessage());
-            } finally {
-                File localFile = new File(localFilePath);
-                localFile.delete();
             }
-
-        } else if (remoteFiles.size() > 1) {
-            return new Status(ErrCode.COMMON_ERROR,
-                    "Invalid repository dir. expected one repo info file. get more: " + remoteFiles);
-        } else {
-            // repo is already exist, get repo info
-            JSONObject root = new JSONObject();
-            root.put("name", name);
-            root.put("create_time", TimeUtils.longToTimeString(createTime));
-            String repoInfoContent = root.toString();
-            return fileSystem.directUpload(repoInfoContent, repoInfoFilePath);
+        } catch (IOException e) {
+            return new Status(ErrCode.COMMON_ERROR, "Failed to init repository: " + e.getMessage());
+        } finally {
+            releaseSpiFs(fs);
         }
     }
 
@@ -386,45 +512,89 @@ public class Repository implements Writable, GsonPostProcessable {
         String path = location + "/" + joinPrefix(PREFIX_REPO, name) + "/" + FILE_REPO_INFO;
         try {
             URI checkUri = new URI(path);
-            Status st = fileSystem.exists(checkUri.normalize().toString());
-            if (!st.ok()) {
-                errMsg = TimeUtils.longToTimeString(System.currentTimeMillis()) + ": " + st.getErrMsg();
-                return false;
+            org.apache.doris.filesystem.FileSystem fs = acquireSpiFs();
+            try {
+                boolean exists = fs.exists(Location.of(checkUri.normalize().toString()));
+                if (!exists) {
+                    errMsg = TimeUtils.longToTimeString(System.currentTimeMillis())
+                            + ": path does not exist: " + path;
+                    return false;
+                }
+                errMsg = null;
+                return true;
+            } finally {
+                releaseSpiFs(fs);
             }
-            // clear err msg
-            errMsg = null;
-
-            return true;
         } catch (URISyntaxException e) {
             errMsg = TimeUtils.longToTimeString(System.currentTimeMillis())
                     + ": Invalid path. " + path + ", error: " + e.getMessage();
+            return false;
+        } catch (IOException e) {
+            errMsg = TimeUtils.longToTimeString(System.currentTimeMillis()) + ": " + e.getMessage();
             return false;
         }
     }
 
     // Visit the repository, and list all existing snapshot names
     public Status listSnapshots(List<String> snapshotNames) {
-        // list with prefix:
-        // eg. __palo_repository_repo_name/__ss_*
-        String listPath = Joiner.on(PATH_DELIMITER).join(location, joinPrefix(PREFIX_REPO, name), PREFIX_SNAPSHOT_DIR)
-                + "*";
-        List<RemoteFile> result = Lists.newArrayList();
-        Status st = fileSystem.globList(listPath, result);
-        if (!st.ok()) {
-            return st;
+        // List repo root directory and extract unique snapshot names.
+        // Object stores (S3/OSS) return a flat list of all objects under the prefix, so we
+        // identify snapshot directories by finding "/<PREFIX_SNAPSHOT_DIR>" in each URI and
+        // extracting the name segment that follows. HDFS/Broker return real directory entries
+        // whose names start with PREFIX_SNAPSHOT_DIR, which is handled by the same path.
+        //
+        // We do NOT append "*" here because:
+        //   - Broker: list() passes the path to Hadoop globStatus and handles it correctly even
+        //     without a trailing wildcard when given a directory path.
+        //   - HDFS: listStatusIterator does not support glob; it needs an actual directory path.
+        //   - S3/OSS: list() is prefix-based; a trailing "*" would be treated as a literal key
+        //             character, matching nothing.
+        String repoRootPath = Joiner.on(PATH_DELIMITER).join(getLocation(), joinPrefix(PREFIX_REPO, name))
+                + PATH_DELIMITER;
+        org.apache.doris.filesystem.FileSystem fs;
+        try {
+            fs = acquireSpiFs();
+        } catch (IOException e) {
+            return new Status(ErrCode.COMMON_ERROR, "Failed to acquire filesystem: " + e.getMessage());
         }
-
-        for (RemoteFile remoteFile : result) {
-            if (remoteFile.isFile()) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("get snapshot path{} which is not a dir", remoteFile);
+        try {
+            Set<String> ssNameSet = new LinkedHashSet<>();
+            try (FileIterator it = fs.list(Location.of(repoRootPath))) {
+                while (it.hasNext()) {
+                    FileEntry entry = it.next();
+                    String uri = entry.location().uri();
+                    if (entry.isDirectory()) {
+                        // HDFS / Broker: real directory entry whose name is "__ss_<snapshotName>"
+                        String entryName = uri.substring(uri.lastIndexOf('/') + 1);
+                        if (entryName.startsWith(PREFIX_SNAPSHOT_DIR)) {
+                            ssNameSet.add(disjoinPrefix(PREFIX_SNAPSHOT_DIR, entryName));
+                        }
+                    } else {
+                        // S3 / OSS: flat object URI, e.g. ".../repo/__ss_snap1/__meta.xxx"
+                        // Extract the snapshot name from the FIRST "/__ss_" after the repo root.
+                        // Using lastIndexOf would incorrectly match nested "__ss_content" segments.
+                        int ssIdx = uri.indexOf(PATH_DELIMITER + PREFIX_SNAPSHOT_DIR,
+                                repoRootPath.length() - 1);
+                        if (ssIdx < 0) {
+                            continue;
+                        }
+                        String afterSs = uri.substring(ssIdx + 1 + PREFIX_SNAPSHOT_DIR.length());
+                        String snapshotName = afterSs.contains(PATH_DELIMITER)
+                                ? afterSs.substring(0, afterSs.indexOf(PATH_DELIMITER))
+                                : afterSs;
+                        if (!snapshotName.isEmpty()) {
+                            ssNameSet.add(snapshotName);
+                        }
+                    }
                 }
-                continue;
             }
-
-            snapshotNames.add(disjoinPrefix(PREFIX_SNAPSHOT_DIR, remoteFile.getName()));
+            snapshotNames.addAll(ssNameSet);
+            return Status.OK;
+        } catch (IOException e) {
+            return new Status(ErrCode.COMMON_ERROR, "Failed to list snapshots: " + e.getMessage());
+        } finally {
+            releaseSpiFs(fs);
         }
-        return Status.OK;
     }
 
     //
@@ -506,8 +676,7 @@ public class Repository implements Writable, GsonPostProcessable {
     // upload the local file to specified remote file with checksum
     // remoteFilePath should be FULL path
     public Status upload(String localFilePath, String remoteFilePath) {
-        // Preconditions.checkArgument(remoteFilePath.startsWith(location), remoteFilePath);
-        // get md5usm of local file
+        // get md5sum of local file
         File file = new File(localFilePath);
         String md5sum;
         try (FileInputStream fis = new FileInputStream(file)) {
@@ -520,111 +689,133 @@ public class Repository implements Writable, GsonPostProcessable {
         Preconditions.checkState(!Strings.isNullOrEmpty(md5sum));
         String finalRemotePath = assembleFileNameWithSuffix(remoteFilePath, md5sum);
 
-        Status st = Status.OK;
-        if (fileSystem instanceof BrokerFileSystem) {
-            // this may be a retry, so we should first delete remote file
-            String tmpRemotePath = assembleFileNameWithSuffix(remoteFilePath, SUFFIX_TMP_FILE);
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("get md5sum of file: {}. tmp remote path: {}. final remote path: {}",
-                        localFilePath, tmpRemotePath, finalRemotePath);
+        org.apache.doris.filesystem.FileSystem fs;
+        try {
+            fs = acquireSpiFs();
+        } catch (IOException e) {
+            return new Status(ErrCode.COMMON_ERROR, "Failed to acquire filesystem: " + e.getMessage());
+        }
+        try {
+            if (fileSystemDescriptor.getStorageType() == FsStorageType.BROKER) {
+                // Broker doesn't support atomic overwrite; use temp-file dance
+                String tmpRemotePath = assembleFileNameWithSuffix(remoteFilePath, SUFFIX_TMP_FILE);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("upload with temp file: local={}, tmp={}, final={}",
+                            localFilePath, tmpRemotePath, finalRemotePath);
+                }
+                fs.delete(Location.of(tmpRemotePath), false);
+                fs.delete(Location.of(finalRemotePath), false);
+                spiUploadFile(fs, localFilePath, tmpRemotePath);
+                fs.rename(Location.of(tmpRemotePath), Location.of(finalRemotePath));
+            } else {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("upload: local={}, final={}", localFilePath, finalRemotePath);
+                }
+                fs.delete(Location.of(finalRemotePath), false);
+                spiUploadFile(fs, localFilePath, finalRemotePath);
             }
-            st = fileSystem.delete(tmpRemotePath);
-            if (!st.ok()) {
-                return st;
-            }
-
-            st = fileSystem.delete(finalRemotePath);
-            if (!st.ok()) {
-                return st;
-            }
-
-            // upload tmp file
-            st = fileSystem.upload(localFilePath, tmpRemotePath);
-            if (!st.ok()) {
-                return st;
-            }
-
-            // rename tmp file with checksum named file
-            st = fileSystem.rename(tmpRemotePath, finalRemotePath);
-            if (!st.ok()) {
-                return st;
-            }
-        } else {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("get md5sum of file: {}. final remote path: {}", localFilePath, finalRemotePath);
-            }
-            st = fileSystem.delete(finalRemotePath);
-            if (!st.ok()) {
-                return st;
-            }
-
-            // upload final file
-            st = fileSystem.upload(localFilePath, finalRemotePath);
-            if (!st.ok()) {
-                return st;
-            }
+        } catch (IOException e) {
+            return new Status(ErrCode.COMMON_ERROR, "Failed to upload " + localFilePath + ": " + e.getMessage());
+        } finally {
+            releaseSpiFs(fs);
         }
 
         LOG.info("finished to upload local file {} to remote file: {}", localFilePath, finalRemotePath);
-        return st;
+        return Status.OK;
+    }
+
+    /**
+     * Lists files whose paths start with {@code pathPrefix} (a glob suffix "*" is appended
+     * internally).  Works correctly across all backends:
+     * <ul>
+     *   <li><b>S3 / OSS</b>: {@link org.apache.doris.filesystem.FileSystem#globListWithLimit}
+     *       strips the trailing "*" to obtain an S3 list prefix, then filters by the full
+     *       glob pattern — so "prefix*" matches any file starting with that prefix.</li>
+     *   <li><b>HDFS</b>: {@code globListWithLimit} delegates to Hadoop's
+     *       {@code FileSystem.globStatus}, which natively handles the "*" wildcard.</li>
+     *   <li><b>Broker</b>: {@code globListWithLimit} is not implemented; falls back to
+     *       {@link org.apache.doris.filesystem.FileSystem#listFiles}, which passes the path
+     *       (including "*") to the broker's {@code listPath} RPC — the broker handles glob
+     *       patterns via Hadoop's {@code globStatus}.</li>
+     * </ul>
+     */
+    private static List<FileEntry> listFilesWithGlob(org.apache.doris.filesystem.FileSystem fs,
+            String pathPrefix) throws IOException {
+        try {
+            GlobListing listing = fs.globListWithLimit(Location.of(pathPrefix + "*"), null, 0, 0);
+            if (listing != null) {
+                return listing.getFiles();
+            }
+        } catch (UnsupportedOperationException e) {
+            // Broker: list() passes the path (with "*") directly to the broker's listPath RPC,
+            // which calls Hadoop globStatus and handles the wildcard correctly.
+        }
+        return fs.listFiles(Location.of(pathPrefix + "*"));
     }
 
     // remoteFilePath must be a file(not dir) and does not contain checksum
     public Status download(String remoteFilePath, String localFilePath) {
-        // 0. list to get to full name(with checksum)
-        List<RemoteFile> remoteFiles = Lists.newArrayList();
-        Status status = fileSystem.globList(remoteFilePath + "*", remoteFiles);
-        if (!status.ok()) {
-            return status;
+        org.apache.doris.filesystem.FileSystem fs;
+        try {
+            fs = acquireSpiFs();
+        } catch (IOException e) {
+            return new Status(ErrCode.COMMON_ERROR, "Failed to acquire filesystem: " + e.getMessage());
         }
-        if (remoteFiles.size() != 1) {
-            return new Status(ErrCode.COMMON_ERROR,
-                    "Expected one file with path: " + remoteFilePath + ". get: " + remoteFiles.size());
-        }
-        if (!remoteFiles.get(0).isFile()) {
-            return new Status(ErrCode.COMMON_ERROR, "Expected file with path: " + remoteFilePath + ". but get dir");
-        }
+        String md5sum;
+        try {
+            // 0. list to get to full name (with checksum)
+            List<FileEntry> remoteFiles = listFilesWithGlob(fs, remoteFilePath);
+            if (remoteFiles.size() != 1) {
+                return new Status(ErrCode.COMMON_ERROR,
+                        "Expected one file with path: " + remoteFilePath + ". get: " + remoteFiles.size());
+            }
+            if (remoteFiles.get(0).isDirectory()) {
+                return new Status(ErrCode.COMMON_ERROR,
+                        "Expected file with path: " + remoteFilePath + ". but get dir");
+            }
 
-        String remoteFilePathWithChecksum = replaceFileNameWithChecksumFileName(remoteFilePath,
-                remoteFiles.get(0).getName());
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("get download filename with checksum: " + remoteFilePathWithChecksum);
-        }
+            String remoteFileFullUri = remoteFiles.get(0).location().uri();
+            String remoteFileName = remoteFileFullUri.substring(remoteFileFullUri.lastIndexOf('/') + 1);
+            String remoteFilePathWithChecksum = replaceFileNameWithChecksumFileName(remoteFilePath, remoteFileName);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("get download filename with checksum: {}", remoteFilePathWithChecksum);
+            }
 
-        // 1. get checksum from remote file name
-        Pair<String, String> pair = decodeFileNameWithChecksum(remoteFilePathWithChecksum);
-        if (pair == null) {
-            return new Status(ErrCode.COMMON_ERROR,
-                    "file name should contains checksum: " + remoteFilePathWithChecksum);
-        }
-        if (!remoteFilePath.endsWith(pair.first)) {
-            return new Status(ErrCode.COMMON_ERROR, "File does not exist: " + remoteFilePath);
-        }
-        String md5sum = pair.second;
+            // 1. get checksum from remote file name
+            Pair<String, String> pair = decodeFileNameWithChecksum(remoteFilePathWithChecksum);
+            if (pair == null) {
+                return new Status(ErrCode.COMMON_ERROR,
+                        "file name should contain checksum: " + remoteFilePathWithChecksum);
+            }
+            if (!remoteFilePath.endsWith(pair.first)) {
+                return new Status(ErrCode.COMMON_ERROR, "File does not exist: " + remoteFilePath);
+            }
+            md5sum = pair.second;
 
-        // 2. download
-        status = fileSystem.downloadWithFileSize(remoteFilePathWithChecksum, localFilePath,
-                remoteFiles.get(0).getSize());
-        if (!status.ok()) {
-            return status;
-        }
+            // 2. download
+            DorisInputFile inputFile = fs.newInputFile(Location.of(remoteFilePathWithChecksum));
+            try (java.io.InputStream in = inputFile.newStream();
+                    java.io.OutputStream out = Files.newOutputStream(Paths.get(localFilePath))) {
+                copyStream(in, out);
+            }
 
-        // 3. verify checksum
-        String localMd5sum = null;
-        try (FileInputStream fis = new FileInputStream(localFilePath)) {
-            localMd5sum = DigestUtils.md5Hex(fis);
+            // 3. verify checksum
+            String localMd5sum;
+            try (FileInputStream fis = new FileInputStream(localFilePath)) {
+                localMd5sum = DigestUtils.md5Hex(fis);
+            }
+            if (!localMd5sum.equals(md5sum)) {
+                return new Status(ErrCode.BAD_FILE,
+                        "md5sum does not equal. local: " + localMd5sum + ", remote: " + md5sum);
+            }
+            return Status.OK;
         } catch (FileNotFoundException e) {
             return new Status(ErrCode.NOT_FOUND, "file " + localFilePath + " does not exist");
         } catch (IOException e) {
-            return new Status(ErrCode.COMMON_ERROR, "failed to get md5sum of file: " + localFilePath);
+            return new Status(ErrCode.COMMON_ERROR, "Failed to download file: " + e.getMessage());
+        } finally {
+            releaseSpiFs(fs);
         }
-
-        if (!localMd5sum.equals(md5sum)) {
-            return new Status(ErrCode.BAD_FILE,
-                    "md5sum does not equal. local: " + localMd5sum + ", remote: " + md5sum);
-        }
-
-        return Status.OK;
     }
 
     public Status getBrokerAddress(Long beId, Env env, List<FsBroker> brokerAddrs) {
@@ -635,7 +826,7 @@ public class Repository implements Writable, GsonPostProcessable {
                     + "failed to send upload snapshot task");
         }
         // only Broker storage backend need to get broker addr, other type return a fake one;
-        if (fileSystem.getStorageType() != StorageBackend.StorageType.BROKER) {
+        if (fileSystemDescriptor.getStorageType() != FsStorageType.BROKER) {
             brokerAddrs.add(new FsBroker("127.0.0.1", 0));
             return Status.OK;
         }
@@ -643,15 +834,15 @@ public class Repository implements Writable, GsonPostProcessable {
         // get proper broker for this backend
         FsBroker brokerAddr = null;
         try {
-            brokerAddr = env.getBrokerMgr().getBroker(fileSystem.getName(), be.getHost());
+            brokerAddr = env.getBrokerMgr().getBroker(fileSystemDescriptor.getName(), be.getHost());
         } catch (AnalysisException e) {
             return new Status(ErrCode.COMMON_ERROR, "failed to get address of broker "
-                    + fileSystem.getName() + " when try to send upload snapshot task: "
+                    + fileSystemDescriptor.getName() + " when try to send upload snapshot task: "
                     + e.getMessage());
         }
         if (brokerAddr == null) {
             return new Status(ErrCode.COMMON_ERROR, "failed to get address of broker "
-                    + fileSystem.getName() + " when try to send upload snapshot task");
+                    + fileSystemDescriptor.getName() + " when try to send upload snapshot task");
         }
         brokerAddrs.add(brokerAddr);
         return Status.OK;
@@ -664,8 +855,9 @@ public class Repository implements Writable, GsonPostProcessable {
         info.add(TimeUtils.longToTimeString(createTime));
         info.add(String.valueOf(isReadOnly));
         info.add(location);
-        info.add(fileSystem.getStorageType() != StorageBackend.StorageType.BROKER ? "-" : fileSystem.getName());
-        info.add(fileSystem.getStorageType().name());
+        info.add(fileSystemDescriptor.getStorageType() != FsStorageType.BROKER
+                ? "-" : fileSystemDescriptor.getName());
+        info.add(fileSystemDescriptor.getStorageType().name());
         info.add(errMsg == null ? FeConstants.null_string : errMsg);
         return info;
     }
@@ -704,14 +896,14 @@ public class Repository implements Writable, GsonPostProcessable {
         stmtBuilder.append("REPOSITORY ");
         stmtBuilder.append(this.name);
         stmtBuilder.append(" \nWITH ");
-        StorageBackend.StorageType storageType = this.fileSystem.getStorageType();
-        if (storageType == StorageBackend.StorageType.S3) {
+        FsStorageType storageType = fileSystemDescriptor.getStorageType();
+        if (storageType == FsStorageType.S3) {
             stmtBuilder.append(" S3 ");
-        } else if (storageType == StorageBackend.StorageType.HDFS) {
+        } else if (storageType == FsStorageType.HDFS) {
             stmtBuilder.append(" HDFS ");
-        } else if (storageType == StorageBackend.StorageType.BROKER) {
+        } else if (storageType == FsStorageType.BROKER) {
             stmtBuilder.append(" BROKER ");
-            stmtBuilder.append(this.fileSystem.getName());
+            stmtBuilder.append(fileSystemDescriptor.getName());
         } else {
             // should never reach here
             throw new UnsupportedOperationException(storageType.toString() + " backend is not implemented");
@@ -722,7 +914,7 @@ public class Repository implements Writable, GsonPostProcessable {
 
         stmtBuilder.append("\nPROPERTIES\n(");
         Map<String, String> properties = new HashMap();
-        properties.putAll(this.getRemoteFileSystem().getProperties());
+        properties.putAll(fileSystemDescriptor.getProperties());
         stmtBuilder.append(new DatasourcePrintableMap<>(properties, " = ", true, true, true));
         stmtBuilder.append("\n)");
         return stmtBuilder.toString();
@@ -731,26 +923,29 @@ public class Repository implements Writable, GsonPostProcessable {
     private List<String> getSnapshotInfo(String snapshotName, String timestamp) {
         List<String> info = Lists.newArrayList();
         if (Strings.isNullOrEmpty(timestamp)) {
-            // get all timestamp
+            // get all timestamps
             // path eg: /location/__palo_repository_repo_name/__ss_my_snap/__info_*
             String infoFilePath = assembleJobInfoFilePath(snapshotName, -1);
             if (LOG.isDebugEnabled()) {
                 LOG.debug("assemble infoFilePath: {}, snapshot: {}", infoFilePath, snapshotName);
             }
-            List<RemoteFile> results = Lists.newArrayList();
-            Status st = fileSystem.globList(infoFilePath + "*", results);
-            if (!st.ok()) {
-                info.add(snapshotName);
-                info.add(FeConstants.null_string);
-                info.add("ERROR: Failed to get info: " + st.getErrMsg());
-            } else {
+            try {
+                org.apache.doris.filesystem.FileSystem fs = acquireSpiFs();
+                List<FileEntry> results;
+                try {
+                    results = listFilesWithGlob(fs, infoFilePath);
+                } finally {
+                    releaseSpiFs(fs);
+                }
                 List<String> tmp = Lists.newArrayList();
-                for (RemoteFile file : results) {
+                for (FileEntry entry : results) {
                     // __info_2018-04-18-20-11-00.Jdwnd9312sfdn1294343
-                    Pair<String, String> pureFileName = decodeFileNameWithChecksum(file.getName());
+                    String uri = entry.location().uri();
+                    String fileName = uri.substring(uri.lastIndexOf('/') + 1);
+                    Pair<String, String> pureFileName = decodeFileNameWithChecksum(fileName);
                     if (pureFileName == null) {
                         // maybe: __info_2018-04-18-20-11-00.part
-                        tmp.add("Invalid: " + file.getName());
+                        tmp.add("Invalid: " + fileName);
                         continue;
                     }
                     tmp.add(disjoinPrefix(PREFIX_JOB_INFO, pureFileName.first));
@@ -764,6 +959,10 @@ public class Repository implements Writable, GsonPostProcessable {
                     info.add(FeConstants.null_string);
                     info.add("ERROR: No info file found");
                 }
+            } catch (IOException e) {
+                info.add(snapshotName);
+                info.add(FeConstants.null_string);
+                info.add("ERROR: Failed to get info: " + e.getMessage());
             }
         } else {
             // get specified timestamp, different repos might have snapshots with same timestamp.

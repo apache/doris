@@ -169,6 +169,8 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION = "enable_single_replica_compaction";
 
+    public static final String PROPERTIES_ENABLE_TSO = "enable_tso";
+
     public static final String PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP =
             "vertical_compaction_num_columns_per_group";
 
@@ -866,6 +868,27 @@ public class PropertyAnalyzer {
         }
         throw new AnalysisException(PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION
                 + " must be `true` or `false`");
+    }
+
+    public static Boolean analyzeEnableTso(Map<String, String> properties) throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return false;
+        }
+        String value = properties.get(PROPERTIES_ENABLE_TSO);
+        if (null == value) {
+            return false;
+        }
+        properties.remove(PROPERTIES_ENABLE_TSO);
+        if (value.equalsIgnoreCase("true")) {
+            if (!Config.enable_tso_feature) {
+                throw new AnalysisException(PROPERTIES_ENABLE_TSO
+                        + " can not be enabled when experimental_enable_tso_feature is disabled");
+            }
+            return true;
+        } else if (value.equalsIgnoreCase("false")) {
+            return false;
+        }
+        throw new AnalysisException(PROPERTIES_ENABLE_TSO + " must be `true` or `false`");
     }
 
     public static Boolean analyzeEnableDuplicateWithoutKeysByDefault(Map<String, String> properties)

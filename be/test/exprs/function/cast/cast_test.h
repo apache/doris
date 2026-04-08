@@ -136,9 +136,7 @@ struct FunctionCastTest : public testing::Test {
             return "datetime";
         case TYPE_BINARY:
             return "binary";
-        /* 13 */           // Not implemented
-        case TYPE_DECIMAL: /* 14 */
-            return "decimal";
+        /* 13 */        // Not implemented
         case TYPE_CHAR: /* 15 */
             return fmt::format("char({})", precision > 0 ? precision : 64);
 
@@ -153,9 +151,6 @@ struct FunctionCastTest : public testing::Test {
         case TYPE_DECIMALV2: /* 20: v2 128bit */
             return fmt::format("decimalv2({}, {})", precision > 0 ? precision : 27,
                                scale > 0 ? scale : 9);
-
-        case TYPE_TIME: /*TYPE_TIMEV2*/
-            return "time";
 
         case TYPE_BITMAP: /* 22: bitmap */
             return "bitmap";

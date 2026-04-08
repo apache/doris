@@ -17,21 +17,26 @@
 
 package org.apache.doris.fs;
 
-import org.apache.doris.backup.Status;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.fs.remote.RemoteFile;
+import org.apache.doris.filesystem.FileEntry;
+import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.FileSystemIOException;
+import org.apache.doris.filesystem.FileSystemTransferUtil;
+import org.apache.doris.filesystem.RemoteIterator;
+import org.apache.doris.filesystem.SimpleRemoteIterator;
 
-import java.util.ArrayList;
+import java.io.IOException;
 import java.util.List;
 
 public class FileSystemDirectoryLister implements DirectoryLister {
-    public RemoteIterator<RemoteFile> listFiles(FileSystem fs, boolean recursive, TableIf table, String location)
+    public RemoteIterator<FileEntry> listFiles(FileSystem fs, boolean recursive,
+            TableIf table, String location)
             throws FileSystemIOException {
-        List<RemoteFile> result = new ArrayList<>();
-        Status status = fs.listFiles(location, recursive, result);
-        if (!status.ok()) {
-            throw new FileSystemIOException(status.getErrCode(), status.getErrMsg());
+        try {
+            List<FileEntry> entries = FileSystemTransferUtil.globList(fs, location, recursive);
+            return new SimpleRemoteIterator(entries.iterator());
+        } catch (IOException ex) {
+            throw new FileSystemIOException(ex.getMessage(), ex);
         }
-        return new RemoteFileRemoteIterator(result);
     }
 }

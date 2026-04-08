@@ -19,7 +19,6 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.datasource.hive.HiveExternalMetaCache.FileCacheValue;
 
-import org.apache.hadoop.fs.Path;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -27,24 +26,24 @@ public class PathVisibleTest {
     @Test
     public void shouldReturnFalseWhenPathIsNull() {
         Assert.assertFalse(FileCacheValue.isFileVisible(null));
-        Assert.assertFalse(FileCacheValue.isFileVisible(new Path("s3://visible/.hidden/path")));
-        Assert.assertFalse(FileCacheValue.isFileVisible(new Path("/visible/.hidden/path")));
-        Assert.assertFalse(FileCacheValue.isFileVisible(new Path("hdfs://visible/path/.file")));
-        Assert.assertFalse(FileCacheValue.isFileVisible(new Path("/visible/path/_temporary_xx")));
-        Assert.assertFalse(FileCacheValue.isFileVisible(new Path("/visible/path/_impala_insert_staging")));
+        Assert.assertFalse(FileCacheValue.isFileVisible("s3://visible/.hidden/path"));
+        Assert.assertFalse(FileCacheValue.isFileVisible("/visible/.hidden/path"));
+        Assert.assertFalse(FileCacheValue.isFileVisible("hdfs://visible/path/.file"));
+        Assert.assertFalse(FileCacheValue.isFileVisible("/visible/path/_temporary_xx"));
+        Assert.assertFalse(FileCacheValue.isFileVisible("/visible/path/_impala_insert_staging"));
 
-        Assert.assertFalse(FileCacheValue.isFileVisible(new Path("/visible//.hidden/path")));
-        Assert.assertFalse(FileCacheValue.isFileVisible(new Path("s3://visible/.hidden/path")));
-        Assert.assertFalse(FileCacheValue.isFileVisible(new Path("///visible/path/.file")));
-        Assert.assertFalse(FileCacheValue.isFileVisible(new Path("/visible/path///_temporary_xx")));
-        Assert.assertFalse(FileCacheValue.isFileVisible(new Path("hdfs://visible//path/_impala_insert_staging")));
+        Assert.assertFalse(FileCacheValue.isFileVisible("/visible//.hidden/path"));
+        Assert.assertFalse(FileCacheValue.isFileVisible("s3://visible/.hidden/path"));
+        Assert.assertFalse(FileCacheValue.isFileVisible("///visible/path/.file"));
+        Assert.assertFalse(FileCacheValue.isFileVisible("/visible/path///_temporary_xx"));
+        Assert.assertFalse(FileCacheValue.isFileVisible("hdfs://visible//path/_impala_insert_staging"));
         Assert.assertFalse(FileCacheValue.isFileVisible(
-                new Path("hdfs://hacluster/user/hive/warehouse/db1.db/tbl1/_spark_metadata/")));
+                "hdfs://hacluster/user/hive/warehouse/db1.db/tbl1/_spark_metadata/"));
 
-        Assert.assertTrue(FileCacheValue.isFileVisible(new Path("s3://visible/path")));
-        Assert.assertTrue(FileCacheValue.isFileVisible(new Path("path")));
-        Assert.assertTrue(FileCacheValue.isFileVisible(new Path("hdfs://visible/path./1.txt")));
-        Assert.assertTrue(FileCacheValue.isFileVisible(new Path("/1.txt")));
-        Assert.assertTrue(FileCacheValue.isFileVisible(new Path("hdfs://vis_ible_/pa.th./1_.txt__")));
+        Assert.assertTrue(FileCacheValue.isFileVisible("s3://visible/path"));
+        Assert.assertTrue(FileCacheValue.isFileVisible("path"));
+        Assert.assertTrue(FileCacheValue.isFileVisible("hdfs://visible/path./1.txt"));
+        Assert.assertTrue(FileCacheValue.isFileVisible("/1.txt"));
+        Assert.assertTrue(FileCacheValue.isFileVisible("hdfs://vis_ible_/pa.th./1_.txt__"));
     }
 }

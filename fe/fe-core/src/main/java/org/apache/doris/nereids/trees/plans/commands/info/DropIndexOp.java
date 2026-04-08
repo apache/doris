@@ -71,7 +71,7 @@ public class DropIndexOp extends AlterTableOp {
             throw new AnalysisException("index name is excepted");
         }
         if (tableName != null) {
-            tableName.analyze(ctx);
+            tableName.analyze(ctx.getNameSpaceContext());
         }
     }
 
