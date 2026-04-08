@@ -22,6 +22,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.routineload.kinesis.KinesisConfiguration;
 import org.apache.doris.load.routineload.kinesis.KinesisDataSourceProperties;
+import org.apache.doris.load.routineload.kinesis.KinesisProgress;
+import org.apache.doris.load.routineload.kinesis.KinesisRoutineLoadJob;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;

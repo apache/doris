@@ -24,7 +24,7 @@ import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.FailMsg.CancelType;
 import org.apache.doris.load.loadv2.JobState;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
-import org.apache.doris.load.routineload.KafkaProgress;
+import org.apache.doris.load.routineload.kafka.KafkaProgress;
 import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.thrift.TEtlState;

@@ -28,7 +28,7 @@ import org.apache.doris.common.RandomIdentifierGenerator;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.FederationBackendPolicy;
 import org.apache.doris.load.loadv2.BrokerLoadJob;
-import org.apache.doris.load.routineload.KafkaRoutineLoadJob;
+import org.apache.doris.load.routineload.kafka.KafkaRoutineLoadJob;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
