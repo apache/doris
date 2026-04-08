@@ -34,5 +34,5 @@ public interface IvmDeltaStrategy {
      * @param ctx            rewrite context carrying MTMV metadata and normalize result
      * @return one or more delta command bundles for execution
      */
-    List<DeltaCommandBundle> rewrite(Plan normalizedPlan, IvmDeltaRewriteContext ctx);
+    List<IvmDeltaCommandBundle> rewrite(Plan normalizedPlan, IvmDeltaRewriteContext ctx);
 }
