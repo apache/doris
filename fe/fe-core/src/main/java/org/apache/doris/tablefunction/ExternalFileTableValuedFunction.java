@@ -310,8 +310,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             InternalService.PFetchTableSchemaResult result = null;
             int fileIndex = 0;
 
-            // Try each file until we find one with valid schema or exhaust all files
-            while (fileIndex < fileStatuses.size()) {
+            // FILE_STREAM appends a synthetic status in getFetchTableStructureRequest(),
+            // so we must allow the first attempt even when fileStatuses is initially empty.
+            // For other file types, the loop keeps the existing retry behavior.
+            while (fileIndex == 0 || fileIndex < fileStatuses.size()) {
                 PFetchTableSchemaRequest request = getFetchTableStructureRequest(fileIndex);
 
                 // `request == null` means we don't need to get schemas from BE,

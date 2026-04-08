@@ -23,16 +23,32 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.FileFormatUtils;
+import org.apache.doris.proto.InternalService;
+import org.apache.doris.proto.Types;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.rpc.BackendServiceProxy;
+import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 public class ExternalFileTableValuedFunctionTest {
+    @Mocked
+    private BackendServiceProxy backendServiceProxy;
+    @Mocked
+    private ConnectContext connectContext;
+
     @Test
     public void testCsvSchemaParse() {
         Config.enable_date_conversion = true;
@@ -114,6 +130,55 @@ public class ExternalFileTableValuedFunctionTest {
         } catch (AnalysisException e) {
             e.printStackTrace();
             Assert.fail();
+        }
+    }
+
+    @Test
+    public void testHttpStreamGetTableColumnsShouldNotFallbackDummyColumn() throws Exception {
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(FileFormatConstants.PROP_FORMAT, "csv");
+
+        InternalService.PFetchTableSchemaResult fetchResult = InternalService.PFetchTableSchemaResult.newBuilder()
+                .setStatus(Types.PStatus.newBuilder().setStatusCode(TStatusCode.OK.getValue()).build())
+                .setColumnNums(0)
+                .build();
+
+        new Expectations() {
+            {
+                ConnectContext.get();
+                minTimes = 0;
+                result = connectContext;
+
+                connectContext.queryId();
+                minTimes = 0;
+                result = new TUniqueId(1L, 2L);
+
+                BackendServiceProxy.getInstance();
+                minTimes = 0;
+                result = backendServiceProxy;
+
+                backendServiceProxy.fetchTableStructureAsync((TNetworkAddress) any,
+                        (InternalService.PFetchTableSchemaRequest) any);
+                minTimes = 0;
+                result = CompletableFuture.completedFuture(fetchResult);
+            }
+        };
+
+        TestHttpStreamTableValuedFunction tvf = new TestHttpStreamTableValuedFunction(properties);
+        List<Column> columns = tvf.getTableColumns();
+        Assert.assertTrue(columns.isEmpty());
+    }
+
+    private static class TestHttpStreamTableValuedFunction extends HttpStreamTableValuedFunction {
+        TestHttpStreamTableValuedFunction(Map<String, String> properties) throws AnalysisException {
+            super(properties);
+        }
+
+        @Override
+        protected Backend getBackend() {
+            Backend backend = new Backend(10001L, "127.0.0.1", 9050);
+            backend.setBrpcPort(8060);
+            return backend;
         }
     }
 }
