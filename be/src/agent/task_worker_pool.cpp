@@ -565,8 +565,8 @@ PriorTaskWorkerPool::PriorTaskWorkerPool(
         std::function<void(const TAgentTaskRequest& task)> callback)
         : _callback(std::move(callback)) {
     for (int i = 0; i < normal_worker_count; ++i) {
-        auto st = Thread::create(
-                "Normal", name, [this] { normal_loop(); }, &_workers.emplace_back());
+        auto st =
+                Thread::create("Normal", name, [this] { normal_loop(); }, &_workers.emplace_back());
         CHECK(st.ok()) << name << ": " << st;
     }
 
@@ -873,7 +873,7 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
                          << tablet_meta_info.tablet_id;
             continue;
         }
-        auto &tablet = tablet_res.value();
+        auto& tablet = tablet_res.value();
         bool need_to_save = false;
         if (tablet_meta_info.__isset.partition_id) {
             // for fix partition_id = 0
@@ -1759,7 +1759,7 @@ void push_cooldown_conf_callback(StorageEngine& engine, const TAgentTaskRequest&
             continue;
         }
         if (tablet.value()->update_cooldown_conf(cooldown_conf.cooldown_term,
-                                         cooldown_conf.cooldown_replica_id) &&
+                                                 cooldown_conf.cooldown_replica_id) &&
             cooldown_conf.cooldown_replica_id == tablet.value()->replica_id() &&
             tablet.value()->tablet_meta()->cooldown_meta_id().initialized()) {
             Tablet::async_write_cooldown_meta(tablet.value());
@@ -1803,8 +1803,8 @@ void create_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req)
         std::string error_msg;
         {
             SCOPED_TIMER(ADD_TIMER(profile, "GetTablet"));
-            auto tablet_res = engine.tablet_manager()->get_tablet(create_tablet_req.tablet_id, false,
-                                                         &error_msg);
+            auto tablet_res = engine.tablet_manager()->get_tablet(create_tablet_req.tablet_id,
+                                                                  false, &error_msg);
             if (tablet_res.has_value()) {
                 tablet = tablet_res.value();
                 TTabletInfo tablet_info;
@@ -1834,7 +1834,6 @@ void create_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req)
                         .error(status);
             }
         }
-
     }
     TFinishTaskRequest finish_task_request;
     finish_task_request.__set_finish_tablet_infos(finish_tablet_infos);
@@ -2137,7 +2136,10 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
             for (auto [tablet_id, _] : succ_tablets) {
                 auto tablet = _engine.tablet_manager()->get_tablet(tablet_id);
                 if (tablet.has_value()) {
-                    if (!tablet.value()->tablet_meta()->tablet_schema()->disable_auto_compaction()) {
+                    if (!tablet.value()
+                                 ->tablet_meta()
+                                 ->tablet_schema()
+                                 ->disable_auto_compaction()) {
                         tablet.value()->published_count.fetch_add(1);
                         int64_t published_count = tablet.value()->published_count.load();
                         int32_t max_version_config = tablet.value()->max_version_config();
@@ -2146,7 +2148,8 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
                                     config::load_trigger_compaction_version_percent / 100) &&
                             published_count % 20 == 0) {
                             auto st = _engine.submit_compaction_task(
-                                    tablet.value(), CompactionType::CUMULATIVE_COMPACTION, true, false);
+                                    tablet.value(), CompactionType::CUMULATIVE_COMPACTION, true,
+                                    false);
                             if (!st.ok()) [[unlikely]] {
                                 LOG(WARNING) << "trigger compaction failed, tablet_id=" << tablet_id
                                              << ", published=" << published_count << " : " << st;

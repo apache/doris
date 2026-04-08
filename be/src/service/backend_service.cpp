@@ -1038,7 +1038,8 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
 
     {
         // TODO: Before push_lock is not held, but I think it should hold.
-        auto status = local_tablet.value()->prepare_txn(partition_id, txn_id, p_load_id, is_ingrest);
+        auto status =
+                local_tablet.value()->prepare_txn(partition_id, txn_id, p_load_id, is_ingrest);
         if (!status.ok()) {
             LOG(WARNING) << "prepare txn failed. txn_id=" << txn_id
                          << ", status=" << status.to_string();

@@ -224,7 +224,8 @@ Status EngineCloneTask::_do_clone() {
 
         int64_t specified_version = _clone_req.version;
         if (tablet.value()->enable_unique_key_merge_on_write()) {
-            int64_t min_pending_ver = _engine.get_pending_publish_min_version(tablet.value()->tablet_id());
+            int64_t min_pending_ver =
+                    _engine.get_pending_publish_min_version(tablet.value()->tablet_id());
             if (min_pending_ver - 1 < specified_version) {
                 LOG(INFO) << "use min pending publish version for clone, min_pending_ver: "
                           << min_pending_ver << " visible_version: " << _clone_req.version;

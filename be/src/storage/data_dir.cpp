@@ -478,7 +478,8 @@ Status DataDir::load() {
         auto tablet = _engine.tablet_manager()->get_tablet(tablet_id);
         if (tablet.has_value() && tablet.value()->set_tablet_schema_into_rowset_meta()) {
             RETURN_IF_ERROR(TabletMetaManager::save(this, tablet.value()->tablet_id(),
-                                                    tablet.value()->schema_hash(), tablet.value()->tablet_meta()));
+                                                    tablet.value()->schema_hash(),
+                                                    tablet.value()->tablet_meta()));
         }
     }
 
@@ -645,8 +646,8 @@ Status DataDir::load() {
                 continue;
             }
             auto bitmap = delete_bitmap_pb.segment_delete_bitmaps(i).data();
-            tablet.value()->tablet_meta()->delete_bitmap().delete_bitmap[{rst_id, seg_id, version}] =
-                    roaring::Roaring::read(bitmap);
+            tablet.value()->tablet_meta()->delete_bitmap().delete_bitmap[{
+                    rst_id, seg_id, version}] = roaring::Roaring::read(bitmap);
         }
         return true;
     };

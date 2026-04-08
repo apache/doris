@@ -1744,17 +1744,17 @@ void PInternalService::transmit_block(google::protobuf::RpcController* controlle
         // pool here.
         _transmit_block(controller, request, response, done, Status::OK(), 0);
     } else {
-        bool ret = _light_work_pool.try_offer([this, controller, request, response, done,
-                                               receive_time]() {
-            response->set_receive_time(receive_time);
-            // Sometimes transmit block function is the last owner of PlanFragmentExecutor
-            // It will release the object. And the object maybe a JNIContext.
-            // JNIContext will hold some TLS object. It could not work correctly under bthread
-            // Context. So that put the logic into pthread.
-            // But this is rarely happens, so this config is disabled by default.
-            _transmit_block(controller, request, response, done, Status::OK(),
-                            GetCurrentTimeNanos() - receive_time);
-        });
+        bool ret = _light_work_pool.try_offer(
+                [this, controller, request, response, done, receive_time]() {
+                    response->set_receive_time(receive_time);
+                    // Sometimes transmit block function is the last owner of PlanFragmentExecutor
+                    // It will release the object. And the object maybe a JNIContext.
+                    // JNIContext will hold some TLS object. It could not work correctly under bthread
+                    // Context. So that put the logic into pthread.
+                    // But this is rarely happens, so this config is disabled by default.
+                    _transmit_block(controller, request, response, done, Status::OK(),
+                                    GetCurrentTimeNanos() - receive_time);
+                });
         if (!ret) {
             offer_failed(response, done, _light_work_pool);
             return;
@@ -1951,8 +1951,8 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
     int64_t node_id = request->node_id();
     bool ret = _heavy_work_pool.try_offer([rowset_meta_pb, host, brpc_port, node_id, segments_size,
                                            indices_size, http_port, token, rowset_path, this]() {
-        auto tablet = _engine.tablet_manager()->get_tablet(
-                rowset_meta_pb.tablet_id(), rowset_meta_pb.tablet_schema_hash());
+        auto tablet = _engine.tablet_manager()->get_tablet(rowset_meta_pb.tablet_id(),
+                                                           rowset_meta_pb.tablet_schema_hash());
         if (!tablet.has_value()) {
             LOG(WARNING) << "failed to pull rowset for slave replica. tablet ["
                          << rowset_meta_pb.tablet_id()
@@ -2010,8 +2010,9 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
             std::string remote_file_url =
                     construct_url(get_host_port(host, http_port), token, remote_file_path);
 
-            std::string local_file_path = local_segment_path(
-                    tablet.value()->tablet_path(), rowset_meta->rowset_id().to_string(), segment.first);
+            std::string local_file_path =
+                    local_segment_path(tablet.value()->tablet_path(),
+                                       rowset_meta->rowset_id().to_string(), segment.first);
 
             auto st = download_file_action(remote_file_url, local_file_path, estimate_timeout,
                                            file_size);
@@ -2088,8 +2089,9 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
         }
 
         RowsetSharedPtr rowset;
-        Status create_status = RowsetFactory::create_rowset(
-                tablet.value()->tablet_schema(), tablet.value()->tablet_path(), rowset_meta, &rowset);
+        Status create_status =
+                RowsetFactory::create_rowset(tablet.value()->tablet_schema(),
+                                             tablet.value()->tablet_path(), rowset_meta, &rowset);
         if (!create_status) {
             LOG(WARNING) << "failed to create rowset from rowset meta for slave replica"
                          << ". rowset_id: " << rowset_meta->rowset_id()
@@ -2112,9 +2114,9 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
             return;
         }
         Status commit_txn_status = _engine.txn_manager()->commit_txn(
-                tablet.value()->data_dir()->get_meta(), rowset_meta->partition_id(), rowset_meta->txn_id(),
-                rowset_meta->tablet_id(), tablet.value()->tablet_uid(), rowset_meta->load_id(), rowset,
-                std::move(pending_rs_guard), false);
+                tablet.value()->data_dir()->get_meta(), rowset_meta->partition_id(),
+                rowset_meta->txn_id(), rowset_meta->tablet_id(), tablet.value()->tablet_uid(),
+                rowset_meta->load_id(), rowset, std::move(pending_rs_guard), false);
         if (!commit_txn_status && !commit_txn_status.is<PUSH_TRANSACTION_ALREADY_EXIST>()) {
             LOG(WARNING) << "failed to add committed rowset for slave replica. rowset_id="
                          << rowset_meta->rowset_id() << ", tablet_id=" << rowset_meta->tablet_id()

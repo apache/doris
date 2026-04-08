@@ -996,9 +996,10 @@ void StorageEngine::_clean_unused_rowset_metas() {
         std::set<int64_t> tablets_to_save_meta;
         for (auto& rowset_meta : invalid_rowset_metas) {
             auto tablet = _tablet_manager->get_tablet(rowset_meta->tablet_id());
-            if (tablet.has_value() && tablet.value()->tablet_meta()->enable_unique_key_merge_on_write()) {
+            if (tablet.has_value() &&
+                tablet.value()->tablet_meta()->enable_unique_key_merge_on_write()) {
                 tablet.value()->tablet_meta()->remove_rowset_delete_bitmap(rowset_meta->rowset_id(),
-                                                                   rowset_meta->version());
+                                                                           rowset_meta->version());
                 tablets_to_save_meta.emplace(tablet.value()->tablet_id());
             }
         }
@@ -1117,8 +1118,8 @@ void StorageEngine::_clean_unused_partial_update_info() {
             remove_infos.emplace_back(tablet_id, partition_id, txn_id);
             return true;
         }
-        TxnState txn_state =
-                _txn_manager->get_txn_state(partition_id, txn_id, tablet_id, tablet.value()->tablet_uid());
+        TxnState txn_state = _txn_manager->get_txn_state(partition_id, txn_id, tablet_id,
+                                                         tablet.value()->tablet_uid());
         if (txn_state == TxnState::NOT_FOUND || txn_state == TxnState::ABORTED ||
             txn_state == TxnState::DELETED) {
             remove_infos.emplace_back(tablet_id, partition_id, txn_id);
@@ -1318,7 +1319,8 @@ void StorageEngine::start_delete_unused_rowset() {
         // delete delete_bitmap of unused rowsets
         if (auto tablet = _tablet_manager->get_tablet(rs->rowset_meta()->tablet_id());
             tablet.has_value() && tablet.value()->enable_unique_key_merge_on_write()) {
-            tablet.value()->tablet_meta()->remove_rowset_delete_bitmap(rs->rowset_id(), rs->version());
+            tablet.value()->tablet_meta()->remove_rowset_delete_bitmap(rs->rowset_id(),
+                                                                       rs->version());
             tablets_to_save_meta.emplace(tablet.value()->tablet_id());
         }
         Status status = rs->remove();

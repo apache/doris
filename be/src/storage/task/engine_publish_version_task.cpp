@@ -282,7 +282,8 @@ Status EnginePublishVersionTask::execute() {
                                                                 &partition_related_tablet_infos);
         Version version(par_ver_info.version, par_ver_info.version);
         for (auto& tablet_info : partition_related_tablet_infos) {
-            TabletSharedPtr tablet = DORIS_TRY(_engine.tablet_manager()->get_tablet(tablet_info.tablet_id));
+            TabletSharedPtr tablet =
+                    DORIS_TRY(_engine.tablet_manager()->get_tablet(tablet_info.tablet_id));
             auto tablet_id = tablet_info.tablet_id;
             if (tablet == nullptr) {
                 add_error_tablet_id(tablet_id);

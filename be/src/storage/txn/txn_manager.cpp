@@ -553,13 +553,13 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
                     tablet_txn_info->delete_bitmap));
         }
 
-        RETURN_IF_ERROR(
-                Tablet::update_delete_bitmap(tablet.value(), tablet_txn_info.get(), transaction_id));
+        RETURN_IF_ERROR(Tablet::update_delete_bitmap(tablet.value(), tablet_txn_info.get(),
+                                                     transaction_id));
         int64_t t3 = MonotonicMicros();
         stats->calc_delete_bitmap_time_us = t3 - t2;
         RETURN_IF_ERROR(TabletMetaManager::save_delete_bitmap(
-                tablet.value()->data_dir(), tablet.value()->tablet_id(), tablet_txn_info->delete_bitmap,
-                version.second));
+                tablet.value()->data_dir(), tablet.value()->tablet_id(),
+                tablet_txn_info->delete_bitmap, version.second));
         stats->save_meta_time_us = MonotonicMicros() - t3;
     }
 

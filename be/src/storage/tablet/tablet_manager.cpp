@@ -590,7 +590,8 @@ Status TabletManager::_drop_tablet(TTabletId tablet_id, TReplicaId replica_id, b
     return Status::OK();
 }
 
-Result<TabletSharedPtr> TabletManager::get_tablet(TTabletId tablet_id, bool include_deleted, string* err) {
+Result<TabletSharedPtr> TabletManager::get_tablet(TTabletId tablet_id, bool include_deleted,
+                                                  string* err) {
     std::shared_lock rdlock(_get_tablets_shard_lock(tablet_id));
     return _get_tablet_unlocked(tablet_id, include_deleted, err);
 }

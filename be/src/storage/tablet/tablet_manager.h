@@ -87,7 +87,7 @@ public:
                     all_cumulative_compaction_policies);
 
     Result<TabletSharedPtr> get_tablet(TTabletId tablet_id, bool include_deleted = false,
-                               std::string* err = nullptr);
+                                       std::string* err = nullptr);
 
     TabletSharedPtr get_tablet(TTabletId tablet_id, TabletUid tablet_uid,
                                bool include_deleted = false, std::string* err = nullptr);
