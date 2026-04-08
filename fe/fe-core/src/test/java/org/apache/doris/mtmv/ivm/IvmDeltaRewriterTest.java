@@ -50,7 +50,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
 
         LogicalOlapScan scan = buildScan();
         IvmDeltaRewriteContext ctx = new IvmDeltaRewriteContext(mtmv, new ConnectContext(), null);
-        List<DeltaCommandBundle> bundles = new IvmDeltaRewriter().rewrite(buildScanPlan(scan), ctx);
+        List<IvmDeltaCommandBundle> bundles = new IvmDeltaRewriter().rewrite(buildScanPlan(scan), ctx);
 
         Assertions.assertEquals(1, bundles.size());
         Assertions.assertInstanceOf(InsertIntoTableCommand.class, bundles.get(0).getCommand());
@@ -69,7 +69,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
 
         LogicalOlapScan scan = buildScan();
         IvmDeltaRewriteContext ctx = new IvmDeltaRewriteContext(mtmv, new ConnectContext(), null);
-        List<DeltaCommandBundle> bundles = new IvmDeltaRewriter().rewrite(buildProjectScanPlan(scan), ctx);
+        List<IvmDeltaCommandBundle> bundles = new IvmDeltaRewriter().rewrite(buildProjectScanPlan(scan), ctx);
 
         Assertions.assertEquals(1, bundles.size());
         Assertions.assertInstanceOf(InsertIntoTableCommand.class, bundles.get(0).getCommand());
