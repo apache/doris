@@ -19,7 +19,7 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.DateLiteral;
-import org.apache.doris.analysis.DecimalLiteral;
+import org.apache.doris.analysis.DecimalLiteralUtils;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.FloatLiteral;
 import org.apache.doris.analysis.IPv4Literal;
@@ -811,7 +811,7 @@ public abstract class ConnectProcessor {
             case INT_LITERAL: return new IntLiteral(node.int_literal.value);
             case LARGE_INT_LITERAL: return new LargeIntLiteral(node.large_int_literal.value);
             case FLOAT_LITERAL: return new FloatLiteral(node.float_literal.value);
-            case DECIMAL_LITERAL: return new DecimalLiteral(node.decimal_literal.value);
+            case DECIMAL_LITERAL: return DecimalLiteralUtils.create(node.decimal_literal.value);
             case STRING_LITERAL: return new StringLiteral(node.string_literal.value);
             case JSON_LITERAL: return new JsonLiteral(node.json_literal.value);
             case DATE_LITERAL: return new DateLiteral(node.date_literal.value);

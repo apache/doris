@@ -123,7 +123,7 @@ public class ExprToSqlTest {
 
     @Test
     public void testDecimalLiteral() {
-        DecimalLiteral expr = new DecimalLiteral(new java.math.BigDecimal("1.5"));
+        DecimalLiteral expr = new DecimalLiteral(new java.math.BigDecimal("1.5"), ScalarType.createDecimalV3Type(2, 1));
         Assertions.assertEquals("1.5", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
