@@ -30,82 +30,86 @@ suite("test_cte_multiuse_no_union_not_inline") {
         PROPERTIES ("replication_num" = "1")
     """
     sql "INSERT INTO cte_multiuse_tbl VALUES (1, 10), (2, 20), (3, 30)"
-
     // --- cte_inline_mode = 0: selective mode (default) ---
     sql "SET cte_inline_mode=0"
     // Keep default inline_cte_referenced_threshold=1 so that multi-use CTEs
     // (consumers > 1) survive the early CTEInline rule and reach the optimizer.
 
     // Multi-use CTE with simple body (no union): must NOT be inlined
-    def explainSimple = sql """
-        explain shape plan
-        WITH cte_simple AS (
-            SELECT id, val FROM cte_multiuse_tbl WHERE val > 5
-        )
-        SELECT * FROM cte_simple WHERE id = 1
-        UNION ALL
-        SELECT * FROM cte_simple WHERE id = 2
-    """
-    assertTrue(explainSimple.toString().contains("PhysicalCteProducer"),
-            "mode=0: multi-use CTE without union should remain materialized (PhysicalCteProducer expected)")
+    explain {
+        sql """
+            shape plan
+            WITH cte_simple AS (
+                SELECT id, val FROM cte_multiuse_tbl WHERE val > 5
+            )
+            SELECT * FROM cte_simple WHERE id = 1
+            UNION ALL
+            SELECT * FROM cte_simple WHERE id = 2
+        """
+        contains("PhysicalCteProducer")
+    }
 
     // Multi-use CTE with join body (no union): must NOT be inlined
-    def explainJoin = sql """
-        explain shape plan
-        WITH cte_join AS (
-            SELECT a.id, b.val
-            FROM cte_multiuse_tbl a
-            JOIN cte_multiuse_tbl b ON a.id = b.id
-        )
-        SELECT * FROM cte_join WHERE id = 1
-        UNION ALL
-        SELECT * FROM cte_join WHERE id = 2
-    """
-    assertTrue(explainJoin.toString().contains("PhysicalCteProducer"),
-            "mode=0: multi-use CTE with join (no union) should remain materialized")
+    explain {
+        sql """
+            shape plan
+            WITH cte_join AS (
+                SELECT a.id, b.val
+                FROM cte_multiuse_tbl a
+                JOIN cte_multiuse_tbl b ON a.id = b.id
+            )
+            SELECT * FROM cte_join WHERE id = 1
+            UNION ALL
+            SELECT * FROM cte_join WHERE id = 2
+        """
+        contains("PhysicalCteProducer")
+    }
 
     // Multi-use CTE with aggregation body (no union): must NOT be inlined
-    def explainAgg = sql """
-        explain shape plan
-        WITH cte_agg AS (
-            SELECT id, SUM(val) AS total FROM cte_multiuse_tbl GROUP BY id
-        )
-        SELECT * FROM cte_agg WHERE id = 1
-        UNION ALL
-        SELECT * FROM cte_agg WHERE id = 2
-    """
-    assertTrue(explainAgg.toString().contains("PhysicalCteProducer"),
-            "mode=0: multi-use CTE with aggregation (no union) should remain materialized")
+    explain {
+        sql """
+            shape plan
+            WITH cte_agg AS (
+                SELECT id, SUM(val) AS total FROM cte_multiuse_tbl GROUP BY id
+            )
+            SELECT * FROM cte_agg WHERE id = 1
+            UNION ALL
+            SELECT * FROM cte_agg WHERE id = 2
+        """
+        contains("PhysicalCteProducer")
+    }
 
     // Multi-use CTE with 3 consumers (no union): must NOT be inlined
-    def explainThree = sql """
-        explain shape plan
-        WITH cte_three AS (
-            SELECT id, val FROM cte_multiuse_tbl
-        )
-        SELECT * FROM cte_three WHERE id = 1
-        UNION ALL
-        SELECT * FROM cte_three WHERE id = 2
-        UNION ALL
-        SELECT * FROM cte_three WHERE id = 3
-    """
-    assertTrue(explainThree.toString().contains("PhysicalCteProducer"),
-            "mode=0: multi-use CTE with 3 consumers (no union) should remain materialized")
+    explain {
+        sql """
+            shape plan
+            WITH cte_three AS (
+                SELECT id, val FROM cte_multiuse_tbl
+            )
+            SELECT * FROM cte_three WHERE id = 1
+            UNION ALL
+            SELECT * FROM cte_three WHERE id = 2
+            UNION ALL
+            SELECT * FROM cte_three WHERE id = 3
+        """
+        contains("PhysicalCteProducer")
+    }
 
     // --- Contrast: multi-use CTE with UNION ALL body SHOULD be inlined ---
     // When consumer filters can eliminate some union branches (creating
     // LogicalEmptyRelation), mode=0 replaces the plan with the inlined version.
-    def explainUnionAll = sql """
-        explain shape plan
-        WITH cte_union AS (
-            SELECT id, val, 1 AS tag FROM cte_multiuse_tbl
+    explain {
+        sql """
+            shape plan
+            WITH cte_union AS (
+                SELECT id, val, 1 AS tag FROM cte_multiuse_tbl
+                UNION ALL
+                SELECT id, val, 2 AS tag FROM cte_multiuse_tbl
+            )
+            SELECT * FROM cte_union WHERE tag = 1
             UNION ALL
-            SELECT id, val, 2 AS tag FROM cte_multiuse_tbl
-        )
-        SELECT * FROM cte_union WHERE tag = 1
-        UNION ALL
-        SELECT * FROM cte_union WHERE tag = 1
-    """
-    assertFalse(explainUnionAll.toString().contains("PhysicalCteProducer"),
-            "mode=0: multi-use CTE with UNION ALL should be inlined when filters eliminate branches")
+            SELECT * FROM cte_union WHERE tag = 2
+        """
+        notContains("PhysicalCteProducer")
+    }
 }
