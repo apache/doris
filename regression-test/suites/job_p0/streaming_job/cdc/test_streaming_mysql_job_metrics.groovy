@@ -200,22 +200,12 @@ suite("test_streaming_mysql_job_metrics",
                         metricCount++
                     }
 
-                    def perJobOffset = result.find {
-                        it.tags?.metric == "doris_fe_streaming_job_per_job_offset" &&
-                        it.tags?.job_name == "${jobName}" &&
-                        it.tags?.containsKey("current_offset") &&
-                        it.tags?.containsKey("end_offset")
-                    }
-                    if (perJobOffset != null) {
-                        log.info("per-job offset: ${perJobOffset}".toString())
-                        metricCount++
-                    }
 
                 }
             }
 
-            // 9 streaming_job_* counters + 1 doris_fe_job RUNNING gauge + 6 per-job metrics
-            if (metricCount >= 16) {
+            // 9 streaming_job_* counters + 1 doris_fe_job RUNNING gauge + 5 per-job metrics
+            if (metricCount >= 15) {
                 break
             }
 

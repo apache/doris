@@ -34,7 +34,6 @@ import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.job.extensions.insert.streaming.StreamingJobStatistic;
-import org.apache.doris.job.offset.SourceOffsetProvider;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.loadv2.JobState;
 import org.apache.doris.load.loadv2.LoadManager;
@@ -92,7 +91,6 @@ public final class MetricRepo {
     public static final String STREAMING_JOB_PER_JOB_FILTERED_ROWS = "streaming_job_per_job_filtered_rows";
     public static final String STREAMING_JOB_PER_JOB_SUCCEED_TASK_COUNT = "streaming_job_per_job_succeed_task_count";
     public static final String STREAMING_JOB_PER_JOB_FAILED_TASK_COUNT = "streaming_job_per_job_failed_task_count";
-    public static final String STREAMING_JOB_PER_JOB_OFFSET = "streaming_job_per_job_offset";
     public static final String CLOUD_TAG = "cloud";
 
     public static LongCounterMetric COUNTER_REQUEST_ALL;
@@ -1248,7 +1246,6 @@ public final class MetricRepo {
         DORIS_METRIC_REGISTER.removeMetrics(STREAMING_JOB_PER_JOB_FILTERED_ROWS);
         DORIS_METRIC_REGISTER.removeMetrics(STREAMING_JOB_PER_JOB_SUCCEED_TASK_COUNT);
         DORIS_METRIC_REGISTER.removeMetrics(STREAMING_JOB_PER_JOB_FAILED_TASK_COUNT);
-        DORIS_METRIC_REGISTER.removeMetrics(STREAMING_JOB_PER_JOB_OFFSET);
 
         try {
             List<org.apache.doris.job.base.AbstractJob> jobs =
@@ -1331,33 +1328,6 @@ public final class MetricRepo {
                 failedTaskCount.addLabel(new MetricLabel("job_id", jobId))
                         .addLabel(new MetricLabel("job_name", jobName));
                 DORIS_METRIC_REGISTER.addMetrics(failedTaskCount);
-
-                SourceOffsetProvider offsetProvider = sJob.getOffsetProvider();
-                String currentOffset = "";
-                String endOffset = "";
-                if (offsetProvider != null) {
-                    String cur = offsetProvider.getShowCurrentOffset();
-                    String end = offsetProvider.getShowMaxOffset();
-                    if (cur != null) {
-                        currentOffset = cur.replace("\\", "\\\\").replace("\"", "\\\"");
-                    }
-                    if (end != null) {
-                        endOffset = end.replace("\\", "\\\\").replace("\"", "\\\"");
-                    }
-                }
-                GaugeMetric<Long> offsetGauge = new GaugeMetric<Long>(
-                        STREAMING_JOB_PER_JOB_OFFSET, MetricUnit.NOUNIT,
-                        "per job offset info of streaming job") {
-                    @Override
-                    public Long getValue() {
-                        return 1L;
-                    }
-                };
-                offsetGauge.addLabel(new MetricLabel("job_id", jobId))
-                        .addLabel(new MetricLabel("job_name", jobName))
-                        .addLabel(new MetricLabel("current_offset", currentOffset))
-                        .addLabel(new MetricLabel("end_offset", endOffset));
-                DORIS_METRIC_REGISTER.addMetrics(offsetGauge);
             }
         } catch (Throwable t) {
             LOG.warn("failed to update streaming job per-job metrics", t);

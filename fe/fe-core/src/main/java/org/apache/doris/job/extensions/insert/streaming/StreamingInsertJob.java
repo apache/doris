@@ -137,7 +137,6 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     private Map<String, String> originTvfProps;
     @Getter
     AbstractStreamingTask runningStreamTask;
-    @Getter
     SourceOffsetProvider offsetProvider;
     @Getter
     @Setter
