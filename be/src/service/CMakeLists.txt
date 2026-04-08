@@ -29,16 +29,8 @@ add_library(Service STATIC ${SRC_FILES})
 pch_reuse(Service)
 
 if (${MAKE_TEST} STREQUAL "OFF" AND ${BUILD_BENCHMARK} STREQUAL "OFF")
-    set(DORIS_BE_SOURCES
-        doris_main.cpp
-        ${CMAKE_SOURCE_DIR}/cmake/compat/rawlog_compat.cpp
-    )
-    if (ENABLE_PAIMON_CPP)
-        list(APPEND DORIS_BE_SOURCES ${CMAKE_SOURCE_DIR}/cmake/compat/rawlog_compat_paimon.cpp)
-    endif()
-
     add_executable(doris_be
-        ${DORIS_BE_SOURCES}
+        doris_main.cpp
     )
 
     if (ENABLE_CLANG_COVERAGE AND ENABLE_CLANG_COVERAGE STREQUAL ON AND COMPILER_CLANG)
@@ -51,6 +43,7 @@ if (${MAKE_TEST} STREQUAL "OFF" AND ${BUILD_BENCHMARK} STREQUAL "OFF")
 
     target_link_libraries(doris_be
         ${DORIS_LINK_LIBS}
+        paimon_rawlog_compat
     )
 
     install(DIRECTORY DESTINATION ${OUTPUT_DIR}/lib/)
