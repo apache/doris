@@ -43,6 +43,8 @@ suite("test_count_match_all_pushdown", "p0") {
         (3, 'world doris', NULL);
     """
 
+    sql "SET disable_nereids_rules='REWRITE_SIMPLE_AGG_TO_CONSTANT'"
+
     // count(MATCH_ALL expr) should not be pushed down to storage layer
     explain {
         sql("select count(content MATCH_ALL 'hello world') from test_count_match_all_pushdown;")
