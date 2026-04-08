@@ -309,9 +309,9 @@ Status DataTypeArraySerDe::write_column_to_arrow(const IColumn& column, const Nu
         }
         RETURN_IF_ERROR(checkArrowStatus(builder.Append(), column.get_name(),
                                          array_builder->type()->name()));
+        const auto nested_start = array_idx == 0 ? 0 : offsets[array_idx - 1];
         RETURN_IF_ERROR(nested_serde->write_column_to_arrow(nested_data, nullptr, nested_builder,
-                                                            offsets[array_idx - 1],
-                                                            offsets[array_idx], ctz));
+                                                            nested_start, offsets[array_idx], ctz));
     }
     return Status::OK();
 }

@@ -499,6 +499,48 @@ TEST(DataTypeSerDeArrowTest, DataTypeMapNullKeySerDeTest) {
     CommonDataTypeSerdeTest::compare_two_blocks(block, assert_block);
 }
 
+TEST(DataTypeSerDeArrowTest, ArrayNullableSmallIntSerDeTest) {
+    std::string col_name = "array_nullable_smallint";
+    auto block = std::make_shared<Block>();
+    DataTypePtr nested_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt16>());
+    DataTypePtr array_type = std::make_shared<DataTypeArray>(nested_type);
+
+    Array a1, a2;
+    a1.push_back(Field());
+    a1.push_back(Field::create_field<TYPE_SMALLINT>(1));
+    a1.push_back(Field());
+
+    a2.push_back(Field::create_field<TYPE_SMALLINT>(2));
+    a2.push_back(Field());
+
+    MutableColumnPtr array_column = array_type->create_column();
+    array_column->reserve(2);
+    array_column->insert(Field::create_field<TYPE_ARRAY>(a1));
+    array_column->insert(Field::create_field<TYPE_ARRAY>(a2));
+    ColumnWithTypeAndName type_and_name(array_column->get_ptr(), array_type, col_name);
+    block->insert(type_and_name);
+
+    std::shared_ptr<arrow::RecordBatch> record_batch =
+            CommonDataTypeSerdeTest::serialize_arrow(block);
+    ASSERT_TRUE(record_batch);
+    ASSERT_TRUE(record_batch->ValidateFull().ok());
+
+    auto list_array = std::dynamic_pointer_cast<arrow::ListArray>(record_batch->column(0));
+    ASSERT_TRUE(list_array);
+    auto values_array = std::dynamic_pointer_cast<arrow::Int16Array>(list_array->values());
+    ASSERT_TRUE(values_array);
+    ASSERT_EQ(values_array->length(), 5);
+    ASSERT_TRUE(values_array->IsNull(0));
+    ASSERT_EQ(values_array->Value(1), 1);
+    ASSERT_TRUE(values_array->IsNull(2));
+    ASSERT_EQ(values_array->Value(3), 2);
+    ASSERT_TRUE(values_array->IsNull(4));
+
+    auto assert_block = std::make_shared<Block>(block->clone_empty());
+    CommonDataTypeSerdeTest::deserialize_arrow(assert_block, record_batch);
+    CommonDataTypeSerdeTest::compare_two_blocks(block, assert_block);
+}
+
 TEST(DataTypeSerDeArrowTest, BigStringSerDeTest) {
     std::string col_name = "big_string";
     auto block = std::make_shared<Block>();
