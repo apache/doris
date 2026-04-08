@@ -177,7 +177,11 @@ public class Optimizer {
     private Plan eliminateEmptyRelation(Plan plan) {
         CascadesContext ctx = CascadesContext.initContext(
                 cascadesContext.getStatementContext(), plan, PhysicalProperties.ANY);
-        Rewriter.getWholeTreeRewriterWithCustomJobs(ctx, ImmutableList.of(
+        // Use getCteChildrenRewriter for the same reason as rewriteInlinedPlan:
+        // getWholeTreeRewriterWithCustomJobs would invoke RewriteCteChildren which
+        // reads stale rewrittenCteConsumer cache from the main Rewriter phase,
+        // reverting the inlined CTE subtrees back to the original structure.
+        Rewriter.getCteChildrenRewriter(ctx, ImmutableList.of(
                 Rewriter.bottomUp(new EliminateEmptyRelation()),
                 Rewriter.custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
                 Rewriter.custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new))).execute();
@@ -187,11 +191,19 @@ public class Optimizer {
     /**
      * Run filter pushdown and column pruning on the inlined plan using a temporary
      * CascadesContext.
+     *
+     * We deliberately use getCteChildrenRewriter (no notTraverseChildrenOf wrapper) so that
+     * PUSH_DOWN_FILTERS traverses the ENTIRE inlined plan tree, including inside any remaining
+     * LogicalCTEAnchor subtrees (e.g. for CTEs that were NOT inlined). Using
+     * getWholeTreeRewriterWithCustomJobs would invoke RewriteCteChildren, which reads from the
+     * shared StatementContext cache (rewrittenCteConsumer) populated during the main Rewriter
+     * phase. That cached outer query still contains LogicalCTEConsumer nodes for the inlined CTE,
+     * preventing the filter from ever reaching the inlined union body.
      */
     private Plan rewriteInlinedPlan(Plan inlinedPlan) {
         CascadesContext inlinedContext = CascadesContext.initContext(
                 cascadesContext.getStatementContext(), inlinedPlan, PhysicalProperties.ANY);
-        Rewriter.getWholeTreeRewriterWithCustomJobs(inlinedContext, ImmutableList.of(
+        Rewriter.getCteChildrenRewriter(inlinedContext, ImmutableList.of(
                 Rewriter.bottomUp(RuleSet.PUSH_DOWN_FILTERS),
                 Rewriter.custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
                 Rewriter.bottomUp(RuleSet.PUSH_DOWN_FILTERS),

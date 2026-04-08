@@ -30,6 +30,18 @@ suite("test_cte_multiuse_no_union_not_inline") {
         PROPERTIES ("replication_num" = "1")
     """
     sql "INSERT INTO cte_multiuse_tbl VALUES (1, 10), (2, 20), (3, 30)"
+    sql "DROP TABLE IF EXISTS cte_multiuse_tbl2"
+    sql """
+        CREATE TABLE cte_multiuse_tbl2 (
+            id INT,
+            val INT
+        ) ENGINE=OLAP
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ("replication_num" = "1")
+    """
+    sql "INSERT INTO cte_multiuse_tbl2 VALUES (1, 10), (2, 20), (3, 30)"
+    
     // --- cte_inline_mode = 0: selective mode (default) ---
     sql "SET cte_inline_mode=0"
     // Keep default inline_cte_referenced_threshold=1 so that multi-use CTEs
@@ -111,5 +123,23 @@ suite("test_cte_multiuse_no_union_not_inline") {
             SELECT * FROM cte_union WHERE tag = 2
         """
         notContains("PhysicalCteProducer")
+    }
+
+    explain {
+        sql """
+            shape plan
+            WITH cte_union AS (
+                SELECT id, val, 1 AS tag FROM cte_multiuse_tbl
+                UNION ALL
+                SELECT id, val, 2 AS tag FROM cte_multiuse_tbl
+            ),
+            cte2 as (
+                Select id, val from cte_multiuse_tbl2
+            )
+            SELECT cte_union.* FROM cte_union join cte2 on cte_union.id = cte2.id WHERE cte_union.tag = 1
+            UNION ALL
+            SELECT cte_union.* FROM cte_union join cte2 on cte_union.id = cte2.id WHERE cte_union.tag = 2
+        """
+        multiContains("PhysicalCteProducer", 1)
     }
 }
