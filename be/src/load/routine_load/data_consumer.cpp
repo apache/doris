@@ -909,7 +909,8 @@ Status KinesisDataConsumer::group_consume(
                     DorisMetrics::instance()->routine_load_kinesis_retriable_error_count->increment(
                             1);
                     LOG(INFO) << "Kinesis retriable error for shard " << shard_id << ": "
-                              << error.GetMessage() << ", retry times: " << retry_policy.retry_count();
+                              << error.GetMessage()
+                              << ", retry times: " << retry_policy.retry_count();
                     if (retry_policy.should_retry()) {
                         retry_policy.retry_with_backoff();
                         continue;

@@ -27,6 +27,7 @@
 #include "io/fs/kafka_consumer_pipe.h"
 #include "io/fs/kinesis_consumer_pipe.h"
 #include "librdkafka/rdkafkacpp.h"
+#include "load/routine_load/consumer_group_helpers.h"
 #include "load/routine_load/data_consumer.h"
 #include "load/stream_load/stream_load_context.h"
 #include "util/stopwatch.hpp"
@@ -109,15 +110,10 @@ Status KafkaDataConsumerGroup::assign_topic_partitions(std::shared_ptr<StreamLoa
     DCHECK(ctx->kafka_info);
     DCHECK(_consumers.size() >= 1);
 
-    // divide partitions
+    // divide partitions using round-robin partitioner
     int consumer_size = doris::cast_set<int>(_consumers.size());
-    std::vector<std::map<int32_t, int64_t>> divide_parts(consumer_size);
-    int i = 0;
-    for (auto& kv : ctx->kafka_info->begin_offset) {
-        int idx = i % consumer_size;
-        divide_parts[idx].emplace(kv.first, kv.second);
-        i++;
-    }
+    auto divide_parts = WorkPartitioner<int32_t, int64_t>::partition_round_robin(
+            ctx->kafka_info->begin_offset, consumer_size);
 
     // assign partitions to consumers equally
     for (int j = 0; j < consumer_size; ++j) {
@@ -181,9 +177,7 @@ bool KafkaDataConsumerGroup::_dequeue_and_process(io::StreamLoadPipe* pipe, int6
         return true;
     }
 
-    auto append_fn = (_format == TFileFormatType::FORMAT_JSON)
-                             ? &io::StreamLoadPipe::append_json
-                             : &io::StreamLoadPipe::append_with_line_delimiter;
+    auto append_fn = FormatAppender::get_append_function<io::StreamLoadPipe>(_format);
     Status st = (pipe->*append_fn)(static_cast<const char*>(msg->payload()),
                                    static_cast<size_t>(msg->len()));
     if (st.ok()) {
@@ -217,15 +211,10 @@ Status KinesisDataConsumerGroup::assign_stream_shards(std::shared_ptr<StreamLoad
     DCHECK(ctx->kinesis_info);
     DCHECK(_consumers.size() >= 1);
 
-    // divide shards
+    // divide shards using round-robin partitioner
     int consumer_size = doris::cast_set<int>(_consumers.size());
-    std::vector<std::map<std::string, std::string>> divide_shards(consumer_size);
-    int i = 0;
-    for (auto& kv : ctx->kinesis_info->begin_sequence_number) {
-        int idx = i % consumer_size;
-        divide_shards[idx].emplace(kv.first, kv.second);
-        i++;
-    }
+    auto divide_shards = WorkPartitioner<std::string, std::string>::partition_round_robin(
+            ctx->kinesis_info->begin_sequence_number, consumer_size);
 
     // assign shards to consumers equally
     for (int j = 0; j < consumer_size; ++j) {
@@ -277,9 +266,7 @@ bool KinesisDataConsumerGroup::_dequeue_and_process(io::StreamLoadPipe* pipe, in
     size_t len = data.GetLength();
     VLOG_NOTICE << "get kinesis record, seq: " << record->GetSequenceNumber() << ", len: " << len;
 
-    auto append_fn = (_format == TFileFormatType::FORMAT_JSON)
-                             ? &io::StreamLoadPipe::append_json
-                             : &io::StreamLoadPipe::append_with_line_delimiter;
+    auto append_fn = FormatAppender::get_append_function<io::StreamLoadPipe>(_format);
     Status st = (pipe->*append_fn)(payload, len);
     if (st.ok()) {
         left_rows--;
