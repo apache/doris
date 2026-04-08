@@ -50,10 +50,10 @@ TEST(FunctionFileTest, toFileFailsWithUnreachableObject) {
                                    string_type, "region"},
             ColumnWithTypeAndName {ColumnHelper::create_column<DataTypeString>({endpoint}),
                                    string_type, "endpoint"},
-            ColumnWithTypeAndName {ColumnHelper::create_column<DataTypeString>({ak}),
-                                   string_type, "ak"},
-            ColumnWithTypeAndName {ColumnHelper::create_column<DataTypeString>({sk}),
-                                   string_type, "sk"}};
+            ColumnWithTypeAndName {ColumnHelper::create_column<DataTypeString>({ak}), string_type,
+                                   "ak"},
+            ColumnWithTypeAndName {ColumnHelper::create_column<DataTypeString>({sk}), string_type,
+                                   "sk"}};
 
     auto result_type = std::make_shared<DataTypeFile>();
     auto function =

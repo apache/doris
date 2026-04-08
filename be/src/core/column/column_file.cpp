@@ -53,19 +53,21 @@ void ColumnFile::insert_range_from(const IColumn& src, size_t start, size_t leng
     _data->insert_range_from(assert_cast<const ColumnFile&>(src).get_jsonb_column(), start, length);
 }
 
-void ColumnFile::insert_range_from_ignore_overflow(const IColumn& src, size_t start, size_t length) {
+void ColumnFile::insert_range_from_ignore_overflow(const IColumn& src, size_t start,
+                                                   size_t length) {
     _data->insert_range_from_ignore_overflow(assert_cast<const ColumnFile&>(src).get_jsonb_column(),
                                              start, length);
 }
 
 void ColumnFile::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                                      const uint32_t* indices_end) {
-    _data->insert_indices_from(assert_cast<const ColumnFile&>(src).get_jsonb_column(), indices_begin,
-                               indices_end);
+    _data->insert_indices_from(assert_cast<const ColumnFile&>(src).get_jsonb_column(),
+                               indices_begin, indices_end);
 }
 
 void ColumnFile::insert_many_from(const IColumn& src, size_t position, size_t length) {
-    _data->insert_many_from(assert_cast<const ColumnFile&>(src).get_jsonb_column(), position, length);
+    _data->insert_many_from(assert_cast<const ColumnFile&>(src).get_jsonb_column(), position,
+                            length);
 }
 
 void ColumnFile::insert_default() {
@@ -124,8 +126,9 @@ void ColumnFile::update_hashes_with_value(uint64_t* __restrict hashes,
     _data->update_hashes_with_value(hashes, null_data);
 }
 
-void ColumnFile::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type, uint32_t rows,
-                                        uint32_t offset, const uint8_t* __restrict null_data) const {
+void ColumnFile::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type,
+                                        uint32_t rows, uint32_t offset,
+                                        const uint8_t* __restrict null_data) const {
     _data->update_crcs_with_value(hash, type, rows, offset, null_data);
 }
 
@@ -161,7 +164,8 @@ bool ColumnFile::structure_equals(const IColumn& rhs) const {
 }
 
 void ColumnFile::replace_column_data(const IColumn& rhs, size_t row, size_t self_row) {
-    _data->replace_column_data(assert_cast<const ColumnFile&>(rhs).get_jsonb_column(), row, self_row);
+    _data->replace_column_data(assert_cast<const ColumnFile&>(rhs).get_jsonb_column(), row,
+                               self_row);
 }
 
 void ColumnFile::get_permutation(bool reverse, size_t limit, int nan_direction_hint,
@@ -169,8 +173,9 @@ void ColumnFile::get_permutation(bool reverse, size_t limit, int nan_direction_h
     _data->get_permutation(reverse, limit, nan_direction_hint, sorter, res);
 }
 
-void ColumnFile::sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
-                             EqualRange& range, bool last_column) const {
+void ColumnFile::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
+                             IColumn::Permutation& perms, EqualRange& range,
+                             bool last_column) const {
     _data->sort_column(sorter, flags, perms, range, last_column);
 }
 

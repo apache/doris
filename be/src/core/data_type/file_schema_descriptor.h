@@ -44,7 +44,7 @@ struct FileMetadata {
     std::string external_id;
 };
 
-// now struct FileInfo only contains file_name and file_size, 
+// now struct FileInfo only contains file_name and file_size,
 // and if we want to get ETAG and LAST_MODIFIED_AT, need refactor FileInfo and the underlying file system client to support them.
 class FileSchemaDescriptor final {
 public:

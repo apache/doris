@@ -57,8 +57,7 @@ public:
     void pop_back(size_t n) override;
 
     MutableColumnPtr clone_resized(size_t size) const override;
-    StringRef serialize_value_into_arena(size_t n, Arena& arena,
-                                         char const*& begin) const override;
+    StringRef serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const override;
     const char* deserialize_and_insert_from_arena(const char* pos) override;
     size_t serialize_size_at(size_t row) const override;
     size_t deserialize_impl(const char* pos) override;

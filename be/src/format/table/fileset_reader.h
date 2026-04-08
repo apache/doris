@@ -40,7 +40,8 @@ class FilesetReader : public GenericReader {
 
 public:
     FilesetReader(const std::vector<SlotDescriptor*>& file_slot_descs, RuntimeState* state,
-                  RuntimeProfile* profile, const std::map<std::string, std::string>& fileset_params);
+                  RuntimeProfile* profile,
+                  const std::map<std::string, std::string>& fileset_params);
     ~FilesetReader() override = default;
 
     Status init_reader();
