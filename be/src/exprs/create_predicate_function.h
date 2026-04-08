@@ -188,7 +188,6 @@ inline auto create_set(PrimitiveType type, size_t size, bool null_aware) {
     }
 }
 
-template <size_t N = 0>
 inline HybridSetBase* create_string_value_set(bool null_aware) {
     return new StringValueSet(null_aware);
 }
