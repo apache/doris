@@ -74,11 +74,11 @@ public class IvmSimpleScanDeltaStrategy extends PlanVisitor<IvmSimpleScanDeltaSt
     }
 
     @Override
-    public List<DeltaCommandBundle> rewrite(Plan normalizedPlan, IvmDeltaRewriteContext ctx) {
+    public List<IvmDeltaCommandBundle> rewrite(Plan normalizedPlan, IvmDeltaRewriteContext ctx) {
         RewriteResult result = rewritePlan(normalizedPlan);
         Plan finalPlan = buildSinkProject(result, ctx);
         Command insertCommand = buildInsertCommandWithDeleteSign(finalPlan, ctx);
-        return Collections.singletonList(new DeltaCommandBundle(insertCommand));
+        return Collections.singletonList(new IvmDeltaCommandBundle(insertCommand));
     }
 
     /** Strips ResultSink and walks the plan tree via the visitor. */
