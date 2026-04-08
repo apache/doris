@@ -65,9 +65,7 @@ public:
               _left_bytes(max_bytes) {}
 
     // Check if any limit is reached
-    bool is_limit_reached() const {
-        return _left_time <= 0 || _left_rows <= 0 || _left_bytes <= 0;
-    }
+    bool is_limit_reached() const { return _left_time <= 0 || _left_rows <= 0 || _left_bytes <= 0; }
 
     // Update progress after consuming one item
     void consume_item(int64_t bytes) {
