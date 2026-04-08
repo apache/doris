@@ -1764,6 +1764,11 @@ DECLARE_mInt64(max_csv_line_reader_output_buffer_size);
 DECLARE_Int32(omp_threads_limit);
 // The capacity of segment partial column cache, used to cache column readers for each segment.
 DECLARE_mInt32(max_segment_partial_column_cache_size);
+// Cache for ANN index IVF on-disk list data.
+// Default "70%" means 70% of total physical memory.
+DECLARE_String(ann_index_ivf_list_cache_limit);
+// Stale sweep time for ANN index IVF list cache in seconds.
+DECLARE_mInt32(ann_index_ivf_list_cache_stale_sweep_time_sec);
 // Chunk size for ANN/vector index building per training/adding batch
 DECLARE_mInt64(ann_index_build_chunk_size);
 

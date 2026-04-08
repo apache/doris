@@ -887,6 +887,11 @@ void OlapScanner::_collect_profile_before_close() {
                    stats.rows_ann_index_range_filtered);
     COUNTER_UPDATE(local_state->_ann_topn_filter_counter, stats.rows_ann_index_topn_filtered);
     COUNTER_UPDATE(local_state->_ann_index_load_costs, stats.ann_index_load_ns);
+    COUNTER_UPDATE(local_state->_ann_ivf_on_disk_load_costs, stats.ann_ivf_on_disk_load_ns);
+    COUNTER_UPDATE(local_state->_ann_ivf_on_disk_cache_hit_cnt,
+                   stats.ann_ivf_on_disk_cache_hit_cnt);
+    COUNTER_UPDATE(local_state->_ann_ivf_on_disk_cache_miss_cnt,
+                   stats.ann_ivf_on_disk_cache_miss_cnt);
     COUNTER_UPDATE(local_state->_ann_range_search_costs, stats.ann_index_range_search_ns);
     COUNTER_UPDATE(local_state->_ann_range_search_cnt, stats.ann_index_range_search_cnt);
     COUNTER_UPDATE(local_state->_ann_range_engine_search_costs, stats.ann_range_engine_search_ns);
@@ -921,6 +926,8 @@ void OlapScanner::_collect_profile_before_close() {
     // Doris-side result convert costs (show separately as another child counter); use pure process time
     COUNTER_UPDATE(local_state->_ann_topn_result_convert_costs,
                    stats.ann_index_topn_result_process_ns);
+
+    COUNTER_UPDATE(local_state->_ann_fallback_brute_force_cnt, stats.ann_fall_back_brute_force_cnt);
 
     // Overhead counter removed; precise instrumentation is reported via engine_prepare above.
 }

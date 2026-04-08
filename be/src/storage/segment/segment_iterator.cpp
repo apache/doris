@@ -76,6 +76,7 @@
 #include "storage/field.h"
 #include "storage/id_manager.h"
 #include "storage/index/ann/ann_index.h"
+#include "storage/index/ann/ann_index_iterator.h"
 #include "storage/index/ann/ann_index_reader.h"
 #include "storage/index/ann/ann_topn_runtime.h"
 #include "storage/index/index_file_reader.h"
@@ -864,6 +865,7 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
                 has_ann_index, has_common_expr_push_down, has_column_predicate);
         // Disable index-only scan on ann indexed column.
         _need_read_data_indices[src_cid] = true;
+        _opts.stats->ann_fall_back_brute_force_cnt += 1;
         return Status::OK();
     }
 
@@ -877,6 +879,7 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
                     "Asc topn for inner product can not be evaluated by ann index");
             // Disable index-only scan on ann indexed column.
             _need_read_data_indices[src_cid] = true;
+            _opts.stats->ann_fall_back_brute_force_cnt += 1;
             return Status::OK();
         }
     } else {
@@ -884,6 +887,7 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
             VLOG_DEBUG << fmt::format("Desc topn for l2/cosine can not be evaluated by ann index");
             // Disable index-only scan on ann indexed column.
             _need_read_data_indices[src_cid] = true;
+            _opts.stats->ann_fall_back_brute_force_cnt += 1;
             return Status::OK();
         }
     }
@@ -896,6 +900,7 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
                 metric_to_string(ann_index_reader->get_metric_type()));
         // Disable index-only scan on ann indexed column.
         _need_read_data_indices[src_cid] = true;
+        _opts.stats->ann_fall_back_brute_force_cnt += 1;
         return Status::OK();
     }
 
@@ -909,14 +914,41 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
                 pre_size, rows_of_segment);
         // Disable index-only scan on ann indexed column.
         _need_read_data_indices[src_cid] = true;
+        _opts.stats->ann_fall_back_brute_force_cnt += 1;
         return Status::OK();
     }
     IColumn::MutablePtr result_column;
     std::unique_ptr<std::vector<uint64_t>> result_row_ids;
     segment_v2::AnnIndexStats ann_index_stats;
-    RETURN_IF_ERROR(_ann_topn_runtime->evaluate_vector_ann_search(ann_index_iterator, &_row_bitmap,
-                                                                  rows_of_segment, result_column,
-                                                                  result_row_ids, ann_index_stats));
+
+    // Try to load ANN index before search
+    auto ann_index_iterator_casted =
+            dynamic_cast<segment_v2::AnnIndexIterator*>(ann_index_iterator);
+    if (ann_index_iterator_casted == nullptr) {
+        VLOG_DEBUG << "Failed to cast index iterator to AnnIndexIterator, fallback to brute force";
+        _need_read_data_indices[src_cid] = true;
+        _opts.stats->ann_fall_back_brute_force_cnt += 1;
+        return Status::OK();
+    }
+
+    // Track load index timing
+    {
+        SCOPED_TIMER(&(ann_index_stats.load_index_costs_ns));
+        if (!ann_index_iterator_casted->try_load_index()) {
+            VLOG_DEBUG << "Failed to load ANN index, fallback to brute force search";
+            _need_read_data_indices[src_cid] = true;
+            _opts.stats->ann_fall_back_brute_force_cnt += 1;
+            return Status::OK();
+        }
+        double load_costs_ms =
+                static_cast<double>(ann_index_stats.load_index_costs_ns.value()) / 1000000.0;
+        DorisMetrics::instance()->ann_index_load_costs_ms->increment(
+                static_cast<int64_t>(load_costs_ms));
+    }
+
+    RETURN_IF_ERROR(_ann_topn_runtime->evaluate_vector_ann_search(
+            ann_index_iterator_casted, &_row_bitmap, rows_of_segment, result_column, result_row_ids,
+            ann_index_stats));
 
     VLOG_DEBUG << fmt::format("Ann topn filtered {} - {} = {} rows", pre_size,
                               _row_bitmap.cardinality(), pre_size - _row_bitmap.cardinality());
@@ -925,6 +957,10 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
     _opts.stats->rows_ann_index_topn_filtered += rows_filterd;
     _opts.stats->ann_index_load_ns += ann_index_stats.load_index_costs_ns.value();
     _opts.stats->ann_topn_search_ns += ann_index_stats.search_costs_ns.value();
+    _opts.stats->ann_ivf_on_disk_load_ns += ann_index_stats.ivf_on_disk_load_costs_ns.value();
+    _opts.stats->ann_ivf_on_disk_cache_hit_cnt += ann_index_stats.ivf_on_disk_cache_hit_cnt.value();
+    _opts.stats->ann_ivf_on_disk_cache_miss_cnt +=
+            ann_index_stats.ivf_on_disk_cache_miss_cnt.value();
     _opts.stats->ann_index_topn_engine_search_ns += ann_index_stats.engine_search_ns.value();
     _opts.stats->ann_index_topn_result_process_ns +=
             ann_index_stats.result_process_costs_ns.value();
@@ -1170,8 +1206,8 @@ Status SegmentIterator::_apply_index_expr() {
     }
 
     // Apply ann range search
-    segment_v2::AnnIndexStats ann_index_stats;
     for (const auto& expr_ctx : _common_expr_ctxs_push_down) {
+        segment_v2::AnnIndexStats ann_index_stats;
         size_t origin_rows = _row_bitmap.cardinality();
         RETURN_IF_ERROR(expr_ctx->evaluate_ann_range_search(
                 _index_iterators, _schema->column_ids(), _column_iterators,
@@ -1179,10 +1215,16 @@ Status SegmentIterator::_apply_index_expr() {
         _opts.stats->rows_ann_index_range_filtered += (origin_rows - _row_bitmap.cardinality());
         _opts.stats->ann_index_load_ns += ann_index_stats.load_index_costs_ns.value();
         _opts.stats->ann_index_range_search_ns += ann_index_stats.search_costs_ns.value();
+        _opts.stats->ann_ivf_on_disk_load_ns += ann_index_stats.ivf_on_disk_load_costs_ns.value();
+        _opts.stats->ann_ivf_on_disk_cache_hit_cnt +=
+                ann_index_stats.ivf_on_disk_cache_hit_cnt.value();
+        _opts.stats->ann_ivf_on_disk_cache_miss_cnt +=
+                ann_index_stats.ivf_on_disk_cache_miss_cnt.value();
         _opts.stats->ann_range_engine_search_ns += ann_index_stats.engine_search_ns.value();
         _opts.stats->ann_range_result_convert_ns += ann_index_stats.result_process_costs_ns.value();
         _opts.stats->ann_range_engine_convert_ns += ann_index_stats.engine_convert_ns.value();
         _opts.stats->ann_range_pre_process_ns += ann_index_stats.engine_prepare_ns.value();
+        _opts.stats->ann_fall_back_brute_force_cnt += ann_index_stats.fall_back_brute_force_cnt;
     }
 
     for (auto it = _common_expr_ctxs_push_down.begin(); it != _common_expr_ctxs_push_down.end();) {

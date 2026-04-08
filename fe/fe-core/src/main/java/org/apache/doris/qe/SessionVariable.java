@@ -3395,7 +3395,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = IVF_NPROBE, needForward = true,
             description = {"IVF 索引的 nprobe 参数，控制搜索时访问的聚类数量",
                     "IVF index nprobe parameter, controls the number of clusters to search"})
-    public int ivfNprobe = 1;
+    public int ivfNprobe = 32;
 
     @VariableMgr.VarAttr(
             name = DEFAULT_VARIANT_MAX_SUBCOLUMNS_COUNT,

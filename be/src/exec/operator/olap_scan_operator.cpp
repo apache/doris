@@ -341,6 +341,11 @@ Status OlapScanLocalState::_init_profile() {
     _ann_topn_engine_search_costs = ADD_CHILD_TIMER(
             _segment_profile, "AnnIndexTopNEngineSearchCosts", "AnnIndexTopNSearchCosts");
     _ann_index_load_costs = ADD_TIMER(_segment_profile, "AnnIndexLoadCosts");
+    _ann_ivf_on_disk_load_costs = ADD_TIMER(_segment_profile, "AnnIvfOnDiskLoadCosts");
+    _ann_ivf_on_disk_cache_hit_cnt =
+            ADD_COUNTER(_segment_profile, "AnnIvfOnDiskCacheHitCnt", TUnit::UNIT);
+    _ann_ivf_on_disk_cache_miss_cnt =
+            ADD_COUNTER(_segment_profile, "AnnIvfOnDiskCacheMissCnt", TUnit::UNIT);
     _ann_topn_post_process_costs = ADD_CHILD_TIMER(
             _segment_profile, "AnnIndexTopNResultPostProcessCosts", "AnnIndexTopNSearchCosts");
     _ann_topn_pre_process_costs = ADD_CHILD_TIMER(
@@ -367,6 +372,8 @@ Status OlapScanLocalState::_init_profile() {
     _ann_range_result_convert_costs =
             ADD_CHILD_TIMER(_segment_profile, "AnnIndexRangeResultConvertCosts",
                             "AnnIndexRangeResultPostProcessCosts");
+    _ann_fallback_brute_force_cnt =
+            ADD_COUNTER(_segment_profile, "AnnIndexFallbackBruteForceCnt", TUnit::UNIT);
     _variant_scan_sparse_column_timer = ADD_TIMER(_segment_profile, "VariantScanSparseColumnTimer");
     _variant_scan_sparse_column_bytes =
             ADD_COUNTER(_segment_profile, "VariantScanSparseColumnBytes", TUnit::BYTES);

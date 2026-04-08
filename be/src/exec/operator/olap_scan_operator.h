@@ -234,6 +234,9 @@ private:
     RuntimeProfile::Counter* _ann_topn_search_cnt = nullptr;
 
     RuntimeProfile::Counter* _ann_index_load_costs = nullptr;
+    RuntimeProfile::Counter* _ann_ivf_on_disk_load_costs = nullptr;
+    RuntimeProfile::Counter* _ann_ivf_on_disk_cache_hit_cnt = nullptr;
+    RuntimeProfile::Counter* _ann_ivf_on_disk_cache_miss_cnt = nullptr;
     RuntimeProfile::Counter* _ann_topn_pre_process_costs = nullptr;
     RuntimeProfile::Counter* _ann_topn_engine_search_costs = nullptr;
     RuntimeProfile::Counter* _ann_topn_post_process_costs = nullptr;
@@ -252,6 +255,8 @@ private:
 
     RuntimeProfile::Counter* _ann_range_engine_convert_costs = nullptr;
     RuntimeProfile::Counter* _ann_range_result_convert_costs = nullptr;
+
+    RuntimeProfile::Counter* _ann_fallback_brute_force_cnt = nullptr;
 
     RuntimeProfile::Counter* _output_index_result_column_timer = nullptr;
 

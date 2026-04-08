@@ -1707,6 +1707,14 @@ DEFINE_mInt32(max_segment_partial_column_cache_size, "100");
 DEFINE_mBool(enable_prefill_output_dbm_agg_cache_after_compaction, "true");
 DEFINE_mBool(enable_prefill_all_dbm_agg_cache_after_compaction, "true");
 
+// Cache for ANN index IVF on-disk list data.
+// "70%" means 70% of the process available memory, not 70% of total machine memory.
+// With default mem_limit="90%", this is effectively about 63% (90% * 70%) of physical memory
+// visible to the process (considering cgroup limits).
+DEFINE_String(ann_index_ivf_list_cache_limit, "70%");
+// Stale sweep time for ANN index IVF list cache in seconds. 3600s is 1 hour.
+DEFINE_mInt32(ann_index_ivf_list_cache_stale_sweep_time_sec, "3600");
+
 // Chunk size for ANN/vector index building per training/adding batch
 // 1M By default.
 DEFINE_mInt64(ann_index_build_chunk_size, "1000000");

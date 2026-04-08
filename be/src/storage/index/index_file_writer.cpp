@@ -143,7 +143,14 @@ Status IndexFileWriter::add_into_searcher_cache() {
         auto dir = DORIS_TRY(index_file_reader->_open(index_meta.first, index_meta.second));
         std::vector<std::string> file_names;
         dir->list(&file_names);
-        if (file_names.size() == 1 && (file_names[0] == faiss_index_fila_name)) {
+        // Skip ANN indexes – they use FAISS files (ann.faiss, ann.ivfdata) instead of
+        // CLucene segments, so building an inverted-index searcher would fail.
+        // HNSW/IVF produces 1 file (ann.faiss); IVF_ON_DISK produces 2 (ann.faiss + ann.ivfdata).
+        bool is_ann_index =
+                std::any_of(file_names.begin(), file_names.end(), [](const std::string& f) {
+                    return f == faiss_index_fila_name || f == faiss_ivfdata_file_name;
+                });
+        if (is_ann_index) {
             continue;
         }
         auto index_file_key = InvertedIndexDescriptor::get_index_file_cache_key(
@@ -242,8 +249,7 @@ Status IndexFileWriter::finish_close() {
     if (_idx_v2_writer != nullptr && _idx_v2_writer->state() != io::FileWriter::State::CLOSED) {
         RETURN_IF_ERROR(_idx_v2_writer->close(false));
     }
-    LOG_INFO("IndexFileWriter finish_close, enable_write_index_searcher_cache: {}",
-             config::enable_write_index_searcher_cache);
+
     Status st = Status::OK();
     if (config::enable_write_index_searcher_cache) {
         st = add_into_searcher_cache();
