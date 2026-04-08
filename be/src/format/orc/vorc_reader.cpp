@@ -48,6 +48,7 @@
 #include "absl/strings/substitute.h"
 #include "cctz/civil_time.h"
 #include "cctz/time_zone.h"
+#include "common/config.h"
 #include "common/consts.h"
 #include "common/exception.h"
 #include "core/block/block.h"
@@ -2435,6 +2436,15 @@ Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eo
         *read_rows = 0;
         return Status::OK();
     }
+
+    // Limit memory per batch for load paths: pre-shrink _batch_size using the bytes-per-row
+    // estimate from the previous batch so the current batch stays within load_reader_max_block_bytes
+    // (effective from call 2 onward; first batch is capped on the next call).
+    const int64_t max_block_bytes =
+            (_state != nullptr && _state->query_type() == TQueryType::LOAD &&
+             config::load_reader_max_block_bytes > 0)
+                    ? config::load_reader_max_block_bytes
+                    : 0;
     if (_push_down_agg_type == TPushAggOp::type::COUNT) {
         auto rows = std::min(get_remaining_rows(), (int64_t)_batch_size);
 
@@ -2449,6 +2459,15 @@ Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eo
             *eof = true;
         }
         return Status::OK();
+    }
+
+    if (max_block_bytes > 0 && _load_bytes_per_row > 0 && _row_reader) {
+        size_t new_batch_size = std::max(
+                (size_t)1, (size_t)((int64_t)max_block_bytes / (int64_t)_load_bytes_per_row));
+        if (new_batch_size != _batch_size) {
+            _batch_size = new_batch_size;
+            _batch = _row_reader->createRowBatch(_batch_size);
+        }
     }
 
     if (!_seek_to_read_one_line()) {
@@ -2791,6 +2810,10 @@ Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eo
         }
 #endif
         *read_rows = block->rows();
+    }
+
+    if (max_block_bytes > 0 && *read_rows > 0) {
+        _load_bytes_per_row = block->bytes() / *read_rows;
     }
     return Status::OK();
 }
