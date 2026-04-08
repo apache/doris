@@ -28,7 +28,6 @@ public:
             : StreamLoadPipe(max_buffered_bytes, min_chunk_size) {}
 
     ~KinesisConsumerPipe() override = default;
-
 };
 
 } // namespace io

@@ -27,7 +27,6 @@ public:
             : StreamLoadPipe(max_buffered_bytes, min_chunk_size) {}
 
     ~KafkaConsumerPipe() override = default;
-
 };
 } // namespace io
 } // end namespace doris

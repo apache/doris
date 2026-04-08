@@ -48,10 +48,8 @@ bool DataConsumerGroup::_submit_all_consumers(
                 result_st = st;
             }
         };
-        if (!_thread_pool.offer(
-                    [consume_fn, consumer, cb] { consume_fn(consumer, cb); })) {
-            LOG(WARNING) << "failed to submit consumer: " << consumer->id()
-                         << ", grp: " << _grp_id;
+        if (!_thread_pool.offer([consume_fn, consumer, cb] { consume_fn(consumer, cb); })) {
+            LOG(WARNING) << "failed to submit consumer: " << consumer->id() << ", grp: " << _grp_id;
             return false;
         }
         VLOG_CRITICAL << "submit consumer: " << consumer->id() << ", grp: " << _grp_id;
@@ -60,8 +58,8 @@ bool DataConsumerGroup::_submit_all_consumers(
 }
 
 Status DataConsumerGroup::_run_consume_loop(std::shared_ptr<StreamLoadContext> ctx,
-                                             std::shared_ptr<io::StreamLoadPipe> pipe,
-                                             Status& result_st) {
+                                            std::shared_ptr<io::StreamLoadPipe> pipe,
+                                            Status& result_st) {
     int64_t left_time = ctx->max_interval_s * 1000;
     int64_t left_rows = ctx->max_batch_rows;
     int64_t left_bytes = ctx->max_batch_size;
@@ -78,9 +76,9 @@ Status DataConsumerGroup::_run_consume_loop(std::shared_ptr<StreamLoadContext> c
             LOG(INFO) << "consumer group done: " << _grp_id
                       << ". consume time(ms)=" << ctx->max_interval_s * 1000 - left_time
                       << ", received rows=" << ctx->max_batch_rows - left_rows
-                      << ", received bytes=" << ctx->max_batch_size - left_bytes
-                      << ", eos: " << eos << ", left_time: " << left_time
-                      << ", left_rows: " << left_rows << ", left_bytes: " << left_bytes
+                      << ", received bytes=" << ctx->max_batch_size - left_bytes << ", eos: " << eos
+                      << ", left_time: " << left_time << ", left_rows: " << left_rows
+                      << ", left_bytes: " << left_bytes
                       << ", blocking get time(us): " << pipe->get_queue_size() << ", "
                       << ctx->brief();
 
@@ -155,7 +153,7 @@ Status KafkaDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx,
 
     if (!_submit_all_consumers(
                 [this, max_time = ctx->max_interval_s * 1000](std::shared_ptr<DataConsumer> c,
-                                                               ConsumeFinishCallback cb) {
+                                                              ConsumeFinishCallback cb) {
                     actual_consume(c, &_queue, max_time, cb);
                 },
                 [this] { _queue.shutdown(); }, result_st)) {
@@ -167,7 +165,7 @@ Status KafkaDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx,
 }
 
 bool KafkaDataConsumerGroup::_dequeue_and_process(io::StreamLoadPipe* pipe, int64_t& left_rows,
-                                                   int64_t& left_bytes, Status& result_st) {
+                                                  int64_t& left_bytes, Status& result_st) {
     RdKafka::Message* msg = nullptr;
     if (!_queue.controlled_blocking_get(&msg, config::blocking_queue_cv_wait_timeout_ms)) {
         return false;
@@ -206,7 +204,6 @@ bool KafkaDataConsumerGroup::_dequeue_and_process(io::StreamLoadPipe* pipe, int6
 void KafkaDataConsumerGroup::_on_finish(std::shared_ptr<StreamLoadContext> ctx) {
     // cmt_offset is moved back in start_all after _run_consume_loop returns
 }
-
 
 void KafkaDataConsumerGroup::actual_consume(std::shared_ptr<DataConsumer> consumer,
                                             BlockingQueue<RdKafka::Message*>* queue,
@@ -260,7 +257,7 @@ Status KinesisDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ct
 
     if (!_submit_all_consumers(
                 [this, max_time = ctx->max_interval_s * 1000](std::shared_ptr<DataConsumer> c,
-                                                               ConsumeFinishCallback cb) {
+                                                              ConsumeFinishCallback cb) {
                     actual_consume(c, &_queue, max_time, cb);
                 },
                 [this] { _queue.shutdown(); }, result_st)) {
@@ -270,7 +267,7 @@ Status KinesisDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ct
 }
 
 bool KinesisDataConsumerGroup::_dequeue_and_process(io::StreamLoadPipe* pipe, int64_t& left_rows,
-                                                     int64_t& left_bytes, Status& result_st) {
+                                                    int64_t& left_bytes, Status& result_st) {
     std::shared_ptr<Aws::Kinesis::Model::Record> record;
     if (!_queue.controlled_blocking_get(&record, config::blocking_queue_cv_wait_timeout_ms)) {
         return false;
@@ -305,8 +302,7 @@ void KinesisDataConsumerGroup::_on_finish(std::shared_ptr<StreamLoadContext> ctx
             ctx->kinesis_info->cmt_sequence_number[shard_id] = seq_num;
         }
         for (auto& [shard_id, millis] : kinesis_consumer->get_millis_behind_latest()) {
-            auto [it, inserted] =
-                    ctx->kinesis_info->millis_behind_latest.emplace(shard_id, millis);
+            auto [it, inserted] = ctx->kinesis_info->millis_behind_latest.emplace(shard_id, millis);
             if (!inserted && it->second < millis) {
                 it->second = millis;
             }
