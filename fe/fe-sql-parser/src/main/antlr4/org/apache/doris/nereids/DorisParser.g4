@@ -150,7 +150,8 @@ createMaterializedViewStatement
     ;
 
 refreshMaterializedViewStatement
-    : REFRESH MATERIALIZED VIEW mvName=multipartIdentifier (partitionSpec | COMPLETE | AUTO)    #refreshMTMV
+    : REFRESH MATERIALIZED VIEW mvName=multipartIdentifier
+        (partitionSpec | COMPLETE | AUTO | INCREMENTAL | PARTITIONS)                            #refreshMTMV
     ;
 
 alterMaterializedViewStatement
