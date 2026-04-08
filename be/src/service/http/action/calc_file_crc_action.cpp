@@ -66,7 +66,7 @@ Status CalcFileCrcAction::_handle_calc_crc(HttpRequest* req, uint32_t* crc_value
         // sync all rowsets
         RETURN_IF_ERROR(std::dynamic_pointer_cast<CloudTablet>(tablet)->sync_rowsets());
     } else if (auto storageEngine = dynamic_cast<StorageEngine*>(&_engine)) {
-        auto tabletPtr = storageEngine->tablet_manager()->get_tablet(tablet_id);
+        auto tabletPtr = DORIS_TRY(storageEngine->tablet_manager()->get_tablet_temp(tablet_id));
         tablet = std::dynamic_pointer_cast<Tablet>(tabletPtr);
     } else {
         return Status::InternalError("convert _engine failed");

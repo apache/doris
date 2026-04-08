@@ -462,11 +462,10 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
                                TabletPublishStatistics* stats,
                                std::shared_ptr<TabletTxnInfo>& extend_tablet_txn_info,
                                const int64_t commit_tso) {
-    auto tablet = _engine.tablet_manager()->get_tablet(tablet_id);
-    if (tablet == nullptr) {
+    auto tablet = _engine.tablet_manager()->get_tablet_temp(tablet_id);
+    if (!tablet.has_value()) {
         return Status::OK();
     }
-    DCHECK(stats != nullptr);
 
     pair<int64_t, int64_t> key(partition_id, transaction_id);
     TabletInfo tablet_info(tablet_id, tablet_uid);
@@ -549,23 +548,23 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
             // delete bitmap is empty, should re-calculate delete bitmaps between segments
             std::vector<segment_v2::SegmentSharedPtr> segments;
             RETURN_IF_ERROR(std::static_pointer_cast<BetaRowset>(rowset)->load_segments(&segments));
-            RETURN_IF_ERROR(tablet->calc_delete_bitmap_between_segments(
+            RETURN_IF_ERROR(tablet.value()->calc_delete_bitmap_between_segments(
                     rowset->tablet_schema(), rowset->rowset_id(), segments,
                     tablet_txn_info->delete_bitmap));
         }
 
         RETURN_IF_ERROR(
-                Tablet::update_delete_bitmap(tablet, tablet_txn_info.get(), transaction_id));
+                Tablet::update_delete_bitmap(tablet.value(), tablet_txn_info.get(), transaction_id));
         int64_t t3 = MonotonicMicros();
         stats->calc_delete_bitmap_time_us = t3 - t2;
         RETURN_IF_ERROR(TabletMetaManager::save_delete_bitmap(
-                tablet->data_dir(), tablet->tablet_id(), tablet_txn_info->delete_bitmap,
+                tablet.value()->data_dir(), tablet.value()->tablet_id(), tablet_txn_info->delete_bitmap,
                 version.second));
         stats->save_meta_time_us = MonotonicMicros() - t3;
     }
 
     /// Step 3:  add to binlog
-    auto enable_binlog = tablet->is_enable_binlog();
+    auto enable_binlog = tablet.value()->is_enable_binlog();
     if (enable_binlog) {
         auto status = rowset->add_to_binlog();
         if (!status.ok()) {
@@ -605,7 +604,7 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
     if (enable_binlog) {
         auto version_str = fmt::format("{}", version.first);
         VLOG_DEBUG << fmt::format("tabletid: {}, version: {}, binlog filepath: {}", tablet_id,
-                                  version_str, tablet->get_binlog_filepath(version_str));
+                                  version_str, tablet.value()->get_binlog_filepath(version_str));
     }
 
     /// Step 5: remove tablet_info from tnx_tablet_map

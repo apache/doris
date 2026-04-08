@@ -117,10 +117,7 @@ Status CompactionAction::_handle_show_compaction(HttpRequest* req, std::string* 
         return Status::InternalError("check param failed: missing tablet_id");
     }
 
-    TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id);
-    if (tablet == nullptr) {
-        return Status::NotFound("Tablet not found. tablet_id={}", tablet_id);
-    }
+    TabletSharedPtr tablet = DORIS_TRY(_engine.tablet_manager()->get_tablet_temp(tablet_id));
 
     tablet->get_compaction_status(json_result);
     return Status::OK();
@@ -160,10 +157,7 @@ Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* j
         }
     } else {
         // 2. fetch the tablet by tablet_id
-        TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id);
-        if (tablet == nullptr) {
-            return Status::NotFound("Tablet not found. tablet_id={}", tablet_id);
-        }
+        TabletSharedPtr tablet = DORIS_TRY(_engine.tablet_manager()->get_tablet_temp(tablet_id));
 
         if (fetch_from_remote && !tablet->should_fetch_from_peer()) {
             return Status::NotSupported("tablet should do compaction locally");
@@ -226,11 +220,7 @@ Status CompactionAction::_handle_run_status_compaction(HttpRequest* req, std::st
         return Status::OK();
     } else {
         // fetch the tablet by tablet_id
-        TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id);
-        if (tablet == nullptr) {
-            LOG(WARNING) << "invalid argument.tablet_id:" << tablet_id;
-            return Status::InternalError("fail to get {}", tablet_id);
-        }
+        TabletSharedPtr tablet = DORIS_TRY(_engine.tablet_manager()->get_tablet_temp(tablet_id));
 
         std::string json_template = R"({
             "status" : "Success",

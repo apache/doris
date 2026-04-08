@@ -88,11 +88,12 @@ Status RestoreTabletAction::_handle(HttpRequest* req) {
     int32_t schema_hash = std::atoi(schema_hash_str.c_str());
     LOG(INFO) << "get restore tablet action request: " << tablet_id << "-" << schema_hash;
 
-    TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id);
-    if (tablet != nullptr) {
+    auto tablet = _engine.tablet_manager()->get_tablet_temp(tablet_id);
+    if (tablet.has_value()) {
         LOG(WARNING) << "find tablet. tablet_id=" << tablet_id << " schema_hash=" << schema_hash;
         return Status::InternalError("tablet already exists, can not restore.");
     }
+
     std::string key = tablet_id_str + "_" + schema_hash_str;
     {
         // check tablet_id + schema_hash already is restoring

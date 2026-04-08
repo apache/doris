@@ -400,14 +400,14 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetSharedPtr>& to_add,
             }
             calc_delete_bitmap_rowsets = std::move(ret->rowsets);
             // FIXME(plat1ko): Use `const TabletSharedPtr&` as parameter
-            auto self = _engine.tablet_manager()->get_tablet(tablet_id());
-            CHECK(self);
+            auto self = _engine.tablet_manager()->get_tablet_temp(tablet_id());
+            CHECK(self.has_value());
             for (auto rs : calc_delete_bitmap_rowsets) {
                 if (is_incremental_clone) {
-                    calc_bm_status = update_delete_bitmap_without_lock(self, rs);
+                    calc_bm_status = update_delete_bitmap_without_lock(self.value(), rs);
                 } else {
                     calc_bm_status = update_delete_bitmap_without_lock(
-                            self, rs, &base_rowsets_for_full_clone);
+                            self.value(), rs, &base_rowsets_for_full_clone);
                     base_rowsets_for_full_clone.push_back(rs);
                 }
                 if (!calc_bm_status.ok()) {
@@ -1959,12 +1959,12 @@ Result<std::unique_ptr<RowsetWriter>> Tablet::create_transient_rowset_writer(
     context.enable_segcompaction = false;
     // ATTN: context.tablet is a shared_ptr, can't simply set it's value to `this`. We should
     // get the shared_ptr from tablet_manager.
-    auto tablet = _engine.tablet_manager()->get_tablet(tablet_id());
-    if (!tablet) {
+    auto tablet = _engine.tablet_manager()->get_tablet_temp(tablet_id());
+    if (!tablet.has_value()) {
         LOG(WARNING) << "cant find tablet by tablet_id=" << tablet_id();
-        return ResultError(Status::NotFound("cant find tablet by tablet_id={}", tablet_id()));
+        return ResultError(tablet.error());
     }
-    context.tablet = tablet;
+    context.tablet = tablet.value();
     context.write_type = DataWriteType::TYPE_DIRECT;
     context.partial_update_info = std::move(partial_update_info);
     context.is_transient_rowset_writer = true;
@@ -2131,9 +2131,9 @@ Status Tablet::_cooldown_data(RowsetSharedPtr rowset) {
     // Upload cooldowned rowset meta to remote fs
     // ATTN: Even if it is an empty rowset, in order for the followers to synchronize, the coolown meta must be
     // uploaded, otherwise followers may never completely cooldown.
-    if (auto t = _engine.tablet_manager()->get_tablet(tablet_id());
-        t != nullptr) { // `t` can be nullptr if it has been dropped
-        async_write_cooldown_meta(std::move(t));
+    if (auto t = _engine.tablet_manager()->get_tablet_temp(tablet_id());
+        t.has_value()) { // `t` can be nullptr if it has been dropped
+        async_write_cooldown_meta(std::move(t.value()));
     }
     return Status::OK();
 }

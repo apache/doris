@@ -324,10 +324,7 @@ void alter_cloud_tablet(CloudStorageEngine& engine, const TAgentTaskRequest& age
 Status check_migrate_request(StorageEngine& engine, const TStorageMediumMigrateReq& req,
                              TabletSharedPtr& tablet, DataDir** dest_store) {
     int64_t tablet_id = req.tablet_id;
-    tablet = engine.tablet_manager()->get_tablet(tablet_id);
-    if (tablet == nullptr) {
-        return Status::InternalError("could not find tablet {}", tablet_id);
-    }
+    tablet = DORIS_TRY(engine.tablet_manager()->get_tablet_temp(tablet_id));
 
     if (req.__isset.data_dir) {
         // request specify the data dir
@@ -827,8 +824,8 @@ void alter_inverted_index_callback(StorageEngine& engine, const TAgentTaskReques
               << ", job_id=" << alter_inverted_index_rq.job_id;
 
     Status status = Status::OK();
-    auto tablet_ptr = engine.tablet_manager()->get_tablet(alter_inverted_index_rq.tablet_id);
-    if (tablet_ptr != nullptr) {
+    auto res = engine.tablet_manager()->get_tablet_temp(alter_inverted_index_rq.tablet_id);
+    if (res.has_value()) {
         EngineIndexChangeTask engine_task(engine, alter_inverted_index_rq);
         SCOPED_ATTACH_TASK(engine_task.mem_tracker());
         status = engine_task.execute();
@@ -869,13 +866,14 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
     Status status;
     const auto& update_tablet_meta_req = req.update_tablet_meta_info_req;
     for (const auto& tablet_meta_info : update_tablet_meta_req.tabletMetaInfos) {
-        auto tablet = engine.tablet_manager()->get_tablet(tablet_meta_info.tablet_id);
-        if (tablet == nullptr) {
+        auto tablet_res = engine.tablet_manager()->get_tablet_temp(tablet_meta_info.tablet_id);
+        if (!tablet_res.has_value()) {
             status = Status::NotFound("tablet not found");
             LOG(WARNING) << "could not find tablet when update tablet meta. tablet_id="
                          << tablet_meta_info.tablet_id;
             continue;
         }
+        auto &tablet = tablet_res.value();
         bool need_to_save = false;
         if (tablet_meta_info.__isset.partition_id) {
             // for fix partition_id = 0
@@ -1537,13 +1535,13 @@ void move_dir_callback(StorageEngine& engine, ExecEnv* env, const TAgentTaskRequ
     LOG(INFO) << "get move dir task. signature=" << req.signature
               << ", job_id=" << move_dir_req.job_id;
     Status status;
-    auto tablet = engine.tablet_manager()->get_tablet(move_dir_req.tablet_id);
-    if (tablet == nullptr) {
-        status = Status::InvalidArgument("Could not find tablet");
+    auto res = engine.tablet_manager()->get_tablet_temp(move_dir_req.tablet_id);
+    if (!res.has_value()) {
+        status = res.error();
     } else {
         SnapshotLoader loader(engine, env, move_dir_req.job_id, move_dir_req.tablet_id);
         SCOPED_ATTACH_TASK(loader.resource_ctx());
-        status = loader.move(move_dir_req.src, tablet, true);
+        status = loader.move(move_dir_req.src, res.value(), true);
     }
 
     if (!status.ok()) {
@@ -1614,16 +1612,16 @@ void submit_table_compaction_callback(StorageEngine& engine, const TAgentTaskReq
         compaction_type = CompactionType::CUMULATIVE_COMPACTION;
     }
 
-    auto tablet_ptr = engine.tablet_manager()->get_tablet(compaction_req.tablet_id);
-    if (tablet_ptr != nullptr) {
-        auto* data_dir = tablet_ptr->data_dir();
-        if (!tablet_ptr->can_do_compaction(data_dir->path_hash(), compaction_type)) {
-            LOG(WARNING) << "could not do compaction. tablet_id=" << tablet_ptr->tablet_id()
+    auto res = engine.tablet_manager()->get_tablet_temp(compaction_req.tablet_id);
+    if (res.has_value()) {
+        auto* data_dir = res.value()->data_dir();
+        if (!res.value()->can_do_compaction(data_dir->path_hash(), compaction_type)) {
+            LOG(WARNING) << "could not do compaction. tablet_id=" << res.value()->tablet_id()
                          << ", compaction_type=" << compaction_type;
             return;
         }
 
-        Status status = engine.submit_compaction_task(tablet_ptr, compaction_type, false);
+        Status status = engine.submit_compaction_task(res.value(), compaction_type, false);
         if (!status.ok()) {
             LOG(WARNING) << "failed to submit table compaction task. error=" << status;
         }
@@ -1755,16 +1753,16 @@ void push_cooldown_conf_callback(StorageEngine& engine, const TAgentTaskRequest&
     const auto& push_cooldown_conf_req = req.push_cooldown_conf;
     for (const auto& cooldown_conf : push_cooldown_conf_req.cooldown_confs) {
         int64_t tablet_id = cooldown_conf.tablet_id;
-        TabletSharedPtr tablet = engine.tablet_manager()->get_tablet(tablet_id);
-        if (tablet == nullptr) {
+        auto tablet = engine.tablet_manager()->get_tablet_temp(tablet_id);
+        if (!tablet.has_value()) {
             LOG(WARNING) << "failed to get tablet. tablet_id=" << tablet_id;
             continue;
         }
-        if (tablet->update_cooldown_conf(cooldown_conf.cooldown_term,
+        if (tablet.value()->update_cooldown_conf(cooldown_conf.cooldown_term,
                                          cooldown_conf.cooldown_replica_id) &&
-            cooldown_conf.cooldown_replica_id == tablet->replica_id() &&
-            tablet->tablet_meta()->cooldown_meta_id().initialized()) {
-            Tablet::async_write_cooldown_meta(tablet);
+            cooldown_conf.cooldown_replica_id == tablet.value()->replica_id() &&
+            tablet.value()->tablet_meta()->cooldown_meta_id().initialized()) {
+            Tablet::async_write_cooldown_meta(tablet.value());
         }
     }
 }
@@ -1805,37 +1803,38 @@ void create_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req)
         std::string error_msg;
         {
             SCOPED_TIMER(ADD_TIMER(profile, "GetTablet"));
-            tablet = engine.tablet_manager()->get_tablet(create_tablet_req.tablet_id, false,
+            auto tablet_res = engine.tablet_manager()->get_tablet_temp(create_tablet_req.tablet_id, false,
                                                          &error_msg);
+            if (tablet_res.has_value()) {
+                tablet = tablet_res.value();
+                TTabletInfo tablet_info;
+                tablet_info.tablet_id = tablet->tablet_id();
+                tablet_info.schema_hash = tablet->schema_hash();
+                tablet_info.version = create_tablet_req.version;
+                // Useless but it is a required field in TTabletInfo
+                tablet_info.version_hash = 0;
+                tablet_info.row_count = 0;
+                tablet_info.data_size = 0;
+                tablet_info.__set_path_hash(tablet->data_dir()->path_hash());
+                tablet_info.__set_replica_id(tablet->replica_id());
+                finish_tablet_infos.push_back(tablet_info);
+                LOG_INFO("successfully create tablet")
+                        .tag("signature", req.signature)
+                        .tag("tablet_id", create_tablet_req.tablet_id);
+            } else {
+                // This is not a normal path, a possible case is that DataDir::health_check()
+                // encounters an IO_ERROR, causing get_tablet() to return nullptr even though
+                // the create_tablet succeeded.
+                status = Status::NotFound("failed to get tablet, reason={}", error_msg);
+                DorisMetrics::instance()->create_tablet_requests_failed->increment(1);
+                LOG_WARNING("created tablet is missing before finishing create task, reason={}",
+                            status.to_string())
+                        .tag("signature", req.signature)
+                        .tag("tablet_id", create_tablet_req.tablet_id)
+                        .error(status);
+            }
         }
 
-        if (tablet) {
-            TTabletInfo tablet_info;
-            tablet_info.tablet_id = tablet->tablet_id();
-            tablet_info.schema_hash = tablet->schema_hash();
-            tablet_info.version = create_tablet_req.version;
-            // Useless but it is a required field in TTabletInfo
-            tablet_info.version_hash = 0;
-            tablet_info.row_count = 0;
-            tablet_info.data_size = 0;
-            tablet_info.__set_path_hash(tablet->data_dir()->path_hash());
-            tablet_info.__set_replica_id(tablet->replica_id());
-            finish_tablet_infos.push_back(tablet_info);
-            LOG_INFO("successfully create tablet")
-                    .tag("signature", req.signature)
-                    .tag("tablet_id", create_tablet_req.tablet_id);
-        } else {
-            // This is not a normal path, a possible case is that DataDir::health_check()
-            // encounters an IO_ERROR, causing get_tablet() to return nullptr even though
-            // the create_tablet succeeded.
-            status = Status::NotFound("failed to get tablet, reason={}", error_msg);
-            DorisMetrics::instance()->create_tablet_requests_failed->increment(1);
-            LOG_WARNING("created tablet is missing before finishing create task, reason={}",
-                        status.to_string())
-                    .tag("signature", req.signature)
-                    .tag("tablet_id", create_tablet_req.tablet_id)
-                    .error(status);
-        }
     }
     TFinishTaskRequest finish_task_request;
     finish_task_request.__set_finish_tablet_infos(finish_tablet_infos);
@@ -1851,8 +1850,8 @@ void create_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req)
 void drop_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
     const auto& drop_tablet_req = req.drop_tablet_req;
     Status status;
-    auto dropped_tablet = engine.tablet_manager()->get_tablet(drop_tablet_req.tablet_id, false);
-    if (dropped_tablet != nullptr) {
+    auto res = engine.tablet_manager()->get_tablet_temp(drop_tablet_req.tablet_id, false);
+    if (res.has_value()) {
         status = engine.tablet_manager()->drop_tablet(drop_tablet_req.tablet_id,
                                                       drop_tablet_req.replica_id,
                                                       drop_tablet_req.is_drop_table_or_partition);
@@ -1862,8 +1861,8 @@ void drop_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
     if (status.ok()) {
         // if tablet is dropped by fe, then the related txn should also be removed
         engine.txn_manager()->force_rollback_tablet_related_txns(
-                dropped_tablet->data_dir()->get_meta(), drop_tablet_req.tablet_id,
-                dropped_tablet->tablet_uid());
+                res.value()->data_dir()->get_meta(), drop_tablet_req.tablet_id,
+                res.value()->tablet_uid());
         LOG_INFO("successfully drop tablet")
                 .tag("signature", req.signature)
                 .tag("tablet_id", drop_tablet_req.tablet_id)
@@ -2136,18 +2135,18 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
             (!config::enable_compaction_pause_on_high_memory ||
              !GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE))) {
             for (auto [tablet_id, _] : succ_tablets) {
-                TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id);
-                if (tablet != nullptr) {
-                    if (!tablet->tablet_meta()->tablet_schema()->disable_auto_compaction()) {
-                        tablet->published_count.fetch_add(1);
-                        int64_t published_count = tablet->published_count.load();
-                        int32_t max_version_config = tablet->max_version_config();
-                        if (tablet->exceed_version_limit(
+                auto tablet = _engine.tablet_manager()->get_tablet_temp(tablet_id);
+                if (tablet.has_value()) {
+                    if (!tablet.value()->tablet_meta()->tablet_schema()->disable_auto_compaction()) {
+                        tablet.value()->published_count.fetch_add(1);
+                        int64_t published_count = tablet.value()->published_count.load();
+                        int32_t max_version_config = tablet.value()->max_version_config();
+                        if (tablet.value()->exceed_version_limit(
                                     max_version_config *
                                     config::load_trigger_compaction_version_percent / 100) &&
                             published_count % 20 == 0) {
                             auto st = _engine.submit_compaction_task(
-                                    tablet, CompactionType::CUMULATIVE_COMPACTION, true, false);
+                                    tablet.value(), CompactionType::CUMULATIVE_COMPACTION, true, false);
                             if (!st.ok()) [[unlikely]] {
                                 LOG(WARNING) << "trigger compaction failed, tablet_id=" << tablet_id
                                              << ", published=" << published_count << " : " << st;

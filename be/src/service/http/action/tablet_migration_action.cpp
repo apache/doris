@@ -187,11 +187,7 @@ Status TabletMigrationAction::_check_param(HttpRequest* req, int64_t& tablet_id,
 Status TabletMigrationAction::_check_migrate_request(int64_t tablet_id, unsigned long schema_hash,
                                                      std::string dest_disk, TabletSharedPtr& tablet,
                                                      DataDir** dest_store) {
-    tablet = _engine.tablet_manager()->get_tablet(tablet_id);
-    if (tablet == nullptr) {
-        LOG(WARNING) << "no tablet for tablet_id:" << tablet_id;
-        return Status::NotFound("Tablet not found");
-    }
+    tablet = DORIS_TRY(_engine.tablet_manager()->get_tablet_temp(tablet_id));
 
     // request specify the data dir
     *dest_store = _engine.get_store(dest_disk);

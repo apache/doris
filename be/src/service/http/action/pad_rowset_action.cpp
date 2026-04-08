@@ -89,7 +89,7 @@ Status PadRowsetAction::_handle(HttpRequest* req) {
         return Status::InternalError("Invalid input version");
     }
 
-    auto tablet = _engine.tablet_manager()->get_tablet(tablet_id);
+    auto tablet = DORIS_TRY(_engine.tablet_manager()->get_tablet_temp(tablet_id));
     if (nullptr == tablet) {
         return Status::InternalError("Unknown tablet id {}", tablet_id);
     }
