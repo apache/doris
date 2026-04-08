@@ -825,7 +825,8 @@ Status SchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& request) {
 
     // Lock schema_change_lock util schema change info is stored in tablet header
     static constexpr long TRY_LOCK_TIMEOUT = 30;
-    std::unique_lock schema_change_lock(_base_tablet.value()->get_schema_change_lock(), std::defer_lock);
+    std::unique_lock schema_change_lock(_base_tablet.value()->get_schema_change_lock(),
+                                        std::defer_lock);
     bool owns_lock = schema_change_lock.try_lock_for(std::chrono::seconds(TRY_LOCK_TIMEOUT));
 
     if (!owns_lock) {
@@ -848,7 +849,8 @@ SchemaChangeJob::SchemaChangeJob(StorageEngine& local_storage_engine,
     _new_tablet = _local_storage_engine.tablet_manager()->get_tablet(request.new_tablet_id);
     if (_base_tablet.has_value() && _new_tablet.has_value()) {
         _base_tablet_schema = std::make_shared<TabletSchema>();
-        _base_tablet_schema->update_tablet_columns(*_base_tablet.value()->tablet_schema(), request.columns);
+        _base_tablet_schema->update_tablet_columns(*_base_tablet.value()->tablet_schema(),
+                                                   request.columns);
         // The request only include column info, do not include bitmap or bloomfilter index info,
         // So we also need to copy index info from the real base tablet
         _base_tablet_schema->update_index_info_from(*_base_tablet.value()->tablet_schema());
@@ -856,7 +858,8 @@ SchemaChangeJob::SchemaChangeJob(StorageEngine& local_storage_engine,
         // This is because the schema change for a variant needs to ignore the extracted columns.
         // Otherwise, the schema types in different rowsets might be inconsistent. When performing a schema change,
         // the complete variant is constructed by reading all the sub-columns of the variant.
-        _new_tablet_schema = _new_tablet.value()->tablet_schema()->copy_without_variant_extracted_columns();
+        _new_tablet_schema =
+                _new_tablet.value()->tablet_schema()->copy_without_variant_extracted_columns();
     }
     _job_id = job_id;
 }
@@ -893,12 +896,14 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
               << " base_tablet=" << _base_tablet.value()->tablet_id()
               << " new_tablet=" << _new_tablet.value()->tablet_id();
 
-    std::shared_lock base_migration_rlock(_base_tablet.value()->get_migration_lock(), std::try_to_lock);
+    std::shared_lock base_migration_rlock(_base_tablet.value()->get_migration_lock(),
+                                          std::try_to_lock);
     if (!base_migration_rlock.owns_lock()) {
         return Status::Error<TRY_LOCK_FAILED>(
                 "SchemaChangeJob::_do_process_alter_tablet get lock failed");
     }
-    std::shared_lock new_migration_rlock(_new_tablet.value()->get_migration_lock(), std::try_to_lock);
+    std::shared_lock new_migration_rlock(_new_tablet.value()->get_migration_lock(),
+                                         std::try_to_lock);
     if (!new_migration_rlock.owns_lock()) {
         return Status::Error<TRY_LOCK_FAILED>(
                 "SchemaChangeJob::_do_process_alter_tablet get lock failed");
@@ -1028,8 +1033,8 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
             }
 
             // acquire data sources correspond to history versions
-            RETURN_IF_ERROR(
-                    _base_tablet.value()->capture_rs_readers_unlocked(versions_to_be_changed, &rs_splits));
+            RETURN_IF_ERROR(_base_tablet.value()->capture_rs_readers_unlocked(
+                    versions_to_be_changed, &rs_splits));
             if (rs_splits.empty()) {
                 res = Status::Error<ALTER_DELTA_DOES_NOT_EXISTS>(
                         "fail to acquire all data sources. version_num={}, data_source_num={}",
@@ -1048,7 +1053,8 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
             res = delete_handler.init(_base_tablet_schema, del_preds, end_version);
             if (!res) {
                 LOG(WARNING) << "init delete handler failed. base_tablet="
-                             << _base_tablet.value()->tablet_id() << ", end_version=" << end_version;
+                             << _base_tablet.value()->tablet_id()
+                             << ", end_version=" << end_version;
                 break;
             }
 
@@ -1073,7 +1079,8 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
             for (auto& rs_split : rs_splits) {
                 res = rs_split.rs_reader->init(&reader_context);
                 if (!res) {
-                    LOG(WARNING) << "failed to init rowset reader: " << _base_tablet.value()->tablet_id();
+                    LOG(WARNING) << "failed to init rowset reader: "
+                                 << _base_tablet.value()->tablet_id();
                     break;
                 }
             }
@@ -1224,7 +1231,8 @@ Status SchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParams& sc
     Status res = parse_request(sc_params, _base_tablet_schema.get(), _new_tablet_schema.get(),
                                &changer, &sc_sorting, &sc_directly);
     LOG(INFO) << "schema change type, sc_sorting: " << sc_sorting
-              << ", sc_directly: " << sc_directly << ", base_tablet=" << _base_tablet.value()->tablet_id()
+              << ", sc_directly: " << sc_directly
+              << ", base_tablet=" << _base_tablet.value()->tablet_id()
               << ", new_tablet=" << _new_tablet.value()->tablet_id();
 
     auto process_alter_exit = [&]() -> Status {
@@ -1303,8 +1311,9 @@ Status SchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParams& sc
         auto rowset_writer = std::move(result).value();
         auto pending_rs_guard = _local_storage_engine.add_pending_rowset(context);
 
-        if (res = sc_procedure->process(rs_reader, rowset_writer.get(), _new_tablet.value(), _base_tablet.value(),
-                                        _base_tablet_schema, _new_tablet_schema);
+        if (res = sc_procedure->process(rs_reader, rowset_writer.get(), _new_tablet.value(),
+                                        _base_tablet.value(), _base_tablet_schema,
+                                        _new_tablet_schema);
             !res) {
             LOG(WARNING) << "failed to process the version."
                          << " version=" << rs_reader->version().first << "-"
