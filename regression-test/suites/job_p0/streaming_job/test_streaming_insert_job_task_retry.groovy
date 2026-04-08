@@ -67,7 +67,7 @@ suite("test_streaming_insert_job_task_retry", 'nonConcurrent') {
                 {
                     def jobStatus = sql """ select Status,FailedTaskCount from jobs("type"="insert") where Name = '${jobName}' and ExecuteType='STREAMING' """
                     log.info("jobStatus: " + jobStatus)
-                    jobStatus.size() == 1 && 'PAUSED' == jobStatus.get(0).get(0) && '1' == jobStatus.get(0).get(1)
+                    jobStatus.size() == 1 && 'RETRYING' == jobStatus.get(0).get(0) && '1' == jobStatus.get(0).get(1)
                 }
         )
     } catch (Exception ex){

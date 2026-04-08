@@ -46,8 +46,11 @@ public class StreamingJobSchedulerTask extends AbstractTask {
             case RUNNING:
                 handleRunningState();
                 break;
+            case RETRYING:
+                handleRetryingState();
+                break;
             case PAUSED:
-                autoResumeHandler();
+                // PAUSED jobs do nothing here, they wait for user to manually RESUME.
                 break;
             default:
                 break;
@@ -83,28 +86,41 @@ public class StreamingJobSchedulerTask extends AbstractTask {
         streamingInsertJob.fetchMeta();
     }
 
-    private void autoResumeHandler() throws JobException {
-        final FailureReason failureReason = streamingInsertJob.getFailureReason();
+    private void handleRetryingState() throws JobException {
         final long latestAutoResumeTimestamp = streamingInsertJob.getLatestAutoResumeTimestamp();
         final long autoResumeCount = streamingInsertJob.getAutoResumeCount();
         final long current = System.currentTimeMillis();
 
-        if (failureReason != null
-                && failureReason.getCode() != InternalErrorCode.MANUAL_PAUSE_ERR
-                && failureReason.getCode() != InternalErrorCode.TOO_MANY_FAILURE_ROWS_ERR
-                && failureReason.getCode() != InternalErrorCode.CANNOT_RESUME_ERR) {
-            long autoResumeIntervalTimeSec = autoResumeCount < 5
-                        ? Math.min((long) Math.pow(2, autoResumeCount) * BACK_OFF_BASIC_TIME_SEC,
-                                MAX_BACK_OFF_TIME_SEC) : MAX_BACK_OFF_TIME_SEC;
-            if (current - latestAutoResumeTimestamp > autoResumeIntervalTimeSec * 1000L) {
-                streamingInsertJob.setLatestAutoResumeTimestamp(current);
-                if (autoResumeCount < Long.MAX_VALUE) {
-                    streamingInsertJob.setAutoResumeCount(autoResumeCount + 1);
-                }
-                streamingInsertJob.updateJobStatus(JobStatus.PENDING);
+        long autoResumeIntervalTimeSec = autoResumeCount < 5
+                    ? Math.min((long) Math.pow(2, autoResumeCount) * BACK_OFF_BASIC_TIME_SEC,
+                            MAX_BACK_OFF_TIME_SEC) : MAX_BACK_OFF_TIME_SEC;
+        if (current - latestAutoResumeTimestamp <= autoResumeIntervalTimeSec * 1000L) {
+            // backoff not reached, wait
+            return;
+        }
+
+        streamingInsertJob.setLatestAutoResumeTimestamp(current);
+        if (autoResumeCount < Long.MAX_VALUE) {
+            streamingInsertJob.setAutoResumeCount(autoResumeCount + 1);
+        }
+
+        if (Config.isCloudMode()) {
+            try {
+                streamingInsertJob.replayOnCloudMode();
+            } catch (JobException e) {
+                streamingInsertJob.setFailureReason(
+                    new FailureReason(InternalErrorCode.INTERNAL_ERR, e.getMessage()));
+                // stay in RETRYING, will retry next round
                 return;
             }
         }
+        if (streamingInsertJob.hasReachedEnd()) {
+            streamingInsertJob.updateJobStatus(JobStatus.FINISHED);
+            return;
+        }
+        streamingInsertJob.createStreamingTask();
+        streamingInsertJob.setSampleStartTime(System.currentTimeMillis());
+        // stay in RETRYING, transition to RUNNING happens in onStreamTaskSuccess()
     }
 
     @Override

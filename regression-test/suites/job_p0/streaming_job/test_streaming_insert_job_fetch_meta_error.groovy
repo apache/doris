@@ -67,7 +67,7 @@ suite("test_streaming_insert_job_fetch_meta_error", "nonConcurrent") {
                     {
                         def jobRes = sql """ select Status from jobs("type"="insert") where Name = '${jobName}' and ExecuteType='STREAMING' """
                         log.info("jobRes: " + jobRes)
-                        jobRes.size() == 1 && 'PAUSED'.equals(jobRes.get(0).get(0))
+                        jobRes.size() == 1 && 'RETRYING'.equals(jobRes.get(0).get(0))
                     }
             )
         } catch (Exception ex) {
@@ -79,7 +79,7 @@ suite("test_streaming_insert_job_fetch_meta_error", "nonConcurrent") {
         }
 
         def jobStatus = sql """select Status, ErrorMsg from jobs("type"="insert") where Name='${jobName}'"""
-        assert jobStatus.get(0).get(0) == "PAUSED"
+        assert jobStatus.get(0).get(0) == "RETRYING"
         assert jobStatus.get(0).get(1).contains("Failed to list S3 files")
 
         sql """

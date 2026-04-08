@@ -314,16 +314,21 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
             throw new IllegalArgumentException(errorMsg);
         }
         if (newJobStatus.equals(JobStatus.RUNNING)
-                && (!jobStatus.equals(JobStatus.PAUSED) && !jobStatus.equals(JobStatus.PENDING))) {
+                && (!jobStatus.equals(JobStatus.PAUSED) && !jobStatus.equals(JobStatus.PENDING)
+                    && !jobStatus.equals(JobStatus.RETRYING))) {
             throw new IllegalArgumentException(errorMsg);
         }
         if (newJobStatus.equals(JobStatus.PAUSED) && jobStatus.equals(JobStatus.STOPPED)) {
             throw new IllegalArgumentException(errorMsg);
         }
+        if (newJobStatus.equals(JobStatus.RETRYING) && jobStatus.equals(JobStatus.STOPPED)) {
+            throw new IllegalArgumentException(errorMsg);
+        }
         if (newJobStatus.equals(JobStatus.FINISHED)) {
             this.finishTimeMs = System.currentTimeMillis();
         }
-        if (JobStatus.PAUSED.equals(newJobStatus) || JobStatus.STOPPED.equals(newJobStatus)) {
+        if (JobStatus.PAUSED.equals(newJobStatus) || JobStatus.STOPPED.equals(newJobStatus)
+                || JobStatus.RETRYING.equals(newJobStatus)) {
             cancelAllTasks(JobStatus.STOPPED.equals(newJobStatus) ? false : true);
         }
         jobStatus = newJobStatus;

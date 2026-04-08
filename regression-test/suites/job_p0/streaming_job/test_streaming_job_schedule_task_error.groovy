@@ -66,7 +66,7 @@ suite("test_streaming_job_schedule_task_error", 'nonConcurrent') {
                         def jobRes = sql """ select Status, errorMsg from jobs("type"="insert") where Name = '${jobName}' and ExecuteType='STREAMING' """
                         // check job status and succeed task count larger than 2
                         log.info("jobRes: " + jobRes)
-                        jobRes.size() == 1 && 'PAUSED'.equals(jobRes.get(0).get(0))
+                        jobRes.size() == 1 && 'RETRYING'.equals(jobRes.get(0).get(0))
                     }
             )
         } catch (Exception ex){

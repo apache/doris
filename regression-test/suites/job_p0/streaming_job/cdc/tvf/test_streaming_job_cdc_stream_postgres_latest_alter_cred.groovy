@@ -173,7 +173,7 @@ suite("test_streaming_job_cdc_stream_postgres_latest_alter_cred",
             Awaitility.await().atMost(120, SECONDS).pollInterval(2, SECONDS).until({
                 def s = sql """select status from jobs("type"="insert") where Name='${jobName}'"""
                 log.info("status after wrong cred resume: " + s)
-                s.size() == 1 && s.get(0).get(0) == "PAUSED"
+                s.size() == 1 && s.get(0).get(0) == "RETRYING"
             })
         } catch (Exception ex) {
             log.info("job: " + (sql """select * from jobs("type"="insert") where Name='${jobName}'"""))

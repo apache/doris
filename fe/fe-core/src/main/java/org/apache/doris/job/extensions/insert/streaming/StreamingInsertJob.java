@@ -414,7 +414,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         lock.writeLock().lock();
         try {
             super.updateJobStatus(status);
-            if (JobStatus.PAUSED.equals(getJobStatus())) {
+            if (JobStatus.PAUSED.equals(getJobStatus()) || JobStatus.RETRYING.equals(getJobStatus())) {
                 clearRunningStreamTask(status);
             }
             if (isFinalStatus()) {
@@ -560,14 +560,13 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             log.warn("fetch remote meta failed, job id: {}", getJobId(), ex);
             if (this.getFailureReason() == null
                     || !InternalErrorCode.MANUAL_PAUSE_ERR.equals(this.getFailureReason().getCode())) {
-                // When a job is manually paused, it does not need to be set again,
-                // otherwise, it may be woken up by auto resume.
+                // When a job is manually paused, it should not be overridden.
                 this.setFailureReason(
                         new FailureReason(InternalErrorCode.GET_REMOTE_DATA_ERROR,
                                 "Failed to fetch meta, " + ex.getMessage()));
-                // If fetching meta fails, the job is paused
-                // and auto resume will automatically wake it up.
-                this.updateJobStatus(JobStatus.PAUSED);
+                // If fetching meta fails, the job enters RETRYING state
+                // and will automatically retry with exponential backoff.
+                this.updateJobStatus(JobStatus.RETRYING);
 
                 if (MetricRepo.isInit) {
                     MetricRepo.COUNTER_STREAMING_JOB_GET_META_FAIL_COUNT.increase(1L);
@@ -586,7 +585,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         readLock();
         try {
             return (getJobStatus().equals(JobStatus.RUNNING)
-                    || getJobStatus().equals(JobStatus.PENDING));
+                    || getJobStatus().equals(JobStatus.PENDING)
+                    || getJobStatus().equals(JobStatus.RETRYING));
         } finally {
             readUnlock();
         }
@@ -631,7 +631,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         } finally {
             writeUnlock();
         }
-        updateJobStatus(JobStatus.PAUSED);
+        updateJobStatus(JobStatus.RETRYING);
     }
 
     public void onStreamTaskSuccess(AbstractStreamingTask task) throws JobException {
@@ -646,6 +646,11 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             }
 
             Env.getCurrentEnv().getJobManager().getStreamingTaskManager().removeRunningTask(task);
+            // If the job was retrying due to previous failures, transition back to RUNNING
+            if (JobStatus.RETRYING.equals(getJobStatus())) {
+                setAutoResumeCount(0);
+                updateJobStatus(JobStatus.RUNNING);
+            }
             if (offsetProvider.hasReachedEnd()) {
                 // offset provider has reached a natural end, mark job as finished
                 log.info("Streaming insert job {} source data fully consumed, marking job as FINISHED", getJobId());
@@ -1149,6 +1154,11 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     @Override
     public void gsonPostProcess() throws IOException {
+        // When downgrading from a newer version that has RETRYING status,
+        // Gson may deserialize the unknown enum value as null. Fall back to PAUSED.
+        if (getJobStatus() == null) {
+            setJobStatus(JobStatus.PAUSED);
+        }
         if (offsetProvider == null) {
             if (tvfType != null) {
                 offsetProvider = SourceOffsetProviderFactory.createSourceOffsetProvider(tvfType);

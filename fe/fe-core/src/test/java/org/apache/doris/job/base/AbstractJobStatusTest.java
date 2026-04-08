@@ -217,4 +217,68 @@ class AbstractJobStatusTest {
         Assertions.assertEquals(JobStatus.FINISHED, job.getJobStatus());
         Assertions.assertTrue(job.getFinishTimeMs() >= before);
     }
+
+    /**
+     * Test retrying status transitions
+     */
+    @Test
+    void testRetryingFromRunning() throws Exception {
+        DummyJob job = new DummyJob(JobStatus.RUNNING);
+        job.updateJobStatus(JobStatus.RETRYING);
+        Assertions.assertEquals(JobStatus.RETRYING, job.getJobStatus());
+    }
+
+    @Test
+    void testRunningFromRetrying() throws Exception {
+        DummyJob job = new DummyJob(JobStatus.RETRYING);
+        job.updateJobStatus(JobStatus.RUNNING);
+        Assertions.assertEquals(JobStatus.RUNNING, job.getJobStatus());
+    }
+
+    @Test
+    void testPausedFromRetrying() throws Exception {
+        DummyJob job = new DummyJob(JobStatus.RETRYING);
+        job.updateJobStatus(JobStatus.PAUSED);
+        Assertions.assertEquals(JobStatus.PAUSED, job.getJobStatus());
+    }
+
+    @Test
+    void testStoppedFromRetrying() throws Exception {
+        DummyJob job = new DummyJob(JobStatus.RETRYING);
+        job.updateJobStatus(JobStatus.STOPPED);
+        Assertions.assertEquals(JobStatus.STOPPED, job.getJobStatus());
+    }
+
+    @Test
+    void testFinishedFromRetrying() throws Exception {
+        DummyJob job = new DummyJob(JobStatus.RETRYING);
+        job.updateJobStatus(JobStatus.FINISHED);
+        Assertions.assertEquals(JobStatus.FINISHED, job.getJobStatus());
+    }
+
+    @Test
+    void testRetryingFromStoppedIsInvalid() {
+        DummyJob job = new DummyJob(JobStatus.STOPPED);
+        Assertions.assertThrows(IllegalArgumentException.class, () -> job.updateJobStatus(JobStatus.RETRYING));
+    }
+
+    @Test
+    void testPendingFromRetrying() throws Exception {
+        DummyJob job = new DummyJob(JobStatus.RETRYING);
+        job.updateJobStatus(JobStatus.PENDING);
+        Assertions.assertEquals(JobStatus.PENDING, job.getJobStatus());
+    }
+
+    @Test
+    void testRetryingCancelsTasks() throws Exception {
+        DummyJob job = new DummyJob(JobStatus.RUNNING);
+        job.createTasks(TaskType.ONE_TIME, null);
+        job.updateJobStatus(JobStatus.RETRYING);
+        Assertions.assertEquals(JobStatus.RETRYING, job.getJobStatus());
+    }
+
+    @Test
+    void testIsRunningIncludesRetrying() {
+        Assertions.assertTrue(JobStatus.isRunning(JobStatus.RETRYING));
+    }
 }

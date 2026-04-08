@@ -29,6 +29,11 @@ public enum JobStatus {
      */
     RUNNING,
     /**
+     * When the task execution encounters a recoverable error, the job will automatically
+     * retry with exponential backoff. Once the task succeeds, the job transitions back to RUNNING.
+     */
+    RETRYING,
+    /**
      * When the task execution encounters an exception or manually suspends the task,
      * the pause state will be triggered.
      * Pause state can be resumed
@@ -46,6 +51,6 @@ public enum JobStatus {
 
 
     public static boolean isRunning(JobStatus status) {
-        return PENDING.equals(status) || RUNNING.equals(status);
+        return PENDING.equals(status) || RUNNING.equals(status) || RETRYING.equals(status);
     }
 }

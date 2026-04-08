@@ -43,6 +43,9 @@ public class ResumeJobCommand extends AlterJobStatusCommand implements ForwardWi
     public void doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         AbstractJob job = ctx.getEnv().getJobManager().getJobByName(super.getJobName());
         if (job instanceof StreamingInsertJob) {
+            if (JobStatus.RETRYING.equals(job.getJobStatus())) {
+                throw new Exception("Job is in RETRYING state, cannot be manually resumed");
+            }
             ctx.getEnv().getJobManager().alterJobStatus(super.getJobName(), JobStatus.PENDING, null);
         } else {
             ctx.getEnv().getJobManager().alterJobStatus(super.getJobName(), JobStatus.RUNNING, null);
