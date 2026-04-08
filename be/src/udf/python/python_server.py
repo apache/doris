@@ -841,6 +841,10 @@ class ModuleUDFLoader(UDFLoader):
         - Fast path: return existing lock without acquiring global lock
         - Slow path: create new lock under global lock protection
         """
+        # Lock by top-level package to avoid concurrent imports mutating shared
+        # parent entries in sys.modules. If we lock by full module name instead,
+        # pkg.mod.func1 and pkg.mod.func2 can import in parallel and race while
+        # initializing pkg/pkg.mod, causing flaky import failures (for example KeyError).
         cache_key = module_name.split(".", 1)[0]
 
         # Fast path: check without lock (read-only, safe for most cases)
