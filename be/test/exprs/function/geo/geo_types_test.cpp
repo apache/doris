@@ -2065,7 +2065,7 @@ TEST_F(GeoTypesTest, st_coorddim) {
     {
         GeoParseStatus status;
         const char* wkt = "LINESTRING (1 1, 2 2)";
-        auto line = GeoShape::from_wkt(wkt, strlen(wkt), &status);
+        auto line = GeoShape::from_wkt(wkt, strlen(wkt), status);
         EXPECT_EQ(GEO_PARSE_OK, status);
         EXPECT_NE(nullptr, line.get());
         std::string buf;
@@ -2076,7 +2076,7 @@ TEST_F(GeoTypesTest, st_coorddim) {
     {
         GeoParseStatus status;
         const char* wkt = "POLYGON ((0 0, 1 0, 1 1, 0 1, 0 0))";
-        auto polygon = GeoShape::from_wkt(wkt, strlen(wkt), &status);
+        auto polygon = GeoShape::from_wkt(wkt, strlen(wkt), status);
         EXPECT_EQ(GEO_PARSE_OK, status);
         EXPECT_NE(nullptr, polygon.get());
         std::string buf;
@@ -2096,14 +2096,14 @@ TEST_F(GeoTypesTest, st_dimension) {
     {
         GeoParseStatus status;
         const char* wkt = "LINESTRING (1 1, 2 2)";
-        auto line = GeoShape::from_wkt(wkt, strlen(wkt), &status);
+        auto line = GeoShape::from_wkt(wkt, strlen(wkt), status);
         EXPECT_EQ(GEO_PARSE_OK, status);
         EXPECT_EQ(GEO_SHAPE_LINE_STRING, line->type());
     }
     {
         GeoParseStatus status;
         const char* wkt = "POLYGON ((0 0, 1 0, 1 1, 0 1, 0 0))";
-        auto polygon = GeoShape::from_wkt(wkt, strlen(wkt), &status);
+        auto polygon = GeoShape::from_wkt(wkt, strlen(wkt), status);
         EXPECT_EQ(GEO_PARSE_OK, status);
         EXPECT_EQ(GEO_SHAPE_POLYGON, polygon->type());
     }
