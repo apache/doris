@@ -958,7 +958,7 @@ public class ExpressionUtils {
                 builder.put((Slot) expression.child(0), expression.child(1));
             } else {
                 // length(str_col)=0 => str_col=''
-                if(expression.child(0) instanceof Length
+                if (expression.child(0) instanceof Length
                         && expression.child(1).equals(new IntegerLiteral(0))) {
                     Length len = (Length) expression.child(0);
                     if (len.child() instanceof Slot) {
