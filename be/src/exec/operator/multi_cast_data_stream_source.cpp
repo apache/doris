@@ -19,7 +19,6 @@
 
 #include "common/status.h"
 #include "core/block/block.h"
-#include "core/block/materialize_block.h"
 #include "exec/operator/multi_cast_data_streamer.h"
 #include "exec/operator/operator.h"
 
@@ -112,7 +111,6 @@ Status MultiCastDataStreamerSourceOperatorX::get_block(RuntimeState* state, Bloc
         SCOPED_TIMER(local_state._materialize_data_timer);
         RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(
                 local_state._output_expr_contexts, *output_block, block, true));
-        materialize_block_inplace(*block);
     }
     return Status::OK();
 }

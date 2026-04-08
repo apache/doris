@@ -19,7 +19,6 @@
 
 #include <memory>
 
-#include "core/block/materialize_block.h"
 #include "exec/common/hash_table/hash_table_set_build.h"
 #include "exec/operator/operator.h"
 
@@ -118,7 +117,6 @@ Status SetSinkOperatorX<is_intersect>::_process_build_block(
         return Status::OK();
     }
 
-    materialize_block_inplace(block);
     // Dispose the overflow of ColumnString
     for (auto& data : block) {
         data.column = std::move(*data.column).mutate()->convert_column_if_overflow();

@@ -28,7 +28,6 @@
 
 #include "common/logging.h"
 #include "core/block/block.h"
-#include "core/block/materialize_block.h"
 #include "exec/exchange/vdata_stream_mgr.h"
 #include "exec/operator/exchange_sink_operator.h"
 #include "exec/operator/exchange_source_operator.h"
@@ -297,7 +296,6 @@ void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
                     nblock->get_by_position(i).column->clone_resized(rows);
         }
     }
-    materialize_block_inplace(*nblock);
 
     auto block_mem_size = nblock->allocated_bytes();
     {
