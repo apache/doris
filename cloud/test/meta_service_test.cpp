@@ -8458,7 +8458,69 @@ TEST(MetaServiceTxnStoreRetryableTest, DoNotReturnRetryableCode) {
     config::txn_store_retry_times = retry_times;
 }
 
-TEST(MetaServiceTxnStoreRetryableTest, RetryMaybeCommittedCode) {
+TEST(MetaServiceTxnStoreRetryableTest, CastAsPreservesMaybeCommittedForProxyRetry) {
+    bool enable_retry = config::enable_txn_store_retry;
+    DORIS_CLOUD_DEFER {
+        config::enable_txn_store_retry = enable_retry;
+    };
+
+    config::enable_txn_store_retry = false;
+    ASSERT_EQ(cast_as<ErrCategory::COMMIT>(TxnErrorCode::TXN_MAYBE_COMMITTED),
+              MetaServiceCode::KV_TXN_MAYBE_COMMITTED);
+    ASSERT_EQ(cast_as<ErrCategory::READ>(TxnErrorCode::TXN_RETRYABLE_NOT_COMMITTED),
+              MetaServiceCode::KV_TXN_MAYBE_COMMITTED);
+
+    config::enable_txn_store_retry = true;
+    ASSERT_EQ(cast_as<ErrCategory::READ>(TxnErrorCode::TXN_RETRYABLE_NOT_COMMITTED),
+              MetaServiceCode::KV_TXN_STORE_GET_RETRYABLE);
+    ASSERT_EQ(cast_as<ErrCategory::COMMIT>(TxnErrorCode::TXN_RETRYABLE_NOT_COMMITTED),
+              MetaServiceCode::KV_TXN_STORE_COMMIT_RETRYABLE);
+    ASSERT_EQ(cast_as<ErrCategory::READ>(TxnErrorCode::TXN_TIMEOUT),
+              MetaServiceCode::KV_TXN_GET_ERR);
+}
+
+TEST(MetaServiceTxnStoreRetryableTest, MaybeCommittedCodeWithoutRetryReturnsCommitErr) {
+    size_t index = 0;
+    SyncPoint::get_instance()->set_call_back("update_delete_bitmap:commit:err", [&](auto&& args) {
+        ++index;
+        *doris::try_any_cast<TxnErrorCode*>(args[2]) = TxnErrorCode::TXN_MAYBE_COMMITTED;
+    });
+    SyncPoint::get_instance()->enable_processing();
+    bool enable_retry = config::enable_txn_store_retry;
+    int64_t max_txn_commit_byte = config::max_txn_commit_byte;
+    config::enable_txn_store_retry = false;
+    config::max_txn_commit_byte = 1;
+
+    auto service = get_meta_service();
+
+    brpc::Controller cntl;
+    UpdateDeleteBitmapRequest req;
+    UpdateDeleteBitmapResponse resp;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    req.set_table_id(100);
+    req.set_partition_id(123);
+    req.set_lock_id(-3);
+    req.set_without_lock(true);
+    req.set_initiator(-1);
+    req.set_tablet_id(333);
+    req.add_rowset_ids("r1");
+    req.add_segment_ids(0);
+    req.add_versions(2);
+    req.add_segment_delete_bitmaps("abc");
+
+    service->update_delete_bitmap(&cntl, &req, &resp, nullptr);
+
+    ASSERT_EQ(resp.status().code(), MetaServiceCode::KV_TXN_COMMIT_ERR)
+            << " status is " << resp.status().msg() << ", code=" << resp.status().code();
+    EXPECT_EQ(index, 1);
+
+    SyncPoint::get_instance()->disable_processing();
+    SyncPoint::get_instance()->clear_all_call_backs();
+    config::enable_txn_store_retry = enable_retry;
+    config::max_txn_commit_byte = max_txn_commit_byte;
+}
+
+TEST(MetaServiceTxnStoreRetryableTest, RetryMaybeCommittedCodeReturnsCommitErr) {
     size_t index = 0;
     SyncPoint::get_instance()->set_call_back("update_delete_bitmap:commit:err", [&](auto&& args) {
         ++index;
@@ -8491,7 +8553,7 @@ TEST(MetaServiceTxnStoreRetryableTest, RetryMaybeCommittedCode) {
 
     service->update_delete_bitmap(&cntl, &req, &resp, nullptr);
 
-    ASSERT_EQ(resp.status().code(), MetaServiceCode::KV_TXN_MAYBE_COMMITTED)
+    ASSERT_EQ(resp.status().code(), MetaServiceCode::KV_TXN_COMMIT_ERR)
             << " status is " << resp.status().msg() << ", code=" << resp.status().code();
     EXPECT_GE(index, static_cast<size_t>(config::txn_store_retry_times + 1));
 
