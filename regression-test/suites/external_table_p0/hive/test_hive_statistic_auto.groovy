@@ -42,7 +42,7 @@ suite("test_hive_statistic_auto", "p0,external,hive,external_docker,external_doc
         for (int i = 0; i < 10; i++) {
             Thread.sleep(1000)
             def result = sql """show column stats `statistics` (lo_quantity)"""
-            if (result.size <= 0) {
+            if (result.size() <= 0) {
                 continue;
             }
             assertEquals(result.size(), 1)
@@ -56,7 +56,7 @@ suite("test_hive_statistic_auto", "p0,external,hive,external_docker,external_doc
             assertEquals(result[0][8], "N/A")
 
             result = sql """show column stats `statistics` (lo_orderkey)"""
-            if (result.size <= 0) {
+            if (result.size() <= 0) {
                 continue;
             }
             assertEquals(result.size(), 1)
@@ -70,7 +70,7 @@ suite("test_hive_statistic_auto", "p0,external,hive,external_docker,external_doc
             assertEquals(result[0][8], "N/A")
 
             result = sql """show column stats `statistics` (lo_linenumber)"""
-            if (result.size <= 0) {
+            if (result.size() <= 0) {
                 continue;
             }
             assertEquals(result.size(), 1)

@@ -82,11 +82,6 @@ public class InferPredicateByReplace {
         }
 
         @Override
-        public Void visitOr(Or expr, Map<Expression, Set<Expression>> context) {
-            return null;
-        }
-
-        @Override
         public Void visitInPredicate(InPredicate inPredicate, Map<Expression, Set<Expression>> context) {
             if (!validInPredicate(inPredicate)) {
                 return null;
@@ -129,6 +124,14 @@ public class InferPredicateByReplace {
             }
             for (Expression expr : getAllSubExpressions(like.child(0))) {
                 context.computeIfAbsent(expr, k -> new LinkedHashSet<>()).add(like);
+            }
+            return null;
+        }
+
+        @Override
+        public Void visitOr(Or or, Map<Expression, Set<Expression>> context) {
+            for (Expression expr : getAllSubExpressions(or)) {
+                context.computeIfAbsent(expr, k -> new LinkedHashSet<>()).add(or);
             }
             return null;
         }

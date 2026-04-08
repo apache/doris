@@ -36,17 +36,22 @@ public class Or extends CompoundPredicate {
      * @param right right child of comparison predicate
      */
     public Or(Expression left, Expression right) {
-        super(ImmutableList.of(left, right), "OR");
+        this(ImmutableList.of(left, right), false);
     }
 
     private Or(List<Expression> children) {
-        super(children, "OR");
+        this(children, false);
+    }
+
+    public Or(List<Expression> children, boolean inferred) {
+        super(children, "OR", inferred);
+        Preconditions.checkArgument(children.size() >= 2);
     }
 
     @Override
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new Or(children);
+        return new Or(children, this.isInferred());
     }
 
     @Override
@@ -67,5 +72,10 @@ public class Or extends CompoundPredicate {
     @Override
     public Class<? extends CompoundPredicate> flipType() {
         return And.class;
+    }
+
+    @Override
+    public Expression withInferred(boolean inferred) {
+        return new Or(children, inferred);
     }
 }
