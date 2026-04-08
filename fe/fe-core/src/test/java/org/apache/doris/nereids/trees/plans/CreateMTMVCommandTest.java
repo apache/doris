@@ -234,6 +234,11 @@ public class CreateMTMVCommandTest extends TestWithFeService {
         ((CreateMTMVCommand) logicalPlan).run(connectContext, null);
     }
 
+    private MTMV getMtmv(String mvName) throws Exception {
+        Database database = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        return (MTMV) database.getTableOrMetaException(mvName, org.apache.doris.catalog.TableIf.TableType.MATERIALIZED_VIEW);
+    }
+
     @Test
     public void testMTMVRejectVarbinary() throws Exception {
         String mv = "CREATE MATERIALIZED VIEW mv_vb\n"
@@ -268,6 +273,41 @@ public class CreateMTMVCommandTest extends TestWithFeService {
 
         Assertions.assertEquals(RefreshMethod.INCREMENTAL,
                 cmd.getCreateMTMVInfo().getRefreshInfo().getRefreshMethod());
+        Assertions.assertTrue(cmd.getCreateMTMVInfo().isEnableIvm());
+    }
+
+    @Test
+    public void testCreateIncrementalMTMVPersistsIvmFlag() throws Exception {
+        createTable("create table test.mtmv_increment_flag_base (k1 int)\n"
+                + "duplicate key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1');");
+        createMtmv("CREATE MATERIALIZED VIEW mtmv_increment_flag\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1 FROM mtmv_increment_flag_base;");
+
+        MTMV mtmv = getMtmv("mtmv_increment_flag");
+        Assertions.assertTrue(mtmv.isIvm());
+        Assertions.assertTrue(mtmv.getIvmInfo().isEnableIvm());
+    }
+
+    @Test
+    public void testCreateNonIncrementalMTMVDefaultsIvmFlagFalse() throws Exception {
+        createTable("create table test.mtmv_non_increment_flag_base (k1 int)\n"
+                + "duplicate key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1');");
+        createMtmv("CREATE MATERIALIZED VIEW mtmv_non_increment_flag\n"
+                + " BUILD DEFERRED REFRESH AUTO ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1 FROM mtmv_non_increment_flag_base;");
+
+        MTMV mtmv = getMtmv("mtmv_non_increment_flag");
+        Assertions.assertFalse(mtmv.isIvm());
+        Assertions.assertFalse(mtmv.getIvmInfo().isEnableIvm());
     }
 
     @Test

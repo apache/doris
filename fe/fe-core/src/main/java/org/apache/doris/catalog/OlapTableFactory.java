@@ -52,6 +52,7 @@ public class OlapTableFactory {
     public static class MTMVParams extends BuildParams {
         public MTMVRefreshInfo refreshInfo;
         public String querySql;
+        public boolean enableIvm;
         public Map<String, String> mvProperties;
         public MTMVPartitionInfo mvPartitionInfo;
         public MTMVRelation relation;
@@ -155,6 +156,14 @@ public class OlapTableFactory {
         return this;
     }
 
+    public OlapTableFactory withEnableIvm(boolean enableIvm) {
+        Preconditions.checkState(params instanceof MTMVParams, "Invalid argument for "
+                + params.getClass().getSimpleName());
+        MTMVParams mtmvParams = (MTMVParams) params;
+        mtmvParams.enableIvm = enableIvm;
+        return this;
+    }
+
     private OlapTableFactory withRefreshInfo(MTMVRefreshInfo refreshInfo) {
         Preconditions.checkState(params instanceof MTMVParams, "Invalid argument for "
                 + params.getClass().getSimpleName());
@@ -194,6 +203,7 @@ public class OlapTableFactory {
         } else {
             CreateMTMVInfo createMTMVInfo = (CreateMTMVInfo) createTableInfo;
             return withRefreshInfo(createMTMVInfo.getRefreshInfo())
+                .withEnableIvm(createMTMVInfo.isEnableIvm())
                 .withQuerySql(createMTMVInfo.getQuerySql())
                 .withMvProperties(createMTMVInfo.getMvProperties())
                 .withMvPartitionInfo(createMTMVInfo.getMvPartitionInfo())

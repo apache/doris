@@ -129,6 +129,7 @@ public class MTMV extends OlapTable {
         this.relation = params.relation;
         this.refreshSnapshot = new MTMVRefreshSnapshot();
         this.ivmInfo = new IvmInfo();
+        this.ivmInfo.setEnableIvm(params.enableIvm);
         this.envInfo = new EnvInfo(-1L, -1L);
         this.sessionVariables = params.sessionVariables;
         mvRwLock = new ReentrantReadWriteLock(true);
@@ -214,6 +215,10 @@ public class MTMV extends OlapTable {
         } finally {
             writeMvUnlock();
         }
+    }
+
+    public boolean isIvm() {
+        return getIvmInfo().isEnableIvm();
     }
 
     public boolean addTaskResult(MTMVTask task, MTMVRelation relation,
@@ -484,7 +489,10 @@ public class MTMV extends OlapTable {
         }
     }
 
-    public IVMInfo getIvmInfo() {
+    public IvmInfo getIvmInfo() {
+        if (ivmInfo == null) {
+            ivmInfo = new IvmInfo();
+        }
         return ivmInfo;
     }
 

@@ -1230,7 +1230,7 @@ public class BindSink implements AnalysisRuleFactory {
     }
 
     private boolean isIncrementalIvmTable(OlapTable table) {
-        return table instanceof MTMV && ((MTMV) table).getRefreshInfo().getRefreshMethod() == RefreshMethod.INCREMENTAL;
+        return table instanceof MTMV && ((MTMV) table).isIvm();
     }
 
     private Set<String> getMissingIvmHiddenColumns(OlapTable table, List<String> sinkColumns, LogicalPlan child) {

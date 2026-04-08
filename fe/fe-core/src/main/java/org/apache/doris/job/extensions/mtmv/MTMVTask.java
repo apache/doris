@@ -248,7 +248,9 @@ public class MTMVTask extends AbstractTask {
                 return;
             }
             // Attempt IVM refresh for incremental MVs and fall back when the plan is unsupported.
-            if (mtmv.getRefreshInfo().getRefreshMethod() == RefreshMethod.INCREMENTAL) {
+            // FIXME: need check manual method here, user may manual refresh ivm complete or partitions,
+            //        then should not ivm refresh.
+            if (mtmv.isIvm()) {
                 IvmRefreshManager ivmRefreshManager = new IvmRefreshManager();
                 IvmRefreshResult ivmResult = ivmRefreshManager.doRefresh(mtmv);
                 if (ivmResult.isSuccess()) {
@@ -354,7 +356,7 @@ public class MTMVTask extends AbstractTask {
             setComputeGroup(ctx);
             recordComputeGroup(ctx);
         };
-        boolean enableIvmNormalMTMVPlan = mtmv.getRefreshInfo().getRefreshMethod() == RefreshMethod.INCREMENTAL;
+        boolean enableIvmNormalMTMVPlan = mtmv.isIvm();
         executor = MTMVPlanUtil.executeCommand(mtmvCtx, command, statementContext,
                 getDummyStmt(refreshPartitionNames), enableIvmNormalMTMVPlan, customizer);
         lastQueryId = DebugUtil.printId(executor.getContext().queryId());

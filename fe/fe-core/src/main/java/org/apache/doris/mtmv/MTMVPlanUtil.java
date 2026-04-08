@@ -674,8 +674,7 @@ public class MTMVPlanUtil {
     public static void ensureMTMVQueryUsable(MTMV mtmv, ConnectContext ctx) throws JobException {
         MTMVAnalyzeQueryInfo mtmvAnalyzedQueryInfo;
         try {
-            boolean enableIvmNormalize = mtmv.getRefreshInfo().getRefreshMethod() == RefreshMethod.INCREMENTAL;
-            mtmvAnalyzedQueryInfo = MTMVPlanUtil.analyzeQueryWithSql(mtmv, ctx, enableIvmNormalize);
+            mtmvAnalyzedQueryInfo = MTMVPlanUtil.analyzeQueryWithSql(mtmv, ctx, mtmv.isIvm());
         } catch (Exception e) {
             throw new JobException(e.getMessage(), e);
         }

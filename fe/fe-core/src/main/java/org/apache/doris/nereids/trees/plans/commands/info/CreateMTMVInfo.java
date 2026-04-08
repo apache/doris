@@ -148,7 +148,7 @@ public class CreateMTMVInfo extends CreateTableInfo {
         }
         analyzeProperties();
         // IVM MVs must not have user-specified keys — the unique key is the hidden row-id
-        if (refreshInfo.getRefreshMethod() == RefreshMethod.INCREMENTAL && !keys.isEmpty()) {
+        if (isEnableIvm() && !keys.isEmpty()) {
             throw new AnalysisException(
                     "Incremental materialized view does not allow specifying key columns. "
                     + "The unique key is the hidden row-id column managed by IVM.");
@@ -186,7 +186,7 @@ public class CreateMTMVInfo extends CreateTableInfo {
         try {
             analyzeAndFillRewriteSqlMap(querySql, ctx);
             querySql = BaseViewInfo.rewriteSql(rewriteMap, querySql);
-            if (refreshInfo.getRefreshMethod() == RefreshMethod.INCREMENTAL && !simpleColumnDefinitions.isEmpty()) {
+            if (isEnableIvm() && !simpleColumnDefinitions.isEmpty()) {
                 querySql = BaseViewInfo.rewriteProjectsToUserDefineAlias(querySql, simpleColumnDefinitions.stream()
                         .map(SimpleColumnDefinition::getName)
                         .collect(Collectors.toList()));
@@ -234,10 +234,9 @@ public class CreateMTMVInfo extends CreateTableInfo {
      * analyzeQuery
      */
     public void analyzeQuery(ConnectContext ctx) throws UserException {
-        boolean enableIvmNormalize = this.refreshInfo.getRefreshMethod() == RefreshMethod.INCREMENTAL;
         MTMVAnalyzeQueryInfo mtmvAnalyzeQueryInfo = MTMVPlanUtil.analyzeQuery(ctx, this.mvProperties,
                 this.mvPartitionDefinition, this.distribution, this.simpleColumnDefinitions, this.properties, this.keys,
-                this.logicalQuery, enableIvmNormalize);
+                this.logicalQuery, isEnableIvm());
         this.mvPartitionInfo = mtmvAnalyzeQueryInfo.getMvPartitionInfo();
         this.columns = mtmvAnalyzeQueryInfo.getColumnDefinitions();
         this.relation = mtmvAnalyzeQueryInfo.getRelation();
@@ -304,7 +303,7 @@ public class CreateMTMVInfo extends CreateTableInfo {
         this.setTableName(tableNameInfo.getTbl());
         this.setCtasColumns(ctasColumns.isEmpty() ? null : ctasColumns);
         this.setEngineName(CreateTableInfo.ENGINE_OLAP);
-        if (refreshInfo.getRefreshMethod() == RefreshMethod.INCREMENTAL) {
+        if (isEnableIvm()) {
             this.setKeysType(KeysType.UNIQUE_KEYS);
             if (properties == null) {
                 properties = Maps.newHashMap();
@@ -361,6 +360,10 @@ public class CreateMTMVInfo extends CreateTableInfo {
 
     public MTMVRelation getRelation() {
         return relation;
+    }
+
+    public boolean isEnableIvm() {
+        return refreshInfo.getRefreshMethod() == RefreshMethod.INCREMENTAL;
     }
 
     public MTMVPartitionInfo getMvPartitionInfo() {
