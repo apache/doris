@@ -23,7 +23,6 @@ import org.apache.doris.analysis.CopyFromParam;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.Separator;
-import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StageAndPattern;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TupleDescriptor;
@@ -76,7 +75,6 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -239,15 +237,11 @@ public class CopyIntoInfo {
         Scope scope = new Scope(slots);
         ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, scope, cascadesContext, false, false);
 
-        Map<SlotReference, SlotRef> translateMap = Maps.newHashMap();
-
         TupleDescriptor tupleDescriptor = context.generateTupleDesc();
         tupleDescriptor.setTable(((OlapScan) boundRelation).getTable());
         for (int i = 0; i < boundRelation.getOutput().size(); i++) {
             SlotReference slotReference = (SlotReference) boundRelation.getOutput().get(i);
-            SlotRef slotRef = new SlotRef(null, slotReference.getName());
-            translateMap.put(slotReference, slotRef);
-            context.createSlotDesc(tupleDescriptor, slotReference, ((OlapScan) boundRelation).getTable());
+            context.createSlotDesc(tupleDescriptor, slotReference);
         }
 
         List<Expr> legacyColumnMappingList = null;

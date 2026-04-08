@@ -287,7 +287,7 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
             TupleDescriptor tupleDescriptor = validateContext.planTranslatorContext.generateTupleDesc();
             tupleDescriptor.setTable(olapTable);
             for (Slot slot : olapScan.getOutput()) {
-                translatorContext.createSlotDesc(tupleDescriptor, (SlotReference) slot, olapTable);
+                translatorContext.createSlotDesc(tupleDescriptor, (SlotReference) slot);
                 SlotRef slotRef = translatorContext.findSlotRef(slot.getExprId());
                 slotRef.setLabel("`" + slot.getName() + "`");
             }
