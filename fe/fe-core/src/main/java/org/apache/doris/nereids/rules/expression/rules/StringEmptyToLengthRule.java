@@ -27,9 +27,9 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Length;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
-import org.apache.doris.qe.ConnectContext;
 
 import java.util.List;
 
