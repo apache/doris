@@ -20,8 +20,9 @@
 
 #pragma once
 
-#include <atomic>
 #include <memory>
+
+#include "common/atomic_shared_ptr.h"
 
 /** Allow to store and read-only usage of an object in several threads,
   *  and to atomically replace an object in another thread.
@@ -59,5 +60,5 @@ public:
     }
 
 private:
-    std::atomic<Version> current_version;
+    doris::atomic_shared_ptr<const T> current_version;
 };
