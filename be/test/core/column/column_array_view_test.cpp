@@ -66,17 +66,15 @@ static ColumnPtr build_int32_array_column(const std::vector<std::vector<int32_t>
         for (auto v : row_nulls) {
             outer_null->insert_value(v);
         }
-        array_col = ColumnNullable::create(array_col->assume_mutable(),
-                                           std::move(outer_null));
+        array_col = ColumnNullable::create(array_col->assume_mutable(), std::move(outer_null));
     }
     return array_col;
 }
 
 // Helper: build a ColumnArray with Nullable(ColumnString) nested data.
-static ColumnPtr build_string_array_column(
-        const std::vector<std::vector<std::string>>& arrays,
-        const std::vector<uint8_t>& element_nulls,
-        const std::vector<uint8_t>& row_nulls = {}) {
+static ColumnPtr build_string_array_column(const std::vector<std::vector<std::string>>& arrays,
+                                           const std::vector<uint8_t>& element_nulls,
+                                           const std::vector<uint8_t>& row_nulls = {}) {
     auto data_col = ColumnString::create();
     auto null_col = ColumnUInt8::create();
     size_t flat_idx = 0;
@@ -103,8 +101,7 @@ static ColumnPtr build_string_array_column(
         for (auto v : row_nulls) {
             outer_null->insert_value(v);
         }
-        array_col = ColumnNullable::create(array_col->assume_mutable(),
-                                           std::move(outer_null));
+        array_col = ColumnNullable::create(array_col->assume_mutable(), std::move(outer_null));
     }
     return array_col;
 }
@@ -114,8 +111,7 @@ static ColumnPtr build_string_array_column(
 // Test basic non-nullable, non-const array column
 // Row 0: [10, 20, 30], Row 1: [40], Row 2: [50, 60]
 TEST(ColumnArrayViewTest, IndexAccess_basic) {
-    auto col = build_int32_array_column({{10, 20, 30}, {40}, {50, 60}},
-                                        {0, 0, 0, 0, 0, 0});
+    auto col = build_int32_array_column({{10, 20, 30}, {40}, {50, 60}}, {0, 0, 0, 0, 0, 0});
     auto view = ColumnArrayView<TYPE_INT>::create(col);
 
     EXPECT_EQ(view.size(), 3);
@@ -147,8 +143,7 @@ TEST(ColumnArrayViewTest, IndexAccess_basic) {
 // Test with null elements inside arrays
 // Row 0: [1, NULL, 3], Row 1: [NULL]
 TEST(ColumnArrayViewTest, IndexAccess_with_null_elements) {
-    auto col = build_int32_array_column({{1, 0, 3}, {0}},
-                                        {0, 1, 0, 1});
+    auto col = build_int32_array_column({{1, 0, 3}, {0}}, {0, 1, 0, 1});
     auto view = ColumnArrayView<TYPE_INT>::create(col);
 
     EXPECT_EQ(view.size(), 2);
@@ -169,9 +164,7 @@ TEST(ColumnArrayViewTest, IndexAccess_with_null_elements) {
 // Test with outer nullable (some rows are entirely null)
 // Row 0: [1, 2], Row 1: NULL, Row 2: [5]
 TEST(ColumnArrayViewTest, IndexAccess_outer_nullable) {
-    auto col = build_int32_array_column({{1, 2}, {0}, {5}},
-                                        {0, 0, 0, 0},
-                                        {0, 1, 0});
+    auto col = build_int32_array_column({{1, 2}, {0}, {5}}, {0, 0, 0, 0}, {0, 1, 0});
     auto view = ColumnArrayView<TYPE_INT>::create(col);
 
     EXPECT_EQ(view.size(), 3);
