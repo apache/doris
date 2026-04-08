@@ -323,6 +323,87 @@ public class RebalanceTest {
         Assert.assertEquals(needCheckTablets.size(), succeeded.get());
     }
 
+    // Test for OPENSOURCE-192: PartitionRebalancer should not generate moves
+    // targeting a BE that lacks the required storage medium.
+    // Scenario: SSD tablets on BE 20001/20002, new BE 20003 has only HDD.
+    // Without the fix, the algorithm would pick BE 20003 (0 SSD replicas) as the
+    // "least loaded" destination for SSD tablets, causing infinite scheduling failures.
+    @Test
+    public void testPartitionRebalancerSkipBEWithoutMedium() {
+        Configurator.setLevel("org.apache.doris.clone.PartitionRebalancer", Level.DEBUG);
+
+        // Add backends: 20001, 20002 have SSD; 20003 has only HDD
+        systemInfoService.addBackend(
+                RebalancerTestUtil.createBackend(20001L, 2048, 0, TStorageMedium.SSD));
+        systemInfoService.addBackend(
+                RebalancerTestUtil.createBackend(20002L, 2048, 0, TStorageMedium.SSD));
+        systemInfoService.addBackend(
+                RebalancerTestUtil.createBackend(20003L, 2048, 0, TStorageMedium.HDD));
+
+        // Create a table with SSD partition
+        OlapTable ssdTable = new OlapTable(3, "ssd table", new ArrayList<>(),
+                KeysType.DUP_KEYS, new RangePartitionInfo(), new HashDistributionInfo());
+        db.registerTable(ssdTable);
+
+        MaterializedIndex ssdIndex = new MaterializedIndex(ssdTable.getId(), null);
+        long partId = 41;
+        Partition partition = new Partition(partId, "p0", ssdIndex, new HashDistributionInfo());
+        ssdTable.addPartition(partition);
+        ssdTable.getPartitionInfo().addPartition(partId, new DataProperty(TStorageMedium.SSD),
+                ReplicaAllocation.DEFAULT_ALLOCATION, false, true);
+        ssdTable.setIndexMeta(ssdIndex.getId(), "ssd index", Lists.newArrayList(new Column()),
+                0, 0, (short) 0, TStorageType.COLUMN, KeysType.DUP_KEYS);
+
+        // Create SSD tablets: 3 replicas on BE 20001, 1 on BE 20002
+        // This creates skew = 3 - 1 = 2 among SSD BEs (with fix),
+        // or skew = 3 - 0 = 3 counting HDD-only BEs (without fix)
+        RebalancerTestUtil.createTablet(invertedIndex, db, ssdTable, "p0", TStorageMedium.SSD,
+                80001, Lists.newArrayList(20001L));
+        RebalancerTestUtil.createTablet(invertedIndex, db, ssdTable, "p0", TStorageMedium.SSD,
+                80002, Lists.newArrayList(20001L));
+        RebalancerTestUtil.createTablet(invertedIndex, db, ssdTable, "p0", TStorageMedium.SSD,
+                80003, Lists.newArrayList(20001L));
+        RebalancerTestUtil.createTablet(invertedIndex, db, ssdTable, "p0", TStorageMedium.SSD,
+                80004, Lists.newArrayList(20002L));
+
+        // Regenerate statistics with partition rebalancer
+        Config.tablet_rebalancer_type = "partition";
+        LoadStatisticForTag loadStatistic = new LoadStatisticForTag(
+                Tag.DEFAULT_BACKEND_TAG, systemInfoService, invertedIndex, null);
+        loadStatistic.init();
+        Map<Tag, LoadStatisticForTag> ssdStatMap = Maps.newHashMap();
+        ssdStatMap.put(Tag.DEFAULT_BACKEND_TAG, loadStatistic);
+
+        PartitionRebalancer rebalancer = new PartitionRebalancer(Env.getCurrentSystemInfo(),
+                Env.getCurrentInvertedIndex(), null);
+        rebalancer.updateLoadStatistic(ssdStatMap);
+        rebalancer.selectAlternativeTablets();
+
+        // Verify: moves were generated (test is meaningful)
+        Map<Long, Pair<PartitionRebalancer.TabletMove, Long>> moves = rebalancer.getMovesInProgress();
+        Assert.assertFalse("Should generate moves for skewed SSD partition", moves.isEmpty());
+
+        // Verify: no move targets BE 20003 (HDD-only) or any of the HDD BEs from setUp (10001-10004)
+        for (Map.Entry<Long, Pair<PartitionRebalancer.TabletMove, Long>> entry : moves.entrySet()) {
+            PartitionRebalancer.TabletMove move = entry.getValue().first;
+            Assert.assertNotEquals("Move should not target HDD-only BE for SSD tablet",
+                    Long.valueOf(20003L), move.toBe);
+            Assert.assertFalse("Move should not target any BE without SSD",
+                    move.toBe == 10001L || move.toBe == 10002L
+                            || move.toBe == 10003L || move.toBe == 10004L);
+        }
+
+        // Verify: all moves go from BE 20001 (most loaded) to BE 20002 (least loaded with SSD)
+        for (Map.Entry<Long, Pair<PartitionRebalancer.TabletMove, Long>> entry : moves.entrySet()) {
+            PartitionRebalancer.TabletMove move = entry.getValue().first;
+            Assert.assertEquals("Source should be the most loaded SSD BE",
+                    Long.valueOf(20001L), move.fromBe);
+            Assert.assertEquals("Dest should be the least loaded SSD BE",
+                    Long.valueOf(20002L), move.toBe);
+        }
+        LOG.info("testPartitionRebalancerSkipBEWithoutMedium success");
+    }
+
     @Test
     public void testMoveInProgressMap() {
         Configurator.setLevel("org.apache.doris.clone.MovesInProgressCache", Level.DEBUG);
