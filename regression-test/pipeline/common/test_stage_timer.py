@@ -97,6 +97,26 @@ false
                 """
 export teamcity_build_checkoutDir="{root}"
 
+stop_doris_grace() {{
+    return 0
+}}
+
+archive_doris_coredump() {{
+    return 0
+}}
+
+archive_doris_logs() {{
+    return 0
+}}
+
+upload_doris_log_to_oss() {{
+    return 0
+}}
+
+collect_docker_logs() {{
+    return 0
+}}
+
 main() {{
     source "{github_helper}"
     echo "PREPARE"
@@ -105,7 +125,12 @@ main() {{
     cd "{tmpdir}" && bash run-thirdparties-docker.sh --start
     echo "RUN EXTERNAL CASE"
     cd "{tmpdir}" && ./run-regression-test.sh --teamcity --clean --run
+    stop_doris_grace
+    archive_doris_coredump fake.tar.gz
+    archive_doris_logs fake.tar.gz
+    upload_doris_log_to_oss fake.tar.gz
     echo "COLLECT DOCKER LOGS"
+    collect_docker_logs external
 }}
 
 main
@@ -122,7 +147,11 @@ main
         self.assertIn("启动 Doris", result.stdout)
         self.assertIn("启动依赖", result.stdout)
         self.assertIn("执行 Case", result.stdout)
-        self.assertIn("收尾归档", result.stdout)
+        self.assertIn("停止 Doris", result.stdout)
+        self.assertIn("归档 Coredump", result.stdout)
+        self.assertIn("归档日志", result.stdout)
+        self.assertIn("上传日志", result.stdout)
+        self.assertIn("收集 Docker 日志", result.stdout)
 
     def test_non_external_pipeline_does_not_enable_auto_hooks(self):
         result = self._run_raw(

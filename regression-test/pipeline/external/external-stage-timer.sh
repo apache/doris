@@ -61,8 +61,20 @@ external_regression_stage_timer__handle_command() {
         *"./run-regression-test.sh --teamcity --clean --run"*)
             external_regression_stage_timer__enter_if_needed "执行 Case"
             ;;
+        *"stop_doris_grace"*)
+            external_regression_stage_timer__enter_if_needed "停止 Doris"
+            ;;
+        *"archive_doris_coredump "*)
+            external_regression_stage_timer__enter_if_needed "归档 Coredump"
+            ;;
+        *"archive_doris_logs "*)
+            external_regression_stage_timer__enter_if_needed "归档日志"
+            ;;
+        *"upload_doris_log_to_oss "*)
+            external_regression_stage_timer__enter_if_needed "上传日志"
+            ;;
         *"COLLECT DOCKER LOGS"* | *"collect_docker_logs "*)
-            external_regression_stage_timer__enter_if_needed "收尾归档"
+            external_regression_stage_timer__enter_if_needed "收集 Docker 日志"
             ;;
     esac
 }
@@ -104,7 +116,7 @@ external_regression_stage_timer_enter_run_cases() {
 }
 
 external_regression_stage_timer_enter_cleanup() {
-    stage_timer_enter "收尾归档"
+    stage_timer_enter "停止 Doris"
 }
 
 external_regression_stage_timer_enable_auto_hooks() {
