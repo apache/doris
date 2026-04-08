@@ -18,6 +18,7 @@
 package org.apache.doris.job.extensions.mtmv;
 
 import org.apache.doris.job.extensions.mtmv.MTMVTask.MTMVTaskTriggerMode;
+import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo.RefreshMode;
 
 import com.google.gson.annotations.SerializedName;
 
@@ -34,14 +35,19 @@ public class MTMVTaskContext {
     @SerializedName(value = "isComplete")
     private boolean isComplete;
 
+    @SerializedName(value = "refreshMode")
+    private RefreshMode refreshMode;
+
     public MTMVTaskContext(MTMVTaskTriggerMode triggerMode) {
         this.triggerMode = triggerMode;
+        this.refreshMode = RefreshMode.AUTO;
     }
 
-    public MTMVTaskContext(MTMVTaskTriggerMode triggerMode, List<String> partitions, boolean isComplete) {
+    public MTMVTaskContext(MTMVTaskTriggerMode triggerMode, List<String> partitions, RefreshMode refreshMode) {
         this.triggerMode = triggerMode;
         this.partitions = partitions;
-        this.isComplete = isComplete;
+        this.refreshMode = refreshMode;
+        this.isComplete = (refreshMode == RefreshMode.COMPLETE);
     }
 
     public List<String> getPartitions() {
@@ -52,8 +58,22 @@ public class MTMVTaskContext {
         return triggerMode;
     }
 
+    /**
+     * Backward-compatible: returns true when refresh mode is COMPLETE.
+     * For deserialized old tasks without refreshMode, falls back to the isComplete field.
+     */
     public boolean isComplete() {
+        if (refreshMode != null) {
+            return refreshMode == RefreshMode.COMPLETE;
+        }
         return isComplete;
+    }
+
+    public RefreshMode getRefreshMode() {
+        if (refreshMode != null) {
+            return refreshMode;
+        }
+        return isComplete ? RefreshMode.COMPLETE : RefreshMode.AUTO;
     }
 
     @Override
@@ -61,7 +81,7 @@ public class MTMVTaskContext {
         return "MTMVTaskContext{"
                 + "triggerMode=" + triggerMode
                 + ", partitions=" + partitions
-                + ", isComplete=" + isComplete
+                + ", refreshMode=" + getRefreshMode()
                 + '}';
     }
 }

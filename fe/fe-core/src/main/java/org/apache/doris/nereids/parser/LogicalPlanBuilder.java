@@ -996,6 +996,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.PartitionDefinition.Ma
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo.RefreshMode;
 import org.apache.doris.nereids.trees.plans.commands.info.RenameColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.RenamePartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.RenameRollupOp;
@@ -1812,8 +1813,20 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 partitions = visitIdentifierList(ctx.partitionSpec().partitions);
             }
         }
+        RefreshMode refreshMode;
+        if (ctx.COMPLETE() != null) {
+            refreshMode = RefreshMode.COMPLETE;
+        } else if (ctx.AUTO() != null) {
+            refreshMode = RefreshMode.AUTO;
+        } else if (ctx.INCREMENTAL() != null) {
+            refreshMode = RefreshMode.INCREMENTAL;
+        } else if (ctx.PARTITIONS() != null && ctx.partitionSpec() == null) {
+            refreshMode = RefreshMode.PARTITIONS;
+        } else {
+            refreshMode = RefreshMode.AUTO;
+        }
         return new RefreshMTMVCommand(new RefreshMTMVInfo(new TableNameInfo(nameParts),
-                partitions, ctx.COMPLETE() != null));
+                partitions, refreshMode));
     }
 
     private DropMTMVCommand visitDropMTMV(DropMVContext ctx) {

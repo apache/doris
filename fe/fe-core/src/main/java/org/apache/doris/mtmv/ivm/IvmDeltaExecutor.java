@@ -23,9 +23,9 @@ import org.apache.doris.nereids.StatementContext;
 
 import java.util.List;
 
-    /**
-     * Executes IVM delta command bundles against the MV target table.
-     */
+/**
+ * Executes IVM delta command bundles against the MV target table.
+ */
 public class IvmDeltaExecutor {
 
     public void execute(IvmRefreshContext context, List<IvmDeltaCommandBundle> bundles)
