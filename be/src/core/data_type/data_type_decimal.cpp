@@ -49,7 +49,7 @@
 #include "util/io_helper.h"
 #include "util/string_parser.hpp"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 DataTypePtr get_data_type_with_default_argument(DataTypePtr type) {
@@ -70,8 +70,7 @@ DataTypePtr get_data_type_with_default_argument(DataTypePtr type) {
             DCHECK_EQ(res->get_scale(), BeConsts::MAX_DECIMALV2_SCALE);
 
             return res;
-        } else if (t->get_primitive_type() == PrimitiveType::TYPE_BINARY ||
-                   t->get_primitive_type() == PrimitiveType::TYPE_LAMBDA_FUNCTION) {
+        } else if (t->get_primitive_type() == PrimitiveType::TYPE_BINARY) {
             return DataTypeFactory::instance().create_data_type(TYPE_STRING, t->is_nullable());
         } else {
             return t;
@@ -288,4 +287,4 @@ template class DataTypeDecimal<TYPE_DECIMALV2>;
 template class DataTypeDecimal<TYPE_DECIMAL128I>;
 template class DataTypeDecimal<TYPE_DECIMAL256>;
 
-} // namespace doris::vectorized
+} // namespace doris

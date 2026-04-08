@@ -17,7 +17,7 @@
 
 #include "exec/operator/rec_cte_source_operator.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 RecCTESourceLocalState::RecCTESourceLocalState(RuntimeState* state, OperatorXBase* parent)
@@ -64,8 +64,8 @@ Status RecCTESourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state) 
 
     {
         const auto& texprs = tnode.rec_cte_node.result_expr_lists[1];
-        vectorized::VExprContextSPtrs ctxs;
-        RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(texprs, ctxs));
+        VExprContextSPtrs ctxs;
+        RETURN_IF_ERROR(VExpr::create_expr_trees(texprs, ctxs));
         _hash_table_key_types = get_data_types(ctxs);
     }
     return Status::OK();
@@ -82,4 +82,4 @@ Status RecCTESourceOperatorX::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-} // namespace doris::pipeline
+} // namespace doris

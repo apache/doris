@@ -28,7 +28,7 @@
 #include "exprs/vcast_expr.h"
 #include "exprs/vexpr_context.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 template <class Impl>
 class try_cast_test_function : public IFunction {
@@ -271,4 +271,4 @@ TEST_F(TryCastExprTest, row_exec3) {
     EXPECT_FALSE(st.ok()) << st.msg();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

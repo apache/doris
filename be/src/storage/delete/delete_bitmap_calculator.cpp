@@ -30,7 +30,7 @@ namespace doris {
 #include "common/compile_check_begin.h"
 
 MergeIndexDeleteBitmapCalculatorContext::MergeIndexDeleteBitmapCalculatorContext(
-        std::unique_ptr<segment_v2::IndexedColumnIterator> iter, vectorized::DataTypePtr index_type,
+        std::unique_ptr<segment_v2::IndexedColumnIterator> iter, DataTypePtr index_type,
         int32_t segment_id, size_t num_rows, size_t batch_max_size)
         : _iter(std::move(iter)),
           _index_type(std::move(index_type)),
@@ -165,8 +165,8 @@ Status MergeIndexDeleteBitmapCalculator::init(RowsetId rowset_id,
             auto pk_idx = segment->get_primary_key_index();
             std::unique_ptr<segment_v2::IndexedColumnIterator> index;
             RETURN_IF_ERROR(pk_idx->new_iterator(&index, nullptr));
-            auto index_type = vectorized::DataTypeFactory::instance().create_data_type(
-                    pk_idx->type_info()->type(), 1, 0);
+            auto index_type =
+                    DataTypeFactory::instance().create_data_type(pk_idx->type_info()->type(), 1, 0);
             _contexts.emplace_back(std::move(index), index_type, segment->id(), pk_idx->num_rows());
             _heap->push(&_contexts.back());
         }

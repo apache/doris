@@ -21,13 +21,14 @@
 #include <string>
 
 #include "common/exception.h"
+#include "core/column/column_fixed_length_object.h"
 #include "exec/operator/operator.h"
 #include "exprs/vectorized_agg_fn.h"
 #include "exprs/vexpr_fwd.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/thread_context.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 AggLocalState::AggLocalState(RuntimeState* state, OperatorXBase* parent) : Base(state, parent) {}
@@ -58,25 +59,21 @@ Status AggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     auto& p = _parent->template cast<AggSourceOperatorX>();
     if (p._without_key) {
         if (p._needs_finalize) {
-            _executor.get_result = [this](RuntimeState* state, vectorized::Block* block,
-                                          bool* eos) {
+            _executor.get_result = [this](RuntimeState* state, Block* block, bool* eos) {
                 return _get_without_key_result(state, block, eos);
             };
         } else {
-            _executor.get_result = [this](RuntimeState* state, vectorized::Block* block,
-                                          bool* eos) {
+            _executor.get_result = [this](RuntimeState* state, Block* block, bool* eos) {
                 return _get_results_without_key(state, block, eos);
             };
         }
     } else {
         if (p._needs_finalize) {
-            _executor.get_result = [this](RuntimeState* state, vectorized::Block* block,
-                                          bool* eos) {
+            _executor.get_result = [this](RuntimeState* state, Block* block, bool* eos) {
                 return _get_with_serialized_key_result(state, block, eos);
             };
         } else {
-            _executor.get_result = [this](RuntimeState* state, vectorized::Block* block,
-                                          bool* eos) {
+            _executor.get_result = [this](RuntimeState* state, Block* block, bool* eos) {
                 return _get_results_with_serialized_key(state, block, eos);
             };
         }
@@ -85,7 +82,7 @@ Status AggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     return Status::OK();
 }
 
-Status AggLocalState::_create_agg_status(vectorized::AggregateDataPtr data) {
+Status AggLocalState::_create_agg_status(AggregateDataPtr data) {
     auto& shared_state = *Base::_shared_state;
     for (int i = 0; i < shared_state.aggregate_evaluators.size(); ++i) {
         try {
@@ -102,19 +99,19 @@ Status AggLocalState::_create_agg_status(vectorized::AggregateDataPtr data) {
     return Status::OK();
 }
 
-Status AggLocalState::_get_results_with_serialized_key(RuntimeState* state,
-                                                       vectorized::Block* block, bool* eos) {
+Status AggLocalState::_get_results_with_serialized_key(RuntimeState* state, Block* block,
+                                                       bool* eos) {
     SCOPED_TIMER(_get_results_timer);
     auto& shared_state = *_shared_state;
     size_t key_size = _shared_state->probe_expr_ctxs.size();
     size_t agg_size = _shared_state->aggregate_evaluators.size();
-    vectorized::MutableColumns value_columns(agg_size);
-    vectorized::DataTypes value_data_types(agg_size);
+    MutableColumns value_columns(agg_size);
+    DataTypes value_data_types(agg_size);
 
     // non-nullable column(id in `_make_nullable_keys`) will be converted to nullable.
     bool mem_reuse = shared_state.make_nullable_keys.empty() && block->mem_reuse();
 
-    vectorized::MutableColumns key_columns;
+    MutableColumns key_columns;
     for (int i = 0; i < key_size; ++i) {
         if (mem_reuse) {
             key_columns.emplace_back(std::move(*block->get_by_position(i).column).mutate());
@@ -125,7 +122,7 @@ Status AggLocalState::_get_results_with_serialized_key(RuntimeState* state,
     }
 
     std::visit(
-            vectorized::Overload {
+            Overload {
                     [&](std::monostate& arg) -> void {
                         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
                     },
@@ -135,6 +132,69 @@ Status AggLocalState::_get_results_with_serialized_key(RuntimeState* state,
                         const auto size = std::min(data.size(), size_t(state->batch_size()));
                         using KeyType = std::decay_t<decltype(agg_method)>::Key;
                         std::vector<KeyType> keys(size);
+
+                        if (shared_state.use_simple_count) {
+                            DCHECK_EQ(shared_state.aggregate_evaluators.size(), 1);
+
+                            value_data_types[0] = shared_state.aggregate_evaluators[0]
+                                                          ->function()
+                                                          ->get_serialized_type();
+                            if (mem_reuse) {
+                                value_columns[0] =
+                                        std::move(*block->get_by_position(key_size).column)
+                                                .mutate();
+                            } else {
+                                value_columns[0] = shared_state.aggregate_evaluators[0]
+                                                           ->function()
+                                                           ->create_serialize_column();
+                            }
+
+                            auto& count_col =
+                                    assert_cast<ColumnFixedLengthObject&>(*value_columns[0]);
+                            uint32_t num_rows = 0;
+                            {
+                                SCOPED_TIMER(_hash_table_iterate_timer);
+                                auto& it = agg_method.begin;
+                                while (it != agg_method.end && num_rows < state->batch_size()) {
+                                    keys[num_rows] = it.get_first();
+                                    auto inline_count =
+                                            reinterpret_cast<const UInt64&>(it.get_second());
+                                    count_col.insert_data(
+                                            reinterpret_cast<const char*>(&inline_count),
+                                            sizeof(UInt64));
+                                    ++it;
+                                    ++num_rows;
+                                }
+                            }
+
+                            {
+                                SCOPED_TIMER(_insert_keys_to_column_timer);
+                                agg_method.insert_keys_into_columns(keys, key_columns, num_rows);
+                            }
+
+                            // Handle null key if present
+                            if (agg_method.begin == agg_method.end) {
+                                if (agg_method.hash_table->has_null_key_data()) {
+                                    DCHECK(key_columns.size() == 1);
+                                    DCHECK(key_columns[0]->is_nullable());
+                                    if (num_rows < state->batch_size()) {
+                                        key_columns[0]->insert_data(nullptr, 0);
+                                        auto mapped =
+                                                agg_method.hash_table->template get_null_key_data<
+                                                        AggregateDataPtr>();
+                                        count_col.resize(num_rows + 1);
+                                        *reinterpret_cast<UInt64*>(count_col.get_data().data() +
+                                                                   num_rows * sizeof(UInt64)) =
+                                                std::bit_cast<UInt64>(mapped);
+                                        *eos = true;
+                                    }
+                                } else {
+                                    *eos = true;
+                                }
+                            }
+                            return;
+                        }
+
                         if (shared_state.values.size() < size + 1) {
                             shared_state.values.resize(size + 1);
                         }
@@ -169,7 +229,7 @@ Status AggLocalState::_get_results_with_serialized_key(RuntimeState* state,
                                     key_columns[0]->insert_data(nullptr, 0);
                                     shared_state.values[num_rows] =
                                             agg_method.hash_table->template get_null_key_data<
-                                                    vectorized::AggregateDataPtr>();
+                                                    AggregateDataPtr>();
                                     ++num_rows;
                                     *eos = true;
                                 }
@@ -205,7 +265,7 @@ Status AggLocalState::_get_results_with_serialized_key(RuntimeState* state,
             shared_state.agg_data->method_variant);
 
     if (!mem_reuse) {
-        vectorized::ColumnsWithTypeAndName columns_with_schema;
+        ColumnsWithTypeAndName columns_with_schema;
         for (int i = 0; i < key_size; ++i) {
             columns_with_schema.emplace_back(std::move(key_columns[i]),
                                              shared_state.probe_expr_ctxs[i]->root()->data_type(),
@@ -214,23 +274,23 @@ Status AggLocalState::_get_results_with_serialized_key(RuntimeState* state,
         for (int i = 0; i < agg_size; ++i) {
             columns_with_schema.emplace_back(std::move(value_columns[i]), value_data_types[i], "");
         }
-        *block = vectorized::Block(columns_with_schema);
+        *block = Block(columns_with_schema);
     }
 
     return Status::OK();
 }
 
-Status AggLocalState::_get_with_serialized_key_result(RuntimeState* state, vectorized::Block* block,
+Status AggLocalState::_get_with_serialized_key_result(RuntimeState* state, Block* block,
                                                       bool* eos) {
     auto& shared_state = *_shared_state;
     // non-nullable column(id in `_make_nullable_keys`) will be converted to nullable.
     bool mem_reuse = shared_state.make_nullable_keys.empty() && block->mem_reuse();
 
-    auto columns_with_schema = vectorized::VectorizedUtils::create_columns_with_type_and_name(
+    auto columns_with_schema = VectorizedUtils::create_columns_with_type_and_name(
             _parent->cast<AggSourceOperatorX>().row_descriptor());
     size_t key_size = shared_state.probe_expr_ctxs.size();
 
-    vectorized::MutableColumns key_columns;
+    MutableColumns key_columns;
     for (int i = 0; i < key_size; ++i) {
         if (!mem_reuse) {
             key_columns.emplace_back(columns_with_schema[i].type->create_column());
@@ -238,7 +298,7 @@ Status AggLocalState::_get_with_serialized_key_result(RuntimeState* state, vecto
             key_columns.emplace_back(std::move(*block->get_by_position(i).column).mutate());
         }
     }
-    vectorized::MutableColumns value_columns;
+    MutableColumns value_columns;
     for (size_t i = key_size; i < columns_with_schema.size(); ++i) {
         if (!mem_reuse) {
             value_columns.emplace_back(columns_with_schema[i].type->create_column());
@@ -249,7 +309,7 @@ Status AggLocalState::_get_with_serialized_key_result(RuntimeState* state, vecto
 
     SCOPED_TIMER(_get_results_timer);
     std::visit(
-            vectorized::Overload {
+            Overload {
                     [&](std::monostate& arg) -> void {
                         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
                     },
@@ -259,6 +319,52 @@ Status AggLocalState::_get_with_serialized_key_result(RuntimeState* state, vecto
                         const auto size = std::min(data.size(), size_t(state->batch_size()));
                         using KeyType = std::decay_t<decltype(agg_method)>::Key;
                         std::vector<KeyType> keys(size);
+
+                        if (shared_state.use_simple_count) {
+                            // Inline count: mapped slot stores UInt64 count directly
+                            // (not a real AggregateDataPtr). Iterate hash table directly.
+                            DCHECK_EQ(value_columns.size(), 1);
+                            auto& count_column = assert_cast<ColumnInt64&>(*value_columns[0]);
+                            uint32_t num_rows = 0;
+                            {
+                                SCOPED_TIMER(_hash_table_iterate_timer);
+                                auto& it = agg_method.begin;
+                                while (it != agg_method.end && num_rows < state->batch_size()) {
+                                    keys[num_rows] = it.get_first();
+                                    auto& mapped = it.get_second();
+                                    count_column.insert_value(static_cast<Int64>(
+                                            reinterpret_cast<const UInt64&>(mapped)));
+                                    ++it;
+                                    ++num_rows;
+                                }
+                            }
+                            {
+                                SCOPED_TIMER(_insert_keys_to_column_timer);
+                                agg_method.insert_keys_into_columns(keys, key_columns, num_rows);
+                            }
+
+                            // Handle null key if present
+                            if (agg_method.begin == agg_method.end) {
+                                if (agg_method.hash_table->has_null_key_data()) {
+                                    DCHECK(key_columns.size() == 1);
+                                    DCHECK(key_columns[0]->is_nullable());
+                                    if (key_columns[0]->size() < state->batch_size()) {
+                                        key_columns[0]->insert_data(nullptr, 0);
+                                        auto mapped =
+                                                agg_method.hash_table->template get_null_key_data<
+                                                        AggregateDataPtr>();
+                                        count_column.insert_value(
+                                                static_cast<Int64>(std::bit_cast<UInt64>(mapped)));
+                                        *eos = true;
+                                    }
+                                } else {
+                                    *eos = true;
+                                }
+                            }
+                            return;
+                        }
+
+                        // Normal (non-simple-count) path
                         if (shared_state.values.size() < size) {
                             shared_state.values.resize(size);
                         }
@@ -299,7 +405,7 @@ Status AggLocalState::_get_with_serialized_key_result(RuntimeState* state, vecto
                                 if (key_columns[0]->size() < state->batch_size()) {
                                     key_columns[0]->insert_data(nullptr, 0);
                                     auto mapped = agg_method.hash_table->template get_null_key_data<
-                                            vectorized::AggregateDataPtr>();
+                                            AggregateDataPtr>();
                                     for (size_t i = 0; i < shared_state.aggregate_evaluators.size();
                                          ++i)
                                         shared_state.aggregate_evaluators[i]->insert_result_info(
@@ -317,7 +423,7 @@ Status AggLocalState::_get_with_serialized_key_result(RuntimeState* state, vecto
 
     if (!mem_reuse) {
         *block = columns_with_schema;
-        vectorized::MutableColumns columns(block->columns());
+        MutableColumns columns(block->columns());
         for (int i = 0; i < block->columns(); ++i) {
             if (i < key_size) {
                 columns[i] = std::move(key_columns[i]);
@@ -331,8 +437,7 @@ Status AggLocalState::_get_with_serialized_key_result(RuntimeState* state, vecto
     return Status::OK();
 }
 
-Status AggLocalState::_get_results_without_key(RuntimeState* state, vectorized::Block* block,
-                                               bool* eos) {
+Status AggLocalState::_get_results_without_key(RuntimeState* state, Block* block, bool* eos) {
     SCOPED_TIMER(_get_results_timer);
     auto& shared_state = *_shared_state;
     // 1. `child(0)->rows_returned() == 0` mean not data from child
@@ -347,8 +452,8 @@ Status AggLocalState::_get_results_without_key(RuntimeState* state, vectorized::
     DCHECK(shared_state.agg_data->without_key != nullptr);
     size_t agg_size = shared_state.aggregate_evaluators.size();
 
-    vectorized::MutableColumns value_columns(agg_size);
-    std::vector<vectorized::DataTypePtr> data_types(agg_size);
+    MutableColumns value_columns(agg_size);
+    std::vector<DataTypePtr> data_types(agg_size);
     // will serialize data to string column
     for (int i = 0; i < shared_state.aggregate_evaluators.size(); ++i) {
         data_types[i] = shared_state.aggregate_evaluators[i]->function()->get_serialized_type();
@@ -363,12 +468,12 @@ Status AggLocalState::_get_results_without_key(RuntimeState* state, vectorized::
     }
 
     {
-        vectorized::ColumnsWithTypeAndName data_with_schema;
+        ColumnsWithTypeAndName data_with_schema;
         for (int i = 0; i < shared_state.aggregate_evaluators.size(); ++i) {
-            vectorized::ColumnWithTypeAndName column_with_schema = {nullptr, data_types[i], ""};
+            ColumnWithTypeAndName column_with_schema = {nullptr, data_types[i], ""};
             data_with_schema.push_back(std::move(column_with_schema));
         }
-        *block = vectorized::Block(data_with_schema);
+        *block = Block(data_with_schema);
     }
 
     block->set_columns(std::move(value_columns));
@@ -376,18 +481,17 @@ Status AggLocalState::_get_results_without_key(RuntimeState* state, vectorized::
     return Status::OK();
 }
 
-Status AggLocalState::_get_without_key_result(RuntimeState* state, vectorized::Block* block,
-                                              bool* eos) {
+Status AggLocalState::_get_without_key_result(RuntimeState* state, Block* block, bool* eos) {
     auto& shared_state = *_shared_state;
     DCHECK(_shared_state->agg_data->without_key != nullptr);
     block->clear();
 
     auto& p = _parent->cast<AggSourceOperatorX>();
-    *block = vectorized::VectorizedUtils::create_empty_columnswithtypename(p.row_descriptor());
+    *block = VectorizedUtils::create_empty_columnswithtypename(p.row_descriptor());
     size_t agg_size = shared_state.aggregate_evaluators.size();
 
-    vectorized::MutableColumns columns(agg_size);
-    std::vector<vectorized::DataTypePtr> data_types(agg_size);
+    MutableColumns columns(agg_size);
+    std::vector<DataTypePtr> data_types(agg_size);
     for (int i = 0; i < shared_state.aggregate_evaluators.size(); ++i) {
         data_types[i] = shared_state.aggregate_evaluators[i]->function()->get_return_type();
         columns[i] = data_types[i]->create_column();
@@ -421,7 +525,7 @@ Status AggLocalState::_get_without_key_result(RuntimeState* state, vectorized::B
             // 2. input of aggregate function is empty
             // 3. all of input columns are not nullable
             if (column_type->is_nullable() && !data_types[i]->is_nullable()) {
-                vectorized::ColumnPtr ptr = std::move(columns[i]);
+                ColumnPtr ptr = std::move(columns[i]);
                 // unless `count`, other aggregate function dispose empty set should be null
                 // so here check the children row return
                 ptr = make_nullable(ptr, shared_state.input_num_rows == 0);
@@ -441,7 +545,7 @@ AggSourceOperatorX::AggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
           _needs_finalize(tnode.agg_node.need_finalize),
           _without_key(tnode.agg_node.grouping_exprs.empty()) {}
 
-Status AggSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block, bool* eos) {
+Status AggSourceOperatorX::get_block(RuntimeState* state, Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
@@ -453,10 +557,10 @@ Status AggSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* blo
     return Status::OK();
 }
 
-void AggLocalState::do_agg_limit(vectorized::Block* block, bool* eos) {
+void AggLocalState::do_agg_limit(Block* block, bool* eos) {
     if (_shared_state->reach_limit) {
         if (_shared_state->do_sort_limit && _shared_state->do_limit_filter(block, block->rows())) {
-            vectorized::Block::filter_block_internal(block, _shared_state->need_computes);
+            Block::filter_block_internal(block, _shared_state->need_computes);
             if (auto rows = block->rows()) {
                 _num_rows_returned += rows;
             }
@@ -470,7 +574,7 @@ void AggLocalState::do_agg_limit(vectorized::Block* block, bool* eos) {
     }
 }
 
-void AggLocalState::make_nullable_output_key(vectorized::Block* block) {
+void AggLocalState::make_nullable_output_key(Block* block) {
     if (block->rows() != 0) {
         for (auto cid : _shared_state->make_nullable_keys) {
             block->get_by_position(cid).column = make_nullable(block->get_by_position(cid).column);
@@ -479,12 +583,12 @@ void AggLocalState::make_nullable_output_key(vectorized::Block* block) {
     }
 }
 
-Status AggLocalState::merge_with_serialized_key_helper(vectorized::Block* block) {
+Status AggLocalState::merge_with_serialized_key_helper(Block* block) {
     SCOPED_TIMER(_merge_timer);
     SCOPED_PEAK_MEM(&_estimate_memory_usage);
 
     size_t key_size = Base::_shared_state->probe_expr_ctxs.size();
-    vectorized::ColumnRawPtrs key_columns(key_size);
+    ColumnRawPtrs key_columns(key_size);
 
     for (size_t i = 0; i < key_size; ++i) {
         key_columns[i] = block->get_by_position(i).column.get();
@@ -519,8 +623,7 @@ Status AggLocalState::merge_with_serialized_key_helper(vectorized::Block* block)
     return Status::OK();
 }
 
-Status AggSourceOperatorX::merge_with_serialized_key_helper(RuntimeState* state,
-                                                            vectorized::Block* block) {
+Status AggSourceOperatorX::merge_with_serialized_key_helper(RuntimeState* state, Block* block) {
     auto& local_state = get_local_state(state);
     return local_state.merge_with_serialized_key_helper(block);
 }
@@ -529,7 +632,7 @@ size_t AggSourceOperatorX::get_estimated_memory_size_for_merging(RuntimeState* s
                                                                  size_t rows) const {
     auto& local_state = get_local_state(state);
     size_t size = std::visit(
-            vectorized::Overload {
+            Overload {
                     [&](std::monostate& arg) -> size_t {
                         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
                         return 0;
@@ -548,64 +651,67 @@ Status AggSourceOperatorX::reset_hash_table(RuntimeState* state) {
     return Status::OK();
 }
 
-void AggLocalState::_emplace_into_hash_table(vectorized::AggregateDataPtr* places,
-                                             vectorized::ColumnRawPtrs& key_columns,
+Status AggSourceOperatorX::get_serialized_block(RuntimeState* state, Block* block, bool* eos) {
+    auto& local_state = get_local_state(state);
+    // Always use the serialized intermediate output path, regardless of _needs_finalize.
+    return local_state._get_results_with_serialized_key(state, block, eos);
+}
+
+void AggLocalState::_emplace_into_hash_table(AggregateDataPtr* places, ColumnRawPtrs& key_columns,
                                              uint32_t num_rows) {
     std::visit(
-            vectorized::Overload {
-                    [&](std::monostate& arg) -> void {
-                        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
-                    },
-                    [&](auto& agg_method) -> void {
-                        SCOPED_TIMER(_hash_table_compute_timer);
-                        using HashMethodType = std::decay_t<decltype(agg_method)>;
-                        using AggState = typename HashMethodType::State;
-                        AggState state(key_columns);
-                        agg_method.init_serialized_keys(key_columns, num_rows);
+            Overload {[&](std::monostate& arg) -> void {
+                          throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
+                      },
+                      [&](auto& agg_method) -> void {
+                          SCOPED_TIMER(_hash_table_compute_timer);
+                          using HashMethodType = std::decay_t<decltype(agg_method)>;
+                          using AggState = typename HashMethodType::State;
+                          AggState state(key_columns);
+                          agg_method.init_serialized_keys(key_columns, num_rows);
 
-                        auto creator = [this](const auto& ctor, auto& key, auto& origin) {
-                            HashMethodType::try_presis_key_and_origin(
-                                    key, origin, Base::_shared_state->agg_arena_pool);
-                            auto mapped =
-                                    Base::_shared_state->aggregate_data_container->append_data(
-                                            origin);
-                            auto st = _create_agg_status(mapped);
-                            if (!st) {
-                                throw Exception(st.code(), st.to_string());
-                            }
-                            ctor(key, mapped);
-                        };
+                          auto creator = [this](const auto& ctor, auto& key, auto& origin) {
+                              HashMethodType::try_presis_key_and_origin(
+                                      key, origin, Base::_shared_state->agg_arena_pool);
+                              auto mapped =
+                                      Base::_shared_state->aggregate_data_container->append_data(
+                                              origin);
+                              auto st = _create_agg_status(mapped);
+                              if (!st) {
+                                  throw Exception(st.code(), st.to_string());
+                              }
+                              ctor(key, mapped);
+                          };
 
-                        auto creator_for_null_key = [&](auto& mapped) {
-                            mapped = Base::_shared_state->agg_arena_pool.aligned_alloc(
-                                    _shared_state->total_size_of_aggregate_states,
-                                    _shared_state->align_aggregate_states);
-                            auto st = _create_agg_status(mapped);
-                            if (!st) {
-                                throw Exception(st.code(), st.to_string());
-                            }
-                        };
+                          auto creator_for_null_key = [&](auto& mapped) {
+                              mapped = Base::_shared_state->agg_arena_pool.aligned_alloc(
+                                      _shared_state->total_size_of_aggregate_states,
+                                      _shared_state->align_aggregate_states);
+                              auto st = _create_agg_status(mapped);
+                              if (!st) {
+                                  throw Exception(st.code(), st.to_string());
+                              }
+                          };
 
-                        SCOPED_TIMER(_hash_table_emplace_timer);
-                        for (size_t i = 0; i < num_rows; ++i) {
-                            places[i] = *agg_method.lazy_emplace(state, i, creator,
-                                                                 creator_for_null_key);
-                        }
+                          SCOPED_TIMER(_hash_table_emplace_timer);
+                          lazy_emplace_batch(
+                                  agg_method, state, num_rows, creator, creator_for_null_key,
+                                  [&](uint32_t row, auto& mapped) { places[row] = mapped; });
 
-                        COUNTER_UPDATE(_hash_table_input_counter, num_rows);
-                        COUNTER_SET(_hash_table_memory_usage,
-                                    static_cast<int64_t>(
-                                            agg_method.hash_table->get_buffer_size_in_bytes()));
-                        COUNTER_SET(_hash_table_size_counter,
-                                    static_cast<int64_t>(agg_method.hash_table->size()));
-                        COUNTER_SET(
-                                _memory_usage_container,
-                                static_cast<int64_t>(
-                                        _shared_state->aggregate_data_container->memory_usage()));
-                        COUNTER_SET(
-                                _memory_usage_arena,
-                                static_cast<int64_t>(Base::_shared_state->agg_arena_pool.size()));
-                    }},
+                          COUNTER_UPDATE(_hash_table_input_counter, num_rows);
+                          COUNTER_SET(_hash_table_memory_usage,
+                                      static_cast<int64_t>(
+                                              agg_method.hash_table->get_buffer_size_in_bytes()));
+                          COUNTER_SET(_hash_table_size_counter,
+                                      static_cast<int64_t>(agg_method.hash_table->size()));
+                          COUNTER_SET(
+                                  _memory_usage_container,
+                                  static_cast<int64_t>(
+                                          _shared_state->aggregate_data_container->memory_usage()));
+                          COUNTER_SET(
+                                  _memory_usage_arena,
+                                  static_cast<int64_t>(Base::_shared_state->agg_arena_pool.size()));
+                      }},
             _shared_state->agg_data->method_variant);
 }
 
@@ -616,7 +722,7 @@ Status AggLocalState::close(RuntimeState* state) {
         return Status::OK();
     }
 
-    vectorized::PODArray<vectorized::AggregateDataPtr> tmp_places;
+    PODArray<AggregateDataPtr> tmp_places;
     _places.swap(tmp_places);
 
     std::vector<char> tmp_deserialize_buffer;
@@ -624,4 +730,4 @@ Status AggLocalState::close(RuntimeState* state) {
     return Base::close(state);
 }
 
-} // namespace doris::pipeline
+} // namespace doris

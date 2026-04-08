@@ -30,7 +30,6 @@
 namespace doris {
 class RuntimeState;
 
-namespace pipeline {
 class PipelineFragmentContext;
 
 class RevokableTask : public PipelineTask {
@@ -64,6 +63,7 @@ public:
 
     Status execute(bool* done) override { return _task->do_revoke_memory(_spill_context); }
 
+    // Use blockable to make sure the task will be submiited to the blockable task queue and can be revoked when necessary.
     bool is_blockable() const override { return true; }
 
 private:
@@ -71,5 +71,4 @@ private:
     std::shared_ptr<SpillContext> _spill_context;
 };
 
-} // namespace pipeline
 } // namespace doris

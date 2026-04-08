@@ -62,12 +62,12 @@
 #include "storage/tablet/tablet_schema.h"
 #include "util/json/path_in_data.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_avoid_begin.h"
 
 using ReadSource = TabletReadSource;
 
-OlapScanner::OlapScanner(pipeline::ScanLocalStateBase* parent, OlapScanner::Params&& params)
+OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& params)
         : Scanner(params.state, parent, params.limit, params.profile),
           _key_ranges(std::move(params.key_ranges)),
           _tablet_reader_params({.tablet = std::move(params.tablet),
@@ -128,7 +128,7 @@ static std::string read_columns_to_string(TabletSchemaSPtr tablet_schema,
 }
 
 Status OlapScanner::prepare() {
-    auto* local_state = static_cast<pipeline::OlapScanLocalState*>(_local_state);
+    auto* local_state = static_cast<OlapScanLocalState*>(_local_state);
     auto& tablet = _tablet_reader_params.tablet;
     auto& tablet_schema = _tablet_reader_params.tablet_schema;
     DBUG_EXECUTE_IF("CloudTablet.capture_rs_readers.return.e-230", {
@@ -175,6 +175,11 @@ Status OlapScanner::prepare() {
                   olap_scan_node.columns_desc[0].col_unique_id >= 0 && // Why check first column?
                   tablet->tablet_schema()->num_variant_columns() == 0 &&
                   tablet->tablet_schema()->num_virtual_columns() == 0)) {
+                return false;
+            }
+
+            // If `delete_predicates` is not empty, will merge the columns in delete predicate into current tablet schema
+            if (!_tablet_reader_params.delete_predicates.empty()) {
                 return false;
             }
 
@@ -268,9 +273,8 @@ Status OlapScanner::prepare() {
 
         // Initialize tablet_reader_params
         RETURN_IF_ERROR(_init_tablet_reader_params(
-                local_state->_parent->cast<pipeline::OlapScanOperatorX>()._slot_id_to_slot_desc,
-                _key_ranges, local_state->_slot_id_to_predicates,
-                local_state->_push_down_functions));
+                local_state->_parent->cast<OlapScanOperatorX>()._slot_id_to_slot_desc, _key_ranges,
+                local_state->_slot_id_to_predicates, local_state->_push_down_functions));
     }
 
     // add read columns in profile
@@ -308,7 +312,7 @@ Status OlapScanner::prepare() {
 
 Status OlapScanner::_open_impl(RuntimeState* state) {
     RETURN_IF_ERROR(Scanner::_open_impl(state));
-    SCOPED_TIMER(_local_state->cast<pipeline::OlapScanLocalState>()._reader_init_timer);
+    SCOPED_TIMER(_local_state->cast<OlapScanLocalState>()._reader_init_timer);
 
     auto res = _tablet_reader->init(_tablet_reader_params);
     if (!res.ok()) {
@@ -334,7 +338,10 @@ Status OlapScanner::_init_tablet_reader_params(
     // if the table with rowset [0-x] or [0-1] [2-y], and [0-1] is empty
     const bool single_version = _tablet_reader_params.has_single_version();
 
-    if (_state->skip_storage_engine_merge()) {
+    auto* olap_local_state = static_cast<OlapScanLocalState*>(_local_state);
+    bool read_mor_as_dup = olap_local_state->olap_scan_node().__isset.read_mor_as_dup &&
+                           olap_local_state->olap_scan_node().read_mor_as_dup;
+    if (_state->skip_storage_engine_merge() || read_mor_as_dup) {
         _tablet_reader_params.direct_mode = true;
         _tablet_reader_params.aggregation = true;
     } else {
@@ -366,11 +373,9 @@ Status OlapScanner::_init_tablet_reader_params(
     _tablet_reader_params.vir_cid_to_idx_in_block = _vir_cid_to_idx_in_block;
     _tablet_reader_params.vir_col_idx_to_type = _vir_col_idx_to_type;
     _tablet_reader_params.score_runtime = _score_runtime;
-    _tablet_reader_params.output_columns =
-            ((pipeline::OlapScanLocalState*)_local_state)->_output_column_ids;
+    _tablet_reader_params.output_columns = ((OlapScanLocalState*)_local_state)->_output_column_ids;
     _tablet_reader_params.ann_topn_runtime = _ann_topn_runtime;
-    for (const auto& ele :
-         ((pipeline::OlapScanLocalState*)_local_state)->_cast_types_for_variants) {
+    for (const auto& ele : ((OlapScanLocalState*)_local_state)->_cast_types_for_variants) {
         _tablet_reader_params.target_cast_type_for_variants[ele.first] = ele.second;
     };
     auto& tablet_schema = _tablet_reader_params.tablet_schema;
@@ -398,10 +403,11 @@ Status OlapScanner::_init_tablet_reader_params(
         tablet_schema->merge_dropped_columns(*del_pred->tablet_schema());
     }
 
-    // Range
+    // Push key ranges to the tablet reader.
+    // Skip the "full scan" placeholder (has_lower_bound == false) — when no key
+    // predicates exist, start_key/end_key remain empty and the reader does a full scan.
     for (auto* key_range : key_ranges) {
-        if (key_range->begin_scan_range.size() == 1 &&
-            key_range->begin_scan_range.get_value(0) == NEGATIVE_INFINITY) {
+        if (!key_range->has_lower_bound) {
             continue;
         }
 
@@ -476,22 +482,50 @@ Status OlapScanner::_init_tablet_reader_params(
     DBUG_EXECUTE_IF("NewOlapScanner::_init_tablet_reader_params.block", DBUG_BLOCK);
 
     if (!_state->skip_storage_engine_merge()) {
-        auto* olap_scan_local_state = (pipeline::OlapScanLocalState*)_local_state;
+        auto* olap_scan_local_state = (OlapScanLocalState*)_local_state;
         TOlapScanNode& olap_scan_node = olap_scan_local_state->olap_scan_node();
-        // order by table keys optimization for topn
-        // will only read head/tail of data file since it's already sorted by keys
-        if (olap_scan_node.__isset.sort_info && !olap_scan_node.sort_info.is_asc_order.empty()) {
-            _limit = _local_state->limit_per_scanner();
-            _tablet_reader_params.read_orderby_key = true;
-            if (!olap_scan_node.sort_info.is_asc_order[0]) {
-                _tablet_reader_params.read_orderby_key_reverse = true;
-            }
-            _tablet_reader_params.read_orderby_key_num_prefix_columns =
-                    olap_scan_node.sort_info.is_asc_order.size();
-            _tablet_reader_params.read_orderby_key_limit = _limit;
 
-            if (_tablet_reader_params.read_orderby_key_limit > 0 &&
-                olap_scan_local_state->_storage_no_merge()) {
+        // Set MOR value predicate pushdown flag
+        if (olap_scan_node.__isset.enable_mor_value_predicate_pushdown &&
+            olap_scan_node.enable_mor_value_predicate_pushdown) {
+            _tablet_reader_params.enable_mor_value_predicate_pushdown = true;
+        }
+
+        // Skip topn / general-limit storage-layer optimizations when runtime
+        // filters exist.  Late-arriving filters would re-populate _conjuncts
+        // at the scanner level while the storage layer has already committed
+        // to a row budget counted before those filters, causing the scan to
+        // return fewer rows than the limit requires.
+        if (_total_rf_num == 0) {
+            // order by table keys optimization for topn
+            // will only read head/tail of data file since it's already sorted by keys
+            if (olap_scan_node.__isset.sort_info &&
+                !olap_scan_node.sort_info.is_asc_order.empty()) {
+                _limit = _local_state->limit_per_scanner();
+                _tablet_reader_params.read_orderby_key = true;
+                if (!olap_scan_node.sort_info.is_asc_order[0]) {
+                    _tablet_reader_params.read_orderby_key_reverse = true;
+                }
+                _tablet_reader_params.read_orderby_key_num_prefix_columns =
+                        olap_scan_node.sort_info.is_asc_order.size();
+                _tablet_reader_params.read_orderby_key_limit = _limit;
+
+                if (_tablet_reader_params.read_orderby_key_limit > 0 &&
+                    olap_scan_local_state->_storage_no_merge()) {
+                    _tablet_reader_params.filter_block_conjuncts = _conjuncts;
+                    _conjuncts.clear();
+                }
+            } else if (_limit > 0 && olap_scan_local_state->_storage_no_merge()) {
+                // General limit pushdown for DUP_KEYS and UNIQUE_KEYS with MOW
+                // (non-merge path). Only when topn optimization is NOT active.
+                // NOTE: _limit is the global query limit (TPlanNode.limit), not a
+                // per-scanner budget. With N scanners each scanner may read up to
+                // _limit rows, so up to N * _limit rows are read in total before
+                // the _shared_scan_limit coordinator stops them. This is
+                // acceptable because _shared_scan_limit guarantees correctness,
+                // and the over-read is bounded by (N-1) * _limit which is small
+                // for typical LIMIT values.
+                _tablet_reader_params.general_read_limit = _limit;
                 _tablet_reader_params.filter_block_conjuncts = _conjuncts;
                 _conjuncts.clear();
             }
@@ -541,11 +575,12 @@ Status OlapScanner::_init_variant_columns() {
         if (slot->type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
             // Such columns are not exist in frontend schema info, so we need to
             // add them into tablet_schema for later column indexing.
+            const auto& dt_variant =
+                    assert_cast<const DataTypeVariant&>(*remove_nullable(slot->type()));
             TabletColumn subcol = TabletColumn::create_materialized_variant_column(
                     tablet_schema->column_by_uid(slot->col_unique_id()).name_lower_case(),
                     slot->column_paths(), slot->col_unique_id(),
-                    assert_cast<const vectorized::DataTypeVariant&>(*remove_nullable(slot->type()))
-                            .variant_max_subcolumns_count());
+                    dt_variant.variant_max_subcolumns_count(), dt_variant.enable_doc_mode());
             if (tablet_schema->field_index(*subcol.path_info_ptr()) < 0) {
                 tablet_schema->append_column(subcol, TabletSchema::ColumnType::VARIANT);
             }
@@ -665,8 +700,12 @@ Status OlapScanner::close(RuntimeState* state) {
 }
 
 void OlapScanner::update_realtime_counters() {
-    pipeline::OlapScanLocalState* local_state =
-            static_cast<pipeline::OlapScanLocalState*>(_local_state);
+    if (!_has_prepared) {
+        // Counter update need prepare successfully, or it maybe core. For example, olap scanner
+        // will open tablet reader during prepare, if not prepare successfully, tablet reader == nullptr.
+        return;
+    }
+    OlapScanLocalState* local_state = static_cast<OlapScanLocalState*>(_local_state);
     const OlapReaderStatistics& stats = _tablet_reader->stats();
     COUNTER_UPDATE(local_state->_read_compressed_counter, stats.compressed_bytes_read);
     COUNTER_UPDATE(local_state->_read_uncompressed_counter, stats.uncompressed_bytes_read);
@@ -726,7 +765,7 @@ void OlapScanner::_collect_profile_before_close() {
     // Update counters for OlapScanner
     // Update counters from tablet reader's stats
     auto& stats = _tablet_reader->stats();
-    auto* local_state = (pipeline::OlapScanLocalState*)_local_state;
+    auto* local_state = (OlapScanLocalState*)_local_state;
     COUNTER_UPDATE(local_state->_io_timer, stats.io_ns);
     COUNTER_UPDATE(local_state->_read_compressed_counter, stats.compressed_bytes_read);
     COUNTER_UPDATE(local_state->_scan_bytes, stats.uncompressed_bytes_read);
@@ -844,8 +883,7 @@ void OlapScanner::_collect_profile_before_close() {
                    stats.output_index_result_column_timer);
     COUNTER_UPDATE(local_state->_filtered_segment_counter, stats.filtered_segment_number);
     COUNTER_UPDATE(local_state->_total_segment_counter, stats.total_segment_number);
-    COUNTER_UPDATE(local_state->_condition_cache_hit_segment_counter,
-                   stats.condition_cache_hit_seg_nums);
+    COUNTER_UPDATE(local_state->_condition_cache_hit_counter, stats.condition_cache_hit_seg_nums);
     COUNTER_UPDATE(local_state->_condition_cache_filtered_rows_counter,
                    stats.condition_cache_filtered_rows);
 
@@ -901,6 +939,11 @@ void OlapScanner::_collect_profile_before_close() {
                    stats.rows_ann_index_range_filtered);
     COUNTER_UPDATE(local_state->_ann_topn_filter_counter, stats.rows_ann_index_topn_filtered);
     COUNTER_UPDATE(local_state->_ann_index_load_costs, stats.ann_index_load_ns);
+    COUNTER_UPDATE(local_state->_ann_ivf_on_disk_load_costs, stats.ann_ivf_on_disk_load_ns);
+    COUNTER_UPDATE(local_state->_ann_ivf_on_disk_cache_hit_cnt,
+                   stats.ann_ivf_on_disk_cache_hit_cnt);
+    COUNTER_UPDATE(local_state->_ann_ivf_on_disk_cache_miss_cnt,
+                   stats.ann_ivf_on_disk_cache_miss_cnt);
     COUNTER_UPDATE(local_state->_ann_range_search_costs, stats.ann_index_range_search_ns);
     COUNTER_UPDATE(local_state->_ann_range_search_cnt, stats.ann_index_range_search_cnt);
     COUNTER_UPDATE(local_state->_ann_range_engine_search_costs, stats.ann_range_engine_search_ns);
@@ -936,8 +979,10 @@ void OlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(local_state->_ann_topn_result_convert_costs,
                    stats.ann_index_topn_result_process_ns);
 
+    COUNTER_UPDATE(local_state->_ann_fallback_brute_force_cnt, stats.ann_fall_back_brute_force_cnt);
+
     // Overhead counter removed; precise instrumentation is reported via engine_prepare above.
 }
 
 #include "common/compile_check_avoid_end.h"
-} // namespace doris::vectorized
+} // namespace doris

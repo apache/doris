@@ -40,7 +40,7 @@
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/function/function_helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const ColumnNumbers& args,
                            size_t input_rows_count) {
@@ -402,4 +402,4 @@ bool FunctionBuilderImpl::is_nested_type_date_or_datetime_or_decimal(
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

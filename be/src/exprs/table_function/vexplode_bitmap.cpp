@@ -33,7 +33,7 @@
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 VExplodeBitmapTableFunction::VExplodeBitmapTableFunction() {
@@ -133,4 +133,4 @@ int VExplodeBitmapTableFunction::get_value(MutableColumnPtr& column, int max_ste
     return max_step;
 }
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

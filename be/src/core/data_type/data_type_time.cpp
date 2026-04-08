@@ -32,7 +32,7 @@
 #include "exprs/function/cast/cast_to_string.h"
 #include "util/date_func.h"
 
-namespace doris::vectorized {
+namespace doris {
 class IColumn;
 
 void DataTypeTimeV2::to_pb_column_meta(PColumnMeta* col_meta) const {
@@ -55,4 +55,4 @@ Field DataTypeTimeV2::get_field(const TExprNode& node) const {
     return Field::create_field<TYPE_TIMEV2>(node.timev2_literal.value);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

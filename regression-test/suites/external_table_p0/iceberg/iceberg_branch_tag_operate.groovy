@@ -88,7 +88,7 @@ suite("iceberg_branch_tag_operate", "p0,external") {
     assertTrue(update_time2 > update_time1);
     sleep(1000)
 
-    List<List<Object>> snapshots = sql """ select snapshot_id from iceberg_meta("table" = "${catalog_name}.test_db.${table_name}", "query_type" = "snapshots") order by committed_at; """
+    List<List<Object>> snapshots = sql """ select snapshot_id from ${catalog_name}.test_db.${table_name}\$snapshots order by committed_at; """
     String s0 = snapshots.get(0)[0]
     String s1 = snapshots.get(1)[0]
     String s2 = snapshots.get(2)[0]

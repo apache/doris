@@ -23,7 +23,7 @@
 #include "exprs/aggregate/factory_helpers.h"
 #include "exprs/aggregate/helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 template <PrimitiveType T>
 using CorrMomentStat = StatFunc<T, CorrMoment>;
@@ -63,4 +63,4 @@ void register_aggregate_functions_corr_welford(AggregateFunctionSimpleFactory& f
     factory.register_function_both("corr_welford", create_aggregate_corr_welford_function);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

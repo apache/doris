@@ -160,11 +160,11 @@ public:
         return Status::OK();
     }
 
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override {
+    Status next_batch(size_t* n, MutableColumnPtr& dst) override {
         return Status::NotSupported("frame page not implement vec op now");
     }
 
-    Status peek_next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override {
+    Status peek_next_batch(size_t* n, MutableColumnPtr& dst) override {
         return Status::NotSupported("frame page not implement vec op now");
     }
 

@@ -50,7 +50,6 @@
 #include "testutil/desc_tbl_builder.h"
 
 namespace doris {
-namespace vectorized {
 class VExprContext;
 
 class OrcReadLinesTest : public testing::Test {
@@ -58,7 +57,8 @@ public:
     OrcReadLinesTest() {}
 };
 
-static void read_orc_line(int64_t line, std::string block_dump) {
+static void read_orc_line(int64_t line, std::string block_dump,
+                          const std::string& time_zone = "CST") {
     auto runtime_state = RuntimeState::create_unique();
 
     std::vector<std::string> column_names = {"col1", "col2", "col3", "col4", "col5",
@@ -69,40 +69,40 @@ static void read_orc_line(int64_t line, std::string block_dump) {
     };
     ObjectPool object_pool;
     DescriptorTblBuilder builder(&object_pool);
-    builder.declare_tuple() << std::make_tuple<vectorized::DataTypePtr, std::string>(
-                                       vectorized::DataTypeFactory::instance().create_data_type(
+    builder.declare_tuple() << std::make_tuple<DataTypePtr, std::string>(
+                                       DataTypeFactory::instance().create_data_type(
                                                PrimitiveType::TYPE_BIGINT, true),
                                        "col1")
-                            << std::make_tuple<vectorized::DataTypePtr, std::string>(
-                                       vectorized::DataTypeFactory::instance().create_data_type(
+                            << std::make_tuple<DataTypePtr, std::string>(
+                                       DataTypeFactory::instance().create_data_type(
                                                PrimitiveType::TYPE_BOOLEAN, true),
                                        "col2")
-                            << std::make_tuple<vectorized::DataTypePtr, std::string>(
-                                       vectorized::DataTypeFactory::instance().create_data_type(
+                            << std::make_tuple<DataTypePtr, std::string>(
+                                       DataTypeFactory::instance().create_data_type(
                                                PrimitiveType::TYPE_VARCHAR, true),
                                        "col3")
-                            << std::make_tuple<vectorized::DataTypePtr, std::string>(
-                                       vectorized::DataTypeFactory::instance().create_data_type(
+                            << std::make_tuple<DataTypePtr, std::string>(
+                                       DataTypeFactory::instance().create_data_type(
                                                PrimitiveType::TYPE_DATEV2, true),
                                        "col4")
-                            << std::make_tuple<vectorized::DataTypePtr, std::string>(
-                                       vectorized::DataTypeFactory::instance().create_data_type(
+                            << std::make_tuple<DataTypePtr, std::string>(
+                                       DataTypeFactory::instance().create_data_type(
                                                PrimitiveType::TYPE_DOUBLE, true),
                                        "col5")
-                            << std::make_tuple<vectorized::DataTypePtr, std::string>(
-                                       vectorized::DataTypeFactory::instance().create_data_type(
+                            << std::make_tuple<DataTypePtr, std::string>(
+                                       DataTypeFactory::instance().create_data_type(
                                                PrimitiveType::TYPE_FLOAT, true),
                                        "col6")
-                            << std::make_tuple<vectorized::DataTypePtr, std::string>(
-                                       vectorized::DataTypeFactory::instance().create_data_type(
+                            << std::make_tuple<DataTypePtr, std::string>(
+                                       DataTypeFactory::instance().create_data_type(
                                                PrimitiveType::TYPE_INT, true),
                                        "col7")
-                            << std::make_tuple<vectorized::DataTypePtr, std::string>(
-                                       vectorized::DataTypeFactory::instance().create_data_type(
+                            << std::make_tuple<DataTypePtr, std::string>(
+                                       DataTypeFactory::instance().create_data_type(
                                                PrimitiveType::TYPE_SMALLINT, true),
                                        "col8")
-                            << std::make_tuple<vectorized::DataTypePtr, std::string>(
-                                       vectorized::DataTypeFactory::instance().create_data_type(
+                            << std::make_tuple<DataTypePtr, std::string>(
+                                       DataTypeFactory::instance().create_data_type(
                                                PrimitiveType::TYPE_VARCHAR, true),
                                        "col9");
     DescriptorTbl* desc_tbl = builder.build();
@@ -120,7 +120,6 @@ static void read_orc_line(int64_t line, std::string block_dump) {
     io::IOContext io_ctx;
     io::FileReaderStats file_reader_stats;
     io_ctx.file_reader_stats = &file_reader_stats;
-    std::string time_zone = "CST";
     auto reader = OrcReader::create_unique(nullptr, runtime_state.get(), params, range, 100,
                                            time_zone, &io_ctx, nullptr, true);
     auto local_fs = io::global_local_filesystem();
@@ -144,7 +143,8 @@ static void read_orc_line(int64_t line, std::string block_dump) {
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
     std::unordered_map<std::string, VExprContextSPtr> missing_columns;
-    static_cast<void>(reader->set_fill_columns(partition_columns, missing_columns));
+    auto st = reader->set_fill_columns(partition_columns, missing_columns);
+    EXPECT_TRUE(st.ok()) << st;
     BlockUPtr block = Block::create_unique();
     for (const auto& slot_desc : tuple_desc->slots()) {
         auto data_type = slot_desc->type();
@@ -152,14 +152,15 @@ static void read_orc_line(int64_t line, std::string block_dump) {
         block->insert(
                 ColumnWithTypeAndName(std::move(data_column), data_type, slot_desc->col_name()));
     }
-    auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
-            PrimitiveType::TYPE_VARCHAR, false);
+    auto data_type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_VARCHAR, false);
     block->insert(ColumnWithTypeAndName(data_type->create_column()->assume_mutable(), data_type,
                                         "row_id"));
 
     bool eof = false;
     size_t read_row = 0;
-    static_cast<void>(reader->get_next_block(block.get(), &read_row, &eof));
+    st = reader->get_next_block(block.get(), &read_row, &eof);
+    EXPECT_TRUE(st.ok()) << st;
     auto row_id_string_column = static_cast<const ColumnString&>(
             *block->get_by_position(block->get_position_by_name("row_id")).column.get());
     for (auto i = 0; i < row_id_string_column.size(); i++) {
@@ -186,7 +187,7 @@ static void read_orc_line(int64_t line, std::string block_dump) {
         slot_info.is_file_slot = true;
         params.required_slots.emplace_back(slot_info);
     }
-    runtime_state->_timezone = "CST";
+    runtime_state->_timezone = time_zone;
 
     std::unique_ptr<RuntimeProfile> runtime_profile;
     runtime_profile = std::make_unique<RuntimeProfile>("ExternalRowIDFetcher");
@@ -197,9 +198,9 @@ static void read_orc_line(int64_t line, std::string block_dump) {
     ExternalFileMappingInfo external_info(0, range, false);
     int64_t init_reader_ms = 0;
     int64_t get_block_ms = 0;
-    auto st = vf->read_lines_from_range(range, {line}, block.get(), external_info, &init_reader_ms,
-                                        &get_block_ms);
-    EXPECT_TRUE(st.ok());
+    st = vf->read_lines_from_range(range, {line}, block.get(), external_info, &init_reader_ms,
+                                   &get_block_ms);
+    EXPECT_TRUE(st.ok()) << st;
     EXPECT_EQ(block->dump_data(1), block_dump);
 }
 
@@ -376,5 +377,22 @@ TEST_F(OrcReadLinesTest, test9) {
     read_orc_line(9, block_dump);
 }
 
-} // namespace vectorized
+TEST_F(OrcReadLinesTest, date_should_not_shift_in_west_timezone) {
+    std::string block_dump =
+            "+----------------------+--------------------+----------------------+------------------"
+            "----+----------------------+---------------------+-------------------+----------------"
+            "--------+----------------------+\n|col1(Nullable(BIGINT))|col2(Nullable(BOOL))|col3("
+            "Nullable(String))|col4(Nullable(DateV2))|col5(Nullable(DOUBLE))|col6(Nullable(FLOAT))|"
+            "col7(Nullable(INT))|col8(Nullable(SMALLINT))|col9(Nullable(String))|\n+---------------"
+            "-------+--------------------+----------------------+----------------------+-----------"
+            "-----------+---------------------+-------------------+------------------------+-------"
+            "---------------+\n|                     1|                   1|                 "
+            "doris|            1900-01-01|                 1.567|                1.567|            "
+            "  12345|                       1|                 "
+            "doris|\n+----------------------+--------------------+----------------------+----------"
+            "------------+----------------------+---------------------+-------------------+--------"
+            "----------------+----------------------+\n";
+    read_orc_line(1, block_dump, "America/Mexico_City");
+}
+
 } // namespace doris

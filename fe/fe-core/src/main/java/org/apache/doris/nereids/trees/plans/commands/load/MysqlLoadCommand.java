@@ -23,7 +23,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.LoadJobRowResult;
@@ -318,7 +318,7 @@ public class MysqlLoadCommand extends Command implements NoForward {
         sb.append(mysqlDataDescription.toSql()).append(")");
         if (!properties.isEmpty()) {
             sb.append("\nPROPERTIES (");
-            sb.append(new PrintableMap<>(properties, "=", true, false, true));
+            sb.append(new DatasourcePrintableMap<>(properties, "=", true, false, true));
             sb.append(")");
         }
         return sb.toString();

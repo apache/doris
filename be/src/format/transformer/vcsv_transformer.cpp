@@ -35,7 +35,7 @@
 #include "io/fs/file_writer.h"
 #include "util/faststring.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 static const unsigned char bom[] = {0xEF, 0xBB, 0xBF};
@@ -179,4 +179,4 @@ std::string VCSVTransformer::_gen_csv_header_types() {
     types += _line_delimiter;
     return types;
 }
-} // namespace doris::vectorized
+} // namespace doris

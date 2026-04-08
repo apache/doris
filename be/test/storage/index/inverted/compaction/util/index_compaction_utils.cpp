@@ -162,8 +162,7 @@ class IndexCompactionUtils {
         idx_reader->_value_key_coder = get_key_coder(idx_reader->_type_info->type());
 
         for (int i = 0; i < query_data.size(); i++) {
-            vectorized::Field param_value =
-                    vectorized::Field::create_field<TYPE_INT>(int32_t(query_data[i]));
+            Field param_value = Field::create_field<TYPE_INT>(int32_t(query_data[i]));
             std::unique_ptr<segment_v2::InvertedIndexQueryParamFactory> query_param = nullptr;
             EXPECT_TRUE(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
                                 PrimitiveType::TYPE_INT, &param_value, query_param)
@@ -660,29 +659,23 @@ class IndexCompactionUtils {
             EXPECT_TRUE(res.has_value()) << res.error();
             const auto& rowset_writer = res.value();
 
-            vectorized::Block block = schema->create_block();
+            Block block = schema->create_block();
             auto columns = block.mutate_columns();
             for (const auto& row : data[i]) {
                 if constexpr (std::is_same_v<T, DataRow>) {
-                    vectorized::Field key =
-                            vectorized::Field::create_field<TYPE_INT>(int32_t(row.key));
-                    vectorized::Field v1 = vectorized::Field::create_field<TYPE_STRING>(row.word);
-                    vectorized::Field v2 = vectorized::Field::create_field<TYPE_STRING>(row.url);
-                    vectorized::Field v3 =
-                            vectorized::Field::create_field<TYPE_INT>(int32_t(row.num));
+                    Field key = Field::create_field<TYPE_INT>(int32_t(row.key));
+                    Field v1 = Field::create_field<TYPE_STRING>(row.word);
+                    Field v2 = Field::create_field<TYPE_STRING>(row.url);
+                    Field v3 = Field::create_field<TYPE_INT>(int32_t(row.num));
                     columns[0]->insert(key);
                     columns[1]->insert(v1);
                     columns[2]->insert(v2);
                     columns[3]->insert(v3);
                 } else if constexpr (std::is_same_v<T, WikiDataRow>) {
-                    vectorized::Field title =
-                            vectorized::Field::create_field<TYPE_STRING>(row.title);
-                    vectorized::Field content =
-                            vectorized::Field::create_field<TYPE_STRING>(row.content);
-                    vectorized::Field redirect =
-                            vectorized::Field::create_field<TYPE_STRING>(row.redirect);
-                    vectorized::Field space =
-                            vectorized::Field::create_field<TYPE_STRING>(row.space);
+                    Field title = Field::create_field<TYPE_STRING>(row.title);
+                    Field content = Field::create_field<TYPE_STRING>(row.content);
+                    Field redirect = Field::create_field<TYPE_STRING>(row.redirect);
+                    Field space = Field::create_field<TYPE_STRING>(row.space);
                     columns[0]->insert(title);
                     if (is_performance) {
                         columns[1]->insert(content);

@@ -22,7 +22,6 @@
 #include "format/parquet/parquet_common.h"
 
 namespace doris {
-namespace vectorized {
 class ParquetCorruptStatisticsTest : public testing::Test {
 public:
     ParquetCorruptStatisticsTest() = default;
@@ -130,5 +129,4 @@ TEST_F(ParquetCorruptStatisticsTest, test_distribution_corrupt_statistics) {
                                                             tparquet::Type::BYTE_ARRAY));
 }
 
-} // namespace vectorized
 } // namespace doris

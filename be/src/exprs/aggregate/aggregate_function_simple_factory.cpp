@@ -24,7 +24,7 @@
 
 #include "exprs/aggregate/aggregate_function_reader.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 void register_aggregate_function_combinator_distinct(AggregateFunctionSimpleFactory& factory);
@@ -56,6 +56,7 @@ void register_aggregate_function_percentile(AggregateFunctionSimpleFactory& fact
 void register_aggregate_function_percentile_old(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_window_funnel(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_window_funnel_old(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_window_funnel_v2(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_regr_union(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_retention(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_percentile_approx(AggregateFunctionSimpleFactory& factory);
@@ -109,6 +110,7 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_percentile_approx(instance);
         register_aggregate_function_window_funnel(instance);
         register_aggregate_function_window_funnel_old(instance);
+        register_aggregate_function_window_funnel_v2(instance);
         register_aggregate_function_regr_union(instance);
         register_aggregate_function_retention(instance);
         register_aggregate_function_orthogonal_bitmap(instance);
@@ -142,4 +144,4 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
     return instance;
 }
 
-} // namespace doris::vectorized
+} // namespace doris

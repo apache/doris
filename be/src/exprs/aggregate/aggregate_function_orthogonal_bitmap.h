@@ -37,7 +37,7 @@
 #include "util/bitmap_expr_calculation.h"
 #include "util/bitmap_intersect.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 class Arena;
 class BufferReadable;
@@ -336,7 +336,6 @@ private:
     int64_t result = 0;
 };
 
-template <PrimitiveType T>
 struct OrthBitmapUnionCountData {
     static constexpr auto name = "orthogonal_bitmap_union_count";
 
@@ -373,16 +372,17 @@ private:
     int64_t result = 0;
 };
 
-template <typename Impl>
+template <typename Impl, typename ExprTag = VarargsExpression>
 class AggFunctionOrthBitmapFunc final
-        : public IAggregateFunctionDataHelper<Impl, AggFunctionOrthBitmapFunc<Impl>>,
-          VarargsExpression,
+        : public IAggregateFunctionDataHelper<Impl, AggFunctionOrthBitmapFunc<Impl, ExprTag>>,
+          ExprTag,
           NullableAggregateFunction {
 public:
     String get_name() const override { return Impl::name; }
 
     AggFunctionOrthBitmapFunc(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<Impl, AggFunctionOrthBitmapFunc<Impl>>(argument_types_),
+            : IAggregateFunctionDataHelper<Impl, AggFunctionOrthBitmapFunc<Impl, ExprTag>>(
+                      argument_types_),
               // The number of arguments will not exceed the size of an int
               _argument_size(int(argument_types_.size())) {}
 
@@ -419,6 +419,6 @@ public:
 private:
     int _argument_size;
 };
-} // namespace doris::vectorized
+} // namespace doris
 
 #include "common/compile_check_end.h"

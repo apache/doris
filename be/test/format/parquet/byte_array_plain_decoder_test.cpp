@@ -23,7 +23,7 @@
 #include "core/data_type/data_type_string.h"
 #include "util/slice.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class ByteArrayPlainDecoderTest : public ::testing::Test {
 protected:
@@ -244,4 +244,4 @@ TEST_F(ByteArrayPlainDecoderTest, test_skip_value) {
     EXPECT_EQ(result_column->get_data_at(0).to_string(), "cherry");
 }
 
-} // namespace doris::vectorized
+} // namespace doris

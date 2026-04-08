@@ -57,12 +57,10 @@
 class SipHash;
 
 namespace doris {
-namespace vectorized {
 class Arena;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 #ifdef NDEBUG
 #define ENABLE_CHECK_CONSISTENCY (void)/* Nothing */
@@ -228,7 +226,7 @@ public:
 
             size_t get_dimensions() const { return num_dimensions; }
 
-            void remove_nullable() { type = doris::vectorized::remove_nullable(type); }
+            void remove_nullable() { type = doris::remove_nullable(type); }
 
             const DataTypeSerDeSPtr& get_serde() const { return least_common_type_serder; }
 
@@ -288,6 +286,9 @@ private:
     // if `_max_subcolumns_count == 0`, all subcolumns are materialized.
     int32_t _max_subcolumns_count = 0;
 
+    // whether this column is configured for doc mode
+    bool _enable_doc_mode = false;
+
     // subcolumns count materialized from typed paths
     size_t typed_path_count = 0;
 
@@ -300,15 +301,16 @@ public:
 private:
     friend class COWHelper<IColumn, ColumnVariant>;
     // always create root: data type nothing
-    explicit ColumnVariant(int32_t max_subcolumns_count);
+    explicit ColumnVariant(int32_t max_subcolumns_count, bool enable_doc_mode);
 
     // always create root: data type nothing
-    explicit ColumnVariant(int32_t max_subcolumns_count, size_t size);
+    explicit ColumnVariant(int32_t max_subcolumns_count, bool enable_doc_mode, size_t size);
 
-    explicit ColumnVariant(int32_t max_subcolumns_count, DataTypePtr root_type,
-                           MutableColumnPtr&& root_column);
+    explicit ColumnVariant(int32_t max_subcolumns_count, bool enable_doc_mode,
+                           DataTypePtr root_type, MutableColumnPtr&& root_column);
 
-    explicit ColumnVariant(int32_t max_subcolumns_count, Subcolumns&& subcolumns_);
+    explicit ColumnVariant(int32_t max_subcolumns_count, bool enable_doc_mode,
+                           Subcolumns&& subcolumns_);
 
 public:
     ~ColumnVariant() override = default;
@@ -383,6 +385,8 @@ public:
 
     int32_t max_subcolumns_count() const { return _max_subcolumns_count; }
 
+    bool enable_doc_mode() const { return _enable_doc_mode; }
+
     /// Adds a subcolumn from existing IColumn.
     bool add_sub_column(const PathInData& key, MutableColumnPtr&& subcolumn, DataTypePtr type);
 
@@ -406,9 +410,8 @@ public:
 
     // use sparse_subcolumns_schema to record sparse column's path info and type
     static MutableColumnPtr create_binary_column_fn() {
-        return vectorized::ColumnMap::create(vectorized::ColumnString::create(),
-                                             vectorized::ColumnString::create(),
-                                             vectorized::ColumnArray::ColumnOffsets::create());
+        return ColumnMap::create(ColumnString::create(), ColumnString::create(),
+                                 ColumnArray::ColumnOffsets::create());
     }
 
     static const DataTypePtr& get_binary_column_type() {
@@ -673,4 +676,4 @@ private:
     bool is_visible_root_value(size_t nrow) const;
 };
 
-} // namespace doris::vectorized
+} // namespace doris

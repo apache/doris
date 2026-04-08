@@ -103,6 +103,7 @@ public class CoordinatorContext {
     public final Supplier<Set<TUniqueId>> instanceIds = Suppliers.memoize(this::getInstanceIds);
     public final Supplier<Map<TNetworkAddress, Long>> backends = Suppliers.memoize(this::getBackends);
     public final Supplier<Integer> scanRangeNum = Suppliers.memoize(this::getScanRangeNum);
+    public final Supplier<Boolean> isSingleBackendQuery = Suppliers.memoize(this::computeIsSingleBackendQuery);
     public final Supplier<TNetworkAddress> directConnectFrontendAddress
             = Suppliers.memoize(this::computeDirectConnectCoordinator);
 
@@ -445,6 +446,10 @@ public class CoordinatorContext {
             }
         }
         return scanRangeNum;
+    }
+
+    private boolean computeIsSingleBackendQuery() {
+        return backends.get().size() == 1;
     }
 
     private int computeScanRangeNumByScanRange(TScanRangeParams param) {

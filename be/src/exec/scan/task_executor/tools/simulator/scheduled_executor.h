@@ -30,7 +30,6 @@
 #include "exec/scan/task_executor/tools/simulator/simulation_split.h"
 
 namespace doris {
-namespace vectorized {
 
 struct ScheduledTask {
     std::chrono::steady_clock::time_point execute_at;
@@ -114,5 +113,4 @@ private:
     std::atomic<bool> _stop {false};
 };
 
-} // namespace vectorized
 } // namespace doris

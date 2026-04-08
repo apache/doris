@@ -19,7 +19,7 @@
 
 #include "exprs/aggregate/aggregate_function_state_union.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 const static std::string AGG_MERGE_SUFFIX = "_merge";
 
@@ -55,6 +55,6 @@ public:
     }
 };
 
-} // namespace doris::vectorized
+} // namespace doris
 
 #include "common/compile_check_end.h"

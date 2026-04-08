@@ -20,12 +20,11 @@
 #include "format/table/iceberg/struct_like.h"
 
 namespace doris {
-namespace vectorized {
 #include "common/compile_check_begin.h"
 
-class PartitionData : public iceberg::StructLike {
+class IcebergPartitionData : public iceberg::StructLike {
 public:
-    explicit PartitionData(std::vector<std::any> partition_values)
+    explicit IcebergPartitionData(std::vector<std::any> partition_values)
             : _partition_values(std::move(partition_values)) {}
 
     std::any get(size_t pos) const override {
@@ -39,6 +38,5 @@ private:
     std::vector<std::any> _partition_values;
 };
 
-} // namespace vectorized
 } // namespace doris
 #include "common/compile_check_end.h"

@@ -17,7 +17,7 @@
 
 #include "exec/operator/rec_cte_anchor_sink_operator.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 Status RecCTEAnchorSinkLocalState::open(RuntimeState* state) {
@@ -37,8 +37,8 @@ Status RecCTEAnchorSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* sta
     DCHECK(tnode.__isset.rec_cte_node);
     {
         const auto& texprs = tnode.rec_cte_node.result_expr_lists[0];
-        vectorized::VExprContextSPtrs ctxs;
-        RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(texprs, ctxs));
+        VExprContextSPtrs ctxs;
+        RETURN_IF_ERROR(VExpr::create_expr_trees(texprs, ctxs));
         _child_expr = ctxs;
     }
     _name = "REC_CTE_ANCHOR_SINK_OPERATOR";
@@ -47,10 +47,10 @@ Status RecCTEAnchorSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* sta
 
 Status RecCTEAnchorSinkOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(Base::prepare(state));
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_child_expr, state, _child->row_desc()));
-    RETURN_IF_ERROR(vectorized::VExpr::check_expr_output_type(_child_expr, _child->row_desc()));
-    RETURN_IF_ERROR(vectorized::VExpr::open(_child_expr, state));
+    RETURN_IF_ERROR(VExpr::prepare(_child_expr, state, _child->row_desc()));
+    RETURN_IF_ERROR(VExpr::check_expr_output_type(_child_expr, _child->row_desc()));
+    RETURN_IF_ERROR(VExpr::open(_child_expr, state));
     return Status::OK();
 }
 
-} // namespace doris::pipeline
+} // namespace doris

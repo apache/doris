@@ -20,7 +20,7 @@
 #include "core/data_type/data_type_varbinary.h"
 #include "exprs/function/function_test_util.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 using namespace ut_type;
 
@@ -423,4 +423,4 @@ TEST(function_binary_test, function_to_binary_test) {
     check_function_all_arg_comb<DataTypeVarbinary, true>(func_name, input_types, data_set);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

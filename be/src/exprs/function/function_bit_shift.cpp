@@ -26,7 +26,7 @@
 #include "core/types.h"
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 template <typename Impl>
 class FunctionBitShift : public IFunction {
@@ -157,4 +157,4 @@ void register_function_bit_shift(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionBitShift<BitShiftLeftImpl>>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

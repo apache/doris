@@ -29,7 +29,7 @@
 #include "storage/index/index_reader.h"
 #include "storage/index/inverted/inverted_index_query_type.h"
 
-namespace doris::vectorized {
+namespace doris {
 struct AnnTopNParam;
 }
 
@@ -57,6 +57,7 @@ public:
     virtual Result<bool> has_null() = 0;
 
     void set_context(const IndexQueryContextPtr& context) { _context = context; }
+    IndexQueryContextPtr get_context() const { return _context; }
 
 protected:
     IndexQueryContextPtr _context = nullptr;

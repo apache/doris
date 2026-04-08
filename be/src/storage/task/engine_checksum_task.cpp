@@ -76,9 +76,9 @@ Status EngineChecksumTask::_compute_checksum() {
 
     std::vector<RowsetSharedPtr> input_rowsets;
     Version version(0, _version);
-    vectorized::BlockReader reader;
+    BlockReader reader;
     TabletReader::ReaderParams reader_params;
-    vectorized::Block block;
+    Block block;
     {
         std::shared_lock rdlock(tablet->get_header_lock());
         auto ret = tablet->capture_consistent_rowsets_unlocked(version, CaptureRowsetOps {});

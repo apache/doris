@@ -17,11 +17,12 @@
 
 package org.apache.doris.persist;
 
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.catalog.constraint.TableIdentifier;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
@@ -30,23 +31,36 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
-public class AlterConstraintLog implements Writable {
+/**
+ * Edit log entry for constraint add/drop operations.
+ * Uses TableNameInfo (name-based) for persistence.
+ * Supports backward compatibility with old TableIdentifier (ID-based) format
+ * via GsonPostProcessable migration.
+ */
+public class AlterConstraintLog implements Writable, GsonPostProcessable {
     @SerializedName("ct")
     final Constraint constraint;
+
+    // Old format: ID-based table identifier (kept for backward compat deserialization)
     @SerializedName("tid")
     final TableIdentifier tableIdentifier;
 
-    public AlterConstraintLog(Constraint constraint, TableIf table) {
-        this.constraint = constraint;
-        this.tableIdentifier = new TableIdentifier(table);
-    }
+    // New format: name-based table info
+    @SerializedName("tni")
+    private TableNameInfo tableNameInfo;
 
-    public TableIf getTableIf() {
-        return tableIdentifier.toTableIf();
+    public AlterConstraintLog(Constraint constraint, TableNameInfo tableNameInfo) {
+        this.constraint = constraint;
+        this.tableNameInfo = tableNameInfo;
+        this.tableIdentifier = null;
     }
 
     public Constraint getConstraint() {
         return constraint;
+    }
+
+    public TableNameInfo getTableNameInfo() {
+        return tableNameInfo;
     }
 
     @Override
@@ -57,5 +71,20 @@ public class AlterConstraintLog implements Writable {
     public static AlterConstraintLog read(DataInput in) throws IOException {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, AlterConstraintLog.class);
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        // Migrate from old ID-based format to name-based format
+        if (tableNameInfo == null && tableIdentifier != null) {
+            try {
+                String qualifiedName = tableIdentifier.toQualifiedName();
+                if (qualifiedName != null) {
+                    tableNameInfo = new TableNameInfo(qualifiedName);
+                }
+            } catch (Exception ignored) {
+                // Old table may no longer exist; tableNameInfo stays null
+            }
+        }
     }
 }

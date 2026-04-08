@@ -19,12 +19,10 @@
 
 namespace doris {
 #include "common/compile_check_begin.h"
-namespace vectorized {
 class AggregateFunctionSimpleFactory;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 static auto constexpr AGG_READER_SUFFIX = "_reader";
 static auto constexpr AGG_LOAD_SUFFIX = "_load";
@@ -33,6 +31,6 @@ void register_aggregate_function_reader_load(AggregateFunctionSimpleFactory& fac
 
 void register_aggregate_function_replace_reader_load(AggregateFunctionSimpleFactory& factory);
 
-} // namespace doris::vectorized
+} // namespace doris
 
 #include "common/compile_check_end.h"

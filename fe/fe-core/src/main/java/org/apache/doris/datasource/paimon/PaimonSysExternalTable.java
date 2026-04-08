@@ -19,9 +19,9 @@ package org.apache.doris.datasource.paimon;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.NameMapping;
+import org.apache.doris.datasource.SchemaCacheKey;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.systable.SysTable;
 import org.apache.doris.statistics.AnalysisInfo;
@@ -70,6 +70,8 @@ public class PaimonSysExternalTable extends ExternalTable {
     private final String sysTableType;
     private volatile Boolean isDataTable;
     private volatile Table paimonSysTable;
+    private volatile List<Column> fullSchema;
+    private volatile SchemaCacheValue schemaCacheValue;
 
     /**
      * Creates a new Paimon system external table.
@@ -88,6 +90,12 @@ public class PaimonSysExternalTable extends ExternalTable {
         this.sysTableType = sysTableType;
     }
 
+    @Override
+    public String getMetaCacheEngine() {
+        return PaimonExternalMetaCache.ENGINE;
+    }
+
+    @Override
     protected synchronized void makeSureInitialized() {
         super.makeSureInitialized();
         if (!objectCreated) {
@@ -131,30 +139,7 @@ public class PaimonSysExternalTable extends ExternalTable {
      */
     @Override
     public List<Column> getFullSchema() {
-        Table sysTable = getSysPaimonTable();
-        List<DataField> fields = sysTable.rowType().getFields();
-        List<Column> columns = Lists.newArrayListWithCapacity(fields.size());
-
-        for (DataField field : fields) {
-            Column column = new Column(
-                    field.name().toLowerCase(),
-                    PaimonUtil.paimonTypeToDorisType(
-                            field.type(),
-                            getCatalog().getEnableMappingVarbinary(),
-                            getCatalog().getEnableMappingTimestampTz()),
-                    true,
-                    null,
-                    true,
-                    field.description(),
-                    true,
-                    field.id());
-            PaimonUtil.updatePaimonColumnUniqueId(column, field);
-            if (field.type().getTypeRoot() == DataTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE) {
-                column.setWithTZExtraInfo();
-            }
-            columns.add(column);
-        }
-        return columns;
+        return getOrCreateSchemaCacheValue().getSchema();
     }
 
     public PaimonExternalTable getSourceTable() {
@@ -198,7 +183,8 @@ public class PaimonSysExternalTable extends ExternalTable {
         if (PaimonExternalCatalog.PAIMON_HMS.equals(catalogType)
                 || PaimonExternalCatalog.PAIMON_FILESYSTEM.equals(catalogType)
                 || PaimonExternalCatalog.PAIMON_DLF.equals(catalogType)
-                || PaimonExternalCatalog.PAIMON_REST.equals(catalogType)) {
+                || PaimonExternalCatalog.PAIMON_REST.equals(catalogType)
+                || PaimonExternalCatalog.PAIMON_JDBC.equals(catalogType)) {
             THiveTable tHiveTable = new THiveTable(dbName, name, new HashMap<>());
             TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.HIVE_TABLE, schema.size(), 0,
                     getName(), dbName);
@@ -206,7 +192,7 @@ public class PaimonSysExternalTable extends ExternalTable {
             return tTableDescriptor;
         } else {
             throw new IllegalArgumentException(
-                    "Currently only supports hms/dlf/rest/filesystem catalog, do not support :" + catalogType);
+                    "Currently only supports hms/dlf/rest/filesystem/jdbc catalog, do not support: " + catalogType);
         }
     }
 
@@ -226,7 +212,12 @@ public class PaimonSysExternalTable extends ExternalTable {
 
     @Override
     public Optional<SchemaCacheValue> initSchema(SchemaCacheKey key) {
-        return Optional.of(new SchemaCacheValue(getFullSchema()));
+        return Optional.of(getOrCreateSchemaCacheValue());
+    }
+
+    @Override
+    public Optional<SchemaCacheValue> getSchemaCacheValue() {
+        return Optional.of(getOrCreateSchemaCacheValue());
     }
 
     @Override
@@ -241,5 +232,46 @@ public class PaimonSysExternalTable extends ExternalTable {
     @Override
     public String getComment() {
         return "Paimon system table: " + sysTableType + " for " + sourceTable.getName();
+    }
+
+    private SchemaCacheValue getOrCreateSchemaCacheValue() {
+        if (schemaCacheValue == null) {
+            synchronized (this) {
+                if (schemaCacheValue == null) {
+                    if (fullSchema == null) {
+                        fullSchema = buildFullSchema();
+                    }
+                    schemaCacheValue = new SchemaCacheValue(fullSchema);
+                }
+            }
+        }
+        return schemaCacheValue;
+    }
+
+    private List<Column> buildFullSchema() {
+        Table sysTable = getSysPaimonTable();
+        List<DataField> fields = sysTable.rowType().getFields();
+        List<Column> columns = Lists.newArrayListWithCapacity(fields.size());
+
+        for (DataField field : fields) {
+            Column column = new Column(
+                    field.name().toLowerCase(),
+                    PaimonUtil.paimonTypeToDorisType(
+                            field.type(),
+                            getCatalog().getEnableMappingVarbinary(),
+                            getCatalog().getEnableMappingTimestampTz()),
+                    true,
+                    null,
+                    true,
+                    field.description(),
+                    true,
+                    field.id());
+            PaimonUtil.updatePaimonColumnUniqueId(column, field);
+            if (field.type().getTypeRoot() == DataTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE) {
+                column.setWithTZExtraInfo();
+            }
+            columns.add(column);
+        }
+        return columns;
     }
 }

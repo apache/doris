@@ -61,7 +61,7 @@
 #include "core/value/quantile_state.h"
 #include "gtest/gtest_pred_impl.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 inline void column_to_pb(const DataTypePtr data_type, const IColumn& col, PValues* result) {
     const DataTypeSerDeSPtr serde = data_type->get_serde();
@@ -111,12 +111,12 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTest2) {
     std::cout << "==== double === " << std::endl;
     // double
     {
-        auto vec = vectorized::ColumnFloat64::create();
+        auto vec = ColumnFloat64::create();
         auto& data = vec->get_data();
         for (int i = 0; i < 10; ++i) {
             data.push_back(i);
         }
-        vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeFloat64>());
+        DataTypePtr data_type(std::make_shared<DataTypeFloat64>());
         check_pb_col(data_type, *vec.get());
     }
 }
@@ -125,8 +125,8 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTest3) {
     std::cout << "==== nullable_int32 === " << std::endl;
     // nullable_int
     {
-        auto vec = vectorized::ColumnInt32::create();
-        auto null_map = vectorized::ColumnUInt8::create();
+        auto vec = ColumnInt32::create();
+        auto null_map = ColumnUInt8::create();
         auto& data = vec->get_data();
         auto& null_map_data = null_map->get_data();
 
@@ -134,10 +134,9 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTest3) {
             data.push_back(i);
             null_map_data.push_back(i % 2);
         }
-        auto nullable_column =
-                vectorized::ColumnNullable::create(std::move(vec), std::move(null_map));
-        vectorized::DataTypePtr data_type = std::make_shared<vectorized::DataTypeInt32>();
-        vectorized::DataTypePtr nullable_type = make_nullable(data_type);
+        auto nullable_column = ColumnNullable::create(std::move(vec), std::move(null_map));
+        DataTypePtr data_type = std::make_shared<DataTypeInt32>();
+        DataTypePtr nullable_type = make_nullable(data_type);
 
         check_pb_col(nullable_type, *nullable_column.get());
     }
@@ -147,8 +146,8 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTest4) {
     std::cout << "==== array<int32> === " << std::endl;
     // array<int32>
     {
-        auto vec = vectorized::ColumnInt32::create();
-        auto null_map = vectorized::ColumnUInt8::create();
+        auto vec = ColumnInt32::create();
+        auto null_map = ColumnUInt8::create();
         auto& data = vec->get_data();
         auto& null_map_data = null_map->get_data();
         int rows = 10;
@@ -156,9 +155,8 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTest4) {
             data.push_back(i);
             null_map_data.push_back(i % 2);
         }
-        auto nullable_column =
-                vectorized::ColumnNullable::create(std::move(vec), std::move(null_map));
-        auto offset_column = vectorized::ColumnArray::ColumnOffsets::create();
+        auto nullable_column = ColumnNullable::create(std::move(vec), std::move(null_map));
+        auto offset_column = ColumnArray::ColumnOffsets::create();
         offset_column->get_data().push_back(3);
         offset_column->get_data().push_back(rows);
         /*
@@ -167,13 +165,12 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTest4) {
         |[NULL, 4, NULL, 6, NULL, 8, NULL]|
         +-------------------------------+
         */
-        auto array_column = vectorized::ColumnArray::create(std::move(nullable_column),
-                                                            std::move(offset_column));
+        auto array_column =
+                ColumnArray::create(std::move(nullable_column), std::move(offset_column));
 
-        vectorized::DataTypePtr data_type = std::make_shared<vectorized::DataTypeInt32>();
-        vectorized::DataTypePtr nullable_type = make_nullable(data_type);
-        vectorized::DataTypePtr array_type =
-                std::make_shared<vectorized::DataTypeArray>(nullable_type);
+        DataTypePtr data_type = std::make_shared<DataTypeInt32>();
+        DataTypePtr nullable_type = make_nullable(data_type);
+        DataTypePtr array_type = std::make_shared<DataTypeArray>(nullable_type);
         check_pb_col(array_type, *array_column.get());
     }
 }
@@ -182,8 +179,8 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTest5) {
     std::cout << "==== array<array<int32>> === " << std::endl;
     // array<array<int32>>
     {
-        auto vec = vectorized::ColumnInt32::create();
-        auto null_map = vectorized::ColumnUInt8::create();
+        auto vec = ColumnInt32::create();
+        auto null_map = ColumnUInt8::create();
         auto& data = vec->get_data();
         auto& null_map_data = null_map->get_data();
         int rows = 10;
@@ -191,25 +188,22 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTest5) {
             data.push_back(i);
             null_map_data.push_back(i % 2);
         }
-        auto nullable_column =
-                vectorized::ColumnNullable::create(std::move(vec), std::move(null_map));
-        auto offset_column = vectorized::ColumnArray::ColumnOffsets::create();
+        auto nullable_column = ColumnNullable::create(std::move(vec), std::move(null_map));
+        auto offset_column = ColumnArray::ColumnOffsets::create();
         offset_column->get_data().push_back(rows);
         //[0,1,2,3,.....9]
-        auto array_column = vectorized::ColumnArray::create(std::move(nullable_column),
-                                                            std::move(offset_column));
-        vectorized::DataTypePtr data_type = std::make_shared<vectorized::DataTypeInt32>();
-        vectorized::DataTypePtr nullable_type = make_nullable(data_type);
-        vectorized::DataTypePtr array_type =
-                std::make_shared<vectorized::DataTypeArray>(nullable_type);
+        auto array_column =
+                ColumnArray::create(std::move(nullable_column), std::move(offset_column));
+        DataTypePtr data_type = std::make_shared<DataTypeInt32>();
+        DataTypePtr nullable_type = make_nullable(data_type);
+        DataTypePtr array_type = std::make_shared<DataTypeArray>(nullable_type);
 
-        auto out_offset_column = vectorized::ColumnArray::ColumnOffsets::create();
+        auto out_offset_column = ColumnArray::ColumnOffsets::create();
         out_offset_column->get_data().push_back(1);
-        vectorized::DataTypePtr out_array_type =
-                std::make_shared<vectorized::DataTypeArray>(make_nullable(array_type));
+        DataTypePtr out_array_type = std::make_shared<DataTypeArray>(make_nullable(array_type));
         //[[0,1,2,3,.....9]]
-        auto out_array_column = vectorized::ColumnArray::create(
-                (make_nullable(std::move(array_column))), std::move(out_offset_column));
+        auto out_array_column = ColumnArray::create((make_nullable(std::move(array_column))),
+                                                    std::move(out_offset_column));
         check_pb_col(out_array_type, *out_array_column.get());
     }
 }
@@ -218,8 +212,8 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTest6) {
     std::cout << "==== array<array<int32>> === " << std::endl;
     // array<array<int32>>
     {
-        auto vec = vectorized::ColumnInt32::create();
-        auto null_map = vectorized::ColumnUInt8::create();
+        auto vec = ColumnInt32::create();
+        auto null_map = ColumnUInt8::create();
         auto& data = vec->get_data();
         auto& null_map_data = null_map->get_data();
         int rows = 10;
@@ -227,9 +221,8 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTest6) {
             data.push_back(i);
             null_map_data.push_back(i % 2);
         }
-        auto nullable_column =
-                vectorized::ColumnNullable::create(std::move(vec), std::move(null_map));
-        auto offset_column = vectorized::ColumnArray::ColumnOffsets::create();
+        auto nullable_column = ColumnNullable::create(std::move(vec), std::move(null_map));
+        auto offset_column = ColumnArray::ColumnOffsets::create();
         offset_column->get_data().push_back(4);
         offset_column->get_data().push_back(rows);
         /*
@@ -238,21 +231,19 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTest6) {
         |[ 4, NULL, 6, NULL, 8, NULL]   |
         +-------------------------------+
         */
-        auto array_column = vectorized::ColumnArray::create(std::move(nullable_column),
-                                                            std::move(offset_column));
-        vectorized::DataTypePtr data_type = std::make_shared<vectorized::DataTypeInt32>();
-        vectorized::DataTypePtr nullable_type = make_nullable(data_type);
-        vectorized::DataTypePtr array_type =
-                std::make_shared<vectorized::DataTypeArray>(nullable_type);
-        auto out_offset_column = vectorized::ColumnArray::ColumnOffsets::create();
+        auto array_column =
+                ColumnArray::create(std::move(nullable_column), std::move(offset_column));
+        DataTypePtr data_type = std::make_shared<DataTypeInt32>();
+        DataTypePtr nullable_type = make_nullable(data_type);
+        DataTypePtr array_type = std::make_shared<DataTypeArray>(nullable_type);
+        auto out_offset_column = ColumnArray::ColumnOffsets::create();
         //[[0, NULL, 2, NULL], [4, NULL, 6, NULL, 8, NULL]]
         out_offset_column->get_data().push_back(2);
-        vectorized::DataTypePtr out_array_type =
-                std::make_shared<vectorized::DataTypeArray>(make_nullable(array_type));
+        DataTypePtr out_array_type = std::make_shared<DataTypeArray>(make_nullable(array_type));
         auto null_array_column = make_nullable(std::move(array_column));
 
         auto out_array_column =
-                vectorized::ColumnArray::create(null_array_column, std::move(out_offset_column));
+                ColumnArray::create(null_array_column, std::move(out_offset_column));
         check_pb_col(out_array_type, *out_array_column.get());
     }
 }
@@ -261,8 +252,8 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTest7) {
     std::cout << "==== array<array<int32>> === " << std::endl;
     // array<array<int32>>
     {
-        auto vec = vectorized::ColumnInt32::create();
-        auto null_map = vectorized::ColumnUInt8::create();
+        auto vec = ColumnInt32::create();
+        auto null_map = ColumnUInt8::create();
         auto& data = vec->get_data();
         auto& null_map_data = null_map->get_data();
         int rows = 10;
@@ -270,9 +261,8 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTest7) {
             data.push_back(i);
             null_map_data.push_back(i % 2);
         }
-        auto nullable_column =
-                vectorized::ColumnNullable::create(std::move(vec), std::move(null_map));
-        auto offset_column = vectorized::ColumnArray::ColumnOffsets::create();
+        auto nullable_column = ColumnNullable::create(std::move(vec), std::move(null_map));
+        auto offset_column = ColumnArray::ColumnOffsets::create();
         offset_column->get_data().push_back(4);
         offset_column->get_data().push_back(rows);
         /*
@@ -281,13 +271,12 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTest7) {
         |[ 4, NULL, 6, NULL, 8, NULL]   |
         +-------------------------------+
         */
-        auto array_column = vectorized::ColumnArray::create(std::move(nullable_column),
-                                                            std::move(offset_column));
-        vectorized::DataTypePtr data_type = std::make_shared<vectorized::DataTypeInt32>();
-        vectorized::DataTypePtr nullable_type = make_nullable(data_type);
-        vectorized::DataTypePtr array_type =
-                std::make_shared<vectorized::DataTypeArray>(nullable_type);
-        auto out_offset_column = vectorized::ColumnArray::ColumnOffsets::create();
+        auto array_column =
+                ColumnArray::create(std::move(nullable_column), std::move(offset_column));
+        DataTypePtr data_type = std::make_shared<DataTypeInt32>();
+        DataTypePtr nullable_type = make_nullable(data_type);
+        DataTypePtr array_type = std::make_shared<DataTypeArray>(nullable_type);
+        auto out_offset_column = ColumnArray::ColumnOffsets::create();
         /* asd Array(Nullable(Array(Nullable(Int32)))) Array(size = 2, UInt64(size = 2), Nullable(size = 2, Array(size = 2, UInt64(size = 2), Nullable(size = 10, Int32(size = 10), UInt8(size = 10))), UInt8(size = 2)))
         +--------------------------------------------+
         |asd(Array(Nullable(Array(Nullable(Int32)))))|
@@ -298,12 +287,11 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTest7) {
         */
         out_offset_column->get_data().push_back(1);
         out_offset_column->get_data().push_back(2);
-        vectorized::DataTypePtr out_array_type =
-                std::make_shared<vectorized::DataTypeArray>(make_nullable(array_type));
+        DataTypePtr out_array_type = std::make_shared<DataTypeArray>(make_nullable(array_type));
         auto null_array_column = make_nullable(std::move(array_column));
 
         auto out_array_column =
-                vectorized::ColumnArray::create(null_array_column, std::move(out_offset_column));
+                ColumnArray::create(null_array_column, std::move(out_offset_column));
         check_pb_col(out_array_type, *out_array_column.get());
     }
 }
@@ -312,31 +300,31 @@ inline void serialize_and_deserialize_pb_test() {
     std::cout << "==== int32 === " << std::endl;
     // int
     {
-        auto vec = vectorized::ColumnInt32::create();
+        auto vec = ColumnInt32::create();
         auto& data = vec->get_data();
         for (int i = 0; i < 1024; ++i) {
             data.push_back(i);
         }
-        vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeInt32>());
+        DataTypePtr data_type(std::make_shared<DataTypeInt32>());
         check_pb_col(data_type, *vec.get());
     }
     std::cout << "==== string === " << std::endl;
     // string
     {
-        auto strcol = vectorized::ColumnString::create();
+        auto strcol = ColumnString::create();
         for (int i = 0; i < 1024; ++i) {
             std::string is = std::to_string(i);
             strcol->insert_data(is.c_str(), is.size());
         }
-        vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeString>());
+        DataTypePtr data_type(std::make_shared<DataTypeString>());
         check_pb_col(data_type, *strcol.get());
     }
     std::cout << "==== decimal === " << std::endl;
     // decimal
     {
-        vectorized::DataTypePtr decimal_data_type(doris::vectorized::create_decimal(27, 9, true));
+        DataTypePtr decimal_data_type(doris::create_decimal(27, 9, true));
         auto decimal_column = decimal_data_type->create_column();
-        auto& data = ((vectorized::ColumnDecimal128V3*)decimal_column.get())->get_data();
+        auto& data = ((ColumnDecimal128V3*)decimal_column.get())->get_data();
         for (int i = 0; i < 1024; ++i) {
             __int128_t value = __int128_t(i * pow(10, 9) + i * pow(10, 8));
             data.push_back(value);
@@ -346,10 +334,9 @@ inline void serialize_and_deserialize_pb_test() {
     // bitmap
     std::cout << "==== bitmap === " << std::endl;
     {
-        vectorized::DataTypePtr bitmap_data_type(std::make_shared<vectorized::DataTypeBitMap>());
+        DataTypePtr bitmap_data_type(std::make_shared<DataTypeBitMap>());
         auto bitmap_column = bitmap_data_type->create_column();
-        std::vector<BitmapValue>& container =
-                ((vectorized::ColumnBitmap*)bitmap_column.get())->get_data();
+        std::vector<BitmapValue>& container = ((ColumnBitmap*)bitmap_column.get())->get_data();
         for (int i = 0; i < 1024; ++i) {
             BitmapValue bv;
             for (int j = 0; j <= i; ++j) {
@@ -362,10 +349,9 @@ inline void serialize_and_deserialize_pb_test() {
     // hll
     std::cout << "==== hll === " << std::endl;
     {
-        vectorized::DataTypePtr hll_data_type(std::make_shared<vectorized::DataTypeHLL>());
+        DataTypePtr hll_data_type(std::make_shared<DataTypeHLL>());
         auto hll_column = hll_data_type->create_column();
-        std::vector<HyperLogLog>& container =
-                ((vectorized::ColumnHLL*)hll_column.get())->get_data();
+        std::vector<HyperLogLog>& container = ((ColumnHLL*)hll_column.get())->get_data();
         for (int i = 0; i < 1024; ++i) {
             HyperLogLog hll;
             hll.update(i);
@@ -376,11 +362,10 @@ inline void serialize_and_deserialize_pb_test() {
     // quantilestate
     std::cout << "==== quantilestate === " << std::endl;
     {
-        vectorized::DataTypePtr quantile_data_type(
-                std::make_shared<vectorized::DataTypeQuantileState>());
+        DataTypePtr quantile_data_type(std::make_shared<DataTypeQuantileState>());
         auto quantile_column = quantile_data_type->create_column();
         std::vector<QuantileState>& container =
-                ((vectorized::ColumnQuantileState*)quantile_column.get())->get_data();
+                ((ColumnQuantileState*)quantile_column.get())->get_data();
         const long max_rand = 1000000L;
         double lower_bound = 0;
         double upper_bound = 100;
@@ -397,21 +382,19 @@ inline void serialize_and_deserialize_pb_test() {
     // nullable string
     std::cout << "==== nullable string === " << std::endl;
     {
-        vectorized::DataTypePtr string_data_type(std::make_shared<vectorized::DataTypeString>());
-        vectorized::DataTypePtr nullable_data_type(
-                std::make_shared<vectorized::DataTypeNullable>(string_data_type));
+        DataTypePtr string_data_type(std::make_shared<DataTypeString>());
+        DataTypePtr nullable_data_type(std::make_shared<DataTypeNullable>(string_data_type));
         auto nullable_column = nullable_data_type->create_column();
-        ((vectorized::ColumnNullable*)nullable_column.get())->insert_many_defaults(1024);
+        ((ColumnNullable*)nullable_column.get())->insert_many_defaults(1024);
         check_pb_col(nullable_data_type, *nullable_column.get());
     }
     // nullable decimal
     std::cout << "==== nullable decimal === " << std::endl;
     {
-        vectorized::DataTypePtr decimal_data_type(doris::vectorized::create_decimal(27, 9, true));
-        vectorized::DataTypePtr nullable_data_type(
-                std::make_shared<vectorized::DataTypeNullable>(decimal_data_type));
+        DataTypePtr decimal_data_type(doris::create_decimal(27, 9, true));
+        DataTypePtr nullable_data_type(std::make_shared<DataTypeNullable>(decimal_data_type));
         auto nullable_column = nullable_data_type->create_column();
-        ((vectorized::ColumnNullable*)nullable_column.get())->insert_many_defaults(1024);
+        ((ColumnNullable*)nullable_column.get())->insert_many_defaults(1024);
         check_pb_col(nullable_data_type, *nullable_column.get());
     }
     // int with 1024 batch size
@@ -419,23 +402,23 @@ inline void serialize_and_deserialize_pb_test() {
     // ipv4
     std::cout << "==== ipv4 === " << std::endl;
     {
-        auto vec = vectorized::ColumnIPv4::create();
+        auto vec = ColumnIPv4::create();
         auto& data = vec->get_data();
         for (int i = 0; i < 1024; ++i) {
             data.push_back(i);
         }
-        vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeIPv4>());
+        DataTypePtr data_type(std::make_shared<DataTypeIPv4>());
         check_pb_col(data_type, *vec.get());
     }
     // ipv6
     std::cout << "==== ipv6 === " << std::endl;
     {
-        auto vec = vectorized::ColumnIPv6::create();
+        auto vec = ColumnIPv6::create();
         auto& data = vec->get_data();
         for (int i = 0; i < 1024; ++i) {
             data.push_back(i);
         }
-        vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeIPv6>());
+        DataTypePtr data_type(std::make_shared<DataTypeIPv6>());
         check_pb_col(data_type, *vec.get());
     }
 }
@@ -482,7 +465,7 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTestMap) {
     +-----------------------------------------+
     */
 
-    vectorized::ColumnWithTypeAndName type_and_name(map_column->get_ptr(), m, "");
+    ColumnWithTypeAndName type_and_name(map_column->get_ptr(), m, "");
     Block block;
     block.insert(type_and_name);
     check_pb_col(m, *map_column.get());
@@ -534,7 +517,7 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTestMap2) {
     outer_string_key_column->insert_data(str1.c_str(), str1.size());
     outer_string_key_column->insert_data(str2.c_str(), str2.size());
 
-    auto outer_offset_column = vectorized::ColumnArray::ColumnOffsets::create();
+    auto outer_offset_column = ColumnArray::ColumnOffsets::create();
     outer_offset_column->get_data().push_back(1);
     outer_offset_column->get_data().push_back(2);
     DataTypePtr outer_type = std::make_shared<DataTypeMap>(s, m);
@@ -549,11 +532,10 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTestMap2) {
     +----------------------------------------------------------------+
     */
     auto outer_map_column =
-            vectorized::ColumnMap::create(std::move(outer_string_key_column), std::move(map_column),
-                                          std::move(outer_offset_column));
+            ColumnMap::create(std::move(outer_string_key_column), std::move(map_column),
+                              std::move(outer_offset_column));
 
-    vectorized::ColumnWithTypeAndName type_and_name_outer(outer_map_column->get_ptr(), outer_type,
-                                                          "");
+    ColumnWithTypeAndName type_and_name_outer(outer_map_column->get_ptr(), outer_type, "");
     Block block2;
     block2.insert(type_and_name_outer);
     check_pb_col(outer_type, *outer_map_column.get());
@@ -584,7 +566,7 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTestStruct) {
     |                                                      {null, 26, 0}|
     +-------------------------------------------------------------------+
     */
-    vectorized::ColumnWithTypeAndName type_and_name(struct_column->get_ptr(), st, "");
+    ColumnWithTypeAndName type_and_name(struct_column->get_ptr(), st, "");
     Block block;
     block.insert(type_and_name);
     check_pb_col(st, *struct_column.get());
@@ -630,8 +612,7 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTestStruct2) {
     |                                                         {nested_complex_struct_2, {null, 26, 0}}|
     +-------------------------------------------------------------------------------------------------+
     */
-    vectorized::ColumnWithTypeAndName type_and_name(outer_struct_column->get_ptr(), outer_struct,
-                                                    "");
+    ColumnWithTypeAndName type_and_name(outer_struct_column->get_ptr(), outer_struct, "");
     Block block;
     block.insert(type_and_name);
     check_pb_col(outer_struct, *outer_struct_column.get());
@@ -641,7 +622,7 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTestDateTime) {
     std::cout << "==== datetime === " << std::endl;
     // datetime
     {
-        auto vec = vectorized::ColumnDateTimeV2::create();
+        auto vec = ColumnDateTimeV2::create();
         auto& data = vec->get_data();
         for (int i = 0; i < 10; ++i) {
             uint16_t year = 2022;
@@ -657,8 +638,8 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTestDateTime) {
             auto datetime_val = binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(datetime_v2);
             data.push_back(datetime_val);
         }
-        vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeDateTimeV2>(6));
-        vectorized::ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type, "");
+        DataTypePtr data_type(std::make_shared<DataTypeDateTimeV2>(6));
+        ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type, "");
         Block block;
         block.insert(type_and_name);
         check_pb_col(data_type, *vec.get());
@@ -669,16 +650,16 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTestLargeInt) {
     std::cout << "==== LargeInt === " << std::endl;
     // LargeInt
     {
-        auto vec = vectorized::ColumnInt128::create();
+        auto vec = ColumnInt128::create();
         auto& data = vec->get_data();
         for (int i = 0; i < 10; ++i) {
             data.push_back(500000000000 + i);
         }
-        vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeInt128>());
-        vectorized::ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type, "");
+        DataTypePtr data_type(std::make_shared<DataTypeInt128>());
+        ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type, "");
         Block block;
         block.insert(type_and_name);
         check_pb_col(data_type, *vec.get());
     }
 }
-} // namespace doris::vectorized
+} // namespace doris

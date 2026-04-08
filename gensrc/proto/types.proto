@@ -56,6 +56,7 @@ message PTypeNode {
 
     // only used for VARIANT
     optional int32 variant_max_subcolumns_count = 6 [default = 0];
+    optional bool variant_enable_doc_mode = 7 [default = false];
 };
 
 // A flattened representation of a tree of column types obtained by depth-first

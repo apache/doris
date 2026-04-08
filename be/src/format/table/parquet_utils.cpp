@@ -35,7 +35,7 @@
 #include "util/string_util.h"
 #include "util/unaligned.h"
 
-namespace doris::vectorized::parquet_utils {
+namespace doris::parquet_utils {
 namespace {
 
 template <typename ColumnType, typename T>
@@ -466,4 +466,4 @@ void merge_stats(const std::shared_ptr<::parquet::Statistics>& left,
     }
 }
 
-} // namespace doris::vectorized::parquet_utils
+} // namespace doris::parquet_utils

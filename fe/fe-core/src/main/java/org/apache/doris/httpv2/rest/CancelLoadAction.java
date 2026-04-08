@@ -57,7 +57,7 @@ public class CancelLoadAction extends RestBaseController {
             return ResponseEntityBuilder.badRequest("No database selected");
         }
 
-        String fullDbName = getFullDbName(dbName);
+        String fullDbName = dbName;
 
         String label = request.getParameter(LABEL_KEY);
         if (Strings.isNullOrEmpty(label)) {

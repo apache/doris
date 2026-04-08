@@ -33,7 +33,7 @@ under the License.
     </module>
 
     <module name="SuppressionFilter">
-        <property name="file" value="check/checkstyle/suppressions.xml"/>
+        <property name="file" value="${config_loc}/suppressions.xml"/>
         <property name="optional" value="true"/>
     </module>
     <module name="SuppressWithPlainTextCommentFilter">
@@ -45,7 +45,7 @@ under the License.
         <property name="eachLine" value="true"/>
     </module>
     <module name="Header">
-        <property name="headerFile" value="check/checkstyle/checkstyle-apache-header.txt"/>
+        <property name="headerFile" value="${config_loc}/checkstyle-apache-header.txt"/>
         <property name="fileExtensions" value="java"/>
     </module>
     <module name="LineLength">
@@ -161,7 +161,7 @@ under the License.
             <property name="tokens" value="IMPORT, STATIC_IMPORT, PACKAGE_DEF"/>
         </module>
         <module name="ImportControl">
-            <property name="file" value="check/checkstyle/import-control.xml"/>
+            <property name="file" value="${config_loc}/import-control.xml"/>
         </module>
         <module name="RedundantImport"/>
         <module name="UnusedImports"/>

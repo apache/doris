@@ -29,7 +29,6 @@ namespace doris {
 #include "common/compile_check_begin.h"
 class RuntimeState;
 
-namespace pipeline {
 class DataQueue;
 
 class RecCTESinkOperatorX;
@@ -45,7 +44,7 @@ private:
     using Base = PipelineXSinkLocalState<RecCTESharedState>;
     using Parent = RecCTESinkOperatorX;
 
-    vectorized::VExprContextSPtrs _child_expr;
+    VExprContextSPtrs _child_expr;
 };
 
 class RecCTESinkOperatorX MOCK_REMOVE(final) : public DataSinkOperatorX<RecCTESinkLocalState> {
@@ -82,12 +81,12 @@ public:
         return {ExchangeType::NOOP};
     }
 
-    Status sink(RuntimeState* state, vectorized::Block* input_block, bool eos) override {
+    Status sink(RuntimeState* state, Block* input_block, bool eos) override {
         auto& local_state = get_local_state(state);
 
         COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)input_block->rows());
         if (input_block->rows() != 0) {
-            vectorized::Block block;
+            Block block;
             RETURN_IF_ERROR(materialize_block(local_state._child_expr, input_block, &block, true));
             RETURN_IF_ERROR(local_state._shared_state->emplace_block(state, std::move(block)));
         }
@@ -96,9 +95,8 @@ public:
 
 private:
     const RowDescriptor _row_descriptor;
-    vectorized::VExprContextSPtrs _child_expr;
+    VExprContextSPtrs _child_expr;
 };
 
-} // namespace pipeline
 #include "common/compile_check_end.h"
 } // namespace doris

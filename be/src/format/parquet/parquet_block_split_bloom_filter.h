@@ -22,7 +22,6 @@
 #include "storage/index/bloom_filter/bloom_filter.h"
 
 namespace doris {
-namespace vectorized {
 
 // Parquet Block Bloom filter is implemented using block-based Bloom filter algorithm
 // from Putze et al.'s "Cache-, Hash- and Space-Efficient Bloom filters". The basic
@@ -78,5 +77,4 @@ private:
     }
 };
 
-} // namespace vectorized
 } // namespace doris

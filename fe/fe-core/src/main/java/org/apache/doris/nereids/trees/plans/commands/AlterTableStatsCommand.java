@@ -102,7 +102,7 @@ public class AlterTableStatsCommand extends AlterCommand {
                 + " in your FE conf file");
         }
 
-        tableNameInfo.analyze(ctx);
+        tableNameInfo.analyze(ctx.getNameSpaceContext());
 
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), tableNameInfo.getCtl(), tableNameInfo.getDb(),

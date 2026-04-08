@@ -72,7 +72,6 @@
 
 namespace doris {
 using namespace ErrorCode;
-namespace vectorized {
 
 static const uint32_t MAX_PATH_LEN = 1024;
 static StorageEngine* engine_ref = nullptr;
@@ -241,7 +240,7 @@ protected:
 
         uint32_t num_rows = 0;
         for (int i = 0; i < rowset_data.size(); ++i) {
-            vectorized::Block block = tablet_schema->create_block();
+            Block block = tablet_schema->create_block();
             auto columns = block.mutate_columns();
             for (int rid = 0; rid < rowset_data[i].size(); ++rid) {
                 int32_t c1 = std::get<0>(rowset_data[i][rid]);
@@ -359,7 +358,7 @@ protected:
         }
     }
 
-    void block_create(TabletSchemaSPtr tablet_schema, vectorized::Block* block) {
+    void block_create(TabletSchemaSPtr tablet_schema, Block* block) {
         block->clear();
         Schema schema(tablet_schema);
         const auto& column_ids = schema.column_ids();
@@ -368,8 +367,7 @@ protected:
             auto data_type = Schema::get_data_type_ptr(*column_desc);
             EXPECT_TRUE(data_type != nullptr);
             auto column = data_type->create_column();
-            block->insert(vectorized::ColumnWithTypeAndName(std::move(column), data_type,
-                                                            column_desc->name()));
+            block->insert(ColumnWithTypeAndName(std::move(column), data_type, column_desc->name()));
         }
     }
 
@@ -506,7 +504,7 @@ TEST_F(VerticalCompactionTest, TestDupKeyVerticalMerge) {
     create_and_init_rowset_reader(out_rowset.get(), reader_context, &output_rs_reader);
 
     // read output rowset data
-    vectorized::Block output_block;
+    Block output_block;
     std::vector<std::tuple<int64_t, int64_t>> output_data;
     do {
         block_create(tablet_schema, &output_block);
@@ -611,7 +609,7 @@ TEST_F(VerticalCompactionTest, TestDupWithoutKeyVerticalMerge) {
     create_and_init_rowset_reader(out_rowset.get(), reader_context, &output_rs_reader);
 
     // read output rowset data
-    vectorized::Block output_block;
+    Block output_block;
     std::vector<std::tuple<int64_t, int64_t>> output_data;
     do {
         block_create(tablet_schema, &output_block);
@@ -717,7 +715,7 @@ TEST_F(VerticalCompactionTest, TestUniqueKeyVerticalMerge) {
     create_and_init_rowset_reader(out_rowset.get(), reader_context, &output_rs_reader);
 
     // read output rowset data
-    vectorized::Block output_block;
+    Block output_block;
     std::vector<std::tuple<int64_t, int64_t>> output_data;
     do {
         block_create(tablet_schema, &output_block);
@@ -826,7 +824,7 @@ TEST_F(VerticalCompactionTest, TestDupKeyVerticalMergeWithDelete) {
     create_and_init_rowset_reader(out_rowset.get(), reader_context, &output_rs_reader);
 
     // read output rowset data
-    vectorized::Block output_block;
+    Block output_block;
     std::vector<std::tuple<int64_t, int64_t>> output_data;
     do {
         block_create(tablet_schema, &output_block);
@@ -927,7 +925,7 @@ TEST_F(VerticalCompactionTest, TestDupWithoutKeyVerticalMergeWithDelete) {
     create_and_init_rowset_reader(out_rowset.get(), reader_context, &output_rs_reader);
 
     // read output rowset data
-    vectorized::Block output_block;
+    Block output_block;
     std::vector<std::tuple<int64_t, int64_t>> output_data;
     do {
         block_create(tablet_schema, &output_block);
@@ -1017,7 +1015,7 @@ TEST_F(VerticalCompactionTest, TestAggKeyVerticalMerge) {
     create_and_init_rowset_reader(out_rowset.get(), reader_context, &output_rs_reader);
 
     // read output rowset data
-    vectorized::Block output_block;
+    Block output_block;
     std::vector<std::tuple<int64_t, int64_t>> output_data;
     do {
         block_create(tablet_schema, &output_block);
@@ -1126,7 +1124,7 @@ TEST_F(VerticalCompactionTest, TestUniqueKeyVerticalMergeWithNullableSparseColum
         auto rowset_writer = std::move(res).value();
 
         // Create block with nullable c2 column
-        vectorized::Block block = tablet_schema->create_block();
+        Block block = tablet_schema->create_block();
         auto columns = block.mutate_columns();
 
         for (int rid = 0; rid < rows_per_segment; ++rid) {
@@ -1194,5 +1192,4 @@ TEST_F(VerticalCompactionTest, TestUniqueKeyVerticalMergeWithNullableSparseColum
     config::sparse_column_compaction_threshold_percent = original_threshold;
 }
 
-} // namespace vectorized
 } // namespace doris

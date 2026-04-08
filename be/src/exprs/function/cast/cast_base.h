@@ -43,11 +43,30 @@
 #include "exprs/function/function_helpers.h"
 #include "util/io_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
+
+enum class DatelikeParseMode {
+    NON_STRICT,
+    STRICT,
+};
+
+constexpr bool is_datelike_parse_strict(DatelikeParseMode parse_mode) {
+    return parse_mode == DatelikeParseMode::STRICT;
+}
+
+enum class DatelikeTargetType {
+    DATE,
+    DATE_TIME,
+};
+
+constexpr bool is_datelike_target_datetime(DatelikeTargetType target_type) {
+    return target_type == DatelikeTargetType::DATE_TIME;
+}
 
 struct NameCast {
     static constexpr auto name = "CAST";
 };
+
 namespace CastUtil {
 // `static_cast_set` is introduced to wrap `static_cast` and handle special cases.
 // Doris uses `uint8` to represent boolean values internally.
@@ -177,4 +196,4 @@ inline CastWrapper::WrapperType get_cast_wrapper(FunctionContext* context,
     return CastWrapper::prepare_unpack_dictionaries(context, from_type, to_type);
 }
 #endif
-} // namespace doris::vectorized
+} // namespace doris

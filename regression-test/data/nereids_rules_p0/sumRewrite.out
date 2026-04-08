@@ -268,10 +268,10 @@ PhysicalResultSink
 
 -- !sum_null_and_not_null_shape --
 PhysicalResultSink
---PhysicalProject[(sum(cast(id as BIGINT)) + (count(cast(id as BIGINT)) * 1)) AS `sum(id + 1)`, (sum(cast(id as BIGINT)) - (count(cast(id as BIGINT)) * 1)) AS `sum(id - 1)`, (sum(cast(not_null_id as BIGINT)) + (count(cast(not_null_id as BIGINT)) * 1)) AS `sum(not_null_id + 1)`, (sum(cast(not_null_id as BIGINT)) - (count(cast(not_null_id as BIGINT)) * 1)) AS `sum(not_null_id - 1)`, sum(id), sum(not_null_id)]
-----hashAgg[GLOBAL, groupByExpr=(), outputExpr=(count(cast(id as BIGINT)) AS `count(cast(id as BIGINT))`, count(cast(not_null_id as BIGINT)) AS `count(cast(not_null_id as BIGINT))`, sum(cast(id as BIGINT)) AS `sum(cast(id as BIGINT))`, sum(cast(not_null_id as BIGINT)) AS `sum(cast(not_null_id as BIGINT))`, sum(id) AS `sum(id)`, sum(not_null_id) AS `sum(not_null_id)`)]
-------hashAgg[LOCAL, groupByExpr=(), outputExpr=(partial_count(cast(id as BIGINT)) AS `partial_count(cast(id as BIGINT))`, partial_count(cast(not_null_id as BIGINT)) AS `partial_count(cast(not_null_id as BIGINT))`, partial_sum(cast(id as BIGINT)) AS `partial_sum(cast(id as BIGINT))`, partial_sum(cast(not_null_id as BIGINT)) AS `partial_sum(cast(not_null_id as BIGINT))`, partial_sum(id) AS `partial_sum(id)`, partial_sum(not_null_id) AS `partial_sum(not_null_id)`)]
---------PhysicalProject[cast(id as BIGINT) AS `cast(id as BIGINT)`, cast(not_null_id as BIGINT) AS `cast(not_null_id as BIGINT)`, sr.id, sr.not_null_id]
+--PhysicalProject[(sum(id) + (count(id) * 1)) AS `sum(id + 1)`, (sum(id) - (count(id) * 1)) AS `sum(id - 1)`, (sum(not_null_id) + (count(not_null_id) * 1)) AS `sum(not_null_id + 1)`, (sum(not_null_id) - (count(not_null_id) * 1)) AS `sum(not_null_id - 1)`, sum(id), sum(not_null_id)]
+----hashAgg[GLOBAL, groupByExpr=(), outputExpr=(count(id) AS `count(id)`, count(not_null_id) AS `count(not_null_id)`, sum(id) AS `sum(id)`, sum(not_null_id) AS `sum(not_null_id)`)]
+------hashAgg[LOCAL, groupByExpr=(), outputExpr=(partial_count(id) AS `partial_count(id)`, partial_count(not_null_id) AS `partial_count(not_null_id)`, partial_sum(id) AS `partial_sum(id)`, partial_sum(not_null_id) AS `partial_sum(not_null_id)`)]
+--------PhysicalProject[sr.id, sr.not_null_id]
 ----------PhysicalOlapScan[sr]
 
 -- !sum_null_and_not_null_result --

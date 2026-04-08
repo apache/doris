@@ -43,7 +43,7 @@
 #include "core/types.h"
 #include "util/mysql_row_buffer.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class DataTypeVarbinaryTest : public ::testing::Test {
 protected:
@@ -306,4 +306,4 @@ TEST_F(DataTypeVarbinaryTest, GetFieldWithDataTypeNonInline) {
     ASSERT_EQ(memcmp(sv.data(), big.data(), sv.size()), 0);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

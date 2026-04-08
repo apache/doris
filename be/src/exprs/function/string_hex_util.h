@@ -20,7 +20,7 @@
 #include "core/column/column_string.h"
 #include "util/simd/vstring_function.h"
 
-namespace doris::vectorized::string_hex {
+namespace doris::string_hex {
 
 static constexpr int MAX_STACK_CIPHER_LEN = 1024 * 64;
 
@@ -81,4 +81,4 @@ inline void hex_encode(const unsigned char* source, size_t srclen, unsigned char
     }
 }
 
-} // namespace doris::vectorized::string_hex
+} // namespace doris::string_hex

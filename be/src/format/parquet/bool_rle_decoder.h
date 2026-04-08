@@ -28,13 +28,11 @@
 #include "util/rle_encoding.h"
 
 namespace doris {
-namespace vectorized {
 class ColumnSelectVector;
-} // namespace vectorized
 struct Slice;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 class BoolRLEDecoder final : public Decoder {
 public:
@@ -59,4 +57,4 @@ private:
 };
 #include "common/compile_check_end.h"
 
-} // namespace doris::vectorized
+} // namespace doris

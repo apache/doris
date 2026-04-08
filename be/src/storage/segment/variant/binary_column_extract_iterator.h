@@ -60,12 +60,11 @@ protected:
     const StorageReadOptions* _read_opts;
     BinaryColumnCacheSPtr _sparse_column_cache;
     // Pure virtual method for data processing when encounter existing sparse columns(to be implemented by subclasses)
-    virtual void _process_data_with_existing_sparse_column(vectorized::MutableColumnPtr& dst,
+    virtual void _process_data_with_existing_sparse_column(MutableColumnPtr& dst,
                                                            size_t num_rows) = 0;
 
     // Pure virtual method for data processing when no sparse columns(to be implemented by subclasses)
-    virtual void _process_data_without_sparse_column(vectorized::MutableColumnPtr& dst,
-                                                     size_t num_rows) = 0;
+    virtual void _process_data_without_sparse_column(MutableColumnPtr& dst, size_t num_rows) = 0;
 
 public:
     BaseBinaryColumnProcessor(BinaryColumnCacheSPtr sparse_column_cache,
@@ -87,8 +86,7 @@ public:
 
     // Template method pattern for batch processing
     template <typename ReadMethod>
-    Status _process_batch(ReadMethod&& read_method, size_t nrows,
-                          vectorized::MutableColumnPtr& dst) {
+    Status _process_batch(ReadMethod&& read_method, size_t nrows, MutableColumnPtr& dst) {
         {
             SCOPED_RAW_TIMER(&_read_opts->stats->variant_scan_sparse_column_timer_ns);
             int64_t before_size = _read_opts->stats->uncompressed_bytes_read;
@@ -99,8 +97,7 @@ public:
 
         SCOPED_RAW_TIMER(&_read_opts->stats->variant_fill_path_from_sparse_column_timer_ns);
         const auto& offsets =
-                assert_cast<const vectorized::ColumnMap&>(*_sparse_column_cache->binary_column)
-                        .get_offsets();
+                assert_cast<const ColumnMap&>(*_sparse_column_cache->binary_column).get_offsets();
         if (offsets.back() == offsets[-1]) {
             // no sparse column in this batch
             _process_data_without_sparse_column(dst, nrows);
@@ -120,14 +117,14 @@ public:
             : BaseBinaryColumnProcessor(std::move(sparse_column_cache), opts), _path(path) {}
 
     // Batch processing using template method
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override {
+    Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override {
         return _process_batch([&]() { return _sparse_column_cache->next_batch(n, has_null); }, *n,
                               dst);
     }
 
     // RowID-based read using template method
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
-                          vectorized::MutableColumnPtr& dst) override {
+                          MutableColumnPtr& dst) override {
         return _process_batch([&]() { return _sparse_column_cache->read_by_rowids(rowids, count); },
                               count, dst);
     }
@@ -136,26 +133,25 @@ private:
     std::string _path;
 
     // Fill column by finding path in sparse column
-    void _process_data_with_existing_sparse_column(vectorized::MutableColumnPtr& dst,
+    void _process_data_with_existing_sparse_column(MutableColumnPtr& dst,
                                                    size_t num_rows) override {
         _fill_path_column(dst);
     }
 
-    void _fill_path_column(vectorized::MutableColumnPtr& dst) {
-        vectorized::ColumnNullable* nullable_column = nullptr;
+    void _fill_path_column(MutableColumnPtr& dst) {
+        ColumnNullable* nullable_column = nullptr;
         if (dst->is_nullable()) {
-            nullable_column = assert_cast<vectorized::ColumnNullable*>(dst.get());
+            nullable_column = assert_cast<ColumnNullable*>(dst.get());
         }
-        vectorized::ColumnVariant& var = nullable_column != nullptr
-                                                 ? assert_cast<vectorized::ColumnVariant&>(
-                                                           nullable_column->get_nested_column())
-                                                 : assert_cast<vectorized::ColumnVariant&>(*dst);
+        ColumnVariant& var =
+                nullable_column != nullptr
+                        ? assert_cast<ColumnVariant&>(nullable_column->get_nested_column())
+                        : assert_cast<ColumnVariant&>(*dst);
         if (var.is_null_root()) {
             var.add_sub_column({}, dst->size());
         }
-        vectorized::NullMap* null_map =
-                nullable_column ? &nullable_column->get_null_map_data() : nullptr;
-        vectorized::ColumnVariant::fill_path_column_from_sparse_data(
+        NullMap* null_map = nullable_column ? &nullable_column->get_null_map_data() : nullptr;
+        ColumnVariant::fill_path_column_from_sparse_data(
                 *var.get_subcolumn({}) /*root*/, null_map, StringRef {_path.data(), _path.size()},
                 _sparse_column_cache->binary_column->get_ptr(), 0,
                 _sparse_column_cache->binary_column->size());
@@ -165,8 +161,7 @@ private:
         ENABLE_CHECK_CONSISTENCY(&var);
     }
 
-    void _process_data_without_sparse_column(vectorized::MutableColumnPtr& dst,
-                                             size_t num_rows) override {
+    void _process_data_without_sparse_column(MutableColumnPtr& dst, size_t num_rows) override {
         dst->insert_many_defaults(num_rows);
     }
 };

@@ -31,7 +31,7 @@
 #include "common/status.h"
 #include "exec/pipeline/pipeline_task.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class SubTaskQueue {
@@ -137,4 +137,4 @@ private:
     static constexpr auto WAIT_CORE_TASK_TIMEOUT_MS = 100;
 };
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

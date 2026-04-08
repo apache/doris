@@ -413,7 +413,7 @@ void collectSymbolsFromELF(dl_phdr_info* info, std::vector<SymbolIndex::Symbol>&
 
         char* pos = build_id_hex.data();
         for (auto c : build_id) {
-            vectorized::write_hex_byte_lowercase(c, pos);
+            write_hex_byte_lowercase(c, pos);
             pos += 2;
         }
 
@@ -533,7 +533,7 @@ std::string SymbolIndex::getBuildIDHex() const {
 
     char* pos = build_id_hex.data();
     for (auto c : build_id_binary) {
-        vectorized::write_hex_byte_uppercase(c, pos);
+        write_hex_byte_uppercase(c, pos);
         pos += 2;
     }
 

@@ -31,7 +31,7 @@
 #include "exprs/function/cast_type_to_either.h"
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class FunctionFormatNumber : public IFunction {
 public:
@@ -243,4 +243,4 @@ void register_function_format(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionFormat>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

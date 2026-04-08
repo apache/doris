@@ -29,7 +29,7 @@
 #include "core/data_type/data_type_string.h"
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class FunctionTokenizeTest : public ::testing::Test {
 public:
@@ -217,4 +217,4 @@ TEST_F(FunctionTokenizeTest, InvalidParser) {
     EXPECT_FALSE(status.ok()) << "Should fail with invalid parser";
 }
 
-} // namespace doris::vectorized
+} // namespace doris

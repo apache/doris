@@ -49,7 +49,7 @@
 #include "util/thread.h"
 #include "util/threadpool.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
                                 std::shared_ptr<ScanTask> scan_task) {
@@ -67,7 +67,8 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
         return Status::OK();
     }
 
-    scanner_delegate->_scanner->start_wait_worker_timer();
+    scan_task->set_state(ScanTask::State::IN_FLIGHT);
+    scanner_delegate->_scanner->pause();
     TabletStorageType type = scanner_delegate->_scanner->get_storage_type();
     auto sumbit_task = [&]() {
         auto work_func = [scanner_ref = scan_task, ctx]() {
@@ -152,28 +153,29 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
         Thread::set_thread_nice_value();
     }
 #endif
+
+    // we set and get counter according below order, to make sure the counter is updated before get_block, and the time of get_block is recorded in the counter.
+    // 1. update_wait_worker_timer to make sure the time of waiting for worker thread is recorded in the timer
+    // 2. start_scan_cpu_timer to make sure the cpu timer include the time of open and get_block, which is the real cpu time of scanner
+    // 3. update_scan_cpu_timer when defer, to make sure the cpu timer include the time of open and get_block, which is the real cpu time of scanner
+    // 4. start_wait_worker_timer when defer, to make sure the time of waiting for worker thread is recorded in the timer
+
     MonotonicStopWatch max_run_time_watch;
     max_run_time_watch.start();
-    scanner->update_wait_worker_timer();
-    scanner->start_scan_cpu_timer();
+    scanner->resume();
 
-    // Counter update need prepare successfully, or it maybe core. For example, olap scanner
-    // will open tablet reader during prepare, if not prepare successfully, tablet reader == nullptr.
-    bool need_update_profile = scanner->has_prepared();
+    bool need_update_profile = true;
     auto update_scanner_profile = [&]() {
         if (need_update_profile) {
-            scanner->update_scan_cpu_timer();
+            scanner->pause();
             scanner->update_realtime_counters();
             need_update_profile = false;
         }
     };
-    Defer defer_scanner([&] {
-        // WorkloadGroup Policy will check cputime realtime, so that should update the counter
-        // as soon as possible, could not update it on close.
-        update_scanner_profile();
-    });
+
     Status status = Status::OK();
     bool eos = false;
+
     ASSIGN_STATUS_IF_CATCH_EXCEPTION(
             RuntimeState* state = ctx->state(); DCHECK(nullptr != state);
             // scanner->open may alloc plenty amount of memory(read blocks of data),
@@ -209,120 +211,90 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                 }
             }
 
-            size_t raw_bytes_read = 0;
-            bool first_read = true; int64_t limit = scanner->limit();
-            // If the first block is full, then it is true. Or the first block + second block > batch_size
-            bool has_first_full_block = false;
-
-            // During low memory mode, every scan task will return at most 2 block to reduce memory usage.
-            while (!eos && raw_bytes_read < raw_bytes_threshold &&
-                   (!ctx->low_memory_mode() || !has_first_full_block) &&
-                   (!has_first_full_block || doris::thread_context()
-                                                     ->thread_mem_tracker_mgr->limiter_mem_tracker()
-                                                     ->check_limit(1))) {
-                if (UNLIKELY(ctx->done())) {
-                    eos = true;
-                    break;
-                }
-                if (max_run_time_watch.elapsed_time() >
-                    config::doris_scanner_max_run_time_ms * 1e6) {
-                    break;
-                }
-                DEFER_RELEASE_RESERVED();
-                BlockUPtr free_block;
-                if (first_read) {
-                    free_block = ctx->get_free_block(first_read);
-                } else {
-                    if (state->get_query_ctx()
-                                ->resource_ctx()
-                                ->task_controller()
-                                ->is_enable_reserve_memory()) {
-                        size_t block_avg_bytes = scanner->get_block_avg_bytes();
-                        auto st = thread_context()->thread_mem_tracker_mgr->try_reserve(
-                                block_avg_bytes);
-                        if (!st.ok()) {
-                            handle_reserve_memory_failure(state, ctx, st, block_avg_bytes);
-                            break;
+            bool first_read = true;
+            int64_t limit = scanner->limit(); if (UNLIKELY(ctx->done())) {
+                eos = true;
+            } else if (ctx->remaining_limit() == 0) { eos = true; } else if (!eos) {
+                do {
+                    DEFER_RELEASE_RESERVED();
+                    BlockUPtr free_block;
+                    if (first_read) {
+                        free_block = ctx->get_free_block(first_read);
+                    } else {
+                        if (state->get_query_ctx()
+                                    ->resource_ctx()
+                                    ->task_controller()
+                                    ->is_enable_reserve_memory()) {
+                            size_t block_avg_bytes = scanner->get_block_avg_bytes();
+                            auto st = thread_context()->thread_mem_tracker_mgr->try_reserve(
+                                    block_avg_bytes);
+                            if (!st.ok()) {
+                                handle_reserve_memory_failure(state, ctx, st, block_avg_bytes);
+                                break;
+                            }
                         }
+                        free_block = ctx->get_free_block(first_read);
                     }
-                    free_block = ctx->get_free_block(first_read);
-                }
-                if (free_block == nullptr) {
-                    break;
-                }
-                // We got a new created block or a reused block.
-                status = scanner->get_block_after_projects(state, free_block.get(), &eos);
-                first_read = false;
-                if (!status.ok()) {
-                    LOG(WARNING) << "Scan thread read Scanner failed: " << status.to_string();
-                    break;
-                }
-                // Check column type only after block is read successfully.
-                // Or it may cause a crash when the block is not normal.
-                _make_sure_virtual_col_is_materialized(scanner, free_block.get());
-                // Projection will truncate useless columns, makes block size change.
-                auto free_block_bytes = free_block->allocated_bytes();
-                raw_bytes_read += free_block_bytes;
-                if (!scan_task->cached_blocks.empty() &&
-                    scan_task->cached_blocks.back().first->rows() + free_block->rows() <=
-                            ctx->batch_size()) {
-                    size_t block_size = scan_task->cached_blocks.back().first->allocated_bytes();
-                    vectorized::MutableBlock mutable_block(
-                            scan_task->cached_blocks.back().first.get());
-                    status = mutable_block.merge(*free_block);
-                    if (!status.ok()) {
-                        LOG(WARNING) << "Block merge failed: " << status.to_string();
+                    if (free_block == nullptr) {
                         break;
                     }
-                    scan_task->cached_blocks.back().second = mutable_block.allocated_bytes();
-                    scan_task->cached_blocks.back().first.get()->set_columns(
-                            std::move(mutable_block.mutable_columns()));
-
-                    // Return block succeed or not, this free_block is not used by this scan task any more.
-                    // If block can be reused, its memory usage will be added back.
-                    ctx->return_free_block(std::move(free_block));
-                    ctx->inc_block_usage(scan_task->cached_blocks.back().first->allocated_bytes() -
-                                         block_size);
-                } else {
-                    if (!scan_task->cached_blocks.empty()) {
-                        has_first_full_block = true;
+                    // We got a new created block or a reused block.
+                    status = scanner->get_block_after_projects(state, free_block.get(), &eos);
+                    first_read = false;
+                    if (!status.ok()) {
+                        LOG(WARNING) << "Scan thread read Scanner failed: " << status.to_string();
+                        break;
                     }
+                    // Check column type only after block is read successfully.
+                    // Or it may cause a crash when the block is not normal.
+                    _make_sure_virtual_col_is_materialized(scanner, free_block.get());
+
+                    // Shared limit quota: acquire rows from the context's shared pool.
+                    // Discard or truncate the block if quota is exhausted.
+                    if (free_block->rows() > 0) {
+                        int64_t block_rows = free_block->rows();
+                        int64_t granted = ctx->acquire_limit_quota(block_rows);
+                        if (granted == 0) {
+                            // No quota remaining, discard this block and mark eos.
+                            ctx->return_free_block(std::move(free_block));
+                            eos = true;
+                            break;
+                        } else if (granted < block_rows) {
+                            // Partial quota: truncate block to granted rows and mark eos.
+                            free_block->set_num_rows(granted);
+                            eos = true;
+                        }
+                    }
+                    // Projection will truncate useless columns, makes block size change.
+                    auto free_block_bytes = free_block->allocated_bytes();
+                    ctx->reestimated_block_mem_bytes(cast_set<int64_t>(free_block_bytes));
+                    DCHECK(scan_task->cached_block == nullptr);
                     ctx->inc_block_usage(free_block->allocated_bytes());
-                    scan_task->cached_blocks.emplace_back(std::move(free_block), free_block_bytes);
-                }
+                    scan_task->cached_block = std::move(free_block);
 
-                if (limit > 0 && limit < ctx->batch_size()) {
-                    // If this scanner has limit, and less than batch size,
-                    // return immediately and no need to wait raw_bytes_threshold.
-                    // This can save time that each scanner may only return a small number of rows,
-                    // but rows are enough from all scanners.
-                    // If not break, the query like "select * from tbl where id=1 limit 10"
-                    // may scan a lot data when the "id=1"'s filter ratio is high.
-                    // If limit is larger than batch size, this rule is skipped,
-                    // to avoid user specify a large limit and causing too much small blocks.
-                    break;
-                }
-
-                if (scan_task->cached_blocks.back().first->rows() > 0) {
-                    auto block_avg_bytes = (scan_task->cached_blocks.back().first->bytes() +
-                                            scan_task->cached_blocks.back().first->rows() - 1) /
-                                           scan_task->cached_blocks.back().first->rows() *
-                                           ctx->batch_size();
-                    scanner->update_block_avg_bytes(block_avg_bytes);
-                }
-                if (ctx->low_memory_mode()) {
-                    ctx->clear_free_blocks();
-                    if (raw_bytes_threshold > ctx->low_memory_mode_scan_bytes_per_scanner()) {
-                        raw_bytes_threshold = ctx->low_memory_mode_scan_bytes_per_scanner();
+                    // Per-scanner small-limit optimization: if limit is small (< batch_size),
+                    // return immediately instead of accumulating to raw_bytes_threshold.
+                    if (limit > 0 && limit < ctx->batch_size()) {
+                        break;
                     }
-                }
-            } // end for while
 
-            if (UNLIKELY(!status.ok())) {
-                scan_task->set_status(status);
-                eos = true;
-            },
-            status);
+                    if (scan_task->cached_block->rows() > 0) {
+                        auto block_avg_bytes = (scan_task->cached_block->bytes() +
+                                                scan_task->cached_block->rows() - 1) /
+                                               scan_task->cached_block->rows() * ctx->batch_size();
+                        scanner->update_block_avg_bytes(block_avg_bytes);
+                    }
+                    if (ctx->low_memory_mode()) {
+                        ctx->clear_free_blocks();
+                    }
+                } while (false);
+            }
+
+                                              if (UNLIKELY(!status.ok())) {
+                                                  scan_task->set_status(status);
+                                                  eos = true;
+                                              },
+                                              status);
 
     if (UNLIKELY(!status.ok())) {
         scan_task->set_status(status);
@@ -334,14 +306,15 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
         // so we need update_scanner_profile here
         update_scanner_profile();
         scanner->mark_to_need_to_close();
+        scan_task->set_state(ScanTask::State::EOS);
+    } else {
+        scan_task->set_state(ScanTask::State::COMPLETED);
     }
-    scan_task->set_eos(eos);
 
     VLOG_DEBUG << fmt::format(
-            "Scanner context {} has finished task, cached_block {} current scheduled task is "
+            "Scanner context {} has finished task, current scheduled task is "
             "{}, eos: {}, status: {}",
-            ctx->ctx_id, scan_task->cached_blocks.size(), ctx->num_scheduled_scanners(), eos,
-            status.to_string());
+            ctx->ctx_id, ctx->num_scheduled_scanners(), eos, status.to_string());
 
     ctx->push_back_scan_task(scan_task);
 }
@@ -374,7 +347,7 @@ int ScannerScheduler::default_min_active_file_scan_threads() {
 }
 
 void ScannerScheduler::_make_sure_virtual_col_is_materialized(
-        const std::shared_ptr<Scanner>& scanner, vectorized::Block* free_block) {
+        const std::shared_ptr<Scanner>& scanner, Block* free_block) {
 #ifndef NDEBUG
     // Currently, virtual column can only be used on olap table.
     std::shared_ptr<OlapScanner> olap_scanner = std::dynamic_pointer_cast<OlapScanner>(scanner);
@@ -389,8 +362,8 @@ void ScannerScheduler::_make_sure_virtual_col_is_materialized(
     size_t idx = 0;
     for (const auto& entry : *free_block) {
         // Virtual column must be materialized on the end of SegmentIterator's next batch method.
-        const vectorized::ColumnNothing* column_nothing =
-                vectorized::check_and_get_column<vectorized::ColumnNothing>(entry.column.get());
+        const ColumnNothing* column_nothing =
+                check_and_get_column<ColumnNothing>(entry.column.get());
         if (column_nothing == nullptr) {
             idx++;
             continue;
@@ -438,4 +411,4 @@ bool ScannerSplitRunner::is_auto_reschedule() const {
     return false;
 }
 
-} // namespace doris::vectorized
+} // namespace doris

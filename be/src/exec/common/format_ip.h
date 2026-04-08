@@ -41,7 +41,7 @@ constexpr size_t IPV4_OCTET_BITS = 8;
 constexpr size_t DECIMAL_BASE = 10;
 constexpr size_t IPV6_BINARY_LENGTH = 16;
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 extern const std::array<std::pair<const char*, size_t>, 256> one_byte_to_string_lookup_table;
@@ -496,4 +496,4 @@ inline bool parse_ipv6_whole(const char* src, unsigned char* dst) {
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

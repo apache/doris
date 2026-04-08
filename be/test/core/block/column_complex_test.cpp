@@ -39,7 +39,7 @@
 #include "core/types.h"
 #include "core/value/bitmap_value.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(ColumnComplexTest, GetDataAtTest) {
     auto column_bitmap = ColumnBitmap::create();
@@ -382,7 +382,7 @@ TEST(ColumnComplexTest, GetDataAtTest) {
     }
     std::cout << "14. test more val data value and replace_column_data success" << std::endl;
 
-    vectorized::IColumn::Filter filter;
+    IColumn::Filter filter;
     for (int i = 0; i < rows; i++) {
         filter.push_back(i % 2);
     }
@@ -725,4 +725,4 @@ TEST(ColumnComplexTest, TestUpdateHashWithValue) {
     column_test->update_hashes_with_value(hash_values.data());
 }
 
-} // namespace doris::vectorized
+} // namespace doris

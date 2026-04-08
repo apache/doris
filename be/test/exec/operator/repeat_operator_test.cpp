@@ -27,15 +27,14 @@
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_descriptors.h"
 #include "testutil/mock/mock_slot_ref.h"
-namespace doris::pipeline {
+namespace doris {
 
-using namespace vectorized;
 struct RepeatOperatorTest : public ::testing::Test {
     void SetUp() override {
         op = std::make_unique<RepeatOperatorX>();
         mock_op = std::make_shared<MockOperatorX>();
         state = std::make_shared<MockRuntimeState>();
-        state->batsh_size = 10;
+        state->_batch_size = 10;
         op->_child = mock_op;
     }
 
@@ -335,4 +334,4 @@ TEST_F(RepeatOperatorTest, test_with_expr2) {
     EXPECT_TRUE(op->need_more_input_data(state.get()));
 }
 
-} // namespace doris::pipeline
+} // namespace doris

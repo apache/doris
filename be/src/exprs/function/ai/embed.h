@@ -20,7 +20,7 @@
 #include "core/data_type/primitive_type.h"
 #include "exprs/function/ai/ai_functions.h"
 
-namespace doris::vectorized {
+namespace doris {
 class FunctionEmbed : public AIFunction<FunctionEmbed> {
 public:
     static constexpr auto name = "embed";
@@ -36,4 +36,4 @@ public:
     static FunctionPtr create() { return std::make_shared<FunctionEmbed>(); }
 };
 
-}; // namespace doris::vectorized
+}; // namespace doris

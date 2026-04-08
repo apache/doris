@@ -28,7 +28,7 @@
 #include "util/jsonb_utils.h"
 #include "util/jsonb_writer.h"
 
-namespace doris::vectorized::CastWrapper {
+namespace doris::CastWrapper {
 #include "common/compile_check_begin.h"
 
 struct ConvertImplGenericFromJsonb {
@@ -244,4 +244,4 @@ WrapperType create_cast_to_jsonb_wrapper(const DataTypePtr& from_type, const Dat
     };
 }
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized::CastWrapper
+} // namespace doris::CastWrapper

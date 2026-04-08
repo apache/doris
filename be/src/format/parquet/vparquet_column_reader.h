@@ -44,7 +44,7 @@ namespace doris::io {
 struct IOContext;
 } // namespace doris::io
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 struct FieldSchema;
 template <typename T>
@@ -156,7 +156,8 @@ public:
         return Status::NotSupported("read_dict_values_to_column is not supported");
     }
 
-    virtual MutableColumnPtr convert_dict_column_to_string_column(const ColumnInt32* dict_column) {
+    virtual Result<MutableColumnPtr> convert_dict_column_to_string_column(
+            const ColumnInt32* dict_column) {
         throw Exception(
                 Status::FatalError("Method convert_dict_column_to_string_column is not supported"));
     }
@@ -217,7 +218,8 @@ public:
                             FilterMap& filter_map, size_t batch_size, size_t* read_rows, bool* eof,
                             bool is_dict_filter, int64_t real_column_size = -1) override;
     Status read_dict_values_to_column(MutableColumnPtr& doris_column, bool* has_dict) override;
-    MutableColumnPtr convert_dict_column_to_string_column(const ColumnInt32* dict_column) override;
+    Result<MutableColumnPtr> convert_dict_column_to_string_column(
+            const ColumnInt32* dict_column) override;
     const std::vector<level_t>& get_rep_level() const override { return _rep_levels; }
     const std::vector<level_t>& get_def_level() const override { return _def_levels; }
     ColumnStatistics column_statistics() override {
@@ -475,7 +477,7 @@ public:
 
         if (real_column_size > 0) {
             if (doris_column->is_nullable()) {
-                auto* nullable_column = static_cast<vectorized::ColumnNullable*>(data_column.get());
+                auto* nullable_column = static_cast<ColumnNullable*>(data_column.get());
                 nullable_column->insert_many_defaults(real_column_size);
             } else {
                 // For non-nullable columns, insert appropriate default values
@@ -534,4 +536,4 @@ public:
 
 #include "common/compile_check_end.h"
 
-}; // namespace doris::vectorized
+}; // namespace doris

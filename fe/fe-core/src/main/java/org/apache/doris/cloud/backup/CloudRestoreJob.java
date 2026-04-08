@@ -292,8 +292,8 @@ public class CloudRestoreJob extends RestoreJob {
         }
         Preconditions.checkState(storageVaultId != null, "Storage vault ID cannot be null");
         return new DownloadTask(null, beId, signature, jobId, dbId, srcToDest,
-            brokerAddr, repo.getRemoteFileSystem().getStorageProperties().getBackendConfigProperties(),
-            repo.getRemoteFileSystem().getStorageType(), repo.getLocation(), storageVaultId);
+            brokerAddr, repo.getFileSystemDescriptor().getBackendConfigProperties(),
+            repo.getFileSystemDescriptor().getThriftStorageType(), repo.getLocation(), storageVaultId);
     }
 
     public void downloadLocalSnapshots() {
@@ -404,7 +404,8 @@ public class CloudRestoreJob extends RestoreJob {
                                     localTbl.variantEnableFlattenNested(), clusterKeyUids,
                                     localTbl.storagePageSize(), localTbl.getTDEAlgorithmPB(),
                                     localTbl.storageDictPageSize(), false,
-                                    localTbl.getColumnSeqMapping()));
+                                    localTbl.getColumnSeqMapping(),
+                                    localTbl.getVerticalCompactionNumColumnsPerGroup()));
                         // In cloud mode all storage medium will be saved to HDD.
                         TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
                                 restoredIdx.getId(), indexMeta.getSchemaHash(), TStorageMedium.HDD);

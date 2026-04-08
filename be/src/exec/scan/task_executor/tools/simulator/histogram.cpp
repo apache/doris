@@ -21,7 +21,6 @@
 #include <sstream>
 
 namespace doris {
-namespace vectorized {
 
 std::string HistogramUtils::format_nanos(int64_t nanos) {
     constexpr int64_t NS_PER_SEC = 1'000'000'000;
@@ -60,5 +59,4 @@ std::string HistogramUtils::format_nanos(int64_t nanos) {
     return oss.str();
 }
 
-} // namespace vectorized
 } // namespace doris

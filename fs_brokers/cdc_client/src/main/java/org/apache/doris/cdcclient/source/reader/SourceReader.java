@@ -17,6 +17,7 @@
 
 package org.apache.doris.cdcclient.source.reader;
 
+import org.apache.doris.cdcclient.source.deserialize.DeserializeResult;
 import org.apache.doris.cdcclient.source.factory.DataSource;
 import org.apache.doris.job.cdc.request.CompareOffsetRequest;
 import org.apache.doris.job.cdc.request.FetchTableSplitsRequest;
@@ -32,12 +33,15 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
+import io.debezium.relational.TableId;
+import io.debezium.relational.history.TableChanges;
+
 /** Source Reader Interface */
 public interface SourceReader {
     String SPLIT_ID = "splitId";
 
     /** Initialization, called when the program starts */
-    void initialize(long jobId, DataSource dataSource, Map<String, String> config);
+    void initialize(String jobId, DataSource dataSource, Map<String, String> config);
 
     /** Divide the data to be read. For example: split mysql to chunks */
     List<AbstractSourceSplit> getSourceSplits(FetchTableSplitsRequest config);
@@ -75,11 +79,23 @@ public interface SourceReader {
     /** Called when closing */
     void close(JobBaseConfig jobConfig);
 
-    List<String> deserialize(Map<String, String> config, SourceRecord element) throws IOException;
+    DeserializeResult deserialize(Map<String, String> config, SourceRecord element)
+            throws IOException;
+
+    /**
+     * Apply schema changes to the in-memory tableSchemas. Called after schema change is executed on
+     * Doris.
+     */
+    default void applySchemaChange(Map<TableId, TableChanges.TableChange> updatedSchemas) {}
+
+    /** Serialize current tableSchemas to JSON for persistence via commitOffset. */
+    default String serializeTableSchemas() {
+        return null;
+    }
 
     /**
      * Commits the given offset with the source database. Used by some source like Postgres to
      * indicate how far the source TX log can be discarded.
      */
-    default void commitSourceOffset(Long jobId, SourceSplit sourceSplit) {}
+    default void commitSourceOffset(String jobId, SourceSplit sourceSplit) {}
 }

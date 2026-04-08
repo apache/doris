@@ -47,8 +47,6 @@ namespace doris {
 class TabletSchema;
 class RuntimeProfile;
 
-namespace vectorized {
-
 class VCollectIterator {
 public:
     // Hold reader point to get reader params
@@ -352,11 +350,16 @@ private:
     bool _topn_eof = false;
     std::vector<RowSetSplits> _rs_splits;
 
+    // General limit pushdown for DUP_KEYS and UNIQUE_KEYS with MOW (non-merge path).
+    // When > 0, VCollectIterator will stop reading after returning this many rows.
+    int64_t _general_read_limit = -1;
+    // Number of rows already returned to the caller.
+    int64_t _general_rows_returned = 0;
+
     // Hold reader point to access read params, such as fetch conditions.
     TabletReader* _reader = nullptr;
 
     bool _skip_same;
 };
 
-} // namespace vectorized
 } // namespace doris

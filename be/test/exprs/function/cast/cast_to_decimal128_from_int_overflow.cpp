@@ -17,9 +17,9 @@
 
 #include "exprs/function/cast/cast_to_decimal_test.h"
 
-namespace doris::vectorized {
+namespace doris {
 TEST_F(FunctionCastToDecimalTest, test_to_decimal128_from_int_overflow) {
     from_int_overflow_test_func<Decimal128V3>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

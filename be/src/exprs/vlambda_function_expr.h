@@ -20,7 +20,7 @@
 #include "exprs/function/function.h"
 #include "exprs/vexpr.h"
 
-namespace doris::vectorized {
+namespace doris {
 class VLambdaFunctionExpr final : public VExpr {
     ENABLE_FACTORY_CREATOR(VLambdaFunctionExpr);
 
@@ -30,6 +30,10 @@ public:
 
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override {
         RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
+        // Fix _data_type to match the lambda body's actual return type.
+        // The initial _data_type was set to DataTypeString as a placeholder during
+        // VExpr(TExprNode) construction; override it with the body's real type.
+        data_type() = get_child(0)->data_type();
         _prepare_finished = true;
         return Status::OK();
     }
@@ -59,4 +63,4 @@ public:
 private:
     const std::string _expr_name = "vlambda_function_expr";
 };
-} // namespace doris::vectorized
+} // namespace doris

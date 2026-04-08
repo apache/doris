@@ -17,14 +17,8 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FormatOptions;
-import org.apache.doris.thrift.TExprNode;
-import org.apache.doris.thrift.TExprNodeType;
-import org.apache.doris.thrift.TIPv4Literal;
 
 import com.google.gson.annotations.SerializedName;
 
@@ -97,27 +91,14 @@ public class IPv4Literal extends LiteralExpr {
         return sb.toString();
     }
 
-
     @Override
     public Expr clone() {
         return new IPv4Literal(this);
     }
 
     @Override
-    protected String toSqlImpl() {
-        return "\"" + getStringValue() + "\"";
-    }
-
-    @Override
-    protected String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
-            TableIf table) {
-        return "\"" + getStringValue() + "\"";
-    }
-
-    @Override
-    protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.IPV4_LITERAL;
-        msg.ipv4_literal = new TIPv4Literal(this.value);
+    public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
+        return visitor.visitIPv4Literal(this, context);
     }
 
     @Override
@@ -135,8 +116,8 @@ public class IPv4Literal extends LiteralExpr {
         return parseLongToIPv4(this.value);
     }
 
-    @Override
-    protected String getStringValueInComplexTypeForQuery(FormatOptions options) {
-        return options.getNestedStringWrapper() + getStringValueForQuery(options) + options.getNestedStringWrapper();
+    public long getValue() {
+        return value;
     }
+
 }

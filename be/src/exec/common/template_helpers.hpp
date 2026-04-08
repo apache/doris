@@ -20,7 +20,7 @@
 #include <limits>
 #include <variant>
 
-namespace doris::vectorized {
+namespace doris {
 
 template <typename LoopType, LoopType start, LoopType end, template <LoopType> typename Reducer>
 struct constexpr_loop_match {
@@ -56,4 +56,4 @@ struct Overload : Callables... {
 template <typename... Callables>
 Overload(Callables&&... callables) -> Overload<Callables...>;
 
-} // namespace  doris::vectorized
+} // namespace  doris

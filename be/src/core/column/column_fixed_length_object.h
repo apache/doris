@@ -30,7 +30,7 @@
 #include "core/pod_array.h"
 #include "exec/common/sip_hash.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class ColumnFixedLengthObject final : public COWHelper<IColumn, ColumnFixedLengthObject> {
 private:
@@ -301,4 +301,4 @@ protected:
     size_t _item_count;
     Container _data;
 };
-} // namespace doris::vectorized
+} // namespace doris

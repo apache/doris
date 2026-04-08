@@ -17,12 +17,12 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.FunctionName;
 import org.apache.doris.catalog.FunctionSearchDesc;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;

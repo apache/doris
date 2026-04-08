@@ -32,7 +32,7 @@
 #include "exprs/lambda_function/lambda_function_factory.h"
 #include "exprs/vexpr.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class VExprContext;
@@ -45,7 +45,7 @@ using ConstColumnVariant =
                      const ColumnDecimal32*, const ColumnDecimal64*, const ColumnDecimal128V2*,
                      const ColumnDecimal128V3*, const ColumnDecimal256*, const ColumnDate*,
                      const ColumnDateTime*, const ColumnDateV2*, const ColumnDateTimeV2*,
-                     const ColumnTime*, const ColumnTimeV2*>;
+                     const ColumnTimeV2*>;
 
 template <typename T>
 struct is_column_vector : std::false_type {};
@@ -67,8 +67,8 @@ public:
 
     std::string get_name() const override { return name; }
 
-    Status execute(VExprContext* context, const vectorized::Block* block, Selector* expr_selector,
-                   size_t count, ColumnPtr& result_column, const DataTypePtr& result_type,
+    Status execute(VExprContext* context, const Block* block, Selector* expr_selector, size_t count,
+                   ColumnPtr& result_column, const DataTypePtr& result_type,
                    const VExprSPtrs& children) const override {
         ///* array_sort(lambda, arg) *///
 
@@ -135,8 +135,8 @@ public:
          */
         Block lambda_block;
         for (int i = 0; i <= 2; i++) {
-            lambda_block.insert(vectorized::ColumnWithTypeAndName(
-                    nested_nullable_column.clone_empty(), col_type.get_nested_type(), "temp"));
+            lambda_block.insert(ColumnWithTypeAndName(nested_nullable_column.clone_empty(),
+                                                      col_type.get_nested_type(), "temp"));
         }
 
         MutableColumnPtr temp_data[2];
@@ -256,7 +256,6 @@ public:
             DISPATCH_PRIMITIVE_TYPE(TYPE_DATETIME, ColumnDateTime)
             DISPATCH_PRIMITIVE_TYPE(TYPE_DATEV2, ColumnDateV2)
             DISPATCH_PRIMITIVE_TYPE(TYPE_DATETIMEV2, ColumnDateTimeV2)
-            DISPATCH_PRIMITIVE_TYPE(TYPE_TIME, ColumnTime)
             DISPATCH_PRIMITIVE_TYPE(TYPE_TIMEV2, ColumnTimeV2)
         default:
             return Status::InternalError("Unsupported type in array_sort");
@@ -267,9 +266,9 @@ public:
 #undef DISPATCH_PRIMITIVE_TYPE
 };
 
-void register_function_array_sort(doris::vectorized::LambdaFunctionFactory& factory) {
+void register_function_array_sort(doris::LambdaFunctionFactory& factory) {
     factory.register_function<ArraySortFunction>();
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

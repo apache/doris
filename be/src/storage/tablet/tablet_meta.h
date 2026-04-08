@@ -118,7 +118,8 @@ public:
                TInvertedIndexFileStorageFormat::type inverted_index_file_storage_format =
                        TInvertedIndexFileStorageFormat::V2,
                TEncryptionAlgorithm::type tde_algorithm = TEncryptionAlgorithm::PLAINTEXT,
-               TStorageFormat::type storage_format = TStorageFormat::V2);
+               TStorageFormat::type storage_format = TStorageFormat::V2,
+               int32_t vertical_compaction_num_columns_per_group = 5);
     // If need add a filed in TableMeta, filed init copy in copy construct function
     TabletMeta(const TabletMeta& tablet_meta);
     TabletMeta(TabletMeta&& tablet_meta) = delete;
@@ -296,6 +297,13 @@ public:
         return _time_series_compaction_level_threshold;
     }
 
+    void set_vertical_compaction_num_columns_per_group(int32_t num) {
+        _vertical_compaction_num_columns_per_group = num;
+    }
+    int32_t vertical_compaction_num_columns_per_group() const {
+        return _vertical_compaction_num_columns_per_group;
+    }
+
     int64_t ttl_seconds() const {
         std::shared_lock rlock(_meta_lock);
         return _ttl_seconds;
@@ -366,6 +374,7 @@ private:
     int64_t _time_series_compaction_time_threshold_seconds = 0;
     int64_t _time_series_compaction_empty_rowsets_threshold = 0;
     int64_t _time_series_compaction_level_threshold = 0;
+    int32_t _vertical_compaction_num_columns_per_group = 5;
 
     int64_t _avg_rs_meta_serialize_size = 0;
 

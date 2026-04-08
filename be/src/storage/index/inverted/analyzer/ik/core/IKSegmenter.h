@@ -41,7 +41,7 @@ public:
 
 private:
     std::vector<std::unique_ptr<ISegmenter>> loadSegmenters();
-    vectorized::Arena arena_;
+    Arena arena_;
     lucene::util::Reader* input_;
     std::shared_ptr<Configuration> config_;
     std::unique_ptr<AnalyzeContext> context_;

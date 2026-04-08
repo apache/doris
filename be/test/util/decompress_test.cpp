@@ -48,7 +48,7 @@ protected:
     void RunTest(THdfsCompression::type format) {
         std::unique_ptr<Codec> compressor;
         std::unique_ptr<Codec> decompressor;
-        vectorized::Arena& arena = new vectorized::Arena;
+        Arena& arena = new Arena;
 
         EXPECT_TRUE(Codec::create_compressor(nullptr, arena, true, format, &compressor).ok());
         EXPECT_TRUE(Codec::create_compressor(nullptr, arena, true, format, &decompressor).ok());

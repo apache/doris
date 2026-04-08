@@ -22,9 +22,7 @@
 #include "storage/schema.h"
 
 namespace doris {
-namespace vectorized {
 class Block;
-} // namespace vectorized
 
 namespace segment_v2 {
 
@@ -34,7 +32,7 @@ public:
     ~EmptySegmentIterator() override {}
     Status init(const StorageReadOptions& opts) override { return Status::OK(); }
     const Schema& schema() const override { return _schema; }
-    Status next_batch(vectorized::Block* block) override;
+    Status next_batch(Block* block) override;
     bool empty() const override { return true; }
 
 private:

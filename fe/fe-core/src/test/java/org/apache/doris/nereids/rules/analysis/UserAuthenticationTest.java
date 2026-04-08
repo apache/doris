@@ -25,6 +25,8 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -55,6 +57,10 @@ public class UserAuthenticationTest {
     private DatabaseIf db;
     @Mocked
     private CatalogIf catalog;
+    @Mocked
+    private IcebergSysExternalTable icebergSysTable;
+    @Mocked
+    private IcebergExternalTable icebergSourceTable;
 
     private String originalMinPrivilege;
 
@@ -292,54 +298,6 @@ public class UserAuthenticationTest {
     }
 
     /**
-     * Test that cluster:information_schema.cluster_snapshots (with cluster prefix)
-     * DOES trigger special privilege check.
-     * This verifies ClusterNamespace.getNameFromFullName correctly strips the cluster prefix.
-     */
-    @Test
-    public void testInfoSchemaWithClusterPrefixTriggersSpecialCheck() {
-        Config.cluster_snapshot_min_privilege = "root";
-
-        UserIdentity normalUser = new UserIdentity("normal_user", "%");
-        normalUser.setIsAnalyzed();
-
-        new Expectations() {
-            {
-                table.getName();
-                minTimes = 0;
-                result = "cluster_snapshots";
-
-                table.getDatabase();
-                minTimes = 0;
-                result = db;
-
-                // Database name with cluster prefix - ClusterNamespace.getNameFromFullName
-                // should strip "default_cluster:" and return "information_schema"
-                db.getFullName();
-                minTimes = 0;
-                result = "default_cluster:information_schema";
-
-                connectContext.getSessionVariable();
-                minTimes = 0;
-                result = sessionVariable;
-
-                sessionVariable.isPlayNereidsDump();
-                minTimes = 0;
-                result = false;
-
-                connectContext.getCurrentUserIdentity();
-                minTimes = 0;
-                result = normalUser;
-            }
-        };
-
-        // Should throw AnalysisException because after stripping cluster prefix,
-        // the db name is "information_schema", which triggers special privilege check
-        Assertions.assertThrows(AnalysisException.class, () ->
-                UserAuthentication.checkPermission(table, connectContext, null));
-    }
-
-    /**
      * Test that information_schema.cluster_snapshots allows admin user in admin mode.
      */
     @Test
@@ -392,5 +350,60 @@ public class UserAuthenticationTest {
         // Admin user should be able to access in admin mode
         Assertions.assertDoesNotThrow(() ->
                 UserAuthentication.checkPermission(table, connectContext, null));
+    }
+
+    @Test
+    public void testIcebergSysTableUsesSourceTablePrivilege() throws Exception {
+        new Expectations() {
+            {
+                icebergSysTable.getSourceTable();
+                minTimes = 0;
+                result = icebergSourceTable;
+
+                connectContext.getSessionVariable();
+                minTimes = 0;
+                result = sessionVariable;
+
+                sessionVariable.isPlayNereidsDump();
+                minTimes = 0;
+                result = false;
+
+                icebergSourceTable.getName();
+                minTimes = 0;
+                result = "source_tbl";
+
+                icebergSourceTable.getDatabase();
+                minTimes = 0;
+                result = db;
+
+                db.getFullName();
+                minTimes = 0;
+                result = "test_db";
+
+                db.getCatalog();
+                minTimes = 0;
+                result = catalog;
+
+                catalog.getName();
+                minTimes = 0;
+                result = "test_ctl";
+
+                connectContext.getEnv();
+                minTimes = 0;
+                result = env;
+
+                env.getAccessManager();
+                minTimes = 0;
+                result = accessControllerManager;
+
+                accessControllerManager.checkTblPriv(connectContext, "test_ctl", "test_db",
+                        "source_tbl", PrivPredicate.SELECT);
+                minTimes = 1;
+                result = true;
+            }
+        };
+
+        Assertions.assertDoesNotThrow(() ->
+                UserAuthentication.checkPermission(icebergSysTable, connectContext, null));
     }
 }

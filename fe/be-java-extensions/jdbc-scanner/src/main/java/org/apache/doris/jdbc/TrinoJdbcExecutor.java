@@ -35,6 +35,10 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
+/**
+ * @deprecated Use {@link TrinoTypeHandler} instead.
+ */
+@Deprecated
 public class TrinoJdbcExecutor extends BaseJdbcExecutor {
     public TrinoJdbcExecutor(byte[] thriftParams) throws Exception {
         super(thriftParams);

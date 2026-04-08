@@ -86,28 +86,6 @@ bool VecDateTimeValue::check_date(uint32_t year, uint32_t month, uint32_t day) {
     return false;
 }
 
-bool VecDateTimeValue::from_date_str(const char* date_str, size_t len) {
-    vectorized::CastParameters params;
-    if (type() == TIME_DATE) {
-        return vectorized::CastToDateOrDatetime::from_string_non_strict_mode<false>(
-                {date_str, len}, *this, nullptr, params);
-    } else {
-        return vectorized::CastToDateOrDatetime::from_string_non_strict_mode<true>(
-                {date_str, len}, *this, nullptr, params);
-    }
-}
-bool VecDateTimeValue::from_date_str(const char* date_str, size_t len,
-                                     const cctz::time_zone& local_time_zone) {
-    vectorized::CastParameters params;
-    if (type() == TIME_DATE) {
-        return vectorized::CastToDateOrDatetime::from_string_non_strict_mode<false>(
-                {date_str, len}, *this, &local_time_zone, params);
-    } else {
-        return vectorized::CastToDateOrDatetime::from_string_non_strict_mode<true>(
-                {date_str, len}, *this, &local_time_zone, params);
-    }
-}
-
 // [0, 101) invalid
 // [101, (YY_PART_YEAR - 1) * 10000 + 1231] for two digits year 2000 ~ 2069
 // [(YY_PART_YEAR - 1) * 10000 + 1231, YY_PART_YEAR * 10000L + 101) invalid
@@ -1800,33 +1778,6 @@ void DateV2Value<T>::format_datetime(uint32_t* date_val, bool* carry_bits) const
     if (date_val[1] == 13 && carry_bits[2]) {
         date_val[1] = 1;
         date_val[0] += 1;
-    }
-}
-
-template <typename T>
-bool DateV2Value<T>::from_date_str(const char* date_str, size_t len, int scale /* = -1*/,
-                                   bool convert_zero) {
-    vectorized::CastParameters params;
-    if constexpr (is_datetime) {
-        return vectorized::CastToDatetimeV2::from_string_non_strict_mode({date_str, len}, *this,
-                                                                         nullptr, scale, params);
-    } else {
-        return vectorized::CastToDateV2::from_string_non_strict_mode({date_str, len}, *this,
-                                                                     nullptr, params);
-    }
-}
-
-template <typename T>
-bool DateV2Value<T>::from_date_str(const char* date_str, size_t len,
-                                   const cctz::time_zone& local_time_zone, int scale /* = -1*/,
-                                   bool convert_zero) {
-    vectorized::CastParameters params;
-    if constexpr (is_datetime) {
-        return vectorized::CastToDatetimeV2::from_string_non_strict_mode(
-                {date_str, len}, *this, &local_time_zone, scale, params);
-    } else {
-        return vectorized::CastToDateV2::from_string_non_strict_mode({date_str, len}, *this,
-                                                                     &local_time_zone, params);
     }
 }
 

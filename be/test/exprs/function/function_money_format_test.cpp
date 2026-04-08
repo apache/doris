@@ -33,7 +33,7 @@
 #include "exprs/function/function_test_util.h"
 #include "runtime/runtime_state.h"
 
-namespace doris::vectorized {
+namespace doris {
 TEST(function_money_format_test, money_format_with_decimalV2) {
     // why not using
     std::multimap<std::string, std::string> input_dec_str_and_expected_str = {
@@ -92,4 +92,4 @@ TEST(function_money_format_test, money_format_with_decimalV2) {
     }
 }
 
-}; // namespace doris::vectorized
+}; // namespace doris

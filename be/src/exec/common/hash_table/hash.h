@@ -45,7 +45,7 @@ static constexpr size_t HASH_MAP_PREFETCH_DIST = 16;
 /** Taken from MurmurHash. This is Murmur finalizer.
   * Faster than int_hash32 when inserting into the hash table UInt64 -> UInt64, where the key is the visitor ID.
   */
-inline doris::vectorized::UInt64 int_hash64(doris::vectorized::UInt64 x) {
+inline doris::UInt64 int_hash64(doris::UInt64 x) {
     x ^= x >> 33;
     x *= 0xff51afd7ed558ccdULL;
     x ^= x >> 33;
@@ -63,7 +63,7 @@ inline doris::vectorized::UInt64 int_hash64(doris::vectorized::UInt64 x) {
   */
 #include "util/sse_util.hpp"
 
-inline doris::vectorized::UInt64 int_hash_crc32(doris::vectorized::UInt64 x) {
+inline doris::UInt64 int_hash_crc32(doris::UInt64 x) {
 #if defined(__SSE4_2__) || (defined(__aarch64__) && defined(__ARM_FEATURE_CRC32))
     return _mm_crc32_u64(-1ULL, x);
 #else
@@ -76,7 +76,7 @@ template <typename T>
 inline size_t default_hash64(T key) {
     union {
         T in;
-        doris::vectorized::UInt64 out;
+        doris::UInt64 out;
     } u;
     u.out = 0;
     u.in = key;
@@ -131,7 +131,7 @@ template <typename T>
 inline size_t hash_crc32(T key) {
     union {
         T in;
-        doris::vectorized::UInt64 out;
+        doris::UInt64 out;
     } u;
     u.out = 0;
     u.in = key;
@@ -139,18 +139,18 @@ inline size_t hash_crc32(T key) {
 }
 
 template <>
-inline size_t hash_crc32(doris::vectorized::UInt128 u) {
-    return doris::vectorized::UInt128HashCRC32()(u);
+inline size_t hash_crc32(doris::UInt128 u) {
+    return doris::UInt128HashCRC32()(u);
 }
 
 template <>
 inline size_t hash_crc32(unsigned __int128 u) {
-    return doris::vectorized::UInt128HashCRC32()(u);
+    return doris::UInt128HashCRC32()(u);
 }
 
 template <>
-inline size_t hash_crc32(doris::vectorized::Int128 u) {
-    return doris::vectorized::UInt128HashCRC32()({(u >> 64) & int64_t(-1), u & int64_t(-1)});
+inline size_t hash_crc32(doris::Int128 u) {
+    return doris::UInt128HashCRC32()({(u >> 64) & int64_t(-1), u & int64_t(-1)});
 }
 
 template <>
@@ -181,18 +181,18 @@ inline size_t hash_crc32(doris::TimestampTzValue u) {
         }                                \
     };
 
-DEFINE_HASH(doris::vectorized::UInt8)
-DEFINE_HASH(doris::vectorized::UInt16)
-DEFINE_HASH(doris::vectorized::UInt32)
-DEFINE_HASH(doris::vectorized::UInt64)
-DEFINE_HASH(doris::vectorized::UInt128)
-DEFINE_HASH(doris::vectorized::Int8)
-DEFINE_HASH(doris::vectorized::Int16)
-DEFINE_HASH(doris::vectorized::Int32)
-DEFINE_HASH(doris::vectorized::Int64)
-DEFINE_HASH(doris::vectorized::Int128)
-DEFINE_HASH(doris::vectorized::Float32)
-DEFINE_HASH(doris::vectorized::Float64)
+DEFINE_HASH(doris::UInt8)
+DEFINE_HASH(doris::UInt16)
+DEFINE_HASH(doris::UInt32)
+DEFINE_HASH(doris::UInt64)
+DEFINE_HASH(doris::UInt128)
+DEFINE_HASH(doris::Int8)
+DEFINE_HASH(doris::Int16)
+DEFINE_HASH(doris::Int32)
+DEFINE_HASH(doris::Int64)
+DEFINE_HASH(doris::Int128)
+DEFINE_HASH(doris::Float32)
+DEFINE_HASH(doris::Float64)
 DEFINE_HASH(doris::VecDateTimeValue)
 DEFINE_HASH(doris::DateV2Value<doris::DateTimeV2ValueType>)
 DEFINE_HASH(doris::DateV2Value<doris::DateV2ValueType>)
@@ -207,10 +207,10 @@ struct HashMixWrapper {
 };
 
 template <>
-struct HashCRC32<doris::vectorized::UInt256> {
-    size_t operator()(const doris::vectorized::UInt256& x) const {
+struct HashCRC32<doris::UInt256> {
+    size_t operator()(const doris::UInt256& x) const {
 #if defined(__SSE4_2__) || defined(__aarch64__)
-        doris::vectorized::UInt64 crc = -1ULL;
+        doris::UInt64 crc = -1ULL;
         crc = _mm_crc32_u64(crc, x.items[0]);
         crc = _mm_crc32_u64(crc, x.items[1]);
         crc = _mm_crc32_u64(crc, x.items[2]);
@@ -226,7 +226,7 @@ template <>
 struct HashCRC32<wide::Int256> {
     size_t operator()(const wide::Int256& x) const {
 #if defined(__SSE4_2__) || defined(__aarch64__)
-        doris::vectorized::UInt64 crc = -1ULL;
+        doris::UInt64 crc = -1ULL;
         crc = _mm_crc32_u64(crc, x.items[0]);
         crc = _mm_crc32_u64(crc, x.items[1]);
         crc = _mm_crc32_u64(crc, x.items[2]);
@@ -240,36 +240,36 @@ struct HashCRC32<wide::Int256> {
 };
 
 template <>
-struct HashCRC32<doris::vectorized::Decimal256> {
-    size_t operator()(const doris::vectorized::Decimal256& value) const {
+struct HashCRC32<doris::Decimal256> {
+    size_t operator()(const doris::Decimal256& value) const {
         return HashCRC32<wide::Int256>()(value.value);
     }
 };
 
 template <>
-struct HashCRC32<doris::vectorized::Decimal32> {
-    size_t operator()(const doris::vectorized::Decimal32& value) const {
+struct HashCRC32<doris::Decimal32> {
+    size_t operator()(const doris::Decimal32& value) const {
         return HashCRC32<int32_t>()(value.value);
     }
 };
 
 template <>
-struct HashCRC32<doris::vectorized::Decimal64> {
-    size_t operator()(const doris::vectorized::Decimal64& value) const {
+struct HashCRC32<doris::Decimal64> {
+    size_t operator()(const doris::Decimal64& value) const {
         return HashCRC32<int64_t>()(value.value);
     }
 };
 
 template <>
-struct HashCRC32<doris::vectorized::Decimal128V3> {
-    size_t operator()(const doris::vectorized::Decimal128V3& value) const {
+struct HashCRC32<doris::Decimal128V3> {
+    size_t operator()(const doris::Decimal128V3& value) const {
         return HashCRC32<__int128>()(value.value);
     }
 };
 
 template <>
-struct HashCRC32<doris::vectorized::Decimal128V2> {
-    size_t operator()(const doris::vectorized::Decimal128V2& value) const {
+struct HashCRC32<doris::Decimal128V2> {
+    size_t operator()(const doris::Decimal128V2& value) const {
         return HashCRC32<__int128>()(value.value);
     }
 };
@@ -284,9 +284,9 @@ struct HashCRC32<doris::DecimalV2Value> {
 #include "common/compile_check_avoid_begin.h"
 
 template <>
-struct HashCRC32<doris::vectorized::UInt72> {
-    size_t operator()(const doris::vectorized::UInt72& x) const {
-        doris::vectorized::UInt64 crc = -1ULL;
+struct HashCRC32<doris::UInt72> {
+    size_t operator()(const doris::UInt72& x) const {
+        doris::UInt64 crc = -1ULL;
         crc = _mm_crc32_u8(crc, x.a);
         crc = _mm_crc32_u64(crc, x.b);
         return crc;
@@ -294,9 +294,9 @@ struct HashCRC32<doris::vectorized::UInt72> {
 };
 
 template <>
-struct HashCRC32<doris::vectorized::UInt96> {
-    size_t operator()(const doris::vectorized::UInt96& x) const {
-        doris::vectorized::UInt64 crc = -1ULL;
+struct HashCRC32<doris::UInt96> {
+    size_t operator()(const doris::UInt96& x) const {
+        doris::UInt64 crc = -1ULL;
         crc = _mm_crc32_u32(crc, x.a);
         crc = _mm_crc32_u64(crc, x.b);
         return crc;
@@ -304,9 +304,9 @@ struct HashCRC32<doris::vectorized::UInt96> {
 };
 
 template <>
-struct HashCRC32<doris::vectorized::UInt104> {
-    size_t operator()(const doris::vectorized::UInt104& x) const {
-        doris::vectorized::UInt64 crc = -1ULL;
+struct HashCRC32<doris::UInt104> {
+    size_t operator()(const doris::UInt104& x) const {
+        doris::UInt64 crc = -1ULL;
         crc = _mm_crc32_u8(crc, x.a);
         crc = _mm_crc32_u32(crc, x.b);
         crc = _mm_crc32_u64(crc, x.c);
@@ -315,9 +315,9 @@ struct HashCRC32<doris::vectorized::UInt104> {
 };
 
 template <>
-struct HashCRC32<doris::vectorized::UInt136> {
-    size_t operator()(const doris::vectorized::UInt136& x) const {
-        doris::vectorized::UInt64 crc = -1ULL;
+struct HashCRC32<doris::UInt136> {
+    size_t operator()(const doris::UInt136& x) const {
+        doris::UInt64 crc = -1ULL;
         crc = _mm_crc32_u8(crc, x.a);
         crc = _mm_crc32_u64(crc, x.b);
         crc = _mm_crc32_u64(crc, x.c);

@@ -24,7 +24,7 @@
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 template <template <PrimitiveType> typename AggregateFunction>
@@ -65,4 +65,4 @@ void register_aggregate_function_sequence_match(AggregateFunctionSimpleFactory& 
             "sequence_count",
             create_aggregate_function_sequence_base<AggregateFunctionSequenceCount>);
 }
-} // namespace doris::vectorized
+} // namespace doris

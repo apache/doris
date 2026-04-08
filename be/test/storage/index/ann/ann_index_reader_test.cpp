@@ -34,7 +34,7 @@
 
 using namespace doris::vector_search_utils;
 
-namespace doris::vectorized {
+namespace doris {
 
 class AnnIndexReaderTest : public VectorSearchTest {
 protected:
@@ -684,4 +684,4 @@ TEST_F(AnnIndexReaderTest, AnnIndexReaderIVFRangeSearch) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

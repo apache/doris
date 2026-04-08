@@ -30,7 +30,7 @@
 #include "core/value/bitmap_value.h"
 #include "exprs/function/function_test_util.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(function_bitmap_test, function_bitmap_min_test) {
     std::string func_name = "bitmap_min";
@@ -509,4 +509,4 @@ TEST(function_bitmap_test, function_bitmap_from_string_multiple_rows) {
     static_cast<void>(check_function<DataTypeBitMap, true>(func_name, input_types, data_set));
 }
 
-} // namespace doris::vectorized
+} // namespace doris

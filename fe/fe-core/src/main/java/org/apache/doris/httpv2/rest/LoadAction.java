@@ -23,7 +23,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.cloud.qe.ComputeGroupException;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -199,9 +198,8 @@ public class LoadAction extends RestBaseController {
     }
 
     private boolean isGroupCommitBlock(String db, String table) throws TException {
-        String fullDbName = getFullDbName(db);
         Database dbObj = Env.getCurrentInternalCatalog()
-                .getDbOrException(fullDbName, s -> new TException("database is invalid for dbName: " + s));
+                .getDbOrException(db, s -> new TException("database is invalid for dbName: " + s));
         Table tblObj = dbObj.getTableOrException(table, s -> new TException("table is invalid: " + s));
         return Env.getCurrentEnv().getGroupCommitManager().isBlock(tblObj.getId());
     }
@@ -739,8 +737,7 @@ public class LoadAction extends RestBaseController {
 
         if (!Strings.isNullOrEmpty(request.getHeader("Authorization"))) {
             ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
-            userInfo = ClusterNamespace.getNameFromFullName(authInfo.fullUserName)
-                    + ":" + authInfo.password;
+            userInfo = authInfo.fullUserName + ":" + authInfo.password;
         }
         try {
             urlObj = new URI(urlStr);

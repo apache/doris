@@ -42,11 +42,11 @@ namespace cctz {
 class time_zone;
 } // namespace cctz
 
-namespace doris::vectorized {
+namespace doris {
 class DataTypeDateTime;
 class DataTypeDateV2;
 class DataTypeDateTimeV2;
-} // namespace doris::vectorized
+} // namespace doris
 
 namespace doris {
 #include "common/compile_check_avoid_begin.h"
@@ -390,14 +390,6 @@ public:
 
     // Given days since 0000-01-01, construct the datetime value.
     bool from_date_daynr(uint64_t);
-
-    // Construct Date/Datetime type value from string.
-    // At least the following formats are recognised (based on number of digits)
-    // 'YYMMDD', 'YYYYMMDD', 'YYMMDDHHMMSS', 'YYYYMMDDHHMMSS'
-    // 'YY-MM-DD', 'YYYY-MM-DD', 'YY-MM-DD HH.MM.SS'
-    // 'YYYYMMDDTHHMMSS'
-    bool from_date_str(const char* str, size_t len);
-    bool from_date_str(const char* str, size_t len, const cctz::time_zone& local_time_zone);
 
     // Construct Date/Datetime type value from int64_t value.
     // Return true if convert success. Otherwise return false.
@@ -933,15 +925,6 @@ public:
             date_v2_value_.microsecond_ = src.microsecond();
         }
     }
-
-    // Construct Date/Datetime type value from string.
-    // At least the following formats are recognised (based on number of digits)
-    // 'YYMMDD', 'YYYYMMDD', 'YYMMDDHHMMSS', 'YYYYMMDDHHMMSS'
-    // 'YY-MM-DD', 'YYYY-MM-DD', 'YY-MM-DD HH.MM.SS'
-    // 'YYYYMMDDTHHMMSS'
-    bool from_date_str(const char* str, size_t len, int scale = -1, bool convert_zero = false);
-    bool from_date_str(const char* str, size_t len, const cctz::time_zone& local_time_zone,
-                       int scale = -1, bool convert_zero = false);
 
     // Convert this value to string
     // this will check type to decide which format to convert
@@ -1805,19 +1788,19 @@ struct DateTraits {};
 template <>
 struct DateTraits<int64_t> {
     using T = VecDateTimeValue;
-    using DateType = vectorized::DataTypeDateTime;
+    using DateType = DataTypeDateTime;
 };
 
 template <>
 struct DateTraits<uint32_t> {
     using T = DateV2Value<DateV2ValueType>;
-    using DateType = vectorized::DataTypeDateV2;
+    using DateType = DataTypeDateV2;
 };
 
 template <>
 struct DateTraits<uint64_t> {
     using T = DateV2Value<DateTimeV2ValueType>;
-    using DateType = vectorized::DataTypeDateTimeV2;
+    using DateType = DataTypeDateTimeV2;
 };
 #include "common/compile_check_avoid_end.h"
 } // namespace doris

@@ -20,13 +20,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.thrift.TCaseExpr;
-import org.apache.doris.thrift.TExprNode;
-import org.apache.doris.thrift.TExprNodeType;
-
 import com.google.gson.annotations.SerializedName;
 
 import java.util.List;
@@ -99,6 +92,14 @@ public class CaseExpr extends Expr {
         hasElseExpr = other.hasElseExpr;
     }
 
+    public boolean isHasCaseExpr() {
+        return hasCaseExpr;
+    }
+
+    public boolean isHasElseExpr() {
+        return hasElseExpr;
+    }
+
     @Override
     public Expr clone() {
         return new CaseExpr(this);
@@ -119,52 +120,7 @@ public class CaseExpr extends Expr {
     }
 
     @Override
-    public String toSqlImpl() {
-        StringBuilder output = new StringBuilder("CASE");
-        int childIdx = 0;
-        if (hasCaseExpr) {
-            output.append(' ').append(children.get(childIdx++).toSql());
-        }
-        while (childIdx + 2 <= children.size()) {
-            output.append(" WHEN " + children.get(childIdx++).toSql());
-            output.append(" THEN " + children.get(childIdx++).toSql());
-        }
-        if (hasElseExpr) {
-            output.append(" ELSE " + children.get(children.size() - 1).toSql());
-        }
-        output.append(" END");
-        return output.toString();
-    }
-
-    @Override
-    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
-            TableIf table) {
-        StringBuilder output = new StringBuilder("CASE");
-        int childIdx = 0;
-        if (hasCaseExpr) {
-            output.append(' ')
-                    .append(children.get(childIdx++).toSql(disableTableName, needExternalSql, tableType, table));
-        }
-        while (childIdx + 2 <= children.size()) {
-            output.append(
-                    " WHEN " + children.get(childIdx++).toSql(disableTableName, needExternalSql, tableType, table));
-            output.append(
-                    " THEN " + children.get(childIdx++).toSql(disableTableName, needExternalSql, tableType, table));
-        }
-        if (hasElseExpr) {
-            output.append(" ELSE " + children.get(children.size() - 1)
-                    .toSql(disableTableName, needExternalSql, tableType, table));
-        }
-        output.append(" END");
-        return output.toString();
-    }
-
-    @Override
-    protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.CASE_EXPR;
-        msg.case_expr = new TCaseExpr(hasCaseExpr, hasElseExpr);
-        if (ConnectContext.get() != null) {
-            msg.setShortCircuitEvaluation(ConnectContext.get().getSessionVariable().isShortCircuitEvaluation());
-        }
+    public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
+        return visitor.visitCaseExpr(this, context);
     }
 }

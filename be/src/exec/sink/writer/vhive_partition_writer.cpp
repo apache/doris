@@ -29,7 +29,6 @@
 #include "runtime/runtime_state.h"
 
 namespace doris {
-namespace vectorized {
 
 VHivePartitionWriter::VHivePartitionWriter(const TDataSink& t_sink, std::string partition_name,
                                            TUpdateMode::type update_mode,
@@ -141,7 +140,7 @@ Status VHivePartitionWriter::close(const Status& status) {
     return result_status;
 }
 
-Status VHivePartitionWriter::write(vectorized::Block& block) {
+Status VHivePartitionWriter::write(Block& block) {
     RETURN_IF_ERROR(_file_format_transformer->write(block));
     _row_count += block.rows();
     return Status::OK();
@@ -237,5 +236,4 @@ std::string VHivePartitionWriter::_get_target_file_name() {
                        _get_file_extension(_file_format_type, _hive_compress_type));
 }
 
-} // namespace vectorized
 } // namespace doris

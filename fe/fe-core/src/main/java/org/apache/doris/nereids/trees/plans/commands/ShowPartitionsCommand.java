@@ -25,7 +25,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -192,7 +191,7 @@ public class ShowPartitionsCommand extends ShowCommand {
         if (Strings.isNullOrEmpty(tableName.getDb())) {
             tableName.setDb(ctx.getDatabase());
         }
-        tableName.analyze(ctx);
+        tableName.analyze(ctx.getNameSpaceContext());
 
         catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(tableName.getCtl());
         if (catalog == null) {
@@ -201,7 +200,7 @@ public class ShowPartitionsCommand extends ShowCommand {
 
         // disallow unsupported catalog
         if (!(catalog.isInternalCatalog() || catalog instanceof HMSExternalCatalog
-                || catalog instanceof MaxComputeExternalCatalog || catalog instanceof IcebergExternalCatalog
+                || catalog instanceof MaxComputeExternalCatalog
                 || catalog instanceof PaimonExternalCatalog)) {
             throw new AnalysisException(String.format("Catalog of type '%s' is not allowed in ShowPartitionsCommand",
                     catalog.getType()));
@@ -287,7 +286,7 @@ public class ShowPartitionsCommand extends ShowCommand {
     private ShowResultSet handleShowMaxComputeTablePartitions() {
         MaxComputeExternalCatalog mcCatalog = (MaxComputeExternalCatalog) (catalog);
         List<List<String>> rows = new ArrayList<>();
-        String dbName = ClusterNamespace.getNameFromFullName(tableName.getDb());
+        String dbName = tableName.getDb();
         List<String> partitionNames;
         if (limit < 0) {
             partitionNames = mcCatalog.listPartitionNames(dbName, tableName.getTbl());
@@ -306,7 +305,7 @@ public class ShowPartitionsCommand extends ShowCommand {
 
     private ShowResultSet handleShowPaimonTablePartitions() throws AnalysisException {
         PaimonExternalCatalog paimonCatalog = (PaimonExternalCatalog) catalog;
-        String db = ClusterNamespace.getNameFromFullName(tableName.getDb());
+        String db = tableName.getDb();
         String tbl = tableName.getTbl();
 
         PaimonExternalDatabase database = (PaimonExternalDatabase) paimonCatalog.getDb(db)
@@ -353,7 +352,7 @@ public class ShowPartitionsCommand extends ShowCommand {
     private ShowResultSet handleShowHMSTablePartitions() throws AnalysisException {
         HMSExternalCatalog hmsCatalog = (HMSExternalCatalog) catalog;
         List<List<String>> rows = new ArrayList<>();
-        String dbName = ClusterNamespace.getNameFromFullName(tableName.getDb());
+        String dbName = tableName.getDb();
         List<String> partitionNames;
 
         // catalog.getClient().listPartitionNames() returned string is the encoded string.

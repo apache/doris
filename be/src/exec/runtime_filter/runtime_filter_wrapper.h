@@ -28,10 +28,8 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 class BloomFilterFuncBase;
-namespace vectorized {
 class VRuntimeFilterWrapper;
 using VRuntimeFilterPtr = std::shared_ptr<VRuntimeFilterWrapper>;
-} // namespace vectorized
 
 // This class is a wrapper of runtime predicate function
 class RuntimeFilterWrapper {
@@ -54,7 +52,7 @@ public:
               _state(state) {}
 
     Status init(const size_t runtime_size);
-    Status insert(const vectorized::ColumnPtr& column, size_t start);
+    Status insert(const ColumnPtr& column, size_t start);
     Status merge(const RuntimeFilterWrapper* wrapper);
     template <class T>
     Status assign(const T& request, butil::IOBufAsZeroCopyInputStream* data);

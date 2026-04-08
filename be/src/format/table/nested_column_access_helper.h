@@ -23,7 +23,7 @@
 
 #include "format/table/table_format_reader.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 // Helper that normalizes access paths and delegates nested column id extraction.
@@ -79,4 +79,4 @@ void process_nested_access_paths(const FieldType* field,
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

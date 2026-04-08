@@ -35,8 +35,8 @@ import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB;
 import org.apache.doris.cloud.proto.Cloud.StagePB;
 import org.apache.doris.cloud.proto.Cloud.StagePB.StageType;
 import org.apache.doris.cloud.stage.StageUtil;
-import org.apache.doris.cloud.storage.RemoteBase;
-import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.cloud.storage.ObjectInfo;
+import org.apache.doris.cloud.storage.ObjectInfoAdapter;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.DebugUtil;
@@ -121,7 +121,7 @@ public class CopyIntoInfo {
     private String stageId;
     private StageType stageType;
     private String stagePrefix;
-    private RemoteBase.ObjectInfo objectInfo;
+    private ObjectInfo objectInfo;
     private String userName;
     private TableNameInfo tableNameInfo;
 
@@ -188,7 +188,7 @@ public class CopyIntoInfo {
         if (stage.isEmpty()) {
             throw new AnalysisException("Stage name can not be empty");
         }
-        this.userName = ClusterNamespace.getNameFromFullName(ctx.getCurrentUserIdentity().getQualifiedUser());
+        this.userName = ctx.getCurrentUserIdentity().getQualifiedUser();
         doValidate(userName, db, true);
     }
 
@@ -334,7 +334,7 @@ public class CopyIntoInfo {
         stageId = stagePB.getStageId();
         ObjectStoreInfoPB objInfo = stagePB.getObjInfo();
         stagePrefix = objInfo.getPrefix();
-        objectInfo = RemoteBase.analyzeStageObjectStoreInfo(stagePB);
+        objectInfo = ObjectInfoAdapter.analyzeStageObjectStoreInfo(stagePB);
         brokerProperties.put(S3Properties.Env.ENDPOINT, objInfo.getEndpoint());
         brokerProperties.put(S3Properties.Env.REGION, objInfo.getRegion());
         brokerProperties.put(S3Properties.Env.ACCESS_KEY, objectInfo.getAk());
@@ -415,7 +415,7 @@ public class CopyIntoInfo {
         return userName;
     }
 
-    public RemoteBase.ObjectInfo getObjectInfo() {
+    public ObjectInfo getObjectInfo() {
         return objectInfo;
     }
 

@@ -25,7 +25,7 @@
 #include "core/types.h"
 #include "exprs/function/function_test_util.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(function_array_element_test, element_at) {
     std::string func_name = "element_at";
@@ -131,4 +131,4 @@ TEST(function_array_element_test, element_at) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

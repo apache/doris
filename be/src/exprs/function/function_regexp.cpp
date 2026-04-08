@@ -50,7 +50,7 @@
 #include "exprs/function_context.h"
 #include "exprs/string_functions.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 // Helper structure to hold either RE2 or Boost.Regex
@@ -840,4 +840,4 @@ void register_function_regexp_extract(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionRegexpCount>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

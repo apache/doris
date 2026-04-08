@@ -17,7 +17,6 @@
 
 package org.apache.doris.common.util;
 
-import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.catalog.Column;
 
 import java.util.ArrayList;
@@ -43,7 +42,7 @@ public class ColumnsUtil {
             return uniqueId;
         }
         // column name will be changed on schema change
-        columnName = SchemaChangeHandler.SHADOW_NAME_PREFIX + columnName;
+        columnName = Column.SHADOW_NAME_PREFIX + columnName;
         uniqueId = nameToUniqueId.get(columnName);
         if (uniqueId != null) {
             return uniqueId;

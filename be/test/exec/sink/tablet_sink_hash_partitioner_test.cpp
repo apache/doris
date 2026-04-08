@@ -51,13 +51,13 @@
 #include "util/debug_points.h"
 #include "util/hash_util.hpp"
 
-namespace doris::vectorized {
+namespace doris {
 
 namespace {
 
-using doris::pipeline::ExchangeSinkLocalState;
-using doris::pipeline::ExchangeSinkOperatorX;
-using doris::pipeline::OperatorContext;
+using doris::ExchangeSinkLocalState;
+using doris::ExchangeSinkOperatorX;
+using doris::OperatorContext;
 
 std::shared_ptr<ExchangeSinkOperatorX> _create_parent_operator(
         OperatorContext& ctx, const std::shared_ptr<doris::MockRowDescriptor>& row_desc_holder) {
@@ -276,4 +276,4 @@ TEST(TabletSinkHashPartitionerTest, OlapTabletFinderRoundRobinEveryBatch) {
     }
 }
 } // anonymous namespace
-} // namespace doris::vectorized
+} // namespace doris

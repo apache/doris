@@ -22,7 +22,7 @@
 #include <string>
 
 #include "common/metrics/metrics.h"
-#include "service/http/http_handler.h"
+#include "service/http/http_handler_with_auth.h"
 
 namespace doris {
 
@@ -31,7 +31,7 @@ class Status;
 class StreamLoadContext;
 class HttpRequest;
 
-class StreamLoadAction : public HttpHandler {
+class StreamLoadAction : public HttpHandlerWithAuth {
 public:
     StreamLoadAction(ExecEnv* exec_env);
     ~StreamLoadAction() override;
@@ -50,14 +50,15 @@ private:
     Status _handle(std::shared_ptr<StreamLoadContext> ctx, HttpRequest* req);
     Status _data_saved_path(HttpRequest* req, std::string* file_path, int64_t file_bytes);
     Status _process_put(HttpRequest* http_req, std::shared_ptr<StreamLoadContext> ctx);
+    Status _can_group_commit(HttpRequest* http_req, std::shared_ptr<StreamLoadContext> ctx,
+                             std::string& group_commit_header, bool& can_group_commit);
     void _save_stream_load_record(std::shared_ptr<StreamLoadContext> ctx, const std::string& str);
+    Status _check_wal_space(const std::string& group_commit_mode, int64_t content_length);
     Status _handle_group_commit(HttpRequest* http_req, std::shared_ptr<StreamLoadContext> ctx);
     void _on_finish(std::shared_ptr<StreamLoadContext> ctx, HttpRequest* req);
     void _send_reply(std::shared_ptr<StreamLoadContext> ctx, HttpRequest* req);
 
 private:
-    ExecEnv* _exec_env;
-
     std::shared_ptr<MetricEntity> _stream_load_entity;
     IntCounter* streaming_load_requests_total;
     IntCounter* streaming_load_duration_ms;

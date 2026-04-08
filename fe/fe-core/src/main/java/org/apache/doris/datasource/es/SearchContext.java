@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.es;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.EsTable;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -74,8 +73,7 @@ public class SearchContext {
     // `type` of the `sourceIndex`
     private final String type;
 
-
-    private EsTable table;
+    private EsExternalTable table;
 
     // all columns which user created for ES external table
     private final List<Column> fullSchema;
@@ -90,7 +88,7 @@ public class SearchContext {
     private boolean nodesDiscovery;
 
 
-    public SearchContext(EsTable table) {
+    public SearchContext(EsExternalTable table) {
         this.table = table;
         fullSchema = table.getFullSchema();
         sourceIndex = table.getIndexName();
@@ -116,7 +114,7 @@ public class SearchContext {
         return fullSchema;
     }
 
-    public EsTable esTable() {
+    public EsExternalTable esTable() {
         return table;
     }
 

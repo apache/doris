@@ -48,7 +48,7 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 class FunctionNullIf : public IFunction {
 public:
     static constexpr auto name = "nullif";
@@ -69,11 +69,11 @@ public:
         ColumnsWithTypeAndName args_without_low_cardinality(arguments);
         if (!arguments.empty()) {
             if (have_null_column(arguments)) {
-                return make_nullable(std::make_shared<doris::vectorized::DataTypeUInt8>());
+                return make_nullable(std::make_shared<doris::DataTypeUInt8>());
             }
         }
 
-        return std::make_shared<doris::vectorized::DataTypeUInt8>();
+        return std::make_shared<doris::DataTypeUInt8>();
     }
 
     // nullIf(col1, col2) == if(col1 = col2, NULL, col1)
@@ -130,4 +130,4 @@ public:
 void register_function_nullif(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionNullIf>();
 }
-} // namespace doris::vectorized
+} // namespace doris

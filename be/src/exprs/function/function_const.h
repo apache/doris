@@ -24,7 +24,7 @@
 #include "core/data_type/data_type_number.h"
 #include "exprs/function/function.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 template <typename Impl, bool use_field = true>
 class FunctionConst : public IFunction {
@@ -97,4 +97,4 @@ private:
     }
 };
 
-} // namespace doris::vectorized
+} // namespace doris

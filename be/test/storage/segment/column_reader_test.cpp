@@ -256,7 +256,7 @@ TEST_F(ColumnReaderTest, OffsetCalculateOffsetsUsesPageSentinelForLastOffset) {
     // first_column_offset = 100
     // first_storage_offset = 10
     // placeholder real next_storage_offset will be fetched from page sentinel (15)
-    vectorized::ColumnArray::ColumnOffsets column_offsets;
+    ColumnArray::ColumnOffsets column_offsets;
     auto& data = column_offsets.get_data();
     data.push_back(100); // index 0: first_column_offset
     data.push_back(10);  // index 1: first_storage_offset
@@ -288,12 +288,11 @@ TEST_F(ColumnReaderTest, MapReadByRowidsSkipReadingResizesDestination) {
     map_iter.set_reading_flag(ColumnIterator::ReadingFlag::SKIP_READING);
 
     // prepare an empty ColumnMap as destination
-    auto keys = vectorized::ColumnInt32::create();
-    auto values = vectorized::ColumnInt32::create();
-    auto offsets = vectorized::ColumnArray::ColumnOffsets::create();
-    auto column_map =
-            vectorized::ColumnMap::create(std::move(keys), std::move(values), std::move(offsets));
-    vectorized::MutableColumnPtr dst = std::move(column_map);
+    auto keys = ColumnInt32::create();
+    auto values = ColumnInt32::create();
+    auto offsets = ColumnArray::ColumnOffsets::create();
+    auto column_map = ColumnMap::create(std::move(keys), std::move(values), std::move(offsets));
+    MutableColumnPtr dst = std::move(column_map);
 
     const rowid_t rowids[] = {1, 5, 7};
     size_t count = sizeof(rowids) / sizeof(rowids[0]);
@@ -302,4 +301,42 @@ TEST_F(ColumnReaderTest, MapReadByRowidsSkipReadingResizesDestination) {
     ASSERT_TRUE(st.ok()) << "read_by_rowids failed: " << st.to_string();
     ASSERT_EQ(count, dst->size());
 }
+TEST_F(ColumnReaderTest, MapAccessAllWithOffsetDoesNotPropagateOffsetToKey) {
+    // Regression test: when the access path is [map_col, *, OFFSET]
+    // (e.g. length(map_col['some_key'])), the key column must be fully read
+    // so that element_at() can match the key. Only the value column should
+    // enter OFFSET_ONLY mode.
+    auto map_reader = std::make_shared<ColumnReader>();
+    auto null_iter = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
+    auto offsets_iter = std::make_unique<OffsetFileColumnIterator>(
+            std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>()));
+    auto key_iter = std::make_unique<StringFileColumnIterator>(std::make_shared<ColumnReader>());
+    key_iter->set_column_name("key");
+    auto val_iter = std::make_unique<StringFileColumnIterator>(std::make_shared<ColumnReader>());
+    val_iter->set_column_name("value");
+
+    MapFileColumnIterator map_iter(map_reader, std::move(null_iter), std::move(offsets_iter),
+                                   std::move(key_iter), std::move(val_iter));
+    map_iter.set_column_name("map_col");
+
+    // path: [map_col, *, OFFSET]  — simulates length(map_col['c_phone'])
+    TColumnAccessPaths all_access_paths;
+    all_access_paths.emplace_back();
+    all_access_paths[0].data_access_path.path = {"map_col", "*", "OFFSET"};
+    TColumnAccessPaths predicate_access_paths;
+
+    auto st = map_iter.set_access_paths(all_access_paths, predicate_access_paths);
+    ASSERT_TRUE(st.ok()) << "set_access_paths failed: " << st.to_string();
+
+    // Key must be fully readable (NEED_TO_READ), NOT in OFFSET_ONLY mode.
+    auto* key_ptr = static_cast<StringFileColumnIterator*>(map_iter._key_iterator.get());
+    ASSERT_EQ(key_ptr->_reading_flag, ColumnIterator::ReadingFlag::NEED_TO_READ);
+    ASSERT_FALSE(key_ptr->read_offset_only());
+
+    // Value should be in OFFSET_ONLY mode since we only need string lengths.
+    auto* val_ptr = static_cast<StringFileColumnIterator*>(map_iter._val_iterator.get());
+    ASSERT_EQ(val_ptr->_reading_flag, ColumnIterator::ReadingFlag::NEED_TO_READ);
+    ASSERT_TRUE(val_ptr->read_offset_only());
+}
+
 } // namespace doris::segment_v2

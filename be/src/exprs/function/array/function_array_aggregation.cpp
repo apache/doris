@@ -53,7 +53,7 @@
 #include "exprs/function/simple_function_factory.h"
 #include "storage/predicate/column_predicate.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 enum class AggregateOperation { MIN, MAX, SUM, AVERAGE, PRODUCT };
 
@@ -597,4 +597,4 @@ void register_function_array_aggregation(SimpleFunctionFactory& factory) {
     register_array_reduce_agg_functions(factory);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

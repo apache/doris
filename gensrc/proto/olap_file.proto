@@ -165,6 +165,8 @@ message RowsetMetaPB {
     
     optional bool is_recycled = 1013; // for recycler mark rowset as recycled
     optional string job_id = 1014;
+
+    optional int64 commit_tso = 1015 [default = -1];
 }
 
 message SchemaDictKeyList {
@@ -270,6 +272,8 @@ message RowsetMetaCloudPB {
 
     optional bool is_recycled = 112;
     optional string job_id = 113;
+    optional int64 commit_tso = 114 [default = -1];
+
 }
 
 message SegmentStatisticsPB {
@@ -631,6 +635,7 @@ message TabletMetaPB {
     optional int64 time_series_compaction_empty_rowsets_threshold = 32 [default = 5];
     optional int64 time_series_compaction_level_threshold = 33 [default = 1];
     optional EncryptionAlgorithmPB encryption_algorithm = 34;
+    optional int32 vertical_compaction_num_columns_per_group = 35 [default = 5];
 
     // For cloud
     optional int64 index_id = 1000;
@@ -688,6 +693,7 @@ message TabletMetaCloudPB {
     optional int64 time_series_compaction_empty_rowsets_threshold = 37 [default = 5];
     optional int64 time_series_compaction_level_threshold = 38 [default = 1];
     optional EncryptionAlgorithmPB encryption_algorithm = 39;
+    optional int32 vertical_compaction_num_columns_per_group = 40 [default = 5];
 
     // Use for selectdb-cloud
     optional string table_name = 101;
@@ -719,6 +725,7 @@ message BinlogMetaEntryPB {
 message PendingPublishInfoPB {
     optional int64 partition_id = 1;
     optional int64 transaction_id = 2;
+    optional int64 commit_tso = 3;
 }
 
 message RowsetBinlogMetasPB {

@@ -26,8 +26,8 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.CacheException;
-import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.SchemaCacheKey;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
@@ -78,6 +78,11 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     public PaimonExternalTable(long id, String name, String remoteName, PaimonExternalCatalog catalog,
             PaimonExternalDatabase db) {
         super(id, name, remoteName, catalog, db, TableType.PAIMON_EXTERNAL_TABLE);
+    }
+
+    @Override
+    public String getMetaCacheEngine() {
+        return PaimonExternalMetaCache.ENGINE;
     }
 
     public String getPaimonCatalogType() {
@@ -181,7 +186,8 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
         if (PaimonExternalCatalog.PAIMON_HMS.equals(getPaimonCatalogType())
                 || PaimonExternalCatalog.PAIMON_FILESYSTEM.equals(getPaimonCatalogType())
                 || PaimonExternalCatalog.PAIMON_DLF.equals(getPaimonCatalogType())
-                || PaimonExternalCatalog.PAIMON_REST.equals(getPaimonCatalogType())) {
+                || PaimonExternalCatalog.PAIMON_REST.equals(getPaimonCatalogType())
+                || PaimonExternalCatalog.PAIMON_JDBC.equals(getPaimonCatalogType())) {
             THiveTable tHiveTable = new THiveTable(dbName, name, new HashMap<>());
             TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.HIVE_TABLE, schema.size(), 0,
                     getName(), dbName);
@@ -189,7 +195,7 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
             return tTableDescriptor;
         } else {
             throw new IllegalArgumentException(
-                    "Currently only supports hms/dlf/rest/filesystem catalog, do not support :"
+                    "Currently only supports hms/dlf/rest/filesystem/jdbc catalog, do not support: "
                     + getPaimonCatalogType());
         }
     }
@@ -352,6 +358,11 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
                     key.getNameMapping().getLocalTblName(),
                     paimonSchemaCacheKey.getSchemaId());
         }
+    }
+
+    @Override
+    public Optional<SchemaCacheValue> getSchemaCacheValue() {
+        return Optional.of(getPaimonSchemaCacheValue(MvccUtil.getSnapshotFromContext(this)));
     }
 
     private PaimonSchemaCacheValue getPaimonSchemaCacheValue(Optional<MvccSnapshot> snapshot) {

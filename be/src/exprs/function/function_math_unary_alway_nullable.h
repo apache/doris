@@ -29,7 +29,7 @@
 #include "exprs/function/function.h"
 #include "exprs/function/function_helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 template <typename Impl>
 class FunctionMathUnaryAlwayNullable : public IFunction {
@@ -98,4 +98,4 @@ struct UnaryFunctionPlainAlwayNullable {
     }
 };
 
-} // namespace doris::vectorized
+} // namespace doris

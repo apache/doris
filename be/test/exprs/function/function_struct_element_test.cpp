@@ -32,7 +32,7 @@
 #include "exprs/function/simple_function_factory.h"
 #include "testutil/column_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(FunctionStructElementTest, test_return_type) {
     auto index_type = std::make_shared<DataTypeString>();
@@ -114,4 +114,4 @@ TEST(FunctionStructElementTest, test_return_column) {
     EXPECT_TRUE(block.get_by_position(2).column->is_nullable());
 }
 
-} // namespace doris::vectorized
+} // namespace doris

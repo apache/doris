@@ -28,7 +28,7 @@ void CollectionSimilarity::collect(segment_v2::rowid_t row_id, float score) {
 }
 
 void CollectionSimilarity::get_bm25_scores(roaring::Roaring* row_bitmap,
-                                           vectorized::IColumn::MutablePtr& scores,
+                                           IColumn::MutablePtr& scores,
                                            std::unique_ptr<std::vector<uint64_t>>& row_ids,
                                            const ScoreRangeFilterPtr& filter) const {
     std::vector<float> filtered_scores;
@@ -48,19 +48,19 @@ void CollectionSimilarity::get_bm25_scores(roaring::Roaring* row_bitmap,
     }
 
     size_t num_results = row_ids->size();
-    auto score_column = vectorized::ColumnFloat32::create(num_results);
+    auto score_column = ColumnFloat32::create(num_results);
     if (num_results > 0) {
         memcpy(score_column->get_data().data(), filtered_scores.data(),
                num_results * sizeof(float));
     }
 
     *row_bitmap = std::move(new_bitmap);
-    auto null_map = vectorized::ColumnUInt8::create(num_results, 0);
-    scores = vectorized::ColumnNullable::create(std::move(score_column), std::move(null_map));
+    auto null_map = ColumnUInt8::create(num_results, 0);
+    scores = ColumnNullable::create(std::move(score_column), std::move(null_map));
 }
 
 void CollectionSimilarity::get_topn_bm25_scores(roaring::Roaring* row_bitmap,
-                                                vectorized::IColumn::MutablePtr& scores,
+                                                IColumn::MutablePtr& scores,
                                                 std::unique_ptr<std::vector<uint64_t>>& row_ids,
                                                 OrderType order_type, size_t top_k,
                                                 const ScoreRangeFilterPtr& filter) const {
@@ -73,7 +73,7 @@ void CollectionSimilarity::get_topn_bm25_scores(roaring::Roaring* row_bitmap,
     }
 
     size_t num_results = top_k_results.size();
-    auto score_column = vectorized::ColumnFloat32::create(num_results);
+    auto score_column = ColumnFloat32::create(num_results);
     auto& score_data = score_column->get_data();
 
     row_ids->resize(num_results);
@@ -86,8 +86,8 @@ void CollectionSimilarity::get_topn_bm25_scores(roaring::Roaring* row_bitmap,
     }
 
     *row_bitmap = std::move(new_bitmap);
-    auto null_map = vectorized::ColumnUInt8::create(num_results, 0);
-    scores = vectorized::ColumnNullable::create(std::move(score_column), std::move(null_map));
+    auto null_map = ColumnUInt8::create(num_results, 0);
+    scores = ColumnNullable::create(std::move(score_column), std::move(null_map));
 }
 
 template <OrderType order>

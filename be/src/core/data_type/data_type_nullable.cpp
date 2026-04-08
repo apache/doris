@@ -41,7 +41,7 @@
 #include "core/string_buffer.hpp"
 #include "core/types.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 DataTypeNullable::DataTypeNullable(const DataTypePtr& nested_data_type_)
         : nested_data_type {nested_data_type_} {
@@ -196,4 +196,4 @@ bool have_nullable(const DataTypes& types) {
     return std::ranges::any_of(types, [](const DataTypePtr& type) { return type->is_nullable(); });
 }
 
-} // namespace doris::vectorized
+} // namespace doris

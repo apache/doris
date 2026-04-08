@@ -24,7 +24,7 @@
 #include "exprs/vexpr.h"
 #include "exprs/vin_predicate.h"
 
-namespace doris::vectorized {
+namespace doris {
 class Block;
 class VExprContext;
 // use to mock a slot ref expr
@@ -44,4 +44,4 @@ public:
     static VExprContextSPtr create_with_ctx(ColumnPtr column, bool is_not_in = false);
 };
 
-} // namespace doris::vectorized
+} // namespace doris

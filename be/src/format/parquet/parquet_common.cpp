@@ -23,7 +23,7 @@
 #include "core/types.h"
 #include "util/simd/bits.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 const int32_t ParquetInt96::JULIAN_EPOCH_OFFSET_DAYS = 2440588;
 const int64_t ParquetInt96::MICROS_IN_DAY = 86400000000;
@@ -559,4 +559,4 @@ bool CorruptStatistics::should_ignore_statistics(const std::string& created_by,
 }
 #include "common/compile_check_end.h"
 
-} // namespace doris::vectorized
+} // namespace doris

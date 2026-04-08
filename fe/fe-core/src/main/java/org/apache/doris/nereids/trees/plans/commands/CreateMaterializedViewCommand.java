@@ -18,9 +18,11 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.MVColumnItem;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StmtType;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
@@ -288,7 +290,6 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
                 translatorContext.createSlotDesc(tupleDescriptor, (SlotReference) slot, olapTable);
                 SlotRef slotRef = translatorContext.findSlotRef(slot.getExprId());
                 slotRef.setLabel("`" + slot.getName() + "`");
-                slotRef.disableTableName();
             }
             return olapScan;
         }
@@ -329,7 +330,9 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
                 }
                 try {
                     Expr defineExpr = translateToLegacyExpr(predicate, context.planTranslatorContext);
-                    context.filterItem = new MVColumnItem(defineExpr.toSqlWithoutTbl(), defineExpr);
+                    context.filterItem = new MVColumnItem(
+                            defineExpr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE),
+                            defineExpr);
                 } catch (Exception ex) {
                     throw new AnalysisException(ex.getMessage());
                 }
@@ -629,7 +632,6 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
 
         private Expr translateToLegacyExpr(Expression expression, PlanTranslatorContext context) {
             Expr expr = ExpressionTranslator.translate(expression, context);
-            expr.disableTableName();
             return expr;
         }
 

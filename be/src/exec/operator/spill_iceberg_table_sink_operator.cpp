@@ -23,7 +23,7 @@
 #include "exec/sink/writer/iceberg/viceberg_sort_writer.h"
 #include "exec/sink/writer/iceberg/viceberg_table_writer.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 SpillIcebergTableSinkLocalState::SpillIcebergTableSinkLocalState(DataSinkOperatorXBase* parent,
@@ -58,8 +58,7 @@ size_t SpillIcebergTableSinkLocalState::get_reserve_mem_size(RuntimeState* state
         return 0;
     }
 
-    auto* sort_writer =
-            dynamic_cast<vectorized::VIcebergSortWriter*>(_writer->current_writer().get());
+    auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(_writer->current_writer().get());
     if (!sort_writer || !sort_writer->sorter()) {
         return 0;
     }
@@ -72,8 +71,7 @@ size_t SpillIcebergTableSinkLocalState::get_revocable_mem_size(RuntimeState* sta
         return 0;
     }
 
-    auto* sort_writer =
-            dynamic_cast<vectorized::VIcebergSortWriter*>(_writer->current_writer().get());
+    auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(_writer->current_writer().get());
     if (!sort_writer || !sort_writer->sorter()) {
         return 0;
     }
@@ -81,22 +79,14 @@ size_t SpillIcebergTableSinkLocalState::get_revocable_mem_size(RuntimeState* sta
     return sort_writer->sorter()->data_size();
 }
 
-Status SpillIcebergTableSinkLocalState::revoke_memory(
-        RuntimeState* state, const std::shared_ptr<SpillContext>& spill_context) {
+Status SpillIcebergTableSinkLocalState::revoke_memory(RuntimeState* state) {
     if (!_writer || !_writer->current_writer()) {
-        if (spill_context) {
-            spill_context->on_task_finished();
-        }
         return Status::OK();
     }
 
-    auto* sort_writer =
-            dynamic_cast<vectorized::VIcebergSortWriter*>(_writer->current_writer().get());
+    auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(_writer->current_writer().get());
 
     if (!sort_writer || !sort_writer->sorter()) {
-        if (spill_context) {
-            spill_context->on_task_finished();
-        }
         return Status::OK();
     }
 
@@ -107,13 +97,7 @@ Status SpillIcebergTableSinkLocalState::revoke_memory(
         return status;
     };
 
-    state->get_query_ctx()->resource_ctx()->task_controller()->increase_revoking_tasks_count();
-    auto status =
-            SpillSinkRunnable(state, spill_context, operator_profile(), exception_catch_func).run();
-    if (!status.ok()) {
-        state->get_query_ctx()->resource_ctx()->task_controller()->decrease_revoking_tasks_count();
-    }
-    return status;
+    return run_spill_task(state, exception_catch_func);
 }
 
 SpillIcebergTableSinkOperatorX::SpillIcebergTableSinkOperatorX(
@@ -126,18 +110,17 @@ SpillIcebergTableSinkOperatorX::SpillIcebergTableSinkOperatorX(
 Status SpillIcebergTableSinkOperatorX::init(const TDataSink& thrift_sink) {
     RETURN_IF_ERROR(Base::init(thrift_sink));
     _name = "SPILL_ICEBERG_TABLE_SINK_OPERATOR";
-    RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(_t_output_expr, _output_vexpr_ctxs));
+    RETURN_IF_ERROR(VExpr::create_expr_trees(_t_output_expr, _output_vexpr_ctxs));
     return Status::OK();
 }
 
 Status SpillIcebergTableSinkOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(Base::prepare(state));
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
-    return vectorized::VExpr::open(_output_vexpr_ctxs, state);
+    RETURN_IF_ERROR(VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
+    return VExpr::open(_output_vexpr_ctxs, state);
 }
 
-Status SpillIcebergTableSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
-                                            bool eos) {
+Status SpillIcebergTableSinkOperatorX::sink(RuntimeState* state, Block* in_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
@@ -154,10 +137,9 @@ size_t SpillIcebergTableSinkOperatorX::revocable_mem_size(RuntimeState* state) c
     return local_state.get_revocable_mem_size(state);
 }
 
-Status SpillIcebergTableSinkOperatorX::revoke_memory(
-        RuntimeState* state, const std::shared_ptr<SpillContext>& spill_context) {
+Status SpillIcebergTableSinkOperatorX::revoke_memory(RuntimeState* state) {
     auto& local_state = get_local_state(state);
-    return local_state.revoke_memory(state, spill_context);
+    return local_state.revoke_memory(state);
 }
 
 void SpillIcebergTableSinkLocalState::_init_spill_counters() {
@@ -193,4 +175,4 @@ void SpillIcebergTableSinkLocalState::_init_spill_counters() {
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

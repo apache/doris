@@ -17,10 +17,10 @@
 
 package org.apache.doris.datasource.property.metastore;
 
-import org.apache.doris.datasource.property.ConnectorPropertiesUtils;
-import org.apache.doris.datasource.property.ConnectorProperty;
-import org.apache.doris.datasource.property.ParamRules;
-import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
+import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
+import org.apache.doris.foundation.property.ConnectorProperty;
+import org.apache.doris.foundation.property.ParamRules;
+import org.apache.doris.foundation.property.StoragePropertiesException;
 
 import com.aliyun.datalake.metastore.common.DataLakeConfig;
 import org.apache.commons.lang3.BooleanUtils;

@@ -45,7 +45,7 @@
 #include "udf/python/python_udf_meta.h"
 #include "util/timezone_utils.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 PythonUDTFFunction::PythonUDTFFunction(const TFunction& t_fn) : TableFunction(), _t_fn(t_fn) {
@@ -129,7 +129,7 @@ Status PythonUDTFFunction::process_init(Block* block, RuntimeState* state) {
     }
 
     // Step 2: Build input block and convert to Arrow format
-    vectorized::Block input_block;
+    Block input_block;
     for (uint32_t i = 0; i < child_column_idxs.size(); ++i) {
         input_block.insert(block->get_by_position(child_column_idxs[i]));
     }
@@ -280,4 +280,4 @@ Status PythonUDTFFunction::_convert_list_array_to_array_column(
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

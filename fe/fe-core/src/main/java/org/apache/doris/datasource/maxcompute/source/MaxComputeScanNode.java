@@ -22,6 +22,7 @@ import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToExprNameVisitor;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LiteralExpr;
@@ -43,6 +44,7 @@ import org.apache.doris.datasource.maxcompute.source.MaxComputeSplit.SplitType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.thrift.TFileFormatType;
@@ -113,13 +115,14 @@ public class MaxComputeScanNode extends FileQueryScanNode {
     // For new planner
     public MaxComputeScanNode(PlanNodeId id, TupleDescriptor desc,
             SelectedPartitions selectedPartitions, boolean needCheckColumnPriv,
-            SessionVariable sv) {
-        this(id, desc, "MCScanNode", selectedPartitions, needCheckColumnPriv, sv);
+            SessionVariable sv, ScanContext scanContext) {
+        this(id, desc, "MCScanNode", selectedPartitions, needCheckColumnPriv, sv, scanContext);
     }
 
     private MaxComputeScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
-            SelectedPartitions selectedPartitions, boolean needCheckColumnPriv, SessionVariable sv) {
-        super(id, desc, planNodeName, needCheckColumnPriv, sv);
+            SelectedPartitions selectedPartitions, boolean needCheckColumnPriv, SessionVariable sv,
+            ScanContext scanContext) {
+        super(id, desc, planNodeName, scanContext, needCheckColumnPriv, sv);
         table = (MaxComputeExternalTable) desc.getTable();
         this.selectedPartitions = selectedPartitions;
     }
@@ -506,7 +509,8 @@ public class MaxComputeScanNode extends FileQueryScanNode {
 
         if (odpsPredicate == null) {
             throw new AnalysisException("Do not support convert ["
-                    + expr.getExprName() + "] in convertExprToOdpsPredicate.");
+                    + expr.accept(ExprToExprNameVisitor.INSTANCE, null)
+                    + "] in convertExprToOdpsPredicate.");
         }
         return odpsPredicate;
     }
@@ -517,14 +521,16 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         }
 
         throw new AnalysisException("Do not support convert ["
-                + expr.getExprName() + "] in convertSlotRefToAttribute.");
+                + expr.accept(ExprToExprNameVisitor.INSTANCE, null)
+                + "] in convertSlotRefToAttribute.");
 
     }
 
     private String convertLiteralToOdpsValues(OdpsType odpsType, Expr expr) throws AnalysisException {
         if (!(expr instanceof LiteralExpr)) {
             throw new AnalysisException("Do not support convert ["
-                    + expr.getExprName() + "] in convertSlotRefToAttribute.");
+                    + expr.accept(ExprToExprNameVisitor.INSTANCE, null)
+                    + "] in convertSlotRefToAttribute.");
         }
         LiteralExpr literalExpr = (LiteralExpr) expr;
 

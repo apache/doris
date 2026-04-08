@@ -42,7 +42,7 @@
 #include "core/typeid_cast.h"
 #include "core/value/decimalv2_value.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 namespace ErrorCodes {
 extern const int NUMBER_OF_ARGUMENTS_DOESNT_MATCH;
@@ -186,4 +186,4 @@ FieldWithDataType DataTypeArray::get_field_with_data_type(const IColumn& column,
     };
 }
 
-} // namespace doris::vectorized
+} // namespace doris

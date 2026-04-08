@@ -23,7 +23,7 @@
 #include "exec/common/string_utils/string_utils.h"
 #include "exprs/function/url/functions_url.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 /// Extracts scheme from given url.
 inline StringRef get_url_scheme(const char* data, size_t size) {
@@ -60,4 +60,4 @@ struct ExtractProtocol {
     }
 };
 
-} // namespace doris::vectorized
+} // namespace doris

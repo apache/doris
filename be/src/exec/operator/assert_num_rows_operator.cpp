@@ -20,7 +20,7 @@
 #include "exec/common/util.hpp"
 #include "exprs/vexpr_context.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 AssertNumRowsOperatorX::AssertNumRowsOperatorX(ObjectPool* pool, const TPlanNode& tnode,
                                                int operator_id, const DescriptorTbl& descs)
@@ -38,8 +38,7 @@ AssertNumRowsOperatorX::AssertNumRowsOperatorX(ObjectPool* pool, const TPlanNode
             tnode.assert_num_rows_node.should_convert_output_to_nullable;
 }
 
-Status AssertNumRowsOperatorX::pull(doris::RuntimeState* state, vectorized::Block* block,
-                                    bool* eos) {
+Status AssertNumRowsOperatorX::pull(doris::RuntimeState* state, Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     SCOPED_PEAK_MEM(&local_state.estimate_memory_usage());
@@ -81,18 +80,17 @@ Status AssertNumRowsOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
         if (block->rows() > 0) {
             for (size_t i = 0; i != block->columns(); ++i) {
                 auto& data = block->get_by_position(i);
-                data.type = vectorized::make_nullable(data.type);
-                data.column = vectorized::make_nullable(data.column);
+                data.type = make_nullable(data.type);
+                data.column = make_nullable(data.column);
             }
         } else if (!has_more_rows && _assertion == TAssertion::EQ && num_rows_returned == 0 &&
                    _desired_num_rows == 1) {
-            auto new_block =
-                    vectorized::VectorizedUtils::create_columns_with_type_and_name(_row_descriptor);
+            auto new_block = VectorizedUtils::create_columns_with_type_and_name(_row_descriptor);
             block->swap(new_block);
             for (size_t i = 0; i != block->columns(); ++i) {
                 auto& column = block->get_by_position(i).column;
                 auto& type = block->get_by_position(i).type;
-                type = vectorized::make_nullable(type);
+                type = make_nullable(type);
                 column = type->create_column();
                 column->assume_mutable()->insert_default();
             }
@@ -124,4 +122,4 @@ Status AssertNumRowsOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
     return Status::OK();
 }
 
-} // namespace doris::pipeline
+} // namespace doris

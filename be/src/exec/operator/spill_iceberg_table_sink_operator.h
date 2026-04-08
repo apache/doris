@@ -22,16 +22,16 @@
 #include "exec/operator/operator.h"
 #include "exec/sink/writer/iceberg/viceberg_table_writer.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class SpillIcebergTableSinkLocalState;
 class SpillIcebergTableSinkOperatorX;
 
 class SpillIcebergTableSinkLocalState final
-        : public AsyncWriterSink<vectorized::VIcebergTableWriter, SpillIcebergTableSinkOperatorX> {
+        : public AsyncWriterSink<VIcebergTableWriter, SpillIcebergTableSinkOperatorX> {
 public:
-    using Base = AsyncWriterSink<vectorized::VIcebergTableWriter, SpillIcebergTableSinkOperatorX>;
+    using Base = AsyncWriterSink<VIcebergTableWriter, SpillIcebergTableSinkOperatorX>;
     using Parent = SpillIcebergTableSinkOperatorX;
     ENABLE_FACTORY_CREATOR(SpillIcebergTableSinkLocalState);
 
@@ -43,7 +43,7 @@ public:
 
     bool is_blockable() const override;
     [[nodiscard]] size_t get_reserve_mem_size(RuntimeState* state, bool eos);
-    Status revoke_memory(RuntimeState* state, const std::shared_ptr<SpillContext>& spill_context);
+    Status revoke_memory(RuntimeState* state);
     size_t get_revocable_mem_size(RuntimeState* state) const;
 
 private:
@@ -64,14 +64,13 @@ public:
 
     Status prepare(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
+    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
 
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
 
     size_t revocable_mem_size(RuntimeState* state) const override;
 
-    Status revoke_memory(RuntimeState* state,
-                         const std::shared_ptr<SpillContext>& spill_context) override;
+    Status revoke_memory(RuntimeState* state) override;
 
     using DataSinkOperatorX<LocalStateType>::node_id;
     using DataSinkOperatorX<LocalStateType>::operator_id;
@@ -80,14 +79,14 @@ public:
 private:
     friend class SpillIcebergTableSinkLocalState;
     template <typename Writer, typename Parent>
-        requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
+        requires(std::is_base_of_v<AsyncResultWriter, Writer>)
     friend class AsyncWriterSink;
 
     const RowDescriptor& _row_desc;
-    vectorized::VExprContextSPtrs _output_vexpr_ctxs;
+    VExprContextSPtrs _output_vexpr_ctxs;
     const std::vector<TExpr>& _t_output_expr;
     ObjectPool* _pool = nullptr;
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

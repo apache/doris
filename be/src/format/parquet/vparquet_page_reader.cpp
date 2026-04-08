@@ -39,7 +39,7 @@ struct IOContext;
 } // namespace io
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 static constexpr size_t INIT_PAGE_HEADER_SIZE = 128;
 
@@ -219,4 +219,4 @@ template class PageReader<false, true>;
 template class PageReader<false, false>;
 #include "common/compile_check_end.h"
 
-} // namespace doris::vectorized
+} // namespace doris

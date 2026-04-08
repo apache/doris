@@ -19,7 +19,7 @@
 
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 void register_function_array_index(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayIndex<ArrayContainsAction>>();
@@ -27,4 +27,4 @@ void register_function_array_index(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayIndex<ArrayCountEqual>>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

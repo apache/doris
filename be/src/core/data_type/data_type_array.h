@@ -38,13 +38,11 @@
 namespace doris {
 class PColumnMeta;
 
-namespace vectorized {
 class BufferWritable;
 class IColumn;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 class DataTypeArray final : public IDataType {
 private:
@@ -114,4 +112,4 @@ public:
 #endif
 };
 
-} // namespace doris::vectorized
+} // namespace doris

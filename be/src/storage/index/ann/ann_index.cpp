@@ -25,18 +25,18 @@ namespace doris::segment_v2 {
 std::string metric_to_string(AnnIndexMetric metric) {
     switch (metric) {
     case AnnIndexMetric::L2:
-        return vectorized::L2Distance::name;
+        return L2Distance::name;
     case AnnIndexMetric::IP:
-        return vectorized::InnerProduct::name;
+        return InnerProduct::name;
     default:
         return "UNKNOWN";
     }
 }
 
 AnnIndexMetric string_to_metric(const std::string& metric) {
-    if (metric == vectorized::L2Distance::name) {
+    if (metric == L2Distance::name) {
         return AnnIndexMetric::L2;
-    } else if (metric == vectorized::InnerProduct::name) {
+    } else if (metric == InnerProduct::name) {
         return AnnIndexMetric::IP;
     } else {
         return AnnIndexMetric::UNKNOWN;
@@ -51,6 +51,8 @@ std::string ann_index_type_to_string(AnnIndexType type) {
         return "hnsw";
     case AnnIndexType::IVF:
         return "ivf";
+    case AnnIndexType::IVF_ON_DISK:
+        return "ivf_on_disk";
     default:
         return "unknown";
     }
@@ -61,6 +63,8 @@ AnnIndexType string_to_ann_index_type(const std::string& type) {
         return AnnIndexType::HNSW;
     } else if (type == "ivf") {
         return AnnIndexType::IVF;
+    } else if (type == "ivf_on_disk") {
+        return AnnIndexType::IVF_ON_DISK;
     } else {
         return AnnIndexType::UNKNOWN;
     }

@@ -26,22 +26,10 @@
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_base.h"
 #include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
+#include "exprs/function/cast/cast_to_timestamptz_impl.hpp"
 #include "util/io_helper.h"
 
-namespace doris::vectorized {
-
-struct CastToTimstampTz {
-    static inline bool from_string(const StringRef& from, TimestampTzValue& to,
-                                   CastParameters& params, const cctz::time_zone* local_time_zone,
-                                   uint32_t to_scale);
-};
-
-inline bool CastToTimstampTz::from_string(const StringRef& from, TimestampTzValue& to,
-                                          CastParameters& params,
-                                          const cctz::time_zone* local_time_zone,
-                                          uint32_t to_scale) {
-    return to.from_string(from, local_time_zone, params, to_scale);
-}
+namespace doris {
 
 template <CastModeType Mode>
 class CastToImpl<Mode, DataTypeString, DataTypeTimeStampTz> : public CastToBase {
@@ -224,45 +212,4 @@ public:
     }
 };
 
-namespace CastWrapper {
-inline WrapperType create_timestamptz_wrapper(FunctionContext* context,
-                                              const DataTypePtr& from_type) {
-    std::shared_ptr<CastToBase> cast_to_timestamptz;
-
-    auto make_timestamptz_wrapper = [&](const auto& types) -> bool {
-        using Types = std::decay_t<decltype(types)>;
-        using FromDataType = typename Types::LeftType;
-        if constexpr (CastUtil::IsBaseCastFromType<FromDataType> ||
-                      IsTimeStampTzType<FromDataType>) {
-            if (context->enable_strict_mode()) {
-                cast_to_timestamptz = std::make_shared<
-                        CastToImpl<CastModeType::StrictMode, FromDataType, DataTypeTimeStampTz>>();
-            } else {
-                cast_to_timestamptz =
-                        std::make_shared<CastToImpl<CastModeType::NonStrictMode, FromDataType,
-                                                    DataTypeTimeStampTz>>();
-            }
-            return true;
-        } else {
-            return false;
-        }
-    };
-
-    if (!call_on_index_and_data_type<void>(from_type->get_primitive_type(),
-                                           make_timestamptz_wrapper)) {
-        return create_unsupport_wrapper(
-                fmt::format("CAST AS timestamptz not supported {}", from_type->get_name()));
-    }
-
-    return [cast_to_timestamptz](FunctionContext* context, Block& block,
-                                 const ColumnNumbers& arguments, uint32_t result,
-                                 size_t input_rows_count,
-                                 const NullMap::value_type* null_map = nullptr) {
-        return cast_to_timestamptz->execute_impl(context, block, arguments, result,
-                                                 input_rows_count, null_map);
-    };
-}
-
-}; // namespace CastWrapper
-
-} // namespace doris::vectorized
+} // namespace doris

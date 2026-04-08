@@ -40,33 +40,27 @@ namespace doris {
 class ResultBlockBufferBase;
 class RuntimeState;
 
-namespace vectorized {
 class GetResultBatchCtx;
 using MySQLResultBlockBuffer = ResultBlockBuffer<GetResultBatchCtx>;
 class VExprContext;
-} // namespace vectorized
-namespace pipeline {
 struct ResultFileOptions;
-}
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 // write result to file
 class VFileResultWriter final : public AsyncResultWriter {
 public:
-    VFileResultWriter(const pipeline::ResultFileOptions* file_option,
+    VFileResultWriter(const ResultFileOptions* file_option,
                       const TStorageBackendType::type storage_type,
                       const TUniqueId fragment_instance_id,
                       const VExprContextSPtrs& _output_vexpr_ctxs,
                       std::shared_ptr<ResultBlockBufferBase> sinker, Block* output_block,
                       bool output_object_data, const RowDescriptor& output_row_descriptor,
-                      std::shared_ptr<pipeline::Dependency> dep,
-                      std::shared_ptr<pipeline::Dependency> fin_dep);
+                      std::shared_ptr<Dependency> dep, std::shared_ptr<Dependency> fin_dep);
 
     VFileResultWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
-                      std::shared_ptr<pipeline::Dependency> dep,
-                      std::shared_ptr<pipeline::Dependency> fin_dep);
+                      std::shared_ptr<Dependency> dep, std::shared_ptr<Dependency> fin_dep);
 
     Status write(RuntimeState* state, Block& block) override;
 
@@ -108,7 +102,7 @@ private:
 
 private:
     RuntimeState* _state; // not owned, set when init
-    const pipeline::ResultFileOptions* _file_opts = nullptr;
+    const ResultFileOptions* _file_opts = nullptr;
     TStorageBackendType::type _storage_type;
     TUniqueId _fragment_instance_id;
 
@@ -153,4 +147,4 @@ private:
     std::string_view _header_type;
     std::string_view _header;
 };
-} // namespace doris::vectorized
+} // namespace doris

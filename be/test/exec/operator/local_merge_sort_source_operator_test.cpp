@@ -27,9 +27,7 @@
 #include "exec/operator/operator_helper.h"
 #include "testutil/mock/mock_slot_ref.h"
 #include "testutil/mock/mock_sorter.h"
-namespace doris::pipeline {
-
-using namespace vectorized;
+namespace doris {
 
 struct LocalMergeSOrtSourceOperatorTest : public testing::Test {
     LocalMergeSOrtSourceOperatorTest() : profile("LocalMergeSOrtSourceOperatorTest") {}
@@ -139,7 +137,7 @@ TEST_F(LocalMergeSOrtSourceOperatorTest, DependencyTest) {
     for (int i = 1; i < parallel_tasks; i++) {
         // 5. After other_source executes, it sets the corresponding other_source_deps to ready.
         bool eos = false;
-        vectorized::Block block;
+        Block block;
         EXPECT_TRUE(op->get_block(runtime_states[i].get(), &block, &eos));
         EXPECT_TRUE(eos);
         EXPECT_TRUE(block.empty());
@@ -151,11 +149,11 @@ TEST_F(LocalMergeSOrtSourceOperatorTest, DependencyTest) {
     // 6. Now, main_source will execute.
     {
         bool eos = false;
-        vectorized::Block block;
+        Block block;
         EXPECT_TRUE(op->get_block(runtime_states[0].get(), &block, &eos));
         EXPECT_TRUE(eos);
         EXPECT_TRUE(block.empty());
     }
 }
 
-} // namespace doris::pipeline
+} // namespace doris

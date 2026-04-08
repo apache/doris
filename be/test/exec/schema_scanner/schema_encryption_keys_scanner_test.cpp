@@ -36,7 +36,7 @@ TEST_F(ScheamEncryptionKeysScannerTest, test_get_next_block_internal) {
     EncryptionKeyPB key;
     keys.push_back(key);
 
-    auto data_block = vectorized::Block::create_unique();
+    auto data_block = Block::create_unique();
     scanner._init_block(data_block.get());
 
     auto st = scanner._fill_block_impl(data_block.get());

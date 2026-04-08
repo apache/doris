@@ -35,7 +35,6 @@
 
 namespace doris {
 
-namespace vectorized {
 class Arena;
 
 class DataTypeIPv6SerDe : public DataTypeNumberSerDe<PrimitiveType::TYPE_IPV6> {
@@ -55,7 +54,7 @@ public:
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override;
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
-                               int64_t start, int64_t end, vectorized::Arena& arena,
+                               int64_t start, int64_t end, Arena& arena,
                                const FormatOptions& options) const override;
     Status write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                  arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
@@ -76,8 +75,6 @@ public:
 
     Status from_string(StringRef& str, IColumn& column,
                        const FormatOptions& options) const override;
-    Status from_olap_string(const std::string& str, Field& field,
-                            const FormatOptions& options) const override;
 
     Status from_string_strict_mode(StringRef& str, IColumn& column,
                                    const FormatOptions& options) const override;
@@ -85,7 +82,10 @@ public:
     void write_one_cell_to_binary(const IColumn& src_column, ColumnString::Chars& chars,
                                   int64_t row_num) const override;
 
-    std::string to_olap_string(const vectorized::Field& field) const override;
+    std::string to_olap_string(const Field& field) const override;
+
+protected:
+    Status from_olap_string(const std::string& str, Field& field,
+                            const FormatOptions& options) const override;
 };
-} // namespace vectorized
 } // namespace doris

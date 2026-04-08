@@ -17,18 +17,18 @@
 
 #include "core/column/column_filter_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
 ColumnFilterHelper::ColumnFilterHelper(IColumn& column_)
         : _column(assert_cast<ColumnNullable&>(column_)),
           _value_column(assert_cast<ColumnUInt8&>(_column.get_nested_column())),
           _null_map_column(_column.get_null_map_column()) {}
 
-void ColumnFilterHelper::resize_fill(size_t size, doris::vectorized::UInt8 value) {
+void ColumnFilterHelper::resize_fill(size_t size, doris::UInt8 value) {
     _value_column.get_data().resize_fill(size, value);
     _null_map_column.get_data().resize_fill(size, 0);
 }
 
-void ColumnFilterHelper::insert_value(doris::vectorized::UInt8 value) {
+void ColumnFilterHelper::insert_value(doris::UInt8 value) {
     _value_column.get_data().push_back(value);
     _null_map_column.get_data().push_back(0);
 }
@@ -38,4 +38,4 @@ void ColumnFilterHelper::reserve(size_t size) {
     _null_map_column.reserve(size);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

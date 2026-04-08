@@ -29,6 +29,7 @@ import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Tablet.TabletStatus;
+import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.catalog.CloudReplica;
@@ -57,7 +58,6 @@ import org.apache.doris.mtmv.MTMVVersionSnapshot;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.UseMvHint;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
-import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -86,7 +86,6 @@ import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TNodeInfo;
 import org.apache.doris.thrift.TOlapTable;
 import org.apache.doris.thrift.TPaloNodesInfo;
-import org.apache.doris.thrift.TPatternType;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TSortType;
 import org.apache.doris.thrift.TStorageFormat;
@@ -422,7 +421,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
      * @param indexType The index type to check for
      * @return true if the table has at least one index of the specified type, false otherwise
      */
-    public boolean hasIndexOfType(IndexDefinition.IndexType indexType) {
+    public boolean hasIndexOfType(IndexType indexType) {
         if (indexes == null) {
             return false;
         }
@@ -1698,6 +1697,14 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return getOrCreatTableProperty().getGroupCommitDataBytes();
     }
 
+    public void setGroupCommitMode(String groupCommitMode) {
+        getOrCreatTableProperty().setGroupCommitMode(groupCommitMode);
+    }
+
+    public String getGroupCommitMode() {
+        return getOrCreatTableProperty().getGroupCommitMode();
+    }
+
     public Boolean hasSequenceCol() {
         return getSequenceCol() != null;
     }
@@ -2527,6 +2534,28 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return partitionInfo.getReplicaAllocation(partitionId).getTotalReplicaNum();
     }
 
+    public Map<Long, List<Long>> getPartitionVersionGapBackends(long partitionId) {
+        Map<Long, List<Long>> result = new HashMap<>();
+        Partition partition = getPartition(partitionId);
+        if (partition == null) {
+            return result;
+        }
+        for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
+            for (Tablet tablet : index.getTablets()) {
+                List<Long> gapBackends = new ArrayList<>();
+                for (Replica replica : tablet.getReplicas()) {
+                    if (replica.getLastFailedVersion() >= 0) {
+                        gapBackends.add(replica.getBackendIdWithoutException());
+                    }
+                }
+                if (!gapBackends.isEmpty()) {
+                    result.put(tablet.getId(), gapBackends);
+                }
+            }
+        }
+        return result;
+    }
+
     public int getLoadRequiredReplicaNum(long partitionId) {
         int totalReplicaNum = getPartitionTotalReplicasNum(partitionId);
         int minLoadReplicaNum = getMinLoadReplicaNum();
@@ -2588,6 +2617,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return false;
     }
 
+    @Deprecated
     public void setVariantEnableFlattenNested(boolean flattenNested) throws AnalysisException {
         TableProperty tableProperty = getOrCreatTableProperty();
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED,
@@ -2595,6 +2625,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         tableProperty.buildVariantEnableFlattenNested();
     }
 
+    @Deprecated
     public Boolean variantEnableFlattenNested() {
         if (tableProperty != null) {
             return tableProperty.variantEnableFlattenNested();
@@ -2619,6 +2650,22 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     public Boolean enableSingleReplicaCompaction() {
         if (tableProperty != null) {
             return tableProperty.enableSingleReplicaCompaction();
+        }
+        return false;
+    }
+
+    public void setEnableTso(boolean enableTso) {
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(new HashMap<>());
+        }
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_ENABLE_TSO,
+                Boolean.valueOf(enableTso).toString());
+        tableProperty.buildEnableTso();
+    }
+
+    public Boolean enableTso() {
+        if (tableProperty != null) {
+            return tableProperty.enableTso();
         }
         return false;
     }
@@ -2733,6 +2780,21 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             return tableProperty.timeSeriesCompactionLevelThreshold();
         }
         return PropertyAnalyzer.TIME_SERIES_COMPACTION_LEVEL_THRESHOLD_DEFAULT_VALUE;
+    }
+
+    public void setVerticalCompactionNumColumnsPerGroup(int verticalCompactionNumColumnsPerGroup) {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(
+                PropertyAnalyzer.PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP,
+                Integer.valueOf(verticalCompactionNumColumnsPerGroup).toString());
+        tableProperty.buildVerticalCompactionNumColumnsPerGroup();
+    }
+
+    public int getVerticalCompactionNumColumnsPerGroup() {
+        if (tableProperty != null) {
+            return tableProperty.verticalCompactionNumColumnsPerGroup();
+        }
+        return PropertyAnalyzer.VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP_DEFAULT_VALUE;
     }
 
     public int getIndexSchemaVersion(long indexId) {
@@ -3028,6 +3090,14 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return getKeysType() == KeysType.UNIQUE_KEYS && getEnableUniqueKeyMergeOnWrite();
     }
 
+    /**
+     * Check if this is a MOR (Merge-On-Read) table.
+     * MOR = UNIQUE_KEYS without merge-on-write enabled.
+     */
+    public boolean isMorTable() {
+        return getKeysType() == KeysType.UNIQUE_KEYS && !getEnableUniqueKeyMergeOnWrite();
+    }
+
     public boolean isUniqKeyMergeOnWriteWithClusterKeys() {
         return isUniqKeyMergeOnWrite() && getBaseSchema().stream().anyMatch(Column::isClusterKey);
     }
@@ -3155,8 +3225,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                 // if (!materializedColumnNames.contains(col.getName())) {
                 //     continue;
                 // }
-                TColumn tColumn = col.toThrift();
-                col.setIndexFlag(tColumn, this);
+                TColumn tColumn = ColumnToThrift.toThrift(col);
+                ColumnToThrift.setIndexFlag(tColumn, this);
                 if (columnsDesc != null) {
                     columnsDesc.add(tColumn);
                 }
@@ -3176,8 +3246,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             List<TPrimitiveType> keyColumnTypes) {
         if (selectedIndexId != -1) {
             for (Column col : this.getSchemaByIndexId(selectedIndexId, true)) {
-                TColumn tColumn = col.toThrift();
-                col.setIndexFlag(tColumn, this);
+                TColumn tColumn = ColumnToThrift.toThrift(col);
+                ColumnToThrift.setIndexFlag(tColumn, this);
                 if (columnsDesc != null) {
                     columnsDesc.add(tColumn);
                 }
@@ -3296,6 +3366,11 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         LOG.info("updateVisibleVersionAndTime, tableName: {}, visibleVersion, {}, visibleVersionTime: {}", name,
                 visibleVersion, visibleVersionTime);
         tableAttributes.updateVisibleVersionAndTime(visibleVersion, visibleVersionTime);
+    }
+
+    public void resetVisibleVersion() {
+        LOG.info("resetVisibleVersion, tableName: {}", name);
+        tableAttributes.resetVisibleVersion();
     }
 
     // During `getNextVersion` and `updateVisibleVersionAndTime` period,
@@ -3738,7 +3813,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     public boolean isShadowIndex(long indexId) {
         String indexName = getIndexNameById(indexId);
-        if (indexName != null && indexName.startsWith(org.apache.doris.alter.SchemaChangeHandler.SHADOW_NAME_PREFIX)) {
+        if (indexName != null && indexName.startsWith(Column.SHADOW_NAME_PREFIX)) {
             return true;
         } else {
             return false;
@@ -3777,7 +3852,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     public Index getInvertedIndex(Column column, List<String> subPath, String analyzer) {
         List<Index> invertedIndexes = new ArrayList<>();
         for (Index index : indexes.getIndexes()) {
-            if (index.getIndexType() == IndexDefinition.IndexType.INVERTED) {
+            if (index.getIndexType() == IndexType.INVERTED) {
                 List<String> columns = index.getColumns();
                 if (columns != null && !columns.isEmpty() && column.getName().equals(columns.get(0))) {
                     invertedIndexes.add(index);
@@ -3798,7 +3873,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         if (column.getChildren() != null) {
             for (Column child : column.getChildren()) {
                 String childName = child.getName();
-                if (child.getFieldPatternType() == TPatternType.MATCH_NAME_GLOB) {
+                if (child.getFieldPatternType() == PatternType.MATCH_NAME_GLOB) {
                     try {
                         com.google.re2j.Pattern compiled = GlobRegexUtil.getOrCompilePattern(childName);
                         if (compiled.matcher(subPathString).matches()) {
@@ -3807,7 +3882,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                     } catch (com.google.re2j.PatternSyntaxException | IllegalArgumentException e) {
                         continue;
                     }
-                } else if (child.getFieldPatternType() == TPatternType.MATCH_NAME) {
+                } else if (child.getFieldPatternType() == PatternType.MATCH_NAME) {
                     if (childName.equals(subPathString)) {
                         fieldPattern = childName;
                     }
@@ -3817,7 +3892,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
         List<Index> invertedIndexesWithFieldPattern = new ArrayList<>();
         for (Index index : indexes.getIndexes()) {
-            if (index.getIndexType() == IndexDefinition.IndexType.INVERTED) {
+            if (index.getIndexType() == IndexType.INVERTED) {
                 List<String> columns = index.getColumns();
                 if (columns != null && !columns.isEmpty() && column.getName().equals(columns.get(0))
                                         && fieldPattern.equals(index.getInvertedIndexFieldPattern())) {

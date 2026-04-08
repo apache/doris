@@ -37,7 +37,7 @@
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/aggregate/aggregate_function_reader_first_last.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 class Arena;
 class BufferReadable;
@@ -73,7 +73,7 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
         assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(
-                doris::vectorized::WindowFunctionRowNumber::data(place).count);
+                doris::WindowFunctionRowNumber::data(place).count);
     }
 
     bool result_column_could_resize() const override { return true; }
@@ -82,7 +82,7 @@ public:
                                   const size_t start, const size_t end) const override {
         auto& column = assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to);
         for (size_t i = start; i < end; ++i) {
-            column.get_data()[i] = (doris::vectorized::WindowFunctionRowNumber::data(place).count);
+            column.get_data()[i] = (doris::WindowFunctionRowNumber::data(place).count);
         }
     }
 
@@ -138,7 +138,7 @@ public:
                                   const size_t start, const size_t end) const override {
         auto& column = assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to);
         for (size_t i = start; i < end; ++i) {
-            column.get_data()[i] = (doris::vectorized::WindowFunctionRank::data(place).rank);
+            column.get_data()[i] = (doris::WindowFunctionRank::data(place).rank);
         }
     }
 
@@ -191,7 +191,7 @@ public:
                                   const size_t start, const size_t end) const override {
         auto& column = assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to);
         for (size_t i = start; i < end; ++i) {
-            column.get_data()[i] = (doris::vectorized::WindowFunctionDenseRank::data(place).rank);
+            column.get_data()[i] = (doris::WindowFunctionDenseRank::data(place).rank);
         }
     }
 
@@ -397,15 +397,15 @@ public:
     void deserialize(AggregateDataPtr place, BufferReadable& buf, Arena&) const override {}
 };
 
-template <typename ColVecType, bool result_is_nullable, bool arg_is_nullable>
+template <bool result_is_nullable, bool arg_is_nullable>
 struct FirstLastData
-        : public ReaderFirstAndLastData<ColVecType, result_is_nullable, arg_is_nullable, false> {
+        : public ReaderFirstAndLastData<void, result_is_nullable, arg_is_nullable, false> {
 public:
     void set_is_null() { this->_data_value.reset(); }
 };
 
-template <typename ColVecType, bool result_is_nullable, bool arg_is_nullable>
-struct NthValueData : public FirstLastData<ColVecType, result_is_nullable, arg_is_nullable> {
+template <bool result_is_nullable, bool arg_is_nullable>
+struct NthValueData : public FirstLastData<result_is_nullable, arg_is_nullable> {
 public:
     void reset() {
         this->_data_value.reset();
@@ -418,8 +418,8 @@ public:
     int64_t _frame_total_rows = 0;
 };
 
-template <typename ColVecType, bool arg_is_nullable>
-struct BaseValue : public Value<ColVecType, arg_is_nullable> {
+template <bool arg_is_nullable>
+struct BaseValue : public Value<arg_is_nullable> {
 public:
     bool is_null() const { return this->_ptr == nullptr; }
     // because _ptr pointer to first_argument or third argument, so it's difficult to cast ptr
@@ -427,7 +427,7 @@ public:
     StringRef get_value() const { return this->_ptr->get_data_at(this->_offset); }
 };
 
-template <typename ColVecType, bool result_is_nullable, bool arg_is_nullable>
+template <bool result_is_nullable, bool arg_is_nullable>
 struct LeadLagData {
 public:
     static constexpr bool result_nullable = result_is_nullable;
@@ -492,7 +492,7 @@ public:
     int64_t get_offset_value() const { return _offset_value; }
 
 private:
-    BaseValue<ColVecType, arg_is_nullable> _data_value;
+    BaseValue<arg_is_nullable> _data_value;
     bool _is_inited = false;
     int64_t _offset_value = 0;
 };
@@ -689,6 +689,6 @@ private:
     DataTypePtr _argument_type;
 };
 
-} // namespace doris::vectorized
+} // namespace doris
 
 #include "common/compile_check_end.h"

@@ -22,7 +22,7 @@
 
 #include "vector"
 
-namespace doris::vectorized {
+namespace doris {
 
 /// Description of the sorting rule by one column.
 struct SortColumnDescription {
@@ -41,4 +41,4 @@ struct SortColumnDescription {
 /// Description of the sorting rule for several columns.
 using SortDescription = std::vector<SortColumnDescription>;
 
-} // namespace doris::vectorized
+} // namespace doris

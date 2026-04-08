@@ -372,13 +372,9 @@ int S3Accessor::init() {
         options.Retry.MaxRetries = config::max_s3_client_retry;
         auto cred =
                 std::make_shared<Azure::Storage::StorageSharedKeyCredential>(conf_.ak, conf_.sk);
-        if (config::force_azure_blob_global_endpoint) {
-            uri_ = fmt::format("https://{}.blob.core.windows.net/{}", conf_.ak, conf_.bucket);
-        } else {
-            uri_ = fmt::format("{}/{}", conf_.endpoint, conf_.bucket);
-            if (uri_.find("://") == std::string::npos) {
-                uri_ = "https://" + uri_;
-            }
+        uri_ = fmt::format("{}/{}", conf_.endpoint, conf_.bucket);
+        if (uri_.find("://") == std::string::npos) {
+            uri_ = "https://" + uri_;
         }
         uri_ = normalize_http_uri(uri_);
         // In Azure's HTTP requests, all policies in the vector are called in a chained manner following the HTTP pipeline approach.

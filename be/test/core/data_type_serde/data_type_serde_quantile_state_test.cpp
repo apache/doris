@@ -23,10 +23,10 @@
 #include "util/jsonb_writer.h"
 #include "util/slice.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(QuantileStateSerdeTest, writeOneCellToJsonb) {
-    auto quantile_state_serde = std::make_shared<vectorized::DataTypeQuantileStateSerDe>(1);
+    auto quantile_state_serde = std::make_shared<DataTypeQuantileStateSerDe>(1);
     auto column_quantile_state = ColumnQuantileState::create();
     QuantileState quantile_state;
     quantile_state.add_value(123);
@@ -60,7 +60,7 @@ TEST(QuantileStateSerdeTest, writeOneCellToJsonb) {
 }
 
 TEST(QuantileStateSerdeTest, writeColumnToPb) {
-    auto quantile_state_serde = std::make_shared<vectorized::DataTypeQuantileStateSerDe>(1);
+    auto quantile_state_serde = std::make_shared<DataTypeQuantileStateSerDe>(1);
     auto column_quantile_state = ColumnQuantileState::create();
     column_quantile_state->insert_value(QuantileState());
     QuantileState quantile_state;
@@ -88,7 +88,7 @@ TEST(QuantileStateSerdeTest, writeColumnToPb) {
 }
 
 TEST(QuantileStateSerdeTest, serializeOneCellToJson) {
-    auto quantile_state_serde = std::make_shared<vectorized::DataTypeQuantileStateSerDe>(1);
+    auto quantile_state_serde = std::make_shared<DataTypeQuantileStateSerDe>(1);
     auto column_quantile_state = ColumnQuantileState::create();
     column_quantile_state->insert_value(QuantileState());
     QuantileState quantile_state;
@@ -111,7 +111,7 @@ TEST(QuantileStateSerdeTest, serializeOneCellToJson) {
 }
 
 TEST(QuantileStateSerdeTest, serializeColumnToJson) {
-    auto quantile_state_serde = std::make_shared<vectorized::DataTypeQuantileStateSerDe>(1);
+    auto quantile_state_serde = std::make_shared<DataTypeQuantileStateSerDe>(1);
     auto column_quantile_state = ColumnQuantileState::create();
     column_quantile_state->insert_value(QuantileState());
     QuantileState quantile_state;
@@ -151,4 +151,4 @@ TEST(QuantileStateSerdeTest, serializeColumnToJson) {
               quantile_state_res_1.get_value_by_percentile(1));
     std::cout << "test serialize/deserialize_column_from_json_vector" << std::endl;
 }
-} // namespace doris::vectorized
+} // namespace doris

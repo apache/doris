@@ -23,7 +23,7 @@
 #include "core/data_type/data_type_number.h"
 #include "testutil/column_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(MockLiteralTest, test) {
     {
@@ -73,4 +73,4 @@ TEST(MockLiteralTest, test_const) {
                 }));
     }
 }
-} // namespace doris::vectorized
+} // namespace doris

@@ -19,7 +19,6 @@ package org.apache.doris.httpv2.rest;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
@@ -76,6 +75,11 @@ public class RestBaseController extends BaseController {
         ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
         // check password
         UserIdentity currentUser = checkPassword(authInfo);
+
+        // Store UserIdentity in authInfo for convenient parameter passing
+        authInfo.userIdentity = currentUser;
+
+        // Set ConnectContext for backward compatibility
         ConnectContext ctx = new ConnectContext();
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setRemoteIP(authInfo.remoteIp);
@@ -98,8 +102,7 @@ public class RestBaseController extends BaseController {
         String userInfo = null;
         if (!Strings.isNullOrEmpty(request.getHeader("Authorization"))) {
             ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
-            userInfo = ClusterNamespace.getNameFromFullName(authInfo.fullUserName)
-                    + ":" + authInfo.password;
+            userInfo = authInfo.fullUserName + ":" + authInfo.password;
         }
         try {
             urlObj = new URI(urlStr);
@@ -191,10 +194,6 @@ public class RestBaseController extends BaseController {
         response.setHeader(MetaHelper.X_IMAGE_SIZE, imageFile.length() + "");
         response.setHeader(MetaHelper.X_IMAGE_MD5, DigestUtils.md5Hex(new FileInputStream(imageFile)));
         getFile(request, response, imageFile, imageFile.getName());
-    }
-
-    public String getFullDbName(String dbName) {
-        return ClusterNamespace.getNameFromFullName(dbName);
     }
 
     public boolean needRedirect(String scheme) {
@@ -304,6 +303,19 @@ public class RestBaseController extends BaseController {
         } catch (Exception e) {
             LOG.warn(e);
             return ResponseEntityBuilder.okWithCommonError(e.getMessage());
+        }
+    }
+
+    /**
+     * Check if admin privilege is required.
+     * When enable_all_http_auth is enabled, check if the user has admin privilege.
+     * If not authorized, throws UnauthorizedException.
+     *
+     * @param userIdentity The user identity to check
+     */
+    protected void checkAdminAuth(UserIdentity userIdentity) throws UnauthorizedException {
+        if (Config.enable_all_http_auth) {
+            checkGlobalAuth(userIdentity, org.apache.doris.mysql.privilege.PrivPredicate.ADMIN);
         }
     }
 }

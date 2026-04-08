@@ -34,8 +34,9 @@
 #include "exprs/table_function/vexplode_map.h"
 #include "exprs/table_function/vexplode_numbers.h"
 #include "exprs/table_function/vexplode_v2.h"
+#include "exprs/table_function/vjson_each.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 template <typename TableFunctionType>
@@ -50,6 +51,8 @@ const std::unordered_map<std::string, std::function<std::unique_ptr<TableFunctio
                 {"explode_bitmap", TableFunctionCreator<VExplodeBitmapTableFunction>()},
                 {"explode_map", TableFunctionCreator<VExplodeMapTableFunction> {}},
                 {"explode_json_object", TableFunctionCreator<VExplodeJsonObjectTableFunction> {}},
+                {"json_each", TableFunctionCreator<VJsonEachTableFn> {}},
+                {"json_each_text", TableFunctionCreator<VJsonEachTextTableFn> {}},
                 {"posexplode", TableFunctionCreator<VExplodeV2TableFunction> {}},
                 {"explode", TableFunctionCreator<VExplodeV2TableFunction> {}},
                 {"explode_variant_array_old", TableFunctionCreator<VExplodeTableFunction>()},
@@ -99,4 +102,4 @@ Status TableFunctionFactory::get_fn(const TFunction& t_fn, ObjectPool* pool, Tab
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

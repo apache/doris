@@ -38,6 +38,7 @@
 #include "core/data_type/define_primitive_type.h"
 #include "core/value/decimalv2_value.h"
 #include "core/value/vdatetime_value.h"
+#include "exprs/function/cast/cast_to_date_or_datetime_impl.hpp"
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
 #include "load/delta_writer/delta_writer.h"
@@ -189,7 +190,7 @@ static TDescriptorTable create_descriptor_tablet_with_sequence_col() {
     return dtb.desc_tbl();
 }
 
-static void generate_data(vectorized::Block* block, int8_t k1, int16_t k2, int32_t seq) {
+static void generate_data(Block* block, int8_t k1, int16_t k2, int32_t seq) {
     auto columns = block->mutate_columns();
     int8_t c1 = k1;
     columns[0]->insert_data((const char*)&c1, sizeof(c1));
@@ -198,7 +199,12 @@ static void generate_data(vectorized::Block* block, int8_t k1, int16_t k2, int32
     columns[1]->insert_data((const char*)&c2, sizeof(c2));
 
     VecDateTimeValue c3;
-    c3.from_date_str("2020-07-16 19:39:43", 19);
+    {
+        CastParameters p;
+        CastToDateOrDatetime::from_string_strict_mode<DatelikeParseMode::STRICT,
+                                                      DatelikeTargetType::DATE_TIME>(
+                {"2020-07-16 19:39:43", 19}, c3, nullptr, p);
+    }
     int64_t c3_int = c3.to_int64();
     columns[2]->insert_data((const char*)&c3_int, sizeof(c3));
 
@@ -255,10 +261,10 @@ TEST_F(TestDeltaWriterClusterKey, vec_sequence_col) {
     auto delta_writer =
             std::make_unique<DeltaWriter>(*engine_ref, write_req, profile.get(), TUniqueId {});
 
-    vectorized::Block block;
+    Block block;
     for (const auto& slot_desc : tuple_desc->slots()) {
-        block.insert(vectorized::ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
-                                                       slot_desc->type(), slot_desc->col_name()));
+        block.insert(ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(), slot_desc->type(),
+                                           slot_desc->col_name()));
     }
 
     auto rows = 4;

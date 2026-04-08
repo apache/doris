@@ -19,12 +19,14 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -142,5 +144,63 @@ class SumLiteralRewriteTest implements MemoPatternMatchSupported {
                 .printlnTree()
                 .matches(logicalAggregate().when(p -> p.getOutputs().size() == 3));
 
+    }
+
+    @Test
+    void testStripWideningIntegerCast() {
+        Slot slot1 = scan1.getOutput().get(0);
+        // Simulate type coercion's implicit widening cast: CAST(int_col AS BIGINT)
+        Cast castSlot = new Cast(slot1, BigIntType.INSTANCE);
+        Alias add1 = new Alias(new Sum(new Add(castSlot, Literal.of(1))));
+        Alias add2 = new Alias(new Sum(new Add(castSlot, Literal.of(2))));
+        LogicalAggregate<?> agg = new LogicalAggregate<>(
+                ImmutableList.of(), ImmutableList.of(add1, add2), scan1);
+        PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
+                .applyTopDown(ImmutableList.of(new SumLiteralRewrite().build()))
+                .printlnTree()
+                // After stripping the implicit widening cast, Sum and Count should use
+                // slot1 directly (not Cast(slot1 AS BIGINT)), so no Cast in aggregate outputs
+                .matches(logicalAggregate().when(a ->
+                        a.getOutputExpressions().stream().noneMatch(
+                                e -> e.anyMatch(expr -> expr instanceof Cast))));
+
+        // Verify explicit cast is NOT stripped
+        Cast explicitCast = new Cast(slot1, BigIntType.INSTANCE, true);
+        Alias addExplicit1 = new Alias(new Sum(new Add(explicitCast, Literal.of(1))));
+        Alias addExplicit2 = new Alias(new Sum(new Add(explicitCast, Literal.of(2))));
+        agg = new LogicalAggregate<>(
+                ImmutableList.of(), ImmutableList.of(addExplicit1, addExplicit2), scan1);
+        PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
+                .applyTopDown(ImmutableList.of(new SumLiteralRewrite().build()))
+                .printlnTree()
+                // Explicit cast should be preserved — aggregate outputs should still contain Cast
+                .matches(logicalAggregate().when(a ->
+                        a.getOutputExpressions().stream().anyMatch(
+                                e -> e.anyMatch(expr -> expr instanceof Cast))));
+    }
+
+    @Test
+    void testStripWideningCastWithExistingSum() {
+        // Simulates ClickBench Q29: SELECT SUM(col), SUM(col+1), SUM(col+2)
+        // where col is a narrow integer type and type coercion introduces implicit widening cast.
+        Slot slot1 = scan1.getOutput().get(0);
+        // Pre-existing plain SUM(slot) — no cast, no literal
+        Alias sum = new Alias(new Sum(slot1));
+        // Simulate type coercion widening: SUM(CAST(int_col AS BIGINT) + 1) etc.
+        Cast castSlot = new Cast(slot1, BigIntType.INSTANCE);
+        Alias add1 = new Alias(new Sum(new Add(castSlot, Literal.of(1))));
+        Alias add2 = new Alias(new Sum(new Add(castSlot, Literal.of(2))));
+        LogicalAggregate<?> agg = new LogicalAggregate<>(
+                ImmutableList.of(), ImmutableList.of(sum, add1, add2), scan1);
+        PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
+                .applyTopDown(ImmutableList.of(new SumLiteralRewrite().build()))
+                .printlnTree()
+                // After stripping widening cast, the base expr of SUM(CAST(slot AS BIGINT) + n)
+                // becomes slot — matching the pre-existing SUM(slot). Rewrite reuses it and only
+                // adds COUNT(slot). Aggregate outputs: sum(slot) + count(slot) = 2.
+                .matches(logicalAggregate().when(a ->
+                        a.getOutputExpressions().size() == 2
+                        && a.getOutputExpressions().stream().noneMatch(
+                                e -> e.anyMatch(expr -> expr instanceof Cast))));
     }
 }

@@ -22,7 +22,7 @@
 #include "core/types.h"
 #include "exprs/function/function_test_util.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(function_array_index_test, array_contains) {
     std::string func_name = "array_contains";
@@ -221,4 +221,4 @@ TEST(function_array_index_test, array_position) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

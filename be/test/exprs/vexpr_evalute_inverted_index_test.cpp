@@ -137,32 +137,31 @@ TEST(TExprInvertedIndexTest, test_expr_evaluate_inverted_index) {
     string_literal.__set_value("abc");
     string_literal_node.__set_string_literal(string_literal);
 
-    doris::vectorized::VExprSPtr in_expr;
-    EXPECT_TRUE(doris::vectorized::VExpr::create_expr(in_expr_node, in_expr).ok());
-    doris::vectorized::VExprSPtr ipv4_literal_expr;
-    EXPECT_TRUE(doris::vectorized::VExpr::create_expr(ipv4_literal_node, ipv4_literal_expr).ok());
+    doris::VExprSPtr in_expr;
+    EXPECT_TRUE(doris::VExpr::create_expr(in_expr_node, in_expr).ok());
+    doris::VExprSPtr ipv4_literal_expr;
+    EXPECT_TRUE(doris::VExpr::create_expr(ipv4_literal_node, ipv4_literal_expr).ok());
 
-    doris::vectorized::VExprSPtr cast_ipv4_expr;
-    EXPECT_TRUE(doris::vectorized::VExpr::create_expr(cast_ipv4_node, cast_ipv4_expr).ok());
+    doris::VExprSPtr cast_ipv4_expr;
+    EXPECT_TRUE(doris::VExpr::create_expr(cast_ipv4_node, cast_ipv4_expr).ok());
 
-    doris::vectorized::VExprSPtr string_literal_expr;
-    EXPECT_TRUE(
-            doris::vectorized::VExpr::create_expr(string_literal_node, string_literal_expr).ok());
+    doris::VExprSPtr string_literal_expr;
+    EXPECT_TRUE(doris::VExpr::create_expr(string_literal_node, string_literal_expr).ok());
 
     cast_ipv4_expr->add_child(string_literal_expr);
 
     in_expr->add_child(ipv4_literal_expr);
     in_expr->add_child(cast_ipv4_expr);
 
-    doris::vectorized::VExprContext expr_ctx(in_expr);
+    doris::VExprContext expr_ctx(in_expr);
 
-    std::unordered_map<doris::ColumnId, std::unordered_map<const doris::vectorized::VExpr*, bool>>
+    std::unordered_map<doris::ColumnId, std::unordered_map<const doris::VExpr*, bool>>
             common_expr_inverted_index_status;
     std::vector<doris::ColumnId> col_ids;
     std::vector<std::unique_ptr<doris::segment_v2::IndexIterator>> index_iterators;
-    std::vector<doris::vectorized::IndexFieldNameAndTypePair> storage_types;
+    std::vector<doris::IndexFieldNameAndTypePair> storage_types;
     doris::segment_v2::ColumnIteratorOptions column_iter_opts;
-    auto inverted_index_context = std::make_shared<doris::vectorized::IndexExecContext>(
+    auto inverted_index_context = std::make_shared<doris::IndexExecContext>(
             col_ids, index_iterators, storage_types, common_expr_inverted_index_status, nullptr,
             nullptr, column_iter_opts);
     expr_ctx.set_index_context(inverted_index_context);

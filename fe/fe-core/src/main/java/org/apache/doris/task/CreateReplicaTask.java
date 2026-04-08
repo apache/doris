@@ -17,10 +17,10 @@
 
 package org.apache.doris.task;
 
-import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ColumnToThrift;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
@@ -126,6 +126,8 @@ public class CreateReplicaTask extends AgentTask {
 
     private long timeSeriesCompactionLevelThreshold;
 
+    private int verticalCompactionNumColumnsPerGroup;
+
     private boolean storeRowColumn;
 
     private BinlogConfig binlogConfig;
@@ -166,7 +168,8 @@ public class CreateReplicaTask extends AgentTask {
                              long rowStorePageSize,
                              boolean variantEnableFlattenNested,
                              long storagePageSize, TEncryptionAlgorithm tdeAlgorithm,
-                             long storageDictPageSize, Map<String, List<String>> columnSeqMapping) {
+                             long storageDictPageSize, Map<String, List<String>> columnSeqMapping,
+                             int verticalCompactionNumColumnsPerGroup) {
         super(null, backendId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
 
         this.replicaId = replicaId;
@@ -209,6 +212,7 @@ public class CreateReplicaTask extends AgentTask {
         this.timeSeriesCompactionTimeThresholdSeconds = timeSeriesCompactionTimeThresholdSeconds;
         this.timeSeriesCompactionEmptyRowsetsThreshold = timeSeriesCompactionEmptyRowsetsThreshold;
         this.timeSeriesCompactionLevelThreshold = timeSeriesCompactionLevelThreshold;
+        this.verticalCompactionNumColumnsPerGroup = verticalCompactionNumColumnsPerGroup;
         this.storeRowColumn = storeRowColumn;
         this.binlogConfig = binlogConfig;
         this.objectPool = objectPool;
@@ -315,16 +319,16 @@ public class CreateReplicaTask extends AgentTask {
             tColumns = new ArrayList<>();
             for (int i = 0; i < columns.size(); i++) {
                 Column column = columns.get(i);
-                TColumn tColumn = column.toThrift();
+                TColumn tColumn = ColumnToThrift.toThrift(column);
                 // is bloom filter column
                 if (bfColumns != null && bfColumns.contains(column.getName())) {
                     tColumn.setIsBloomFilterColumn(true);
                 }
                 // when doing schema change, some modified column has a prefix in name.
                 // this prefix is only used in FE, not visible to BE, so we should remove this prefix.
-                if (column.getName().startsWith(SchemaChangeHandler.SHADOW_NAME_PREFIX)) {
+                if (column.getName().startsWith(Column.SHADOW_NAME_PREFIX)) {
                     tColumn.setColumnName(
-                            column.getName().substring(SchemaChangeHandler.SHADOW_NAME_PREFIX.length()));
+                            column.getName().substring(Column.SHADOW_NAME_PREFIX.length()));
                 }
                 tColumn.setVisible(column.isVisible());
                 tColumns.add(tColumn);
@@ -444,6 +448,7 @@ public class CreateReplicaTask extends AgentTask {
         createTabletReq.setTimeSeriesCompactionTimeThresholdSeconds(timeSeriesCompactionTimeThresholdSeconds);
         createTabletReq.setTimeSeriesCompactionEmptyRowsetsThreshold(timeSeriesCompactionEmptyRowsetsThreshold);
         createTabletReq.setTimeSeriesCompactionLevelThreshold(timeSeriesCompactionLevelThreshold);
+        createTabletReq.setVerticalCompactionNumColumnsPerGroup(verticalCompactionNumColumnsPerGroup);
         createTabletReq.setTdeAlgorithm(tdeAlgorithm);
 
         if (binlogConfig != null) {

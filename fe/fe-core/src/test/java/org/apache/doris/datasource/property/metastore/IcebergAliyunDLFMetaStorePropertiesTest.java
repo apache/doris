@@ -19,7 +19,7 @@ package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.datasource.iceberg.dlf.DLFCatalog;
 import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
+import org.apache.doris.foundation.property.StoragePropertiesException;
 
 import org.apache.iceberg.catalog.Catalog;
 import org.junit.jupiter.api.Assertions;

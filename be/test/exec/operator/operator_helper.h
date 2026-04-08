@@ -19,7 +19,7 @@
 #include "runtime/runtime_state.h"
 #include "testutil/mock/mock_descriptors.h"
 #include "testutil/mock/mock_runtime_state.h"
-namespace doris::pipeline {
+namespace doris {
 
 struct OperatorContext {
     OperatorContext() : profile("test") {};
@@ -63,4 +63,4 @@ struct OperatorHelper {
     }
 };
 
-} // namespace doris::pipeline
+} // namespace doris

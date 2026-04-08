@@ -30,13 +30,12 @@ namespace doris {
 #include "common/compile_check_begin.h"
 class RuntimeState;
 
-inline Status materialize_block(const vectorized::VExprContextSPtrs& exprs,
-                                vectorized::Block* src_block, vectorized::Block* res_block,
+inline Status materialize_block(const VExprContextSPtrs& exprs, Block* src_block, Block* res_block,
                                 bool need_clone) {
-    vectorized::ColumnsWithTypeAndName columns;
+    ColumnsWithTypeAndName columns;
     auto rows = src_block->rows();
     for (const auto& expr : exprs) {
-        vectorized::ColumnWithTypeAndName result_data;
+        ColumnWithTypeAndName result_data;
         RETURN_IF_ERROR(expr->execute(src_block, result_data));
         if (need_clone) {
             result_data.column = result_data.column->clone_resized(rows);
@@ -47,7 +46,6 @@ inline Status materialize_block(const vectorized::VExprContextSPtrs& exprs,
     return Status::OK();
 }
 
-namespace pipeline {
 class DataQueue;
 
 class UnionSinkOperatorX;
@@ -63,14 +61,14 @@ public:
     using Parent = UnionSinkOperatorX;
 
 private:
-    std::unique_ptr<vectorized::Block> _output_block;
+    std::unique_ptr<Block> _output_block;
 
     /// Const exprs materialized by this node. These exprs don't refer to any children.
     /// Only materialized by the first fragment instance to avoid duplication.
-    vectorized::VExprContextSPtrs _const_expr;
+    VExprContextSPtrs _const_expr;
 
     /// Exprs materialized by this node. The i-th result expr list refers to the i-th child.
-    vectorized::VExprContextSPtrs _child_expr;
+    VExprContextSPtrs _child_expr;
 
     /// Index of current row in child_row_block_.
     int _child_row_idx;
@@ -102,7 +100,7 @@ public:
 
     Status prepare(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
+    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
 
     std::shared_ptr<BasicSharedState> create_shared_state() const override {
         if (_cur_child_id > 0) {
@@ -137,10 +135,10 @@ private:
 
     /// Const exprs materialized by this node. These exprs don't refer to any children.
     /// Only materialized by the first fragment instance to avoid duplication.
-    vectorized::VExprContextSPtrs _const_expr;
+    VExprContextSPtrs _const_expr;
 
     /// Exprs materialized by this node. The i-th result expr list refers to the i-th child.
-    vectorized::VExprContextSPtrs _child_expr;
+    VExprContextSPtrs _child_expr;
     /// Index of the first non-passthrough child; i.e. a child that needs materialization.
     /// 0 when all children are materialized, '_children.size()' when no children are
     /// materialized.
@@ -155,16 +153,14 @@ private:
         DCHECK_LT(child_idx, _child_size);
         return child_idx < _first_materialized_child_idx;
     }
-    Status materialize_child_block(RuntimeState* state, int child_id,
-                                   vectorized::Block* input_block,
-                                   vectorized::Block* output_block) {
+    Status materialize_child_block(RuntimeState* state, int child_id, Block* input_block,
+                                   Block* output_block) {
         DCHECK_LT(child_id, _child_size);
         DCHECK(!is_child_passthrough(child_id));
         if (input_block->rows() > 0) {
-            vectorized::MutableBlock mblock =
-                    vectorized::VectorizedUtils::build_mutable_mem_reuse_block(output_block,
-                                                                               row_descriptor());
-            vectorized::Block res;
+            MutableBlock mblock =
+                    VectorizedUtils::build_mutable_mem_reuse_block(output_block, row_descriptor());
+            Block res;
             auto& local_state = get_local_state(state);
             {
                 SCOPED_TIMER(local_state._expr_timer);
@@ -178,6 +174,5 @@ private:
     }
 };
 
-} // namespace pipeline
 #include "common/compile_check_end.h"
 } // namespace doris

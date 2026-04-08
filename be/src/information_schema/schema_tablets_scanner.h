@@ -28,9 +28,7 @@
 namespace doris {
 class RuntimeState;
 
-namespace vectorized {
 class Block;
-} // namespace vectorized
 
 class SchemaTabletsScanner : public SchemaScanner {
     ENABLE_FACTORY_CREATOR(SchemaTabletsScanner)
@@ -42,12 +40,12 @@ public:
 
     Status start(RuntimeState* state) override;
 
-    Status get_next_block_internal(vectorized::Block* block, bool* eos) override;
+    Status get_next_block_internal(Block* block, bool* eos) override;
 
 private:
     Status _get_all_tablets();
 
-    Status _fill_block_impl(vectorized::Block* block);
+    Status _fill_block_impl(Block* block);
 
     int64_t _backend_id {};
     std::vector<BaseTabletSPtr> _tablets;

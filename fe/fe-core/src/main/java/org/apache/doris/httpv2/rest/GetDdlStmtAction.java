@@ -61,7 +61,7 @@ public class GetDdlStmtAction extends RestBaseController {
             return ResponseEntityBuilder.badRequest("Missing params. Need database name and Table name");
         }
 
-        String fullDbName = getFullDbName(dbName);
+        String fullDbName = dbName;
         Table table;
         try {
             Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);

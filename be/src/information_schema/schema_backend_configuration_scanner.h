@@ -24,9 +24,7 @@
 
 namespace doris {
 class RuntimeState;
-namespace vectorized {
 class Block;
-} // namespace vectorized
 
 class SchemaBackendConfigurationScanner : public SchemaScanner {
     ENABLE_FACTORY_CREATOR(SchemaBackendConfigurationScanner);
@@ -36,7 +34,7 @@ public:
     ~SchemaBackendConfigurationScanner() override;
 
     Status start(RuntimeState* state) override;
-    Status get_next_block_internal(vectorized::Block* block, bool* eos) override;
+    Status get_next_block_internal(Block* block, bool* eos) override;
 
     static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;
 

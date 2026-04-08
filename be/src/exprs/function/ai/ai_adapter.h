@@ -34,7 +34,7 @@
 #include "service/http/http_client.h"
 #include "service/http/http_headers.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 struct AIResource {
@@ -1179,4 +1179,4 @@ public:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

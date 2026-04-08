@@ -58,14 +58,28 @@
 #include "core/value/decimalv2_value.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/aggregate/aggregate_function.h"
+#include "exprs/function/cast/cast_to_date_or_datetime_impl.hpp"
 #include "gtest/gtest_pred_impl.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 template <typename ArrowType, typename ArrowCppType = typename arrow::TypeTraits<ArrowType>::CType>
 ArrowCppType string_to_arrow_datetime(std::shared_ptr<ArrowType> type, const std::string& value) {
     VecDateTimeValue tv;
-    tv.from_date_str(value.c_str(), value.size());
+    {
+        CastParameters p;
+        if constexpr (std::is_same_v<ArrowType, arrow::Date32Type>) {
+            tv.set_type(TimeType::TIME_DATE);
+            CastToDateOrDatetime::from_string_strict_mode<DatelikeParseMode::STRICT,
+                                                          DatelikeTargetType::DATE>(
+                    {value.c_str(), value.size()}, tv, nullptr, p);
+            tv.cast_to_date();
+        } else {
+            CastToDateOrDatetime::from_string_strict_mode<DatelikeParseMode::STRICT,
+                                                          DatelikeTargetType::DATE_TIME>(
+                    {value.c_str(), value.size()}, tv, nullptr, p);
+        }
+    }
     int64_t unix_seconds = 0;
     tv.unix_timestamp(&unix_seconds, "UTC");
     if constexpr (std::is_same_v<ArrowType, arrow::TimestampType>) {
@@ -143,10 +157,10 @@ void test_arrow_to_datetime_column(std::shared_ptr<ArrowType> type, ColumnWithTy
     ASSERT_EQ(ret.ok(), true);
     ASSERT_EQ(column.column->size(), counter);
     MutableColumnPtr data_column = nullptr;
-    vectorized::ColumnNullable* nullable_column = nullptr;
+    ColumnNullable* nullable_column = nullptr;
     if (column.column->is_nullable()) {
-        nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
-                (*std::move(column.column)).mutate().get());
+        nullable_column =
+                reinterpret_cast<ColumnNullable*>((*std::move(column.column)).mutate().get());
         data_column = nullable_column->get_nested_column_ptr();
     } else {
         data_column = (*std::move(column.column)).mutate();
@@ -190,7 +204,19 @@ void test_datetime(std::shared_ptr<ArrowType> type, const std::vector<std::strin
         } else {
             tv.set_type(TimeType::TIME_DATETIME);
         }
-        tv.from_date_str(value.c_str(), value.size());
+        {
+            CastParameters p;
+            if constexpr (std::is_same_v<ArrowType, arrow::Date32Type>) {
+                CastToDateOrDatetime::from_string_strict_mode<DatelikeParseMode::STRICT,
+                                                              DatelikeTargetType::DATE>(
+                        {value.c_str(), value.size()}, tv, nullptr, p);
+                tv.cast_to_date();
+            } else {
+                CastToDateOrDatetime::from_string_strict_mode<DatelikeParseMode::STRICT,
+                                                              DatelikeTargetType::DATE_TIME>(
+                        {value.c_str(), value.size()}, tv, nullptr, p);
+            }
+        }
         test_arrow_to_datetime_column<ArrowType, ColumnType, is_nullable>(
                 type, column, num_elements, arrow_datetime, tv, counter);
     }
@@ -244,10 +270,10 @@ void test_arrow_to_numeric_column(std::shared_ptr<ArrowType> type, ColumnWithTyp
     ASSERT_EQ(ret.ok(), true);
     ASSERT_EQ(column.column->size(), counter);
     MutableColumnPtr data_column = nullptr;
-    vectorized::ColumnNullable* nullable_column = nullptr;
+    ColumnNullable* nullable_column = nullptr;
     if (column.column->is_nullable()) {
-        nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
-                (*std::move(column.column)).mutate().get());
+        nullable_column =
+                reinterpret_cast<ColumnNullable*>((*std::move(column.column)).mutate().get());
         data_column = nullable_column->get_nested_column_ptr();
     } else {
         data_column = (*std::move(column.column)).mutate();
@@ -353,10 +379,10 @@ void test_arrow_to_decimal_column(std::shared_ptr<arrow::Decimal128Type> type,
     ASSERT_EQ(ret.ok(), true);
     ASSERT_EQ(column.column->size(), counter);
     MutableColumnPtr data_column = nullptr;
-    vectorized::ColumnNullable* nullable_column = nullptr;
+    ColumnNullable* nullable_column = nullptr;
     if (column.column->is_nullable()) {
-        nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
-                (*std::move(column.column)).mutate().get());
+        nullable_column =
+                reinterpret_cast<ColumnNullable*>((*std::move(column.column)).mutate().get());
         data_column = nullable_column->get_nested_column_ptr();
     } else {
         data_column = (*std::move(column.column)).mutate();
@@ -420,10 +446,10 @@ void test_arrow_to_fixed_binary_column(ColumnWithTypeAndName& column, size_t num
     ASSERT_EQ(ret.ok(), true);
     ASSERT_EQ(column.column->size(), counter);
     MutableColumnPtr data_column = nullptr;
-    vectorized::ColumnNullable* nullable_column = nullptr;
+    ColumnNullable* nullable_column = nullptr;
     if (column.column->is_nullable()) {
-        nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
-                (*std::move(column.column)).mutate().get());
+        nullable_column =
+                reinterpret_cast<ColumnNullable*>((*std::move(column.column)).mutate().get());
         data_column = nullable_column->get_nested_column_ptr();
     } else {
         data_column = (*std::move(column.column)).mutate();
@@ -522,10 +548,10 @@ void test_arrow_to_binary_column(ColumnWithTypeAndName& column, size_t num_eleme
     ASSERT_EQ(ret.ok(), true);
     ASSERT_EQ(column.column->size(), counter);
     MutableColumnPtr data_column = nullptr;
-    vectorized::ColumnNullable* nullable_column = nullptr;
+    ColumnNullable* nullable_column = nullptr;
     if (column.column->is_nullable()) {
-        nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
-                (*std::move(column.column)).mutate().get());
+        nullable_column =
+                reinterpret_cast<ColumnNullable*>((*std::move(column.column)).mutate().get());
         data_column = nullable_column->get_nested_column_ptr();
     } else {
         data_column = (*std::move(column.column)).mutate();
@@ -620,10 +646,10 @@ void test_arrow_to_array_column(ColumnWithTypeAndName& column,
     ASSERT_EQ(ret.ok(), true);
     ASSERT_EQ(column.column->size() - old_size, counter);
     MutableColumnPtr data_column = nullptr;
-    vectorized::ColumnNullable* nullable_column = nullptr;
+    ColumnNullable* nullable_column = nullptr;
     if (column.column->is_nullable()) {
-        nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
-                (*std::move(column.column)).mutate().get());
+        nullable_column =
+                reinterpret_cast<ColumnNullable*>((*std::move(column.column)).mutate().get());
         data_column = nullable_column->get_nested_column_ptr();
     } else {
         data_column = (*std::move(column.column)).mutate();
@@ -692,4 +718,4 @@ TEST(ArrowColumnToDorisColumnTest, test_array) {
     test_array<arrow::BinaryType, true>(test_cases, 64, vec_offsets, null_map,
                                         arrow::list(arrow::binary()));
 }
-} // namespace doris::vectorized
+} // namespace doris

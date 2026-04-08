@@ -28,8 +28,6 @@ namespace doris {
 #include "common/compile_check_begin.h"
 class ResultBlockBufferBase;
 
-namespace pipeline {
-
 struct ResultFileOptions {
     // [[deprecated]]
     bool is_local_file;
@@ -59,6 +57,9 @@ struct ResultFileOptions {
     // TODO: we should merge parquet_commpression_type/orc_compression_type/compression_type
     TFileCompressType::type compression_type = TFileCompressType::PLAIN;
 
+    // Deprecated compatibility flag. New FE handles outfile delete_existing_files in FE
+    // and clears this field before sending the result sink to BE. Keep reading it here
+    // only for compatibility with older FE during rolling upgrade.
     bool delete_existing_files = false;
     std::string file_suffix;
     //Bring BOM when exporting to CSV format
@@ -72,6 +73,7 @@ struct ResultFileOptions {
         line_delimiter = t_opt.__isset.line_delimiter ? t_opt.line_delimiter : "\n";
         max_file_size_bytes =
                 t_opt.__isset.max_file_size_bytes ? t_opt.max_file_size_bytes : max_file_size_bytes;
+        // Deprecated compatibility path. New FE should already have cleared this flag.
         delete_existing_files =
                 t_opt.__isset.delete_existing_files ? t_opt.delete_existing_files : false;
         file_suffix = t_opt.file_suffix;
@@ -143,7 +145,7 @@ public:
 private:
     friend class ResultSinkOperatorX;
 
-    vectorized::VExprContextSPtrs _output_vexpr_ctxs;
+    VExprContextSPtrs _output_vexpr_ctxs;
 
     std::shared_ptr<ResultBlockBufferBase> _sender = nullptr;
     std::shared_ptr<ResultWriter> _writer = nullptr;
@@ -158,12 +160,12 @@ public:
                         const std::vector<TExpr>& select_exprs, const TResultSink& sink);
     Status prepare(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
+    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
 
 private:
     friend class ResultSinkLocalState;
 
-    Status _second_phase_fetch_data(RuntimeState* state, vectorized::Block* final_block);
+    Status _second_phase_fetch_data(RuntimeState* state, Block* final_block);
     const TResultSinkType::type _sink_type;
     const int _result_sink_buffer_size_rows;
     // set file options when sink type is FILE
@@ -174,7 +176,7 @@ private:
 
     // Owned by the RuntimeState.
     const std::vector<TExpr>& _t_output_expr;
-    vectorized::VExprContextSPtrs _output_vexpr_ctxs;
+    VExprContextSPtrs _output_vexpr_ctxs;
 
     // for fetch data by rowids
     const TFetchOption _fetch_option;
@@ -182,6 +184,5 @@ private:
     std::shared_ptr<ResultBlockBufferBase> _sender = nullptr;
 };
 
-} // namespace pipeline
 #include "common/compile_check_end.h"
 } // namespace doris

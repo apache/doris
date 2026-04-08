@@ -35,7 +35,7 @@
 #include "exprs/function/simple_function_factory.h"
 #include "util/simd/reverse_copy_bytes.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 template <PrimitiveType IntegerPType>
 class FunctionDecodeAsVarchar : public IFunction {
@@ -113,4 +113,4 @@ void register_function_decode_as_varchar(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDecodeAsVarchar<TYPE_LARGEINT>>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -133,7 +133,7 @@ public class AlterColumnStatsCommand extends AlterCommand {
         }
 
         // check table name
-        tableNameInfo.analyze(ctx);
+        tableNameInfo.analyze(ctx.getNameSpaceContext());
 
         if (!Env.getCurrentEnv().getAccessManager()
                     .checkTblPriv(ConnectContext.get(), tableNameInfo.getCtl(), tableNameInfo.getDb(),

@@ -24,7 +24,7 @@
 #include "exprs/function/function.h"
 #include "exprs/function/function_helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 // Functions with arguments is two arrays of the same element type.
 template <typename Impl, typename Name>
@@ -74,4 +74,4 @@ public:
     }
 };
 
-} // namespace doris::vectorized
+} // namespace doris

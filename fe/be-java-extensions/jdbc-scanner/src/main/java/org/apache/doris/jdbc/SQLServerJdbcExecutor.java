@@ -32,6 +32,10 @@ import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
+/**
+ * @deprecated Use {@link SQLServerTypeHandler} instead.
+ */
+@Deprecated
 public class SQLServerJdbcExecutor extends BaseJdbcExecutor {
     public SQLServerJdbcExecutor(byte[] thriftParams) throws Exception {
         super(thriftParams);

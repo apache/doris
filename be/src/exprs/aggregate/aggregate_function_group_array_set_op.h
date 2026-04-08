@@ -33,14 +33,14 @@
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/hybrid_set.h"
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 class Arena;
 class BufferReadable;
 class BufferWritable;
-} // namespace doris::vectorized
+} // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 template <PrimitiveType T>
 class NullableNumericOrDateSet
@@ -474,6 +474,6 @@ public:
     }
 };
 
-} // namespace doris::vectorized
+} // namespace doris
 
 #include "common/compile_check_end.h"

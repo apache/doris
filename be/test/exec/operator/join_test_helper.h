@@ -27,12 +27,12 @@
 
 #include "common/object_pool.h"
 #include "exec/pipeline/pipeline_task.h"
-#include "exec/spill/spill_stream_manager.h"
+#include "exec/spill/spill_file_manager.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/runtime_profile.h"
 #include "testutil/mock/mock_runtime_state.h"
 
-namespace doris::pipeline {
+namespace doris {
 class JoinTestHelper {
 public:
     virtual ~JoinTestHelper() = default;
@@ -50,4 +50,4 @@ public:
     DescriptorTbl* desc_tbl;
 };
 
-} // namespace doris::pipeline
+} // namespace doris

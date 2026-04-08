@@ -17,13 +17,13 @@
 
 package org.apache.doris.nereids.analyzer;
 
+import org.apache.doris.common.NameFormatUtils;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Joiner;
 
@@ -95,7 +95,7 @@ public class UnboundFunction extends Function implements Unbound, PropagateNulla
     @Override
     public String getExpressionName() {
         if (!this.exprName.isPresent()) {
-            this.exprName = Optional.of(Utils.normalizeName(getName(), DEFAULT_EXPRESSION_NAME));
+            this.exprName = Optional.of(NameFormatUtils.normalizeName(getName(), DEFAULT_EXPRESSION_NAME));
         }
         return this.exprName.get();
     }

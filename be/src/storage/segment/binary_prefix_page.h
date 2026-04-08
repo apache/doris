@@ -120,7 +120,7 @@ public:
 
     Status seek_at_or_after_value(const void* value, bool* exact_match) override;
 
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override;
+    Status next_batch(size_t* n, MutableColumnPtr& dst) override;
 
     size_t count() const override {
         DCHECK(_parsed);

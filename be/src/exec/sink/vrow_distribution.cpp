@@ -44,7 +44,7 @@
 #include "util/debug_points.h"
 #include "util/thrift_rpc_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 std::pair<VExprContextSPtrs, VExprSPtrs> VRowDistribution::_get_partition_function() {
@@ -299,11 +299,8 @@ Status VRowDistribution::_filter_block_by_skip_and_where_clause(
         Block* block, const VExprContextSPtr& where_clause, RowPartTabletIds& row_part_tablet_id) {
     // TODO
     //SCOPED_RAW_TIMER(&_stat.where_clause_ns);
-    int result_index = -1;
-    size_t column_number = block->columns();
-    RETURN_IF_ERROR(where_clause->execute(block, &result_index));
-
-    auto filter_column = block->get_by_position(result_index).column;
+    ColumnPtr filter_column;
+    RETURN_IF_ERROR(where_clause->execute(block, filter_column));
 
     auto& row_ids = row_part_tablet_id.row_ids;
     auto& partition_ids = row_part_tablet_id.partition_ids;
@@ -340,9 +337,6 @@ Status VRowDistribution::_filter_block_by_skip_and_where_clause(
         }
     }
 
-    for (size_t i = block->columns() - 1; i >= column_number; i--) {
-        block->erase(i);
-    }
     return Status::OK();
 }
 
@@ -388,7 +382,7 @@ Status VRowDistribution::_deal_missing_map(const Block& input_block, Block* bloc
     col_strs.resize(part_col_num);
     col_null_maps.reserve(part_col_num);
 
-    auto format_options = vectorized::DataTypeSerDe::get_default_format_options();
+    auto format_options = DataTypeSerDe::get_default_format_options();
     format_options.timezone = &_state->timezone_obj();
 
     for (int i = 0; i < part_col_num; ++i) {
@@ -602,4 +596,4 @@ void VRowDistribution::_reset_find_tablets(int64_t rows) {
     _tablet_indexes.assign(rows, 0);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

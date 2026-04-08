@@ -22,7 +22,7 @@
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 void register_aggregate_function_HLL_union_agg(AggregateFunctionSimpleFactory& factory) {
@@ -36,4 +36,4 @@ void register_aggregate_function_HLL_union_agg(AggregateFunctionSimpleFactory& f
     factory.register_alias("hll_union", "hll_raw_agg");
 }
 
-} // namespace doris::vectorized
+} // namespace doris

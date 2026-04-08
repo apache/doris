@@ -25,7 +25,7 @@
 #include "core/string_ref.h"
 #include "exprs/function/array/function_array_utils.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 #include "common/compile_check_begin.h"
 struct NameArrayJoin {
@@ -168,4 +168,4 @@ private:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

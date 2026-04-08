@@ -37,7 +37,7 @@
 #include "core/value/bitmap_value.h"
 #include "exprs/aggregate/aggregate_function.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class Arena;
@@ -456,5 +456,5 @@ AggregateFunctionPtr create_aggregate_function_bitmap_union(const std::string& n
                                                             const DataTypes& argument_types,
                                                             const bool result_is_nullable);
 
-} // namespace doris::vectorized
+} // namespace doris
 #include "common/compile_check_end.h"

@@ -32,10 +32,11 @@
 #include "core/string_buffer.hpp"
 #include "core/types.h"
 #include "core/value/vdatetime_value.h"
+#include "exprs/function/cast/cast_to_date_or_datetime_impl.hpp"
 #include "exprs/function/cast/cast_to_string.h"
 #include "util/io_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 bool DataTypeDateTime::equals(const IDataType& rhs) const {
     return typeid(rhs) == typeid(*this);
@@ -49,4 +50,19 @@ MutableColumnPtr DataTypeDateTime::create_column() const {
     return DataTypeNumberBase<PrimitiveType::TYPE_DATETIME>::create_column();
 }
 
-} // namespace doris::vectorized
+Field DataTypeDateTime::get_field(const TExprNode& node) const {
+    VecDateTimeValue value;
+    CastParameters params;
+    if (CastToDateOrDatetime::from_string_strict_mode<DatelikeParseMode::STRICT,
+                                                      DatelikeTargetType::DATE_TIME>(
+                {node.date_literal.value.c_str(), node.date_literal.value.size()}, value, nullptr,
+                params)) {
+        value.to_datetime();
+        return Field::create_field<TYPE_DATETIME>(std::move(value));
+    } else {
+        throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                               "Invalid value: {} for type DateTime", node.date_literal.value);
+    }
+}
+
+} // namespace doris

@@ -41,7 +41,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.nereids.types.VarBinaryType;
-import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
@@ -261,8 +260,11 @@ public class HiveMetaStoreClientHelper {
 
     private static ExprNodeGenericFuncDescContext binaryExprDesc(Expr dorisExpr,
             List<String> partitionKeys, String tblName) throws DdlException {
-        TExprOpcode opcode = dorisExpr.getOpcode();
-        switch (opcode) {
+        if (!(dorisExpr instanceof BinaryPredicate)) {
+            return ExprNodeGenericFuncDescContext.BAD_CONTEXT;
+        }
+        BinaryPredicate.Operator op = ((BinaryPredicate) dorisExpr).getOp();
+        switch (op) {
             case EQ:
             case NE:
             case GE:
@@ -286,13 +288,13 @@ public class HiveMetaStoreClientHelper {
                 PrimitiveTypeInfo hivePrimitiveType = convertToHiveColType(dorisPrimitiveType);
                 Object value = extractDorisLiteral(literalExpr);
                 if (value == null) {
-                    if (opcode == TExprOpcode.EQ_FOR_NULL && literalExpr instanceof NullLiteral) {
+                    if (op == BinaryPredicate.Operator.EQ_FOR_NULL && literalExpr instanceof NullLiteral) {
                         return genExprDesc(tblName, hivePrimitiveType, colName, "NULL", "=");
                     } else {
                         return ExprNodeGenericFuncDescContext.BAD_CONTEXT;
                     }
                 }
-                switch (opcode) {
+                switch (op) {
                     case EQ:
                     case EQ_FOR_NULL:
                         return genExprDesc(tblName, hivePrimitiveType, colName, value, "=");

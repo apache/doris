@@ -25,7 +25,7 @@
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/factory_helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 AggregateFunctionPtr create_aggregate_function_count(const std::string& name,
@@ -51,4 +51,4 @@ void register_aggregate_function_count(AggregateFunctionSimpleFactory& factory) 
     factory.register_function("count", create_aggregate_function_count_not_null_unary, true);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

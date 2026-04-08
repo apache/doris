@@ -31,7 +31,7 @@ class FileWriter;
 } // namespace io
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 class VFileFormatTransformer;
 
@@ -40,4 +40,4 @@ Status create_tvf_format_transformer(const TTVFTableSink& tvf_sink, RuntimeState
                                      const VExprContextSPtrs& output_vexpr_ctxs,
                                      std::unique_ptr<VFileFormatTransformer>* result);
 
-} // namespace doris::vectorized
+} // namespace doris

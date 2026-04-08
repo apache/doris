@@ -26,7 +26,6 @@
 #include "util/debug_points.h"
 
 namespace doris {
-namespace vectorized {
 
 VWalWriter::VWalWriter(int64_t db_id, int64_t tb_id, int64_t wal_id,
                        const std::string& import_label, WalManager* wal_manager,
@@ -68,7 +67,7 @@ Status VWalWriter::init() {
     return Status::OK();
 }
 
-Status VWalWriter::write_wal(vectorized::Block* block) {
+Status VWalWriter::write_wal(Block* block) {
     DBUG_EXECUTE_IF("VWalWriter.write_wal.fail",
                     { return Status::InternalError("Failed to write wal!"); });
     PBlock pblock;
@@ -103,5 +102,4 @@ Status VWalWriter::_create_wal_writer(int64_t wal_id, const io::FileSystemSPtr& 
     RETURN_IF_ERROR(wal_writer->init(fs));
     return Status::OK();
 }
-} // namespace vectorized
 } // namespace doris

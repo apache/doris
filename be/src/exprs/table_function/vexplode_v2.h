@@ -25,12 +25,12 @@
 #include "exprs/function/array/function_array_utils.h"
 #include "exprs/table_function/table_function.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 class Block;
-} // namespace doris::vectorized
+} // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 class VExplodeV2TableFunction : public TableFunction {
     ENABLE_FACTORY_CREATOR(VExplodeV2TableFunction);
@@ -45,6 +45,10 @@ public:
     void process_close() override;
     void get_same_many_values(MutableColumnPtr& column, int length) override;
     int get_value(MutableColumnPtr& column, int max_step) override;
+
+    bool support_block_fast_path() const override;
+    Status prepare_block_fast_path(Block* block, RuntimeState* state,
+                                   BlockFastPathContext* ctx) override;
 
     void set_generate_row_index(bool generate_row_index) {
         _generate_row_index = generate_row_index;
@@ -62,4 +66,4 @@ private:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

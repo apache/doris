@@ -27,10 +27,10 @@
 #include "exec/common/hash_table/hash.h"
 #include "exec/common/hash_table/hash_table.h"
 
-using StringKey2 = doris::vectorized::UInt16;
-using StringKey4 = doris::vectorized::UInt32;
-using StringKey8 = doris::vectorized::UInt64;
-using StringKey16 = doris::vectorized::UInt128;
+using StringKey2 = doris::UInt16;
+using StringKey4 = doris::UInt32;
+using StringKey8 = doris::UInt64;
+using StringKey16 = doris::UInt128;
 
 struct StringHashMapSubKeys {
     using T1 = StringKey2;
@@ -50,7 +50,9 @@ StringKey to_string_key(const doris::StringRef& key) {
 template <typename T>
 inline doris::StringRef ALWAYS_INLINE to_string_ref(const T& n) {
     assert(n != 0);
-    return {reinterpret_cast<const char*>(&n), sizeof(T) - (__builtin_clzll(n) >> 3)};
+    // __builtin_clzll counts leading zero bits in a 64-bit (8-byte) value,
+    // so we must use 8 here instead of sizeof(T) to get the correct byte count.
+    return {reinterpret_cast<const char*>(&n), static_cast<size_t>(8 - (__builtin_clzll(n) >> 3))};
 }
 inline doris::StringRef ALWAYS_INLINE to_string_ref(const StringKey16& n) {
     assert(n.items[1] != 0);
@@ -415,7 +417,7 @@ protected:
             return static_cast<Derived&>(*this);
         }
 
-        auto& operator*() const {
+        auto& operator*() {
             switch (sub_table_index) {
             case 0: {
                 this->cell = *(container->m0.zero_value());
@@ -444,9 +446,13 @@ protected:
             }
             return cell;
         }
-        auto* operator->() const { return &(this->operator*()); }
+        auto* operator->() { return &(this->operator*()); }
 
-        auto get_ptr() const { return &(this->operator*()); }
+        auto get_ptr() { return &(this->operator*()); }
+
+        // Provide get_first()/get_second() at the iterator level, consistent with PHHashMap::iterator
+        auto& get_first() { return (**this).get_first(); }
+        auto& get_second() { return (**this).get_second(); }
 
         size_t get_hash() const {
             switch (sub_table_index) {
@@ -672,6 +678,28 @@ public:
     const_iterator end() const { return const_iterator(this, true); }
     const_iterator cend() const { return end(); }
     iterator end() { return iterator(this, true); }
+
+    /// Public accessors for sub-tables, enabling direct batch operations
+    /// that bypass dispatch() for better performance (no per-row branching).
+    T0& get_submap_m0() { return m0; }
+    T1& get_submap_m1() { return m1; }
+    T2& get_submap_m2() { return m2; }
+    T3& get_submap_m3() { return m3; }
+    T4& get_submap_m4() { return m4; }
+    Ts& get_submap_ms() { return ms; }
+
+    /// Visit each (group_index, submap) pair with a generic callable.
+    /// Func signature: func(std::integral_constant<int, GroupIdx>, Submap&)
+    /// The integral_constant enables compile-time group dispatch in the lambda.
+    template <typename Func>
+    ALWAYS_INLINE void visit_submaps(Func&& func) {
+        func(std::integral_constant<int, 0> {}, m0);
+        func(std::integral_constant<int, 1> {}, m1);
+        func(std::integral_constant<int, 2> {}, m2);
+        func(std::integral_constant<int, 3> {}, m3);
+        func(std::integral_constant<int, 4> {}, m4);
+        func(std::integral_constant<int, 5> {}, ms);
+    }
 
     bool add_elem_size_overflow(size_t add_size) const {
         return m1.add_elem_size_overflow(add_size) || m2.add_elem_size_overflow(add_size) ||

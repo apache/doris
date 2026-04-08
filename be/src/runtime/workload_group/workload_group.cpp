@@ -35,6 +35,8 @@
 #include "information_schema/schema_scanner_helper.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/fs/local_file_reader.h"
+#include "load/memtable/memtable_flush_executor.h"
+#include "load/memtable/memtable_memory_limiter.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/memory/mem_tracker_limiter.h"
@@ -42,6 +44,7 @@
 #include "runtime/runtime_profile.h"
 #include "runtime/workload_group/workload_group_metrics.h"
 #include "runtime/workload_management/io_throttle.h"
+#include "storage/adaptive_thread_pool_controller.h"
 #include "storage/storage_engine.h"
 #include "util/mem_info.h"
 #include "util/parse_util.h"
@@ -392,13 +395,13 @@ WorkloadGroupInfo WorkloadGroupInfo::parse_topic_info(
     }
 
     // 9 scan thread num
-    int scan_thread_num = vectorized::ScannerScheduler::default_local_scan_thread_num();
+    int scan_thread_num = ScannerScheduler::default_local_scan_thread_num();
     if (tworkload_group_info.__isset.scan_thread_num && tworkload_group_info.scan_thread_num > 0) {
         scan_thread_num = tworkload_group_info.scan_thread_num;
     }
 
     // 10 max remote scan thread num
-    int max_remote_scan_thread_num = vectorized::ScannerScheduler::default_remote_scan_thread_num();
+    int max_remote_scan_thread_num = ScannerScheduler::default_remote_scan_thread_num();
     if (tworkload_group_info.__isset.max_remote_scan_thread_num &&
         tworkload_group_info.max_remote_scan_thread_num > 0) {
         max_remote_scan_thread_num = tworkload_group_info.max_remote_scan_thread_num;
@@ -434,11 +437,9 @@ WorkloadGroupInfo WorkloadGroupInfo::parse_topic_info(
     num_cpus = std::thread::hardware_concurrency();
 #endif
     num_disk = std::max(1, num_disk);
-    int min_flush_thread_num = std::max(1, config::flush_thread_num_per_store);
-    int max_flush_thread_num = num_cpus == 0
-                                       ? num_disk * min_flush_thread_num
-                                       : std::min(num_disk * min_flush_thread_num,
-                                                  num_cpus * config::max_flush_thread_num_per_cpu);
+    auto [min_flush_thread_num, max_flush_thread_num] =
+            MemTableFlushExecutor::calc_flush_thread_count(num_cpus, num_disk,
+                                                           config::flush_thread_num_per_store);
 
     // 12 memory low watermark
     int memory_low_watermark = MEMORY_LOW_WATERMARK_DEFAULT_VALUE;
@@ -544,10 +545,10 @@ Status WorkloadGroup::upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
 
     // 1 create thread pool
     if (_task_sched == nullptr) {
-        std::unique_ptr<pipeline::TaskScheduler> pipeline_task_scheduler =
-                std::make_unique<pipeline::HybridTaskScheduler>(pipeline_exec_thread_num,
-                                                                blocking_exec_thread_num,
-                                                                "p_" + wg_name, cg_cpu_ctl_ptr);
+        std::unique_ptr<TaskScheduler> pipeline_task_scheduler =
+                std::make_unique<HybridTaskScheduler>(pipeline_exec_thread_num,
+                                                      blocking_exec_thread_num, "p_" + wg_name,
+                                                      cg_cpu_ctl_ptr);
         Status ret = pipeline_task_scheduler->start();
         if (ret.ok()) {
             _task_sched = std::move(pipeline_task_scheduler);
@@ -558,18 +559,18 @@ Status WorkloadGroup::upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
     }
 
     if (_scan_task_sched == nullptr) {
-        std::unique_ptr<vectorized::ScannerScheduler> scan_scheduler;
+        std::unique_ptr<ScannerScheduler> scan_scheduler;
         if (config::enable_task_executor_in_internal_table) {
-            scan_scheduler = std::make_unique<vectorized::TaskExecutorSimplifiedScanScheduler>(
+            scan_scheduler = std::make_unique<TaskExecutorSimplifiedScanScheduler>(
                     "ls_" + wg_name, cg_cpu_ctl_ptr, wg_name);
         } else {
-            scan_scheduler = std::make_unique<vectorized::ThreadPoolSimplifiedScanScheduler>(
+            scan_scheduler = std::make_unique<ThreadPoolSimplifiedScanScheduler>(
                     "ls_" + wg_name, cg_cpu_ctl_ptr, wg_name);
         }
 
-        Status ret = scan_scheduler->start(
-                scan_thread_num, scan_thread_num, config::doris_scanner_thread_pool_queue_size,
-                vectorized::ScannerScheduler::default_min_active_scan_threads());
+        Status ret = scan_scheduler->start(scan_thread_num, scan_thread_num,
+                                           config::doris_scanner_thread_pool_queue_size,
+                                           ScannerScheduler::default_min_active_scan_threads());
         if (ret.ok()) {
             _scan_task_sched = std::move(scan_scheduler);
         } else {
@@ -579,21 +580,19 @@ Status WorkloadGroup::upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
     }
 
     if (_remote_scan_task_sched == nullptr) {
-        int remote_scan_thread_queue_size =
-                vectorized::ScannerScheduler::get_remote_scan_thread_queue_size();
-        std::unique_ptr<vectorized::ScannerScheduler> remote_scan_scheduler;
+        int remote_scan_thread_queue_size = ScannerScheduler::get_remote_scan_thread_queue_size();
+        std::unique_ptr<ScannerScheduler> remote_scan_scheduler;
         if (config::enable_task_executor_in_external_table) {
-            remote_scan_scheduler =
-                    std::make_unique<vectorized::TaskExecutorSimplifiedScanScheduler>(
-                            "rs_" + wg_name, cg_cpu_ctl_ptr, wg_name);
+            remote_scan_scheduler = std::make_unique<TaskExecutorSimplifiedScanScheduler>(
+                    "rs_" + wg_name, cg_cpu_ctl_ptr, wg_name);
         } else {
-            remote_scan_scheduler = std::make_unique<vectorized::ThreadPoolSimplifiedScanScheduler>(
+            remote_scan_scheduler = std::make_unique<ThreadPoolSimplifiedScanScheduler>(
                     "rs_" + wg_name, cg_cpu_ctl_ptr, wg_name);
         }
         Status ret = remote_scan_scheduler->start(
                 max_remote_scan_thread_num, min_remote_scan_thread_num,
                 remote_scan_thread_queue_size,
-                vectorized::ScannerScheduler::default_min_active_file_scan_threads());
+                ScannerScheduler::default_min_active_file_scan_threads());
         if (ret.ok()) {
             _remote_scan_task_sched = std::move(remote_scan_scheduler);
         } else {
@@ -616,6 +615,17 @@ Status WorkloadGroup::upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
             LOG(INFO) << "[upsert wg thread pool] create " + pool_name + " succ, gid=" << wg_id
                       << ", max thread num=" << max_flush_thread_num
                       << ", min thread num=" << min_flush_thread_num;
+            // Register the new pool with adaptive thread controller
+            if (config::enable_adaptive_flush_threads) {
+                auto* controller =
+                        ExecEnv::GetInstance()->storage_engine().adaptive_thread_controller();
+                auto* flush_pool = _memtable_flush_pool.get();
+                controller->add("flush_wg_" + std::to_string(_id), {flush_pool},
+                                AdaptiveThreadPoolController::make_flush_adjust_func(controller,
+                                                                                     flush_pool),
+                                config::max_flush_thread_num_per_cpu,
+                                config::min_flush_thread_num_per_cpu);
+            }
         } else {
             upsert_ret = ret;
             LOG(INFO) << "[upsert wg thread pool] create " + pool_name + " failed, gid=" << wg_id;
@@ -624,15 +634,14 @@ Status WorkloadGroup::upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
 
     // 2 update thread pool
     if (scan_thread_num > 0 && _scan_task_sched) {
-        _scan_task_sched->reset_thread_num(
-                scan_thread_num, scan_thread_num,
-                vectorized::ScannerScheduler::default_min_active_scan_threads());
+        _scan_task_sched->reset_thread_num(scan_thread_num, scan_thread_num,
+                                           ScannerScheduler::default_min_active_scan_threads());
     }
 
     if (max_remote_scan_thread_num >= min_remote_scan_thread_num && _remote_scan_task_sched) {
         _remote_scan_task_sched->reset_thread_num(
                 max_remote_scan_thread_num, min_remote_scan_thread_num,
-                vectorized::ScannerScheduler::default_min_active_file_scan_threads());
+                ScannerScheduler::default_min_active_file_scan_threads());
     }
 
     return upsert_ret;
@@ -658,9 +667,9 @@ Status WorkloadGroup::upsert_task_scheduler(WorkloadGroupInfo* wg_info) {
     return upsert_thread_pool_no_lock(wg_info, _cgroup_cpu_ctl);
 }
 
-void WorkloadGroup::get_query_scheduler(doris::pipeline::TaskScheduler** exec_sched,
-                                        vectorized::ScannerScheduler** scan_sched,
-                                        vectorized::ScannerScheduler** remote_scan_sched) {
+void WorkloadGroup::get_query_scheduler(doris::TaskScheduler** exec_sched,
+                                        ScannerScheduler** scan_sched,
+                                        ScannerScheduler** remote_scan_sched) {
     std::shared_lock<std::shared_mutex> rlock(_task_sched_lock);
     *exec_sched = _task_sched.get();
     *scan_sched = _scan_task_sched.get();
@@ -746,6 +755,14 @@ void WorkloadGroup::try_stop_schedulers() {
         _remote_scan_task_sched->stop();
     }
     if (_memtable_flush_pool) {
+        // Unregister from adaptive controller before destroying the pool to avoid UAF:
+        // the adjustment loop holds raw ThreadPool* pointers and must not access them
+        // after the pool is gone.
+        if (config::enable_adaptive_flush_threads) {
+            auto* controller =
+                    ExecEnv::GetInstance()->storage_engine().adaptive_thread_controller();
+            controller->cancel("flush_wg_" + std::to_string(_id));
+        }
         _memtable_flush_pool->shutdown();
         _memtable_flush_pool->wait();
     }
@@ -767,10 +784,8 @@ void WorkloadGroup::update_memtable_flush_threads() {
     num_cpus = std::thread::hardware_concurrency();
 #endif
     num_disk = std::max(1, num_disk);
-    int min_threads = std::max(1, config::flush_thread_num_per_store);
-    int max_threads = num_cpus == 0 ? num_disk * min_threads
-                                    : std::min(num_disk * min_threads,
-                                               num_cpus * config::max_flush_thread_num_per_cpu);
+    auto [min_threads, max_threads] = MemTableFlushExecutor::calc_flush_thread_count(
+            num_cpus, num_disk, config::flush_thread_num_per_store);
 
     // Update max_threads first to avoid constraint violation when increasing min_threads
     static_cast<void>(_memtable_flush_pool->set_max_threads(max_threads));

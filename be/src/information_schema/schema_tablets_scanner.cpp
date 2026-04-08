@@ -44,9 +44,7 @@
 #include "storage/tablet/tablet_manager.h"
 
 namespace doris {
-namespace vectorized {
 class Block;
-} // namespace vectorized
 
 #include "common/compile_check_begin.h"
 
@@ -104,7 +102,7 @@ Status SchemaTabletsScanner::_get_all_tablets() {
     return Status::OK();
 }
 
-Status SchemaTabletsScanner::get_next_block_internal(vectorized::Block* block, bool* eos) {
+Status SchemaTabletsScanner::get_next_block_internal(Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }
@@ -115,7 +113,7 @@ Status SchemaTabletsScanner::get_next_block_internal(vectorized::Block* block, b
     return _fill_block_impl(block);
 }
 
-Status SchemaTabletsScanner::_fill_block_impl(vectorized::Block* block) {
+Status SchemaTabletsScanner::_fill_block_impl(Block* block) {
     SCOPED_TIMER(_fill_block_timer);
 
     size_t row_num = _tablets.size();

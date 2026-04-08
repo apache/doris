@@ -15,51 +15,34 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.junit.Assert;
 import java.util.UUID
 
-suite("test_ddl_restore_auth","p0,auth_call") {
-    UUID uuid = UUID.randomUUID()
-    String randomValue = uuid.toString()
-    int hashCode = randomValue.hashCode()
-    hashCode = hashCode > 0 ? hashCode : hashCode * (-1)
+suite("test_ddl_restore_auth", "p0,auth_call") {
+    String label = UUID.randomUUID().toString().replaceAll("-", "").substring(0, 8)
+    def syncer = getSyncer()
 
-    def waitingBackupTaskFinished = { def curDbName ->
-        Thread.sleep(2000)
+    def waitingBackupTaskFinished = { String curDbName ->
         String showTasks = "SHOW BACKUP FROM ${curDbName};"
         String status = "NULL"
-        List<List<Object>> result
-        long startTime = System.currentTimeMillis()
-        long timeoutTimestamp = startTime + 5 * 60 * 1000 // 5 min
-        do {
-            result = sql(showTasks)
-            logger.info("result: " + result.toString())
+        long timeoutTimestamp = System.currentTimeMillis() + 5 * 60 * 1000 // 5 min
+        while (timeoutTimestamp > System.currentTimeMillis()) {
+            List<List<Object>> result = sql(showTasks)
             assertTrue(result.size() == 1)
-            if (!result.isEmpty()) {
-                status = result.last().get(3)
+            status = result.last().get(3)
+            if (status == "FINISHED") {
+                return
             }
-            logger.info("The state of ${showTasks} is ${status}")
-            Thread.sleep(1000);
-        } while (timeoutTimestamp > System.currentTimeMillis() && (status != 'FINISHED'))
-        if (status != "FINISHED") {
-            logger.info("status is not success")
+            Thread.sleep(1000)
         }
         assertTrue(status == "FINISHED")
-        return result[0][1]
     }
 
     String user = 'test_ddl_restore_auth_user'
     String pwd = 'C123_567p'
-    String dbName = 'test_ddl_restore_auth_db'
+    String dbName = "test_ddl_restore_auth_db_${label}"
     String tableName = 'test_ddl_restore_auth_tb'
-    String repositoryName = 'test_ddl_restore_auth_rps'
-    String restoreLabelName = 'test_ddl_restore_auth_restore_label' + hashCode.toString()
-
-    String ak = getS3AK()
-    String sk = getS3SK()
-    String endpoint = getS3Endpoint()
-    String region = getS3Region()
-    String bucket = context.config.otherConfigs.get("s3BucketName");
+    String repositoryName = "test_ddl_restore_auth_rps_${label}"
+    String restoreLabelName = "test_ddl_restore_auth_restore_label_${label}"
 
     //cloud-mode
     if (isCloudMode()) {
@@ -68,7 +51,6 @@ suite("test_ddl_restore_auth","p0,auth_call") {
 
     try_sql("DROP USER ${user}")
     try_sql """drop database if exists ${dbName}"""
-    try_sql("""DROP REPOSITORY `${repositoryName}`;""")
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
     sql """grant select_priv on regression_test to ${user}"""
     sql """create database ${dbName}"""
@@ -88,31 +70,14 @@ suite("test_ddl_restore_auth","p0,auth_call") {
         (3, "333");
         """
 
-    sql """CREATE REPOSITORY `${repositoryName}`
-            WITH S3
-            ON LOCATION "s3://${bucket}/${repositoryName}"
-            PROPERTIES
-            (
-                "s3.endpoint" = "http://${endpoint}",
-                "s3.region" = "${region}",
-                "s3.access_key" = "${ak}",
-                "s3.secret_key" = "${sk}",
-                "delete_if_exists" = "true"
-            )"""
+    syncer.createS3Repository(repositoryName)
     sql """BACKUP SNAPSHOT ${dbName}.${restoreLabelName}
                     TO ${repositoryName}
                     ON (${tableName})
                     PROPERTIES ("type" = "full");"""
-    def real_label = waitingBackupTaskFinished(dbName)
-    def backup_timestamp = sql """SHOW SNAPSHOT ON ${repositoryName};"""
-    logger.info("backup_timestamp: " + backup_timestamp)
-    def real_timestamp
-    for (int i = 0; i < backup_timestamp.size(); i++) {
-        if (backup_timestamp[i][0] == real_label) {
-            real_timestamp = backup_timestamp[i][1]
-            break
-        }
-    }
+    waitingBackupTaskFinished(dbName)
+    def real_timestamp = syncer.getSnapshotTimestamp(repositoryName, restoreLabelName)
+    assertTrue(real_timestamp != null)
 
     sql """truncate table ${dbName}.`${tableName}`"""
 

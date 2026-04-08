@@ -29,7 +29,7 @@
 #include "util/coding.h"
 #include "util/slice.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 Status BoolRLEDecoder::set_data(Slice* slice) {
     _data = slice;
@@ -108,4 +108,4 @@ Status BoolRLEDecoder::_decode_values(MutableColumnPtr& doris_column, DataTypePt
 }
 #include "common/compile_check_end.h"
 
-} // namespace doris::vectorized
+} // namespace doris

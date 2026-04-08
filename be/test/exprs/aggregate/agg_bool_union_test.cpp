@@ -20,7 +20,7 @@
 #include "core/data_type/data_type_number.h"
 #include "exprs/aggregate/agg_function_test.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 struct AggregateFunctionBoolUnionTest : public AggregateFunctiontest {};
 
@@ -77,4 +77,4 @@ TEST_F(AggregateFunctionBoolUnionTest, test_bool_xor) {
                 ColumnHelper::create_column_with_name<DataTypeBool>({true}));
     }
 }
-} // namespace doris::vectorized
+} // namespace doris

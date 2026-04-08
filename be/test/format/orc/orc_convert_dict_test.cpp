@@ -27,7 +27,6 @@
 #include "orc/ColumnPrinter.hh"
 
 namespace doris {
-namespace vectorized {
 class OrcReaderConvertDictTest : public ::testing::Test {
 protected:
     void SetUp() override {}
@@ -231,7 +230,5 @@ TEST_F(OrcReaderConvertDictTest, ConvertDictColumnToStringColumnMixed) {
     ASSERT_EQ(string_column->get_data_at(6).to_string(), "a");
     ASSERT_EQ(string_column->get_data_at(7).to_string(), "");
 }
-
-} // namespace vectorized
 
 } // namespace doris

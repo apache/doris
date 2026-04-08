@@ -102,10 +102,35 @@ def evaluate(num):
         qt_select_negative """ SELECT py_is_positive(-5) AS result; """
         qt_select_zero """ SELECT py_is_positive(0) AS result; """
         
+        // Test 5: LARGEINT increment (validates int128 <-> Python int conversion)
+        sql """ DROP FUNCTION IF EXISTS py_largeint_inc(LARGEINT); """
+        sql """
+        CREATE FUNCTION py_largeint_inc(LARGEINT)
+        RETURNS LARGEINT
+        PROPERTIES (
+            "type" = "PYTHON_UDF",
+            "symbol" = "evaluate",
+            "runtime_version" = "${runtime_version}"
+        )
+        AS \$\$
+def evaluate(val):
+    if val is None:
+        return None
+    return val + 1
+\$\$;
+        """
+
+        qt_select_largeint_inc """ SELECT py_largeint_inc(CAST(100 AS LARGEINT)) AS result; """
+        qt_select_largeint_inc_negative """
+            SELECT py_largeint_inc(CAST(-99999999999999999999 AS LARGEINT)) AS result;
+        """
+        qt_select_largeint_inc_null """ SELECT py_largeint_inc(CAST(NULL AS LARGEINT)) AS result; """
+
     } finally {
         try_sql("DROP FUNCTION IF EXISTS py_add(INT, INT);")
         try_sql("DROP FUNCTION IF EXISTS py_concat(STRING, STRING);")
         try_sql("DROP FUNCTION IF EXISTS py_square(DOUBLE);")
         try_sql("DROP FUNCTION IF EXISTS py_is_positive(INT);")
+        try_sql("DROP FUNCTION IF EXISTS py_largeint_inc(LARGEINT);")
     }
 }

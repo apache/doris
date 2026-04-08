@@ -29,7 +29,6 @@
 #include "runtime/runtime_state.h"
 
 namespace doris {
-namespace vectorized {
 
 VIcebergPartitionWriter::VIcebergPartitionWriter(
         const TDataSink& t_sink, std::vector<std::string> partition_values,
@@ -133,7 +132,7 @@ Status VIcebergPartitionWriter::close(const Status& status) {
     return result_status;
 }
 
-Status VIcebergPartitionWriter::write(vectorized::Block& block) {
+Status VIcebergPartitionWriter::write(Block& block) {
     RETURN_IF_ERROR(_file_format_transformer->write(block));
     _row_count += block.rows();
     return Status::OK();
@@ -146,6 +145,7 @@ Status VIcebergPartitionWriter::_build_iceberg_commit_data(TIcebergCommitData* c
     commit_data->__set_file_path(
             fmt::format("{}/{}", _write_info.original_write_path, _get_target_file_name()));
     commit_data->__set_row_count(_row_count);
+    commit_data->__set_affected_rows(_row_count);
     commit_data->__set_file_size(_file_format_transformer->written_len());
     commit_data->__set_file_content(TFileContent::DATA);
     commit_data->__set_partition_values(_partition_values);
@@ -208,5 +208,4 @@ std::string VIcebergPartitionWriter::_get_target_file_name() {
                        _get_file_extension(_file_format_type, _compress_type));
 }
 
-} // namespace vectorized
 } // namespace doris

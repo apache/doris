@@ -39,7 +39,7 @@
 #include "testutil/test_util.h"
 #include "util/slice.h"
 #include "util/string_util.h"
-namespace doris::vectorized {
+namespace doris {
 static std::string test_data_dir;
 
 static auto serde_date_v2 = std::make_shared<DataTypeDateV2SerDe>();
@@ -279,4 +279,4 @@ TEST_F(DataTypeDateTimeV2SerDeTest, ArrowMemNotAlignedDateTime) {
     EXPECT_TRUE(st.ok());
 }
 
-} // namespace doris::vectorized
+} // namespace doris

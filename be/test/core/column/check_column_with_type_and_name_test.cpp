@@ -24,7 +24,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/primitive_type.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(CheckTypeAndColumnMatchTest, test) {
     {
@@ -69,4 +69,4 @@ TEST(CheckTypeAndColumnMatchTest, test) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

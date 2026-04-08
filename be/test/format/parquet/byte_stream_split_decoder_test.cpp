@@ -23,7 +23,7 @@
 #include "core/data_type/data_type_number.h"
 #include "util/slice.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class ByteStreamSplitDecoderTest : public ::testing::Test {
 protected:
@@ -402,4 +402,4 @@ TEST_F(ByteStreamSplitDecoderTest, test_skip_value_double) {
     EXPECT_DOUBLE_EQ(result_column->get_data()[0], 3.0);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

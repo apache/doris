@@ -48,7 +48,7 @@
 #include "storage/tablet/tablet_manager.h"
 #include "util/to_string.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 Status OlapScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
@@ -58,9 +58,9 @@ Status OlapScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
         const doris::TExpr& ordering_expr = olap_scan_node.score_sort_info.ordering_exprs.front();
         const bool asc = olap_scan_node.score_sort_info.is_asc_order[0];
         const size_t limit = olap_scan_node.score_sort_limit;
-        std::shared_ptr<vectorized::VExprContext> ordering_expr_ctx;
-        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(ordering_expr, ordering_expr_ctx));
-        _score_runtime = vectorized::ScoreRuntime::create_shared(ordering_expr_ctx, asc, limit);
+        std::shared_ptr<VExprContext> ordering_expr_ctx;
+        RETURN_IF_ERROR(VExpr::create_expr_tree(ordering_expr, ordering_expr_ctx));
+        _score_runtime = ScoreRuntime::create_shared(ordering_expr_ctx, asc, limit);
     }
 
     if (olap_scan_node.__isset.ann_sort_info || olap_scan_node.__isset.ann_sort_limit) {
@@ -73,8 +73,8 @@ Status OlapScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
         DCHECK(olap_scan_node.ann_sort_info.is_asc_order.size() == 1);
         const bool asc = olap_scan_node.ann_sort_info.is_asc_order[0];
         const size_t limit = olap_scan_node.ann_sort_limit;
-        std::shared_ptr<vectorized::VExprContext> ordering_expr_ctx;
-        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(ordering_expr, ordering_expr_ctx));
+        std::shared_ptr<VExprContext> ordering_expr_ctx;
+        RETURN_IF_ERROR(VExpr::create_expr_tree(ordering_expr, ordering_expr_ctx));
         _ann_topn_runtime =
                 segment_v2::AnnTopNRuntime::create_shared(asc, limit, ordering_expr_ctx);
     }
@@ -96,20 +96,19 @@ Status OlapScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
 }
 
 PushDownType OlapScanLocalState::_should_push_down_binary_predicate(
-        vectorized::VectorizedFnCall* fn_call, vectorized::VExprContext* expr_ctx,
-        vectorized::Field& constant_val, const std::set<std::string> fn_name) const {
+        VectorizedFnCall* fn_call, VExprContext* expr_ctx, Field& constant_val,
+        const std::set<std::string> fn_name) const {
     if (!fn_name.contains(fn_call->fn().name.function_name)) {
         return PushDownType::UNACCEPTABLE;
     }
     const auto& children = fn_call->children();
     DCHECK(children.size() == 2);
-    DCHECK_EQ(vectorized::VExpr::expr_without_cast(children[0])->node_type(),
-              TExprNodeType::SLOT_REF);
+    DCHECK_EQ(VExpr::expr_without_cast(children[0])->node_type(), TExprNodeType::SLOT_REF);
     if (children[1]->is_constant()) {
         std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
         THROW_IF_ERROR(children[1]->get_const_col(expr_ctx, &const_col_wrapper));
         const auto* const_column =
-                assert_cast<const vectorized::ColumnConst*>(const_col_wrapper->column_ptr.get());
+                assert_cast<const ColumnConst*>(const_col_wrapper->column_ptr.get());
         constant_val = const_column->operator[](0);
         return PushDownType::ACCEPTABLE;
     } else {
@@ -172,6 +171,12 @@ Status OlapScanLocalState::_init_profile() {
                                   TUnit::BYTES, sync_rowset_timer_name);
         _sync_rowset_get_remote_delete_bitmap_rpc_timer = ADD_CHILD_TIMER(
                 _scanner_profile, "SyncRowsetGetRemoteDeleteBitmapRpcTime", sync_rowset_timer_name);
+        _sync_rowset_bthread_schedule_wait_timer = ADD_CHILD_TIMER(
+                _scanner_profile, "SyncRowsetBthreadScheduleWaitTime", sync_rowset_timer_name);
+        _sync_rowset_meta_lock_wait_timer = ADD_CHILD_TIMER(
+                _scanner_profile, "SyncRowsetMetaLockWaitTime", sync_rowset_timer_name);
+        _sync_rowset_sync_meta_lock_wait_timer = ADD_CHILD_TIMER(
+                _scanner_profile, "SyncRowsetSyncMetaLockWaitTime", sync_rowset_timer_name);
     }
     _block_init_timer = ADD_TIMER(_segment_profile, "BlockInitTime");
     _block_init_seek_timer = ADD_TIMER(_segment_profile, "BlockInitSeekTime");
@@ -233,33 +238,37 @@ Status OlapScanLocalState::_init_profile() {
 
     _statistics_collect_timer = ADD_TIMER(_scanner_profile, "StatisticsCollectTime");
     _inverted_index_filter_counter =
-            ADD_COUNTER(_segment_profile, "RowsInvertedIndexFiltered", TUnit::UNIT);
-    _inverted_index_filter_timer = ADD_TIMER(_segment_profile, "InvertedIndexFilterTime");
+            ADD_COUNTER_WITH_LEVEL(_segment_profile, "RowsInvertedIndexFiltered", TUnit::UNIT, 1);
+    _inverted_index_filter_timer =
+            ADD_TIMER_WITH_LEVEL(_segment_profile, "InvertedIndexFilterTime", 1);
     _inverted_index_query_cache_hit_counter =
-            ADD_COUNTER(_segment_profile, "InvertedIndexQueryCacheHit", TUnit::UNIT);
+            ADD_COUNTER_WITH_LEVEL(_segment_profile, "InvertedIndexQueryCacheHit", TUnit::UNIT, 1);
     _inverted_index_query_cache_miss_counter =
-            ADD_COUNTER(_segment_profile, "InvertedIndexQueryCacheMiss", TUnit::UNIT);
-    _inverted_index_query_timer = ADD_TIMER(_segment_profile, "InvertedIndexQueryTime");
+            ADD_COUNTER_WITH_LEVEL(_segment_profile, "InvertedIndexQueryCacheMiss", TUnit::UNIT, 1);
+    _inverted_index_query_timer =
+            ADD_TIMER_WITH_LEVEL(_segment_profile, "InvertedIndexQueryTime", 1);
     _inverted_index_query_null_bitmap_timer =
-            ADD_TIMER(_segment_profile, "InvertedIndexQueryNullBitmapTime");
+            ADD_TIMER_WITH_LEVEL(_segment_profile, "InvertedIndexQueryNullBitmapTime", 1);
     _inverted_index_query_bitmap_copy_timer =
-            ADD_TIMER(_segment_profile, "InvertedIndexQueryBitmapCopyTime");
+            ADD_TIMER_WITH_LEVEL(_segment_profile, "InvertedIndexQueryBitmapCopyTime", 1);
     _inverted_index_searcher_open_timer =
-            ADD_TIMER(_segment_profile, "InvertedIndexSearcherOpenTime");
+            ADD_TIMER_WITH_LEVEL(_segment_profile, "InvertedIndexSearcherOpenTime", 1);
     _inverted_index_searcher_search_timer =
-            ADD_TIMER(_segment_profile, "InvertedIndexSearcherSearchTime");
+            ADD_TIMER_WITH_LEVEL(_segment_profile, "InvertedIndexSearcherSearchTime", 1);
     _inverted_index_searcher_search_init_timer =
-            ADD_TIMER(_segment_profile, "InvertedIndexSearcherSearchInitTime");
+            ADD_TIMER_WITH_LEVEL(_segment_profile, "InvertedIndexSearcherSearchInitTime", 1);
     _inverted_index_searcher_search_exec_timer =
-            ADD_TIMER(_segment_profile, "InvertedIndexSearcherSearchExecTime");
-    _inverted_index_searcher_cache_hit_counter =
-            ADD_COUNTER(_segment_profile, "InvertedIndexSearcherCacheHit", TUnit::UNIT);
-    _inverted_index_searcher_cache_miss_counter =
-            ADD_COUNTER(_segment_profile, "InvertedIndexSearcherCacheMiss", TUnit::UNIT);
+            ADD_TIMER_WITH_LEVEL(_segment_profile, "InvertedIndexSearcherSearchExecTime", 1);
+    _inverted_index_searcher_cache_hit_counter = ADD_COUNTER_WITH_LEVEL(
+            _segment_profile, "InvertedIndexSearcherCacheHit", TUnit::UNIT, 1);
+    _inverted_index_searcher_cache_miss_counter = ADD_COUNTER_WITH_LEVEL(
+            _segment_profile, "InvertedIndexSearcherCacheMiss", TUnit::UNIT, 1);
     _inverted_index_downgrade_count_counter =
-            ADD_COUNTER(_segment_profile, "InvertedIndexDowngradeCount", TUnit::UNIT);
-    _inverted_index_analyzer_timer = ADD_TIMER(_segment_profile, "InvertedIndexAnalyzerTime");
-    _inverted_index_lookup_timer = ADD_TIMER(_segment_profile, "InvertedIndexLookupTimer");
+            ADD_COUNTER_WITH_LEVEL(_segment_profile, "InvertedIndexDowngradeCount", TUnit::UNIT, 1);
+    _inverted_index_analyzer_timer =
+            ADD_TIMER_WITH_LEVEL(_segment_profile, "InvertedIndexAnalyzerTime", 1);
+    _inverted_index_lookup_timer =
+            ADD_TIMER_WITH_LEVEL(_segment_profile, "InvertedIndexLookupTimer", 1);
 
     _output_index_result_column_timer = ADD_TIMER(_segment_profile, "OutputIndexResultColumnTime");
     _filtered_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentFiltered", TUnit::UNIT);
@@ -332,6 +341,11 @@ Status OlapScanLocalState::_init_profile() {
     _ann_topn_engine_search_costs = ADD_CHILD_TIMER(
             _segment_profile, "AnnIndexTopNEngineSearchCosts", "AnnIndexTopNSearchCosts");
     _ann_index_load_costs = ADD_TIMER(_segment_profile, "AnnIndexLoadCosts");
+    _ann_ivf_on_disk_load_costs = ADD_TIMER(_segment_profile, "AnnIvfOnDiskLoadCosts");
+    _ann_ivf_on_disk_cache_hit_cnt =
+            ADD_COUNTER(_segment_profile, "AnnIvfOnDiskCacheHitCnt", TUnit::UNIT);
+    _ann_ivf_on_disk_cache_miss_cnt =
+            ADD_COUNTER(_segment_profile, "AnnIvfOnDiskCacheMissCnt", TUnit::UNIT);
     _ann_topn_post_process_costs = ADD_CHILD_TIMER(
             _segment_profile, "AnnIndexTopNResultPostProcessCosts", "AnnIndexTopNSearchCosts");
     _ann_topn_pre_process_costs = ADD_CHILD_TIMER(
@@ -358,6 +372,8 @@ Status OlapScanLocalState::_init_profile() {
     _ann_range_result_convert_costs =
             ADD_CHILD_TIMER(_segment_profile, "AnnIndexRangeResultConvertCosts",
                             "AnnIndexRangeResultPostProcessCosts");
+    _ann_fallback_brute_force_cnt =
+            ADD_COUNTER(_segment_profile, "AnnIndexFallbackBruteForceCnt", TUnit::UNIT);
     _variant_scan_sparse_column_timer = ADD_TIMER(_segment_profile, "VariantScanSparseColumnTimer");
     _variant_scan_sparse_column_bytes =
             ADD_COUNTER(_segment_profile, "VariantScanSparseColumnBytes", TUnit::BYTES);
@@ -374,10 +390,6 @@ Status OlapScanLocalState::_init_profile() {
     _variant_doc_value_column_iter_count =
             ADD_COUNTER(_segment_profile, "VariantDocValueColumnIterCount", TUnit::UNIT);
 
-    _condition_cache_hit_segment_counter =
-            ADD_COUNTER(_segment_profile, "ConditionCacheSegmentHit", TUnit::UNIT);
-    _condition_cache_filtered_rows_counter =
-            ADD_COUNTER(_segment_profile, "ConditionCacheFilteredRows", TUnit::UNIT);
     return Status::OK();
 }
 
@@ -404,8 +416,8 @@ bool OlapScanLocalState::_is_key_column(const std::string& key_name) {
     return res != p._olap_scan_node.key_column_name.end();
 }
 
-Status OlapScanLocalState::_should_push_down_function_filter(vectorized::VectorizedFnCall* fn_call,
-                                                             vectorized::VExprContext* expr_ctx,
+Status OlapScanLocalState::_should_push_down_function_filter(VectorizedFnCall* fn_call,
+                                                             VExprContext* expr_ctx,
                                                              StringRef* constant_str,
                                                              doris::FunctionContext** fn_ctx,
                                                              PushDownType& pdt) {
@@ -420,8 +432,7 @@ Status OlapScanLocalState::_should_push_down_function_filter(vectorized::Vectori
     DCHECK(func_cxt != nullptr);
     DCHECK(children.size() == 2);
     for (size_t i = 0; i < children.size(); i++) {
-        if (vectorized::VExpr::expr_without_cast(children[i])->node_type() !=
-            TExprNodeType::SLOT_REF) {
+        if (VExpr::expr_without_cast(children[i])->node_type() != TExprNodeType::SLOT_REF) {
             // not a slot ref(column)
             continue;
         }
@@ -433,8 +444,8 @@ Status OlapScanLocalState::_should_push_down_function_filter(vectorized::Vectori
             DCHECK(is_string_type(children[1 - i]->data_type()->get_primitive_type()));
             std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
             RETURN_IF_ERROR(children[1 - i]->get_const_col(expr_ctx, &const_col_wrapper));
-            if (const auto* const_column = check_and_get_column<vectorized::ColumnConst>(
-                        const_col_wrapper->column_ptr.get())) {
+            if (const auto* const_column =
+                        check_and_get_column<ColumnConst>(const_col_wrapper->column_ptr.get())) {
                 *constant_str = const_column->get_data_at(0);
             } else {
                 pdt = PushDownType::UNACCEPTABLE;
@@ -456,10 +467,16 @@ bool OlapScanLocalState::_storage_no_merge() {
     return (p._olap_scan_node.keyType == TKeysType::DUP_KEYS ||
             (p._olap_scan_node.keyType == TKeysType::UNIQUE_KEYS &&
              p._olap_scan_node.__isset.enable_unique_key_merge_on_write &&
-             p._olap_scan_node.enable_unique_key_merge_on_write));
+             p._olap_scan_node.enable_unique_key_merge_on_write)) ||
+           _read_mor_as_dup();
 }
 
-Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* scanners) {
+bool OlapScanLocalState::_read_mor_as_dup() {
+    auto& p = _parent->cast<OlapScanOperatorX>();
+    return p._olap_scan_node.__isset.read_mor_as_dup && p._olap_scan_node.read_mor_as_dup;
+}
+
+Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     if (_scan_ranges.empty()) {
         _eos = true;
         _scan_dependency->set_ready();
@@ -472,9 +489,13 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
         _output_column_ids.emplace(uid);
     }
 
-    // ranges constructed from scan keys
+    // Step 3: convert accumulated scan key pairs into OlapScanRange objects.
+    // Each OlapScanRange carries real begin/end OlapTuples with has_lower_bound = true.
     RETURN_IF_ERROR(_scan_keys.get_key_range(&_cond_ranges));
-    // if we can't get ranges from conditions, we give it a total range
+    // If no key predicates were pushed down, _cond_ranges is empty.
+    // Create a single default-constructed OlapScanRange (has_lower_bound = false)
+    // to represent a full table scan.  Consumers detect this and skip pushing
+    // key range to the tablet reader.
     if (_cond_ranges.empty()) {
         _cond_ranges.emplace_back(new doris::OlapScanRange());
     }
@@ -490,10 +511,11 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
     if (enable_parallel_scan && !p._should_run_serial &&
         p._push_down_agg_type == TPushAggOp::NONE &&
         (_storage_no_merge() || p._olap_scan_node.is_preaggregation)) {
+        // Filter out the "full scan" placeholder range (has_lower_bound == false)
+        // so that only ranges with real key bounds are forwarded to the parallel scanner.
         std::vector<OlapScanRange*> key_ranges;
         for (auto& range : _cond_ranges) {
-            if (range->begin_scan_range.size() == 1 &&
-                range->begin_scan_range.get_value(0) == NEGATIVE_INFINITY) {
+            if (!range->has_lower_bound) {
                 continue;
             }
             key_ranges.emplace_back(range.get());
@@ -528,7 +550,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
 
         RETURN_IF_ERROR(scanner_builder.build_scanners(*scanners));
         for (auto& scanner : *scanners) {
-            auto* olap_scanner = assert_cast<vectorized::OlapScanner*>(scanner.get());
+            auto* olap_scanner = assert_cast<OlapScanner*>(scanner.get());
             RETURN_IF_ERROR(olap_scanner->init(state(), _conjuncts));
         }
 
@@ -578,17 +600,17 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
             for (auto& split : _read_sources[scan_range_idx].rs_splits) {
                 split.rs_reader = split.rs_reader->clone();
             }
-            auto scanner = vectorized::OlapScanner::create_shared(
-                    this, vectorized::OlapScanner::Params {
-                                  state(),
-                                  _scanner_profile.get(),
-                                  scanner_ranges,
-                                  _tablets[scan_range_idx].tablet,
-                                  version,
-                                  _read_sources[scan_range_idx],
-                                  p._limit,
-                                  p._olap_scan_node.is_preaggregation,
-                          });
+            auto scanner =
+                    OlapScanner::create_shared(this, OlapScanner::Params {
+                                                             state(),
+                                                             _scanner_profile.get(),
+                                                             scanner_ranges,
+                                                             _tablets[scan_range_idx].tablet,
+                                                             version,
+                                                             _read_sources[scan_range_idx],
+                                                             p._limit,
+                                                             p._olap_scan_node.is_preaggregation,
+                                                     });
             RETURN_IF_ERROR(scanner->init(state(), _conjuncts));
             scanners->push_back(std::move(scanner));
         }
@@ -616,7 +638,16 @@ Status OlapScanLocalState::_sync_cloud_tablets(RuntimeState* state) {
                                 _scan_ranges[i]->version.data() + _scan_ranges[i]->version.size(),
                                 version);
                 auto task_ctx = state->get_task_execution_context();
-                tasks.emplace_back([this, sync_stats, version, i, task_ctx]() {
+                auto task_create_time = std::chrono::steady_clock::now();
+                tasks.emplace_back([this, sync_stats, version, i, task_ctx, task_create_time]() {
+                    // Record bthread scheduling delay
+                    auto task_start_time = std::chrono::steady_clock::now();
+                    if (sync_stats) {
+                        sync_stats->bthread_schedule_delay_ns +=
+                                std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                        task_start_time - task_create_time)
+                                        .count();
+                    }
                     auto task_lock = task_ctx.lock();
                     if (task_lock == nullptr) {
                         return Status::OK();
@@ -690,6 +721,11 @@ Status OlapScanLocalState::prepare(RuntimeState* state) {
                            sync_stats.get_remote_delete_bitmap_bytes);
             COUNTER_UPDATE(_sync_rowset_get_remote_delete_bitmap_rpc_timer,
                            sync_stats.get_remote_delete_bitmap_rpc_ns);
+            COUNTER_UPDATE(_sync_rowset_bthread_schedule_wait_timer,
+                           sync_stats.bthread_schedule_delay_ns);
+            COUNTER_UPDATE(_sync_rowset_meta_lock_wait_timer, sync_stats.meta_lock_wait_ns);
+            COUNTER_UPDATE(_sync_rowset_sync_meta_lock_wait_timer,
+                           sync_stats.sync_meta_lock_wait_ns);
         }
         auto time_ms = _sync_cloud_tablets_watcher.elapsed_time_microseconds();
         if (time_ms >= config::sync_rowsets_slow_threshold_ms) {
@@ -776,9 +812,8 @@ Status OlapScanLocalState::open(RuntimeState* state) {
         const SlotDescriptor* slot_desc = pair.second;
         std::shared_ptr<doris::TExpr> virtual_col_expr = slot_desc->get_virtual_column_expr();
         if (virtual_col_expr) {
-            std::shared_ptr<doris::vectorized::VExprContext> virtual_column_expr_ctx;
-            RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(*virtual_col_expr,
-                                                                virtual_column_expr_ctx));
+            std::shared_ptr<doris::VExprContext> virtual_column_expr_ctx;
+            RETURN_IF_ERROR(VExpr::create_expr_tree(*virtual_col_expr, virtual_column_expr_ctx));
             RETURN_IF_ERROR(virtual_column_expr_ctx->prepare(state, p.intermediate_row_desc()));
             RETURN_IF_ERROR(virtual_column_expr_ctx->open(state));
 
@@ -863,6 +898,28 @@ inline std::string push_down_agg_to_string(const TPushAggOp::type& op) {
     }
 }
 
+/// Step 2 of the scan-key generation pipeline.
+///
+/// Iterate key columns in schema order; for each one, look up its ColumnValueRange
+/// from _slot_id_to_value_range (populated by _normalize_conjuncts) and call
+/// _scan_keys.extend_scan_key() to grow the multi-column prefix key set.
+///
+/// Example – table t(k1 INT, k2 INT, v INT), key columns = (k1, k2):
+///   Input ColumnValueRanges:
+///     k1: fixed_values = {1, 2}
+///     k2: fixed_values = {10}
+///   After extend_scan_key(k1):
+///     _begin_scan_keys = [(1), (2)]        _end_scan_keys = [(1), (2)]
+///   After extend_scan_key(k2):
+///     _begin_scan_keys = [(1,10), (2,10)]  _end_scan_keys = [(1,10), (2,10)]
+///
+/// Loop terminates when:
+///   - A key column has no predicate (break)
+///   - A range column was appended (_has_range_value, cannot extend further)
+///   - The ColumnValueRange is provably empty (eos)
+///   - The fixed-value set exceeds max_scan_key_num (should_break or fall back to range)
+///
+/// At the end, _scan_keys.get_key_range() converts these into OlapScanRange objects.
 Status OlapScanLocalState::_build_key_ranges_and_filters() {
     auto& p = _parent->cast<OlapScanOperatorX>();
     if (p._push_down_agg_type == TPushAggOp::NONE ||
@@ -898,6 +955,7 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
             const auto& value_range = iter->second;
 
             std::optional<int> key_to_erase;
+            bool is_fixed_value_range = false;
 
             RETURN_IF_ERROR(std::visit(
                     [&](auto&& range) {
@@ -911,6 +969,7 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
                                                                &exact_range, &eos, &should_break));
                             if (exact_range) {
                                 key_to_erase = iter->first;
+                                is_fixed_value_range = range.is_fixed_value_range();
                             }
                         } else {
                             // if exceed max_pushdown_conditions_per_column, use whole_value_rang instead
@@ -928,9 +987,49 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
             if (key_to_erase.has_value()) {
                 _slot_id_to_value_range.erase(*key_to_erase);
 
+                // Determine which predicates are subsumed by the scan key range and can
+                // be removed.  The rule depends on the ColumnValueRange type:
+                //
+                //   Fixed value range  →  scan keys are exact point lookups, so both
+                //                         comparison (EQ/LT/LE/GT/GE) and positive IN_LIST
+                //                         predicates are fully captured and can be erased.
+                //
+                //   Scope range        →  scan keys only capture [low, high] boundaries,
+                //                         so only comparison predicates are subsumed.
+                //                         IN_LIST predicates (whose values may NOT have been
+                //                         absorbed into the ColumnValueRange, e.g., because
+                //                         the value count exceeded max_pushdown_conditions_per_column)
+                //                         must be preserved.
+                //
+                // In either case, predicates with negation semantics (effective NE / NOT_IN_LIST)
+                // are never subsumed by scan key ranges and must always be preserved.
+                auto can_erase_predicate = [is_fixed_value_range](const ColumnPredicate& pred) {
+                    PredicateType pt = pred.type();
+                    bool opposite = pred.opposite();
+
+                    // Effective NE: never subsumed by any scan key range.
+                    if ((pt == PredicateType::NE && !opposite) ||
+                        (pt == PredicateType::EQ && opposite)) {
+                        return false;
+                    }
+                    // Comparison predicates (EQ/LT/LE/GT/GE) or IS_NULL/IS_NOT_NULL: subsumed by both
+                    // fixed value and scope ranges.
+                    if (PredicateTypeTraits::is_comparison(pt) || pt == PredicateType::IS_NULL ||
+                        pt == PredicateType::IS_NOT_NULL) {
+                        return true;
+                    }
+                    // Effective IN_LIST: only subsumed by fixed value range.
+                    if ((pt == PredicateType::IN_LIST && !opposite) ||
+                        (pt == PredicateType::NOT_IN_LIST && opposite)) {
+                        return is_fixed_value_range;
+                    }
+                    // Everything else (BF, BITMAP, NOT_IN_LIST, etc.): keep.
+                    return false;
+                };
+
                 std::vector<std::shared_ptr<ColumnPredicate>> new_predicates;
                 for (const auto& it : _slot_id_to_predicates[*key_to_erase]) {
-                    if (!it->could_be_erased()) {
+                    if (!can_erase_predicate(*it)) {
                         new_predicates.push_back(it);
                     }
                 }
@@ -993,4 +1092,4 @@ OlapScanOperatorX::OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, i
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

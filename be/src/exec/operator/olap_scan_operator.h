@@ -28,11 +28,11 @@
 #include "runtime/runtime_profile.h"
 #include "storage/tablet/tablet_reader.h"
 
-namespace doris::vectorized {
+namespace doris {
 class OlapScanner;
-} // namespace doris::vectorized
+} // namespace doris
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class OlapScanOperatorX;
@@ -47,9 +47,12 @@ public:
     TOlapScanNode& olap_scan_node() const;
 
     std::string name_suffix() const override {
-        return fmt::format("(nereids_id={}. table_name={})" + operator_name_suffix,
-                           std::to_string(_parent->nereids_id()), olap_scan_node().table_name,
-                           std::to_string(_parent->node_id()));
+        if (_parent->nereids_id() == -1) {
+            return fmt::format("(id={}, table_name={})", _parent->node_id(),
+                               olap_scan_node().table_name);
+        }
+        return fmt::format("(nereids_id={}, id={}, table_name={})", _parent->nereids_id(),
+                           _parent->node_id(), olap_scan_node().table_name);
     }
     std::vector<Dependency*> execution_dependencies() override {
         if (!_cloud_tablet_dependency) {
@@ -63,7 +66,7 @@ public:
     Status open(RuntimeState* state) override;
 
 private:
-    friend class vectorized::OlapScanner;
+    friend class OlapScanner;
 
     Status _sync_cloud_tablets(RuntimeState* state);
     void set_scan_ranges(RuntimeState* state,
@@ -72,8 +75,7 @@ private:
     Status _process_conjuncts(RuntimeState* state) override;
     bool _is_key_column(const std::string& col_name) override;
 
-    Status _should_push_down_function_filter(vectorized::VectorizedFnCall* fn_call,
-                                             vectorized::VExprContext* expr_ctx,
+    Status _should_push_down_function_filter(VectorizedFnCall* fn_call, VExprContext* expr_ctx,
                                              StringRef* constant_str,
                                              doris::FunctionContext** fn_ctx,
                                              PushDownType& pdt) override;
@@ -87,8 +89,7 @@ private:
         return PushDownType::ACCEPTABLE;
     }
 
-    PushDownType _should_push_down_is_null_predicate(
-            vectorized::VectorizedFnCall* fn_call) const override {
+    PushDownType _should_push_down_is_null_predicate(VectorizedFnCall* fn_call) const override {
         return fn_call->fn().name.function_name == "is_null_pred" ||
                                fn_call->fn().name.function_name == "is_not_null_pred"
                        ? PushDownType::ACCEPTABLE
@@ -98,14 +99,15 @@ private:
         return PushDownType::ACCEPTABLE;
     }
     PushDownType _should_push_down_binary_predicate(
-            vectorized::VectorizedFnCall* fn_call, vectorized::VExprContext* expr_ctx,
-            vectorized::Field& constant_val, const std::set<std::string> fn_name) const override;
+            VectorizedFnCall* fn_call, VExprContext* expr_ctx, Field& constant_val,
+            const std::set<std::string> fn_name) const override;
 
     bool _should_push_down_common_expr() override;
 
     bool _storage_no_merge() override;
 
-    bool _push_down_topn(const vectorized::RuntimePredicate& predicate) override {
+    bool _read_mor_as_dup();
+    bool _push_down_topn(const RuntimePredicate& predicate) override {
         if (!predicate.target_is_slot(_parent->node_id())) {
             return false;
         }
@@ -117,7 +119,7 @@ private:
         return _is_key_column(predicate.get_col_name(_parent->node_id()));
     }
 
-    Status _init_scanners(std::list<vectorized::ScannerSPtr>* scanners) override;
+    Status _init_scanners(std::list<ScannerSPtr>* scanners) override;
 
     Status _build_key_ranges_and_filters();
 
@@ -181,6 +183,9 @@ private:
     RuntimeProfile::Counter* _sync_rowset_get_remote_delete_bitmap_key_count = nullptr;
     RuntimeProfile::Counter* _sync_rowset_get_remote_delete_bitmap_bytes = nullptr;
     RuntimeProfile::Counter* _sync_rowset_get_remote_delete_bitmap_rpc_timer = nullptr;
+    RuntimeProfile::Counter* _sync_rowset_bthread_schedule_wait_timer = nullptr;
+    RuntimeProfile::Counter* _sync_rowset_meta_lock_wait_timer = nullptr;
+    RuntimeProfile::Counter* _sync_rowset_sync_meta_lock_wait_timer = nullptr;
     RuntimeProfile::Counter* _block_load_timer = nullptr;
     RuntimeProfile::Counter* _block_load_counter = nullptr;
     // Add more detail seek timer and counter profile
@@ -233,6 +238,9 @@ private:
     RuntimeProfile::Counter* _ann_topn_search_cnt = nullptr;
 
     RuntimeProfile::Counter* _ann_index_load_costs = nullptr;
+    RuntimeProfile::Counter* _ann_ivf_on_disk_load_costs = nullptr;
+    RuntimeProfile::Counter* _ann_ivf_on_disk_cache_hit_cnt = nullptr;
+    RuntimeProfile::Counter* _ann_ivf_on_disk_cache_miss_cnt = nullptr;
     RuntimeProfile::Counter* _ann_topn_pre_process_costs = nullptr;
     RuntimeProfile::Counter* _ann_topn_engine_search_costs = nullptr;
     RuntimeProfile::Counter* _ann_topn_post_process_costs = nullptr;
@@ -252,16 +260,14 @@ private:
     RuntimeProfile::Counter* _ann_range_engine_convert_costs = nullptr;
     RuntimeProfile::Counter* _ann_range_result_convert_costs = nullptr;
 
+    RuntimeProfile::Counter* _ann_fallback_brute_force_cnt = nullptr;
+
     RuntimeProfile::Counter* _output_index_result_column_timer = nullptr;
 
     // number of segment filtered by column stat when creating seg iterator
     RuntimeProfile::Counter* _filtered_segment_counter = nullptr;
     // total number of segment related to this scan node
     RuntimeProfile::Counter* _total_segment_counter = nullptr;
-
-    // condition cache filter stats
-    RuntimeProfile::Counter* _condition_cache_hit_segment_counter = nullptr;
-    RuntimeProfile::Counter* _condition_cache_filtered_rows_counter = nullptr;
 
     // timer about tablet reader
     RuntimeProfile::Counter* _tablet_reader_init_timer = nullptr;
@@ -311,10 +317,10 @@ private:
     std::vector<TabletWithVersion> _tablets;
     std::vector<TabletReadSource> _read_sources;
 
-    std::map<SlotId, vectorized::VExprContextSPtr> _slot_id_to_virtual_column_expr;
+    std::map<SlotId, VExprContextSPtr> _slot_id_to_virtual_column_expr;
     std::map<SlotId, size_t> _slot_id_to_index_in_block;
     // this map is needed for scanner opening.
-    std::map<SlotId, vectorized::DataTypePtr> _slot_id_to_col_type;
+    std::map<SlotId, DataTypePtr> _slot_id_to_col_type;
 };
 
 class OlapScanOperatorX final : public ScanOperatorX<OlapScanLocalState> {
@@ -339,4 +345,4 @@ private:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

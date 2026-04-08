@@ -33,6 +33,7 @@ import org.apache.doris.datasource.maxcompute.source.MaxComputeSplit.SplitType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 
@@ -95,7 +96,7 @@ public class MaxComputeScanNodeTest {
 
         sv = new SessionVariable();
         node = new MaxComputeScanNode(new PlanNodeId(0), desc,
-                SelectedPartitions.NOT_PRUNED, false, sv);
+                SelectedPartitions.NOT_PRUNED, false, sv, ScanContext.EMPTY);
     }
 
     // ==================== Reflection Helpers ====================

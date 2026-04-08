@@ -33,7 +33,7 @@ public:
                      const UniqueId& load_id);
     ~CloudDeltaWriter() override;
 
-    Status write(const vectorized::Block* block, const DorisVector<uint32_t>& row_idxs) override;
+    Status write(const Block* block, const DorisVector<uint32_t>& row_idxs) override;
 
     Status close() override;
 
@@ -51,7 +51,7 @@ public:
 
     Status commit_rowset();
 
-    Status set_txn_related_delete_bitmap();
+    Status set_txn_related_info();
     std::shared_ptr<ResourceContext> resource_context() { return _resource_ctx; }
 
 private:

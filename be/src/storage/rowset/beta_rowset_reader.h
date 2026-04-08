@@ -53,10 +53,8 @@ public:
                                  std::vector<RowwiseIteratorUPtr>* out_iters,
                                  bool use_cache = false) override;
     void reset_read_options() override;
-    Status next_batch(vectorized::Block* block) override { return _next_batch(block); }
-    Status next_batch(vectorized::BlockView* block_view) override {
-        return _next_batch(block_view);
-    }
+    Status next_batch(Block* block) override { return _next_batch(block); }
+    Status next_batch(BlockView* block_view) override { return _next_batch(block_view); }
     Status next_batch(BlockWithSameBit* block_with_same_bit) override {
         return _next_batch(block_with_same_bit);
     }

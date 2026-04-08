@@ -38,7 +38,7 @@
 #include "util/slice.h"
 #include "util/string_util.h"
 
-namespace doris::vectorized {
+namespace doris {
 static std::string test_data_dir;
 
 static auto serde_decimal32_1 = std::make_shared<DataTypeDecimalSerDe<TYPE_DECIMAL32>>(1, 0);
@@ -331,4 +331,4 @@ TEST_F(DataTypeDecimalSerDeTest, ArrowMemNotAligned) {
     EXPECT_TRUE(st.ok());
 }
 
-} // namespace doris::vectorized
+} // namespace doris

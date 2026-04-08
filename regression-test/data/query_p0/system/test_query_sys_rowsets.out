@@ -13,6 +13,7 @@ DATA_DISK_SIZE	bigint	Yes	false	\N
 CREATION_TIME	datetime	Yes	false	\N	
 NEWEST_WRITE_TIMESTAMP	datetime	Yes	false	\N	
 SCHEMA_VERSION	int	Yes	false	\N	
+COMMIT_TSO	bigint	Yes	false	\N	
 
 -- !rowsets1 --
 0	1

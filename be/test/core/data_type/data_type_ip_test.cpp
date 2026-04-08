@@ -46,7 +46,7 @@
 // 4. compare: equals (const IDataType &rhs)
 // 5. others: update_avg_value_size_hint (const IColumn &column, double &avg_value_size_hint)
 
-namespace doris::vectorized {
+namespace doris {
 
 class DataTypeIPTest : public CommonDataTypeTest {
 protected:
@@ -63,8 +63,8 @@ public:
             DataTypeFactory::instance().create_data_type(FieldType::OLAP_FIELD_TYPE_IPV4, 0, 0);
     DataTypePtr dt_ipv6 =
             DataTypeFactory::instance().create_data_type(FieldType::OLAP_FIELD_TYPE_IPV6, 0, 0);
-    DataTypePtr dt_ipv4_nullable = std::make_shared<vectorized::DataTypeNullable>(dt_ipv4);
-    DataTypePtr dt_ipv6_nullable = std::make_shared<vectorized::DataTypeNullable>(dt_ipv6);
+    DataTypePtr dt_ipv4_nullable = std::make_shared<DataTypeNullable>(dt_ipv4);
+    DataTypePtr dt_ipv6_nullable = std::make_shared<DataTypeNullable>(dt_ipv6);
     // common ip data
     std::vector<std::string> data_files;
 };
@@ -395,4 +395,4 @@ TEST_F(DataTypeIPTest, Crc32Test) {
                                     PrimitiveType::TYPE_IPV6, hash_val);
     EXPECT_EQ(hash_val, 3971697493);
 }
-} // namespace doris::vectorized
+} // namespace doris

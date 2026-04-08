@@ -35,7 +35,7 @@
 #include "exec/common/sip_hash.h"
 
 using namespace doris;
-namespace doris::vectorized {
+namespace doris {
 class ColumnDictionaryTest : public CommonColumnTest {
 protected:
     static std::string test_data_dir;
@@ -370,4 +370,4 @@ std::vector<StringRef> ColumnDictionaryTest::dict_array;
 ColumnDictI32::MutablePtr ColumnDictionaryTest::column_dict_char;
 ColumnDictI32::MutablePtr ColumnDictionaryTest::column_dict_varchar;
 ColumnDictI32::MutablePtr ColumnDictionaryTest::column_dict_str;
-} // namespace doris::vectorized
+} // namespace doris

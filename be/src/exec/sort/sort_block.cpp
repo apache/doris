@@ -22,7 +22,7 @@
 
 #include "core/block/column_with_type_and_name.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 ColumnsWithSortDescriptions get_columns_with_sort_description(const Block& block,
                                                               const SortDescription& description) {
@@ -93,4 +93,4 @@ void sort_block(Block& src_block, Block& dest_block, const SortDescription& desc
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

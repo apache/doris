@@ -27,7 +27,7 @@
 #include "exprs/table_function/table_function.h"
 #include "udf/python/python_udtf_client.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 /**
@@ -94,4 +94,4 @@ private:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

@@ -35,7 +35,7 @@
 #include "gtest/gtest_pred_impl.h"
 #include "testutil/any_type.h"
 
-namespace doris::vectorized {
+namespace doris {
 using namespace ut_type;
 
 TEST(VGeoFunctionsTest, function_geo_st_point_test) {
@@ -463,4 +463,4 @@ TEST(VGeoFunctionsTest, function_geo_st_area_square_km) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -36,7 +36,6 @@ class TSortInfo;
 // TopN and Sort materialize input rows into a single tuple before sorting.
 // If _materialize_tuple is true, SortExecExprs also stores the slot expressions used to
 // materialize the sort tuples.
-namespace vectorized {
 
 class VSortExecExprs {
 public:
@@ -84,5 +83,4 @@ private:
                 const std::vector<TExpr>* sort_tuple_slot_exprs, ObjectPool* pool);
 };
 
-} // namespace vectorized
 } // namespace doris

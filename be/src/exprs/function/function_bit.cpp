@@ -33,7 +33,7 @@
 #include "exprs/function/function_unary_arithmetic.h"
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 template <typename Impl>
 class FunctionBit : public IFunction {
@@ -248,4 +248,4 @@ void register_function_bit(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionBitNotLargeInt>();
     factory.register_function<FunctionBitLength>();
 }
-} // namespace doris::vectorized
+} // namespace doris

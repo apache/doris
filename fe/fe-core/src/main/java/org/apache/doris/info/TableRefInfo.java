@@ -22,10 +22,10 @@ import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.NameSpaceContext;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.trees.TableSample;
-import org.apache.doris.qe.ConnectContext;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -119,7 +119,7 @@ public class TableRefInfo {
         return partitionNamesInfo;
     }
 
-    public void analyze(ConnectContext ctx) throws UserException {
+    public void analyze(NameSpaceContext ctx) throws UserException {
         tableNameInfo.analyze(ctx);
         if (partitionNamesInfo != null) {
             partitionNamesInfo.validate();

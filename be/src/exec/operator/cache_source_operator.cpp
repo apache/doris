@@ -28,7 +28,6 @@
 namespace doris {
 class RuntimeState;
 
-namespace pipeline {
 #include "common/compile_check_begin.h"
 Status CacheSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
@@ -38,9 +37,6 @@ Status CacheSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
             ->data_queue.set_source_dependency(_shared_state->source_deps.front());
     const auto& scan_ranges = info.scan_ranges;
     bool hit_cache = false;
-    if (scan_ranges.size() > 1) {
-        return Status::InternalError("CacheSourceOperator only support one scan range, plan error");
-    }
 
     const auto& cache_param = _parent->cast<CacheSourceOperatorX>()._cache_param;
     // 1. init the slot orders
@@ -60,8 +56,20 @@ Status CacheSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
 
     // 2. build cache key by digest_tablet_id
     RETURN_IF_ERROR(QueryCache::build_cache_key(scan_ranges, cache_param, &_cache_key, &_version));
-    custom_profile()->add_info_string(
-            "CacheTabletId", std::to_string(scan_ranges[0].scan_range.palo_scan_range.tablet_id));
+    std::vector<int64_t> cache_tablet_ids;
+    cache_tablet_ids.reserve(scan_ranges.size());
+    for (const auto& scan_range : scan_ranges) {
+        cache_tablet_ids.push_back(scan_range.scan_range.palo_scan_range.tablet_id);
+    }
+    std::sort(cache_tablet_ids.begin(), cache_tablet_ids.end());
+    std::string tablet_ids_str;
+    for (size_t i = 0; i < cache_tablet_ids.size(); ++i) {
+        tablet_ids_str += std::to_string(cache_tablet_ids[i]);
+        if (i < cache_tablet_ids.size() - 1) {
+            tablet_ids_str += ",";
+        }
+    }
+    custom_profile()->add_info_string("CacheTabletId", tablet_ids_str);
 
     // 3. lookup the cache and find proper slot order
     hit_cache = _global_cache->lookup(_cache_key, _version, &_query_cache_handle);
@@ -109,7 +117,7 @@ std::string CacheSourceLocalState::debug_string(int indentation_level) const {
     return fmt::to_string(debug_string_buffer);
 }
 
-Status CacheSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block, bool* eos) {
+Status CacheSourceOperatorX::get_block(RuntimeState* state, Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
 
@@ -131,7 +139,7 @@ Status CacheSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* b
             }
         });
 
-        std::unique_ptr<vectorized::Block> output_block;
+        std::unique_ptr<Block> output_block;
         int child_idx = 0;
         RETURN_IF_ERROR(local_state._shared_state->data_queue.get_block_from_queue(&output_block,
                                                                                    &child_idx));
@@ -147,8 +155,7 @@ Status CacheSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* b
             if (need_clone_empty) {
                 *block = output_block->clone_empty();
             }
-            RETURN_IF_ERROR(
-                    vectorized::MutableBlock::build_mutable_block(block).merge(*output_block));
+            RETURN_IF_ERROR(MutableBlock::build_mutable_block(block).merge(*output_block));
             local_state._current_query_cache_rows += output_block->rows();
             auto mem_consume = output_block->allocated_bytes();
             local_state._current_query_cache_bytes += mem_consume;
@@ -171,8 +178,7 @@ Status CacheSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* b
             if (need_clone_empty) {
                 *block = hit_cache_block->clone_empty();
             }
-            RETURN_IF_ERROR(
-                    vectorized::MutableBlock::build_mutable_block(block).merge(*hit_cache_block));
+            RETURN_IF_ERROR(MutableBlock::build_mutable_block(block).merge(*hit_cache_block));
             if (!local_state._hit_cache_column_orders.empty()) {
                 auto datas = block->get_columns_with_type_and_name();
                 block->clear();
@@ -189,5 +195,4 @@ Status CacheSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* b
     return Status::OK();
 }
 
-} // namespace pipeline
 } // namespace doris

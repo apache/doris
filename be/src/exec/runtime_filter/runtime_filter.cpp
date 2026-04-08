@@ -35,6 +35,7 @@ Status RuntimeFilter::_push_to_remote(RuntimeState* state, const TNetworkAddress
     }
 
     auto merge_filter_request = std::make_shared<PMergeFilterRequest>();
+    merge_filter_request->set_stage(_stage);
     auto merge_filter_callback = DummyBrpcCallback<PMergeFilterResponse>::create_shared();
     auto merge_filter_closure =
             AutoReleaseClosure<PMergeFilterRequest, DummyBrpcCallback<PMergeFilterResponse>>::
@@ -78,8 +79,8 @@ Status RuntimeFilter::_push_to_remote(RuntimeState* state, const TNetworkAddress
 
 Status RuntimeFilter::_init_with_desc(const TRuntimeFilterDesc* desc,
                                       const TQueryOptions* options) {
-    vectorized::VExprContextSPtr build_ctx;
-    RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(desc->src_expr, build_ctx));
+    VExprContextSPtr build_ctx;
+    RETURN_IF_ERROR(VExpr::create_expr_tree(desc->src_expr, build_ctx));
 
     RuntimeFilterParams params;
     params.filter_id = desc->filter_id;
@@ -112,9 +113,8 @@ Status RuntimeFilter::_init_with_desc(const TRuntimeFilterDesc* desc,
         if (!desc->__isset.bitmap_target_expr) {
             return Status::InternalError("Unknown bitmap filter target expr.");
         }
-        vectorized::VExprContextSPtr bitmap_target_ctx;
-        RETURN_IF_ERROR(
-                vectorized::VExpr::create_expr_tree(desc->bitmap_target_expr, bitmap_target_ctx));
+        VExprContextSPtr bitmap_target_ctx;
+        RETURN_IF_ERROR(VExpr::create_expr_tree(desc->bitmap_target_expr, bitmap_target_ctx));
         params.column_return_type = bitmap_target_ctx->root()->data_type()->get_primitive_type();
 
         if (desc->__isset.bitmap_filter_not_in) {
@@ -127,8 +127,9 @@ Status RuntimeFilter::_init_with_desc(const TRuntimeFilterDesc* desc,
 }
 
 std::string RuntimeFilter::_debug_string() const {
-    return fmt::format("{}, mode: {}", _wrapper ? _wrapper->debug_string() : "<null wrapper>",
-                       _has_remote_target ? "GLOBAL" : "LOCAL");
+    return fmt::format("{}, mode: {}, stage: {}",
+                       _wrapper ? _wrapper->debug_string() : "<null wrapper>",
+                       _has_remote_target ? "GLOBAL" : "LOCAL", _stage);
 }
 
 void RuntimeFilter::_check_wrapper_state(

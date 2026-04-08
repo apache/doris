@@ -37,7 +37,8 @@ import java.util.stream.Collectors;
 public class PullUpProjectUnderLimit extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        return logicalLimit(logicalProject(logicalJoin().when(j -> j.getJoinType().isLeftRightOuterOrCrossJoin()))
+        return logicalLimit(logicalProject(logicalJoin().when(j -> j.getJoinType().isLeftRightOuterOrCrossJoin()
+                || j.getJoinType().isAsofOuterJoin()))
                 .whenNot(p -> p.isAllSlots()))
                 .then(limit -> {
                     LogicalProject<LogicalJoin<Plan, Plan>> project = limit.child();

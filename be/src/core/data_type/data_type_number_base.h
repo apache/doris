@@ -38,7 +38,7 @@
 #include "core/field.h"
 #include "core/types.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class BufferWritable;
@@ -49,7 +49,7 @@ class IColumn;
 template <PrimitiveType T>
 class DataTypeNumberBase : public IDataType {
     static_assert(is_int_or_bool(T) || is_ip(T) || is_date_type(T) || is_float_or_double(T) ||
-                  T == TYPE_TIME || T == TYPE_TIMEV2 || T == TYPE_TIMESTAMPTZ);
+                  T == TYPE_TIMEV2 || T == TYPE_TIMESTAMPTZ);
 
 public:
     static constexpr bool is_parametric = false;
@@ -151,4 +151,4 @@ private:
     bool _is_null_literal = false;
 };
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

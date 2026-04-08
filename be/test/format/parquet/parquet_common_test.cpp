@@ -19,7 +19,7 @@
 
 #include <gtest/gtest.h>
 
-namespace doris::vectorized {
+namespace doris {
 
 // ============= FilterMap Tests =============
 class FilterMapTest : public testing::Test {
@@ -454,4 +454,4 @@ TEST_F(ColumnSelectVectorTest, test_filter_map_index) {
     EXPECT_EQ(type, ColumnSelectVector::CONTENT);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

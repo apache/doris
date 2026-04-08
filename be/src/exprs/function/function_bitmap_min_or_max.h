@@ -22,7 +22,7 @@
 #include "core/value/bitmap_value.h"
 #include "exec/common/util.hpp"
 
-namespace doris::vectorized {
+namespace doris {
 
 struct FunctionBitmapMinImpl {
     static constexpr auto name = "bitmap_min";
@@ -87,4 +87,4 @@ private:
     }
 };
 
-} // namespace doris::vectorized
+} // namespace doris

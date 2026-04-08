@@ -40,13 +40,11 @@
 namespace doris {
 class PColumnMeta;
 
-namespace vectorized {
 class BufferWritable;
 class IColumn;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 /** Struct data type.
   * Used as an intermediate result when evaluating expressions.
@@ -146,4 +144,4 @@ public:
 #endif
 };
 
-} // namespace doris::vectorized
+} // namespace doris

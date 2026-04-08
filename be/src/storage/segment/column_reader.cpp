@@ -201,8 +201,8 @@ Status ColumnReader::create_agg_state(const ColumnReaderOptions& opts, const Col
         return Status::OK();
     }
 
-    auto data_type = vectorized::DataTypeFactory::instance().create_data_type(meta);
-    const auto* agg_state_type = assert_cast<const vectorized::DataTypeAggState*>(data_type.get());
+    auto data_type = DataTypeFactory::instance().create_data_type(meta);
+    const auto* agg_state_type = assert_cast<const DataTypeAggState*>(data_type.get());
     agg_state_type->check_function_compatibility(opts.be_exec_version);
     auto type = agg_state_type->get_serialized_type()->get_primitive_type();
 
@@ -285,7 +285,7 @@ ColumnReader::ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& 
     if (_meta_type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
         _meta_children_column_type = (FieldType)meta.children_columns(0).type();
     }
-    _data_type = vectorized::DataTypeFactory::instance().create_data_type(meta);
+    _data_type = DataTypeFactory::instance().create_data_type(meta);
     _meta_is_nullable = meta.is_nullable();
     _meta_dict_page = meta.dict_page();
     _meta_compression = meta.compression();
@@ -301,7 +301,7 @@ int64_t ColumnReader::get_metadata_size() const {
 /// This function is only used in UT to verify the correctness of data read from zone map
 /// See UT case 'SegCompactionMoWTest.SegCompactionInterleaveWithBig_ooooOOoOooooooooO'
 /// be/test/olap/segcompaction_mow_test.cpp
-void ColumnReader::check_data_by_zone_map_for_test(const vectorized::MutableColumnPtr& dst) const {
+void ColumnReader::check_data_by_zone_map_for_test(const MutableColumnPtr& dst) const {
     if (!_segment_zone_map) {
         return;
     }
@@ -317,16 +317,14 @@ void ColumnReader::check_data_by_zone_map_for_test(const vectorized::MutableColu
         return;
     }
 
-    auto* non_nullable_column = dst->is_nullable()
-                                        ? assert_cast<vectorized::ColumnNullable*>(dst.get())
-                                                  ->get_nested_column_ptr()
-                                                  .get()
-                                        : dst.get();
+    auto* non_nullable_column =
+            dst->is_nullable()
+                    ? assert_cast<ColumnNullable*>(dst.get())->get_nested_column_ptr().get()
+                    : dst.get();
 
     /// `PredicateColumnType<TYPE_INT>` does not support `void get(size_t n, Field& res)`,
     /// So here only check `CoumnVector<TYPE_INT>`
-    if (vectorized::check_and_get_column<vectorized::ColumnVector<TYPE_INT>>(non_nullable_column) ==
-        nullptr) {
+    if (check_and_get_column<ColumnVector<TYPE_INT>>(non_nullable_column) == nullptr) {
         return;
     }
 
@@ -338,7 +336,7 @@ void ColumnReader::check_data_by_zone_map_for_test(const vectorized::MutableColu
     }
 
     for (size_t i = 0; i != rows; ++i) {
-        vectorized::Field field;
+        Field field;
         dst->get(i, field);
         DCHECK(!field.is_null());
         const auto v = field.get<TYPE_INT>();
@@ -445,7 +443,7 @@ Status ColumnReader::get_row_ranges_by_zone_map(
     return Status::OK();
 }
 
-Status ColumnReader::next_batch_of_zone_map(size_t* n, vectorized::MutableColumnPtr& dst) const {
+Status ColumnReader::next_batch_of_zone_map(size_t* n, MutableColumnPtr& dst) const {
     if (_segment_zone_map == nullptr) {
         return Status::InternalError("segment zonemap not exist");
     }
@@ -455,7 +453,7 @@ Status ColumnReader::next_batch_of_zone_map(size_t* n, vectorized::MutableColumn
 
     dst->reserve(*n);
     if (!zone_map.has_not_null) {
-        assert_cast<vectorized::ColumnNullable&>(*dst).insert_many_defaults(*n);
+        assert_cast<ColumnNullable&>(*dst).insert_many_defaults(*n);
         return Status::OK();
     }
     dst->insert(zone_map.max_value);
@@ -730,7 +728,11 @@ Status ColumnReader::new_iterator(ColumnIteratorUPtr* iterator, const TabletColu
         return Status::OK();
     }
     if (is_scalar_type(_meta_type)) {
-        *iterator = std::make_unique<FileColumnIterator>(shared_from_this());
+        if (is_string_type(_meta_type)) {
+            *iterator = std::make_unique<StringFileColumnIterator>(shared_from_this());
+        } else {
+            *iterator = std::make_unique<FileColumnIterator>(shared_from_this());
+        }
         (*iterator)->set_column_name(tablet_column ? tablet_column->name() : "");
         return Status::OK();
     } else {
@@ -912,10 +914,22 @@ Status MapFileColumnIterator::seek_to_ordinal(ordinal_t ord) {
         return Status::OK();
     }
 
+    if (read_null_map_only()) {
+        // In NULL_MAP_ONLY mode, only seek the null iterator; skip offset/key/val iterators
+        if (_map_reader->is_nullable() && _null_iterator) {
+            RETURN_IF_ERROR(_null_iterator->seek_to_ordinal(ord));
+        }
+        return Status::OK();
+    }
+
     if (_map_reader->is_nullable()) {
         RETURN_IF_ERROR(_null_iterator->seek_to_ordinal(ord));
     }
     RETURN_IF_ERROR(_offsets_iterator->seek_to_ordinal(ord));
+    if (read_offset_only()) {
+        // In OFFSET_ONLY mode, key/value iterators are SKIP_READING, no need to seek them
+        return Status::OK();
+    }
     // here to use offset info
     ordinal_t offset = 0;
     RETURN_IF_ERROR(_offsets_iterator->_peek_one_offset(&offset));
@@ -947,17 +961,39 @@ void MapFileColumnIterator::collect_prefetchers(
     _val_iterator->collect_prefetchers(prefetchers, PrefetcherInitMethod::ALL_DATA_BLOCKS);
 }
 
-Status MapFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
-                                         bool* has_null) {
+Status MapFileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) {
     if (_reading_flag == ReadingFlag::SKIP_READING) {
         DLOG(INFO) << "Map column iterator column " << _column_name << " skip reading.";
         dst->insert_many_defaults(*n);
         return Status::OK();
     }
 
-    auto& column_map = assert_cast<vectorized::ColumnMap&, TypeCheckOnRelease::DISABLE>(
-            dst->is_nullable() ? static_cast<vectorized::ColumnNullable&>(*dst).get_nested_column()
-                               : *dst);
+    if (read_null_map_only()) {
+        // NULL_MAP_ONLY mode: read null map, fill nested ColumnMap with empty defaults
+        DORIS_CHECK(dst->is_nullable());
+        auto& nullable_col = assert_cast<ColumnNullable&>(*dst);
+        auto null_map_ptr = nullable_col.get_null_map_column_ptr();
+        size_t num_read = *n;
+        if (_null_iterator) {
+            bool null_signs_has_null = false;
+            RETURN_IF_ERROR(
+                    _null_iterator->next_batch(&num_read, null_map_ptr, &null_signs_has_null));
+        } else {
+            // schema-change: column became nullable but old segment has no null data
+            auto& null_map = assert_cast<ColumnUInt8&, TypeCheckOnRelease::DISABLE>(*null_map_ptr);
+            null_map.insert_many_vals(0, num_read);
+        }
+        DCHECK(num_read == *n);
+        // fill nested ColumnMap with empty (zero-element) maps
+        auto& column_map = assert_cast<ColumnMap&, TypeCheckOnRelease::DISABLE>(
+                nullable_col.get_nested_column());
+        column_map.insert_many_defaults(num_read);
+        *has_null = true;
+        return Status::OK();
+    }
+
+    auto& column_map = assert_cast<ColumnMap&, TypeCheckOnRelease::DISABLE>(
+            dst->is_nullable() ? static_cast<ColumnNullable&>(*dst).get_nested_column() : *dst);
     auto column_offsets_ptr = column_map.get_offsets_column().assume_mutable();
     bool offsets_has_null = false;
     ssize_t start = column_offsets_ptr->size();
@@ -965,8 +1001,7 @@ Status MapFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr
     if (*n == 0) {
         return Status::OK();
     }
-    auto& column_offsets =
-            static_cast<vectorized::ColumnArray::ColumnOffsets&>(*column_offsets_ptr);
+    auto& column_offsets = static_cast<ColumnArray::ColumnOffsets&>(*column_offsets_ptr);
     RETURN_IF_ERROR(_offsets_iterator->_calculate_offsets(start, column_offsets));
     DCHECK(column_offsets.get_data().back() >= column_offsets.get_data()[start - 1]);
     size_t num_items =
@@ -975,12 +1010,18 @@ Status MapFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr
     auto val_ptr = column_map.get_values().assume_mutable();
 
     if (num_items > 0) {
-        size_t num_read = num_items;
-        bool key_has_null = false;
-        bool val_has_null = false;
-        RETURN_IF_ERROR(_key_iterator->next_batch(&num_read, key_ptr, &key_has_null));
-        RETURN_IF_ERROR(_val_iterator->next_batch(&num_read, val_ptr, &val_has_null));
-        DCHECK(num_read == num_items);
+        if (read_offset_only()) {
+            // OFFSET_ONLY mode: skip reading actual key/value data, fill with defaults
+            key_ptr->insert_many_defaults(num_items);
+            val_ptr->insert_many_defaults(num_items);
+        } else {
+            size_t num_read = num_items;
+            bool key_has_null = false;
+            bool val_has_null = false;
+            RETURN_IF_ERROR(_key_iterator->next_batch(&num_read, key_ptr, &key_has_null));
+            RETURN_IF_ERROR(_val_iterator->next_batch(&num_read, val_ptr, &val_has_null));
+            DCHECK(num_read == num_items);
+        }
 
         column_map.get_keys_ptr() = std::move(key_ptr);
         column_map.get_values_ptr() = std::move(val_ptr);
@@ -988,8 +1029,7 @@ Status MapFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr
 
     if (dst->is_nullable()) {
         size_t num_read = *n;
-        auto null_map_ptr =
-                static_cast<vectorized::ColumnNullable&>(*dst).get_null_map_column_ptr();
+        auto null_map_ptr = static_cast<ColumnNullable&>(*dst).get_null_map_column_ptr();
         // in not-null to null linked-schemachange mode,
         // actually we do not change dat data include meta in footer,
         // so may dst from changed meta which is nullable but old data is not nullable,
@@ -999,8 +1039,7 @@ Status MapFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr
             RETURN_IF_ERROR(
                     _null_iterator->next_batch(&num_read, null_map_ptr, &null_signs_has_null));
         } else {
-            auto& null_map = assert_cast<vectorized::ColumnUInt8&, TypeCheckOnRelease::DISABLE>(
-                    *null_map_ptr);
+            auto& null_map = assert_cast<ColumnUInt8&, TypeCheckOnRelease::DISABLE>(*null_map_ptr);
             null_map.insert_many_vals(0, num_read);
         }
         DCHECK(num_read == *n);
@@ -1009,21 +1048,41 @@ Status MapFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr
 }
 
 Status MapFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
-                                             vectorized::MutableColumnPtr& dst) {
+                                             MutableColumnPtr& dst) {
     if (_reading_flag == ReadingFlag::SKIP_READING) {
         DLOG(INFO) << "File column iterator column " << _column_name << " skip reading.";
         dst->insert_many_defaults(count);
         return Status::OK();
     }
+
+    if (read_null_map_only()) {
+        // NULL_MAP_ONLY mode: read null map by rowids, fill nested ColumnMap with empty defaults
+        DORIS_CHECK(dst->is_nullable());
+        auto& nullable_col = assert_cast<ColumnNullable&>(*dst);
+        if (_null_iterator) {
+            auto null_map_ptr = nullable_col.get_null_map_column_ptr();
+            RETURN_IF_ERROR(_null_iterator->read_by_rowids(rowids, count, null_map_ptr));
+        } else {
+            // schema-change: column became nullable but old segment has no null data
+            auto null_map_ptr = nullable_col.get_null_map_column_ptr();
+            auto& null_map = assert_cast<ColumnUInt8&, TypeCheckOnRelease::DISABLE>(*null_map_ptr);
+            null_map.insert_many_vals(0, count);
+        }
+        // fill nested ColumnMap with empty (zero-element) maps
+        auto& column_map = assert_cast<ColumnMap&, TypeCheckOnRelease::DISABLE>(
+                nullable_col.get_nested_column());
+        column_map.insert_many_defaults(count);
+        return Status::OK();
+    }
+
     if (count == 0) {
         return Status::OK();
     }
     // resolve ColumnMap and nullable wrapper
-    const auto* column_map = vectorized::check_and_get_column<vectorized::ColumnMap>(
-            dst->is_nullable() ? static_cast<vectorized::ColumnNullable&>(*dst).get_nested_column()
-                               : *dst);
+    const auto* column_map = check_and_get_column<ColumnMap>(
+            dst->is_nullable() ? static_cast<ColumnNullable&>(*dst).get_nested_column() : *dst);
     auto offsets_ptr = column_map->get_offsets_column().assume_mutable();
-    auto& offsets = static_cast<vectorized::ColumnArray::ColumnOffsets&>(*offsets_ptr);
+    auto& offsets = static_cast<ColumnArray::ColumnOffsets&>(*offsets_ptr);
     size_t base = offsets.get_data().empty() ? 0 : offsets.get_data().back();
 
     // 1. bulk read null-map if nullable
@@ -1034,12 +1093,11 @@ Status MapFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t
             return Status::InternalError(
                     "unexpected non-nullable destination column for nullable map reader");
         }
-        auto null_map_ptr =
-                static_cast<vectorized::ColumnNullable&>(*dst).get_null_map_column_ptr();
+        auto null_map_ptr = static_cast<ColumnNullable&>(*dst).get_null_map_column_ptr();
         size_t null_before = null_map_ptr->size();
         RETURN_IF_ERROR(_null_iterator->read_by_rowids(rowids, count, null_map_ptr));
         // extract a light-weight view to decide element reads
-        auto& null_map_col = assert_cast<vectorized::ColumnUInt8&>(*null_map_ptr);
+        auto& null_map_col = assert_cast<ColumnUInt8&>(*null_map_ptr);
         null_mask.reserve(count);
         for (size_t i = 0; i < count; ++i) {
             null_mask.push_back(null_map_col.get_element(null_before + i));
@@ -1049,14 +1107,13 @@ Status MapFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t
         // actually we do not change dat data include meta in footer,
         // so may dst from changed meta which is nullable but old data is not nullable,
         // if so, we should set null_map to all null by default
-        auto null_map_ptr =
-                static_cast<vectorized::ColumnNullable&>(*dst).get_null_map_column_ptr();
-        auto& null_map = assert_cast<vectorized::ColumnUInt8&>(*null_map_ptr);
+        auto null_map_ptr = static_cast<ColumnNullable&>(*dst).get_null_map_column_ptr();
+        auto& null_map = assert_cast<ColumnUInt8&>(*null_map_ptr);
         null_map.insert_many_vals(0, count);
     }
 
     // 2. bulk read start ordinals for requested rows
-    vectorized::MutableColumnPtr starts_col = vectorized::ColumnOffset64::create();
+    MutableColumnPtr starts_col = ColumnOffset64::create();
     starts_col->reserve(count);
     RETURN_IF_ERROR(_offsets_iterator->read_by_rowids(rowids, count, starts_col));
 
@@ -1067,7 +1124,7 @@ Status MapFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t
         next_rowids[i] = nr < _map_reader->num_rows() ? static_cast<rowid_t>(nr)
                                                       : static_cast<rowid_t>(0); // placeholder
     }
-    vectorized::MutableColumnPtr next_starts_col = vectorized::ColumnOffset64::create();
+    MutableColumnPtr next_starts_col = ColumnOffset64::create();
     next_starts_col->reserve(count);
     // read for all; we'll fix out-of-bound cases below
     RETURN_IF_ERROR(_offsets_iterator->read_by_rowids(next_rowids.data(), count, next_starts_col));
@@ -1080,19 +1137,19 @@ Status MapFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t
             RETURN_IF_ERROR(_offsets_iterator->seek_to_ordinal(rowids[i]));
             size_t one = 1;
             bool has_null_unused = false;
-            vectorized::MutableColumnPtr tmp = vectorized::ColumnOffset64::create();
+            MutableColumnPtr tmp = ColumnOffset64::create();
             RETURN_IF_ERROR(_offsets_iterator->next_batch(&one, tmp, &has_null_unused));
             ordinal_t ns = 0;
             RETURN_IF_ERROR(_offsets_iterator->_peek_one_offset(&ns));
             // overwrite with sentinel
-            assert_cast<vectorized::ColumnOffset64&, TypeCheckOnRelease::DISABLE>(*next_starts_col)
+            assert_cast<ColumnOffset64&, TypeCheckOnRelease::DISABLE>(*next_starts_col)
                     .get_data()[i] = ns;
         }
     }
 
     // 5. compute sizes and append offsets prefix-sum
-    auto& starts_data = assert_cast<vectorized::ColumnOffset64&>(*starts_col).get_data();
-    auto& next_starts_data = assert_cast<vectorized::ColumnOffset64&>(*next_starts_col).get_data();
+    auto& starts_data = assert_cast<ColumnOffset64&>(*starts_col).get_data();
+    auto& next_starts_data = assert_cast<ColumnOffset64&>(*next_starts_col).get_data();
     std::vector<size_t> sizes(count, 0);
     size_t acc = base;
     const auto original_size = offsets.get_data().back();
@@ -1205,21 +1262,47 @@ Status MapFileColumnIterator::set_access_paths(const TColumnAccessPaths& all_acc
         return Status::OK();
     }
 
+    // Check for meta-only modes (OFFSET_ONLY or NULL_MAP_ONLY)
+    _check_and_set_meta_read_mode(sub_all_access_paths);
+    if (read_offset_only()) {
+        _key_iterator->set_reading_flag(ReadingFlag::SKIP_READING);
+        _val_iterator->set_reading_flag(ReadingFlag::SKIP_READING);
+        DLOG(INFO) << "Map column iterator set column " << _column_name
+                   << " to OFFSET_ONLY reading mode, key/value columns set to SKIP_READING";
+        return Status::OK();
+    }
+    if (read_null_map_only()) {
+        _key_iterator->set_reading_flag(ReadingFlag::SKIP_READING);
+        _val_iterator->set_reading_flag(ReadingFlag::SKIP_READING);
+        DLOG(INFO) << "Map column iterator set column " << _column_name
+                   << " to NULL_MAP_ONLY reading mode, key/value columns set to SKIP_READING";
+        return Status::OK();
+    }
+
     TColumnAccessPaths key_all_access_paths;
     TColumnAccessPaths val_all_access_paths;
     TColumnAccessPaths key_predicate_access_paths;
     TColumnAccessPaths val_predicate_access_paths;
 
     for (auto paths : sub_all_access_paths) {
-        if (paths.data_access_path.path[0] == "*") {
-            paths.data_access_path.path[0] = _key_iterator->column_name();
-            key_all_access_paths.emplace_back(paths);
+        if (paths.data_access_path.path[0] == ACCESS_ALL) {
+            // ACCESS_ALL means element_at(map, key) style access: the key column must be
+            // fully read so that the runtime can match the requested key, while any sub-path
+            // qualifiers (e.g. OFFSET) apply only to the value column.
+            // For key: create a path with just the column name (= full data access).
+            TColumnAccessPath key_path;
+            key_path.__set_type(paths.type);
+            TDataAccessPath key_data_path;
+            key_data_path.__set_path({_key_iterator->column_name()});
+            key_path.__set_data_access_path(key_data_path);
+            key_all_access_paths.emplace_back(std::move(key_path));
+            // For value: pass the full sub-path so qualifiers like OFFSET propagate.
             paths.data_access_path.path[0] = _val_iterator->column_name();
             val_all_access_paths.emplace_back(paths);
-        } else if (paths.data_access_path.path[0] == "KEYS") {
+        } else if (paths.data_access_path.path[0] == ACCESS_MAP_KEYS) {
             paths.data_access_path.path[0] = _key_iterator->column_name();
             key_all_access_paths.emplace_back(paths);
-        } else if (paths.data_access_path.path[0] == "VALUES") {
+        } else if (paths.data_access_path.path[0] == ACCESS_MAP_VALUES) {
             paths.data_access_path.path[0] = _val_iterator->column_name();
             val_all_access_paths.emplace_back(paths);
         }
@@ -1228,15 +1311,20 @@ Status MapFileColumnIterator::set_access_paths(const TColumnAccessPaths& all_acc
     const auto need_read_values = !val_all_access_paths.empty();
 
     for (auto paths : sub_predicate_access_paths) {
-        if (paths.data_access_path.path[0] == "*") {
-            paths.data_access_path.path[0] = _key_iterator->column_name();
-            key_predicate_access_paths.emplace_back(paths);
+        if (paths.data_access_path.path[0] == ACCESS_ALL) {
+            // Same logic as above: key needs full data, value gets the sub-path.
+            TColumnAccessPath key_path;
+            key_path.__set_type(paths.type);
+            TDataAccessPath key_data_path;
+            key_data_path.__set_path({_key_iterator->column_name()});
+            key_path.__set_data_access_path(key_data_path);
+            key_predicate_access_paths.emplace_back(std::move(key_path));
             paths.data_access_path.path[0] = _val_iterator->column_name();
             val_predicate_access_paths.emplace_back(paths);
-        } else if (paths.data_access_path.path[0] == "KEYS") {
+        } else if (paths.data_access_path.path[0] == ACCESS_MAP_KEYS) {
             paths.data_access_path.path[0] = _key_iterator->column_name();
             key_predicate_access_paths.emplace_back(paths);
-        } else if (paths.data_access_path.path[0] == "VALUES") {
+        } else if (paths.data_access_path.path[0] == ACCESS_MAP_VALUES) {
             paths.data_access_path.path[0] = _val_iterator->column_name();
             val_predicate_access_paths.emplace_back(paths);
         }
@@ -1288,17 +1376,39 @@ Status StructFileColumnIterator::init(const ColumnIteratorOptions& opts) {
     return Status::OK();
 }
 
-Status StructFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
-                                            bool* has_null) {
+Status StructFileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) {
     if (_reading_flag == ReadingFlag::SKIP_READING) {
         DLOG(INFO) << "Struct column iterator column " << _column_name << " skip reading.";
         dst->insert_many_defaults(*n);
         return Status::OK();
     }
 
-    auto& column_struct = assert_cast<vectorized::ColumnStruct&, TypeCheckOnRelease::DISABLE>(
-            dst->is_nullable() ? static_cast<vectorized::ColumnNullable&>(*dst).get_nested_column()
-                               : *dst);
+    if (read_null_map_only()) {
+        // NULL_MAP_ONLY mode: read null map, fill nested ColumnStruct with empty defaults
+        DORIS_CHECK(dst->is_nullable());
+        auto& nullable_col = assert_cast<ColumnNullable&>(*dst);
+        auto null_map_ptr = nullable_col.get_null_map_column_ptr();
+        size_t num_read = *n;
+        if (_null_iterator) {
+            bool null_signs_has_null = false;
+            RETURN_IF_ERROR(
+                    _null_iterator->next_batch(&num_read, null_map_ptr, &null_signs_has_null));
+        } else {
+            // schema-change: column became nullable but old segment has no null data
+            auto& null_map = assert_cast<ColumnUInt8&, TypeCheckOnRelease::DISABLE>(*null_map_ptr);
+            null_map.insert_many_vals(0, num_read);
+        }
+        DCHECK(num_read == *n);
+        // fill nested ColumnStruct with defaults to maintain consistent column sizes
+        auto& column_struct = assert_cast<ColumnStruct&, TypeCheckOnRelease::DISABLE>(
+                nullable_col.get_nested_column());
+        column_struct.insert_many_defaults(num_read);
+        *has_null = true;
+        return Status::OK();
+    }
+
+    auto& column_struct = assert_cast<ColumnStruct&, TypeCheckOnRelease::DISABLE>(
+            dst->is_nullable() ? static_cast<ColumnNullable&>(*dst).get_nested_column() : *dst);
     for (size_t i = 0; i < column_struct.tuple_size(); i++) {
         size_t num_read = *n;
         auto sub_column_ptr = column_struct.get_column(i).assume_mutable();
@@ -1311,8 +1421,7 @@ Status StructFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumn
 
     if (dst->is_nullable()) {
         size_t num_read = *n;
-        auto null_map_ptr =
-                static_cast<vectorized::ColumnNullable&>(*dst).get_null_map_column_ptr();
+        auto null_map_ptr = static_cast<ColumnNullable&>(*dst).get_null_map_column_ptr();
         // in not-null to null linked-schemachange mode,
         // actually we do not change dat data include meta in footer,
         // so may dst from changed meta which is nullable but old data is not nullable,
@@ -1322,8 +1431,7 @@ Status StructFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumn
             RETURN_IF_ERROR(
                     _null_iterator->next_batch(&num_read, null_map_ptr, &null_signs_has_null));
         } else {
-            auto& null_map = assert_cast<vectorized::ColumnUInt8&, TypeCheckOnRelease::DISABLE>(
-                    *null_map_ptr);
+            auto& null_map = assert_cast<ColumnUInt8&, TypeCheckOnRelease::DISABLE>(*null_map_ptr);
             null_map.insert_many_vals(0, num_read);
         }
         DCHECK(num_read == *n);
@@ -1335,6 +1443,14 @@ Status StructFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumn
 Status StructFileColumnIterator::seek_to_ordinal(ordinal_t ord) {
     if (_reading_flag == ReadingFlag::SKIP_READING) {
         DLOG(INFO) << "Struct column iterator column " << _column_name << " skip reading.";
+        return Status::OK();
+    }
+
+    if (read_null_map_only()) {
+        // In NULL_MAP_ONLY mode, only seek the null iterator; skip all sub-column iterators
+        if (_struct_reader->is_nullable() && _null_iterator) {
+            RETURN_IF_ERROR(_null_iterator->seek_to_ordinal(ord));
+        }
         return Status::OK();
     }
 
@@ -1369,7 +1485,7 @@ void StructFileColumnIterator::collect_prefetchers(
 }
 
 Status StructFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
-                                                vectorized::MutableColumnPtr& dst) {
+                                                MutableColumnPtr& dst) {
     if (_reading_flag == ReadingFlag::SKIP_READING) {
         DLOG(INFO) << "Struct column iterator column " << _column_name << " skip reading.";
         dst->insert_many_defaults(count);
@@ -1391,7 +1507,7 @@ Status StructFileColumnIterator::read_by_rowids(const rowid_t* rowids, const siz
         }
         RETURN_IF_ERROR(seek_to_ordinal(start_idx));
         size_t num_read = this_run;
-        RETURN_IF_ERROR(next_batch(&num_read, dst, nullptr));
+        RETURN_IF_ERROR(next_batch(&num_read, dst));
         DCHECK_EQ(num_read, this_run);
 
         start_idx = rowids[i];
@@ -1401,7 +1517,7 @@ Status StructFileColumnIterator::read_by_rowids(const rowid_t* rowids, const siz
 
     RETURN_IF_ERROR(seek_to_ordinal(start_idx));
     size_t num_read = this_run;
-    RETURN_IF_ERROR(next_batch(&num_read, dst, nullptr));
+    RETURN_IF_ERROR(next_batch(&num_read, dst));
     DCHECK_EQ(num_read, this_run);
     return Status::OK();
 }
@@ -1441,6 +1557,17 @@ Status StructFileColumnIterator::set_access_paths(
     }
     auto sub_all_access_paths = DORIS_TRY(_get_sub_access_paths(all_access_paths));
     auto sub_predicate_access_paths = DORIS_TRY(_get_sub_access_paths(predicate_access_paths));
+
+    // Check for NULL_MAP_ONLY mode: only read null map, skip all sub-columns
+    _check_and_set_meta_read_mode(sub_all_access_paths);
+    if (read_null_map_only()) {
+        for (auto& sub_iterator : _sub_column_iterators) {
+            sub_iterator->set_reading_flag(ReadingFlag::SKIP_READING);
+        }
+        DLOG(INFO) << "Struct column iterator set column " << _column_name
+                   << " to NULL_MAP_ONLY reading mode, all sub-columns set to SKIP_READING";
+        return Status::OK();
+    }
 
     const auto no_sub_column_to_skip = sub_all_access_paths.empty();
     const auto no_predicate_sub_column = sub_predicate_access_paths.empty();
@@ -1487,12 +1614,11 @@ Status StructFileColumnIterator::set_access_paths(
 Status OffsetFileColumnIterator::init(const ColumnIteratorOptions& opts) {
     RETURN_IF_ERROR(_offset_iterator->init(opts));
     // allocate peek tmp column once
-    _peek_tmp_col = vectorized::ColumnOffset64::create();
+    _peek_tmp_col = ColumnOffset64::create();
     return Status::OK();
 }
 
-Status OffsetFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
-                                            bool* has_null) {
+Status OffsetFileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) {
     RETURN_IF_ERROR(_offset_iterator->next_batch(n, dst, has_null));
     return Status::OK();
 }
@@ -1504,9 +1630,9 @@ Status OffsetFileColumnIterator::_peek_one_offset(ordinal_t* offset) {
         _peek_tmp_col->clear();
         RETURN_IF_ERROR(offset_page_decoder->peek_next_batch(&n, _peek_tmp_col)); // not null
         DCHECK(_peek_tmp_col->size() == 1);
-        *offset = assert_cast<const vectorized::ColumnOffset64*, TypeCheckOnRelease::DISABLE>(
-                          _peek_tmp_col.get())
-                          ->get_element(0);
+        *offset =
+                assert_cast<const ColumnOffset64*, TypeCheckOnRelease::DISABLE>(_peek_tmp_col.get())
+                        ->get_element(0);
     } else {
         *offset = _offset_iterator->get_current_page()->next_array_item_ordinal;
     }
@@ -1535,8 +1661,8 @@ void OffsetFileColumnIterator::collect_prefetchers(
  * @param column_offsets
  * @return
  */
-Status OffsetFileColumnIterator::_calculate_offsets(
-        ssize_t start, vectorized::ColumnArray::ColumnOffsets& column_offsets) {
+Status OffsetFileColumnIterator::_calculate_offsets(ssize_t start,
+                                                    ColumnArray::ColumnOffsets& column_offsets) {
     ordinal_t next_storage_offset = 0;
     RETURN_IF_ERROR(_peek_one_offset(&next_storage_offset));
 
@@ -1582,6 +1708,10 @@ Status ArrayFileColumnIterator::init(const ColumnIteratorOptions& opts) {
 }
 
 Status ArrayFileColumnIterator::_seek_by_offsets(ordinal_t ord) {
+    if (read_offset_only()) {
+        // In OFFSET_ONLY mode, item iterator is SKIP_READING, no need to seek it
+        return Status::OK();
+    }
     // using offsets info
     ordinal_t offset = 0;
     RETURN_IF_ERROR(_offset_iterator->_peek_one_offset(&offset));
@@ -1595,6 +1725,14 @@ Status ArrayFileColumnIterator::seek_to_ordinal(ordinal_t ord) {
         return Status::OK();
     }
 
+    if (read_null_map_only()) {
+        // In NULL_MAP_ONLY mode, only seek the null iterator; skip offset and item iterators
+        if (_array_reader->is_nullable() && _null_iterator) {
+            RETURN_IF_ERROR(_null_iterator->seek_to_ordinal(ord));
+        }
+        return Status::OK();
+    }
+
     RETURN_IF_ERROR(_offset_iterator->seek_to_ordinal(ord));
     if (_array_reader->is_nullable()) {
         RETURN_IF_ERROR(_null_iterator->seek_to_ordinal(ord));
@@ -1602,17 +1740,39 @@ Status ArrayFileColumnIterator::seek_to_ordinal(ordinal_t ord) {
     return _seek_by_offsets(ord);
 }
 
-Status ArrayFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
-                                           bool* has_null) {
+Status ArrayFileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) {
     if (_reading_flag == ReadingFlag::SKIP_READING) {
         DLOG(INFO) << "Array column iterator column " << _column_name << " skip reading.";
         dst->insert_many_defaults(*n);
         return Status::OK();
     }
 
-    const auto* column_array = vectorized::check_and_get_column<vectorized::ColumnArray>(
-            dst->is_nullable() ? static_cast<vectorized::ColumnNullable&>(*dst).get_nested_column()
-                               : *dst);
+    if (read_null_map_only()) {
+        // NULL_MAP_ONLY mode: read null map, fill nested ColumnArray with empty defaults
+        DORIS_CHECK(dst->is_nullable());
+        auto& nullable_col = assert_cast<ColumnNullable&>(*dst);
+        auto null_map_ptr = nullable_col.get_null_map_column_ptr();
+        size_t num_read = *n;
+        if (_null_iterator) {
+            bool null_signs_has_null = false;
+            RETURN_IF_ERROR(
+                    _null_iterator->next_batch(&num_read, null_map_ptr, &null_signs_has_null));
+        } else {
+            // schema-change: column became nullable but old segment has no null data
+            auto& null_map = assert_cast<ColumnUInt8&, TypeCheckOnRelease::DISABLE>(*null_map_ptr);
+            null_map.insert_many_vals(0, num_read);
+        }
+        DCHECK(num_read == *n);
+        // fill nested ColumnArray with empty (zero-length) arrays
+        auto& column_array = assert_cast<ColumnArray&, TypeCheckOnRelease::DISABLE>(
+                nullable_col.get_nested_column());
+        column_array.insert_many_defaults(num_read);
+        *has_null = true;
+        return Status::OK();
+    }
+
+    const auto* column_array = check_and_get_column<ColumnArray>(
+            dst->is_nullable() ? static_cast<ColumnNullable&>(*dst).get_nested_column() : *dst);
 
     bool offsets_has_null = false;
     auto column_offsets_ptr = column_array->get_offsets_column().assume_mutable();
@@ -1621,22 +1781,26 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnP
     if (*n == 0) {
         return Status::OK();
     }
-    auto& column_offsets =
-            static_cast<vectorized::ColumnArray::ColumnOffsets&>(*column_offsets_ptr);
+    auto& column_offsets = static_cast<ColumnArray::ColumnOffsets&>(*column_offsets_ptr);
     RETURN_IF_ERROR(_offset_iterator->_calculate_offsets(start, column_offsets));
     size_t num_items =
             column_offsets.get_data().back() - column_offsets.get_data()[start - 1]; // -1 is valid
     auto column_items_ptr = column_array->get_data().assume_mutable();
     if (num_items > 0) {
-        size_t num_read = num_items;
-        bool items_has_null = false;
-        RETURN_IF_ERROR(_item_iterator->next_batch(&num_read, column_items_ptr, &items_has_null));
-        DCHECK(num_read == num_items);
+        if (read_offset_only()) {
+            // OFFSET_ONLY mode: skip reading actual item data, fill with defaults
+            column_items_ptr->insert_many_defaults(num_items);
+        } else {
+            size_t num_read = num_items;
+            bool items_has_null = false;
+            RETURN_IF_ERROR(
+                    _item_iterator->next_batch(&num_read, column_items_ptr, &items_has_null));
+            DCHECK(num_read == num_items);
+        }
     }
 
     if (dst->is_nullable()) {
-        auto null_map_ptr =
-                static_cast<vectorized::ColumnNullable&>(*dst).get_null_map_column_ptr();
+        auto null_map_ptr = static_cast<ColumnNullable&>(*dst).get_null_map_column_ptr();
         size_t num_read = *n;
         // in not-null to null linked-schemachange mode,
         // actually we do not change dat data include meta in footer,
@@ -1647,8 +1811,7 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnP
             RETURN_IF_ERROR(
                     _null_iterator->next_batch(&num_read, null_map_ptr, &null_signs_has_null));
         } else {
-            auto& null_map = assert_cast<vectorized::ColumnUInt8&, TypeCheckOnRelease::DISABLE>(
-                    *null_map_ptr);
+            auto& null_map = assert_cast<ColumnUInt8&, TypeCheckOnRelease::DISABLE>(*null_map_ptr);
             null_map.insert_many_vals(0, num_read);
         }
         DCHECK(num_read == *n);
@@ -1679,7 +1842,7 @@ void ArrayFileColumnIterator::collect_prefetchers(
 }
 
 Status ArrayFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
-                                               vectorized::MutableColumnPtr& dst) {
+                                               MutableColumnPtr& dst) {
     if (_reading_flag == ReadingFlag::SKIP_READING) {
         DLOG(INFO) << "Array column iterator column " << _column_name << " skip reading.";
         dst->insert_many_defaults(count);
@@ -1687,11 +1850,10 @@ Status ArrayFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size
     }
 
     for (size_t i = 0; i < count; ++i) {
-        // TODO(cambyzju): now read array one by one, need optimize later
+        // TODO(cambyszju): now read array one by one, need optimize later
         RETURN_IF_ERROR(seek_to_ordinal(rowids[i]));
         size_t num_read = 1;
-        RETURN_IF_ERROR(next_batch(&num_read, dst, nullptr));
-        DCHECK(num_read == 1);
+        RETURN_IF_ERROR(next_batch(&num_read, dst));
     }
     return Status::OK();
 }
@@ -1720,12 +1882,27 @@ Status ArrayFileColumnIterator::set_access_paths(const TColumnAccessPaths& all_a
     auto sub_all_access_paths = DORIS_TRY(_get_sub_access_paths(all_access_paths));
     auto sub_predicate_access_paths = DORIS_TRY(_get_sub_access_paths(predicate_access_paths));
 
+    // Check for meta-only modes (OFFSET_ONLY or NULL_MAP_ONLY)
+    _check_and_set_meta_read_mode(sub_all_access_paths);
+    if (read_offset_only()) {
+        _item_iterator->set_reading_flag(ReadingFlag::SKIP_READING);
+        DLOG(INFO) << "Array column iterator set column " << _column_name
+                   << " to OFFSET_ONLY reading mode, item column set to SKIP_READING";
+        return Status::OK();
+    }
+    if (read_null_map_only()) {
+        _item_iterator->set_reading_flag(ReadingFlag::SKIP_READING);
+        DLOG(INFO) << "Array column iterator set column " << _column_name
+                   << " to NULL_MAP_ONLY reading mode, item column set to SKIP_READING";
+        return Status::OK();
+    }
+
     const auto no_sub_column_to_skip = sub_all_access_paths.empty();
     const auto no_predicate_sub_column = sub_predicate_access_paths.empty();
 
     if (!no_sub_column_to_skip) {
         for (auto& path : sub_all_access_paths) {
-            if (path.data_access_path.path[0] == "*") {
+            if (path.data_access_path.path[0] == ACCESS_ALL) {
                 path.data_access_path.path[0] = _item_iterator->column_name();
             }
         }
@@ -1733,7 +1910,7 @@ Status ArrayFileColumnIterator::set_access_paths(const TColumnAccessPaths& all_a
 
     if (!no_predicate_sub_column) {
         for (auto& path : sub_predicate_access_paths) {
-            if (path.data_access_path.path[0] == "*") {
+            if (path.data_access_path.path[0] == ACCESS_ALL) {
                 path.data_access_path.path[0] = _item_iterator->column_name();
             }
         }
@@ -1748,8 +1925,66 @@ Status ArrayFileColumnIterator::set_access_paths(const TColumnAccessPaths& all_a
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+// StringFileColumnIterator implementation
+////////////////////////////////////////////////////////////////////////////////
+
+StringFileColumnIterator::StringFileColumnIterator(std::shared_ptr<ColumnReader> reader)
+        : FileColumnIterator(std::move(reader)) {}
+
+Status StringFileColumnIterator::init(const ColumnIteratorOptions& opts) {
+    if (read_offset_only()) {
+        // Propagate only_read_offsets to the FileColumnIterator's options
+        auto modified_opts = opts;
+        modified_opts.only_read_offsets = true;
+        return FileColumnIterator::init(modified_opts);
+    }
+    return FileColumnIterator::init(opts);
+}
+
+Status StringFileColumnIterator::set_access_paths(
+        const TColumnAccessPaths& all_access_paths,
+        const TColumnAccessPaths& predicate_access_paths) {
+    if (all_access_paths.empty()) {
+        return Status::OK();
+    }
+
+    if (!predicate_access_paths.empty()) {
+        set_reading_flag(ReadingFlag::READING_FOR_PREDICATE);
+    }
+
+    // Strip the column name from path[0] before checking for meta-only modes.
+    // Raw paths look like ["col_name", "OFFSET"] or ["col_name", "NULL"].
+    auto sub_all_access_paths = DORIS_TRY(_get_sub_access_paths(all_access_paths));
+    _check_and_set_meta_read_mode(sub_all_access_paths);
+    if (read_offset_only()) {
+        DLOG(INFO) << "String column iterator set column " << _column_name
+                   << " to OFFSET_ONLY reading mode";
+    } else if (read_null_map_only()) {
+        DLOG(INFO) << "String column iterator set column " << _column_name
+                   << " to NULL_MAP_ONLY reading mode";
+    }
+
+    return Status::OK();
+}
+
+////////////////////////////////////////////////////////////////////////////////
 
 FileColumnIterator::FileColumnIterator(std::shared_ptr<ColumnReader> reader) : _reader(reader) {}
+
+void ColumnIterator::_check_and_set_meta_read_mode(const TColumnAccessPaths& sub_all_access_paths) {
+    for (const auto& path : sub_all_access_paths) {
+        if (!path.data_access_path.path.empty()) {
+            if (StringCaseEqual()(path.data_access_path.path[0], ACCESS_OFFSET)) {
+                _read_mode = ReadMode::OFFSET_ONLY;
+                return;
+            } else if (StringCaseEqual()(path.data_access_path.path[0], ACCESS_NULL)) {
+                _read_mode = ReadMode::NULL_MAP_ONLY;
+                return;
+            }
+        }
+    }
+    _read_mode = ReadMode::DEFAULT;
+}
 
 Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {
     if (_reading_flag == ReadingFlag::SKIP_READING) {
@@ -1853,12 +2088,59 @@ Status FileColumnIterator::_seek_to_pos_in_page(ParsedPage* page, ordinal_t offs
     return Status::OK();
 }
 
-Status FileColumnIterator::next_batch_of_zone_map(size_t* n, vectorized::MutableColumnPtr& dst) {
+Status FileColumnIterator::next_batch_of_zone_map(size_t* n, MutableColumnPtr& dst) {
     return _reader->next_batch_of_zone_map(n, dst);
 }
 
-Status FileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
-                                      bool* has_null) {
+Status FileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) {
+    if (read_null_map_only()) {
+        DLOG(INFO) << "File column iterator column " << _column_name
+                   << " in NULL_MAP_ONLY mode, reading only null map.";
+        DORIS_CHECK(dst->is_nullable());
+        auto& nullable_col = assert_cast<ColumnNullable&>(*dst);
+        auto& null_map_data = nullable_col.get_null_map_data();
+
+        size_t remaining = *n;
+        *has_null = false;
+        while (remaining > 0) {
+            if (!_page.has_remaining()) {
+                bool eos = false;
+                RETURN_IF_ERROR(_load_next_page(&eos));
+                if (eos) {
+                    break;
+                }
+            }
+
+            size_t nrows_in_page = std::min(remaining, _page.remaining());
+            size_t nrows_to_read = nrows_in_page;
+            if (_page.has_null) {
+                while (nrows_to_read > 0) {
+                    bool is_null = false;
+                    size_t this_run = _page.null_decoder.GetNextRun(&is_null, nrows_to_read);
+                    const size_t cur_size = null_map_data.size();
+                    null_map_data.resize(cur_size + this_run);
+                    memset(null_map_data.data() + cur_size, is_null ? 1 : 0, this_run);
+                    if (is_null) {
+                        *has_null = true;
+                    }
+                    nrows_to_read -= this_run;
+                    _page.offset_in_page += this_run;
+                    _current_ordinal += this_run;
+                }
+            } else {
+                const size_t cur_size = null_map_data.size();
+                null_map_data.resize(cur_size + nrows_to_read);
+                memset(null_map_data.data() + cur_size, 0, nrows_to_read);
+                _page.offset_in_page += nrows_to_read;
+                _current_ordinal += nrows_to_read;
+            }
+            remaining -= nrows_in_page;
+        }
+        *n -= remaining;
+        nullable_col.get_nested_column().insert_many_defaults(*n);
+        return Status::OK();
+    }
+
     if (_reading_flag == ReadingFlag::SKIP_READING) {
         DLOG(INFO) << "File column iterator column " << _column_name << " skip reading.";
         dst->insert_many_defaults(*n);
@@ -1892,8 +2174,7 @@ Status FileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& d
                     DCHECK_EQ(this_run, num_rows);
                 } else {
                     *has_null = true;
-                    auto* null_col =
-                            vectorized::check_and_get_column<vectorized::ColumnNullable>(dst.get());
+                    auto* null_col = check_and_get_column<ColumnNullable>(dst.get());
                     if (null_col != nullptr) {
                         null_col->insert_many_defaults(this_run);
                     } else {
@@ -1924,7 +2205,72 @@ Status FileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& d
 }
 
 Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
-                                          vectorized::MutableColumnPtr& dst) {
+                                          MutableColumnPtr& dst) {
+    if (read_null_map_only()) {
+        DLOG(INFO) << "File column iterator column " << _column_name
+                   << " in NULL_MAP_ONLY mode, reading only null map by rowids.";
+
+        DORIS_CHECK(dst->is_nullable());
+        auto& nullable_col = assert_cast<ColumnNullable&>(*dst);
+        auto& null_map_data = nullable_col.get_null_map_data();
+        const size_t base_size = null_map_data.size();
+        null_map_data.resize(base_size + count);
+
+        nullable_col.get_nested_column().insert_many_defaults(count);
+
+        size_t remaining = count;
+        size_t total_read_count = 0;
+        size_t nrows_to_read = 0;
+        while (remaining > 0) {
+            RETURN_IF_ERROR(seek_to_ordinal(rowids[total_read_count]));
+
+            nrows_to_read = std::min(remaining, _page.remaining());
+
+            if (_page.has_null) {
+                size_t already_read = 0;
+                while ((nrows_to_read - already_read) > 0) {
+                    bool is_null = false;
+                    size_t this_run = std::min(nrows_to_read - already_read, _page.remaining());
+                    if (UNLIKELY(this_run == 0)) {
+                        break;
+                    }
+                    this_run = _page.null_decoder.GetNextRun(&is_null, this_run);
+
+                    size_t offset = total_read_count + already_read;
+                    size_t this_read_count = 0;
+                    rowid_t current_ordinal_in_page =
+                            cast_set<uint32_t>(_page.offset_in_page + _page.first_ordinal);
+                    for (size_t i = 0; i < this_run; ++i) {
+                        if (rowids[offset + i] - current_ordinal_in_page >= this_run) {
+                            break;
+                        }
+                        this_read_count++;
+                    }
+
+                    if (this_read_count > 0) {
+                        memset(null_map_data.data() + base_size + offset, is_null ? 1 : 0,
+                               this_read_count);
+                    }
+
+                    already_read += this_read_count;
+                    _page.offset_in_page += this_run;
+                }
+
+                nrows_to_read = already_read;
+                total_read_count += nrows_to_read;
+                remaining -= nrows_to_read;
+            } else {
+                memset(null_map_data.data() + base_size + total_read_count, 0, nrows_to_read);
+                total_read_count += nrows_to_read;
+                remaining -= nrows_to_read;
+            }
+        }
+
+        null_map_data.resize(base_size + total_read_count);
+        nullable_col.get_nested_column().insert_many_defaults(total_read_count);
+        return Status::OK();
+    }
+
     if (_reading_flag == ReadingFlag::SKIP_READING) {
         DLOG(INFO) << "File column iterator column " << _column_name << " skip reading.";
         dst->insert_many_defaults(count);
@@ -1963,9 +2309,7 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
                 auto origin_index = _page.data_decoder->current_index();
                 if (this_read_count > 0) {
                     if (is_null) {
-                        auto* null_col =
-                                vectorized::check_and_get_column<vectorized::ColumnNullable>(
-                                        dst.get());
+                        auto* null_col = check_and_get_column<ColumnNullable>(dst.get());
                         if (UNLIKELY(null_col == nullptr)) {
                             return Status::InternalError("unexpected column type in column reader");
                         }
@@ -2025,11 +2369,14 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
     Slice page_body;
     PageFooterPB footer;
     _opts.type = DATA_PAGE;
+    PageDecoderOptions decoder_opts;
+    decoder_opts.only_read_offsets = _opts.only_read_offsets;
     RETURN_IF_ERROR(
             _reader->read_page(_opts, iter.page(), &handle, &page_body, &footer, _compress_codec));
     // parse data page
     auto st = ParsedPage::create(std::move(handle), page_body, footer.data_page_footer(),
-                                 _reader->encoding_info(), iter.page(), iter.page_index(), &_page);
+                                 _reader->encoding_info(), iter.page(), iter.page_index(), &_page,
+                                 decoder_opts);
     if (!st.ok()) {
         LOG(WARNING) << "failed to create ParsedPage, file=" << _opts.file_reader->path().native()
                      << ", page_offset=" << iter.page().offset << ", page_size=" << iter.page().size
@@ -2142,14 +2489,13 @@ Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
     // "NULL" is a special default value which means the default value is null.
     if (_has_default_value) {
         if (_default_value == "NULL") {
-            _default_value_field = vectorized::Field::create_field<TYPE_NULL>(vectorized::Null {});
+            _default_value_field = Field::create_field<TYPE_NULL>(Null {});
         } else {
             if (_type_info->type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
                 if (_default_value != "[]") {
                     return Status::NotSupported("Array default {} is unsupported", _default_value);
                 } else {
-                    _default_value_field =
-                            vectorized::Field::create_field<TYPE_ARRAY>(vectorized::Array {});
+                    _default_value_field = Field::create_field<TYPE_ARRAY>(Array {});
                     return Status::OK();
                 }
             } else if (_type_info->type() == FieldType::OLAP_FIELD_TYPE_STRUCT) {
@@ -2158,14 +2504,13 @@ Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
                 return Status::NotSupported("MAP default type is unsupported");
             }
             const auto t = _type_info->type();
-            const auto serde = vectorized::DataTypeFactory::instance()
+            const auto serde = DataTypeFactory::instance()
                                        .create_data_type(t, _precision, _scale, _len)
                                        ->get_serde();
-            vectorized::DataTypeSerDe::FormatOptions opt;
-            RETURN_IF_ERROR(serde->from_olap_string(_default_value, _default_value_field, opt));
+            RETURN_IF_ERROR(serde->from_fe_string(_default_value, _default_value_field));
         }
     } else if (_is_nullable) {
-        _default_value_field = vectorized::Field::create_field<TYPE_NULL>(vectorized::Null {});
+        _default_value_field = Field::create_field<TYPE_NULL>(Null {});
     } else {
         return Status::InternalError(
                 "invalid default value column for no default value and not nullable");
@@ -2173,20 +2518,19 @@ Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
     return Status::OK();
 }
 
-Status DefaultValueColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
-                                              bool* has_null) {
+Status DefaultValueColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) {
     *has_null = _default_value_field.is_null();
     _insert_many_default(dst, *n);
     return Status::OK();
 }
 
 Status DefaultValueColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
-                                                  vectorized::MutableColumnPtr& dst) {
+                                                  MutableColumnPtr& dst) {
     _insert_many_default(dst, count);
     return Status::OK();
 }
 
-void DefaultValueColumnIterator::_insert_many_default(vectorized::MutableColumnPtr& dst, size_t n) {
+void DefaultValueColumnIterator::_insert_many_default(MutableColumnPtr& dst, size_t n) {
     if (_default_value_field.is_null()) {
         dst->insert_many_defaults(n);
     } else {
@@ -2195,10 +2539,8 @@ void DefaultValueColumnIterator::_insert_many_default(vectorized::MutableColumnP
     }
 }
 
-Status RowIdColumnIteratorV2::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
-                                         bool* has_null) {
-    auto* string_column =
-            assert_cast<vectorized::ColumnString*, TypeCheckOnRelease::DISABLE>(dst.get());
+Status RowIdColumnIteratorV2::next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) {
+    auto* string_column = assert_cast<ColumnString*, TypeCheckOnRelease::DISABLE>(dst.get());
 
     for (uint32_t i = 0; i < *n; ++i) {
         uint32_t row_id = _current_rowid + i;
@@ -2211,8 +2553,8 @@ Status RowIdColumnIteratorV2::next_batch(size_t* n, vectorized::MutableColumnPtr
 }
 
 Status RowIdColumnIteratorV2::read_by_rowids(const rowid_t* rowids, const size_t count,
-                                             vectorized::MutableColumnPtr& dst) {
-    auto* string_column = assert_cast<vectorized::ColumnString*>(dst.get());
+                                             MutableColumnPtr& dst) {
+    auto* string_column = assert_cast<ColumnString*>(dst.get());
 
     for (size_t i = 0; i < count; ++i) {
         uint32_t row_id = rowids[i];

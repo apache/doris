@@ -31,7 +31,11 @@
 #include "core/column/column.h"
 #include "core/data_type/data_type.h"
 #include "storage/segment/column_reader.h"
+#include "storage/segment/variant/nested_group_builder.h"
+#include "storage/segment/variant/nested_group_path.h"
 #include "storage/segment/variant/nested_group_reader.h"
+#include "storage/segment/variant/nested_group_routing_plan.h"
+#include "storage/segment/variant/nested_group_streaming_write_plan.h"
 #include "util/json/path_in_data.h"
 
 namespace roaring {
@@ -45,10 +49,8 @@ class StorageReadOptions;
 namespace io {
 class FileReader;
 } // namespace io
-namespace vectorized {
 class ColumnVariant;
 class OlapBlockDataConvertor;
-} // namespace vectorized
 } // namespace doris
 
 namespace doris::segment_v2 {
@@ -83,12 +85,8 @@ struct NestedGroupPathFilter {
         if (allow_all) {
             return true;
         }
-        if (allowed_paths.contains(name)) {
-            return true;
-        }
-        std::string prefix = name + ".";
         return std::ranges::any_of(allowed_paths, [&](const auto& path) {
-            return path.starts_with(prefix) || name.starts_with(path + ".");
+            return nested_group_paths_overlap(path, name);
         });
     }
 
@@ -136,14 +134,32 @@ NestedGroupPathMatch find_in_nested_groups(const NestedGroupReaders& readers,
 // The default provider is a no-op placeholder.
 // Downstream integrations may provide a full implementation that expands JSONB
 // into NestedGroup columns with auxiliary indexes.
+Status build_nested_groups_from_variant_jsonb(
+        const ColumnVariant& variant, NestedGroupsMap* nested_groups,
+        std::vector<std::string>* out_ng_paths = nullptr,
+        std::vector<std::string>* out_conflict_paths = nullptr);
+
 class NestedGroupWriteProvider {
 public:
     virtual ~NestedGroupWriteProvider() = default;
 
-    virtual Status prepare(const vectorized::ColumnVariant& variant, bool include_jsonb_subcolumns,
-                           const TabletColumn* tablet_column, const ColumnWriterOptions& opts,
-                           vectorized::OlapBlockDataConvertor* converter, size_t num_rows,
+    virtual Status prepare(const ColumnVariant& variant, const TabletColumn* tablet_column,
+                           const ColumnWriterOptions& opts, OlapBlockDataConvertor* converter,
                            int* column_id, VariantStatistics* statistics) = 0;
+
+    virtual Status prepare_with_built_groups(const NestedGroupsMap& nested_groups,
+                                             const TabletColumn* tablet_column,
+                                             const ColumnWriterOptions& opts,
+                                             OlapBlockDataConvertor* converter, int* column_id,
+                                             VariantStatistics* statistics) = 0;
+
+    virtual Status init_with_plan(const NestedGroupStreamingWritePlan& plan,
+                                  const TabletColumn* tablet_column,
+                                  const ColumnWriterOptions& opts, int* column_id,
+                                  VariantStatistics* statistics) = 0;
+
+    virtual Status append_chunk(const NestedGroupStreamingWritePlan& plan,
+                                const ColumnVariant& variant) = 0;
 
     virtual uint64_t estimate_buffer_size() const = 0;
 
@@ -177,8 +193,8 @@ public:
     virtual Status init_readers(const ColumnReaderOptions& opts,
                                 const std::shared_ptr<SegmentFooterPB>& footer,
                                 const std::shared_ptr<io::FileReader>& file_reader,
-                                ColumnMetaAccessor* accessor, uint64_t num_rows,
-                                NestedGroupReaders& out_readers) = 0;
+                                ColumnMetaAccessor* accessor, int32_t root_unique_id,
+                                uint64_t num_rows, NestedGroupReaders& out_readers) = 0;
 
     // --- Read planning ---
     // Determines if |relative_path| should be read via the NestedGroup path and if so
@@ -195,11 +211,11 @@ public:
     virtual bool try_build_read_plan(
             const TabletSchema* tablet_schema, const NestedGroupReaders& readers,
             const TabletColumn& target_col, const StorageReadOptions* opt, int32_t col_uid,
-            const vectorized::PathInData& relative_path,
+            const PathInData& relative_path,
             // outputs:
-            bool* out_is_whole, vectorized::DataTypePtr* out_type,
-            vectorized::PathInData* out_relative_path, std::string* out_child_path,
-            std::string* out_pruned_path, std::vector<const NestedGroupReader*>* out_chain,
+            bool* out_is_whole, DataTypePtr* out_type, PathInData* out_relative_path,
+            std::string* out_child_path, std::string* out_pruned_path,
+            std::vector<const NestedGroupReader*>* out_chain,
             std::optional<NestedGroupPathFilter>* out_path_filter) const = 0;
 
     // --- Iterator creation ---
@@ -210,7 +226,7 @@ public:
             bool is_whole, const std::vector<const NestedGroupReader*>& chain,
             const std::string& child_path, const std::string& pruned_path,
             const std::optional<NestedGroupPathFilter>& path_filter, ColumnIteratorUPtr* out_iter,
-            vectorized::DataTypePtr* out_type) = 0;
+            DataTypePtr* out_type) = 0;
 
     // --- Search support ---
     // Get total number of elements in the innermost group of the chain.

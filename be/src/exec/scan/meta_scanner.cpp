@@ -37,7 +37,6 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/types.h"
-#include "format/table/iceberg_sys_table_jni_reader.h"
 #include "format/table/parquet_metadata_reader.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
@@ -47,17 +46,15 @@
 
 namespace doris {
 class RuntimeProfile;
-namespace vectorized {
 class VExprContext;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
-MetaScanner::MetaScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state,
-                         TupleId tuple_id, const TScanRangeParams& scan_range, int64_t limit,
-                         RuntimeProfile* profile, TUserIdentity user_identity)
+MetaScanner::MetaScanner(RuntimeState* state, ScanLocalStateBase* local_state, TupleId tuple_id,
+                         const TScanRangeParams& scan_range, int64_t limit, RuntimeProfile* profile,
+                         TUserIdentity user_identity)
         : Scanner(state, local_state, limit, profile),
           _meta_eos(false),
           _tuple_id(tuple_id),
@@ -67,15 +64,7 @@ MetaScanner::MetaScanner(RuntimeState* state, pipeline::ScanLocalStateBase* loca
 Status MetaScanner::_open_impl(RuntimeState* state) {
     VLOG_CRITICAL << "MetaScanner::open";
     RETURN_IF_ERROR(Scanner::_open_impl(state));
-    if (_scan_range.meta_scan_range.metadata_type == TMetadataType::ICEBERG) {
-        // TODO: refactor this code
-        auto reader = IcebergSysTableJniReader::create_unique(_tuple_desc->slots(), state, _profile,
-                                                              _scan_range.meta_scan_range);
-        RETURN_IF_ERROR(reader->init_reader());
-        static_cast<IcebergSysTableJniReader*>(reader.get())
-                ->set_col_name_to_block_idx(&_src_block_name_to_idx);
-        _reader = std::move(reader);
-    } else if (_scan_range.meta_scan_range.metadata_type == TMetadataType::PARQUET) {
+    if (_scan_range.meta_scan_range.metadata_type == TMetadataType::PARQUET) {
         auto reader = ParquetMetadataReader::create_unique(_tuple_desc->slots(), state, _profile,
                                                            _scan_range.meta_scan_range);
         RETURN_IF_ERROR(reader->init_reader());
@@ -160,7 +149,7 @@ Status MetaScanner::_fill_block_with_remote_data(const std::vector<MutableColumn
         auto slot_desc = _tuple_desc->slots()[col_idx];
 
         for (int _row_idx = 0; _row_idx < _batch_data.size(); _row_idx++) {
-            vectorized::IColumn* col_ptr = columns[col_idx].get();
+            IColumn* col_ptr = columns[col_idx].get();
             TCell& cell = _batch_data[_row_idx].column_value[col_idx];
             if (cell.__isset.isNull && cell.isNull) {
                 DCHECK(slot_desc->is_nullable())
@@ -177,55 +166,54 @@ Status MetaScanner::_fill_block_with_remote_data(const std::vector<MutableColumn
                 switch (slot_desc->type()->get_primitive_type()) {
                 case TYPE_BOOLEAN: {
                     bool data = cell.boolVal;
-                    assert_cast<vectorized::ColumnBool*>(col_ptr)->insert_value((uint8_t)data);
+                    assert_cast<ColumnBool*>(col_ptr)->insert_value((uint8_t)data);
                     break;
                 }
                 case TYPE_TINYINT: {
                     int8_t data = (int8_t)cell.intVal;
-                    assert_cast<vectorized::ColumnInt8*>(col_ptr)->insert_value(data);
+                    assert_cast<ColumnInt8*>(col_ptr)->insert_value(data);
                     break;
                 }
                 case TYPE_SMALLINT: {
                     int16_t data = (int16_t)cell.intVal;
-                    assert_cast<vectorized::ColumnInt16*>(col_ptr)->insert_value(data);
+                    assert_cast<ColumnInt16*>(col_ptr)->insert_value(data);
                     break;
                 }
                 case TYPE_INT: {
                     int32_t data = cell.intVal;
-                    assert_cast<vectorized::ColumnInt32*>(col_ptr)->insert_value(data);
+                    assert_cast<ColumnInt32*>(col_ptr)->insert_value(data);
                     break;
                 }
                 case TYPE_BIGINT: {
                     int64_t data = cell.longVal;
-                    assert_cast<vectorized::ColumnInt64*>(col_ptr)->insert_value(data);
+                    assert_cast<ColumnInt64*>(col_ptr)->insert_value(data);
                     break;
                 }
                 case TYPE_FLOAT: {
                     auto data = static_cast<float>(cell.doubleVal);
-                    assert_cast<vectorized::ColumnFloat32*>(col_ptr)->insert_value(data);
+                    assert_cast<ColumnFloat32*>(col_ptr)->insert_value(data);
                     break;
                 }
                 case TYPE_DOUBLE: {
                     double data = cell.doubleVal;
-                    assert_cast<vectorized::ColumnFloat64*>(col_ptr)->insert_value(data);
+                    assert_cast<ColumnFloat64*>(col_ptr)->insert_value(data);
                     break;
                 }
                 case TYPE_DATEV2: {
                     uint32_t data = (uint32_t)cell.longVal;
-                    assert_cast<vectorized::ColumnDateV2*>(col_ptr)->insert_value(data);
+                    assert_cast<ColumnDateV2*>(col_ptr)->insert_value(data);
                     break;
                 }
                 case TYPE_DATETIMEV2: {
                     uint64_t data = cell.longVal;
-                    assert_cast<vectorized::ColumnDateTimeV2*>(col_ptr)->insert_value(data);
+                    assert_cast<ColumnDateTimeV2*>(col_ptr)->insert_value(data);
                     break;
                 }
                 case TYPE_STRING:
                 case TYPE_CHAR:
                 case TYPE_VARCHAR: {
                     std::string data = cell.stringVal;
-                    assert_cast<vectorized::ColumnString*>(col_ptr)->insert_data(data.c_str(),
-                                                                                 data.length());
+                    assert_cast<ColumnString*>(col_ptr)->insert_data(data.c_str(), data.length());
                     break;
                 }
                 default: {
@@ -534,4 +522,4 @@ Status MetaScanner::close(RuntimeState* state) {
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

@@ -492,8 +492,8 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
         }
         LogicalCTEProducer<LogicalAggregate<Plan>> producer =
                 new LogicalCTEProducer<>(ctx.statementContext.getNextCTEId(), preAggClone);
+        ctx.statementContext.setCteProducer(producer.getCteId(), producer);
         ctx.cteProducerList.add(producer);
-        producer.accept(new StatsDerive(false), new DeriveContext());
         return producer;
     }
 
@@ -515,7 +515,9 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
             return Optional.empty();
         }
         int beNumber = Math.max(1, connectContext.getEnv().getClusterInfo().getBackendsNumber(true));
-        int parallelInstance = Math.max(1, connectContext.getSessionVariable().getParallelExecInstanceNum());
+        String clusterName = connectContext.getSessionVariable().resolveCloudClusterName(connectContext);
+        int parallelInstance = Math.max(1,
+                connectContext.getSessionVariable().getParallelExecInstanceNum(clusterName));
         int totalInstanceNum = beNumber * parallelInstance;
         Optional<Expression> chosen;
         switch (repeat.getRepeatType()) {

@@ -116,7 +116,7 @@ struct TabletSize {
     size_t tablet_size;
 };
 
-// Define all data types supported by Field.
+// Define all data types supported by StorageField.
 // If new filed_type is defined, not only new TypeInfo may need be defined,
 // but also some functions like get_type_info in types.cpp need to be changed.
 enum class FieldType {
@@ -163,10 +163,10 @@ enum class FieldType {
     OLAP_FIELD_TYPE_TIMESTAMPTZ = 40,
 };
 
-// Define all aggregation methods supported by Field
+// Define all aggregation methods supported by StorageField
 // Note that in practice, not all types can use all the following aggregation methods
 // For example, it is meaningless to use SUM for the string type (but it will not cause the program to crash)
-// The implementation of the Field class does not perform such checks, and should be constrained when creating the table
+// The implementation of the StorageField class does not perform such checks, and should be constrained when creating the table
 enum class FieldAggregationMethod {
     OLAP_FIELD_AGGREGATION_NONE = 0,
     OLAP_FIELD_AGGREGATION_SUM = 1,
@@ -281,7 +281,7 @@ struct Vertex {
     Vertex(int64_t v) : value(v) {}
 };
 
-class Field;
+class StorageField;
 
 // ReaderStatistics used to collect statistics when scan data from storage
 struct OlapReaderStatistics {
@@ -380,6 +380,9 @@ struct OlapReaderStatistics {
     int64_t ann_index_load_ns = 0;
     int64_t ann_topn_search_ns = 0;
     int64_t ann_index_topn_search_cnt = 0;
+    int64_t ann_ivf_on_disk_load_ns = 0;
+    int64_t ann_ivf_on_disk_cache_hit_cnt = 0;
+    int64_t ann_ivf_on_disk_cache_miss_cnt = 0;
 
     // Detailed timing for ANN operations
     int64_t ann_index_topn_engine_search_ns = 0;  // time spent in engine for range search
@@ -398,6 +401,7 @@ struct OlapReaderStatistics {
     int64_t ann_range_result_convert_ns = 0; // time spent processing range results
     int64_t ann_range_engine_convert_ns = 0; // time spent on FAISS-side conversions (Range)
     int64_t rows_ann_index_range_filtered = 0;
+    int64_t ann_fall_back_brute_force_cnt = 0;
 
     int64_t output_index_result_column_timer = 0;
     // number of segment filtered by column stat when creating seg iterator

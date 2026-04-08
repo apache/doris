@@ -17,7 +17,7 @@
 
 #include "exprs/function/cast/cast_test.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST_F(FunctionCastTest, test_from_string_strict_mode_to_time) {
     InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
@@ -152,4 +152,4 @@ TEST_F(FunctionCastTest, test_from_datetime_to_time) {
 }
 //FIXME: fix cast with different scale then add cases about time to time
 
-} // namespace doris::vectorized
+} // namespace doris

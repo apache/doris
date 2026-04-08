@@ -19,7 +19,7 @@
 
 #include "testutil/creators.h"
 
-namespace doris::pipeline {
+namespace doris {
 
 void JoinTestHelper::SetUp() {
     runtime_state = std::make_unique<MockRuntimeState>();
@@ -40,4 +40,4 @@ void JoinTestHelper::SetUp() {
 
 void JoinTestHelper::TearDown() {}
 
-} // namespace doris::pipeline
+} // namespace doris

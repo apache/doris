@@ -203,7 +203,7 @@ public:
         return tablet_schema;
     }
 
-    void test_non_null_string(std::string_view rowset_id, int seg_id, Field* field) {
+    void test_non_null_string(std::string_view rowset_id, int seg_id, StorageField* field) {
         EXPECT_TRUE(field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY);
         std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
                 local_segment_path(kTestDir, rowset_id, seg_id))};
@@ -231,23 +231,23 @@ public:
                   Status::OK());
 
         // Construct two arrays: The first row is ["amory","doris"], and the second row is ["amory", "commiter"]
-        vectorized::Array a1, a2;
-        a1.push_back(vectorized::Field::create_field<TYPE_STRING>("amory"));
-        a1.push_back(vectorized::Field::create_field<TYPE_STRING>("doris"));
-        a2.push_back(vectorized::Field::create_field<TYPE_STRING>("amory"));
-        a2.push_back(vectorized::Field::create_field<TYPE_STRING>("commiter"));
+        Array a1, a2;
+        a1.push_back(Field::create_field<TYPE_STRING>("amory"));
+        a1.push_back(Field::create_field<TYPE_STRING>("doris"));
+        a2.push_back(Field::create_field<TYPE_STRING>("amory"));
+        a2.push_back(Field::create_field<TYPE_STRING>("commiter"));
 
         // Construct array type: DataTypeArray(DataTypeString)
-        vectorized::DataTypePtr s1 = std::make_shared<vectorized::DataTypeString>();
-        vectorized::DataTypePtr array_type = std::make_shared<vectorized::DataTypeArray>(s1);
-        vectorized::MutableColumnPtr col = array_type->create_column();
-        col->insert(vectorized::Field::create_field<TYPE_ARRAY>(a1));
-        col->insert(vectorized::Field::create_field<TYPE_ARRAY>(a2));
-        vectorized::ColumnPtr column_array = std::move(col);
-        vectorized::ColumnWithTypeAndName type_and_name(column_array, array_type, "arr1");
+        DataTypePtr s1 = std::make_shared<DataTypeString>();
+        DataTypePtr array_type = std::make_shared<DataTypeArray>(s1);
+        MutableColumnPtr col = array_type->create_column();
+        col->insert(Field::create_field<TYPE_ARRAY>(a1));
+        col->insert(Field::create_field<TYPE_ARRAY>(a2));
+        ColumnPtr column_array = std::move(col);
+        ColumnWithTypeAndName type_and_name(column_array, array_type, "arr1");
 
         // Put the array column into the Block (assuming only this column)
-        vectorized::Block block;
+        Block block;
         block.insert(type_and_name);
         // block.rows() should be 2
 
@@ -255,7 +255,7 @@ public:
         // Note: Here we need a TabletSchema object, in this example we construct a simple schema,
         // Assuming that the 0th column in the schema is our array column (the actual UT has the corresponding TabletColumn)
         TabletSchemaSPtr tablet_schema = create_schema_with_array();
-        vectorized::OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
+        OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
         convertor.set_source_content(&block, 0, block.rows());
         auto [st, accessor] = convertor.convert_column_data(0);
         EXPECT_EQ(st, Status::OK());
@@ -289,7 +289,7 @@ public:
                           &idx_meta);
     }
 
-    void test_string(std::string_view rowset_id, int seg_id, Field* field) {
+    void test_string(std::string_view rowset_id, int seg_id, StorageField* field) {
         EXPECT_TRUE(field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY);
         std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
                 local_segment_path(kTestDir, rowset_id, seg_id))};
@@ -317,25 +317,24 @@ public:
                   Status::OK());
 
         // Construct two arrays: The first row is ["amory","doris"], and the second row is [NULL, "amory", "commiter"]
-        vectorized::Array a1, a2;
-        a1.push_back(vectorized::Field::create_field<TYPE_STRING>("amory"));
-        a1.push_back(vectorized::Field::create_field<TYPE_STRING>("doris"));
-        a2.push_back(vectorized::Field());
-        a2.push_back(vectorized::Field::create_field<TYPE_STRING>("amory"));
-        a2.push_back(vectorized::Field::create_field<TYPE_STRING>("commiter"));
+        Array a1, a2;
+        a1.push_back(Field::create_field<TYPE_STRING>("amory"));
+        a1.push_back(Field::create_field<TYPE_STRING>("doris"));
+        a2.push_back(Field());
+        a2.push_back(Field::create_field<TYPE_STRING>("amory"));
+        a2.push_back(Field::create_field<TYPE_STRING>("commiter"));
 
         // Construct array type: DataTypeArray(DataTypeNullable(DataTypeString))
-        vectorized::DataTypePtr s1 = std::make_shared<vectorized::DataTypeNullable>(
-                std::make_shared<vectorized::DataTypeString>());
-        vectorized::DataTypePtr array_type = std::make_shared<vectorized::DataTypeArray>(s1);
-        vectorized::MutableColumnPtr col = array_type->create_column();
-        col->insert(vectorized::Field::create_field<TYPE_ARRAY>(a1));
-        col->insert(vectorized::Field::create_field<TYPE_ARRAY>(a2));
-        vectorized::ColumnPtr column_array = std::move(col);
-        vectorized::ColumnWithTypeAndName type_and_name(column_array, array_type, "arr1");
+        DataTypePtr s1 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+        DataTypePtr array_type = std::make_shared<DataTypeArray>(s1);
+        MutableColumnPtr col = array_type->create_column();
+        col->insert(Field::create_field<TYPE_ARRAY>(a1));
+        col->insert(Field::create_field<TYPE_ARRAY>(a2));
+        ColumnPtr column_array = std::move(col);
+        ColumnWithTypeAndName type_and_name(column_array, array_type, "arr1");
 
         // Put the array column into the Block (assuming only this column)
-        vectorized::Block block;
+        Block block;
         block.insert(type_and_name);
         // block.rows() should be 2
 
@@ -343,7 +342,7 @@ public:
         // Note: Here we need a TabletSchema object, in this example we construct a simple schema,
         // Assuming that the 0th column in the schema is our array column (the actual UT has the corresponding TabletColumn)
         TabletSchemaSPtr tablet_schema = create_schema_with_array();
-        vectorized::OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
+        OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
         convertor.set_source_content(&block, 0, block.rows());
         auto [st, accessor] = convertor.convert_column_data(0);
         EXPECT_EQ(st, Status::OK());
@@ -376,7 +375,7 @@ public:
                           &idx_meta);
     }
 
-    void test_null_write_v2(std::string_view rowset_id, int seg_id, Field* field) {
+    void test_null_write_v2(std::string_view rowset_id, int seg_id, StorageField* field) {
         EXPECT_TRUE(field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY);
         std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
                 local_segment_path(kTestDir, rowset_id, seg_id))};
@@ -410,13 +409,11 @@ public:
         std::vector<uint8_t> outer_null_map = {1, 0, 0, 1, 0};
 
         // Construct inner array type: DataTypeArray(DataTypeNullable(DataTypeString))
-        vectorized::DataTypePtr inner_string_type = std::make_shared<vectorized::DataTypeNullable>(
-                std::make_shared<vectorized::DataTypeString>());
-        vectorized::DataTypePtr array_type =
-                std::make_shared<vectorized::DataTypeArray>(inner_string_type);
+        DataTypePtr inner_string_type =
+                std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+        DataTypePtr array_type = std::make_shared<DataTypeArray>(inner_string_type);
         // To support outer array null values, wrap it in a Nullable type
-        vectorized::DataTypePtr final_type =
-                std::make_shared<vectorized::DataTypeNullable>(array_type);
+        DataTypePtr final_type = std::make_shared<DataTypeNullable>(array_type);
 
         // Construct 5 rows of data:
         // Row 0: null
@@ -424,38 +421,38 @@ public:
         // Row 2: a3 = ["mixed", Null, "data"]
         // Row 3: null
         // Row 4: a5 = ["non-null"]
-        vectorized::MutableColumnPtr col = final_type->create_column();
+        MutableColumnPtr col = final_type->create_column();
         // Row 0: insert null
-        col->insert(vectorized::Field());
+        col->insert(Field());
         // Row 1: insert a2
-        vectorized::Array a2;
-        a2.push_back(vectorized::Field());
-        a2.push_back(vectorized::Field::create_field<TYPE_STRING>("test"));
-        col->insert(vectorized::Field::create_field<TYPE_ARRAY>(a2));
+        Array a2;
+        a2.push_back(Field());
+        a2.push_back(Field::create_field<TYPE_STRING>("test"));
+        col->insert(Field::create_field<TYPE_ARRAY>(a2));
         // Row 2: insert a3
-        vectorized::Array a3;
-        a3.push_back(vectorized::Field::create_field<TYPE_STRING>("mixed"));
-        a3.push_back(vectorized::Field());
-        a3.push_back(vectorized::Field::create_field<TYPE_STRING>("data"));
-        col->insert(vectorized::Field::create_field<TYPE_ARRAY>(a3));
+        Array a3;
+        a3.push_back(Field::create_field<TYPE_STRING>("mixed"));
+        a3.push_back(Field());
+        a3.push_back(Field::create_field<TYPE_STRING>("data"));
+        col->insert(Field::create_field<TYPE_ARRAY>(a3));
         // Row 3: insert null
-        col->insert(vectorized::Field());
+        col->insert(Field());
         // Row 4: insert a5
-        vectorized::Array a5;
-        a5.push_back(vectorized::Field::create_field<TYPE_STRING>("non-null"));
-        col->insert(vectorized::Field::create_field<TYPE_ARRAY>(a5));
+        Array a5;
+        a5.push_back(Field::create_field<TYPE_STRING>("non-null"));
+        col->insert(Field::create_field<TYPE_ARRAY>(a5));
 
-        vectorized::ColumnPtr column_array = std::move(col);
-        vectorized::ColumnWithTypeAndName type_and_name(column_array, final_type, "arr1");
+        ColumnPtr column_array = std::move(col);
+        ColumnWithTypeAndName type_and_name(column_array, final_type, "arr1");
 
         // Construct Block, containing only the array column, with 5 rows
-        vectorized::Block block;
+        Block block;
         block.insert(type_and_name);
 
         // Construct TabletSchema (containing the array column) - reference the existing helper function
         TabletSchemaSPtr tablet_schema = create_schema_with_array();
         // In this schema, assume the 0th column is the key, and the arr1 column is the non-key column with index 1
-        vectorized::OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
+        OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
         convertor.set_source_content(&block, 0, block.rows());
 
         // Convert array column data
@@ -494,7 +491,7 @@ public:
                           InvertedIndexStorageFormatPB::V2, &idx_meta);
     }
 
-    void test_null_write(std::string_view rowset_id, int seg_id, Field* field) {
+    void test_null_write(std::string_view rowset_id, int seg_id, StorageField* field) {
         EXPECT_TRUE(field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY);
         std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
                 local_segment_path(kTestDir, rowset_id, seg_id))};
@@ -525,13 +522,11 @@ public:
         std::vector<uint8_t> outer_null_map = {1, 0, 0, 1, 0};
 
         // Construct inner array type: DataTypeArray(DataTypeNullable(DataTypeString))
-        vectorized::DataTypePtr inner_string_type = std::make_shared<vectorized::DataTypeNullable>(
-                std::make_shared<vectorized::DataTypeString>());
-        vectorized::DataTypePtr array_type =
-                std::make_shared<vectorized::DataTypeArray>(inner_string_type);
+        DataTypePtr inner_string_type =
+                std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+        DataTypePtr array_type = std::make_shared<DataTypeArray>(inner_string_type);
         // To support outer array null values, wrap it in a Nullable type
-        vectorized::DataTypePtr final_type =
-                std::make_shared<vectorized::DataTypeNullable>(array_type);
+        DataTypePtr final_type = std::make_shared<DataTypeNullable>(array_type);
 
         // Construct 5 rows of data:
         // Row 0: null
@@ -539,38 +534,38 @@ public:
         // Row 2: a3 = ["mixed", Null, "data"]
         // Row 3: null
         // Row 4: a5 = ["non-null"]
-        vectorized::MutableColumnPtr col = final_type->create_column();
+        MutableColumnPtr col = final_type->create_column();
         // Row 0: insert null
-        col->insert(vectorized::Field());
+        col->insert(Field());
         // Row 1: insert a2
-        vectorized::Array a2;
-        a2.push_back(vectorized::Field());
-        a2.push_back(vectorized::Field::create_field<TYPE_STRING>("test"));
-        col->insert(vectorized::Field::create_field<TYPE_ARRAY>(a2));
+        Array a2;
+        a2.push_back(Field());
+        a2.push_back(Field::create_field<TYPE_STRING>("test"));
+        col->insert(Field::create_field<TYPE_ARRAY>(a2));
         // Row 2: insert a3
-        vectorized::Array a3;
-        a3.push_back(vectorized::Field::create_field<TYPE_STRING>("mixed"));
-        a3.push_back(vectorized::Field());
-        a3.push_back(vectorized::Field::create_field<TYPE_STRING>("data"));
-        col->insert(vectorized::Field::create_field<TYPE_ARRAY>(a3));
+        Array a3;
+        a3.push_back(Field::create_field<TYPE_STRING>("mixed"));
+        a3.push_back(Field());
+        a3.push_back(Field::create_field<TYPE_STRING>("data"));
+        col->insert(Field::create_field<TYPE_ARRAY>(a3));
         // Row 3: insert null
-        col->insert(vectorized::Field());
+        col->insert(Field());
         // Row 4: insert a5
-        vectorized::Array a5;
-        a5.push_back(vectorized::Field::create_field<TYPE_STRING>("non-null"));
-        col->insert(vectorized::Field::create_field<TYPE_ARRAY>(a5));
+        Array a5;
+        a5.push_back(Field::create_field<TYPE_STRING>("non-null"));
+        col->insert(Field::create_field<TYPE_ARRAY>(a5));
 
-        vectorized::ColumnPtr column_array = std::move(col);
-        vectorized::ColumnWithTypeAndName type_and_name(column_array, final_type, "arr1");
+        ColumnPtr column_array = std::move(col);
+        ColumnWithTypeAndName type_and_name(column_array, final_type, "arr1");
 
         // Construct Block, containing only the array column, with 5 rows
-        vectorized::Block block;
+        Block block;
         block.insert(type_and_name);
 
         // Construct TabletSchema (containing the array column) - reference the existing helper function
         TabletSchemaSPtr tablet_schema = create_schema_with_array();
         // In this schema, assume the 0th column is the key, and the arr1 column is the non-key column with index 1
-        vectorized::OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
+        OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
         convertor.set_source_content(&block, 0, block.rows());
 
         // Convert array column data
@@ -609,7 +604,7 @@ public:
                           InvertedIndexStorageFormatPB::V1, &idx_meta);
     }
 
-    void test_multi_block_write(std::string_view rowset_id, int seg_id, Field* field) {
+    void test_multi_block_write(std::string_view rowset_id, int seg_id, StorageField* field) {
         EXPECT_TRUE(field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY);
         std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
                 local_segment_path(kTestDir, rowset_id, seg_id))};
@@ -640,41 +635,39 @@ public:
         {
             const int row_num = 4;
             // construct data type: Nullable( Array( Nullable(String) ) )
-            vectorized::DataTypePtr inner_string = std::make_shared<vectorized::DataTypeNullable>(
-                    std::make_shared<vectorized::DataTypeString>());
-            vectorized::DataTypePtr array_type =
-                    std::make_shared<vectorized::DataTypeArray>(inner_string);
-            vectorized::DataTypePtr final_type =
-                    std::make_shared<vectorized::DataTypeNullable>(array_type);
+            DataTypePtr inner_string =
+                    std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+            DataTypePtr array_type = std::make_shared<DataTypeArray>(inner_string);
+            DataTypePtr final_type = std::make_shared<DataTypeNullable>(array_type);
 
             // construct MutableColumn
-            vectorized::MutableColumnPtr col = final_type->create_column();
+            MutableColumnPtr col = final_type->create_column();
             // simulate outer null: row0 and row3 are null, the rest are non-null
-            col->insert(vectorized::Field()); // row0: null
+            col->insert(Field()); // row0: null
             {
                 // row1: non-null, array with 1 element: "block1_data1"
-                vectorized::Array arr;
-                arr.push_back(vectorized::Field::create_field<TYPE_STRING>("block1_data1"));
-                col->insert(vectorized::Field::create_field<TYPE_ARRAY>(arr));
+                Array arr;
+                arr.push_back(Field::create_field<TYPE_STRING>("block1_data1"));
+                col->insert(Field::create_field<TYPE_ARRAY>(arr));
             }
             {
                 // row2: non-null, array with 1 element: "block1_data2"
-                vectorized::Array arr;
-                arr.push_back(vectorized::Field::create_field<TYPE_STRING>("block1_data2"));
-                col->insert(vectorized::Field::create_field<TYPE_ARRAY>(arr));
+                Array arr;
+                arr.push_back(Field::create_field<TYPE_STRING>("block1_data2"));
+                col->insert(Field::create_field<TYPE_ARRAY>(arr));
             }
-            col->insert(vectorized::Field()); // row3: null
+            col->insert(Field()); // row3: null
 
-            vectorized::ColumnPtr column_array = std::move(col);
-            vectorized::ColumnWithTypeAndName type_and_name(column_array, final_type, "arr1");
+            ColumnPtr column_array = std::move(col);
+            ColumnWithTypeAndName type_and_name(column_array, final_type, "arr1");
 
             // construct Block (containing only the arr1 column)
-            vectorized::Block block;
+            Block block;
             block.insert(type_and_name);
 
             // use TabletSchema containing the array column (arr1 is the non-key column with index 1 in the schema)
             TabletSchemaSPtr tablet_schema = create_schema_with_array();
-            vectorized::OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
+            OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
             convertor.set_source_content(&block, 0, block.rows());
 
             // convert the arr1 column in the block
@@ -702,31 +695,29 @@ public:
         // --- Block 2 ---
         {
             const int row_num = 2;
-            vectorized::DataTypePtr inner_string = std::make_shared<vectorized::DataTypeNullable>(
-                    std::make_shared<vectorized::DataTypeString>());
-            vectorized::DataTypePtr array_type =
-                    std::make_shared<vectorized::DataTypeArray>(inner_string);
-            vectorized::DataTypePtr final_type =
-                    std::make_shared<vectorized::DataTypeNullable>(array_type);
+            DataTypePtr inner_string =
+                    std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+            DataTypePtr array_type = std::make_shared<DataTypeArray>(inner_string);
+            DataTypePtr final_type = std::make_shared<DataTypeNullable>(array_type);
 
-            vectorized::MutableColumnPtr col = final_type->create_column();
+            MutableColumnPtr col = final_type->create_column();
             // row0: non-null, array with 1 element: "block2_data1"
             {
-                vectorized::Array arr;
-                arr.push_back(vectorized::Field::create_field<TYPE_STRING>("block2_data1"));
-                col->insert(vectorized::Field::create_field<TYPE_ARRAY>(arr));
+                Array arr;
+                arr.push_back(Field::create_field<TYPE_STRING>("block2_data1"));
+                col->insert(Field::create_field<TYPE_ARRAY>(arr));
             }
             // row1: null
-            col->insert(vectorized::Field());
+            col->insert(Field());
 
-            vectorized::ColumnPtr column_array = std::move(col);
-            vectorized::ColumnWithTypeAndName type_and_name(column_array, final_type, "arr1");
+            ColumnPtr column_array = std::move(col);
+            ColumnWithTypeAndName type_and_name(column_array, final_type, "arr1");
 
-            vectorized::Block block;
+            Block block;
             block.insert(type_and_name);
 
             TabletSchemaSPtr tablet_schema = create_schema_with_array();
-            vectorized::OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
+            OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
             convertor.set_source_content(&block, 0, block.rows());
 
             auto [st, accessor] = convertor.convert_column_data(0);
@@ -752,31 +743,29 @@ public:
         // --- Block 3 ---
         {
             const int row_num = 2;
-            vectorized::DataTypePtr inner_string = std::make_shared<vectorized::DataTypeNullable>(
-                    std::make_shared<vectorized::DataTypeString>());
-            vectorized::DataTypePtr array_type =
-                    std::make_shared<vectorized::DataTypeArray>(inner_string);
-            vectorized::DataTypePtr final_type =
-                    std::make_shared<vectorized::DataTypeNullable>(array_type);
+            DataTypePtr inner_string =
+                    std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+            DataTypePtr array_type = std::make_shared<DataTypeArray>(inner_string);
+            DataTypePtr final_type = std::make_shared<DataTypeNullable>(array_type);
 
-            vectorized::MutableColumnPtr col = final_type->create_column();
+            MutableColumnPtr col = final_type->create_column();
             // row0: non-null, array with 1 element: "block3_data1"
             {
-                vectorized::Array arr;
-                arr.push_back(vectorized::Field::create_field<TYPE_STRING>("block3_data1"));
-                col->insert(vectorized::Field::create_field<TYPE_ARRAY>(arr));
+                Array arr;
+                arr.push_back(Field::create_field<TYPE_STRING>("block3_data1"));
+                col->insert(Field::create_field<TYPE_ARRAY>(arr));
             }
             // row1: null
-            col->insert(vectorized::Field());
+            col->insert(Field());
 
-            vectorized::ColumnPtr column_array = std::move(col);
-            vectorized::ColumnWithTypeAndName type_and_name(column_array, final_type, "arr1");
+            ColumnPtr column_array = std::move(col);
+            ColumnWithTypeAndName type_and_name(column_array, final_type, "arr1");
 
-            vectorized::Block block;
+            Block block;
             block.insert(type_and_name);
 
             TabletSchemaSPtr tablet_schema = create_schema_with_array();
-            vectorized::OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
+            OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
             convertor.set_source_content(&block, 0, block.rows());
 
             auto [st, accessor] = convertor.convert_column_data(0);
@@ -807,7 +796,7 @@ public:
                           InvertedIndexStorageFormatPB::V1, &idx_meta);
     }
 
-    void test_array_numeric(std::string_view rowset_id, int seg_id, Field* field) {
+    void test_array_numeric(std::string_view rowset_id, int seg_id, StorageField* field) {
         EXPECT_TRUE(field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY);
         std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
                 local_segment_path(kTestDir, rowset_id, seg_id))};
@@ -833,35 +822,34 @@ public:
                                             index_file_writer.get(), &idx_meta),
                   Status::OK());
 
-        vectorized::DataTypePtr inner_int = std::make_shared<vectorized::DataTypeInt32>();
-        vectorized::DataTypePtr array_type = std::make_shared<vectorized::DataTypeArray>(inner_int);
-        vectorized::DataTypePtr final_type =
-                std::make_shared<vectorized::DataTypeNullable>(array_type);
+        DataTypePtr inner_int = std::make_shared<DataTypeInt32>();
+        DataTypePtr array_type = std::make_shared<DataTypeArray>(inner_int);
+        DataTypePtr final_type = std::make_shared<DataTypeNullable>(array_type);
 
         // create a MutableColumnPtr
-        vectorized::MutableColumnPtr col = final_type->create_column();
+        MutableColumnPtr col = final_type->create_column();
         // row0: non-null, array [123, 456]
         {
-            vectorized::Array arr;
-            arr.push_back(vectorized::Field::create_field<TYPE_INT>(123));
-            arr.push_back(vectorized::Field::create_field<TYPE_INT>(456));
-            col->insert(vectorized::Field::create_field<TYPE_ARRAY>(arr));
+            Array arr;
+            arr.push_back(Field::create_field<TYPE_INT>(123));
+            arr.push_back(Field::create_field<TYPE_INT>(456));
+            col->insert(Field::create_field<TYPE_ARRAY>(arr));
         }
         // row1: null
-        col->insert(vectorized::Field());
+        col->insert(Field());
         // row2: non-null, array [789, 101112]
         {
-            vectorized::Array arr;
-            arr.push_back(vectorized::Field::create_field<TYPE_INT>(789));
-            arr.push_back(vectorized::Field::create_field<TYPE_INT>(101112));
-            col->insert(vectorized::Field::create_field<TYPE_ARRAY>(arr));
+            Array arr;
+            arr.push_back(Field::create_field<TYPE_INT>(789));
+            arr.push_back(Field::create_field<TYPE_INT>(101112));
+            col->insert(Field::create_field<TYPE_ARRAY>(arr));
         }
         // wrap the constructed column into a ColumnWithTypeAndName
-        vectorized::ColumnPtr column_array = std::move(col);
-        vectorized::ColumnWithTypeAndName type_and_name(column_array, final_type, "arr_num");
+        ColumnPtr column_array = std::move(col);
+        ColumnWithTypeAndName type_and_name(column_array, final_type, "arr_num");
 
         // construct Block (containing only this column), with 3 rows
-        vectorized::Block block;
+        Block block;
         block.insert(type_and_name);
 
         TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
@@ -883,7 +871,7 @@ public:
         array.add_sub_column(child);
         tablet_schema->append_column(array);
 
-        vectorized::OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
+        OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
         convertor.set_source_content(&block, 0, block.rows());
         auto [st, accessor] = convertor.convert_column_data(0);
         EXPECT_EQ(st, Status::OK());
@@ -950,7 +938,7 @@ public:
         }
     }
 
-    void test_array_all_null(std::string_view rowset_id, int seg_id, Field* field) {
+    void test_array_all_null(std::string_view rowset_id, int seg_id, StorageField* field) {
         EXPECT_TRUE(field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY);
         std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
                 local_segment_path(kTestDir, rowset_id, seg_id))};
@@ -977,26 +965,24 @@ public:
                   Status::OK());
 
         // Construct inner array type: DataTypeArray(DataTypeNullable(DataTypeString))
-        vectorized::DataTypePtr inner_string_type = std::make_shared<vectorized::DataTypeNullable>(
-                std::make_shared<vectorized::DataTypeString>());
-        vectorized::DataTypePtr array_type =
-                std::make_shared<vectorized::DataTypeArray>(inner_string_type);
+        DataTypePtr inner_string_type =
+                std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+        DataTypePtr array_type = std::make_shared<DataTypeArray>(inner_string_type);
         // To support outer array null values, wrap it in a Nullable type
-        vectorized::DataTypePtr final_type =
-                std::make_shared<vectorized::DataTypeNullable>(array_type);
+        DataTypePtr final_type = std::make_shared<DataTypeNullable>(array_type);
 
-        vectorized::MutableColumnPtr col = final_type->create_column();
-        col->insert(vectorized::Field());
-        col->insert(vectorized::Field());
+        MutableColumnPtr col = final_type->create_column();
+        col->insert(Field());
+        col->insert(Field());
 
-        vectorized::ColumnPtr column_array = std::move(col);
-        vectorized::ColumnWithTypeAndName type_and_name(column_array, final_type, "arr1");
+        ColumnPtr column_array = std::move(col);
+        ColumnWithTypeAndName type_and_name(column_array, final_type, "arr1");
 
-        vectorized::Block block;
+        Block block;
         block.insert(type_and_name);
 
         TabletSchemaSPtr tablet_schema = create_schema_with_array();
-        vectorized::OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
+        OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
         convertor.set_source_content(&block, 0, block.rows());
 
         auto [st, accessor] = convertor.convert_column_data(0);
@@ -1025,24 +1011,24 @@ public:
     }
 
 private:
-    static void build_slices(vectorized::PaddedPODArray<Slice>& slices,
-                             const vectorized::ColumnPtr& column_array, size_t num_strings) {
-        const auto* col_arr = assert_cast<const vectorized::ColumnArray*>(column_array.get());
-        const vectorized::UInt8* nested_null_map =
-                assert_cast<const vectorized::ColumnNullable*>(col_arr->get_data_ptr().get())
+    static void build_slices(PaddedPODArray<Slice>& slices, const ColumnPtr& column_array,
+                             size_t num_strings) {
+        const auto* col_arr = assert_cast<const ColumnArray*>(column_array.get());
+        const UInt8* nested_null_map =
+                assert_cast<const ColumnNullable*>(col_arr->get_data_ptr().get())
                         ->get_null_map_column()
                         .get_data()
                         .data();
-        const auto* col_arr_str = assert_cast<const vectorized::ColumnString*>(
-                assert_cast<const vectorized::ColumnNullable*>(col_arr->get_data_ptr().get())
+        const auto* col_arr_str = assert_cast<const ColumnString*>(
+                assert_cast<const ColumnNullable*>(col_arr->get_data_ptr().get())
                         ->get_nested_column_ptr()
                         .get());
         const char* char_data = (const char*)(col_arr_str->get_chars().data());
-        const vectorized::ColumnString::Offset* offset_cur = col_arr_str->get_offsets().data();
-        const vectorized::ColumnString::Offset* offset_end = offset_cur + num_strings;
+        const ColumnString::Offset* offset_cur = col_arr_str->get_offsets().data();
+        const ColumnString::Offset* offset_end = offset_cur + num_strings;
         Slice* slice = slices.data();
         size_t string_offset = *(offset_cur - 1);
-        const vectorized::UInt8* nullmap_cur = nested_null_map;
+        const UInt8* nullmap_cur = nested_null_map;
         while (offset_cur != offset_end) {
             if (!*nullmap_cur) {
                 slice->data = const_cast<char*>(char_data + string_offset);
@@ -1069,7 +1055,7 @@ TEST_F(InvertedIndexArrayTest, ArrayString) {
     arraySubColumn.set_name("arr_sub_string");
     arraySubColumn.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
     arrayTabletColumn.add_sub_column(arraySubColumn);
-    Field* field = FieldFactory::create(arrayTabletColumn);
+    StorageField* field = StorageFieldFactory::create(arrayTabletColumn);
     test_string("rowset_id", 0, field);
     test_non_null_string("rowset_id_non_null", 0, field);
     delete field;
@@ -1085,7 +1071,7 @@ TEST_F(InvertedIndexArrayTest, ComplexNullCases) {
     arraySubColumn.set_name("arr_sub_string");
     arraySubColumn.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
     arrayTabletColumn.add_sub_column(arraySubColumn);
-    Field* field = FieldFactory::create(arrayTabletColumn);
+    StorageField* field = StorageFieldFactory::create(arrayTabletColumn);
     test_null_write("complex_null", 0, field);
     test_null_write_v2("complex_null_v2", 0, field);
     test_array_all_null("complex_null_all_null", 0, field);
@@ -1102,7 +1088,7 @@ TEST_F(InvertedIndexArrayTest, MultiBlockWrite) {
     arraySubColumn.set_name("arr_sub_string");
     arraySubColumn.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
     arrayTabletColumn.add_sub_column(arraySubColumn);
-    Field* field = FieldFactory::create(arrayTabletColumn);
+    StorageField* field = StorageFieldFactory::create(arrayTabletColumn);
     test_multi_block_write("multi_block", 0, field);
     delete field;
 }
@@ -1117,7 +1103,7 @@ TEST_F(InvertedIndexArrayTest, ArrayInt) {
     arraySubColumn.set_name("arr_sub_int");
     arraySubColumn.set_type(FieldType::OLAP_FIELD_TYPE_INT);
     arrayTabletColumn.add_sub_column(arraySubColumn);
-    Field* field = FieldFactory::create(arrayTabletColumn);
+    StorageField* field = StorageFieldFactory::create(arrayTabletColumn);
     test_array_numeric("int_test", 0, field);
     delete field;
 }

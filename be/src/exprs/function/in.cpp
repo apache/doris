@@ -20,11 +20,11 @@
 
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 void register_function_in(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionIn<false>>();
     factory.register_function<FunctionIn<true>>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

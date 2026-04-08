@@ -59,12 +59,12 @@ SegmentFlusher::SegmentFlusher(RowsetWriterContext& context, SegmentFileCollecti
 SegmentFlusher::~SegmentFlusher() = default;
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
-Status SegmentFlusher::flush_single_block(const vectorized::Block* block, int32_t segment_id,
+Status SegmentFlusher::flush_single_block(const Block* block, int32_t segment_id,
                                           int64_t* flush_size) {
     if (block->rows() == 0) {
         return Status::OK();
     }
-    vectorized::Block flush_block(*block);
+    Block flush_block(*block);
     bool no_compression = flush_block.bytes() <= config::segment_compression_threshold_kb * 1024;
     if (config::enable_vertical_segment_writer) {
         std::unique_ptr<segment_v2::VerticalSegmentWriter> writer;
@@ -87,14 +87,14 @@ Status SegmentFlusher::close() {
 }
 
 Status SegmentFlusher::_add_rows(std::unique_ptr<segment_v2::SegmentWriter>& segment_writer,
-                                 const vectorized::Block* block, size_t row_pos, size_t num_rows) {
+                                 const Block* block, size_t row_pos, size_t num_rows) {
     RETURN_IF_ERROR(segment_writer->append_block(block, row_pos, num_rows));
     _num_rows_written += num_rows;
     return Status::OK();
 }
 
 Status SegmentFlusher::_add_rows(std::unique_ptr<segment_v2::VerticalSegmentWriter>& segment_writer,
-                                 const vectorized::Block* block, size_t row_pos, size_t num_rows) {
+                                 const Block* block, size_t row_pos, size_t num_rows) {
     RETURN_IF_ERROR(segment_writer->batch_block(block, row_pos, num_rows));
     RETURN_IF_ERROR(segment_writer->write_batch());
     _num_rows_written += num_rows;
@@ -354,7 +354,7 @@ SegmentCreator::SegmentCreator(RowsetWriterContext& context, SegmentFileCollecti
                                InvertedIndexFileCollection& idx_files)
         : _segment_flusher(context, seg_files, idx_files) {}
 
-Status SegmentCreator::add_block(const vectorized::Block* block) {
+Status SegmentCreator::add_block(const Block* block) {
     if (block->rows() == 0) {
         return Status::OK();
     }
@@ -394,7 +394,7 @@ Status SegmentCreator::flush() {
     return Status::OK();
 }
 
-Status SegmentCreator::flush_single_block(const vectorized::Block* block, int32_t segment_id,
+Status SegmentCreator::flush_single_block(const Block* block, int32_t segment_id,
                                           int64_t* flush_size) {
     if (block->rows() == 0) {
         return Status::OK();

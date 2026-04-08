@@ -20,7 +20,6 @@
 #include "exec/scan/task_executor/tools/simulator/simulation_split.h"
 
 namespace doris {
-namespace vectorized {
 
 std::unique_ptr<SimulationSplit> LeafSplitSpecification::instantiate(SimulationTask* task) const {
     return std::make_unique<LeafSplit>(task, std::chrono::nanoseconds {_scheduled_time_nanos},
@@ -38,5 +37,4 @@ std::unique_ptr<SimulationSplit> IntermediateSplitSpecification::instantiate(
                                                between_quanta, scheduled_time);
 }
 
-} // namespace vectorized
 } // namespace doris

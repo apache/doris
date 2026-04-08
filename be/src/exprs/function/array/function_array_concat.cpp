@@ -42,7 +42,7 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 // array_concat([1, 2], [7, 8], [5, 6]) -> [1, 2, 7, 8, 5, 6]
 class FunctionArrayConcat : public IFunction {
@@ -111,4 +111,4 @@ void register_function_array_concat(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayConcat>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

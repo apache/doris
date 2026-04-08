@@ -25,7 +25,7 @@
 #include "format/table/nested_column_access_helper.h"
 #include "runtime/runtime_state.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 Status HiveReader::get_next_block_inner(Block* block, size_t* read_rows, bool* eof) {
@@ -415,4 +415,4 @@ ColumnIdResult HiveParquetReader::_create_column_ids_by_top_level_col_index(
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

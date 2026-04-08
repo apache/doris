@@ -29,16 +29,14 @@
 
 #include "common/status.h"
 #include "core/block/block.h"
-#include "exec/connector/jni_connector.h"
 #include "format/arrow/arrow_block_convertor.h"
-#include "format/arrow/arrow_row_batch.h"
 #include "runtime/user_function_cache.h"
 #include "udf/python/python_server.h"
 #include "udf/python/python_udf_client.h"
 #include "udf/python/python_udf_meta.h"
 #include "util/timezone_utils.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 PythonFunctionCall::PythonFunctionCall(const TFunction& fn, const DataTypes& argument_types,
                                        const DataTypePtr& return_type)
@@ -118,8 +116,8 @@ Status PythonFunctionCall::execute_impl(FunctionContext* context, Block& block,
     uint32_t input_columns = block.columns();
     DCHECK(input_columns > 0 && result < input_columns &&
            _argument_types.size() == arguments.size());
-    vectorized::Block input_block;
-    vectorized::Block output_block;
+    Block input_block;
+    Block output_block;
 
     if (!_return_type->equals(*block.get_by_position(result).type)) {
         return Status::InternalError(fmt::format("Python UDF output type {} not equal to {}",
@@ -177,4 +175,4 @@ Status PythonFunctionCall::close(FunctionContext* context,
     return Status::OK();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

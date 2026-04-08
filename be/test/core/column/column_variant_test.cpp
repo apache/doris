@@ -45,7 +45,7 @@
 #include "testutil/variant_util.h"
 
 using namespace doris;
-namespace doris::vectorized {
+namespace doris {
 static std::string root_dir;
 static std::string test_data_dir;
 static std::string test_result_dir;
@@ -65,7 +65,7 @@ protected:
         test_data_dir = root_dir + "/be/test/data/vec/columns";
         test_result_dir = root_dir + "/be/test/expected_result/vec/columns";
 
-        column_variant = ColumnVariant::create(true);
+        column_variant = ColumnVariant::create(0, false);
         std::cout << dt_variant->get_name() << std::endl;
 
         load_json_columns_data();
@@ -116,7 +116,7 @@ protected:
 
     template <typename T>
     void column_common_test(T callback) {
-        callback(ColumnVariant(true), column_variant->get_ptr());
+        callback(ColumnVariant(0, false), column_variant->get_ptr());
     }
 
     void hash_common_test(
@@ -399,7 +399,7 @@ TEST_F(ColumnVariantTest, basic_inset_range_from) {
 }
 
 auto convert_to_jsonb_field(auto serde, auto& column) {
-    vectorized::DataTypeSerDe::FormatOptions options;
+    DataTypeSerDe::FormatOptions options;
     options.escape_char = '\\';
     auto tmp_col = ColumnString::create();
     VectorBufferWriter write_buffer(*tmp_col.get());
@@ -409,8 +409,8 @@ auto convert_to_jsonb_field(auto serde, auto& column) {
     auto str_ref = tmp_col->get_data_at(0);
     Slice data((char*)(str_ref.data), str_ref.size);
 
-    auto jsonb_type = doris::vectorized::DataTypeFactory::instance().create_data_type(
-            PrimitiveType::TYPE_JSONB, false);
+    auto jsonb_type =
+            doris::DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_JSONB, false);
     auto jsonb_serde = jsonb_type->get_serde();
     auto jsonb_column = jsonb_type->create_column();
 
@@ -426,8 +426,8 @@ auto convert_string_to_jsonb_field(auto& column) {
     auto str_ref = column.get_data_at(0);
     Slice data((char*)(str_ref.data), str_ref.size);
 
-    auto jsonb_type = doris::vectorized::DataTypeFactory::instance().create_data_type(
-            PrimitiveType::TYPE_JSONB, false);
+    auto jsonb_type =
+            doris::DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_JSONB, false);
     auto jsonb_serde = jsonb_type->get_serde();
     auto jsonb_column = jsonb_type->create_column();
     DataTypeSerDe::FormatOptions format_options;
@@ -440,33 +440,31 @@ auto convert_string_to_jsonb_field(auto& column) {
     return JsonbField(res.data, res.size);
 }
 
-doris::vectorized::Field get_jsonb_field(std::string_view type) {
-    static std::unordered_map<std::string_view, doris::vectorized::Field> field_map;
+doris::Field get_jsonb_field(std::string_view type) {
+    static std::unordered_map<std::string_view, doris::Field> field_map;
     if (field_map.empty()) {
-        DataTypePtr data_type_int = doris::vectorized::DataTypeFactory::instance().create_data_type(
-                PrimitiveType::TYPE_INT, false);
-        DataTypePtr data_type_array_int =
-                std::make_shared<doris::vectorized::DataTypeArray>(data_type_int);
+        DataTypePtr data_type_int =
+                doris::DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, false);
+        DataTypePtr data_type_array_int = std::make_shared<doris::DataTypeArray>(data_type_int);
         auto array_column_int = data_type_array_int->create_column();
         array_column_int->insert(VariantUtil::get_field("array_int"));
         auto array_serde_int = data_type_array_int->get_serde();
-        field_map["array_int"] = doris::vectorized::Field::create_field<TYPE_JSONB>(
+        field_map["array_int"] = doris::Field::create_field<TYPE_JSONB>(
                 convert_to_jsonb_field(array_serde_int, *array_column_int));
 
-        DataTypePtr data_type_str = doris::vectorized::DataTypeFactory::instance().create_data_type(
+        DataTypePtr data_type_str = doris::DataTypeFactory::instance().create_data_type(
                 PrimitiveType::TYPE_STRING, false);
-        DataTypePtr data_type_array_str =
-                std::make_shared<doris::vectorized::DataTypeArray>(data_type_str);
+        DataTypePtr data_type_array_str = std::make_shared<doris::DataTypeArray>(data_type_str);
         auto array_column_str = data_type_array_str->create_column();
         array_column_str->insert(VariantUtil::get_field("array_str"));
         auto array_serde_str = data_type_array_str->get_serde();
-        field_map["array_str"] = doris::vectorized::Field::create_field<TYPE_JSONB>(
+        field_map["array_str"] = doris::Field::create_field<TYPE_JSONB>(
                 convert_to_jsonb_field(array_serde_str, *array_column_str));
 
         auto column_int = data_type_int->create_column();
         column_int->insert(VariantUtil::get_field("int"));
         auto serde_int = data_type_int->get_serde();
-        field_map["int"] = doris::vectorized::Field::create_field<TYPE_JSONB>(
+        field_map["int"] = doris::Field::create_field<TYPE_JSONB>(
                 convert_to_jsonb_field(serde_int, *column_int));
 
         // auto column_str = data_type_str->create_column();
@@ -476,7 +474,7 @@ doris::vectorized::Field get_jsonb_field(std::string_view type) {
     return field_map[type];
 }
 
-// std::string convert_jsonb_field_to_string(doris::vectorized::Field jsonb) {
+// std::string convert_jsonb_field_to_string(doris::Field jsonb) {
 //     const auto& val = jsonb.get<JsonbField>();
 //     const JsonbValue* json_val = JsonbDocument::createValue(val.get_value(), val.get_size());
 
@@ -492,7 +490,7 @@ doris::vectorized::Field get_jsonb_field(std::string_view type) {
 //     return std::string(buffer.GetString());
 // }
 
-std::string convert_field_to_string(doris::vectorized::Field array) {
+std::string convert_field_to_string(doris::Field array) {
     rapidjson::Document doc;
     doc.SetObject();
     rapidjson::Document::AllocatorType& allocator = doc.GetAllocator();
@@ -517,7 +515,7 @@ TEST_F(ColumnVariantTest, is_null_at) {
     auto sub1 = v1->get_subcolumn(path1);
     EXPECT_TRUE(sub1->is_null_at(2));
     EXPECT_ANY_THROW(sub1->is_null_at(16));
-    vectorized::FieldWithDataType f;
+    FieldWithDataType f;
     EXPECT_ANY_THROW(sub1->get(16, f));
     std::cout << sub1->num_rows << std::endl;
     EXPECT_NO_THROW(sub1->resize(sub1->num_rows));
@@ -560,12 +558,12 @@ TEST_F(ColumnVariantTest, advanced_finalize) {
     {
         // Test fill_path_column_from_sparse_data
         auto map = std::make_unique<NullMap>(15, 0);
-        vectorized::ColumnVariant::fill_path_column_from_sparse_data(
-                *variant->get_subcolumn({}) /*root*/, map.get(), StringRef {"array"},
-                variant->get_sparse_column(), 0, 5);
-        vectorized::ColumnVariant::fill_path_column_from_sparse_data(
-                *variant->get_subcolumn({}) /*root*/, map.get(), StringRef {"array"},
-                variant->get_sparse_column(), 5, 15);
+        ColumnVariant::fill_path_column_from_sparse_data(*variant->get_subcolumn({}) /*root*/,
+                                                         map.get(), StringRef {"array"},
+                                                         variant->get_sparse_column(), 0, 5);
+        ColumnVariant::fill_path_column_from_sparse_data(*variant->get_subcolumn({}) /*root*/,
+                                                         map.get(), StringRef {"array"},
+                                                         variant->get_sparse_column(), 5, 15);
     }
 }
 
@@ -767,7 +765,7 @@ TEST_F(ColumnVariantTest, empty_inset_range_from) {
     EXPECT_EQ(src->size(), 6);
 
     // dst is an empty column
-    auto dst = ColumnVariant::create(5);
+    auto dst = ColumnVariant::create(5, false);
 
     // subcolumn->subcolumn          v.a v.b v.c v.f v.e
     dst->insert_range_from(*src, 0, 6);
@@ -953,7 +951,7 @@ TEST_F(ColumnVariantTest, test_insert_indices_from) {
     // Test case 1: Insert from scalar variant source to empty destination
     {
         // Create source column with scalar values
-        auto src_column = ColumnVariant::create(true);
+        auto src_column = ColumnVariant::create(0, false);
         VariantUtil::insert_root_scalar_field(*src_column, Field::create_field<TYPE_INT>(123));
         VariantUtil::insert_root_scalar_field(*src_column, Field::create_field<TYPE_INT>(456));
         src_column->finalize();
@@ -962,7 +960,7 @@ TEST_F(ColumnVariantTest, test_insert_indices_from) {
         EXPECT_EQ(src_column->size(), 2);
 
         // Create empty destination column
-        auto dst_column = ColumnVariant::create(true);
+        auto dst_column = ColumnVariant::create(0, false);
         EXPECT_EQ(dst_column->size(), 0);
 
         // Create indices
@@ -993,14 +991,14 @@ TEST_F(ColumnVariantTest, test_insert_indices_from) {
     // Test case 2: Insert from scalar variant source to non-empty destination of same type
     {
         // Create source column with scalar values
-        auto src_column = ColumnVariant::create(true);
+        auto src_column = ColumnVariant::create(0, false);
         VariantUtil::insert_root_scalar_field(*src_column, Field::create_field<TYPE_INT>(123));
         VariantUtil::insert_root_scalar_field(*src_column, Field::create_field<TYPE_INT>(456));
         src_column->finalize();
         EXPECT_TRUE(src_column->is_scalar_variant());
 
         // Create destination column with same type
-        auto dst_column = ColumnVariant::create(true);
+        auto dst_column = ColumnVariant::create(0, false);
         VariantUtil::insert_root_scalar_field(*dst_column, Field::create_field<TYPE_INT>(789));
         dst_column->finalize();
         EXPECT_TRUE(dst_column->is_scalar_variant());
@@ -1029,7 +1027,7 @@ TEST_F(ColumnVariantTest, test_insert_indices_from) {
     // Test case 3: Insert from non-scalar or different type source (fallback to try_insert)
     {
         // Create source column with object values (non-scalar)
-        auto src_column = ColumnVariant::create(true);
+        auto src_column = ColumnVariant::create(0, false);
 
         // Create a map with {"a": 123}
         Field field_map = Field::create_field<TYPE_VARIANT>(VariantMap());
@@ -1052,7 +1050,7 @@ TEST_F(ColumnVariantTest, test_insert_indices_from) {
         EXPECT_FALSE(src_column->is_scalar_variant());
 
         // Create destination column (empty)
-        auto dst_column = ColumnVariant::create(true);
+        auto dst_column = ColumnVariant::create(0, false);
 
         // Create indices
         std::vector<uint32_t> indices = {1, 0};
@@ -1175,7 +1173,7 @@ TEST_F(ColumnVariantTest, field_test) {
         }
     };
     ColumnVariant::MutablePtr obj;
-    obj = ColumnVariant::create(1);
+    obj = ColumnVariant::create(1, false);
     MutableColumns cols;
     cols.push_back(obj->get_ptr());
     const auto& json_file_obj = test_data_dir_json + "json_variant/object_boundary.jsonl";
@@ -1194,7 +1192,7 @@ TEST_F(ColumnVariantTest, is_column_string) {
 }
 
 TEST_F(ColumnVariantTest, serialize_one_row_to_string) {
-    vectorized::DataTypeSerDe::FormatOptions options;
+    DataTypeSerDe::FormatOptions options;
     auto tz = cctz::utc_time_zone();
     options.timezone = &tz;
     {
@@ -1216,12 +1214,12 @@ TEST_F(ColumnVariantTest, serialize_one_row_to_string) {
     {
         // TEST SCALA_VARAINT
         // 1. create an empty variant column
-        auto v = ColumnVariant::create(true);
+        auto v = ColumnVariant::create(0, false);
         auto dt = DataTypeFactory::instance().create_data_type(FieldType::OLAP_FIELD_TYPE_STRING, 0,
                                                                0);
         auto cs = dt->create_column();
-        cs->insert(vectorized::Field::create_field<TYPE_STRING>("amory"));
-        cs->insert(vectorized::Field::create_field<TYPE_STRING>("doris"));
+        cs->insert(Field::create_field<TYPE_STRING>("amory"));
+        cs->insert(Field::create_field<TYPE_STRING>("doris"));
         v->create_root(dt, std::move(cs));
         EXPECT_TRUE(v->is_scalar_variant());
 
@@ -1665,7 +1663,7 @@ TEST_F(ColumnVariantTest, get_subcolumn) {
 
 TEST_F(ColumnVariantTest, ensure_root_node_type) {
     ColumnVariant::MutablePtr obj;
-    obj = ColumnVariant::create(1);
+    obj = ColumnVariant::create(1, false);
     MutableColumns cols;
     cols.push_back(obj->get_ptr());
     const auto& json_file_obj = test_data_dir_json + "json_variant/object_boundary.jsonl";
@@ -2116,9 +2114,8 @@ TEST_F(ColumnVariantTest, find_path_lower_bound_in_sparse_data) {
         for (size_t i = 0; i != src_sparse_data_offsets.size(); ++i) {
             size_t start = src_sparse_data_offsets[ssize_t(i) - 1];
             size_t end = src_sparse_data_offsets[ssize_t(i)];
-            size_t lower_bound_index =
-                    vectorized::ColumnVariant::find_path_lower_bound_in_sparse_data(
-                            prefix_ref, src_sparse_data_paths, start, end);
+            size_t lower_bound_index = ColumnVariant::find_path_lower_bound_in_sparse_data(
+                    prefix_ref, src_sparse_data_paths, start, end);
             for (; lower_bound_index != end; ++lower_bound_index) {
                 auto path_ref = src_sparse_data_paths.get_data_at(lower_bound_index);
                 std::string_view path(path_ref.data, path_ref.size);
@@ -2127,7 +2124,7 @@ TEST_F(ColumnVariantTest, find_path_lower_bound_in_sparse_data) {
         }
     };
     ColumnVariant::MutablePtr obj;
-    obj = ColumnVariant::create(1);
+    obj = ColumnVariant::create(1, false);
     MutableColumns cols;
     cols.push_back(obj->get_ptr());
     const auto& json_file_obj = test_data_dir_json + "json_variant/object_boundary.jsonl";
@@ -2140,7 +2137,7 @@ TEST_F(ColumnVariantTest, find_path_lower_bound_in_sparse_data) {
 // used in BinaryColumnExtractIterator::_fill_path_column
 TEST_F(ColumnVariantTest, fill_path_column_from_sparse_data) {
     ColumnVariant::MutablePtr obj;
-    obj = ColumnVariant::create(1);
+    obj = ColumnVariant::create(1, false);
     MutableColumns cols;
     cols.push_back(obj->get_ptr());
     const auto& json_file_obj = test_data_dir_json + "json_variant/object_boundary.jsonl";
@@ -2152,22 +2149,22 @@ TEST_F(ColumnVariantTest, fill_path_column_from_sparse_data) {
     for (size_t i = 0; i != offsets.size(); ++i) {
         auto start = offsets[i - 1];
         auto end = offsets[i];
-        vectorized::ColumnVariant::fill_path_column_from_sparse_data(
-                *obj->get_subcolumn({}) /*root*/, nullptr, StringRef {"array"},
-                cloned_sparse->get_ptr(), start, end);
+        ColumnVariant::fill_path_column_from_sparse_data(*obj->get_subcolumn({}) /*root*/, nullptr,
+                                                         StringRef {"array"},
+                                                         cloned_sparse->get_ptr(), start, end);
     }
 
     EXPECT_NE(cloned_sparse->size(), sparse_col->size());
 
-    vectorized::ColumnVariant::fill_path_column_from_sparse_data(
-            *obj->get_subcolumn({}) /*root*/, nullptr, StringRef {"array"}, sparse_col->get_ptr(),
-            0, sparse_col->size());
+    ColumnVariant::fill_path_column_from_sparse_data(*obj->get_subcolumn({}) /*root*/, nullptr,
+                                                     StringRef {"array"}, sparse_col->get_ptr(), 0,
+                                                     sparse_col->size());
     EXPECT_ANY_THROW(obj->check_consistency());
 }
 
 TEST_F(ColumnVariantTest, not_finalized) {
     ColumnVariant::MutablePtr obj;
-    obj = ColumnVariant::create(1);
+    obj = ColumnVariant::create(1, false);
     MutableColumns cols;
     cols.push_back(obj->get_ptr());
 
@@ -2192,13 +2189,13 @@ TEST_F(ColumnVariantTest, not_finalized) {
     }
 }
 
-doris::vectorized::Field get_field_v2(std::string_view type, size_t array_element_cnt = 0) {
-    static std::unordered_map<std::string_view, doris::vectorized::Field> field_map;
+doris::Field get_field_v2(std::string_view type, size_t array_element_cnt = 0) {
+    static std::unordered_map<std::string_view, doris::Field> field_map;
     if (field_map.empty()) {
-        doris::vectorized::Field int_field = Field::create_field<TYPE_INT>(Int32(20));
-        doris::vectorized::Field str_field = Field::create_field<TYPE_STRING>(String("str", 3));
-        doris::vectorized::Field arr_int_field = Field::create_field<TYPE_ARRAY>(Array());
-        doris::vectorized::Field arr_str_field = Field::create_field<TYPE_ARRAY>(Array());
+        doris::Field int_field = Field::create_field<TYPE_INT>(Int32(20));
+        doris::Field str_field = Field::create_field<TYPE_STRING>(String("str", 3));
+        doris::Field arr_int_field = Field::create_field<TYPE_ARRAY>(Array());
+        doris::Field arr_str_field = Field::create_field<TYPE_ARRAY>(Array());
         auto& array1 = arr_int_field.get<TYPE_ARRAY>();
         auto& array2 = arr_str_field.get<TYPE_ARRAY>();
         for (size_t i = 0; i < array_element_cnt; ++i) {
@@ -2247,10 +2244,9 @@ TEST_F(ColumnVariantTest, array_field_operations) {
             auto column =
                     array_type
                             ->create_column(); // Nullable(Array(Nullable(Array(Nullable(TINYINT)))))
-            Field array_field = vectorized::Field::create_field<TYPE_ARRAY>(Array());
-            array_field.get<TYPE_ARRAY>().emplace_back(
-                    vectorized::Field::create_field<TYPE_TINYINT>(1));
-            Field array_field_o = vectorized::Field::create_field<TYPE_ARRAY>(Array());
+            Field array_field = Field::create_field<TYPE_ARRAY>(Array());
+            array_field.get<TYPE_ARRAY>().emplace_back(Field::create_field<TYPE_TINYINT>(1));
+            Field array_field_o = Field::create_field<TYPE_ARRAY>(Array());
             array_field_o.get<TYPE_ARRAY>().emplace_back(array_field);
             column->insert(array_field_o);
             obj->add_sub_column(path, std::move(column));
@@ -2277,10 +2273,10 @@ TEST_F(ColumnVariantTest, array_field_operations) {
             PathInData path("array_field");
             auto array_type = create_array(PrimitiveType::TYPE_TINYINT, 1);
             auto column = array_type->create_column();
-            Field array1 = vectorized::Field::create_field<TYPE_ARRAY>(Array());
-            array1.get<TYPE_ARRAY>().emplace_back(vectorized::Field::create_field<TYPE_TINYINT>(1));
-            array1.get<TYPE_ARRAY>().emplace_back(vectorized::Field::create_field<TYPE_TINYINT>(2));
-            array1.get<TYPE_ARRAY>().emplace_back(vectorized::Field::create_field<TYPE_TINYINT>(3));
+            Field array1 = Field::create_field<TYPE_ARRAY>(Array());
+            array1.get<TYPE_ARRAY>().emplace_back(Field::create_field<TYPE_TINYINT>(1));
+            array1.get<TYPE_ARRAY>().emplace_back(Field::create_field<TYPE_TINYINT>(2));
+            array1.get<TYPE_ARRAY>().emplace_back(Field::create_field<TYPE_TINYINT>(3));
             column->insert(array1);
             obj->add_sub_column(path, std::move(column), array_type);
 
@@ -2335,9 +2331,9 @@ TEST_F(ColumnVariantTest, array_field_operations) {
         {
             // Test wrapp_array_nullable
             // 1. create an empty variant column
-            auto variant = ColumnVariant::create(2);
+            auto variant = ColumnVariant::create(2, false);
 
-            std::vector<std::pair<std::string, doris::vectorized::Field>> data;
+            std::vector<std::pair<std::string, doris::Field>> data;
 
             // 2. subcolumn path
             data.emplace_back("v.ai", get_field_v2("ai", 1));
@@ -2372,28 +2368,22 @@ TEST_F(ColumnVariantTest, assert_exception_happen) {
     // Test case 1: Test assert_exception_happen
     {
         // 1. create an empty variant column
-        vectorized::ColumnVariant::Subcolumns dynamic_subcolumns;
-        dynamic_subcolumns.create_root(
-                vectorized::ColumnVariant::Subcolumn(0, true, true /*root*/));
-        dynamic_subcolumns.add(vectorized::PathInData("v.f"),
-                               vectorized::ColumnVariant::Subcolumn {0, true});
-        dynamic_subcolumns.add(vectorized::PathInData("v.e"),
-                               vectorized::ColumnVariant::Subcolumn {0, true});
-        dynamic_subcolumns.add(vectorized::PathInData("v.b"),
-                               vectorized::ColumnVariant::Subcolumn {0, true});
-        dynamic_subcolumns.add(vectorized::PathInData("v.b.d"),
-                               vectorized::ColumnVariant::Subcolumn {0, true});
-        dynamic_subcolumns.add(vectorized::PathInData("v.c.d"),
-                               vectorized::ColumnVariant::Subcolumn {0, true});
+        ColumnVariant::Subcolumns dynamic_subcolumns;
+        dynamic_subcolumns.create_root(ColumnVariant::Subcolumn(0, true, true /*root*/));
+        dynamic_subcolumns.add(PathInData("v.f"), ColumnVariant::Subcolumn {0, true});
+        dynamic_subcolumns.add(PathInData("v.e"), ColumnVariant::Subcolumn {0, true});
+        dynamic_subcolumns.add(PathInData("v.b"), ColumnVariant::Subcolumn {0, true});
+        dynamic_subcolumns.add(PathInData("v.b.d"), ColumnVariant::Subcolumn {0, true});
+        dynamic_subcolumns.add(PathInData("v.c.d"), ColumnVariant::Subcolumn {0, true});
         std::cout << "dynamic_subcolumns size: " << dynamic_subcolumns.size() << std::endl;
-        EXPECT_ANY_THROW(ColumnVariant::create(2, std::move(dynamic_subcolumns)));
+        EXPECT_ANY_THROW(ColumnVariant::create(2, false, std::move(dynamic_subcolumns)));
     }
 
     {
         // 1. create an empty variant column
-        auto variant = ColumnVariant::create(5);
+        auto variant = ColumnVariant::create(5, false);
 
-        std::vector<std::pair<std::string, doris::vectorized::Field>> data;
+        std::vector<std::pair<std::string, doris::Field>> data;
 
         // 2. subcolumn path
         data.emplace_back("v.a", get_field_v2("int"));
@@ -2445,44 +2435,39 @@ TEST_F(ColumnVariantTest, assert_exception_happen) {
 
 TEST_F(ColumnVariantTest, try_insert_default_from_nested) {
     // 1. create an empty variant column
-    vectorized::ColumnVariant::Subcolumns dynamic_subcolumns;
+    ColumnVariant::Subcolumns dynamic_subcolumns;
     auto array_type = create_array(PrimitiveType::TYPE_STRING, 1);
     auto column = array_type->create_column();
-    Field array1 = vectorized::Field::create_field<TYPE_ARRAY>(Array());
-    array1.get<TYPE_ARRAY>().emplace_back(vectorized::Field::create_field<TYPE_STRING>("amory"));
-    array1.get<TYPE_ARRAY>().emplace_back(vectorized::Field::create_field<TYPE_STRING>("commit"));
-    Field array2 = vectorized::Field::create_field<TYPE_ARRAY>(Array());
-    array2.get<TYPE_ARRAY>().emplace_back(vectorized::Field::create_field<TYPE_STRING>("amory"));
-    array2.get<TYPE_ARRAY>().emplace_back(vectorized::Field::create_field<TYPE_STRING>("doris"));
+    Field array1 = Field::create_field<TYPE_ARRAY>(Array());
+    array1.get<TYPE_ARRAY>().emplace_back(Field::create_field<TYPE_STRING>("amory"));
+    array1.get<TYPE_ARRAY>().emplace_back(Field::create_field<TYPE_STRING>("commit"));
+    Field array2 = Field::create_field<TYPE_ARRAY>(Array());
+    array2.get<TYPE_ARRAY>().emplace_back(Field::create_field<TYPE_STRING>("amory"));
+    array2.get<TYPE_ARRAY>().emplace_back(Field::create_field<TYPE_STRING>("doris"));
     column->insert(array1);
     column->insert(array2);
 
     auto array_type2 = create_array(PrimitiveType::TYPE_STRING, 2);
     auto column2 = array_type2->create_column();
-    Field array22 = vectorized::Field::create_field<TYPE_ARRAY>(Array());
+    Field array22 = Field::create_field<TYPE_ARRAY>(Array());
     array22.get<TYPE_ARRAY>().emplace_back(array1);
     array22.get<TYPE_ARRAY>().emplace_back(array2);
-    Field array23 = vectorized::Field::create_field<TYPE_ARRAY>(Array());
+    Field array23 = Field::create_field<TYPE_ARRAY>(Array());
     array23.get<TYPE_ARRAY>().emplace_back(array2);
     array23.get<TYPE_ARRAY>().emplace_back(array1);
     column2->insert(array22);
     column2->insert(array23);
 
-    dynamic_subcolumns.create_root(vectorized::ColumnVariant::Subcolumn(0, true, true /*root*/));
-    dynamic_subcolumns.add(vectorized::PathInData("v.f"),
-                           vectorized::ColumnVariant::Subcolumn {0, true});
-    dynamic_subcolumns.add(
-            vectorized::PathInData("v.a"),
-            vectorized::ColumnVariant::Subcolumn {std::move(column2), array_type2, false, false});
-    dynamic_subcolumns.add(vectorized::PathInData("v.b"),
-                           vectorized::ColumnVariant::Subcolumn {0, true});
-    dynamic_subcolumns.add(
-            vectorized::PathInData("v.b.a"),
-            vectorized::ColumnVariant::Subcolumn {std::move(column), array_type, false, false});
-    dynamic_subcolumns.add(vectorized::PathInData("v.c.d"),
-                           vectorized::ColumnVariant::Subcolumn {0, true});
+    dynamic_subcolumns.create_root(ColumnVariant::Subcolumn(0, true, true /*root*/));
+    dynamic_subcolumns.add(PathInData("v.f"), ColumnVariant::Subcolumn {0, true});
+    dynamic_subcolumns.add(PathInData("v.a"), ColumnVariant::Subcolumn {std::move(column2),
+                                                                        array_type2, false, false});
+    dynamic_subcolumns.add(PathInData("v.b"), ColumnVariant::Subcolumn {0, true});
+    dynamic_subcolumns.add(PathInData("v.b.a"),
+                           ColumnVariant::Subcolumn {std::move(column), array_type, false, false});
+    dynamic_subcolumns.add(PathInData("v.c.d"), ColumnVariant::Subcolumn {0, true});
     std::cout << "dynamic_subcolumns size: " << dynamic_subcolumns.size() << std::endl;
-    auto obj = ColumnVariant::create(5, std::move(dynamic_subcolumns));
+    auto obj = ColumnVariant::create(5, false, std::move(dynamic_subcolumns));
 
     for (auto& entry : obj->get_subcolumns()) {
         std::cout << "entry path: " << entry->path.get_path() << std::endl;
@@ -2499,28 +2484,27 @@ TEST_F(ColumnVariantTest, try_insert_default_from_nested) {
 // unnest, clear_column_data
 TEST_F(ColumnVariantTest, unnest) {
     // 1. create an empty variant column
-    vectorized::ColumnVariant::Subcolumns dynamic_subcolumns;
+    ColumnVariant::Subcolumns dynamic_subcolumns;
     auto nested_col = ColumnVariant::NESTED_TYPE->create_column();
     Field array1 = VariantUtil::create_nested_array_field(
-            {{{"a", vectorized::Field::create_field<TYPE_STRING>("amory")}},
-             {{"b", vectorized::Field::create_field<TYPE_STRING>("commit")}}});
+            {{{"a", Field::create_field<TYPE_STRING>("amory")}},
+             {{"b", Field::create_field<TYPE_STRING>("commit")}}});
     Field array2 = VariantUtil::create_nested_array_field(
-            {{{"a", vectorized::Field::create_field<TYPE_STRING>("amory")}},
-             {{"b", vectorized::Field::create_field<TYPE_STRING>("doris")}}});
+            {{{"a", Field::create_field<TYPE_STRING>("amory")}},
+             {{"b", Field::create_field<TYPE_STRING>("doris")}}});
     std::cout << "array: " << array1.get<TYPE_ARRAY>().size() << std::endl;
     nested_col->insert(array1);
     nested_col->insert(array2);
     std::cout << nested_col->size() << std::endl;
 
     // 2. subcolumn path
-    dynamic_subcolumns.create_root(vectorized::ColumnVariant::Subcolumn(2, true, true /*root*/));
-    dynamic_subcolumns.add(vectorized::PathInData("v.f"),
-                           vectorized::ColumnVariant::Subcolumn {2, true});
-    dynamic_subcolumns.add(vectorized::PathInData("v.a"),
-                           vectorized::ColumnVariant::Subcolumn {
-                                   std::move(nested_col), ColumnVariant::NESTED_TYPE, true, false});
+    dynamic_subcolumns.create_root(ColumnVariant::Subcolumn(2, true, true /*root*/));
+    dynamic_subcolumns.add(PathInData("v.f"), ColumnVariant::Subcolumn {2, true});
+    dynamic_subcolumns.add(PathInData("v.a"),
+                           ColumnVariant::Subcolumn {std::move(nested_col),
+                                                     ColumnVariant::NESTED_TYPE, true, false});
     std::cout << "dynamic_subcolumns size: " << dynamic_subcolumns.size() << std::endl;
-    auto obj = ColumnVariant::create(2, std::move(dynamic_subcolumns));
+    auto obj = ColumnVariant::create(2, false, std::move(dynamic_subcolumns));
     obj->set_num_rows(2);
     EXPECT_TRUE(!obj->empty());
     std::cout << obj->size() << std::endl;
@@ -2529,7 +2513,7 @@ TEST_F(ColumnVariantTest, unnest) {
 
 TEST_F(ColumnVariantTest, path_in_data_builder_test) {
     // Create a ColumnVariant with nested subcolumns
-    auto variant = ColumnVariant::create(5);
+    auto variant = ColumnVariant::create(5, false);
 
     // Test case 1: Build a nested path with PathInDataBuilder
     {
@@ -2798,8 +2782,7 @@ TEST_F(ColumnVariantTest, get_field_info_all_types) {
         JsonbField field(value.value(), value.size());
 
         FieldInfo info;
-        variant_util::get_field_info(vectorized::Field::create_field<TYPE_JSONB>(std::move(field)),
-                                     &info);
+        variant_util::get_field_info(Field::create_field<TYPE_JSONB>(std::move(field)), &info);
         EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_JSONB);
     }
 
@@ -2810,7 +2793,7 @@ TEST_F(ColumnVariantTest, get_field_info_all_types) {
         t1.push_back(Field::create_field<TYPE_BIGINT>(Int64(37)));
         t1.push_back(Field::create_field<TYPE_BOOLEAN>(true));
         FieldInfo info;
-        variant_util::get_field_info(vectorized::Field::create_field<TYPE_STRUCT>(t1), &info);
+        variant_util::get_field_info(Field::create_field<TYPE_STRUCT>(t1), &info);
         EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_STRUCT)
                 << "info.scalar_type_id: " << info.scalar_type_id;
         EXPECT_FALSE(info.have_nulls);
@@ -3172,7 +3155,7 @@ TEST_F(ColumnVariantTest, subcolumn_operations_coverage) {
 
     // Test is_empty_nested
     {
-        vectorized::ColumnVariant container_variant(1, true);
+        ColumnVariant container_variant(1, true);
         // v:  {"k": [1,2,3]} ==》 [{"k": 1}, {"k": 2}, {"k": 3}]
         //     {"k": []} => [{}] vs  {"k": null} -> [null]
         //     {"k": [4]} => [{"k": 4}]
@@ -3188,7 +3171,7 @@ TEST_F(ColumnVariantTest, subcolumn_operations_coverage) {
         col_arr->insert(an);
         col_arr->insert(an);
         MutableColumnPtr nested_object = ColumnVariant::create(
-                container_variant.max_subcolumns_count(), col_arr->get_data().size());
+                container_variant.max_subcolumns_count(), false, col_arr->get_data().size());
         MutableColumnPtr offset = col_arr->get_offsets_ptr()->assume_mutable(); // [3, 3, 4]
         auto* nested_object_ptr = assert_cast<ColumnVariant*>(nested_object.get());
         // flatten nested arrays
@@ -3220,12 +3203,12 @@ TEST_F(ColumnVariantTest, subcolumn_operations_coverage) {
 
     // Test is_empty_nested
     {
-        auto v = ColumnVariant::create(1);
+        auto v = ColumnVariant::create(1, false);
         auto sub_dt = make_nullable(std::make_unique<DataTypeArray>(
-                make_nullable(std::make_unique<DataTypeVariant>(1))));
+                make_nullable(std::make_unique<DataTypeVariant>(1, false))));
         auto sub_col = sub_dt->create_column();
 
-        std::vector<std::pair<std::string, doris::vectorized::Field>> data;
+        std::vector<std::pair<std::string, doris::Field>> data;
         Field an = Field::create_field<TYPE_ARRAY>(Array());
         an.get<TYPE_ARRAY>().push_back(Field::create_field<TYPE_NULL>(Null()));
         data.emplace_back("v.a", an);
@@ -3485,7 +3468,7 @@ TEST_F(ColumnVariantTest, subcolumn_insert_range_from_test_advanced) {
 }
 
 TEST_F(ColumnVariantTest, test_variant_no_data_insert) {
-    auto variant = ColumnVariant::create(1);
+    auto variant = ColumnVariant::create(1, false);
     variant->insert_many_defaults(10);
     EXPECT_EQ(variant->size(), 10);
     EXPECT_TRUE(variant->only_have_default_values());
@@ -3589,10 +3572,10 @@ TEST_F(ColumnVariantTest, subcolumn_finalize_and_insert) {
     ColumnVariant::Subcolumn subcolumn(0, true, true);
     subcolumn.insert_many_defaults(20);
     subcolumn.finalize();
-    vectorized::UInt64 v = 20231205;
+    UInt64 v = 20231205;
     typename PrimitiveTypeTraits<TYPE_DATEV2>::CppType tmp;
     tmp.from_date_int64(v);
-    auto f = vectorized::Field::create_field<TYPE_DATEV2>(tmp);
+    auto f = Field::create_field<TYPE_DATEV2>(tmp);
 
     FieldWithDataType field;
     field.base_scalar_type_id = TYPE_DATEV2;
@@ -3606,7 +3589,7 @@ TEST_F(ColumnVariantTest, subcolumn_finalize_and_insert) {
 
     Array array;
     array.push_back(f);
-    auto array_f = vectorized::Field::create_field<TYPE_ARRAY>(array);
+    auto array_f = Field::create_field<TYPE_ARRAY>(array);
 
     FieldWithDataType field2;
     field2.base_scalar_type_id = TYPE_DATEV2;
@@ -3650,4 +3633,4 @@ TEST_F(ColumnVariantTest, deserialize_mixed_array_elements) {
             << subcolumn.get_least_common_type()->get_name();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

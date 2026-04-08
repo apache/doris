@@ -18,7 +18,7 @@
 #include "exprs/function/function_test_util.h"
 #include "exprs/function/uuid.cpp"
 
-namespace doris::vectorized {
+namespace doris {
 
 using namespace ut_type;
 
@@ -46,4 +46,4 @@ TEST(function_uuid_test, function_is_uuid_test) {
     check_function_all_arg_comb<DataTypeBool, true>(func_name, input_types, data_set);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -641,10 +641,17 @@ public class DynamicPartitionUtil {
         }
         expectCreatePartitionNum = (long) end - start;
 
-        if (!isReplay && hasEnd && (expectCreatePartitionNum > Config.max_dynamic_partition_num)
+        int dynamicPartitionLimit = Config.max_dynamic_partition_num;
+        if (!isReplay && hasEnd
                 && Boolean.parseBoolean(analyzedProperties.getOrDefault(DynamicPartitionProperty.ENABLE, "true"))) {
-            throw new DdlException("Too many dynamic partitions: "
-                    + expectCreatePartitionNum + ". Limit: " + Config.max_dynamic_partition_num);
+            if (expectCreatePartitionNum > dynamicPartitionLimit) {
+                throw new DdlException("Too many dynamic partitions: "
+                        + expectCreatePartitionNum + ". Limit: " + dynamicPartitionLimit);
+            } else if (expectCreatePartitionNum > dynamicPartitionLimit * 8L / 10) {
+                LOG.warn("Dynamic partition count {} is approaching limit {} (>80%)."
+                        + " Consider increasing max_dynamic_partition_num.",
+                        expectCreatePartitionNum, dynamicPartitionLimit);
+            }
         }
 
         if (properties.containsKey(DynamicPartitionProperty.START_DAY_OF_MONTH)) {

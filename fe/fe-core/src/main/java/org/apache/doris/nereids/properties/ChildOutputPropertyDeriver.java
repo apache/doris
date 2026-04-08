@@ -598,6 +598,8 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
         switch (hashJoin.getJoinType()) {
             case INNER_JOIN:
             case CROSS_JOIN:
+            case ASOF_LEFT_INNER_JOIN:
+            case ASOF_RIGHT_INNER_JOIN:
                 if (shuffleSide == ShuffleSide.LEFT) {
                     return new PhysicalProperties(
                             DistributionSpecHash.merge(rightHashSpec, leftHashSpec, outputShuffleType)
@@ -618,6 +620,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             case LEFT_ANTI_JOIN:
             case NULL_AWARE_LEFT_ANTI_JOIN:
             case LEFT_OUTER_JOIN:
+            case ASOF_LEFT_OUTER_JOIN:
                 if (shuffleSide == ShuffleSide.LEFT || shuffleSide == ShuffleSide.BOTH) {
                     return new PhysicalProperties(
                             leftHashSpec.withShuffleTypeAndForbidColocateJoin(outputShuffleType)
@@ -630,6 +633,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             case RIGHT_SEMI_JOIN:
             case RIGHT_ANTI_JOIN:
             case RIGHT_OUTER_JOIN:
+            case ASOF_RIGHT_OUTER_JOIN:
                 if (shuffleSide == ShuffleSide.RIGHT || shuffleSide == ShuffleSide.BOTH) {
                     return new PhysicalProperties(
                             rightHashSpec.withShuffleTypeAndForbidColocateJoin(outputShuffleType)
@@ -666,6 +670,8 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             DistributionSpecHash leftHashSpec, DistributionSpecHash rightHashSpec) {
         switch (hashJoin.getJoinType()) {
             case INNER_JOIN:
+            case ASOF_LEFT_INNER_JOIN:
+            case ASOF_RIGHT_INNER_JOIN:
             case CROSS_JOIN:
                 return new PhysicalProperties(DistributionSpecHash.merge(
                         leftHashSpec, rightHashSpec, leftHashSpec.getShuffleType()));
@@ -673,10 +679,12 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             case LEFT_ANTI_JOIN:
             case NULL_AWARE_LEFT_ANTI_JOIN:
             case LEFT_OUTER_JOIN:
+            case ASOF_LEFT_OUTER_JOIN:
                 return new PhysicalProperties(leftHashSpec);
             case RIGHT_SEMI_JOIN:
             case RIGHT_ANTI_JOIN:
             case RIGHT_OUTER_JOIN:
+            case ASOF_RIGHT_OUTER_JOIN:
                 if (JoinUtils.couldColocateJoin(leftHashSpec, rightHashSpec, hashJoin.getHashJoinConjuncts())) {
                     return new PhysicalProperties(rightHashSpec);
                 } else {

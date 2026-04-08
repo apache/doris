@@ -32,7 +32,7 @@
 #include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class ConvertFieldToTypeTest : public ::testing::Test {
 protected:
@@ -513,4 +513,4 @@ TEST_F(ConvertFieldToTypeTest, ConvertFieldToType_ErrorCases) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

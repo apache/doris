@@ -23,7 +23,7 @@
 #include "common/status.h"
 #include "util/io_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class BufferReadable;
@@ -112,5 +112,5 @@ struct VarMoments {
     }
 };
 
-} // namespace doris::vectorized
+} // namespace doris
 #include "common/compile_check_end.h"

@@ -26,7 +26,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 FileMetaData::FileMetaData(tparquet::FileMetaData& metadata, size_t mem_size)
@@ -61,4 +61,4 @@ std::string FileMetaData::debug_string() const {
 }
 #include "common/compile_check_end.h"
 
-} // namespace doris::vectorized
+} // namespace doris

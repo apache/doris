@@ -25,7 +25,6 @@
 #include "load/group_commit/wal/wal_writer.h"
 
 namespace doris {
-namespace vectorized {
 
 class VWalWriter {
 public:
@@ -34,7 +33,7 @@ public:
                int be_exe_version);
     ~VWalWriter();
     Status init();
-    Status write_wal(vectorized::Block* block);
+    Status write_wal(Block* block);
     Status close();
 
 private:
@@ -51,5 +50,4 @@ private:
     int _be_exe_version = 0;
     std::shared_ptr<WalWriter> _wal_writer;
 };
-} // namespace vectorized
 } // namespace doris

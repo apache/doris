@@ -28,7 +28,7 @@
 #include "exec/common/sip_hash.h"
 #include "exec/common/variant_util.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 #include "common/compile_check_begin.h"
 
@@ -306,4 +306,4 @@ void PathInDataBuilder::pop_back(size_t n) {
 
 #include "common/compile_check_end.h"
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -36,12 +36,10 @@
 #include "core/field.h"
 
 namespace doris {
-namespace vectorized {
 class BufferWritable;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 IDataType::IDataType() = default;
@@ -138,8 +136,6 @@ PGenericType_TypeId IDataType::get_pdata_type(const IDataType* data_type) {
         return PGenericType::JSONB;
     case PrimitiveType::TYPE_MAP:
         return PGenericType::MAP;
-    case PrimitiveType::TYPE_TIME:
-        return PGenericType::TIME;
     case PrimitiveType::TYPE_AGG_STATE:
         return PGenericType::AGG_STATE;
     case PrimitiveType::TYPE_TIMEV2:
@@ -176,7 +172,7 @@ char* serialize_const_flag_and_row_num(const IColumn** column, char* buf,
     buf += sizeof(size_t);
 
     if (is_const_column) {
-        const auto& const_column = assert_cast<const vectorized::ColumnConst&>(*col);
+        const auto& const_column = assert_cast<const ColumnConst&>(*col);
         *column = &(const_column.get_data_column());
     }
     return buf;
@@ -221,11 +217,11 @@ std::string IDataType::to_string(const IColumn& column, size_t row_num,
 
 #ifdef BE_TEST
 std::string IDataType::to_string(const IColumn& column, size_t row_num) const {
-    auto format_options = vectorized::DataTypeSerDe::get_default_format_options();
+    auto format_options = DataTypeSerDe::get_default_format_options();
     auto timezone = cctz::utc_time_zone();
     format_options.timezone = &timezone;
     return to_string(column, row_num, format_options);
 }
 #endif
 
-} // namespace doris::vectorized
+} // namespace doris

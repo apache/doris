@@ -36,12 +36,12 @@
 #include "gtest/gtest_pred_impl.h"
 #include "runtime/runtime_profile.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 DataTypes _create_scala_data_types() {
     DataTypePtr dt = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeDateTime>());
     DataTypePtr d = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeDate>());
-    DataTypePtr dc = std::make_shared<DataTypeNullable>(vectorized::create_decimal(10, 2, false));
+    DataTypePtr dc = std::make_shared<DataTypeNullable>(create_decimal(10, 2, false));
     DataTypePtr dcv2 =
             std::make_shared<DataTypeNullable>(std::make_shared<DataTypeDecimalV2>(27, 9));
     DataTypePtr n3 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt128>());
@@ -142,4 +142,4 @@ TEST(ResizeTest, StructTypeTest) {
     EXPECT_EQ(b->size(), 10);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

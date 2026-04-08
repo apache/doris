@@ -89,42 +89,42 @@ suite("test_search_boundary_cases", "p0") {
     // Boundary Test 1: All NULL fields
     qt_boundary_1_all_null_or """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
-        WHERE search('field1:anything OR field2:anything OR field3:anything OR field4:anything OR field5:anything')
+        WHERE search('field1:anything OR field2:anything OR field3:anything OR field4:anything OR field5:anything', '{"mode":"standard"}')
     """
 
     qt_boundary_1_all_null_and """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
-        WHERE search('field1:anything AND field2:anything AND field3:anything AND field4:anything AND field5:anything')
+        WHERE search('field1:anything AND field2:anything AND field3:anything AND field4:anything AND field5:anything', '{"mode":"standard"}')
     """
 
     // Boundary Test 2: Single field NULL vs multiple fields NULL in OR
     qt_boundary_2_single_null_or """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id FROM ${tableName}
-        WHERE search('field1:nonexistent OR field2:test')
+        WHERE search('field1:nonexistent OR field2:test', '{"mode":"standard"}')
         ORDER BY id
     """
 
     qt_boundary_2_multiple_null_or """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id FROM ${tableName}
-        WHERE search('field1:nonexistent OR field2:test OR field3:nonexistent')
+        WHERE search('field1:nonexistent OR field2:test OR field3:nonexistent', '{"mode":"standard"}')
         ORDER BY id
     """
 
     // Boundary Test 3: NOT with various NULL combinations
     qt_boundary_3_not_null_field """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
-        WHERE search('NOT field1:test')
+        WHERE search('NOT field1:test', '{"mode":"standard"}')
     """
 
     qt_boundary_3_external_not_null """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
-        WHERE not search('field1:test')
+        WHERE not search('field1:test', '{"mode":"standard"}')
     """
 
     // Boundary Test 4: Empty string vs NULL handling
     qt_boundary_4_empty_string_search """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id FROM ${tableName}
-        WHERE search('field1:""')
+        WHERE search('field1:""', '{"mode":"standard"}')
         ORDER BY id
     """
 
@@ -141,12 +141,12 @@ suite("test_search_boundary_cases", "p0") {
     // Boundary Test 5: Complex nested boolean with NULLs
     qt_boundary_5_complex_nested """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
-        WHERE search('((field1:test OR field2:test) AND (field3:test OR field4:test)) OR field5:test')
+        WHERE search('((field1:test OR field2:test) AND (field3:test OR field4:test)) OR field5:test', '{"mode":"standard"}')
     """
 
     qt_boundary_5_detailed_result """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, field1, field2, field3, field4, field5 FROM ${tableName}
-        WHERE search('((field1:test OR field2:test) AND (field3:test OR field4:test)) OR field5:test')
+        WHERE search('((field1:test OR field2:test) AND (field3:test OR field4:test)) OR field5:test', '{"mode":"standard"}')
         ORDER BY id
     """
 
@@ -157,36 +157,36 @@ suite("test_search_boundary_cases", "p0") {
                      field2:"target" OR field2:"keyword" OR field2:"apple" OR field2:"unique2" OR
                      field3:"target" OR field3:"keyword" OR field3:"banana" OR field3:"unique3" OR
                      field4:"target" OR field4:"keyword" OR field4:"banana" OR field4:"unique4" OR
-                     field5:"target" OR field5:"keyword" OR field5:"cherry" OR field5:"unique5"')
+                     field5:"target" OR field5:"keyword" OR field5:"cherry" OR field5:"unique5"', '{"mode":"standard"}')
     """
 
     // Boundary Test 7: Special characters and NULL interaction
     qt_boundary_7_special_chars_or """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
-        WHERE search('field1:special123 OR field2:nonexistent')
+        WHERE search('field1:special123 OR field2:nonexistent', '{"mode":"standard"}')
     """
 
     qt_boundary_7_special_chars_and """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
-        WHERE search('field1:special123 AND field2:chars456')
+        WHERE search('field1:special123 AND field2:chars456', '{"mode":"standard"}')
     """
 
     // Boundary Test 8: Case sensitivity with NULL fields
     qt_boundary_8_case_variations """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id FROM ${tableName}
-        WHERE search('field1:Target OR field2:TARGET OR field3:target OR field4:TaRgEt')
+        WHERE search('field1:Target OR field2:TARGET OR field3:target OR field4:TaRgEt', '{"mode":"standard"}')
         ORDER BY id
     """
 
     // Boundary Test 9: Multiple NOT operations
     qt_boundary_9_multiple_not """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
-        WHERE search('NOT (field1:nonexistent OR field2:nonexistent OR field3:nonexistent)')
+        WHERE search('NOT (field1:nonexistent OR field2:nonexistent OR field3:nonexistent)', '{"mode":"standard"}')
     """
 
     qt_boundary_9_external_multiple_not """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
-        WHERE not search('field1:nonexistent OR field2:nonexistent OR field3:nonexistent')
+        WHERE not search('field1:nonexistent OR field2:nonexistent OR field3:nonexistent', '{"mode":"standard"}')
     """
 
     // Boundary Test 10: Performance with NULL-heavy dataset
@@ -194,6 +194,6 @@ suite("test_search_boundary_cases", "p0") {
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
         WHERE search('(field1:test OR field1:target OR field1:keyword) AND
                      (field2:test OR field2:target OR field2:keyword) AND
-                     NOT (field3:nonexistent OR field4:nonexistent OR field5:nonexistent)')
+                     NOT (field3:nonexistent OR field4:nonexistent OR field5:nonexistent)', '{"mode":"standard"}')
     """
 }

@@ -79,9 +79,8 @@ public:
         _nested = nested;
     }
 
-    Status evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
-                    IndexIterator* iterator, uint32_t num_rows,
-                    roaring::Roaring* bitmap) const override {
+    Status evaluate(const IndexFieldNameAndTypePair& name_with_type, IndexIterator* iterator,
+                    uint32_t num_rows, roaring::Roaring* bitmap) const override {
         std::shared_lock<std::shared_mutex> lock(*_mtx);
         if (!_nested) {
             return Status::OK();
@@ -89,7 +88,7 @@ public:
         return _nested->evaluate(name_with_type, iterator, num_rows, bitmap);
     }
 
-    void evaluate_and(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
+    void evaluate_and(const IColumn& column, const uint16_t* sel, uint16_t size,
                       bool* flags) const override {
         std::shared_lock<std::shared_mutex> lock(*_mtx);
         if (!_nested) {
@@ -98,7 +97,7 @@ public:
         return _nested->evaluate_and(column, sel, size, flags);
     }
 
-    void evaluate_or(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
+    void evaluate_or(const IColumn& column, const uint16_t* sel, uint16_t size,
                      bool* flags) const override {
         DCHECK(false) << "should not reach here";
     }
@@ -135,8 +134,7 @@ public:
         return _nested->can_do_bloom_filter(ngram);
     }
 
-    void evaluate_vec(const vectorized::IColumn& column, uint16_t size,
-                      bool* flags) const override {
+    void evaluate_vec(const IColumn& column, uint16_t size, bool* flags) const override {
         std::shared_lock<std::shared_mutex> lock(*_mtx);
         if (!_nested) {
             for (uint16_t i = 0; i < size; ++i) {
@@ -147,8 +145,7 @@ public:
         _nested->evaluate_vec(column, size, flags);
     }
 
-    void evaluate_and_vec(const vectorized::IColumn& column, uint16_t size,
-                          bool* flags) const override {
+    void evaluate_and_vec(const IColumn& column, uint16_t size, bool* flags) const override {
         std::shared_lock<std::shared_mutex> lock(*_mtx);
         if (!_nested) {
             return;
@@ -164,7 +161,7 @@ public:
         return _nested->get_search_str();
     }
 
-    bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const override {
+    bool evaluate_and(ParquetPredicate::ColumnStat* statistic) const override {
         std::shared_lock<std::shared_mutex> lock(*_mtx);
         if (!_nested) {
             // at the begining _nested will be null, so return true.
@@ -173,7 +170,7 @@ public:
         return _nested->evaluate_and(statistic);
     }
 
-    bool evaluate_and(vectorized::ParquetPredicate::CachedPageIndexStat* statistic,
+    bool evaluate_and(ParquetPredicate::CachedPageIndexStat* statistic,
                       RowRanges* row_ranges) const override {
         std::shared_lock<std::shared_mutex> lock(*_mtx);
 
@@ -186,8 +183,7 @@ public:
     }
 
 private:
-    uint16_t _evaluate_inner(const vectorized::IColumn& column, uint16_t* sel,
-                             uint16_t size) const override {
+    uint16_t _evaluate_inner(const IColumn& column, uint16_t* sel, uint16_t size) const override {
         std::shared_lock<std::shared_mutex> lock(*_mtx);
         if (!_nested) {
             return size;

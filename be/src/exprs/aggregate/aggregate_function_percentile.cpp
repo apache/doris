@@ -21,7 +21,7 @@
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 AggregateFunctionPtr create_aggregate_function_percentile_approx(
@@ -89,4 +89,4 @@ void register_aggregate_function_percentile_approx(AggregateFunctionSimpleFactor
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

@@ -24,7 +24,7 @@
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class VDirectInPredicate final : public VExpr {
@@ -156,4 +156,4 @@ private:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

@@ -21,7 +21,7 @@
 
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 AggregateFunctionPtr transform_to_sort_agg_function(const AggregateFunctionPtr& nested_function,
@@ -37,4 +37,4 @@ AggregateFunctionPtr transform_to_sort_agg_function(const AggregateFunctionPtr& 
             nested_function, arguments, sort_desc, state);
 };
 
-} // namespace doris::vectorized
+} // namespace doris

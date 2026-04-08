@@ -27,7 +27,6 @@
 #include "util/stopwatch.hpp"
 
 namespace doris {
-namespace vectorized {
 
 class TimeSharingTaskHandle;
 
@@ -101,5 +100,4 @@ private:
     MonotonicStopWatch _submit_time_watch;
 };
 
-} // namespace vectorized
 } // namespace doris

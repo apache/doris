@@ -20,5 +20,5 @@ package org.apache.doris.common.publish;
 import org.apache.doris.thrift.TPublishTopicRequest;
 
 public interface TopicPublisher {
-    public void getTopicInfo(TPublishTopicRequest req);
+    void getTopicInfo(TPublishTopicRequest req);
 }

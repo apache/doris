@@ -32,7 +32,6 @@
 #include "exec/scan/task_executor/tools/simulator/split_specification.h"
 
 namespace doris {
-namespace vectorized {
 
 class SimulationSplit;
 
@@ -95,7 +94,7 @@ public:
 
 class IntermediateTask : public SimulationTask {
 private:
-    std::shared_ptr<vectorized::SplitSpecification> _split_spec;
+    std::shared_ptr<SplitSpecification> _split_spec;
 
 public:
     IntermediateTask(TimeSharingTaskExecutor& executor,
@@ -105,5 +104,4 @@ public:
     void schedule(TimeSharingTaskExecutor& executor, int num_splits) override;
 };
 
-} // namespace vectorized
 } // namespace doris

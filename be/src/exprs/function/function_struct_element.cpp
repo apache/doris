@@ -38,7 +38,7 @@
 #include "exprs/function/function_helpers.h"
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class FunctionStructElement : public IFunction {
 public:
@@ -145,4 +145,4 @@ void register_function_struct_element(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStructElement>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

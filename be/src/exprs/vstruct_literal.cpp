@@ -28,12 +28,10 @@
 namespace doris {
 class RowDescriptor;
 class RuntimeState;
-namespace vectorized {
 class VExprContext;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 Status VStructLiteral::prepare(RuntimeState* state, const RowDescriptor& row_desc,
                                VExprContext* context) {
@@ -49,4 +47,4 @@ Status VStructLiteral::prepare(RuntimeState* state, const RowDescriptor& row_des
     return Status::OK();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -24,7 +24,7 @@
 #include "exec/exchange/vdata_stream_sender.h"
 #include "runtime/thread_context.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 template <typename ChannelIds>
@@ -87,5 +87,6 @@ Status Crc32CHashPartitioner::clone(RuntimeState* state,
 
 template class Crc32HashPartitioner<ShuffleChannelIds>;
 template class Crc32HashPartitioner<SpillPartitionChannelIds>;
+template class Crc32HashPartitioner<SpillRePartitionChannelIds>;
 
-} // namespace doris::vectorized
+} // namespace doris

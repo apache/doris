@@ -32,7 +32,7 @@
 #include "core/data_type/primitive_type.h"
 #include "testutil/column_helper.h" // ColumnHelper is used for constructing columns and Block
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(StringOPTest, testStringPushOperations) {
     // Create expected result column with various string types
@@ -282,4 +282,4 @@ TEST(StringOPTest, testSubstringExecute) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

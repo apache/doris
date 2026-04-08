@@ -26,7 +26,7 @@
 #include "core/data_type/data_type_number.h"
 #include "testutil/column_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(ColumnNothingTest, Test) {
     ColumnNothing column_nothing(23);
@@ -51,4 +51,4 @@ TEST(ColumnNothingTest, Test) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

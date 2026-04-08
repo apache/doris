@@ -32,7 +32,6 @@
 #include "orc/ColumnPrinter.hh"
 
 namespace doris {
-namespace vectorized {
 class OrcReaderFillDataTest : public ::testing::Test {
 protected:
     void SetUp() override {}
@@ -479,5 +478,4 @@ TEST_F(OrcReaderFillDataTest, ComplexTypeConversionTest) {
                   "+-------------------+\n");
     }
 }
-} // namespace vectorized
 } // namespace doris

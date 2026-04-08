@@ -30,7 +30,7 @@
 #include "runtime/descriptors.h"
 #include "testutil/mock/mock_runtime_state.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class VirtualSlotRefTest : public testing::Test {
 public:
@@ -384,4 +384,4 @@ TEST_F(VirtualSlotRefTest, MemoryEstimate) {
     EXPECT_EQ(virtual_ref.estimate_memory(1000), 0); // Should return 0 as per implementation
 }
 
-} // namespace doris::vectorized
+} // namespace doris

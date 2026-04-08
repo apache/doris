@@ -232,7 +232,7 @@ TEST_F(BlockBloomFilterTest, timestamptz) {
 
     cctz::time_zone time_zone = cctz::fixed_time_zone(std::chrono::hours(0));
     TimezoneUtils::load_offsets_to_cache();
-    vectorized::CastParameters params;
+    CastParameters params;
     params.is_strict = true;
     std::vector<std::string> str_values = {"0001-01-01 00:00:00", "2023-01-01 15:00:00",
                                            "8999-12-31 23:59:59"};

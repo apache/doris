@@ -44,9 +44,7 @@
 #include "storage/tablet/tablet_manager.h"
 
 namespace doris {
-namespace vectorized {
 class Block;
-} // namespace vectorized
 
 #include "common/compile_check_begin.h"
 
@@ -65,6 +63,7 @@ std::vector<SchemaScanner::ColumnDesc> SchemaRowsetsScanner::_s_tbls_columns = {
         {"CREATION_TIME", TYPE_DATETIME, sizeof(int64_t), true},
         {"NEWEST_WRITE_TIMESTAMP", TYPE_DATETIME, sizeof(int64_t), true},
         {"SCHEMA_VERSION", TYPE_INT, sizeof(int32_t), true},
+        {"COMMIT_TSO", TYPE_BIGINT, sizeof(int64_t), true},
 
 };
 
@@ -115,7 +114,7 @@ Status SchemaRowsetsScanner::_get_all_rowsets() {
     return Status::OK();
 }
 
-Status SchemaRowsetsScanner::get_next_block_internal(vectorized::Block* block, bool* eos) {
+Status SchemaRowsetsScanner::get_next_block_internal(Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }
@@ -131,7 +130,7 @@ Status SchemaRowsetsScanner::get_next_block_internal(vectorized::Block* block, b
     return _fill_block_impl(block);
 }
 
-Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
+Status SchemaRowsetsScanner::_fill_block_impl(Block* block) {
     SCOPED_TIMER(_fill_block_timer);
     size_t fill_rowsets_num = std::min(1000UL, rowsets_.size() - _rowsets_idx);
     size_t fill_idx_begin = _rowsets_idx;
@@ -269,6 +268,16 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
             datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 12, datas));
+    }
+    // COMMIT_TSO
+    {
+        std::vector<int64_t> srcs(fill_rowsets_num);
+        for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
+            RowsetSharedPtr rowset = rowsets_[i];
+            srcs[i - fill_idx_begin] = rowset->commit_tso();
+            datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
+        }
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 13, datas));
     }
 
     _rowsets_idx += fill_rowsets_num;

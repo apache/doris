@@ -55,7 +55,7 @@ class FunctionContext;
 template <typename, typename>
 struct DefaultHash;
 
-namespace doris::vectorized {
+namespace doris {
 
 class FunctionArrayDistinct : public IFunction {
 public:
@@ -270,4 +270,4 @@ private:
     }
 };
 
-} // namespace doris::vectorized
+} // namespace doris

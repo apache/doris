@@ -42,7 +42,7 @@
  *  7. json->map<struct<>, struct<>> deserialization result is map<NULL, NULL>.
 */
 
-namespace doris::vectorized {
+namespace doris {
 
 class DataTypeMapTest : public CommonDataTypeTest {
 protected:
@@ -424,7 +424,7 @@ TEST_F(DataTypeMapTest, SerdeNestedTypeArrowTest) {
         MutableColumnPtr map_column = ma->create_column();
         map_column->reserve(1);
         map_column->insert(Field::create_field<TYPE_MAP>(m1));
-        vectorized::ColumnWithTypeAndName type_and_name(map_column->get_ptr(), ma, col_name);
+        ColumnWithTypeAndName type_and_name(map_column->get_ptr(), ma, col_name);
         block->insert(type_and_name);
     }
     {
@@ -462,7 +462,7 @@ TEST_F(DataTypeMapTest, SerdeNestedTypeArrowTest) {
         MutableColumnPtr map_column = ma->create_column();
         map_column->reserve(1);
         map_column->insert(Field::create_field<TYPE_MAP>(m1));
-        vectorized::ColumnWithTypeAndName type_and_name(map_column->get_ptr(), ma, col_name);
+        ColumnWithTypeAndName type_and_name(map_column->get_ptr(), ma, col_name);
         block->insert(type_and_name);
     }
     {
@@ -516,7 +516,7 @@ TEST_F(DataTypeMapTest, SerdeNestedTypeArrowTest) {
         MutableColumnPtr map_column = ma->create_column();
         map_column->reserve(1);
         map_column->insert(Field::create_field<TYPE_MAP>(m1));
-        vectorized::ColumnWithTypeAndName type_and_name(map_column->get_ptr(), ma, col_name);
+        ColumnWithTypeAndName type_and_name(map_column->get_ptr(), ma, col_name);
         block->insert(type_and_name);
     }
     std::shared_ptr<arrow::RecordBatch> record_batch =
@@ -526,4 +526,4 @@ TEST_F(DataTypeMapTest, SerdeNestedTypeArrowTest) {
     CommonDataTypeSerdeTest::compare_two_blocks(block, assert_block);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

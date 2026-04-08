@@ -1,0 +1,11 @@
+--- a/boost/process/detail/config.hpp
++++ b/boost/process/detail/config.hpp
+@@ -57,7 +57,7 @@
+ #define BOOST_POSIX_HAS_VFORK 1
+ #endif
+
+-#if (_POSIX_C_SOURCE >= 199309L)
++#if (_POSIX_C_SOURCE >= 199309L) && !defined(__APPLE__)
+ #define BOOST_POSIX_HAS_SIGTIMEDWAIT 1
+ #endif
+

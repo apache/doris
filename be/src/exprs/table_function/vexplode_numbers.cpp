@@ -33,7 +33,7 @@
 #include "exprs/vexpr_context.h"
 #include "runtime/runtime_state.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 VExplodeNumbersTableFunction::VExplodeNumbersTableFunction() {
@@ -45,10 +45,8 @@ Status VExplodeNumbersTableFunction::process_init(Block* block, RuntimeState* st
             << "VExplodeNumbersTableFunction must be have 1 children but have "
             << _expr_context->root()->children().size();
 
-    int value_column_idx = -1;
-    RETURN_IF_ERROR(_expr_context->root()->children()[0]->execute(_expr_context.get(), block,
-                                                                  &value_column_idx));
-    _value_column = block->get_by_position(value_column_idx).column;
+    RETURN_IF_ERROR(_expr_context->root()->children()[0]->execute_column(
+            _expr_context.get(), block, nullptr, block->rows(), _value_column));
     if (is_column_const(*_value_column)) {
         _cur_size = 0;
 
@@ -117,4 +115,4 @@ void VExplodeNumbersTableFunction::get_same_many_values(MutableColumnPtr& column
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

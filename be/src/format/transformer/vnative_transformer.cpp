@@ -28,7 +28,7 @@
 #include "runtime/runtime_state.h"
 #include "util/slice.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 #include "common/compile_check_begin.h"
 
@@ -130,4 +130,4 @@ int64_t VNativeTransformer::written_len() {
 
 #include "common/compile_check_end.h"
 
-} // namespace doris::vectorized
+} // namespace doris

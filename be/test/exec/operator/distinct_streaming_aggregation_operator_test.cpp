@@ -27,15 +27,14 @@
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_descriptors.h"
 #include "testutil/mock/mock_slot_ref.h"
-namespace doris::pipeline {
+namespace doris {
 
-using namespace vectorized;
 struct DistinctStreamingAggOperatorTest : public ::testing::Test {
     void SetUp() override {
         op = std::make_unique<DistinctStreamingAggOperatorX>();
         mock_op = std::make_shared<MockOperatorX>();
         state = std::make_shared<MockRuntimeState>();
-        state->batsh_size = 10;
+        state->_batch_size = 10;
         op->_child = mock_op;
     }
 
@@ -195,4 +194,4 @@ TEST_F(DistinctStreamingAggOperatorTest, test3) {
     { EXPECT_TRUE(op->close(state.get())); }
 }
 
-} // namespace doris::pipeline
+} // namespace doris

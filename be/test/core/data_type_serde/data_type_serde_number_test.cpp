@@ -39,7 +39,7 @@
 #include "util/slice.h"
 #include "util/string_util.h"
 
-namespace doris::vectorized {
+namespace doris {
 static std::string test_data_dir;
 
 static auto serde_float32 = std::make_shared<DataTypeNumberSerDe<TYPE_FLOAT>>();
@@ -336,4 +336,4 @@ TEST_F(DataTypeNumberSerDeTest, ArrowMemNotAligned) {
     EXPECT_TRUE(st.ok());
 }
 
-} // namespace doris::vectorized
+} // namespace doris

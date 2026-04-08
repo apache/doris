@@ -28,7 +28,7 @@
 #include "gtest/gtest_pred_impl.h"
 #include "testutil/any_type.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(NullIfTest, Int_Test) {
     std::string func_name = "nullif";
@@ -58,4 +58,4 @@ TEST(NullIfTest, String_Int_Test) {
     static_cast<void>(check_function<DataTypeDateTime, true>(func_name, input_types, data_set));
 }
 
-} // namespace doris::vectorized
+} // namespace doris

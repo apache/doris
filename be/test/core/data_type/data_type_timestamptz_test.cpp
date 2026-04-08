@@ -39,7 +39,7 @@
 #include "testutil/mock/mock_runtime_state.h"
 #include "testutil/mock/mock_slot_ref.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class DataTypeTimeStampTzTest : public ::testing::Test {
 public:
@@ -182,4 +182,4 @@ TEST_F(DataTypeTimeStampTzTest, test_sort) {
     EXPECT_EQ(result_column->get_element(2), make_timestamptz(2055, 1, 1, 4, 0, 0, 0));
 }
 
-} // namespace doris::vectorized
+} // namespace doris

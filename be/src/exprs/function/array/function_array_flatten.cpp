@@ -30,7 +30,7 @@
 #include "exprs/function/function.h"
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class FunctionArrayFlatten : public IFunction {
@@ -95,4 +95,4 @@ void register_function_array_flatten(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayFlatten>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

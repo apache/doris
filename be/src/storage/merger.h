@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <functional>
 #include <vector>
 
 #include "common/status.h"
@@ -35,10 +36,11 @@ namespace segment_v2 {
 class SegmentWriter;
 } // namespace segment_v2
 
-namespace vectorized {
 class RowSourcesBuffer;
 class VerticalBlockReader;
-}; // namespace vectorized
+
+using VerticalCompactionProgressCallback =
+        std::function<void(int64_t total_groups, int64_t completed_groups)>;
 
 class Merger {
 public:
@@ -68,16 +70,17 @@ public:
             BaseTabletSPtr tablet, ReaderType reader_type, const TabletSchema& tablet_schema,
             const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
             RowsetWriter* dst_rowset_writer, uint32_t max_rows_per_segment, int64_t merge_way_num,
-            Statistics* stats_output);
+            Statistics* stats_output, VerticalCompactionProgressCallback progress_cb = nullptr);
 
     // for vertical compaction
     static void vertical_split_columns(const TabletSchema& tablet_schema,
                                        std::vector<std::vector<uint32_t>>* column_groups,
-                                       std::vector<uint32_t>* key_group_cluster_key_idxes);
+                                       std::vector<uint32_t>* key_group_cluster_key_idxes,
+                                       int32_t num_columns_per_group);
     static Status vertical_compact_one_group(
             BaseTabletSPtr tablet, ReaderType reader_type, const TabletSchema& tablet_schema,
             bool is_key, const std::vector<uint32_t>& column_group,
-            vectorized::RowSourcesBuffer* row_source_buf,
+            RowSourcesBuffer* row_source_buf,
             const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
             RowsetWriter* dst_rowset_writer, uint32_t max_rows_per_segment,
             Statistics* stats_output, std::vector<uint32_t> key_group_cluster_key_idxes,
@@ -85,15 +88,12 @@ public:
             bool enable_sparse_optimization = false);
 
     // for segcompaction
-    static Status vertical_compact_one_group(int64_t tablet_id, ReaderType reader_type,
-                                             const TabletSchema& tablet_schema, bool is_key,
-                                             const std::vector<uint32_t>& column_group,
-                                             vectorized::RowSourcesBuffer* row_source_buf,
-                                             vectorized::VerticalBlockReader& src_block_reader,
-                                             segment_v2::SegmentWriter& dst_segment_writer,
-                                             Statistics* stats_output, uint64_t* index_size,
-                                             KeyBoundsPB& key_bounds,
-                                             SimpleRowIdConversion* rowid_conversion);
+    static Status vertical_compact_one_group(
+            int64_t tablet_id, ReaderType reader_type, const TabletSchema& tablet_schema,
+            bool is_key, const std::vector<uint32_t>& column_group,
+            RowSourcesBuffer* row_source_buf, VerticalBlockReader& src_block_reader,
+            segment_v2::SegmentWriter& dst_segment_writer, Statistics* stats_output,
+            uint64_t* index_size, KeyBoundsPB& key_bounds, SimpleRowIdConversion* rowid_conversion);
 };
 
 } // namespace doris

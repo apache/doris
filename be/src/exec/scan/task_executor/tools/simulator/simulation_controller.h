@@ -34,7 +34,6 @@
 #include "exec/scan/task_executor/tools/simulator/split_specification.h"
 
 namespace doris {
-namespace vectorized {
 
 class SimulationTask;
 
@@ -153,5 +152,4 @@ private:
     static constexpr int DEFAULT_MIN_SPLITS = 3;
 };
 
-} // namespace vectorized
 } // namespace doris

@@ -76,11 +76,11 @@ Status SchemaWorkloadGroupPrivilegesScanner::_get_workload_group_privs_block_fro
     }
     std::vector<TRow> result_data = result.data_batch;
 
-    _workload_groups_privs_block = vectorized::Block::create_unique();
+    _workload_groups_privs_block = Block::create_unique();
     for (int i = 0; i < _s_tbls_columns.size(); ++i) {
-        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
-                _s_tbls_columns[i].type, true);
-        _workload_groups_privs_block->insert(vectorized::ColumnWithTypeAndName(
+        auto data_type =
+                DataTypeFactory::instance().create_data_type(_s_tbls_columns[i].type, true);
+        _workload_groups_privs_block->insert(ColumnWithTypeAndName(
                 data_type->create_column(), data_type, _s_tbls_columns[i].name));
     }
 
@@ -106,8 +106,7 @@ Status SchemaWorkloadGroupPrivilegesScanner::_get_workload_group_privs_block_fro
     return Status::OK();
 }
 
-Status SchemaWorkloadGroupPrivilegesScanner::get_next_block_internal(vectorized::Block* block,
-                                                                     bool* eos) {
+Status SchemaWorkloadGroupPrivilegesScanner::get_next_block_internal(Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }
@@ -127,7 +126,7 @@ Status SchemaWorkloadGroupPrivilegesScanner::get_next_block_internal(vectorized:
     }
 
     int current_batch_rows = std::min(_block_rows_limit, _total_rows - _row_idx);
-    vectorized::MutableBlock mblock = vectorized::MutableBlock::build_mutable_block(block);
+    MutableBlock mblock = MutableBlock::build_mutable_block(block);
     RETURN_IF_ERROR(
             mblock.add_rows(_workload_groups_privs_block.get(), _row_idx, current_batch_rows));
     _row_idx += current_batch_rows;

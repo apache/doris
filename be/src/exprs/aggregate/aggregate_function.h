@@ -36,7 +36,7 @@
 #include "exec/common/hash_table/phmap_fwd_decl.h"
 #include "util/defer_op.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class Arena;
@@ -108,7 +108,11 @@ public:
     /// Reset aggregation state
     virtual void reset(AggregateDataPtr place) const = 0;
 
-    /// It is not necessary to delete data.
+    /// Indicates that the aggregate state can be safely zero-initialized (memset to 0) instead of
+    /// calling create(). When true, callers may skip create() and destroy() for the state.
+    /// This is only valid when zero-initialized memory is a correct initial state for the function.
+    /// For example, sum/count/avg can use zero-init (identity element is 0), but min/max cannot
+    /// because they require sentinel values (MAX_VALUE for min, MIN_VALUE for max) set by create().
     virtual bool is_trivial() const = 0;
 
     /// Get `sizeof` of structure with data.
@@ -262,6 +266,8 @@ public:
     }
 
     virtual bool is_blockable() const { return false; }
+
+    virtual bool is_simple_count() const { return false; }
 
     /**
     * Executes the aggregate function in incremental mode.
@@ -669,6 +675,6 @@ struct UnaryExpression {};   // Can only have one parameter
 struct MultiExpression {};   // Must have multiple parameters (more than 1)
 struct VarargsExpression {}; // Uncertain number of parameters
 
-} // namespace doris::vectorized
+} // namespace doris
 
 #include "common/compile_check_end.h"

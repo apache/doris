@@ -19,7 +19,6 @@ package org.apache.doris.mysql.authenticate.ldap;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.authenticate.AuthenticateRequest;
@@ -91,7 +90,7 @@ public class LdapAuthenticator implements Authenticator {
      */
     private AuthenticateResponse internalAuthenticate(String password, String qualifiedUser, String remoteIp) {
         String usePasswd = (Strings.isNullOrEmpty(password)) ? "NO" : "YES";
-        String userName = ClusterNamespace.getNameFromFullName(qualifiedUser);
+        String userName = qualifiedUser;
         if (LOG.isDebugEnabled()) {
             LOG.debug("user:{}", userName);
         }

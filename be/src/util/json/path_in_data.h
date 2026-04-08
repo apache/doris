@@ -31,7 +31,7 @@
 
 #include "core/uint128.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 /// Class that represents path in document, e.g. JSON.
 class PathInData;
@@ -41,7 +41,7 @@ class PathInData {
 public:
     struct Part {
         Part() = default;
-        Part(std::string_view key_, bool is_nested_, vectorized::UInt8 anonymous_array_level_)
+        Part(std::string_view key_, bool is_nested_, UInt8 anonymous_array_level_)
                 : key(key_), is_nested(is_nested_), anonymous_array_level(anonymous_array_level_) {}
         bool operator==(const Part& other) const {
             return this->key == other.key && this->is_nested == other.is_nested &&
@@ -77,7 +77,7 @@ public:
     PathInData& operator=(const PathInData& other);
     static UInt128 get_parts_hash(const Parts& parts_, bool is_typed_ = false);
     bool empty() const { return parts.empty(); }
-    const vectorized::String& get_path() const { return path; }
+    const String& get_path() const { return path; }
     // if path is v.a.b, then relative path will return a.b
     // make sure the parts is not empty
     std::string_view get_relative_path() const {
@@ -124,7 +124,7 @@ private:
     /// Creates new parts full from full path with correct string pointers.
     void build_parts(const Parts& other_parts);
     /// The full path. Parts are separated by dots.
-    vectorized::String path;
+    String path;
     /// Parts of the path. All string_view-s in parts must point to the @path.
     Parts parts;
     /// True if at least one part is nested.
@@ -170,11 +170,11 @@ struct PathInDataRef {
     }
 };
 
-} // namespace doris::vectorized
+} // namespace doris
 
 template <>
-struct std::hash<doris::vectorized::PathInData> {
-    size_t operator()(const doris::vectorized::PathInData& value) const {
-        return doris::vectorized::PathInData::Hash {}(value);
+struct std::hash<doris::PathInData> {
+    size_t operator()(const doris::PathInData& value) const {
+        return doris::PathInData::Hash {}(value);
     }
 };

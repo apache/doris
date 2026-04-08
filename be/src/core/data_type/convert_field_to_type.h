@@ -22,7 +22,7 @@
 #include "common/status.h"
 #include "core/field.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class IDataType;
 /** Used to interpret expressions in a set in IN,
@@ -36,4 +36,4 @@ class IDataType;
 void convert_field_to_type(const Field& from_value, const IDataType& to_type, Field* field,
                            const IDataType* from_type_hint = nullptr);
 
-} // namespace doris::vectorized
+} // namespace doris

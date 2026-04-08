@@ -42,8 +42,6 @@ namespace doris {
 #include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
-namespace vectorized {
-
 // --------------  row source  ---------------//
 RowSource::RowSource(uint16_t source_num, bool agg_flag) {
     _data = (source_num & SOURCE_FLAG) | (source_num & AGG_FLAG);
@@ -715,7 +713,7 @@ Status VerticalMaskMergeIterator::check_all_iter_finished() {
     }
     return Status::OK();
 }
-Status VerticalMaskMergeIterator::next_row(vectorized::IteratorRowRef* ref) {
+Status VerticalMaskMergeIterator::next_row(IteratorRowRef* ref) {
     DCHECK(_row_sources_buf);
     auto st = _row_sources_buf->has_remaining();
     if (!st.ok()) {
@@ -756,7 +754,7 @@ Status VerticalMaskMergeIterator::next_row(vectorized::IteratorRowRef* ref) {
     return Status::OK();
 }
 
-Status VerticalMaskMergeIterator::unique_key_next_row(vectorized::IteratorRowRef* ref) {
+Status VerticalMaskMergeIterator::unique_key_next_row(IteratorRowRef* ref) {
     DCHECK(_row_sources_buf);
     auto st = _row_sources_buf->has_remaining();
     while (st.ok()) {
@@ -976,6 +974,5 @@ std::shared_ptr<RowwiseIterator> new_vertical_mask_merge_iterator(
                                                        row_sources);
 }
 
-} // namespace vectorized
 #include "common/compile_check_end.h"
 } // namespace doris

@@ -26,9 +26,7 @@
 #include "runtime/runtime_profile.h"
 
 namespace doris {
-namespace vectorized {
 class Block;
-} // namespace vectorized
 
 std::vector<SchemaScanner::ColumnDesc> SchemaCollationsScanner::_s_cols_columns = {
         //   name,       type,          size
@@ -50,7 +48,7 @@ SchemaCollationsScanner::SchemaCollationsScanner()
 
 SchemaCollationsScanner::~SchemaCollationsScanner() {}
 
-Status SchemaCollationsScanner::get_next_block_internal(vectorized::Block* block, bool* eos) {
+Status SchemaCollationsScanner::get_next_block_internal(Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("call this before initial.");
     }
@@ -62,7 +60,7 @@ Status SchemaCollationsScanner::get_next_block_internal(vectorized::Block* block
     return _fill_block_impl(block);
 }
 
-Status SchemaCollationsScanner::_fill_block_impl(vectorized::Block* block) {
+Status SchemaCollationsScanner::_fill_block_impl(Block* block) {
     SCOPED_TIMER(_fill_block_timer);
     auto row_num = 0;
     while (nullptr != _s_collations[row_num].name) {

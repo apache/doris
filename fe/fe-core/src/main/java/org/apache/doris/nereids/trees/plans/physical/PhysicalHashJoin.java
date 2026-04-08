@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -160,10 +161,10 @@ public class PhysicalHashJoin<
     @Override
     public PhysicalHashJoin<Plan, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
-        PhysicalHashJoin newJoin = new PhysicalHashJoin<>(joinType, hashJoinConjuncts,
-                otherJoinConjuncts, markJoinConjuncts, hint, markJoinSlotReference,
+        PhysicalHashJoin newJoin = AbstractPlan.copyWithSameId(this, () -> new PhysicalHashJoin<>(joinType,
+                hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts, hint, markJoinSlotReference,
                 Optional.empty(), getLogicalProperties(), physicalProperties, statistics,
-                children.get(0), children.get(1));
+                children.get(0), children.get(1)));
         if (groupExpression.isPresent()) {
             newJoin.setMutableState(MutableState.KEY_GROUP, groupExpression.get().getOwnerGroup().getGroupId().asInt());
         }
@@ -173,25 +174,25 @@ public class PhysicalHashJoin<
     @Override
     public PhysicalHashJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> withGroupExpression(
             Optional<GroupExpression> groupExpression) {
-        return new PhysicalHashJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts,
-                markJoinConjuncts, hint, markJoinSlotReference, groupExpression,
-                getLogicalProperties(), null, null, left(), right());
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalHashJoin<>(joinType, hashJoinConjuncts,
+                otherJoinConjuncts, markJoinConjuncts, hint, markJoinSlotReference, groupExpression,
+                getLogicalProperties(), null, null, left(), right()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new PhysicalHashJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts,
-                markJoinConjuncts, hint, markJoinSlotReference, groupExpression,
-                logicalProperties.get(), null, null, children.get(0), children.get(1));
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalHashJoin<>(joinType, hashJoinConjuncts,
+                otherJoinConjuncts, markJoinConjuncts, hint, markJoinSlotReference, groupExpression,
+                logicalProperties.get(), null, null, children.get(0), children.get(1)));
     }
 
     public PhysicalHashJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> withPhysicalPropertiesAndStats(
             PhysicalProperties physicalProperties, Statistics statistics) {
-        return new PhysicalHashJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts,
-                markJoinConjuncts, hint, markJoinSlotReference, groupExpression,
-                getLogicalProperties(), physicalProperties, statistics, left(), right());
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalHashJoin<>(joinType, hashJoinConjuncts,
+                otherJoinConjuncts, markJoinConjuncts, hint, markJoinSlotReference, groupExpression,
+                getLogicalProperties(), physicalProperties, statistics, left(), right()));
     }
 
     @Override
@@ -287,11 +288,11 @@ public class PhysicalHashJoin<
         // left/right outer join propagate left/right uniforms slots
         // And if the right/left hash keys is unique,
         // join can propagate left/right functional dependencies
-        if (joinType.isLeftOuterJoin() && isRightUnique) {
+        if ((joinType.isLeftOuterJoin() || joinType.isAsofLeftOuterJoin()) && isRightUnique) {
             builder.addUniqueSlot(left().getLogicalProperties().getTrait());
-        } else if (joinType.isRightOuterJoin() && isLeftUnique) {
+        } else if ((joinType.isRightOuterJoin() || joinType.isAsofRightOuterJoin()) && isLeftUnique) {
             builder.addUniqueSlot(right().getLogicalProperties().getTrait());
-        } else if (joinType.isInnerJoin() && isLeftUnique && isRightUnique) {
+        } else if ((joinType.isInnerJoin() || joinType.isAsofInnerJoin()) && isLeftUnique && isRightUnique) {
             // inner join propagate uniforms slots
             // And if the hash keys is unique, inner join can propagate all functional dependencies
             builder.addDataTrait(left().getLogicalProperties().getTrait());
@@ -345,7 +346,7 @@ public class PhysicalHashJoin<
         if (!joinType.isRightSemiOrAntiJoin()) {
             builder.addEqualSet(left().getLogicalProperties().getTrait());
         }
-        if (joinType.isInnerJoin()) {
+        if (joinType.isInnerJoin() || joinType.isAsofInnerJoin()) {
             for (Expression expression : getHashJoinConjuncts()) {
                 Optional<Pair<Slot, Slot>> equalSlot = ExpressionUtils.extractEqualSlot(expression);
                 equalSlot.ifPresent(slotSlotPair -> builder.addEqualPair(slotSlotPair.first, slotSlotPair.second));

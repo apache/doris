@@ -27,7 +27,7 @@
 #include "core/data_type/data_type_number.h"
 #include "gtest/gtest_pred_impl.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 // Define a helper function to create a test map with specified number of distinct values
 // and total counts.
@@ -321,4 +321,4 @@ TEST(CanAssignIntoBucketsTest, single_element_larger_than_bucket_capacity) {
     EXPECT_TRUE(can_assign_into_buckets(test_map, 200, 1));
 }
 
-} // namespace doris::vectorized
+} // namespace doris

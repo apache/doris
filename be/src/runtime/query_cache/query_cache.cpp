@@ -42,9 +42,8 @@ void QueryCache::insert(const CacheKey& key, int64_t version, CacheResult& res,
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->query_cache_mem_tracker());
     CacheResult cache_result;
     for (auto& block_data : res) {
-        cache_result.emplace_back(vectorized::Block::create_unique())
-                ->swap(block_data->clone_empty());
-        (void)vectorized::MutableBlock(cache_result.back().get()).merge(*block_data);
+        cache_result.emplace_back(Block::create_unique())->swap(block_data->clone_empty());
+        (void)MutableBlock(cache_result.back().get()).merge(*block_data);
     }
     auto cache_value_ptr =
             std::make_unique<QueryCache::CacheValue>(version, std::move(cache_result), slot_orders);

@@ -76,7 +76,7 @@ int main(int argc, char** argv) {
     doris::ExecEnv::GetInstance()->set_tablet_column_object_pool(
             doris::TabletColumnObjectPool::create_global_column_cache(
                     doris::config::tablet_schema_cache_capacity));
-    doris::ExecEnv::GetInstance()->set_orc_memory_pool(new doris::vectorized::ORCMemoryPool());
+    doris::ExecEnv::GetInstance()->set_orc_memory_pool(new doris::ORCMemoryPool());
 
     LOG(INFO) << "init config " << st;
     doris::Status s = doris::config::set_config("enable_stacktrace", "false");

@@ -21,7 +21,7 @@
 
 #include "exprs/function/like.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class StringUtilsTest : public ::testing::Test {
 protected:
@@ -226,4 +226,4 @@ TEST_F(StringUtilsTest, replace_pattern_by_escape) {
     EXPECT_EQ(replace_pattern_by_escape(StringRef {"abc^^^_^ef"}, '^'), "abc^\\_^ef");
     EXPECT_EQ(replace_pattern_by_escape(StringRef {"\\abc^^^_^ef"}, '^'), "\\\\abc^\\_^ef");
 }
-} // namespace doris::vectorized
+} // namespace doris

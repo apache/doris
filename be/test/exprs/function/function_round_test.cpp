@@ -41,7 +41,7 @@
  together by moving test cases of function_truncate_test.cpp here.
 */
 
-namespace doris::vectorized {
+namespace doris {
 // {precision, scale} -> {input, scale_arg, expectation}
 using DecimalTestDataSet =
         std::map<std::pair<int, int>, std::vector<std::tuple<Int128, int, Int128>>>;
@@ -1145,4 +1145,4 @@ TEST(RoundFunctionTest, normal_float_const) {
     float_checker<FloatRoundBankersFunction, TYPE_DOUBLE>(round_bankers_float64_cases, true);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

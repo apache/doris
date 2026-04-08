@@ -22,7 +22,7 @@
 
 #include "core/column/column_dummy.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class ColumnNothing final : public COWHelper<IColumnDummy, ColumnNothing> {
 private:
@@ -48,4 +48,4 @@ public:
     }
 };
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -20,7 +20,7 @@
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 QueryContext* AggregateFunctionAIAggData::_ctx = nullptr;
 
 void register_aggregate_function_ai_agg(AggregateFunctionSimpleFactory& factory) {
@@ -32,4 +32,4 @@ void register_aggregate_function_ai_agg(AggregateFunctionSimpleFactory& factory)
                                                argument_types, result_is_nullable, attr);
                                    });
 }
-} // namespace doris::vectorized
+} // namespace doris

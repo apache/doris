@@ -48,7 +48,7 @@ public:
             ASSERT_EQ(e.code(), ErrorCode::INTERNAL_ERROR);
         }
 
-        std::vector<vectorized::VRuntimeFilterPtr> push_exprs;
+        std::vector<VRuntimeFilterPtr> push_exprs;
         FAIL_IF_ERROR_OR_CATCH_EXCEPTION(consumer->acquire_expr(push_exprs));
         ASSERT_NE(push_exprs.size(), 0);
         ASSERT_TRUE(consumer->is_applied());
@@ -123,7 +123,7 @@ TEST_F(RuntimeFilterConsumerTest, timeout_aquire) {
             RuntimeFilterProducer::create(_query_ctx.get(), &desc, &producer));
     producer->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
 
-    std::vector<vectorized::VRuntimeFilterPtr> push_exprs;
+    std::vector<VRuntimeFilterPtr> push_exprs;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(consumer->acquire_expr(push_exprs));
     ASSERT_EQ(push_exprs.size(), 0);
     ASSERT_FALSE(consumer->is_applied());
@@ -159,7 +159,7 @@ TEST_F(RuntimeFilterConsumerTest, aquire_disabled) {
             RuntimeFilterProducer::create(_query_ctx.get(), &desc, &producer));
     producer->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::DISABLED);
 
-    std::vector<vectorized::VRuntimeFilterPtr> push_exprs;
+    std::vector<VRuntimeFilterPtr> push_exprs;
     consumer->signal(producer.get());
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(consumer->acquire_expr(push_exprs));
     ASSERT_EQ(push_exprs.size(), 0);
@@ -224,7 +224,7 @@ TEST_F(RuntimeFilterConsumerTest, aquire_signal_at_same_time) {
                 RuntimeFilterProducer::create(_query_ctx.get(), &desc, &producer));
         producer->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
 
-        std::vector<vectorized::VRuntimeFilterPtr> push_exprs;
+        std::vector<VRuntimeFilterPtr> push_exprs;
         std::thread thread1(
                 [&]() { [[maybe_unused]] auto res = consumer->acquire_expr(push_exprs); });
         std::thread thread2([&]() { consumer->signal(producer.get()); });

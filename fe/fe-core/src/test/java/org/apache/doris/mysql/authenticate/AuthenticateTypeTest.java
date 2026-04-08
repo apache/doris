@@ -20,38 +20,49 @@ package org.apache.doris.mysql.authenticate;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.LdapConfig;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
-public class AuthenticateTypeTest {
+class AuthenticateTypeTest {
+    private String originalAuthenticationType;
+    private boolean originalLegacyLdapEnabled;
+
+    @BeforeEach
+    void setUp() {
+        originalAuthenticationType = Config.authentication_type;
+        originalLegacyLdapEnabled = LdapConfig.ldap_authentication_enabled;
+        LdapConfig.ldap_authentication_enabled = false;
+    }
+
+    @AfterEach
+    void tearDown() {
+        Config.authentication_type = originalAuthenticationType;
+        LdapConfig.ldap_authentication_enabled = originalLegacyLdapEnabled;
+    }
 
     @Test
-    public void testGetAuthTypeConfig() {
-        // test default
-        AuthenticateType authTypeConfig = AuthenticateType.getAuthTypeConfig();
-        Assert.assertEquals(AuthenticateType.DEFAULT, authTypeConfig);
+    void testPasswordAliasMapsToDefaultAuthenticator() {
+        Config.authentication_type = "password";
 
-        // test old config
-        LdapConfig.ldap_authentication_enabled = true;
-        authTypeConfig = AuthenticateType.getAuthTypeConfig();
-        Assert.assertEquals(AuthenticateType.LDAP, authTypeConfig);
+        Assertions.assertEquals(AuthenticateType.DEFAULT, AuthenticateType.getAuthTypeConfig());
+        Assertions.assertEquals(AuthenticateType.DEFAULT.name(), AuthenticateType.getAuthTypeConfigString());
+    }
 
-        // test new config
-        LdapConfig.ldap_authentication_enabled = false;
-        Config.authentication_type = "ldap";
-        authTypeConfig = AuthenticateType.getAuthTypeConfig();
-        Assert.assertEquals(AuthenticateType.LDAP, authTypeConfig);
+    @Test
+    void testUnknownAuthTypeStringIsPreservedForPluginLookup() {
+        Config.authentication_type = "test_plugin";
 
-        // test new&old config
-        LdapConfig.ldap_authentication_enabled = true;
-        Config.authentication_type = "ldap";
-        authTypeConfig = AuthenticateType.getAuthTypeConfig();
-        Assert.assertEquals(AuthenticateType.LDAP, authTypeConfig);
+        Assertions.assertEquals(AuthenticateType.DEFAULT, AuthenticateType.getAuthTypeConfig());
+        Assertions.assertEquals("test_plugin", AuthenticateType.getAuthTypeConfigString());
+    }
 
-        // test default
-        LdapConfig.ldap_authentication_enabled = false;
-        Config.authentication_type = "default";
-        authTypeConfig = AuthenticateType.getAuthTypeConfig();
-        Assert.assertEquals(AuthenticateType.DEFAULT, authTypeConfig);
+    @Test
+    void testIntegrationKeywordIsNotReservedAnymore() {
+        Config.authentication_type = "integration";
+
+        Assertions.assertEquals(AuthenticateType.DEFAULT, AuthenticateType.getAuthTypeConfig());
+        Assertions.assertEquals("integration", AuthenticateType.getAuthTypeConfigString());
     }
 }

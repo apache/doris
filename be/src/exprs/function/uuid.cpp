@@ -40,7 +40,7 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 class Uuid : public IFunction {
 public:
     static constexpr auto name = "uuid";
@@ -147,4 +147,4 @@ void register_function_uuid(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionIsUuid>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

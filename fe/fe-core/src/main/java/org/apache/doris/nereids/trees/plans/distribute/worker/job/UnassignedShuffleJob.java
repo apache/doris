@@ -91,11 +91,12 @@ public class UnassignedShuffleJob extends AbstractUnassignedJob {
             expectInstanceNum = connectContext.getSessionVariable().getExchangeInstanceParallel();
         }
         // If child fragment uses query cache, limit instance num to avoid too many instances
-        if (childInstanceNum > 0 && connectContext != null) {
+        if (childInstanceNum > 0 && connectContext != null && connectContext.getSessionVariable() != null) {
             boolean childHasQueryCacheParam = inputJobs.values().stream()
                     .anyMatch(job -> job.unassignedJob().getFragment().queryCacheParam != null);
             if (childHasQueryCacheParam) {
-                int maxInstanceNum = connectContext.getSessionVariable().getParallelExecInstanceNum()
+                String clusterName = connectContext.getSessionVariable().resolveCloudClusterName(connectContext);
+                int maxInstanceNum = connectContext.getSessionVariable().getParallelExecInstanceNum(clusterName)
                         * Env.getCurrentSystemInfo().getBackendsNumber(false);
                 expectInstanceNum = expectInstanceNum > 0
                         ? Math.min(expectInstanceNum, Math.min(childInstanceNum, maxInstanceNum))

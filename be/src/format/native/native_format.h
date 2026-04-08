@@ -19,7 +19,7 @@
 
 #include <cstdint>
 
-namespace doris::vectorized {
+namespace doris {
 
 // Doris Native format file-level constants.
 //
@@ -54,4 +54,4 @@ namespace doris::vectorized {
 static constexpr char DORIS_NATIVE_MAGIC[8] = {'D', 'O', 'R', 'I', 'S', 'N', '1', '\0'};
 static constexpr uint32_t DORIS_NATIVE_FORMAT_VERSION = 1;
 
-} // namespace doris::vectorized
+} // namespace doris

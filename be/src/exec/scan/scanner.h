@@ -34,16 +34,12 @@ namespace doris {
 class RuntimeProfile;
 class TupleDescriptor;
 
-namespace vectorized {
 class VExprContext;
-} // namespace vectorized
 
-namespace pipeline {
 class ScanLocalStateBase;
-} // namespace pipeline
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 // Counter for load
 struct ScannerCounter {
@@ -55,7 +51,7 @@ struct ScannerCounter {
 
 class Scanner {
 public:
-    Scanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state, int64_t limit,
+    Scanner(RuntimeState* state, ScanLocalStateBase* local_state, int64_t limit,
             RuntimeProfile* profile);
 
     //only used for FileScanner read one line.
@@ -86,7 +82,7 @@ public:
     }
 
     Status get_block(RuntimeState* state, Block* block, bool* eos);
-    Status get_block_after_projects(RuntimeState* state, vectorized::Block* block, bool* eos);
+    Status get_block_after_projects(RuntimeState* state, Block* block, bool* eos);
 
     virtual Status close(RuntimeState* state);
 
@@ -129,9 +125,33 @@ protected:
     // Filter the output block finally.
     Status _filter_output_block(Block* block);
 
-    Status _do_projections(vectorized::Block* origin_block, vectorized::Block* output_block);
+    Status _do_projections(Block* origin_block, Block* output_block);
+
+private:
+    // Call start_wait_worker_timer() when submit the scanner to the thread pool.
+    // And call update_wait_worker_timer() when it is actually being executed.
+    void _start_wait_worker_timer() {
+        _watch.reset();
+        _watch.start();
+    }
+
+    void _start_scan_cpu_timer() {
+        _cpu_watch.reset();
+        _cpu_watch.start();
+    }
+
+    void _update_wait_worker_timer() { _scanner_wait_worker_timer += _watch.elapsed_time(); }
+    void _update_scan_cpu_timer();
 
 public:
+    void resume() {
+        _update_wait_worker_timer();
+        _start_scan_cpu_timer();
+    }
+    void pause() {
+        _update_scan_cpu_timer();
+        _start_wait_worker_timer();
+    }
     int64_t get_time_cost_ns() const { return _per_scanner_timer; }
 
     int64_t projection_time() const { return _projection_timer; }
@@ -141,23 +161,7 @@ public:
 
     Status try_append_late_arrival_runtime_filter();
 
-    // Call start_wait_worker_timer() when submit the scanner to the thread pool.
-    // And call update_wait_worker_timer() when it is actually being executed.
-    void start_wait_worker_timer() {
-        _watch.reset();
-        _watch.start();
-    }
-
-    void start_scan_cpu_timer() {
-        _cpu_watch.reset();
-        _cpu_watch.start();
-    }
-
-    void update_wait_worker_timer() { _scanner_wait_worker_timer += _watch.elapsed_time(); }
-
     int64_t get_scanner_wait_worker_timer() const { return _scanner_wait_worker_timer; }
-
-    void update_scan_cpu_timer();
 
     // Some counters need to be updated realtime, for example, workload group policy need
     // scan bytes to cancel the query exceed limit.
@@ -195,7 +199,7 @@ public:
 
 protected:
     RuntimeState* _state = nullptr;
-    pipeline::ScanLocalStateBase* _local_state = nullptr;
+    ScanLocalStateBase* _local_state = nullptr;
 
     // Set if scan node has sort limit info
     int64_t _limit = -1;
@@ -223,9 +227,9 @@ protected:
     VExprContextSPtrs _conjuncts;
     VExprContextSPtrs _projections;
     // Used in common subexpression elimination to compute intermediate results.
-    std::vector<vectorized::VExprContextSPtrs> _intermediate_projections;
-    vectorized::Block _origin_block;
-    vectorized::Block _padding_block;
+    std::vector<VExprContextSPtrs> _intermediate_projections;
+    Block _origin_block;
+    Block _padding_block;
     bool _alreay_eos = false;
 
     VExprContextSPtrs _common_expr_ctxs_push_down;
@@ -263,4 +267,4 @@ protected:
 
 using ScannerSPtr = std::shared_ptr<Scanner>;
 
-} // namespace doris::vectorized
+} // namespace doris

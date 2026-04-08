@@ -25,7 +25,7 @@
 #include "exec/pipeline/pipeline_fragment_context.h"
 #include "exec/pipeline/pipeline_task.h"
 
-namespace doris::pipeline {
+namespace doris {
 
 void Pipeline::_init_profile() {
     auto s = fmt::format("Pipeline (pipeline id={})", _pipeline_id);
@@ -125,14 +125,10 @@ void Pipeline::make_all_runnable(PipelineId wake_by) {
         for (auto* task : _tasks) {
             if (task) {
                 task->set_wake_up_early(wake_by);
-            }
-        }
-        for (auto* task : _tasks) {
-            if (task) {
-                task->terminate();
+                task->unblock_all_dependencies();
             }
         }
     }
 }
 
-} // namespace doris::pipeline
+} // namespace doris

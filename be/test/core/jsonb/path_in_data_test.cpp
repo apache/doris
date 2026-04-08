@@ -23,7 +23,7 @@
 #include <string>
 #include <vector>
 
-namespace doris::vectorized {
+namespace doris {
 
 class PathInDataTest : public ::testing::Test {
 protected:
@@ -246,4 +246,4 @@ TEST_F(PathInDataTest, ComparisonWithIsTyped) {
     EXPECT_EQ(hasher(path1), hasher(path3));
 }
 
-} // namespace doris::vectorized
+} // namespace doris

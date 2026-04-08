@@ -36,7 +36,7 @@
 #include "util/simd/bits.h"
 #include "util/simd/vstring_function.h"
 #include "util/unaligned.h"
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 template <typename T>
@@ -112,8 +112,8 @@ void ColumnStr<T>::shrink_padding_chars() {
 // will be converted to ColumnStr<uint64_t> if the total string length
 // exceeds the 4G limit by calling Block::replace_if_overflow.
 template <typename T>
-void ColumnStr<T>::insert_range_from_ignore_overflow(const doris::vectorized::IColumn& src,
-                                                     size_t start, size_t length) {
+void ColumnStr<T>::insert_range_from_ignore_overflow(const doris::IColumn& src, size_t start,
+                                                     size_t length) {
     if (length == 0) {
         return;
     }
@@ -762,4 +762,4 @@ bool ColumnStr<T>::is_ascii() const {
 
 template class ColumnStr<uint32_t>;
 template class ColumnStr<uint64_t>;
-} // namespace doris::vectorized
+} // namespace doris

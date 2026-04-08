@@ -43,7 +43,7 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 class FunctionArrayCompact : public IFunction {
 public:
@@ -128,4 +128,4 @@ private:
     }
 };
 
-} // namespace doris::vectorized
+} // namespace doris

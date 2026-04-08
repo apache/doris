@@ -25,7 +25,6 @@
 namespace doris {
 class RuntimeState;
 
-namespace pipeline {
 #include "common/compile_check_begin.h"
 class AggSourceOperatorX;
 
@@ -39,21 +38,19 @@ public:
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status close(RuntimeState* state) override;
 
-    void make_nullable_output_key(vectorized::Block* block);
-    Status merge_with_serialized_key_helper(vectorized::Block* block);
-    void do_agg_limit(vectorized::Block* block, bool* eos);
+    void make_nullable_output_key(Block* block);
+    Status merge_with_serialized_key_helper(Block* block);
+    void do_agg_limit(Block* block, bool* eos);
 
 protected:
     friend class AggSourceOperatorX;
 
-    Status _get_without_key_result(RuntimeState* state, vectorized::Block* block, bool* eos);
-    Status _get_results_without_key(RuntimeState* state, vectorized::Block* block, bool* eos);
-    Status _get_with_serialized_key_result(RuntimeState* state, vectorized::Block* block,
-                                           bool* eos);
-    Status _get_results_with_serialized_key(RuntimeState* state, vectorized::Block* block,
-                                            bool* eos);
-    Status _create_agg_status(vectorized::AggregateDataPtr data);
-    void _make_nullable_output_key(vectorized::Block* block) {
+    Status _get_without_key_result(RuntimeState* state, Block* block, bool* eos);
+    Status _get_results_without_key(RuntimeState* state, Block* block, bool* eos);
+    Status _get_with_serialized_key_result(RuntimeState* state, Block* block, bool* eos);
+    Status _get_results_with_serialized_key(RuntimeState* state, Block* block, bool* eos);
+    Status _create_agg_status(AggregateDataPtr data);
+    void _make_nullable_output_key(Block* block) {
         if (block->rows() != 0) {
             auto& shared_state = *Base ::_shared_state;
             for (auto cid : shared_state.make_nullable_keys) {
@@ -64,10 +61,10 @@ protected:
         }
     }
 
-    void _emplace_into_hash_table(vectorized::AggregateDataPtr* places,
-                                  vectorized::ColumnRawPtrs& key_columns, uint32_t num_rows);
+    void _emplace_into_hash_table(AggregateDataPtr* places, ColumnRawPtrs& key_columns,
+                                  uint32_t num_rows);
 
-    vectorized::PODArray<vectorized::AggregateDataPtr> _places;
+    PODArray<AggregateDataPtr> _places;
     std::vector<char> _deserialize_buffer;
 
     RuntimeProfile::Counter* _get_results_timer = nullptr;
@@ -86,7 +83,7 @@ protected:
     RuntimeProfile::Counter* _memory_usage_arena = nullptr;
 
     using vectorized_get_result =
-            std::function<Status(RuntimeState* state, vectorized::Block* block, bool* eos)>;
+            std::function<Status(RuntimeState* state, Block* block, bool* eos)>;
 
     struct executor {
         vectorized_get_result get_result;
@@ -106,15 +103,22 @@ public:
     AggSourceOperatorX() = default;
 #endif
 
-    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
+    Status get_block(RuntimeState* state, Block* block, bool* eos) override;
 
     bool is_source() const override { return true; }
 
-    Status merge_with_serialized_key_helper(RuntimeState* state, vectorized::Block* block);
+    Status merge_with_serialized_key_helper(RuntimeState* state, Block* block);
 
     size_t get_estimated_memory_size_for_merging(RuntimeState* state, size_t rows) const;
 
     Status reset_hash_table(RuntimeState* state);
+
+    /// Get a block of serialized intermediate aggregate states from the hash table.
+    /// Unlike get_block() which may finalize, this always outputs the serialized
+    /// intermediate format (key columns + serialized agg state columns), which is
+    /// the same format as the spill block. This is needed for repartitioning during
+    /// multi-level spill recovery: the data must be re-mergeable after repartitioning.
+    Status get_serialized_block(RuntimeState* state, Block* block, bool* eos);
 
 private:
     friend class AggLocalState;
@@ -127,6 +131,5 @@ private:
     std::vector<size_t> _make_nullable_keys;
 };
 
-} // namespace pipeline
 } // namespace doris
 #include "common/compile_check_end.h"

@@ -35,7 +35,7 @@
 #include "runtime/runtime_state.h"
 #include "util/url_coding.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 namespace {
@@ -129,8 +129,7 @@ Status PaimonCppReader::get_next_block(Block* block, size_t* read_rows, bool* eo
             // Skip columns that are not in the block (e.g., partition columns handled elsewhere)
             continue;
         }
-        const vectorized::ColumnWithTypeAndName& column_with_name =
-                block->get_by_position(it->second);
+        const ColumnWithTypeAndName& column_with_name = block->get_by_position(it->second);
         try {
             RETURN_IF_ERROR(column_with_name.type->get_serde()->read_column_from_arrow(
                     column_with_name.column->assume_mutable_ref(), record_batch->column(c).get(), 0,
@@ -270,8 +269,12 @@ std::vector<std::string> PaimonCppReader::_build_read_columns() const {
 
 std::map<std::string, std::string> PaimonCppReader::_build_options() const {
     std::map<std::string, std::string> options;
-    if (_range.__isset.table_format_params && _range.table_format_params.__isset.paimon_params &&
-        _range.table_format_params.paimon_params.__isset.paimon_options) {
+    if (_range_params && _range_params->__isset.paimon_options &&
+        !_range_params->paimon_options.empty()) {
+        options.insert(_range_params->paimon_options.begin(), _range_params->paimon_options.end());
+    } else if (_range.__isset.table_format_params &&
+               _range.table_format_params.__isset.paimon_params &&
+               _range.table_format_params.paimon_params.__isset.paimon_options) {
         options.insert(_range.table_format_params.paimon_params.paimon_options.begin(),
                        _range.table_format_params.paimon_params.paimon_options.end());
     }
@@ -311,7 +314,6 @@ std::map<std::string, std::string> PaimonCppReader::_build_options() const {
     copy_if_missing("fs.s3a.region", "AWS_REGION");
     copy_if_missing("fs.s3a.path.style.access", "use_path_style");
 
-    // FE currently does not pass paimon_options in scan ranges.
     // Backfill file.format/manifest.format from split file_format to avoid
     // paimon-cpp falling back to default manifest.format=avro.
     if (_range.__isset.table_format_params && _range.table_format_params.__isset.paimon_params &&
@@ -333,4 +335,4 @@ std::map<std::string, std::string> PaimonCppReader::_build_options() const {
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

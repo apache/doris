@@ -20,7 +20,7 @@
 #include "exec/scan/scanner_context.h"
 #include "exec/scan/scanner_scheduler.h"
 
-namespace doris::vectorized {
+namespace doris {
 class ScannerDelegate;
 class ScanTask;
 
@@ -37,4 +37,4 @@ Status ThreadPoolSimplifiedScanScheduler::schedule_scan_task(
     std::unique_lock<std::shared_mutex> wl(_lock);
     return scanner_ctx->schedule_scan_task(current_scan_task, transfer_lock, wl);
 }
-} // namespace doris::vectorized
+} // namespace doris

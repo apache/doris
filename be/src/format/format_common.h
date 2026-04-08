@@ -20,7 +20,7 @@
 #include "core/types.h"
 #include "exec/common/int_exp.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 struct DecimalScaleParams {
@@ -144,4 +144,4 @@ private:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris
