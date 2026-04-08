@@ -28,6 +28,7 @@
 #include <utility>
 
 #include "http/http_handler.h"
+#include "http/http_headers.h"
 
 namespace doris {
 
