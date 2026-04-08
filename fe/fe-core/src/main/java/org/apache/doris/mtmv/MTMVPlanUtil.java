@@ -47,7 +47,6 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
-import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
