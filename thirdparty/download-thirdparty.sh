@@ -490,11 +490,8 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " AWS_SDK " ]]; then
             fi
             patch -p1 <"${TP_PATCH_DIR}/aws-sdk-cpp-1.11.119.patch"
             patch -p1 <"${TP_PATCH_DIR}/aws-sdk-cpp-1.11.119-cmake.patch"
-        elif [[ "${AWS_SDK_SOURCE}" == "aws-sdk-cpp-1.11.219" ]]; then
-            bash ./prefetch_crt_dependency.sh
         else
-            echo "Unsupported AWS SDK source ${AWS_SDK_SOURCE}"
-            exit 1
+            bash ./prefetch_crt_dependency.sh
         fi
         touch "${PATCHED_MARK}"
     fi

@@ -2,10 +2,6 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/doris, and the tag is `build-env-${version}`
 
-## 20260407
-
-- Added: aws-cpp-sdk-kinesis (from aws-sdk-cpp 1.11.219) for Kinesis routine load
-
 ## 20260206
 
 - Modified: jindofs 6.8.2 -> 6.10.4
