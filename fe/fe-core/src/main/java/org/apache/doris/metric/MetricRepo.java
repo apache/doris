@@ -1339,10 +1339,10 @@ public final class MetricRepo {
                     String cur = offsetProvider.getShowCurrentOffset();
                     String end = offsetProvider.getShowMaxOffset();
                     if (cur != null) {
-                        currentOffset = cur;
+                        currentOffset = cur.replace("\\", "\\\\").replace("\"", "\\\"");
                     }
                     if (end != null) {
-                        endOffset = end;
+                        endOffset = end.replace("\\", "\\\\").replace("\"", "\\\"");
                     }
                 }
                 GaugeMetric<Long> offsetGauge = new GaugeMetric<Long>(
