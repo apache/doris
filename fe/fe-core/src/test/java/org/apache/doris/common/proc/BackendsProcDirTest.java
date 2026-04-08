@@ -209,7 +209,6 @@ public class BackendsProcDirTest {
         ProcResult result = dir.fetchResult();
 
         List<String> columnNames = result.getColumnNames();
-        List<List<String>> rows = result.getRows();
 
         int cpuCoresIdx = columnNames.indexOf("CpuCores");
         int memoryIdx = columnNames.indexOf("Memory");
