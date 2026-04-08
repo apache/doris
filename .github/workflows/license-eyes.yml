@@ -57,14 +57,16 @@ jobs:
 
       - name: Generate incremental licenserc
         if: github.event_name == 'pull_request_target'
+        env:
+          CHANGED_FILES: ${{ steps.changed-files.outputs.all_changed_files }}
         run: |
           python3 - <<'EOF'
-          import yaml
+          import yaml, os
 
           with open('.licenserc.yaml') as f:
               config = yaml.safe_load(f)
 
-          changed = """${{ steps.changed-files.outputs.all_changed_files }}""".strip().split('\n')
+          changed = os.environ.get('CHANGED_FILES', '').strip().split('\n')
           changed = [p.strip() for p in changed if p.strip()]
 
           config['header']['paths'] = changed
