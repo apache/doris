@@ -211,7 +211,8 @@ static void BM_ToBase64Impl_Old(benchmark::State& state) {
     for (auto _ : state) {
         dst_data.clear();
         dst_offsets.clear();
-        benchmark::DoNotOptimize(OldToBase64Impl::vector(data, offsets, dst_data, dst_offsets));
+        auto status = OldToBase64Impl::vector(data, offsets, dst_data, dst_offsets);
+        benchmark::DoNotOptimize(status);
     }
 }
 
@@ -228,7 +229,8 @@ static void BM_ToBase64Impl_New(benchmark::State& state) {
     for (auto _ : state) {
         dst_data.clear();
         dst_offsets.clear();
-        benchmark::DoNotOptimize(ToBase64Impl::vector(data, offsets, dst_data, dst_offsets));
+        auto status = ToBase64Impl::vector(data, offsets, dst_data, dst_offsets);
+        benchmark::DoNotOptimize(status);
     }
 }
 
@@ -258,8 +260,9 @@ static void BM_FromBase64Impl_Old(benchmark::State& state) {
     for (auto _ : state) {
         dst_data.clear();
         dst_offsets.clear();
-        benchmark::DoNotOptimize(OldFromBase64Impl::vector(data, offsets, dst_data, dst_offsets,
-                                                           null_map->get_data()));
+        auto status = OldFromBase64Impl::vector(data, offsets, dst_data, dst_offsets,
+                                                    null_map->get_data());
+        benchmark::DoNotOptimize(status);
     }
 }
 
@@ -277,8 +280,9 @@ static void BM_FromBase64Impl_New(benchmark::State& state) {
     for (auto _ : state) {
         dst_data.clear();
         dst_offsets.clear();
-        benchmark::DoNotOptimize(
-                FromBase64Impl::vector(data, offsets, dst_data, dst_offsets, null_map->get_data()));
+        auto status =
+                FromBase64Impl::vector(data, offsets, dst_data, dst_offsets, null_map->get_data());
+        benchmark::DoNotOptimize(status);
     }
 }
 
@@ -307,7 +311,8 @@ static void BM_UnhexImpl_Old(benchmark::State& state) {
     for (auto _ : state) {
         dst_data.clear();
         dst_offsets.clear();
-        benchmark::DoNotOptimize(OldUnHexImpl::vector(data, offsets, dst_data, dst_offsets));
+        auto status = OldUnHexImpl::vector(data, offsets, dst_data, dst_offsets);
+        benchmark::DoNotOptimize(status);
     }
 }
 
@@ -324,8 +329,9 @@ static void BM_UnhexImpl_New(benchmark::State& state) {
     for (auto _ : state) {
         dst_data.clear();
         dst_offsets.clear();
-        benchmark::DoNotOptimize(
-                UnHexImpl<UnHexImplEmpty>::vector(data, offsets, dst_data, dst_offsets));
+        auto status =
+                UnHexImpl<UnHexImplEmpty>::vector(data, offsets, dst_data, dst_offsets);
+        benchmark::DoNotOptimize(status);
     }
 }
 
@@ -355,8 +361,9 @@ static void BM_UnhexNullImpl_Old(benchmark::State& state) {
     for (auto _ : state) {
         dst_data.clear();
         dst_offsets.clear();
-        benchmark::DoNotOptimize(
-                OldUnHexImpl::vector(data, offsets, dst_data, dst_offsets, &null_map->get_data()));
+        auto status =
+                OldUnHexImpl::vector(data, offsets, dst_data, dst_offsets, &null_map->get_data());
+        benchmark::DoNotOptimize(status);
     }
 }
 
@@ -374,8 +381,9 @@ static void BM_UnhexNullImpl_New(benchmark::State& state) {
     for (auto _ : state) {
         dst_data.clear();
         dst_offsets.clear();
-        benchmark::DoNotOptimize(UnHexImpl<UnHexImplNull>::vector(
-                data, offsets, dst_data, dst_offsets, &null_map->get_data()));
+        auto status = UnHexImpl<UnHexImplNull>::vector(
+                data, offsets, dst_data, dst_offsets, &null_map->get_data());
+        benchmark::DoNotOptimize(status);
     }
 }
 
