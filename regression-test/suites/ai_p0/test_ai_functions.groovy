@@ -100,7 +100,9 @@ suite("test_ai_functions") {
             sql """${sql_text}"""
             assertTrue(false)
         } catch (Exception e) {
-            assertTrue(e.getMessage().contains("timeout") || e.getMessage().contains("requested URL returned error"))
+            assertTrue(e.getMessage().contains("timeout")
+                    || e.getMessage().contains("requested URL returned error")
+                    || e.getMessage().contains("http status code is not 200"))
         } finally {
             sql """UNSET VARIABLE query_timeout;"""
         }

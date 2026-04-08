@@ -191,10 +191,6 @@ protected:
             return st;
         }
         if (http_status != 200) {
-            LOG(INFO) << "[lzq]: AI HTTP request got non-200 status, provider="
-                      << config.provider_type << ", model=" << config.model_name
-                      << ", endpoint=" << mask_token(config.endpoint)
-                      << ", http_status=" << http_status << ", response_body=" << response;
             return Status::HttpError(
                     "http status code is not 200, code={}, url={}, response_body={}", http_status,
                     mask_token(config.endpoint), response);
@@ -260,8 +256,6 @@ protected:
             RETURN_IF_ERROR(send_request_to_llm(request_body, response, config, adapter, context));
         }
 
-        LOG(INFO) << "[lzq]: AI embedding parse begin, provider=" << config.provider_type
-                  << ", model=" << config.model_name << ", response_body=" << response;
         RETURN_IF_ERROR(adapter->parse_embedding_response(response, results));
         if (results.empty()) {
             return Status::InternalError("AI returned empty result");
@@ -283,9 +277,6 @@ protected:
         } else {
             RETURN_IF_ERROR(send_request_to_llm(request_body, response, config, adapter, context));
         }
-        LOG(INFO) << "[lzq]: AI multimodal embedding parse begin, provider=" << config.provider_type
-                  << ", model=" << config.model_name << ", request_body=" << request_body
-                  << ", response_body=" << response;
         RETURN_IF_ERROR(adapter->parse_embedding_response(response, results));
         if (results.empty()) {
             return Status::InternalError("AI returned empty result");

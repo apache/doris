@@ -70,8 +70,8 @@ public:
 
             std::string_view trimmed = doris::trim(string_result);
             float float_value = 0;
-            auto [ptr, ec] =
-                    std::from_chars(trimmed.data(), trimmed.data() + trimmed.size(), float_value);
+            auto [ptr, ec] = fast_float::from_chars(trimmed.data(), trimmed.data() + trimmed.size(),
+                                                    float_value);
             if (ec != std::errc() || ptr != trimmed.data() + trimmed.size()) [[unlikely]] {
                 return Status::RuntimeError("Failed to parse float value: " + string_result);
             }
