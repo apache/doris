@@ -680,6 +680,8 @@ public class LoadAction extends RestBaseController {
     private boolean isSensitiveHeader(String headerName) {
         return "Authorization".equalsIgnoreCase(headerName)
                 || "Proxy-Authorization".equalsIgnoreCase(headerName)
+                || "Cookie".equalsIgnoreCase(headerName)
+                || "Set-Cookie".equalsIgnoreCase(headerName)
                 || "token".equalsIgnoreCase(headerName)
                 || "Auth-Token".equalsIgnoreCase(headerName);
     }
