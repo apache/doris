@@ -138,16 +138,27 @@ public class CreateMap extends ScalarFunction
                 SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
             } else {
                 for (Expression stringLiteral : keyPartitioned.get(true)) {
-                    Optional<Expression> option = TypeCoercionUtils.characterLiteralTypeCoercion(
+                    Optional<Expression> optLiteral = TypeCoercionUtils.characterLiteralTypeCoercion(
                             ((Literal) stringLiteral).getStringValue(), commonKeyType.get());
-                    if (!option.isPresent()) {
-                        commonKeyType = TypeCoercionUtils.findWiderTypeForTwo(commonKeyType.get(),
-                                stringLiteral.getDataType(), false, true);
-                        if (!commonKeyType.isPresent()) {
+                    if (optLiteral.isPresent()) {
+                        DataType parsedType = optLiteral.get().getDataType();
+                        Optional<DataType> widened = TypeCoercionUtils.findWiderTypeForTwo(
+                                commonKeyType.get(), parsedType, false, true);
+                        if (!widened.isPresent()) {
                             SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
-                        } else {
+                        }
+                        if (!widened.get().equals(commonKeyType.get())) {
+                            commonKeyType = widened;
                             break;
                         }
+                    } else {
+                        Optional<DataType> widened = TypeCoercionUtils.findWiderTypeForTwo(
+                                commonKeyType.get(), stringLiteral.getDataType(), false, true);
+                        if (!widened.isPresent()) {
+                            SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
+                        }
+                        commonKeyType = widened;
+                        break;
                     }
                 }
             }
@@ -164,16 +175,27 @@ public class CreateMap extends ScalarFunction
                 SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
             } else {
                 for (Expression stringLiteral : valuePartitioned.get(true)) {
-                    Optional<Expression> option = TypeCoercionUtils.characterLiteralTypeCoercion(
+                    Optional<Expression> optLiteral = TypeCoercionUtils.characterLiteralTypeCoercion(
                             ((Literal) stringLiteral).getStringValue(), commonValueType.get());
-                    if (!option.isPresent()) {
-                        commonValueType = TypeCoercionUtils.findWiderTypeForTwo(commonValueType.get(),
-                                stringLiteral.getDataType(), false, true);
-                        if (!commonValueType.isPresent()) {
+                    if (optLiteral.isPresent()) {
+                        DataType parsedType = optLiteral.get().getDataType();
+                        Optional<DataType> widened = TypeCoercionUtils.findWiderTypeForTwo(
+                                commonValueType.get(), parsedType, false, true);
+                        if (!widened.isPresent()) {
                             SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
-                        } else {
+                        }
+                        if (!widened.get().equals(commonValueType.get())) {
+                            commonValueType = widened;
                             break;
                         }
+                    } else {
+                        Optional<DataType> widened = TypeCoercionUtils.findWiderTypeForTwo(
+                                commonValueType.get(), stringLiteral.getDataType(), false, true);
+                        if (!widened.isPresent()) {
+                            SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
+                        }
+                        commonValueType = widened;
+                        break;
                     }
                 }
             }
