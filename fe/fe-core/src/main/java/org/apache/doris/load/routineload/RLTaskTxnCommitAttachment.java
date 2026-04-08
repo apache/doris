@@ -18,6 +18,8 @@
 package org.apache.doris.load.routineload;
 
 import org.apache.doris.cloud.proto.Cloud.RLTaskTxnCommitAttachmentPB;
+import org.apache.doris.load.routineload.kafka.KafkaProgress;
+import org.apache.doris.load.routineload.kinesis.KinesisProgress;
 import org.apache.doris.thrift.TRLTaskTxnCommitAttachment;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionState;

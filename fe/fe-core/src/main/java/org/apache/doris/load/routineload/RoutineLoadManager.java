@@ -38,6 +38,8 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.load.routineload.kafka.KafkaRoutineLoadJob;
+import org.apache.doris.load.routineload.kinesis.KinesisRoutineLoadJob;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;

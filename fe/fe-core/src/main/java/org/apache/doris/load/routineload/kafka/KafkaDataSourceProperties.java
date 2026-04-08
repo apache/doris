@@ -22,7 +22,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.routineload.AbstractDataSourceProperties;
-import org.apache.doris.load.routineload.KafkaProgress;
+import org.apache.doris.load.routineload.kafka.KafkaProgress;
 import org.apache.doris.load.routineload.LoadDataSourceType;
 
 import com.google.common.base.Preconditions;

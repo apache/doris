@@ -49,6 +49,7 @@ import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
+import org.apache.doris.load.routineload.kafka.KafkaProgress;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.load.NereidsRoutineLoadTaskInfo;

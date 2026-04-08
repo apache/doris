@@ -15,11 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.load.routineload;
+package org.apache.doris.load.routineload.kinesis;
 
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.load.routineload.RoutineLoadProgress;
 import org.apache.doris.thrift.TKinesisRLTaskProgress;
 
 import com.google.common.base.Joiner;

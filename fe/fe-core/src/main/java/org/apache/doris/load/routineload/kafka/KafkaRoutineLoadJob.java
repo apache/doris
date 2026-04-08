@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.load.routineload;
+package org.apache.doris.load.routineload.kafka;
 
 import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.ImportColumnDesc;
@@ -40,6 +40,12 @@ import org.apache.doris.common.util.SmallFileMgr;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.kafka.KafkaUtil;
+import org.apache.doris.load.routineload.ErrorReason;
+import org.apache.doris.load.routineload.LoadDataSourceType;
+import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
+import org.apache.doris.load.routineload.RoutineLoadJob;
+import org.apache.doris.load.routineload.RoutineLoadStatistic;
+import org.apache.doris.load.routineload.RoutineLoadTaskInfo;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
 import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
 import org.apache.doris.nereids.load.NereidsImportColumnDesc;

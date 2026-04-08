@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.load.routineload;
+package org.apache.doris.load.routineload.kinesis;
 
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -24,6 +24,8 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.load.routineload.RoutineLoadManager;
+import org.apache.doris.load.routineload.RoutineLoadTaskInfo;
 import org.apache.doris.nereids.load.NereidsLoadTaskInfo;
 import org.apache.doris.nereids.load.NereidsStreamLoadPlanner;
 import org.apache.doris.qe.ConnectContext;

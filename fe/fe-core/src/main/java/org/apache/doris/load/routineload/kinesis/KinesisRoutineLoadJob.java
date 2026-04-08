@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.load.routineload;
+package org.apache.doris.load.routineload.kinesis;
 
 import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.ImportColumnDesc;
@@ -35,6 +35,12 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.datasource.kinesis.KinesisUtil;
+import org.apache.doris.load.routineload.ErrorReason;
+import org.apache.doris.load.routineload.LoadDataSourceType;
+import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
+import org.apache.doris.load.routineload.RoutineLoadJob;
+import org.apache.doris.load.routineload.RoutineLoadStatistic;
+import org.apache.doris.load.routineload.RoutineLoadTaskInfo;
 import org.apache.doris.load.routineload.kinesis.KinesisConfiguration;
 import org.apache.doris.load.routineload.kinesis.KinesisDataSourceProperties;
 import org.apache.doris.nereids.load.NereidsImportColumnDesc;

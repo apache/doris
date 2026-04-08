@@ -15,12 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.load.routineload;
+package org.apache.doris.load.routineload.kafka;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.load.routineload.RoutineLoadProgress;
 import org.apache.doris.thrift.TKafkaRLTaskProgress;
 
 import com.google.common.base.Joiner;
