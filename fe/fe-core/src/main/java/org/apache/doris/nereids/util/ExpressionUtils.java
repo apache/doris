@@ -961,7 +961,7 @@ public class ExpressionUtils {
                 if (expression.child(0) instanceof Length
                         && expression.child(1).equals(new IntegerLiteral(0))) {
                     Length len = (Length) expression.child(0);
-                    if (len.child() instanceof Slot) {
+                    if (len.child() instanceof Slot && len.child().getDataType().isStringLikeType()) {
                         builder.put((Slot) len.child(), new StringLiteral(""));
                     }
                 }
