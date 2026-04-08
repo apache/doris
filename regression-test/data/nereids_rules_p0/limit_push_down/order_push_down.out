@@ -74,13 +74,13 @@ PhysicalResultSink
 
 -- !cross_join_order --
 PhysicalResultSink
---PhysicalLazyMaterialize[materializedSlots:(t1.msg) lazySlots:(t1.id)]
-----PhysicalTopN[GATHER_SORT]
-------NestedLoopJoin[CROSS_JOIN]
+--PhysicalTopN[GATHER_SORT]
+----NestedLoopJoin[CROSS_JOIN]
+------PhysicalLazyMaterialize[materializedSlots:(t1.msg) lazySlots:(t1.id)]
 --------PhysicalTopN[MERGE_SORT]
 ----------PhysicalTopN[LOCAL_SORT]
 ------------PhysicalLazyMaterializeOlapScan[t1 lazySlots:(t1.id)]
---------PhysicalStorageLayerAggregate[t2]
+------PhysicalStorageLayerAggregate[t2]
 
 -- !limit_offset_sort_join --
 PhysicalResultSink
@@ -382,16 +382,18 @@ PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
 ----PhysicalTopN[LOCAL_SORT]
 ------PhysicalUnion
---------PhysicalTopN[GATHER_SORT]
-----------PhysicalWindow
-------------PhysicalQuickSort[MERGE_SORT]
---------------PhysicalQuickSort[LOCAL_SORT]
-----------------PhysicalOlapScan[t1]
---------PhysicalTopN[GATHER_SORT]
-----------PhysicalWindow
-------------PhysicalQuickSort[MERGE_SORT]
---------------PhysicalQuickSort[LOCAL_SORT]
-----------------PhysicalOlapScan[t2]
+--------PhysicalLazyMaterialize[materializedSlots:(t1.id,row_num) lazySlots:(t1.msg)]
+----------PhysicalTopN[GATHER_SORT]
+------------PhysicalWindow
+--------------PhysicalQuickSort[MERGE_SORT]
+----------------PhysicalQuickSort[LOCAL_SORT]
+------------------PhysicalLazyMaterializeOlapScan[t1 lazySlots:(t1.msg)]
+--------PhysicalLazyMaterialize[materializedSlots:(t2.id,row_num) lazySlots:(t2.msg)]
+----------PhysicalTopN[GATHER_SORT]
+------------PhysicalWindow
+--------------PhysicalQuickSort[MERGE_SORT]
+----------------PhysicalQuickSort[LOCAL_SORT]
+------------------PhysicalLazyMaterializeOlapScan[t2 lazySlots:(t2.msg)]
 
 -- !limit_subquery_join_filter --
 PhysicalResultSink
@@ -585,13 +587,13 @@ PhysicalResultSink
 
 -- !limit_cross_join --
 PhysicalResultSink
---PhysicalLazyMaterialize[materializedSlots:(t1.msg) lazySlots:(t1.id)]
-----PhysicalTopN[GATHER_SORT]
-------NestedLoopJoin[CROSS_JOIN]
+--PhysicalTopN[GATHER_SORT]
+----NestedLoopJoin[CROSS_JOIN]
+------PhysicalLazyMaterialize[materializedSlots:(t1.msg) lazySlots:(t1.id)]
 --------PhysicalTopN[MERGE_SORT]
 ----------PhysicalTopN[LOCAL_SORT]
 ------------PhysicalLazyMaterializeOlapScan[t1 lazySlots:(t1.id)]
---------PhysicalStorageLayerAggregate[t2]
+------PhysicalStorageLayerAggregate[t2]
 
 -- !limit_multiple_left_outer_join --
 PhysicalResultSink
