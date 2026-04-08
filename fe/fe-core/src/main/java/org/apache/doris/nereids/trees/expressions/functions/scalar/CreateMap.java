@@ -23,15 +23,21 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
+import org.apache.doris.nereids.trees.expressions.functions.SearchSignature;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * ScalarFunction 'map'.
@@ -109,12 +115,78 @@ public class CreateMap extends ScalarFunction
         if (arity() == 0) {
             return SIGNATURES;
         } else {
-            return ImmutableList.of(FunctionSignature.of(
-                    getDataType(),
-                    children.stream()
-                            .map(ExpressionTrait::getDataType)
-                            .collect(ImmutableList.toImmutableList())
-            ));
+            // split children into keys and values
+            List<Expression> keyExpressions = new ArrayList<>();
+            List<Expression> valueExpressions = new ArrayList<>();
+            for (int i = 0; i < children.size(); i++) {
+                if (i % 2 == 0) {
+                    keyExpressions.add(children.get(i));
+                } else {
+                    valueExpressions.add(children.get(i));
+                }
+            }
+
+            // find common key type
+            Map<Boolean, List<Expression>> keyPartitioned = keyExpressions.stream()
+                    .collect(Collectors.partitioningBy(
+                            e -> (e instanceof Literal && ((Literal) e).isStringLikeLiteral())));
+            List<DataType> keyForFindCommon = keyPartitioned.get(false).stream()
+                    .map(ExpressionTrait::getDataType).collect(Collectors.toList());
+            Optional<DataType> commonKeyType = TypeCoercionUtils.findWiderCommonTypeByVariable(
+                    keyForFindCommon, false, true);
+            if (!commonKeyType.isPresent()) {
+                SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
+            } else {
+                for (Expression stringLiteral : keyPartitioned.get(true)) {
+                    Optional<Expression> option = TypeCoercionUtils.characterLiteralTypeCoercion(
+                            ((Literal) stringLiteral).getStringValue(), commonKeyType.get());
+                    if (!option.isPresent()) {
+                        commonKeyType = TypeCoercionUtils.findWiderTypeForTwo(commonKeyType.get(),
+                                stringLiteral.getDataType(), false, true);
+                        if (!commonKeyType.isPresent()) {
+                            SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
+                        } else {
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // find common value type
+            Map<Boolean, List<Expression>> valuePartitioned = valueExpressions.stream()
+                    .collect(Collectors.partitioningBy(
+                            e -> (e instanceof Literal && ((Literal) e).isStringLikeLiteral())));
+            List<DataType> valueForFindCommon = valuePartitioned.get(false).stream()
+                    .map(ExpressionTrait::getDataType).collect(Collectors.toList());
+            Optional<DataType> commonValueType = TypeCoercionUtils.findWiderCommonTypeByVariable(
+                    valueForFindCommon, false, true);
+            if (!commonValueType.isPresent()) {
+                SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
+            } else {
+                for (Expression stringLiteral : valuePartitioned.get(true)) {
+                    Optional<Expression> option = TypeCoercionUtils.characterLiteralTypeCoercion(
+                            ((Literal) stringLiteral).getStringValue(), commonValueType.get());
+                    if (!option.isPresent()) {
+                        commonValueType = TypeCoercionUtils.findWiderTypeForTwo(commonValueType.get(),
+                                stringLiteral.getDataType(), false, true);
+                        if (!commonValueType.isPresent()) {
+                            SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
+                        } else {
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // build argument types: alternating keyType, valueType
+            ImmutableList.Builder<DataType> argsTypes = ImmutableList.builder();
+            for (int i = 0; i < children.size() / 2; i++) {
+                argsTypes.add(commonKeyType.get());
+                argsTypes.add(commonValueType.get());
+            }
+
+            return ImmutableList.of(FunctionSignature.of(MapType.of(commonKeyType.get(),
+                    commonValueType.get()), argsTypes.build()));
         }
     }
 }
