@@ -215,7 +215,7 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
     EXPECT_EQ(Status::OK(), res);
 
     // publish version success
-    TabletSharedPtr tablet = engine_ref->tablet_manager()->get_tablet(write_req.tablet_id);
+    TabletSharedPtr tablet = engine_ref->tablet_manager()->get_tablet(write_req.tablet_id).value();
     OlapMeta* meta = tablet->data_dir()->get_meta();
     Version version;
     version.first = tablet->get_rowset_with_max_version()->end_version() + 1;
@@ -252,7 +252,7 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
     res = engine_task.execute();
     EXPECT_EQ(Status::OK(), res);
     // reget the tablet from manager after migration
-    TabletSharedPtr tablet2 = engine_ref->tablet_manager()->get_tablet(request.tablet_id);
+    TabletSharedPtr tablet2 = engine_ref->tablet_manager()->get_tablet(request.tablet_id).value();
     // check path
     EXPECT_EQ(tablet2->data_dir()->path(), dest_store->path());
     // check rows
@@ -270,7 +270,7 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
     EngineStorageMigrationTask engine_task2(*engine_ref, tablet2, dest_store);
     res = engine_task2.execute();
     EXPECT_EQ(Status::OK(), res);
-    TabletSharedPtr tablet3 = engine_ref->tablet_manager()->get_tablet(request.tablet_id);
+    TabletSharedPtr tablet3 = engine_ref->tablet_manager()->get_tablet(request.tablet_id).value();
     // check path
     EXPECT_EQ(tablet3->data_dir()->path(), tablet->data_dir()->path());
     // check rows

@@ -688,7 +688,7 @@ TEST_F(TestDeltaWriter, vec_write) {
     ASSERT_TRUE(res.ok());
 
     // publish version success
-    TabletSharedPtr tablet = engine_ref->tablet_manager()->get_tablet(write_req.tablet_id);
+    TabletSharedPtr tablet = engine_ref->tablet_manager()->get_tablet(write_req.tablet_id).value();
     std::cout << "before publish, tablet row nums:" << tablet->num_rows() << std::endl;
     OlapMeta* meta = tablet->data_dir()->get_meta();
     Version version;
@@ -781,7 +781,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     ASSERT_TRUE(res.ok());
 
     // publish version success
-    TabletSharedPtr tablet = engine_ref->tablet_manager()->get_tablet(write_req.tablet_id);
+    TabletSharedPtr tablet = engine_ref->tablet_manager()->get_tablet(write_req.tablet_id).value();
     std::cout << "before publish, tablet row nums:" << tablet->num_rows() << std::endl;
     OlapMeta* meta = tablet->data_dir()->get_meta();
     Version version;
@@ -924,7 +924,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         res = delta_writer2->wait_flush();
         ASSERT_TRUE(res.ok());
     }
-    TabletSharedPtr tablet = engine_ref->tablet_manager()->get_tablet(write_req.tablet_id);
+    TabletSharedPtr tablet = engine_ref->tablet_manager()->get_tablet(write_req.tablet_id).value();
     std::cout << "before publish, tablet row nums:" << tablet->num_rows() << std::endl;
     OlapMeta* meta = tablet->data_dir()->get_meta();
     RowsetSharedPtr rowset1 = nullptr;

@@ -145,7 +145,7 @@ TEST(PathGcTest, GcTabletAndRowset) {
         auto rs = create_rowset();
         st = create_rowset_files(*rs, false);
         ASSERT_TRUE(st.ok()) << st;
-        auto tablet = engine.tablet_manager()->get_tablet(rs->rowset_meta()->tablet_id());
+        auto tablet = engine.tablet_manager()->get_tablet(rs->rowset_meta()->tablet_id()).value();
         ASSERT_TRUE(tablet) << rs->rowset_meta()->tablet_id();
         auto max_version = tablet->max_version_unlocked();
         rs->rowset_meta()->set_version({max_version + 1, max_version + 1});

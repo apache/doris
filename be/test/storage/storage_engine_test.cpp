@@ -139,7 +139,7 @@ TEST_F(StorageEngineTest, TestAsyncPublish) {
     RuntimeProfile profile("CreateTablet");
     st = _storage_engine->tablet_manager()->create_tablet(create_tablet_req, data_dirs, &profile);
     EXPECT_EQ(st, Status::OK());
-    TabletSharedPtr tablet = _storage_engine->tablet_manager()->get_tablet(tablet_id);
+    TabletSharedPtr tablet = _storage_engine->tablet_manager()->get_tablet(tablet_id).value();
     EXPECT_EQ(tablet->max_version().second, 10);
 
     for (int64_t i = 5; i < 12; ++i) {

@@ -230,13 +230,13 @@ static void add_rowset(int64_t tablet_id, int32_t schema_hash, int64_t partition
     res = delta_writer->commit_txn(PSlaveTabletNodes());
     ASSERT_TRUE(res.ok()) << res;
 
-    TabletSharedPtr tablet = engine_ref->tablet_manager()->get_tablet(tablet_id);
-    ASSERT_TRUE(tablet != nullptr);
+    auto tablet = engine_ref->tablet_manager()->get_tablet(tablet_id);
+    ASSERT_TRUE(tablet.has_value());
 
-    std::cout << "before publish, tablet row nums:" << tablet->num_rows() << std::endl;
+    std::cout << "before publish, tablet row nums:" << tablet.value()->num_rows() << std::endl;
     Version version;
-    version.first = tablet->get_rowset_with_max_version()->end_version() + 1;
-    version.second = tablet->get_rowset_with_max_version()->end_version() + 1;
+    version.first = tablet.value()->get_rowset_with_max_version()->end_version() + 1;
+    version.second = tablet.value()->get_rowset_with_max_version()->end_version() + 1;
     std::cout << "start to add rowset version:" << version.first << "-" << version.second
               << std::endl;
     std::map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
@@ -248,13 +248,13 @@ static void add_rowset(int64_t tablet_id, int32_t schema_hash, int64_t partition
 
     TabletPublishStatistics stats;
     std::shared_ptr<TabletTxnInfo> extend_tablet_txn_info_lifetime = nullptr;
-    res = engine_ref->txn_manager()->publish_txn(partition_id, tablet, txn_id, version, &stats,
+    res = engine_ref->txn_manager()->publish_txn(partition_id, tablet.value(), txn_id, version, &stats,
                                                  extend_tablet_txn_info_lifetime);
     ASSERT_TRUE(res.ok()) << res;
     std::cout << "start to add inc rowset:" << rowset->rowset_id()
               << ", num rows:" << rowset->num_rows() << ", version:" << rowset->version().first
               << "-" << rowset->version().second << std::endl;
-    res = tablet->add_inc_rowset(rowset);
+    res = tablet.value()->add_inc_rowset(rowset);
     ASSERT_TRUE(res.ok()) << res;
 }
 
@@ -382,12 +382,12 @@ TEST_F(SnapshotLoaderTest, DirMoveTaskIsIdempotent) {
     RuntimeProfile profile("CreateTablet");
     Status status = engine_ref->create_tablet(req, &profile);
     EXPECT_TRUE(status.ok());
-    TabletSharedPtr tablet = engine_ref->tablet_manager()->get_tablet(tablet_id);
-    EXPECT_TRUE(tablet != nullptr);
+    auto tablet = engine_ref->tablet_manager()->get_tablet(tablet_id);
+    EXPECT_TRUE(tablet.has_value());
 
     // 2. add a rowset
     add_rowset(tablet_id, schema_hash, partition_id, 100, 100);
-    auto version = tablet->max_version();
+    auto version = tablet.value()->max_version();
     std::cout << "version: " << version.first << ", " << version.second << std::endl;
 
     // 3. make a snapshot
@@ -404,26 +404,28 @@ TEST_F(SnapshotLoaderTest, DirMoveTaskIsIdempotent) {
     // 4. load the snapshot to another tablet
     snapshot_path = fmt::format("{}/{}/{}", snapshot_path, tablet_id, schema_hash);
     SnapshotLoader loader1(*engine_ref, ExecEnv::GetInstance(), 1L, tablet_id);
-    status = loader1.move(snapshot_path, tablet, true);
+    status = loader1.move(snapshot_path, tablet.value(), true);
     ASSERT_TRUE(status.ok()) << status;
 
     // 5. Insert a rowset to the tablet
     // reload tablet
-    tablet = engine_ref->tablet_manager()->get_tablet(tablet_id);
-    EXPECT_TRUE(tablet != nullptr);
+    auto res = engine_ref->tablet_manager()->get_tablet(tablet_id);
+    EXPECT_TRUE(res.has_value());
+    tablet = res.value();
     add_rowset(tablet_id, schema_hash, partition_id, 200, 200);
-    version = tablet->max_version();
+    version = tablet.value()->max_version();
     std::cout << "version: " << version.first << ", " << version.second << std::endl;
 
     // 6. load the snapshot to the tablet again, this request should be idempotent
     SnapshotLoader loader2(*engine_ref, ExecEnv::GetInstance(), 2L, tablet_id);
-    status = loader2.move(snapshot_path, tablet, true);
+    status = loader2.move(snapshot_path, tablet.value(), true);
     ASSERT_TRUE(status.ok()) << status;
 
     // reload tablet
-    tablet = engine_ref->tablet_manager()->get_tablet(tablet_id);
-    EXPECT_TRUE(tablet != nullptr);
-    auto last_version = tablet->max_version();
+    res = engine_ref->tablet_manager()->get_tablet(tablet_id);
+    EXPECT_TRUE(res.has_value());
+    tablet = res.value();
+    auto last_version = tablet.value()->max_version();
     std::cout << "last version: " << last_version.first << ", " << last_version.second << std::endl;
     ASSERT_EQ(version.first, last_version.first);
     ASSERT_EQ(version.second, last_version.second);
@@ -437,12 +439,12 @@ TEST_F(SnapshotLoaderTest, TestLinkSameRowsetFiles) {
     RuntimeProfile profile("CreateTablet");
     Status status = engine_ref->create_tablet(req, &profile);
     EXPECT_TRUE(status.ok());
-    TabletSharedPtr tablet = engine_ref->tablet_manager()->get_tablet(tablet_id);
-    EXPECT_TRUE(tablet != nullptr);
+    auto tablet = engine_ref->tablet_manager()->get_tablet(tablet_id);
+    EXPECT_TRUE(tablet.has_value());
 
     // 2. Add a rowset to the tablet
     add_rowset(tablet_id, schema_hash, partition_id, 100, 100);
-    auto version = tablet->max_version();
+    auto version = tablet.value()->max_version();
     std::cout << "Original version: " << version.first << ", " << version.second << std::endl;
 
     // 3. Make a snapshot of the tablet
