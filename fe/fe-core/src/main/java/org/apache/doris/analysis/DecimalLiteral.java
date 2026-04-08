@@ -18,11 +18,8 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
-import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
@@ -39,25 +36,9 @@ public class DecimalLiteral extends NumericLiteralExpr {
     private DecimalLiteral() {
     }
 
-    public DecimalLiteral(BigDecimal value) {
-        init(value, Config.enable_decimal_conversion);
-        this.nullable = false;
-    }
-
     public DecimalLiteral(BigDecimal value, Type type) {
         this.value = value;
         this.type = type;
-        this.nullable = false;
-    }
-
-    public DecimalLiteral(String value) throws AnalysisException {
-        BigDecimal v = null;
-        try {
-            v = new BigDecimal(value);
-        } catch (NumberFormatException e) {
-            throw new AnalysisException("Invalid floating-point literal: " + value, e);
-        }
-        init(v);
         this.nullable = false;
     }
 
@@ -93,34 +74,6 @@ public class DecimalLiteral extends NumericLiteralExpr {
 
     public static int getBigDecimalScale(BigDecimal decimal) {
         return Math.max(0, decimal.scale());
-    }
-
-    private void init(BigDecimal value, boolean enforceV3) {
-        this.value = value;
-        int precision = getBigDecimalPrecision(this.value);
-        int scale = getBigDecimalScale(this.value);
-        int maxPrecision =
-                SessionVariable.getEnableDecimal256() ? ScalarType.MAX_DECIMAL256_PRECISION
-                        : ScalarType.MAX_DECIMAL128_PRECISION;
-        int integerPart = precision - scale;
-        if (precision > maxPrecision) {
-            BigDecimal stripedValue = value.stripTrailingZeros();
-            int stripedPrecision = getBigDecimalPrecision(stripedValue);
-            if (stripedPrecision <= maxPrecision) {
-                this.value = stripedValue.setScale(maxPrecision - integerPart);
-                precision = getBigDecimalPrecision(this.value);
-                scale = getBigDecimalScale(this.value);
-            }
-        }
-        if (enforceV3) {
-            type = ScalarType.createDecimalV3Type(precision, scale);
-        } else {
-            type = ScalarType.createDecimalType(precision, scale);
-        }
-    }
-
-    private void init(BigDecimal value) {
-        init(value, false);
     }
 
     public BigDecimal getValue() {
@@ -229,9 +182,9 @@ public class DecimalLiteral extends NumericLiteralExpr {
             return this.value.compareTo(((DecimalLiteral) expr).value);
         } else {
             try {
-                DecimalLiteral decimalLiteral = new DecimalLiteral(expr.getStringValue());
-                return this.compareLiteral(decimalLiteral);
-            } catch (AnalysisException e) {
+                BigDecimal otherValue = new BigDecimal(expr.getStringValue());
+                return this.value.compareTo(otherValue);
+            } catch (NumberFormatException e) {
                 throw new ClassCastException("Those two values cannot be compared: " + value
                         + " and " + expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
             }

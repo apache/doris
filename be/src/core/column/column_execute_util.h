@@ -61,6 +61,30 @@ struct ColumnElementView<TYPE_STRING> {
 // 3. Nullable(ColumnInt32)
 // 4. Const(Nullable(ColumnInt32)) (although this case is rare, it can still occur; many of our previous code did not consider this)
 // You can use is_null_at and value_at to get the data at the corresponding position
+//
+// ====== Performance Guide: When to Use ColumnView ======
+//
+// 1. Expensive per-element operations (e.g. geo functions, complex string ops):
+//    Use ColumnView freely — its overhead is negligible relative to the work.
+//
+// 2. Cheap per-element operations that the compiler can inline (e.g. simple arithmetic):
+//
+//    a) Inputs are NOT nullable (e.g. the function framework already strips nullable):
+//       Safe to use. The compiler optimizes the is_const branch into code equivalent
+//       to hand-written direct array access (verified via assembly and benchmarks).
+//
+//    b) Inputs involve nullable columns:
+//       - Unary operations: safe to use, the compiler still optimizes effectively.
+//       - Binary / ternary operations: the combined is_null_at checks across multiple
+//         columns inhibit compiler vectorization and branch optimization, causing
+//         significant regression (~1.4x for binary, ~1.8x for ternary in benchmarks).
+//         In this case, hand-written column access is recommended for best performance.
+//
+// In summary, ColumnView is designed to eliminate the combinatorial explosion of
+// handling 4 column forms. It is suitable for the vast majority of use cases.
+// Only the specific combination of "cheap computation + nullable + multi-column"
+// requires weighing whether to hand-write the access code.
+// ====== End of Performance Guide ======
 
 template <PrimitiveType PType>
 struct ColumnView {

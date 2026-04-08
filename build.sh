@@ -720,6 +720,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DBUILD_AZURE="${BUILD_AZURE}" \
         -DENABLE_DYNAMIC_ARCH="${ENABLE_DYNAMIC_ARCH}" \
         -DWITH_TDE_DIR="${WITH_TDE_DIR}" \
+        -DFAISS_ENABLE_GPU="${FAISS_ENABLE_GPU:-OFF}" \
         "${DORIS_HOME}/be"
 
     if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
