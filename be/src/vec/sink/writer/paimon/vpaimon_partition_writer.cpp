@@ -28,6 +28,7 @@
 #include "runtime/runtime_state.h"
 
 #ifdef WITH_PAIMON_CPP
+#include <arrow/array.h>
 #include <arrow/c/bridge.h>
 #include <arrow/memory_pool.h>
 #include <arrow/record_batch.h>
