@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.parser;
 
 import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.nereids.DorisParser;
