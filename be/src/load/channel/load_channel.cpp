@@ -90,9 +90,7 @@ LoadChannel::~LoadChannel() {
 }
 
 void LoadChannel::_init_profile() {
-    if (!_enable_profile) {
-        return;
-    }
+    DCHECK(_enable_profile);
     _profile = std::make_unique<RuntimeProfile>("LoadChannels");
     _mgr_add_batch_timer = ADD_TIMER(_profile, "LoadChannelMgrAddBatchTime");
     _handle_mem_limit_timer = ADD_TIMER(_profile, "HandleMemLimitTime");

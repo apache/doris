@@ -75,9 +75,7 @@ RowsetBuilder::RowsetBuilder(StorageEngine& engine, const WriteRequest& req,
         : BaseRowsetBuilder(req, profile), _engine(engine) {}
 
 void BaseRowsetBuilder::_init_profile(RuntimeProfile* profile) {
-    if (!profile) {
-        return;
-    }
+    DCHECK(profile != nullptr);
     _profile = profile->create_child(fmt::format("RowsetBuilder {}", _req.tablet_id), true, true);
     _build_rowset_timer = ADD_TIMER(_profile, "BuildRowsetTime");
     _submit_delete_bitmap_timer = ADD_TIMER(_profile, "DeleteBitmapSubmitTime");
@@ -85,9 +83,7 @@ void BaseRowsetBuilder::_init_profile(RuntimeProfile* profile) {
 }
 
 void RowsetBuilder::_init_profile(RuntimeProfile* profile) {
-    if (!profile) {
-        return;
-    }
+    DCHECK(profile != nullptr);
     BaseRowsetBuilder::_init_profile(profile);
     _commit_txn_timer = ADD_TIMER(_profile, "CommitTxnTime");
 }

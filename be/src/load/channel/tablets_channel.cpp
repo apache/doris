@@ -104,9 +104,7 @@ Status BaseTabletsChannel::_get_current_seq(int64_t& cur_seq,
 }
 
 void BaseTabletsChannel::_init_profile(RuntimeProfile* profile) {
-    if (profile == nullptr) {
-        return;
-    }
+    DCHECK(profile != nullptr);
     _profile =
             profile->create_child(fmt::format("TabletsChannel {}", _key.to_string()), true, true);
     _add_batch_number_counter = ADD_COUNTER(_profile, "NumberBatchAdded", TUnit::UNIT);
@@ -127,9 +125,7 @@ void BaseTabletsChannel::_init_profile(RuntimeProfile* profile) {
 }
 
 void TabletsChannel::_init_profile(RuntimeProfile* profile) {
-    if (profile == nullptr) {
-        return;
-    }
+    DCHECK(profile != nullptr);
     BaseTabletsChannel::_init_profile(profile);
     _slave_replica_timer = ADD_TIMER(_profile, "SlaveReplicaTime");
 }
