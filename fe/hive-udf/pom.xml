@@ -32,7 +32,6 @@ under the License.
     <packaging>jar</packaging>
     <properties>
         <fe_ut_parallel>1</fe_ut_parallel>
-        <maven.build.cache.enabled>false</maven.build.cache.enabled>
     </properties>
     <dependencyManagement>
         <dependencies>

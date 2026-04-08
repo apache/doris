@@ -109,9 +109,6 @@ add_thirdparty(arrow_flight_sql LIB64)
 add_thirdparty(arrow_dataset LIB64)
 add_thirdparty(arrow_acero LIB64)
 add_thirdparty(parquet LIB64)
-# Placeholder for paimon-cpp: when ENABLE_PAIMON is turned on and paimon-cpp
-# is provided in thirdparty, add a static/imported target here, e.g.:
-#   add_thirdparty(paimon_cpp LIB64)
 add_thirdparty(brpc LIB64)
 add_thirdparty(rocksdb)
 add_thirdparty(cyrus-sasl LIBNAME "lib/libsasl2.a")
@@ -125,69 +122,6 @@ add_thirdparty(fmt)
 add_thirdparty(cctz)
 add_thirdparty(base64)
 
-if (ENABLE_PAIMON_CPP)
-    set(_PAIMON_CPP_LIBPATH "")
-    foreach(_p
-            "${THIRDPARTY_DIR}/lib64/libpaimon_cpp.a"
-            "${THIRDPARTY_DIR}/lib/libpaimon_cpp.a"
-            "${THIRDPARTY_DIR}/lib64/libpaimon.a"
-            "${THIRDPARTY_DIR}/lib/libpaimon.a")
-        if (EXISTS "${_p}")
-            set(_PAIMON_CPP_LIBPATH "${_p}")
-            break()
-        endif()
-    endforeach()
-
-    if (NOT _PAIMON_CPP_LIBPATH)
-        message(FATAL_ERROR "ENABLE_PAIMON_CPP=ON but paimon-cpp library not found under ${THIRDPARTY_DIR}/lib{,64}")
-    endif()
-
-    set(_PAIMON_CPP_EXTRA_LIBS "")
-    set(_PAIMON_CPP_HAS_PARQUET_FILE_FORMAT OFF)
-    foreach(_name
-            paimon_file_index
-            paimon_global_index
-            paimon_local_file_system
-            paimon_parquet_file_format
-            paimon_blob_file_format
-            roaring_bitmap
-            xxhash)
-        set(_found "")
-        foreach(_p
-                "${THIRDPARTY_DIR}/lib64/lib${_name}.a"
-                "${THIRDPARTY_DIR}/lib/lib${_name}.a")
-            if (EXISTS "${_p}")
-                set(_found "${_p}")
-                break()
-            endif()
-        endforeach()
-        if (_found)
-            if ("${_name}" STREQUAL "paimon_parquet_file_format")
-                set(_PAIMON_CPP_HAS_PARQUET_FILE_FORMAT ON)
-            endif()
-            if ("${_name}" MATCHES "^paimon_")
-                 if ("${CMAKE_CXX_COMPILER_ID}" MATCHES "GNU|Clang")
-                     message(STATUS "PAIMON: Linking ${_name} with whole-archive")
-                     # Use -force_load for MacOS if needed, but here assuming Linux
-                     list(APPEND _PAIMON_CPP_EXTRA_LIBS "-Wl,--whole-archive" "${_found}" "-Wl,--no-whole-archive")
-                 else()
-                     list(APPEND _PAIMON_CPP_EXTRA_LIBS "${_found}")
-                 endif()
-            else()
-                 list(APPEND _PAIMON_CPP_EXTRA_LIBS "${_found}")
-            endif()
-        endif()
-    endforeach()
-    if (NOT _PAIMON_CPP_HAS_PARQUET_FILE_FORMAT)
-        message(FATAL_ERROR "ENABLE_PAIMON_CPP=ON but libpaimon_parquet_file_format.a not found under ${THIRDPARTY_DIR}/lib{,64}")
-    endif()
-
-    add_library(paimon_cpp STATIC IMPORTED)
-    set_target_properties(paimon_cpp PROPERTIES
-        IMPORTED_LOCATION "${_PAIMON_CPP_LIBPATH}"
-        INTERFACE_INCLUDE_DIRECTORIES "${THIRDPARTY_DIR}/include"
-        INTERFACE_LINK_LIBRARIES "${_PAIMON_CPP_EXTRA_LIBS}")
-endif()
 
 add_thirdparty(aws-cpp-sdk-core LIB64)
 add_thirdparty(aws-cpp-sdk-s3 LIB64)

@@ -160,21 +160,7 @@ Status HdfsFileSystem::delete_internal(const Path& path, int is_recursive) {
 Status HdfsFileSystem::exists_impl(const Path& path, bool* res) const {
     CHECK_HDFS_HANDLER(_fs_handler);
     Path real_path = convert_path(path, _fs_name);
-    errno = 0;
     int is_exists = hdfsExists(_fs_handler->hdfs_fs, real_path.string().c_str());
-    if (is_exists != 0 && errno == 0) {
-        errno = 0;
-        hdfsFileInfo* file_info = hdfsGetPathInfo(_fs_handler->hdfs_fs, real_path.string().c_str());
-        if (file_info != nullptr) {
-            hdfsFreeFileInfo(file_info, 1);
-            *res = true;
-            return Status::OK();
-        }
-        if (errno == ENOENT || errno == 0) {
-            *res = false;
-            return Status::OK();
-        }
-    }
 #ifdef USE_HADOOP_HDFS
     // when calling hdfsExists() and return non-zero code,
     // if errno is ENOENT, which means the file does not exist.
@@ -184,16 +170,10 @@ Status HdfsFileSystem::exists_impl(const Path& path, bool* res) const {
     // See details:
     //  https://github.com/apache/hadoop/blob/5cda162a804fb0cfc2a5ac0058ab407662c5fb00/
     //  hadoop-hdfs-project/hadoop-hdfs-native-client/src/main/native/libhdfs/hdfs.c#L1923-L1924
-    if (is_exists != 0 && errno != ENOENT && errno != EINPROGRESS && errno != 0) {
+    if (is_exists != 0 && errno != ENOENT) {
         char* root_cause = hdfsGetLastExceptionRootCause();
-        return Status::IOError("failed to check path existence {} on fs {}, errno={}: {}",
-                               path.native(), _fs_name, errno,
-                               (root_cause ? root_cause : "unknown"));
-    }
-#else
-    if (is_exists != 0 && errno != ENOENT && errno != EINPROGRESS && errno != 0) {
         return Status::IOError("failed to check path existence {}: {}", path.native(),
-                               hdfs_error());
+                               (root_cause ? root_cause : "unknown"));
     }
 #endif
     *res = (is_exists == 0);

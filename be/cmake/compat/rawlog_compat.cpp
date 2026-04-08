@@ -19,4 +19,4 @@ void RawLog__(LogSeverity severity, const char* file, int line, const char* form
         sev = "FATAL";
     std::fprintf(stderr, "[%s] %s:%d %s\n", sev, file ? file : "", line, buffer);
 }
-} // namespace google
+}
