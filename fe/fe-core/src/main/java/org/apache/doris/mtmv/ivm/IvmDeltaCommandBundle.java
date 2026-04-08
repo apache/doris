@@ -25,11 +25,11 @@ import java.util.Objects;
  * One delta write command for a single changed base table.
  * Produced by a per-pattern IVM Nereids rule and consumed by IvmDeltaExecutor.
  */
-public class DeltaCommandBundle {
+public class IvmDeltaCommandBundle {
     // the logical delta write command (INSERT / DELETE / MERGE INTO)
     private final Command command;
 
-    public DeltaCommandBundle(Command command) {
+    public IvmDeltaCommandBundle(Command command) {
         this.command = Objects.requireNonNull(command, "command can not be null");
     }
 
@@ -39,7 +39,7 @@ public class DeltaCommandBundle {
 
     @Override
     public String toString() {
-        return "DeltaCommandBundle{"
+        return "IvmDeltaCommandBundle{"
                 + "command=" + command.getClass().getSimpleName()
                 + '}';
     }

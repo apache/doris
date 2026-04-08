@@ -22,10 +22,10 @@ import java.util.Objects;
 /** Result of one FE-side incremental refresh attempt. */
 public class IvmRefreshResult {
     private final boolean success;
-    private final FallbackReason fallbackReason;
+    private final IvmFallbackReason fallbackReason;
     private final String detailMessage;
 
-    private IvmRefreshResult(boolean success, FallbackReason fallbackReason, String detailMessage) {
+    private IvmRefreshResult(boolean success, IvmFallbackReason fallbackReason, String detailMessage) {
         this.success = success;
         this.fallbackReason = fallbackReason;
         this.detailMessage = detailMessage;
@@ -35,7 +35,7 @@ public class IvmRefreshResult {
         return new IvmRefreshResult(true, null, null);
     }
 
-    public static IvmRefreshResult fallback(FallbackReason fallbackReason, String detailMessage) {
+    public static IvmRefreshResult fallback(IvmFallbackReason fallbackReason, String detailMessage) {
         return new IvmRefreshResult(false,
                 Objects.requireNonNull(fallbackReason, "fallbackReason can not be null"),
                 Objects.requireNonNull(detailMessage, "detailMessage can not be null"));
@@ -45,7 +45,7 @@ public class IvmRefreshResult {
         return success;
     }
 
-    public FallbackReason getFallbackReason() {
+    public IvmFallbackReason getFallbackReason() {
         return fallbackReason;
     }
 
