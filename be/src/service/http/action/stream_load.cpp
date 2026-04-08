@@ -907,12 +907,13 @@ Status StreamLoadAction::_can_group_commit(HttpRequest* req, std::shared_ptr<Str
                                            std::string& group_commit_header,
                                            bool& can_group_commit) {
     int64_t content_length = 0;
-    if (!req->header(HttpHeaders::CONTENT_LENGTH).empty()) {
+    const auto& content_length_str = req->header(HttpHeaders::CONTENT_LENGTH);
+    if (!content_length_str.empty()) {
         try {
-            content_length = std::stoll(req->header(HttpHeaders::CONTENT_LENGTH));
+            content_length = std::stoll(content_length_str);
         } catch (const std::exception& e) {
             return Status::InvalidArgument("invalid HTTP header CONTENT_LENGTH={}: {}",
-                                           req->header(HttpHeaders::CONTENT_LENGTH), e.what());
+                                           content_length_str, e.what());
         }
     }
     if (content_length < 0) {
