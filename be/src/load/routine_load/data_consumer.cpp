@@ -46,6 +46,7 @@
 #include "common/config.h"
 #include "common/metrics/doris_metrics.h"
 #include "common/status.h"
+#include "load/routine_load/consumer_helpers.h"
 #include "load/routine_load/kinesis_conf.h"
 #include "runtime/exec_env.h"
 #include "runtime/small_file_mgr.h"
@@ -206,18 +207,18 @@ Status KafkaDataConsumer::assign_topic_partitions(
 
 Status KafkaDataConsumer::group_consume(BlockingQueue<RdKafka::Message*>* queue,
                                         int64_t max_running_time_ms) {
-    static constexpr int MAX_RETRY_TIMES_FOR_TRANSPORT_FAILURE = 3;
     int64_t left_time = max_running_time_ms;
     LOG(INFO) << "start kafka consumer: " << _id << ", grp: " << _grp_id
               << ", max running time(ms): " << left_time;
 
     int64_t received_rows = 0;
     int64_t put_rows = 0;
-    int32_t retry_times = 0;
+    RetryPolicy retry_policy(3, 200);
     Status st = Status::OK();
     MonotonicStopWatch consumer_watch;
     MonotonicStopWatch watch;
     watch.start();
+
     while (true) {
         {
             std::unique_lock<std::mutex> l(_lock);
@@ -235,9 +236,11 @@ Status KafkaDataConsumer::group_consume(BlockingQueue<RdKafka::Message*>* queue,
         consumer_watch.start();
         std::unique_ptr<RdKafka::Message> msg(_k_consumer->consume(1000 /* timeout, ms */));
         consumer_watch.stop();
+
         DorisMetrics::instance()->routine_load_get_msg_count->increment(1);
         DorisMetrics::instance()->routine_load_get_msg_latency->increment(
                 consumer_watch.elapsed_time() / 1000 / 1000);
+
         DBUG_EXECUTE_IF("KafkaDataConsumer.group_consume.out_of_range", {
             done = true;
             std::stringstream ss;
@@ -248,8 +251,10 @@ Status KafkaDataConsumer::group_consume(BlockingQueue<RdKafka::Message*>* queue,
             st = Status::InternalError<false>(ss.str());
             break;
         });
+
         switch (msg->err()) {
         case RdKafka::ERR_NO_ERROR:
+            retry_policy.reset();
             if (_consuming_partition_ids.count(msg->partition()) <= 0) {
                 _consuming_partition_ids.insert(msg->partition());
             }
@@ -276,9 +281,9 @@ Status KafkaDataConsumer::group_consume(BlockingQueue<RdKafka::Message*>* queue,
             break;
         case RdKafka::ERR__TRANSPORT:
             LOG(INFO) << "kafka consume Disconnected: " << _id
-                      << ", retry times: " << retry_times++;
-            if (retry_times <= MAX_RETRY_TIMES_FOR_TRANSPORT_FAILURE) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                      << ", retry times: " << retry_policy.retry_count();
+            if (retry_policy.should_retry()) {
+                retry_policy.retry_with_backoff();
                 break;
             }
             [[fallthrough]];
@@ -558,21 +563,7 @@ bool KafkaDataConsumer::match(std::shared_ptr<StreamLoadContext> ctx) {
         return false;
     }
     // check properties
-    if (_custom_properties.size() != ctx->kafka_info->properties.size()) {
-        return false;
-    }
-    for (auto& item : ctx->kafka_info->properties) {
-        std::unordered_map<std::string, std::string>::const_iterator itr =
-                _custom_properties.find(item.first);
-        if (itr == _custom_properties.end()) {
-            return false;
-        }
-
-        if (itr->second != item.second) {
-            return false;
-        }
-    }
-    return true;
+    return PropertyMatcher::properties_match(_custom_properties, ctx->kafka_info->properties);
 }
 
 // ==================== AWS Kinesis Data Consumer Implementation ====================
@@ -793,8 +784,6 @@ Status KinesisDataConsumer::_get_shard_iterator(const std::string& shard_id,
 Status KinesisDataConsumer::group_consume(
         BlockingQueue<std::shared_ptr<Aws::Kinesis::Model::Record>>* queue,
         int64_t max_running_time_ms) {
-    static constexpr int MAX_RETRY_TIMES_FOR_TRANSPORT_FAILURE = 3;
-    static constexpr int RATE_LIMIT_BACKOFF_MS = 1000;         // 1 second
     static constexpr int INTER_SHARD_SLEEP_MS = 10;            // Small sleep between shards
     static constexpr int MIN_INTERVAL_BETWEEN_ROUNDS_MS = 200; // Min 200ms between rounds
 
@@ -804,8 +793,8 @@ Status KinesisDataConsumer::group_consume(
 
     int64_t received_rows = 0;
     int64_t put_rows = 0;
-    int32_t retry_times = 0;
-    int32_t throttle_count = 0; // Track consecutive throttle errors
+    RetryPolicy retry_policy(3, 200);
+    ThrottleBackoff throttle_backoff(1000, 10000);
     Status st = Status::OK();
     bool done = false;
 
@@ -867,15 +856,11 @@ Status KinesisDataConsumer::group_consume(
                 // Handle throttling (ProvisionedThroughputExceededException)
                 if (error.GetErrorType() ==
                     Aws::Kinesis::KinesisErrors::PROVISIONED_THROUGHPUT_EXCEEDED) {
-                    throttle_count++;
                     DorisMetrics::instance()->routine_load_kinesis_throttle_count->increment(1);
-                    // Exponential backoff: 1s, 2s, 4s, 8s, max 10s
-                    int backoff_ms = std::min(
-                            RATE_LIMIT_BACKOFF_MS * (1 << std::min(throttle_count - 1, 3)), 10000);
                     LOG(INFO) << "Kinesis rate limit exceeded for shard: " << shard_id
-                              << ", throttle_count: " << throttle_count << ", backing off "
-                              << backoff_ms << "ms";
-                    std::this_thread::sleep_for(std::chrono::milliseconds(backoff_ms));
+                              << ", throttle_count: " << throttle_backoff.throttle_count()
+                              << ", backing off";
+                    throttle_backoff.backoff_and_sleep();
                     ++it; // Move to next shard, will retry this one next round
                     continue;
                 }
@@ -885,9 +870,9 @@ Status KinesisDataConsumer::group_consume(
                     DorisMetrics::instance()->routine_load_kinesis_retriable_error_count->increment(
                             1);
                     LOG(INFO) << "Kinesis retriable error for shard " << shard_id << ": "
-                              << error.GetMessage() << ", retry times: " << retry_times++;
-                    if (retry_times <= MAX_RETRY_TIMES_FOR_TRANSPORT_FAILURE) {
-                        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                              << error.GetMessage() << ", retry times: " << retry_policy.retry_count();
+                    if (retry_policy.should_retry()) {
+                        retry_policy.retry_with_backoff();
                         continue;
                     }
                 }
@@ -903,8 +888,8 @@ Status KinesisDataConsumer::group_consume(
             }
 
             // Reset retry counter on success
-            retry_times = 0;
-            throttle_count = 0; // Reset throttle counter on successful GetRecords
+            retry_policy.reset();
+            throttle_backoff.reset();
 
             // Process records - move result to allow moving individual records
             auto result = outcome.GetResultWithOwnership();
@@ -1050,18 +1035,7 @@ bool KinesisDataConsumer::match(std::shared_ptr<StreamLoadContext> ctx) {
     }
 
     // Check that properties match
-    if (_custom_properties.size() != ctx->kinesis_info->properties.size()) {
-        return false;
-    }
-
-    for (auto& item : ctx->kinesis_info->properties) {
-        auto itr = _custom_properties.find(item.first);
-        if (itr == _custom_properties.end() || itr->second != item.second) {
-            return false;
-        }
-    }
-
-    return true;
+    return PropertyMatcher::properties_match(_custom_properties, ctx->kinesis_info->properties);
 }
 
 Status KinesisDataConsumer::get_shard_list(std::vector<std::string>* shard_ids) {
