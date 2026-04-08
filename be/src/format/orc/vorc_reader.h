@@ -142,7 +142,6 @@ public:
         int64_t get_batch_time = 0;
         int64_t create_reader_time = 0;
         int64_t init_column_time = 0;
-        int64_t set_fill_column_time = 0;
         int64_t decode_value_time = 0;
         int64_t decode_null_map_time = 0;
         int64_t predicate_filter_time = 0;
@@ -288,7 +287,6 @@ private:
         RuntimeProfile::Counter* get_batch_time = nullptr;
         RuntimeProfile::Counter* create_reader_time = nullptr;
         RuntimeProfile::Counter* init_column_time = nullptr;
-        RuntimeProfile::Counter* set_fill_column_time = nullptr;
         RuntimeProfile::Counter* decode_value_time = nullptr;
         RuntimeProfile::Counter* decode_null_map_time = nullptr;
         RuntimeProfile::Counter* predicate_filter_time = nullptr;

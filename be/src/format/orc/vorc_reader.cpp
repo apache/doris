@@ -273,7 +273,6 @@ void OrcReader::_collect_profile_before_close() {
         COUNTER_UPDATE(_orc_profile.get_batch_time, _statistics.get_batch_time);
         COUNTER_UPDATE(_orc_profile.create_reader_time, _statistics.create_reader_time);
         COUNTER_UPDATE(_orc_profile.init_column_time, _statistics.init_column_time);
-        COUNTER_UPDATE(_orc_profile.set_fill_column_time, _statistics.set_fill_column_time);
         COUNTER_UPDATE(_orc_profile.decode_value_time, _statistics.decode_value_time);
         COUNTER_UPDATE(_orc_profile.decode_null_map_time, _statistics.decode_null_map_time);
         COUNTER_UPDATE(_orc_profile.predicate_filter_time, _statistics.predicate_filter_time);
@@ -303,8 +302,6 @@ void OrcReader::_init_profile() {
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "CreateReaderTime", orc_profile, 1);
         _orc_profile.init_column_time =
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "InitColumnTime", orc_profile, 1);
-        _orc_profile.set_fill_column_time =
-                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "SetFillColumnTime", orc_profile, 1);
         _orc_profile.decode_value_time =
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "DecodeValueTime", orc_profile, 1);
         _orc_profile.decode_null_map_time =
@@ -440,17 +437,8 @@ Status OrcReader::_do_init_reader(ReaderInitContext* base_ctx) {
     _slot_id_to_filter_conjuncts = ctx->slot_id_to_filter_conjuncts;
     _obj_pool = std::make_unique<ObjectPool>();
 
-    if (_state != nullptr) {
-        _orc_tiny_stripe_threshold_bytes = _state->query_options().orc_tiny_stripe_threshold_bytes;
-        _orc_once_max_read_bytes = _state->query_options().orc_once_max_read_bytes;
-        _orc_max_merge_distance_bytes = _state->query_options().orc_max_merge_distance_bytes;
-    }
-
-    // _create_file_reader() is called by init_reader template method before hooks.
-    // For standalone _do_init_reader callers (tvf, load, etc.), open the file here if not already opened.
-    if (_reader == nullptr) {
-        RETURN_IF_ERROR(_create_file_reader());
-    }
+    // _open_file_reader (called by init_reader NVI before hooks) must have opened the file.
+    DCHECK(_reader != nullptr) << "OrcReader::_do_init_reader called without _open_file_reader";
     RETURN_IF_ERROR(_init_read_columns());
 
     // Compute missing columns and file↔table column mapping.
@@ -472,14 +460,11 @@ Status OrcReader::_do_init_reader(ReaderInitContext* base_ctx) {
                 }
             }
         }
-        // Resolve file-column ↔ table-column mapping.
-        _init_file_column_mapping();
     }
-    // Standalone callers (column_descs == nullptr) skip on_before_init_reader,
-    // so _read_file_cols etc. are not populated. Build them here as fallback.
-    if (_read_file_cols.empty()) {
-        _init_file_column_mapping();
-    }
+    // Resolve file-column ↔ table-column mapping.
+    // _init_file_column_mapping handles both normal path (missing cols populated above)
+    // and standalone path (_fill_missing_cols empty, _table_info_node_ptr may be null).
+    _init_file_column_mapping();
 
     // Register row-position-based synthesized column handler.
     // _row_id_column_iterator_pair and _row_lineage_columns are set before init_reader
@@ -496,7 +481,6 @@ Status OrcReader::_do_init_reader(ReaderInitContext* base_ctx) {
     }
 
     // ---- Inlined set_fill_columns logic (partition/missing/synthesized classification) ----
-    SCOPED_RAW_TIMER(&_statistics.set_fill_column_time);
 
     // 1. Collect predicate columns from conjuncts for lazy materialization
     std::unordered_map<std::string, std::pair<uint32_t, int>> predicate_table_columns;

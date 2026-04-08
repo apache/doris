@@ -435,15 +435,10 @@ Status ParquetReader::_do_init_reader(ReaderInitContext* base_ctx) {
     _column_ids = base_ctx->column_ids;
     _filter_column_ids = base_ctx->filter_column_ids;
 
-    // _open_file() is called by init_reader template method before hooks.
-    // For standalone _do_init_reader callers (tvf, load, etc.), open the file here if not already opened.
-    if (_file_metadata == nullptr) {
-        RETURN_IF_ERROR(_open_file());
-    }
+    // _open_file_reader (called by init_reader NVI before hooks) must have opened the file.
+    DCHECK(_file_metadata != nullptr)
+            << "ParquetReader::_do_init_reader called without _open_file_reader";
     _t_metadata = &(_file_metadata->to_thrift());
-    if (_file_metadata == nullptr) {
-        return Status::InternalError("failed to init parquet reader, please open reader first");
-    }
 
     SCOPED_RAW_TIMER(&_reader_statistics.parse_meta_time);
     _total_groups = _t_metadata->row_groups.size();
@@ -471,14 +466,11 @@ Status ParquetReader::_do_init_reader(ReaderInitContext* base_ctx) {
                 }
             }
         }
-        // Resolve file-column ↔ table-column mapping in file-schema order.
-        _init_read_columns(base_ctx->column_names);
     }
-    // Standalone callers (column_descs == nullptr) skip on_before_init_reader,
-    // so _read_file_columns etc. are not populated. Build them here as fallback.
-    if (_read_file_columns.empty()) {
-        _init_read_columns(base_ctx->column_names);
-    }
+    // Resolve file-column ↔ table-column mapping in file-schema order.
+    // _init_read_columns handles both normal path (missing cols populated above)
+    // and standalone path (_fill_missing_cols empty, _table_info_node_ptr may be null).
+    _init_read_columns(base_ctx->column_names);
 
     // Register row-position-based synthesized column handler.
     // _row_id_column_iterator_pair and _row_lineage_columns are set before init_reader
