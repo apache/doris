@@ -1044,23 +1044,31 @@ Status PipelineTask::revoke_memory(const std::shared_ptr<SpillContext>& spill_co
     return Status::OK();
 }
 
-Status PipelineTask::wake_up(Dependency* dep, std::unique_lock<std::mutex>& /* dep_lock */) {
+void PipelineTask::wake_up(Dependency* dep, std::unique_lock<std::mutex>& /* dep_lock */) {
+    auto cancel_if_error = [&](const Status& st) {
+        if (!st.ok()) {
+            if (auto frag = fragment_context().lock()) {
+                frag->cancel(st);
+            } else {
+                // do nothing and waitting for FragmentMgr::cancel_worker
+            }
+        }
+    };
     // call by dependency
     DCHECK_EQ(_blocked_dep, dep) << "dep : " << dep->debug_string(0) << "task: " << debug_string();
     _blocked_dep = nullptr;
     auto holder = std::dynamic_pointer_cast<PipelineTask>(shared_from_this());
-    RETURN_IF_ERROR(_state_transition(PipelineTask::State::RUNNABLE));
+    cancel_if_error(_state_transition(PipelineTask::State::RUNNABLE));
     // Under _wake_up_early, FINISHED/FINALIZED → RUNNABLE is a legal no-op
     // (_state_transition returns OK but state stays unchanged). We must not
     // resubmit a terminated task: finalize() clears _sink/_operators, and
     // submit() → is_blockable() would dereference them → SIGSEGV.
     if (_exec_state == State::FINISHED || _exec_state == State::FINALIZED) {
-        return Status::OK();
+        return;
     }
     if (auto f = _fragment_context.lock(); f) {
-        RETURN_IF_ERROR(_state->get_query_ctx()->get_pipe_exec_scheduler()->submit(holder));
+        cancel_if_error(_state->get_query_ctx()->get_pipe_exec_scheduler()->submit(holder));
     }
-    return Status::OK();
 }
 
 Status PipelineTask::_state_transition(State new_state) {
