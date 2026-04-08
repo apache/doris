@@ -23,6 +23,8 @@ test.zip
 test.zip.md5
 webroot/*
 net_snmp_normal
+stat_normal
+stat_normal_second
 .*log
 lru_cache.*
 jmockit/*
