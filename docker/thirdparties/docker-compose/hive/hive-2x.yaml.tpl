@@ -16,8 +16,6 @@
 #
 
 
-version: "3.8"
-
 services:
   namenode:
     image: bde2020/hadoop-namenode:2.0.0-hadoop2.7.4-java8
@@ -35,6 +33,8 @@ services:
       interval: 5s
       timeout: 120s
       retries: 120
+    volumes:
+      - ${HIVE_STATE_ROOT}/namenode:/hadoop/dfs/name
     network_mode: "host"
 
   datanode:
@@ -52,6 +52,8 @@ services:
       interval: 5s
       timeout: 60s
       retries: 120
+    volumes:
+      - ${HIVE_STATE_ROOT}/datanode:/hadoop/dfs/data
     network_mode: "host"
 
   hive-server:
@@ -61,9 +63,12 @@ services:
     environment:
       HIVE_CORE_CONF_javax_jdo_option_ConnectionURL: "jdbc:postgresql://${IP_HOST}:${PG_PORT}/metastore"
       SERVICE_PRECONDITION: "${IP_HOST}:${HMS_PORT}"
+      HIVE_SITE_CONF_hive_aux_jars_path: "file:///mnt/scripts/auxlib/json-serde-1.3.9-SNAPSHOT-jar-with-dependencies.jar"
     container_name: ${CONTAINER_UID}hive2-server
     expose:
       - "${HS_PORT}"
+    volumes:
+      - ./scripts:/mnt/scripts
     depends_on:
       datanode:
         condition: service_healthy
@@ -81,7 +86,7 @@ services:
     image: bde2020/hive:2.3.2-postgresql-metastore
     env_file:
       - ./hadoop-hive-2x.env
-    command: /bin/bash /mnt/scripts/hive-metastore.sh
+    command: /bin/bash /mnt/scripts/start-hive-metastore.sh
     environment:
       SERVICE_PRECONDITION: "${IP_HOST}:50070 ${IP_HOST}:50075 ${IP_HOST}:${PG_PORT}"
       HMS_PORT: "${HMS_PORT}"
@@ -90,6 +95,7 @@ services:
       - "${HMS_PORT}"
     volumes:
       - ./scripts:/mnt/scripts
+      - ${HIVE_STATE_ROOT}/state:/mnt/state
     depends_on:
       hive-metastore-postgresql:
         condition: service_healthy
@@ -105,6 +111,8 @@ services:
     container_name: ${CONTAINER_UID}hive2-metastore-postgresql
     ports:
       - "${PG_PORT}:5432"
+    volumes:
+      - ${HIVE_STATE_ROOT}/pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s

@@ -1,7 +1,9 @@
 CREATE DATABASE IF NOT EXISTS multi_catalog;
 USE multi_catalog;
 
-CREATE TABLE `multi_catalog.type_change_orc`(
+drop table if exists `multi_catalog.type_change_orc`;
+
+create table `multi_catalog.type_change_orc`(
   `numeric_boolean` int, 
   `numeric_tinyint` double, 
   `numeric_smallint` bigint, 
@@ -41,5 +43,3 @@ OUTPUTFORMAT
 LOCATION '/user/doris/suites/multi_catalog/type_change_orc'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1712484849');
-
-msck repair table type_change_orc;

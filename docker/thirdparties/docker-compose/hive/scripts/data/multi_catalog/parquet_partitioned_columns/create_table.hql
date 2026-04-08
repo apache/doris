@@ -1,7 +1,9 @@
 CREATE DATABASE IF NOT EXISTS multi_catalog;
 USE multi_catalog;
 
-CREATE TABLE `parquet_partitioned_columns`(
+drop table if exists `parquet_partitioned_columns`;
+
+create table `parquet_partitioned_columns`(
   `t_timestamp` timestamp)
 PARTITIONED BY (
  `t_int` int,
