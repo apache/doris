@@ -196,12 +196,7 @@ suite("test_drop_index_on_partition", "inverted_index") {
     """
     sql "INSERT INTO ${tableName4} VALUES (10, 'test'), (110, 'data')"
     sql "CREATE INDEX idx_ngram ON ${tableName4}(v1) USING NGRAM_BF PROPERTIES(\"gram_size\"=\"3\", \"bf_size\"=\"1024\")"
-    if (isCloudMode()) {
-        build_index_on_table("idx_ngram", tableName4)
-        wait_for_last_build_index_finish(tableName4, timeout)
-    } else {
-        wait_for_last_col_change_finish(tableName4, timeout)
-    }
+    wait_for_last_col_change_finish(tableName4, timeout)
 
     test {
         sql "DROP INDEX idx_ngram ON ${tableName4} PARTITION (p1)"
