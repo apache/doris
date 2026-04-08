@@ -19,6 +19,7 @@ package org.apache.doris.metric;
 
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.JsonUtil;
+import org.apache.doris.datasource.hive.ThriftHMSCachedClient;
 import org.apache.doris.metric.Metric.MetricUnit;
 import org.apache.doris.monitor.jvm.JvmService;
 import org.apache.doris.monitor.jvm.JvmStats;
@@ -26,6 +27,8 @@ import org.apache.doris.monitor.jvm.JvmStats;
 import com.codahale.metrics.Histogram;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.extern.slf4j.Slf4j;
+import mockit.Mock;
+import mockit.MockUp;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -87,6 +90,53 @@ public class MetricsTest {
         Assert.assertTrue(metricResult.contains("doris_fe_query_latency_ms{quantile=\"0.999\"} 0.0"));
         Assert.assertTrue(metricResult.contains("doris_fe_query_latency_ms{quantile=\"0.999\",user=\"test_user\"} 10.0"));
 
+    }
+
+    @Test
+    public void testConvertMetrics() {
+        MetricRepo.COUNTER_SQL_CONVERT_ALL.increase(1L);
+        MetricRepo.COUNTER_SQL_CONVERT_SERVICE_UNREACHABLE.increase(1L);
+
+        MetricVisitor visitor = new PrometheusMetricVisitor();
+        MetricRepo.DORIS_METRIC_REGISTER.accept(visitor);
+        String metricResult = visitor.finish();
+
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_sql_convert_total counter"));
+        Assert.assertTrue(metricResult.contains("doris_fe_sql_convert_total 1"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_sql_convert_service_unreachable counter"));
+        Assert.assertTrue(metricResult.contains("doris_fe_sql_convert_service_unreachable 1"));
+    }
+
+    @Test
+    public void testHmsMetrics() {
+        Assert.assertEquals(Long.valueOf(0L), MetricRepo.GAUGE_HMS_CONNECTIONS.getValue());
+        new MockUp<ThriftHMSCachedClient>() {
+            @Mock
+            public long getTotalPoolSize() {
+                return 1L;
+            }
+        };
+        MetricRepo.COUNTER_HMS_CREATE_CLIENT_ERROR.increase(2L);
+        MetricVisitor visitor = new PrometheusMetricVisitor();
+        MetricRepo.HISTO_HMS_CREATE_CLIENT.update(5L);
+        MetricRepo.HISTO_HMS_API_CALL_GET_PARTITIONS.update(10L);
+
+        MetricRepo.DORIS_METRIC_REGISTER.accept(visitor);
+        SortedMap<String, Histogram> histograms = MetricRepo.METRIC_REGISTER.getHistograms();
+        for (Map.Entry<String, Histogram> entry : histograms.entrySet()) {
+            visitor.visitHistogram(MetricVisitor.FE_PREFIX, entry.getKey(), entry.getValue());
+        }
+        String metricResult = visitor.finish();
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_hive_metastore_connections gauge"));
+        Assert.assertTrue(metricResult.contains("doris_fe_hive_metastore_connections 1"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_hive_metastore_create_client_errors counter"));
+        Assert.assertTrue(metricResult.contains("doris_fe_hive_metastore_create_client_errors 2"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_hive_metastore_api_get_partitions summary"));
+        Assert.assertTrue(metricResult.contains("doris_fe_hive_metastore_api_get_partitions{quantile=\"0.999\"} 10.0"));
+        Assert.assertTrue(metricResult.contains("doris_fe_hive_metastore_api_get_partitions{quantile=\"0.999\"} 10.0"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_hive_metastore_create_client summary"));
+        Assert.assertTrue(metricResult.contains("doris_fe_hive_metastore_create_client{quantile=\"0.999\"} 5.0"));
+        Assert.assertTrue(metricResult.contains("doris_fe_hive_metastore_create_client{quantile=\"0.999\"} 5.0"));
     }
 
     @Test

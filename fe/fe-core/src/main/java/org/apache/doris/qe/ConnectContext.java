@@ -132,6 +132,7 @@ public class ConnectContext {
     protected volatile LoadTaskInfo streamLoadInfo;
 
     protected volatile TUniqueId queryId = null;
+
     // only be active one time. tell Coordinator to regenerate instance ids for certain query(when retry).
     protected volatile TUniqueId needRegenerateInstanceId = null;
     protected volatile AtomicInteger instanceIdGenerator = new AtomicInteger();

@@ -47,6 +47,7 @@ import org.apache.doris.datasource.hive.HiveTransaction;
 import org.apache.doris.datasource.hive.source.HiveSplit.HiveSplitCreator;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.fs.DirectoryLister;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
@@ -316,6 +317,17 @@ public class HiveScanNode extends FileQueryScanNode {
         }
 
         long targetFileSplitSize = determineTargetFileSplitSize(fileCaches, isBatchMode);
+
+        long totalFileSize = 0;
+        for (HiveMetaStoreCache.FileCacheValue fileCacheValue : fileCaches) {
+            if (fileCacheValue.getFiles() != null) {
+                for (HiveMetaStoreCache.HiveFileStatus status : fileCacheValue.getFiles()) {
+                    totalFileSize += status.getLength();
+                }
+            }
+        }
+        MetricRepo.COUNTER_HMS_SCAN_SIZE_BYTES.increase(totalFileSize);
+
         if (tableSample != null) {
             List<HiveMetaStoreCache.HiveFileStatus> hiveFileStatuses = selectFiles(fileCaches);
             splitAllFiles(allFiles, hiveFileStatuses, targetFileSplitSize);

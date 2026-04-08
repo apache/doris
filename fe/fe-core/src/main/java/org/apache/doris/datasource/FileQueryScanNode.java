@@ -34,6 +34,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.hive.source.HiveSplit;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
@@ -390,6 +391,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 executor.getSummaryProfile().setAssignedWeightPerBackend(backendPolicy.getAssignedWeightPerBackend());
             }
         }
+        MetricRepo.COUNTER_HMS_SPLIT.increase((long) selectedSplitNum);
+        MetricRepo.COUNTER_HMS_PARTITION.increase((long) selectedPartitionNum);
+
         if (LOG.isDebugEnabled()) {
             LOG.debug("create #{} ScanRangeLocations cost: {} ms",
                     scanRangeLocations.size(), (System.currentTimeMillis() - start));

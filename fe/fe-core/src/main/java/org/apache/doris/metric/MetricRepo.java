@@ -30,6 +30,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.datasource.hive.ThriftHMSCachedClient;
 import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
@@ -86,13 +87,46 @@ public final class MetricRepo {
     public static final String TABLET_ACCESS_TOTAL = "tablet_access_total";
     public static final String CLOUD_TAG = "cloud";
 
+    public static GaugeMetric<Long> GAUGE_HMS_CONNECTIONS;
+    public static LongCounterMetric COUNTER_HMS_CALL_ERROR;
+    public static LongCounterMetric COUNTER_HMS_CREATE_CLIENT_ERROR;
+    public static Histogram HISTO_HMS_CREATE_CLIENT;
+    public static Histogram HISTO_HMS_API_CALL_GET_TABLE;
+    public static Histogram HISTO_HMS_API_CALL_GET_TABLE_FROM_VIEW;
+    public static Histogram HISTO_HMS_API_CALL_GET_ALL_TABLES;
+    public static Histogram HISTO_HMS_API_CALL_GET_PARTITION;
+    public static Histogram HISTO_HMS_API_CALL_GET_PARTITION_FROM_VIEW;
+    public static Histogram HISTO_HMS_API_CALL_GET_PARTITIONS;
+    public static Histogram HISTO_HMS_API_CALL_GET_PARTITIONS_FROM_VIEW;
+    public static Histogram HISTO_HMS_API_CALL_LIST_PARTITIONS;
+    public static Histogram HISTO_HMS_API_CALL_LIST_PARTITIONS_BY_FILTER;
+    public static Histogram HISTO_HMS_API_CALL_LIST_PARTITIONS_BY_FILTER_FROM_VIEW;
+    public static Histogram HISTO_HMS_API_CALL_LIST_PARTITIONS_NAMES;
+    public static Histogram HISTO_HMS_API_CALL_LIST_PARTITIONS_NAMES_FROM_VIEW;
+    public static Histogram HISTO_HMS_API_CALL_LIST_PARTITIONS_NUM;
+    public static Histogram HISTO_HMS_API_CALL_LIST_PARTITIONS_BY_FILTER_NUM;
+    public static Histogram HISTO_HMS_API_CALL_LIST_PARTITIONS_BY_FILTER_FROM_VIEW_NUM;
+    public static Histogram HISTO_HMS_API_CALL_LIST_PARTITIONS_NAMES_NUM;
+    public static Histogram HISTO_HMS_API_CALL_LIST_PARTITIONS_NAMES_FROM_VIEW_NUM;
+    public static Histogram HISTO_HMS_API_CALL_GET_PARTITIONS_NUM;
+    public static Histogram HISTO_HMS_API_CALL_GET_PARTITIONS_FROM_VIEW_NUM;
+    public static Histogram HISTO_HMS_API_CALL_GET_NUM_PARTITIONS_BY_FILTER;
+
     public static LongCounterMetric COUNTER_REQUEST_ALL;
     public static LongCounterMetric COUNTER_QUERY_ALL;
     public static LongCounterMetric COUNTER_QUERY_ERR;
     public static LongCounterMetric COUNTER_QUERY_SLOW;
     public static LongCounterMetric COUNTER_QUERY_TABLE;
     public static LongCounterMetric COUNTER_QUERY_OLAP_TABLE;
-    public static LongCounterMetric COUNTER_QUERY_HIVE_TABLE;
+    public static LongCounterMetric COUNTER_QUERY_HMS_TABLE;
+    public static LongCounterMetric COUNTER_LARGE_QUERY_HMS_TABLE;
+    public static AutoMappedMetric<LongCounterMetric> COUNTER_HMS_TABLE;
+    public static LongCounterMetric COUNTER_HMS_SPLIT;
+    public static LongCounterMetric COUNTER_HMS_PARTITION;
+    public static LongCounterMetric COUNTER_HMS_SCAN_SIZE_BYTES;
+
+    public static LongCounterMetric COUNTER_SQL_CONVERT_ALL;
+    public static LongCounterMetric COUNTER_SQL_CONVERT_SERVICE_UNREACHABLE;
 
     public static LongCounterMetric HTTP_COUNTER_COPY_INFO_UPLOAD_REQUEST;
     public static LongCounterMetric HTTP_COUNTER_COPY_INFO_UPLOAD_ERR;
@@ -472,9 +506,36 @@ public final class MetricRepo {
         COUNTER_QUERY_OLAP_TABLE = new LongCounterMetric("query_olap_table", MetricUnit.REQUESTS,
                 "total query from olap table");
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_QUERY_OLAP_TABLE);
-        COUNTER_QUERY_HIVE_TABLE = new LongCounterMetric("query_hive_table", MetricUnit.REQUESTS,
-                "total query from hive table");
-        DORIS_METRIC_REGISTER.addMetrics(COUNTER_QUERY_HIVE_TABLE);
+        COUNTER_QUERY_HMS_TABLE = new LongCounterMetric("query_hms_table", MetricUnit.REQUESTS,
+                "total query from hms table");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_QUERY_HMS_TABLE);
+        COUNTER_LARGE_QUERY_HMS_TABLE = new LongCounterMetric("large_query_hms_table", MetricUnit.REQUESTS,
+                "total large query from hive table");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_LARGE_QUERY_HMS_TABLE);
+        COUNTER_HMS_TABLE = new AutoMappedMetric<>(typeName -> {
+            LongCounterMetric hmsTableCounter  = new LongCounterMetric("counter_hms_table", MetricUnit.REQUESTS,
+                    "total hms table counter");
+            hmsTableCounter.addLabel(new MetricLabel("type", typeName));
+            DORIS_METRIC_REGISTER.addMetrics(hmsTableCounter);
+            return hmsTableCounter;
+        });
+        COUNTER_HMS_PARTITION = new LongCounterMetric("counter_hms_partition", MetricUnit.REQUESTS,
+                "total hms partition counter");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_HMS_PARTITION);
+        COUNTER_HMS_SPLIT = new LongCounterMetric("counter_hms_split", MetricUnit.REQUESTS,
+                "total hms split counter");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_HMS_SPLIT);
+        COUNTER_HMS_SCAN_SIZE_BYTES = new LongCounterMetric("counter_hms_scan_size_bytes", MetricUnit.BYTES,
+                "total hms scan size bytes");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_HMS_SCAN_SIZE_BYTES);
+
+        COUNTER_SQL_CONVERT_ALL = new LongCounterMetric("sql_convert_total", MetricUnit.REQUESTS,
+                "total SQL conversion attempts");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_SQL_CONVERT_ALL);
+        COUNTER_SQL_CONVERT_SERVICE_UNREACHABLE = new LongCounterMetric("sql_convert_service_unreachable",
+                MetricUnit.REQUESTS, "total SQL conversion attempts to service unreachable");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_SQL_CONVERT_SERVICE_UNREACHABLE);
+
         USER_COUNTER_QUERY_ALL = new AutoMappedMetric<>(name -> {
             LongCounterMetric userCountQueryAll = new LongCounterMetric("query_total", MetricUnit.REQUESTS,
                     "total query for single user");
@@ -1062,6 +1123,63 @@ public final class MetricRepo {
                 new LongCounterMetric("agent_task_total", MetricUnit.NOUNIT, "total agent task"));
         COUNTER_AGENT_TASK_RESEND_TOTAL = addLabeledMetrics("task", () ->
                 new LongCounterMetric("agent_task_resend_total", MetricUnit.NOUNIT, "total agent task resend"));
+
+        GAUGE_HMS_CONNECTIONS = new GaugeMetric<Long>("hive_metastore_connections", MetricUnit.NOUNIT,
+                "total hive metastore connections") {
+            @Override
+            public Long getValue() {
+                return ThriftHMSCachedClient.getTotalPoolSize();
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_HMS_CONNECTIONS);
+        COUNTER_HMS_CALL_ERROR = new LongCounterMetric("hive_metastore_call_error", MetricUnit.NOUNIT,
+            "total hive metastore api call errors");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_HMS_CALL_ERROR);
+        COUNTER_HMS_CREATE_CLIENT_ERROR = new LongCounterMetric("hive_metastore_create_client_errors",
+            MetricUnit.NOUNIT, "create hive metastore client errors");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_HMS_CREATE_CLIENT_ERROR);
+        HISTO_HMS_CREATE_CLIENT = METRIC_REGISTER.histogram(
+            MetricRegistry.name("hive_metastore_create_client"));
+        HISTO_HMS_API_CALL_GET_TABLE = METRIC_REGISTER.histogram(
+            MetricRegistry.name("hive_metastore_api", "get_table"));
+        HISTO_HMS_API_CALL_GET_TABLE_FROM_VIEW = METRIC_REGISTER.histogram(
+            MetricRegistry.name("hive_metastore_api", "get_table_from_view"));
+        HISTO_HMS_API_CALL_GET_ALL_TABLES = METRIC_REGISTER.histogram(
+            MetricRegistry.name("hive_metastore_api", "get_all_tables"));
+        HISTO_HMS_API_CALL_GET_PARTITION = METRIC_REGISTER.histogram(
+            MetricRegistry.name("hive_metastore_api", "get_partition"));
+        HISTO_HMS_API_CALL_GET_PARTITION_FROM_VIEW = METRIC_REGISTER.histogram(
+            MetricRegistry.name("hive_metastore_api", "get_partition_from_view"));
+        HISTO_HMS_API_CALL_GET_PARTITIONS = METRIC_REGISTER.histogram(
+            MetricRegistry.name("hive_metastore_api", "get_partitions"));
+        HISTO_HMS_API_CALL_GET_PARTITIONS_FROM_VIEW = METRIC_REGISTER.histogram(
+            MetricRegistry.name("hive_metastore_api", "get_partitions_from_view"));
+        HISTO_HMS_API_CALL_LIST_PARTITIONS = METRIC_REGISTER.histogram(
+            MetricRegistry.name("hive_metastore_api", "list_partitions"));
+        HISTO_HMS_API_CALL_LIST_PARTITIONS_BY_FILTER = METRIC_REGISTER.histogram(
+            MetricRegistry.name("hive_metastore_api", "list_partitions_by_filter"));
+        HISTO_HMS_API_CALL_LIST_PARTITIONS_BY_FILTER_FROM_VIEW = METRIC_REGISTER.histogram(
+            MetricRegistry.name("hive_metastore_api", "list_partitions_by_filter_from_view"));
+        HISTO_HMS_API_CALL_LIST_PARTITIONS_NAMES = METRIC_REGISTER.histogram(
+            MetricRegistry.name("hive_metastore_api", "list_partitions_names"));
+        HISTO_HMS_API_CALL_LIST_PARTITIONS_NAMES_FROM_VIEW = METRIC_REGISTER.histogram(
+            MetricRegistry.name("hive_metastore_api", "list_partitions_names_from_view"));
+        HISTO_HMS_API_CALL_LIST_PARTITIONS_NUM = METRIC_REGISTER.histogram(
+            MetricRegistry.name("hive_metastore_api", "list_partitions_num"));
+        HISTO_HMS_API_CALL_LIST_PARTITIONS_BY_FILTER_NUM = METRIC_REGISTER.histogram(
+            MetricRegistry.name("hive_metastore_api", "list_partitions_by_filter_num"));
+        HISTO_HMS_API_CALL_LIST_PARTITIONS_BY_FILTER_FROM_VIEW_NUM = METRIC_REGISTER.histogram(
+            MetricRegistry.name("hive_metastore_api", "list_partitions_by_filter_from_view_num"));
+        HISTO_HMS_API_CALL_LIST_PARTITIONS_NAMES_NUM = METRIC_REGISTER.histogram(
+            MetricRegistry.name("hive_metastore_api", "list_partitions_names_num"));
+        HISTO_HMS_API_CALL_LIST_PARTITIONS_NAMES_FROM_VIEW_NUM = METRIC_REGISTER.histogram(
+            MetricRegistry.name("hive_metastore_api", "list_partitions_names_from_view_num"));
+        HISTO_HMS_API_CALL_GET_PARTITIONS_NUM = METRIC_REGISTER.histogram(
+            MetricRegistry.name("hive_metastore_api", "get_partitions_num"));
+        HISTO_HMS_API_CALL_GET_PARTITIONS_FROM_VIEW_NUM = METRIC_REGISTER.histogram(
+            MetricRegistry.name("hive_metastore_api", "get_partitions_from_view_num"));
+        HISTO_HMS_API_CALL_GET_NUM_PARTITIONS_BY_FILTER = METRIC_REGISTER.histogram(
+            MetricRegistry.name("hive_metastore_api", "get_num_partitions_by_filter"));
 
         // init system metrics
         initSystemMetrics();

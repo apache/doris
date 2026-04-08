@@ -46,6 +46,7 @@ import org.apache.doris.datasource.iceberg.cache.IcebergManifestCacheLoader;
 import org.apache.doris.datasource.iceberg.cache.ManifestCacheValue;
 import org.apache.doris.datasource.iceberg.profile.IcebergMetricsReporter;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
@@ -824,6 +825,11 @@ public class IcebergScanNode extends FileQueryScanNode {
 
         selectedPartitionNum = partitionMapInfos.size();
         recordManifestCacheProfile();
+        long totalFileSize = 0L;
+        for (Split split : splits) {
+            totalFileSize += split.getLength();
+        }
+        MetricRepo.COUNTER_HMS_SCAN_SIZE_BYTES.increase(totalFileSize);
         return splits;
     }
 

@@ -38,6 +38,8 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.source.HiveScanNode;
+import org.apache.doris.datasource.hudi.source.HudiScanNode;
+import org.apache.doris.datasource.iceberg.source.IcebergScanNode;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.SqlCacheContext;
@@ -312,18 +314,30 @@ public class CacheAnalyzer {
             MetricRepo.COUNTER_QUERY_TABLE.increase(1L);
             long olapScanNodeSize = 0;
             long hiveScanNodeSize = 0;
+            long hudiScanNodeSize = 0;
+            long icebergScanNodeSize = 0;
             for (ScanNode scanNode : scanNodes) {
                 if (scanNode instanceof OlapScanNode) {
                     olapScanNodeSize++;
+                } else if (scanNode instanceof HudiScanNode) {
+                    hudiScanNodeSize++;
                 } else if (scanNode instanceof HiveScanNode) {
                     hiveScanNodeSize++;
+                } else if (scanNode instanceof IcebergScanNode) {
+                    icebergScanNodeSize++;
                 }
             }
             if (olapScanNodeSize > 0) {
                 MetricRepo.COUNTER_QUERY_OLAP_TABLE.increase(1L);
             }
             if (hiveScanNodeSize > 0) {
-                MetricRepo.COUNTER_QUERY_HIVE_TABLE.increase(1L);
+                MetricRepo.COUNTER_HMS_TABLE.getOrAdd("hive").increase((long) hiveScanNodeSize);
+            }
+            if (hudiScanNodeSize > 0) {
+                MetricRepo.COUNTER_HMS_TABLE.getOrAdd("hudi").increase((long) hudiScanNodeSize);
+            }
+            if (icebergScanNodeSize > 0) {
+                MetricRepo.COUNTER_HMS_TABLE.getOrAdd("iceberg").increase((long) icebergScanNodeSize);
             }
 
             if (!(olapScanNodeSize == scanNodes.size() || hiveScanNodeSize == scanNodes.size())) {

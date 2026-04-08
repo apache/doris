@@ -39,6 +39,7 @@ import org.apache.doris.datasource.hudi.HudiSchemaCacheValue;
 import org.apache.doris.datasource.hudi.HudiUtils;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.fs.DirectoryLister;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
@@ -465,6 +466,11 @@ public class HudiScanNode extends HiveScanNode {
         } catch (Exception e) {
             throw new UserException(ExceptionUtils.getRootCauseMessage(e), e);
         }
+        long totalFileSize = 0L;
+        for (Split split : splits) {
+            totalFileSize += split.getLength();
+        }
+        MetricRepo.COUNTER_HMS_SCAN_SIZE_BYTES.increase(totalFileSize);
         return splits;
     }
 
