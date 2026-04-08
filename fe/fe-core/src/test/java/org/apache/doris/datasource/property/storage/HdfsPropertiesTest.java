@@ -19,7 +19,9 @@ package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
+import org.apache.doris.common.security.authentication.HadoopKerberosAuthenticator;
+import org.apache.doris.common.security.authentication.HadoopSimpleAuthenticator;
+import org.apache.doris.foundation.property.StoragePropertiesException;
 
 import com.google.common.collect.Maps;
 import org.apache.hadoop.conf.Configuration;
@@ -38,12 +40,15 @@ public class HdfsPropertiesTest {
         // Test 1: Check default authentication type (should be "simple")
         Map<String, String> simpleHdfsProperties = new HashMap<>();
         simpleHdfsProperties.put("uri", "hdfs://test/1.orc");
-        Assertions.assertEquals(HdfsProperties.class,  StorageProperties.createPrimary(simpleHdfsProperties).getClass());
+        Assertions.assertEquals(HdfsProperties.class, StorageProperties.createPrimary(simpleHdfsProperties).getClass());
+        simpleHdfsProperties.put("uri", "jfs://test/1.orc");
+        Assertions.assertEquals(HdfsProperties.class, StorageProperties.createPrimary(simpleHdfsProperties).getClass());
         Map<String, String> origProps = createBaseHdfsProperties();
         List<StorageProperties> storageProperties = StorageProperties.createAll(origProps);
         HdfsProperties hdfsProperties = (HdfsProperties) storageProperties.get(0);
         Configuration conf = hdfsProperties.getHadoopStorageConfig();
         Assertions.assertEquals("simple", conf.get("hadoop.security.authentication"));
+        Assertions.assertEquals(HadoopSimpleAuthenticator.class, hdfsProperties.getHadoopAuthenticator().getClass());
 
         // Test 2: Kerberos without necessary configurations (should throw exception)
         origProps.put("hdfs.authentication.type", "kerberos");
@@ -61,6 +66,7 @@ public class HdfsPropertiesTest {
         Assertions.assertEquals("kerberos", configuration.get("hdfs.security.authentication"));
         Assertions.assertEquals("hadoop", configuration.get("hadoop.kerberos.principal"));
         Assertions.assertEquals("keytab", configuration.get("hadoop.kerberos.keytab"));
+        Assertions.assertEquals(HadoopKerberosAuthenticator.class, properties.hadoopAuthenticator.getClass());
     }
 
     @Test
@@ -145,6 +151,21 @@ public class HdfsPropertiesTest {
         Assertions.assertEquals("10", beProperties.get("hadoop.async.threads.max"));
 
 
+    }
+
+    @Test
+    public void testPassThroughJuicefsProperties() throws UserException {
+        Map<String, String> origProps = new HashMap<>();
+        origProps.put("hdfs.authentication.type", "simple");
+        origProps.put("fs.defaultFS", "jfs://cluster");
+        origProps.put("fs.jfs.impl", "io.juicefs.JuiceFileSystem");
+        origProps.put("juicefs.cluster.meta", "redis://127.0.0.1:6379/1");
+
+        StorageProperties properties = StorageProperties.createAll(origProps).get(0);
+        Assertions.assertEquals(HdfsProperties.class, properties.getClass());
+        Map<String, String> beProperties = properties.getBackendConfigProperties();
+        Assertions.assertEquals("redis://127.0.0.1:6379/1", beProperties.get("juicefs.cluster.meta"));
+        Assertions.assertEquals("jfs://cluster", beProperties.get("fs.defaultFS"));
     }
 
     // Helper methods to reduce code duplication

@@ -91,9 +91,8 @@ public class StmtExecutionAction extends RestBaseController {
         }
 
         ActionAuthorizationInfo authInfo = checkWithCookie(request, response, false);
-        String fullDbName = getFullDbName(dbName);
         if (Config.enable_all_http_auth) {
-            checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, PrivPredicate.ADMIN);
+            checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), dbName, PrivPredicate.ADMIN);
         }
 
         if (ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
@@ -111,7 +110,7 @@ public class StmtExecutionAction extends RestBaseController {
                 stmtRequestBody.limit);
 
         ConnectContext.get().changeDefaultCatalog(ns);
-        ConnectContext.get().setDatabase(fullDbName);
+        ConnectContext.get().setDatabase(dbName);
 
         String streamHeader = request.getHeader("X-Doris-Stream");
         boolean isStream = !("false".equalsIgnoreCase(streamHeader));
@@ -146,7 +145,7 @@ public class StmtExecutionAction extends RestBaseController {
         }
         LOG.info("sql: {}", sql);
         ConnectContext.get().changeDefaultCatalog(ns);
-        ConnectContext.get().setDatabase(getFullDbName(dbName));
+        ConnectContext.get().setDatabase(dbName);
         return getSchema(sql);
     }
 
@@ -174,7 +173,12 @@ public class StmtExecutionAction extends RestBaseController {
                 }
                 return ResponseEntityBuilder.ok(resultSet.getResult());
             } catch (InterruptedException | ExecutionException e) {
-                LOG.warn("failed to execute stmt", e);
+                Throwable cause = e.getCause() != null ? e.getCause() : e;
+                if (cause instanceof java.sql.SQLSyntaxErrorException) {
+                    LOG.warn("failed to execute stmt: {}", cause.getMessage());
+                } else {
+                    LOG.warn("failed to execute stmt", e);
+                }
                 return ResponseEntityBuilder.okWithCommonError("Failed to execute sql: " + e.getMessage());
             }
         } else {

@@ -28,7 +28,9 @@ import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.HiveMetaStoreCache;
+import org.apache.doris.datasource.hive.HiveExternalMetaCache;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.persist.OperationType;
 
 import com.google.common.base.Strings;
@@ -146,10 +148,10 @@ public class RefreshManager {
             }
             return;
         }
-        refreshTableInternal((ExternalDatabase) db, (ExternalTable) table, 0);
-
+        long updateTime = System.currentTimeMillis();
+        refreshTableInternal((ExternalDatabase) db, (ExternalTable) table, updateTime);
         ExternalObjectLog log = ExternalObjectLog.createForRefreshTable(catalog.getId(), db.getFullName(),
-                table.getName());
+                table.getName(), updateTime);
         Env.getCurrentEnv().getEditLog().logRefreshExternalTable(log);
     }
 
@@ -184,6 +186,9 @@ public class RefreshManager {
             // this is a rename table op
             db.get().unregisterTable(log.getTableName());
             db.get().resetMetaCacheNames();
+            Env.getCurrentEnv().getConstraintManager().renameTable(
+                    new TableNameInfo(catalog.getName(), log.getDbName(), log.getTableName()),
+                    new TableNameInfo(catalog.getName(), log.getDbName(), log.getNewTableName()));
         } else {
             List<String> modifiedPartNames = log.getPartitionNames();
             List<String> newPartNames = log.getNewPartitionNames();
@@ -191,9 +196,12 @@ public class RefreshManager {
                     && ((modifiedPartNames != null && !modifiedPartNames.isEmpty())
                     || (newPartNames != null && !newPartNames.isEmpty()))) {
                 // Partition-level cache invalidation, only for hive catalog
-                HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                        .getMetaStoreCache((HMSExternalCatalog) catalog);
+                HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                        .hive(catalog.getId());
                 cache.refreshAffectedPartitionsCache((HMSExternalTable) table.get(), modifiedPartNames, newPartNames);
+                if (table.get() instanceof HMSExternalTable && log.getLastUpdateTime() > 0) {
+                    ((HMSExternalTable) table.get()).setUpdateTime(log.getLastUpdateTime());
+                }
                 LOG.info("replay refresh partitions for table {}, "
                                 + "modified partitions count: {}, "
                                 + "new partitions count: {}",
@@ -229,12 +237,17 @@ public class RefreshManager {
 
     public void refreshTableInternal(ExternalDatabase db, ExternalTable table, long updateTime) {
         table.unsetObjectCreated();
-        if (table instanceof HMSExternalTable && updateTime > 0) {
-            ((HMSExternalTable) table).setEventUpdateTime(updateTime);
+        // Iceberg partition evolution can change partition specs across FEs.
+        // Clear related-table validation cache to avoid stale partitioned/unpartitioned judgment.
+        if (table instanceof IcebergExternalTable) {
+            ((IcebergExternalTable) table).setIsValidRelatedTableCached(false);
+        }
+        if (updateTime > 0) {
+            table.setUpdateTime(updateTime);
         }
         Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(table);
-        LOG.info("refresh table {}, id {} from db {} in catalog {}",
-                table.getName(), table.getId(), db.getFullName(), db.getCatalog().getName());
+        LOG.info("refresh table {}, id {} from db {} in catalog {}, update time: {}",
+                table.getName(), table.getId(), db.getFullName(), db.getCatalog().getName(), updateTime);
     }
 
     // Refresh partition
@@ -267,8 +280,12 @@ public class RefreshManager {
             return;
         }
 
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidatePartitionsCache((ExternalTable) table, partitionNames);
-        ((HMSExternalTable) table).setEventUpdateTime(updateTime);
+        ExternalTable externalTable = (ExternalTable) table;
+        HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().hive(externalTable.getCatalog().getId());
+        for (String partitionName : partitionNames) {
+            cache.invalidatePartitionCache(externalTable, partitionName);
+        }
+        ((HMSExternalTable) table).setUpdateTime(updateTime);
     }
 
     public void addToRefreshMap(long catalogId, Integer[] sec) {

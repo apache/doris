@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS ship_mode (
     sm_contract char(20)
 )
 UNIQUE KEY(sm_ship_mode_sk)
-CLUSTER BY(sm_ship_mode_id)
+ORDER BY(sm_ship_mode_id)
 DISTRIBUTED BY HASH(sm_ship_mode_sk) BUCKETS 1
 PROPERTIES (
   "replication_num" = "1"

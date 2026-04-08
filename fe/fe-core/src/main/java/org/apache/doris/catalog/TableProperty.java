@@ -98,6 +98,10 @@ public class TableProperty implements GsonPostProcessable {
 
     private boolean enableSingleReplicaCompaction = false;
 
+    private boolean enableTso = false;
+
+    private int verticalCompactionNumColumnsPerGroup = 5;
+
     private boolean storeRowColumn = false;
 
     private boolean skipWriteIndexOnLoad = false;
@@ -130,6 +134,9 @@ public class TableProperty implements GsonPostProcessable {
     private TEncryptionAlgorithm encryptionAlgorithm = TEncryptionAlgorithm.PLAINTEXT;
 
     private DataSortInfo dataSortInfo = new DataSortInfo();
+
+    // name mapping for show, it will be translated to unique id mapping when create tablet
+    private Map<String, List<String>> columnSeqMapping = null;
 
     public TableProperty(Map<String, String> properties) {
         this.properties = properties;
@@ -164,12 +171,15 @@ public class TableProperty implements GsonPostProcessable {
                 buildTimeSeriesCompactionTimeThresholdSeconds();
                 buildSkipWriteIndexOnLoad();
                 buildEnableSingleReplicaCompaction();
+                buildEnableTso();
+                buildVerticalCompactionNumColumnsPerGroup();
                 buildDisableAutoCompaction();
                 buildTimeSeriesCompactionEmptyRowsetsThreshold();
                 buildTimeSeriesCompactionLevelThreshold();
                 buildTTLSeconds();
                 buildAutoAnalyzeProperty();
                 buildPartitionRetentionCount();
+                buildColumnSeqMapping();
                 break;
             default:
                 break;
@@ -320,9 +330,20 @@ public class TableProperty implements GsonPostProcessable {
     }
 
     public TableProperty buildVariantEnableFlattenNested() {
+        migrateDeprecatedVariantEnableFlattenNestedProperty();
         variantEnableFlattenNested = Boolean.parseBoolean(
                 properties.getOrDefault(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED, "false"));
         return this;
+    }
+
+    private void migrateDeprecatedVariantEnableFlattenNestedProperty() {
+        if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED)
+                && properties.containsKey(PropertyAnalyzer.LEGACY_PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED)) {
+            properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED,
+                    properties.remove(PropertyAnalyzer.LEGACY_PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED));
+            return;
+        }
+        properties.remove(PropertyAnalyzer.LEGACY_PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED);
     }
 
     public boolean variantEnableFlattenNested() {
@@ -337,6 +358,25 @@ public class TableProperty implements GsonPostProcessable {
 
     public boolean enableSingleReplicaCompaction() {
         return enableSingleReplicaCompaction;
+    }
+
+    public TableProperty buildEnableTso() {
+        enableTso = Boolean.parseBoolean(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_ENABLE_TSO, "false"));
+        return this;
+    }
+
+    public boolean enableTso() {
+        return enableTso;
+    }
+
+    public TableProperty buildVerticalCompactionNumColumnsPerGroup() {
+        verticalCompactionNumColumnsPerGroup = Integer.parseInt(
+                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP, "5"));
+        return this;
+    }
+
+    public int verticalCompactionNumColumnsPerGroup() {
+        return verticalCompactionNumColumnsPerGroup;
     }
 
     public TableProperty buildStoreRowColumn() {
@@ -747,6 +787,15 @@ public class TableProperty implements GsonPostProcessable {
             Integer.toString(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES_DEFAULT_VALUE)));
     }
 
+    public void setGroupCommitMode(String groupCommitMode) {
+        properties.put(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_MODE, groupCommitMode);
+    }
+
+    public String getGroupCommitMode() {
+        return properties.getOrDefault(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_MODE,
+                PropertyAnalyzer.GROUP_COMMIT_MODE_OFF);
+    }
+
     public void setRowStoreColumns(List<String> rowStoreColumns) {
         if (rowStoreColumns != null && !rowStoreColumns.isEmpty()) {
             modifyTableProperties(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN, "true");
@@ -758,6 +807,88 @@ public class TableProperty implements GsonPostProcessable {
             // clear row store columns
             this.rowStoreColumns = null;
         }
+    }
+
+    public void buildColumnSeqMapping() {
+        String propertyPrefix = PropertyAnalyzer.PROPERTIES_SEQUENCE_MAPPING + ".";
+        Map<String, List<String>> columnSeqMapping = Maps.newHashMap();
+        for (String key : properties.keySet()) {
+            if (key.startsWith(propertyPrefix)) {
+                String seqName = key.substring(propertyPrefix.length());
+                String[] columnNames = properties.get(key).split(",");
+                if (columnNames.length == 1 && columnNames[0].isEmpty()) {
+                    columnSeqMapping.put(seqName, Lists.newArrayList());
+                } else {
+                    columnSeqMapping.put(seqName, Lists.newArrayList(columnNames));
+                }
+            }
+        }
+        if (columnSeqMapping.isEmpty()) {
+            // save memory if property is empty
+            this.columnSeqMapping = null;
+        } else {
+            this.columnSeqMapping = columnSeqMapping;
+        }
+    }
+
+    public void setColumnSeqMapping(Map<String, List<String>> columnSeqMapping) {
+        // remove old mapping
+        String propertyPrefix = PropertyAnalyzer.PROPERTIES_SEQUENCE_MAPPING + ".";
+        List<String> oldMappingKeys = Lists.newArrayList();
+        for (String key : properties.keySet()) {
+            if (key.startsWith(propertyPrefix)) {
+                oldMappingKeys.add(key);
+            }
+        }
+        oldMappingKeys.forEach(key -> {
+            properties.remove(key);
+        });
+        // add new mapping
+        if (columnSeqMapping != null && !columnSeqMapping.isEmpty()) {
+            for (Map.Entry<String, List<String>> entry : columnSeqMapping.entrySet()) {
+                String seqColumnName = entry.getKey();
+                String valueColumnNames = Joiner.on(",").join(entry.getValue());
+                modifyTableProperties(propertyPrefix + seqColumnName,
+                        valueColumnNames);
+            }
+        }
+        this.columnSeqMapping = columnSeqMapping;
+    }
+
+    public Map<String, List<String>> getColumnSeqMapping() {
+        return this.columnSeqMapping == null ? Maps.newHashMap() : this.columnSeqMapping;
+    }
+
+    public boolean hasColumnSeqMapping() {
+        return columnSeqMapping != null && !columnSeqMapping.isEmpty();
+    }
+
+    public boolean isSeqMappingKeyColumn(String column) {
+        Map<String, List<String>> columnSeqMapping = this.columnSeqMapping == null ? Maps.newHashMap()
+                : this.columnSeqMapping;
+        return columnSeqMapping.containsKey(column);
+    }
+
+    public boolean isSeqMappingValueColumn(String column) {
+        Map<String, List<String>> columnSeqMapping = this.columnSeqMapping == null ? Maps.newHashMap()
+                : this.columnSeqMapping;
+        for (List<String> valueColumns : columnSeqMapping.values()) {
+            if (valueColumns.contains(column)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public String getSeqMappingKey(String column) {
+        Map<String, List<String>> columnSeqMapping = this.columnSeqMapping == null ? Maps.newHashMap()
+                : this.columnSeqMapping;
+        for (Map.Entry<String, List<String>> columnSeq : columnSeqMapping.entrySet()) {
+            if (columnSeq.getValue().contains(column)) {
+                return columnSeq.getKey();
+            }
+        }
+        throw new IllegalArgumentException("can't find the corresponding seq mapping key");
     }
 
     public void buildReplicaAllocation() {
@@ -799,6 +930,8 @@ public class TableProperty implements GsonPostProcessable {
         buildTimeSeriesCompactionTimeThresholdSeconds();
         buildDisableAutoCompaction();
         buildEnableSingleReplicaCompaction();
+        buildEnableTso();
+        buildVerticalCompactionNumColumnsPerGroup();
         buildTimeSeriesCompactionEmptyRowsetsThreshold();
         buildTimeSeriesCompactionLevelThreshold();
         buildTTLSeconds();
@@ -808,6 +941,7 @@ public class TableProperty implements GsonPostProcessable {
         removeDuplicateReplicaNumProperty();
         buildReplicaAllocation();
         buildTDEAlgorithm();
+        buildColumnSeqMapping();
     }
 
     // For some historical reason,

@@ -25,9 +25,9 @@
 #include <chrono>
 #include <thread>
 
-#include "olap/options.h"
-#include "olap/storage_engine.h"
 #include "runtime/cluster_info.h"
+#include "storage/options.h"
+#include "storage/storage_engine.h"
 
 namespace doris {
 
@@ -52,6 +52,55 @@ TEST(TaskWorkerPoolTest, TaskWorkerPool) {
     _ = workers.submit_task(task); // Ignore
 
     EXPECT_EQ(count.load(), 2);
+}
+
+TEST(TaskWorkerPoolTest, PreSubmitCallback) {
+    std::atomic_int callback_count {0};
+    std::atomic_int pre_submit_count {0};
+    TaskWorkerPool workers(
+            "test", 1,
+            [&](auto&& task) {
+                std::this_thread::sleep_for(200ms);
+                ++callback_count;
+            },
+            [&](auto&& task) { ++pre_submit_count; });
+
+    TAgentTaskRequest task;
+    task.__set_signature(-1);
+    auto _ = workers.submit_task(task);
+    _ = workers.submit_task(task);
+
+    // pre_submit_callback is called synchronously before enqueue
+    EXPECT_EQ(pre_submit_count.load(), 2);
+
+    std::this_thread::sleep_for(600ms);
+    workers.stop();
+    EXPECT_EQ(callback_count.load(), 2);
+    EXPECT_EQ(pre_submit_count.load(), 2);
+}
+
+TEST(TaskWorkerPoolTest, PreSubmitCallbackWithDedup) {
+    std::atomic_int pre_submit_count {0};
+    std::atomic_int callback_count {0};
+    TaskWorkerPool workers(
+            "test", 1,
+            [&](auto&& task) {
+                std::this_thread::sleep_for(500ms);
+                ++callback_count;
+            },
+            [&](auto&& task) { ++pre_submit_count; });
+
+    TAgentTaskRequest task;
+    task.__set_task_type(TTaskType::ALTER);
+    task.__set_signature(12345);
+    auto _ = workers.submit_task(task);
+    _ = workers.submit_task(task); // Should be deduped by register_task_info
+
+    EXPECT_EQ(pre_submit_count.load(), 1); // Only called once, second was deduped
+
+    std::this_thread::sleep_for(600ms);
+    workers.stop();
+    EXPECT_EQ(callback_count.load(), 1);
 }
 
 TEST(TaskWorkerPoolTest, PriorTaskWorkerPool) {

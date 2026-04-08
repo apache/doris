@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_queries_tvf","p0,external,tvf,external_docker") {
+suite("test_queries_tvf", "p0,external") {
     def table_name = "test_queries_tvf"
     sql """ DROP TABLE IF EXISTS ${table_name} """
     sql """

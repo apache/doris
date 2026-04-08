@@ -137,6 +137,7 @@ suite('test_auto_start_in_cloud', 'multi_cluster, docker') {
 
         cluster.stopBackends(1,2,3)
 
+        // Test 1: Regular SELECT query with auto-start
         // select
         def future1 = thread {
             def begin = System.currentTimeMillis();
@@ -169,6 +170,58 @@ suite('test_auto_start_in_cloud', 'multi_cluster, docker') {
 
         future1.get()
         future2.get()
+
+        // Wait for cluster to be fully NORMAL before next test
+        awaitUntil(5) {
+            tag = getCloudBeTagByName(clusterName)
+            jsonObject = jsonSlurper.parseText(tag)
+            String cluster_status = jsonObject.compute_group_status
+            cluster_status == "NORMAL"
+        }
+
+        // Test 2: TVF query with auto-start
+        // Re-suspend cluster for TVF test
+        set_cluster_status(uniqueId, cloudClusterId, "SUSPENDED", ms)
+        awaitUntil(5) {
+            tag = getCloudBeTagByName(clusterName)
+            jsonObject = jsonSlurper.parseText(tag)
+            String cluster_status = jsonObject.compute_group_status
+            cluster_status == "SUSPENDED"
+        }
+        cluster.stopBackends(1,2,3)
+
+        // TVF query should also trigger auto-start and wait until cluster resumed.
+        // Regression for PR #59963: auto-start path should work for TVF/external-like queries
+        // that may need to fetch backends during planning.
+        def futureTfv = thread {
+            def begin = System.currentTimeMillis();
+            def connInfo = context.threadLocalConn.get()
+            def tvfRet = connect('admin', '', connInfo.conn.getMetaData().getURL()) {
+                sql """select * from numbers("number" = "10")"""
+            }
+            def cost = System.currentTimeMillis() - begin;
+            log.info("tvf result size {} time cost: {}", tvfRet.size(), cost)
+            assertTrue(cost > 5000)
+            assertEquals(10, tvfRet.size())
+        }
+
+        // cloud control for TVF test
+        def future2Tvf = thread {
+            // check cluster "TO_RESUME"
+            awaitUntil(5) {
+                tag = getCloudBeTagByName(clusterName)
+                logger.info("tag = {}", tag) 
+                jsonObject = jsonSlurper.parseText(tag)
+                String cluster_status = jsonObject.compute_group_status
+                cluster_status == "TO_RESUME"
+            }
+            sleep(5 * 1000)
+            cluster.startBackends(1,2,3)
+            set_cluster_status(uniqueId, cloudClusterId, "NORMAL", ms)
+        }
+
+        futureTfv.get()
+        future2Tvf.get()
 
         tag = getCloudBeTagByName(clusterName)
         logger.info("tag check = {}", tag) 

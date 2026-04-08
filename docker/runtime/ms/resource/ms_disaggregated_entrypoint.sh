@@ -42,5 +42,6 @@ if [[ -d $CONFIGMAP_PATH ]]; then
        done
 fi
 
+./doris-debug --component ms
 
 $DORIS_HOME/ms/bin/start.sh --console --conf=$DORIS_HOME/ms/conf/doris_cloud.conf

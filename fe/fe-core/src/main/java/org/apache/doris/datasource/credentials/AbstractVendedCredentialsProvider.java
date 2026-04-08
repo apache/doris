@@ -85,7 +85,7 @@ public abstract class AbstractVendedCredentialsProvider {
     /**
      * Check whether to enable vendor credentials (subclass implementation)
      */
-    protected abstract boolean isVendedCredentialsEnabled(MetastoreProperties metastoreProperties);
+    public abstract boolean isVendedCredentialsEnabled(MetastoreProperties metastoreProperties);
 
     /**
      * Extract original vendored credentials from table objects (subclass implementation)

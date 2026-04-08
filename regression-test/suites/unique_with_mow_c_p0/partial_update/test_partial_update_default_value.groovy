@@ -38,7 +38,7 @@ suite("test_primary_key_partial_update_default_value", "p0") {
                         `test` int(11) NULL DEFAULT "4321" COMMENT  "test",
                         `dft` int(11) DEFAULT "4321")
                         UNIQUE KEY(`id`)
-                        CLUSTER BY(`name`, `score`) 
+                        ORDER BY(`name`, `score`) 
                         DISTRIBUTED BY HASH(`id`) BUCKETS 1
                         PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true",
                         "store_row_column" = "${use_row_store}"); """

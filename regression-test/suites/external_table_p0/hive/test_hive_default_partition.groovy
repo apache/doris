@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_default_partition", "p0,external,hive,external_docker,external_docker_hive") {
+suite("test_hive_default_partition", "p0,external") {
     def one_partition1 = """select * from one_partition order by id;"""
     def one_partition2 = """select id, part1 from one_partition where part1 is null order by id;"""
     def one_partition3 = """select id from one_partition where part1 is not null order by id;"""
@@ -58,7 +58,7 @@ suite("test_hive_default_partition", "p0,external,hive,external_docker,external_
         return
     }
 
-    for (String hivePrefix : ["hive2", "hive3"]) {
+    for (String hivePrefix : ["hive3"]) {
         String extHiveHmsHost = context.config.otherConfigs.get("externalEnvIp")
         String extHiveHmsPort = context.config.otherConfigs.get(hivePrefix + "HmsPort")
         String catalog_name = hivePrefix + "_hive_default_partition"

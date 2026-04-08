@@ -25,13 +25,7 @@
 
 namespace doris {
 
-constexpr inline int USE_NEW_SERDE = 4;         // release on DORIS version 2.1
-constexpr inline int AGG_FUNCTION_NULLABLE = 5; // change some agg nullable property: PR #37215
-constexpr inline int VARIANT_SERDE = 6;         // change variant serde to fix PR #38413
-constexpr inline int AGGREGATION_2_1_VERSION =
-        6; // some aggregation changed the data format after this version
-constexpr inline int USE_CONST_SERDE =
-        8; // support const column in serialize/deserialize function: PR #41175
+constexpr inline int USE_NEW_FIXED_OBJECT_SERIALIZATION_VERSION = 10;
 
 class BeExecVersionManager {
 public:

@@ -24,8 +24,6 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.MaterializedIndex;
-import org.apache.doris.catalog.MysqlTable;
-import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
@@ -51,6 +49,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
@@ -100,7 +99,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.thrift.TOdbcTableType;
 import org.apache.doris.thrift.TSortType;
 import org.apache.doris.thrift.TTabletType;
 
@@ -388,6 +386,7 @@ public class Alter {
 
     private void processAlterTableForExternalTable(
             ExternalTable table, List<AlterOp> alterOps) throws UserException {
+        long updateTime = System.currentTimeMillis();
         for (AlterOp alterOp : alterOps) {
             if (alterOp instanceof ModifyTablePropertiesOp) {
                 setExternalTableAutoAnalyzePolicy(table, alterOps);
@@ -430,7 +429,7 @@ public class Alter {
                 AddPartitionFieldOp addPartitionField = (AddPartitionFieldOp) alterOp;
                 if (table instanceof IcebergExternalTable) {
                     ((IcebergExternalCatalog) table.getCatalog()).addPartitionField(
-                            (IcebergExternalTable) table, addPartitionField);
+                            (IcebergExternalTable) table, addPartitionField, updateTime);
                 } else {
                     throw new UserException("ADD PARTITION KEY is only supported for Iceberg tables");
                 }
@@ -438,7 +437,7 @@ public class Alter {
                 DropPartitionFieldOp dropPartitionField = (DropPartitionFieldOp) alterOp;
                 if (table instanceof IcebergExternalTable) {
                     ((IcebergExternalCatalog) table.getCatalog()).dropPartitionField(
-                            (IcebergExternalTable) table, dropPartitionField);
+                            (IcebergExternalTable) table, dropPartitionField, updateTime);
                 } else {
                     throw new UserException("DROP PARTITION KEY is only supported for Iceberg tables");
                 }
@@ -446,7 +445,7 @@ public class Alter {
                 ReplacePartitionFieldOp replacePartitionField = (ReplacePartitionFieldOp) alterOp;
                 if (table instanceof IcebergExternalTable) {
                     ((IcebergExternalCatalog) table.getCatalog()).replacePartitionField(
-                            (IcebergExternalTable) table, replacePartitionField);
+                            (IcebergExternalTable) table, replacePartitionField, updateTime);
                 } else {
                     throw new UserException("REPLACE PARTITION KEY is only supported for Iceberg tables");
                 }
@@ -560,67 +559,20 @@ public class Alter {
     }
 
     public void processModifyEngine(Database db, Table externalTable, ModifyEngineOp op) throws DdlException {
-        externalTable.writeLockOrDdlException();
-        try {
-            if (externalTable.getType() != TableType.MYSQL) {
-                throw new DdlException("Only support modify table engine from MySQL to ODBC");
-            }
-            processModifyEngineInternal(db, externalTable, op.getProperties(), false);
-        } finally {
-            externalTable.writeUnlock();
-        }
-        LOG.info("modify table {}'s engine from MySQL to ODBC", externalTable.getName());
+        throw new DdlException("Modify engine from MySQL to ODBC is no longer supported. "
+                + "ODBC tables have been deprecated. Please use JDBC Catalog instead.");
     }
 
     public void replayProcessModifyEngine(ModifyTableEngineOperationLog log) {
-        Database db = Env.getCurrentInternalCatalog().getDbNullable(log.getDbId());
-        if (db == null) {
-            return;
-        }
-        MysqlTable mysqlTable = (MysqlTable) db.getTableNullable(log.getTableId());
-        if (mysqlTable == null) {
-            return;
-        }
-        mysqlTable.writeLock();
-        try {
-            processModifyEngineInternal(db, mysqlTable, log.getProperties(), true);
-        } finally {
-            mysqlTable.writeUnlock();
-        }
+        // ODBC tables have been deprecated, skip replay.
+        LOG.warn("Skip replaying ModifyEngine for table {} — ODBC tables are deprecated.", log.getTableId());
     }
 
     private void processModifyEngineInternal(Database db, Table externalTable,
                                              Map<String, String> prop, boolean isReplay) {
-        MysqlTable mysqlTable = (MysqlTable) externalTable;
-        Map<String, String> newProp = Maps.newHashMap(prop);
-        newProp.put(OdbcTable.ODBC_HOST, mysqlTable.getHost());
-        newProp.put(OdbcTable.ODBC_PORT, mysqlTable.getPort());
-        newProp.put(OdbcTable.ODBC_USER, mysqlTable.getUserName());
-        newProp.put(OdbcTable.ODBC_PASSWORD, mysqlTable.getPasswd());
-        newProp.put(OdbcTable.ODBC_DATABASE, mysqlTable.getMysqlDatabaseName());
-        newProp.put(OdbcTable.ODBC_TABLE, mysqlTable.getMysqlTableName());
-        newProp.put(OdbcTable.ODBC_TYPE, TOdbcTableType.MYSQL.name());
-
-        // create a new odbc table with same id and name
-        OdbcTable odbcTable = null;
-        try {
-            odbcTable = new OdbcTable(mysqlTable.getId(), mysqlTable.getName(), mysqlTable.getBaseSchema(), newProp);
-        } catch (DdlException e) {
-            LOG.warn("Should not happen", e);
-            return;
-        }
-        odbcTable.writeLock();
-        try {
-            db.unregisterTable(mysqlTable.getName());
-            db.registerTable(odbcTable);
-            if (!isReplay) {
-                ModifyTableEngineOperationLog log = new ModifyTableEngineOperationLog(db.getId(),
-                        externalTable.getId(), prop);
-                Env.getCurrentEnv().getEditLog().logModifyTableEngine(log);
-            }
-        } finally {
-            odbcTable.writeUnlock();
-        }
+        // ODBC tables have been deprecated. This method is preserved only for
+        // deserialization compatibility of the edit log. No-op.
+        LOG.warn("processModifyEngineInternal called for deprecated ODBC engine conversion. Ignoring.");
     }
 
     /*
@@ -678,7 +630,7 @@ public class Alter {
                     DynamicPartitionUtil.checkAlterAllowed(
                             (OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP));
                 }
-                Env.getCurrentEnv().addPartition(db, tableName, (AddPartitionOp) alterOp, false, 0, true);
+                Env.getCurrentEnv().addPartition(db, tableName, (AddPartitionOp) alterOp, false, 0, true, null);
             } else if (alterOp instanceof AddPartitionLikeOp) {
                 if (!((AddPartitionLikeOp) alterOp).getTempPartition()) {
                     DynamicPartitionUtil.checkAlterAllowed(
@@ -803,6 +755,19 @@ public class Alter {
             throws DdlException {
         String oldTblName = origTable.getName();
         String newTblName = newTbl.getName();
+
+        // Handle constraints for table replacement
+        TableNameInfo origTableInfo = TableNameInfoUtils.fromDb(db, origTable.getName());
+        TableNameInfo newTableInfo = TableNameInfoUtils.fromDb(db, newTbl.getName());
+        if (swapTable) {
+            Env.getCurrentEnv().getConstraintManager().swapTableConstraints(origTableInfo, newTableInfo);
+        } else {
+            if (!isReplay) {
+                Env.getCurrentEnv().getConstraintManager().checkNoReferencingForeignKeys(origTableInfo);
+            }
+            Env.getCurrentEnv().getConstraintManager().dropAndRenameConstraints(origTableInfo, newTableInfo);
+        }
+
         // drop origin table and new table
         db.unregisterTable(oldTblName);
         db.unregisterTable(newTblName);
@@ -888,7 +853,8 @@ public class Alter {
             String viewName = view.getName();
             if (comment != null) {
                 view.setComment(comment);
-            } else {
+            }
+            if (!Strings.isNullOrEmpty(inlineViewDef)) {
                 view.setInlineViewDefWithSessionVariables(inlineViewDef, alterViewInfo.getSessionVariables());
                 view.setNewFullSchema(newFullSchema);
             }

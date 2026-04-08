@@ -16,7 +16,7 @@
 // under the License.
 
 
- suite("test_numbers","p0,external,external_docker") {
+ suite("test_numbers", "p0,external") {
     // Test basic features
     order_qt_basic1 """ select * from numbers("number" = "1"); """
     order_qt_basic2 """ select * from numbers("number" = "10"); """

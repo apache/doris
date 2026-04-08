@@ -101,7 +101,7 @@ public class ShowColumnsCommand extends ShowCommand {
         if (!Strings.isNullOrEmpty(databaseName)) {
             tableNameInfo.setDb(databaseName);
         }
-        tableNameInfo.analyze(ctx);
+        tableNameInfo.analyze(ctx.getNameSpaceContext());
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), tableNameInfo.getCtl(), tableNameInfo.getDb(),
                         tableNameInfo.getTbl(), PrivPredicate.SHOW)) {
@@ -190,7 +190,7 @@ public class ShowColumnsCommand extends ShowCommand {
                     continue;
                 }
                 final String columnName = col.getName();
-                final String columnType = col.getOriginType().toString().toLowerCase(Locale.ROOT);
+                final String columnType = col.getOriginType().hideVersionForVersionColumn(false);
                 final String isAllowNull = col.isAllowNull() ? "YES" : "NO";
                 final String isKey = col.isKey() ? "YES" : "NO";
                 final String defaultValue = col.getDefaultValue();

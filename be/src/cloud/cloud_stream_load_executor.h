@@ -16,7 +16,7 @@
 // under the License.
 
 #pragma once
-#include "runtime/stream_load/stream_load_executor.h"
+#include "load/stream_load/stream_load_executor.h"
 
 namespace doris {
 

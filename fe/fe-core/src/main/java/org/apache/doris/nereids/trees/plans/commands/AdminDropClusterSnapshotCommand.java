@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StmtType;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
@@ -32,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.rpc.RpcException;
+import org.apache.doris.service.FrontendOptions;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -69,9 +71,20 @@ public class AdminDropClusterSnapshotCommand extends Command implements ForwardW
         if (!Config.isCloudMode()) {
             throw new AnalysisException("The sql is illegal in disk mode ");
         }
-        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, PrivPredicate.ADMIN)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
-                    PrivPredicate.ADMIN.getPrivs().toString());
+        // Check privilege based on configuration
+        if ("admin".equalsIgnoreCase(Config.cluster_snapshot_min_privilege)) {
+            // When configured as admin, check ADMIN privilege
+            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, PrivPredicate.ADMIN)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
+                        PrivPredicate.ADMIN.getPrivs().toString());
+            }
+        } else {
+            // Default or configured as root, check if user is root
+            UserIdentity currentUser = ctx.getCurrentUserIdentity();
+            if (currentUser == null || !currentUser.isRootUser()) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
+                        "root privilege");
+            }
         }
 
         if (key == null || !key.equalsIgnoreCase(SNAPSHOT_ID)) {
@@ -95,7 +108,10 @@ public class AdminDropClusterSnapshotCommand extends Command implements ForwardW
     private void dropSnapshot() throws DdlException {
         try {
             Cloud.DropSnapshotRequest request = Cloud.DropSnapshotRequest.newBuilder()
-                    .setCloudUniqueId(Config.cloud_unique_id).setSnapshotId(value).build();
+                    .setCloudUniqueId(Config.cloud_unique_id)
+                    .setRequestIp(FrontendOptions.getLocalHostAddressCached())
+                    .setSnapshotId(value)
+                    .build();
             Cloud.DropSnapshotResponse response = MetaServiceProxy.getInstance().dropSnapshot(request);
             if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
                 LOG.warn("dropSnapshot response: {} ", response);

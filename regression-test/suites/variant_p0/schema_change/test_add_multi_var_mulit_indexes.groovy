@@ -39,6 +39,7 @@ suite("regression_test_variant_add_multi_var_mulit_indexes", "variant_type"){
     }
     def table_name = "variant_add_multi_var_mulit_indexes"
     sql "set default_variant_enable_typed_paths_to_sparse = false"
+    sql "set default_variant_enable_doc_mode = false"
     sql "DROP TABLE IF EXISTS ${table_name}"
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
@@ -75,7 +76,7 @@ suite("regression_test_variant_add_multi_var_mulit_indexes", "variant_type"){
 
     sql """insert into  ${table_name} values (4, '{"a" : 12345,"b" : 2}', '{"a" : 56789,"b" : 2}', '{"a" : 12345,"b" : 3}')"""
 
-    trigger_and_wait_compaction("${table_name}", "full")
+    trigger_and_wait_compaction("${table_name}", "full", 1800)
 
     qt_sql "select * from  ${table_name} order by k"
 

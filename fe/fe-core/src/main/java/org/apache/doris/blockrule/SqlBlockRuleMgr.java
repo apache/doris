@@ -216,6 +216,9 @@ public class SqlBlockRuleMgr implements Writable {
      * Match SQL according to rules.
      **/
     public void matchSql(String originSql, String sqlHash, String user) throws AnalysisException {
+        if (originSql == null) {
+            return;
+        }
         if (Config.sql_block_rule_ignore_admin && (Auth.ROOT_USER.equals(user) || Auth.ADMIN_USER.equals(user))) {
             return;
         }

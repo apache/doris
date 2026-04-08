@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToExprNameVisitor;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.SinglePartitionDesc;
@@ -30,7 +31,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.ConfigException;
@@ -54,7 +54,6 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 
-import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -89,8 +88,6 @@ public class CreateTableCommandTest extends TestWithFeService {
                 + "properties('replication_num' = '1','colocate_with'='test'); ";
         createTable(sql);
         Set<Long> tabletIdSetAfterCreateFirstTable = env.getTabletInvertedIndex().getReplicaMetaTable().rowKeySet();
-        Set<TabletMeta> tabletMetaSetBeforeCreateFirstTable =
-                new HashSet<>(env.getTabletInvertedIndex().getTabletMetaTable().values());
         Set<Long> colocateTableIdBeforeCreateFirstTable = env.getColocateTableIndex().getTable2Group().keySet();
         Assertions.assertTrue(colocateTableIdBeforeCreateFirstTable.size() > 0);
         Assertions.assertTrue(tabletIdSetAfterCreateFirstTable.size() > 0);
@@ -102,13 +99,10 @@ public class CreateTableCommandTest extends TestWithFeService {
         Set<Long> tabletIdSetAfterDuplicateCreateTable2 = env.getTabletInvertedIndex().getBackingReplicaMetaTable()
                 .columnKeySet();
         Set<Long> tabletIdSetAfterDuplicateCreateTable3 = env.getTabletInvertedIndex().getTabletMetaMap().keySet();
-        Set<TabletMeta> tabletIdSetAfterDuplicateCreateTable4 =
-                new HashSet<>(env.getTabletInvertedIndex().getTabletMetaTable().values());
 
         Assertions.assertEquals(tabletIdSetAfterCreateFirstTable, tabletIdSetAfterDuplicateCreateTable1);
         Assertions.assertEquals(tabletIdSetAfterCreateFirstTable, tabletIdSetAfterDuplicateCreateTable2);
         Assertions.assertEquals(tabletIdSetAfterCreateFirstTable, tabletIdSetAfterDuplicateCreateTable3);
-        Assertions.assertEquals(tabletMetaSetBeforeCreateFirstTable, tabletIdSetAfterDuplicateCreateTable4);
 
         // check whether table id is cleared from colocate group after duplicate create table
         Set<Long> colocateTableIdAfterCreateFirstTable = env.getColocateTableIndex().getTable2Group().keySet();
@@ -796,41 +790,41 @@ public class CreateTableCommandTest extends TestWithFeService {
 
         Expr expr0 = partitionFields2.get(0);
         Assertions.assertInstanceOf(SlotRef.class, expr0);
-        Assertions.assertEquals("val", expr0.getExprName());
+        Assertions.assertEquals("val", expr0.accept(ExprToExprNameVisitor.INSTANCE, null));
 
         Expr expr1 = partitionFields2.get(1);
         Assertions.assertInstanceOf(FunctionCallExpr.class, expr1);
         List<Expr> params1 = ((FunctionCallExpr) expr1).getParams().exprs();
-        Assertions.assertEquals("bucket", expr1.getExprName());
+        Assertions.assertEquals("bucket", expr1.accept(ExprToExprNameVisitor.INSTANCE, null));
         Assertions.assertEquals(2, params1.size());
         Assertions.assertInstanceOf(StringLiteral.class, params1.get(0));
         Assertions.assertEquals("2", params1.get(0).getStringValue());
         Assertions.assertInstanceOf(SlotRef.class, params1.get(1));
-        Assertions.assertEquals("id", params1.get(1).getExprName());
+        Assertions.assertEquals("id", params1.get(1).accept(ExprToExprNameVisitor.INSTANCE, null));
 
         Expr expr2 = partitionFields2.get(2);
         Assertions.assertInstanceOf(SlotRef.class, expr2);
-        Assertions.assertEquals("par", expr2.getExprName());
+        Assertions.assertEquals("par", expr2.accept(ExprToExprNameVisitor.INSTANCE, null));
 
         Expr expr3 = partitionFields2.get(3);
         Assertions.assertInstanceOf(FunctionCallExpr.class, expr3);
         List<Expr> params3 = ((FunctionCallExpr) expr3).getParams().exprs();
-        Assertions.assertEquals("day", expr3.getExprName());
+        Assertions.assertEquals("day", expr3.accept(ExprToExprNameVisitor.INSTANCE, null));
         Assertions.assertEquals(1, params3.size());
         Assertions.assertInstanceOf(SlotRef.class, params3.get(0));
-        Assertions.assertEquals("ts", params3.get(0).getExprName());
+        Assertions.assertEquals("ts", params3.get(0).accept(ExprToExprNameVisitor.INSTANCE, null));
 
         Expr expr4 = partitionFields2.get(4);
         Assertions.assertInstanceOf(FunctionCallExpr.class, expr4);
         List<Expr> params4 = ((FunctionCallExpr) expr4).getParams().exprs();
-        Assertions.assertEquals("efg", expr4.getExprName());
+        Assertions.assertEquals("efg", expr4.accept(ExprToExprNameVisitor.INSTANCE, null));
         Assertions.assertEquals(3, params4.size());
         Assertions.assertInstanceOf(SlotRef.class, params4.get(0));
-        Assertions.assertEquals("a", params4.get(0).getExprName());
+        Assertions.assertEquals("a", params4.get(0).accept(ExprToExprNameVisitor.INSTANCE, null));
         Assertions.assertInstanceOf(SlotRef.class, params4.get(1));
-        Assertions.assertEquals("b", params4.get(1).getExprName());
+        Assertions.assertEquals("b", params4.get(1).accept(ExprToExprNameVisitor.INSTANCE, null));
         Assertions.assertInstanceOf(SlotRef.class, params4.get(2));
-        Assertions.assertEquals("c", params4.get(2).getExprName());
+        Assertions.assertEquals("c", params4.get(2).accept(ExprToExprNameVisitor.INSTANCE, null));
 
         Assertions.assertEquals(
                 "PARTITION BY LIST(`val`, bucket('2', `id`), `par`, day(`ts`), efg(`a`, `b`, `c`))\n(\n\n)",
@@ -1085,6 +1079,39 @@ public class CreateTableCommandTest extends TestWithFeService {
         command.getCreateMTMVInfo().analyze(connectContext);
 
         return command.getCreateMTMVInfo();
+    }
+
+    @Test
+    public void testVariantFieldPatternDictCompressionValidation() {
+        String invalidSql = "create table test.tbl_variant_dict_invalid\n"
+                + "(k1 int, v variant<\n"
+                + "    MATCH_NAME 'metrics.score' : int\n"
+                + "> null,\n"
+                + "INDEX idx_v (v) USING INVERTED PROPERTIES(\n"
+                + "    \"field_pattern\" = \"metrics.score\",\n"
+                + "    \"dict_compression\" = \"true\"\n"
+                + "))\n"
+                + "duplicate key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1', 'inverted_index_storage_format' = 'V3');";
+
+        AnalysisException ex = Assertions.assertThrows(AnalysisException.class, () -> createTable(invalidSql));
+        Assertions.assertTrue(ex.getMessage().contains("invalid INVERTED index: field pattern: metrics.score"));
+        Assertions.assertTrue(ex.getMessage().contains("dict_compression can only be set for StringType columns"));
+
+        String validSql = "create table test.tbl_variant_dict_valid\n"
+                + "(k1 int, v variant<\n"
+                + "    MATCH_NAME 'metrics.score' : string\n"
+                + "> null,\n"
+                + "INDEX idx_v (v) USING INVERTED PROPERTIES(\n"
+                + "    \"field_pattern\" = \"metrics.score\",\n"
+                + "    \"dict_compression\" = \"true\"\n"
+                + "))\n"
+                + "duplicate key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1', 'inverted_index_storage_format' = 'V3');";
+
+        Assertions.assertDoesNotThrow(() -> createTable(validSql));
     }
 
     @Test

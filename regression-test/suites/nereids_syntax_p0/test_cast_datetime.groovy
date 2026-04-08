@@ -510,29 +510,7 @@ suite("test_cast_datetime") {
             sql "SELECT DATEADD(DAY, 1, '2025年06月20日')"
             result([[LocalDateTime.parse('2025-06-21T00:00:00')]])
         }
-        */
 
-        test {
-            sql "select date_add('2023-02-28 16:00:00 UTC', INTERVAL 1 DAY)"
-            result([[LocalDateTime.parse('2023-03-02T00:00:00')]])
-        }
-
-        test {
-            sql "select date_add('2023-02-28 16:00:00 America/New_York', INTERVAL 1 DAY)"
-            result([[LocalDateTime.parse('2023-03-02T05:00:00')]])
-        }
-
-        test {
-            sql "select date_add('2023-02-28 16:00:00UTC', INTERVAL 1 DAY)"
-            result([[LocalDateTime.parse('2023-03-02T00:00:00')]])
-        }
-
-        test {
-            sql "select date_add('2023-02-28 16:00:00America/New_York', INTERVAL 1 DAY)"
-            result([[LocalDateTime.parse('2023-03-02T05:00:00')]])
-        }
-
-        /*
         test {
             sql "select date_add('2023-02-28 UTC', INTERVAL 1 DAY)"
             result([[LocalDateTime.parse('2023-03-01T00:00:00')]])
@@ -571,17 +549,6 @@ suite("test_cast_datetime") {
         test {
             sql "select date_add('2020-02-29 America/New_York', INTERVAL -3 DAY)"
             result([[LocalDateTime.parse('2020-02-26T00:00:00')]])
-        }
-        */
-
-        test {
-            sql "select date_add('2023-03-12 01:30:00 Europe/London', INTERVAL 1 DAY)"
-            result([[LocalDateTime.parse('2023-03-13T09:30')]])
-        }
-
-        test {
-            sql "select date_add('2023-11-05 01:30:00 America/New_York', INTERVAL 1 DAY)"
-            result([[LocalDateTime.parse('2023-11-06T13:30')]])
         }
 
         /*

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_search_dsl_syntax") {
+suite("test_search_dsl_syntax", "p0") {
     def tableName = "search_dsl_test_table"
     
     sql "DROP TABLE IF EXISTS ${tableName}"

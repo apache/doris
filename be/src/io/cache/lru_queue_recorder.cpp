@@ -62,6 +62,15 @@ void LRUQueueRecorder::replay_queue_event(FileCacheType type) {
                 }
                 break;
             }
+            case CacheLRULogType::RESIZE: {
+                auto it = shadow_queue.get(log->hash, log->offset, lru_log_lock);
+                if (it != std::list<LRUQueue::FileKeyAndOffset>::iterator()) {
+                    shadow_queue.resize(it, log->size, lru_log_lock);
+                } else {
+                    LOG(WARNING) << "RESIZE failed, doesn't exist in shadow queue";
+                }
+                break;
+            }
             default:
                 LOG(WARNING) << "Unknown CacheLRULogType: " << static_cast<int>(log->type);
                 break;

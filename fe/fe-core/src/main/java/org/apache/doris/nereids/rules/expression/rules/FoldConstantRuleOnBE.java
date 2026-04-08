@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprId;
+import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
@@ -217,7 +218,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
                 LOG.warn("expression {} translate to legacy expr failed. ", expr);
                 return;
             }
-            tExprMap.put(id, staleExpr.treeToThrift());
+            tExprMap.put(id, ExprToThriftVisitor.treeToThrift(staleExpr));
         } else {
             for (int i = 0; i < expr.children().size(); i++) {
                 final Expression child = expr.children().get(i);

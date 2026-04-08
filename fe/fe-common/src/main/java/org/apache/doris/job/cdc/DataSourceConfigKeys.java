@@ -19,17 +19,34 @@ package org.apache.doris.job.cdc;
 
 public class DataSourceConfigKeys {
     public static final String JDBC_URL = "jdbc_url";
+    public static final String TYPE = "type";
     public static final String DRIVER_URL = "driver_url";
     public static final String DRIVER_CLASS = "driver_class";
     public static final String USER = "user";
     public static final String PASSWORD = "password";
     public static final String DATABASE = "database";
+    public static final String SCHEMA = "schema";
     public static final String INCLUDE_TABLES = "include_tables";
     public static final String EXCLUDE_TABLES = "exclude_tables";
-    // initial,earliest,latest,{binlog,postion},\d{13}
+    // initial,earliest,latest,snapshot,{binlog,position},\d{13}
     public static final String OFFSET = "offset";
     public static final String OFFSET_INITIAL = "initial";
     public static final String OFFSET_EARLIEST = "earliest";
     public static final String OFFSET_LATEST = "latest";
-    public static final String SPLIT_SIZE = "split_size";
+    public static final String OFFSET_SNAPSHOT = "snapshot";
+    public static final String SNAPSHOT_SPLIT_SIZE = "snapshot_split_size";
+    public static final String SNAPSHOT_SPLIT_KEY = "snapshot_split_key";
+    public static final String SNAPSHOT_PARALLELISM = "snapshot_parallelism";
+    public static final String SNAPSHOT_PARALLELISM_DEFAULT = "1";
+    public static final String SSL_MODE = "ssl_mode";
+    public static final String SSL_ROOTCERT = "ssl_rootcert";
+
+    // per-table config: key format is "table.<tableName>.<suffix>"
+    public static final String TABLE = "table";
+    public static final String TABLE_EXCLUDE_COLUMNS_SUFFIX = "exclude_columns";
+    public static final String TABLE_TARGET_TABLE_SUFFIX = "target_table";
+
+    // target properties
+    public static final String TABLE_PROPS_PREFIX = "table.create.properties.";
+    public static final String LOAD_PROPERTIES = "load.";
 }

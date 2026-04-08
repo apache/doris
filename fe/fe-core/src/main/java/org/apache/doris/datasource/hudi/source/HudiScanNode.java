@@ -35,11 +35,13 @@ import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.hive.HivePartition;
 import org.apache.doris.datasource.hive.source.HiveScanNode;
+import org.apache.doris.datasource.hudi.HudiPartitionUtils;
 import org.apache.doris.datasource.hudi.HudiSchemaCacheValue;
 import org.apache.doris.datasource.hudi.HudiUtils;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.fs.DirectoryLister;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.thrift.TExplainLevel;
@@ -73,6 +75,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -129,8 +132,8 @@ public class HudiScanNode extends HiveScanNode {
      */
     public HudiScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv,
             Optional<TableScanParams> scanParams, Optional<IncrementalRelation> incrementalRelation,
-            SessionVariable sv, DirectoryLister directoryLister) {
-        super(id, desc, "HUDI_SCAN_NODE", needCheckColumnPriv, sv, directoryLister);
+            SessionVariable sv, DirectoryLister directoryLister, ScanContext scanContext) {
+        super(id, desc, "HUDI_SCAN_NODE", needCheckColumnPriv, sv, directoryLister, scanContext);
         isCowTable = hmsTable.isHoodieCowTable();
         if (LOG.isDebugEnabled()) {
             if (isCowTable) {
@@ -219,8 +222,8 @@ public class HudiScanNode extends HiveScanNode {
 
         fsView = Env.getCurrentEnv()
             .getExtMetaCacheMgr()
-            .getFsViewProcessor(hmsTable.getCatalog())
-            .getFsView(hmsTable.getDbName(), hmsTable.getName(), hudiClient);
+            .hudi(hmsTable.getCatalog().getId())
+            .getFsView(hmsTable.getOrBuildNameMapping());
         // Todo: Get the current schema id of the table, instead of using -1.
         // In Be Parquet/Rrc reader, if `current table schema id == current file schema id`, then its
         // `table_info_node_ptr` will be `TableSchemaChangeHelper::ConstNode`. When using `ConstNode`,
@@ -234,8 +237,14 @@ public class HudiScanNode extends HiveScanNode {
         if (incrementalRead) {
             return incrementalRelation.getHoodieParams();
         } else {
-            // HudiJniScanner uses hadoop client to read data.
-            return hmsTable.getBackendStorageProperties();
+            // Merge both BE format (AWS_*) and Hadoop format (fs.s3a.*) properties
+            // Native reader needs BE format, JNI reader needs Hadoop format
+            Map<String, String> properties = new HashMap<>();
+            // Add BE format properties for native reader
+            properties.putAll(hmsTable.getBackendStorageProperties());
+            // Add Hadoop format properties for JNI reader
+            properties.putAll(hmsTable.getCatalog().getCatalogProperty().getHadoopProperties());
+            return properties;
         }
     }
 
@@ -368,7 +377,7 @@ public class HudiScanNode extends HiveScanNode {
         List<String> partitionNames = partitionColumns.isPresent() ? Arrays.asList(partitionColumns.get())
                 : Collections.emptyList();
         return incrementalRelation.collectFileSlices().stream().map(fileSlice -> generateHudiSplit(fileSlice,
-                HudiPartitionProcessor.parsePartitionValues(partitionNames, fileSlice.getPartitionPath()),
+                HudiPartitionUtils.parsePartitionValues(partitionNames, fileSlice.getPartitionPath()),
                 incrementalRelation.getEndTs())).collect(Collectors.toList());
     }
 

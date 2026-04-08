@@ -68,18 +68,19 @@ suite("test_routine_load_adaptive_param","nonConcurrent") {
             def injection = "RoutineLoadTaskInfo.judgeEof"
             try {
                 GetDebugPoint().enableDebugPointForAllFEs(injection)
+
                 RoutineLoadTestUtils.sendTestDataToKafka(producer, kafkaCsvTpoics)
                 RoutineLoadTestUtils.waitForTaskFinish(runSql, job, tableName, 0)
+                
+                logger.info("---test adaptively increase---")
+                RoutineLoadTestUtils.sendTestDataToKafka(producer, kafkaCsvTpoics)
+                RoutineLoadTestUtils.checkTaskTimeout(runSql, job, "3600")
+                RoutineLoadTestUtils.checkTxnTimeoutMatchesTaskTimeout(runSql, job, "3600000")
+                RoutineLoadTestUtils.waitForTaskFinish(runSql, job, tableName, 2)
             } finally {
                 GetDebugPoint().disableDebugPointForAllFEs(injection)
             }
-            // test adaptively increase
-            logger.info("---test adaptively increase---")
-            RoutineLoadTestUtils.sendTestDataToKafka(producer, kafkaCsvTpoics)
-            RoutineLoadTestUtils.checkTaskTimeout(runSql, job, "3600")
-            RoutineLoadTestUtils.waitForTaskFinish(runSql, job, tableName, 2)
 
-            // test restore adaptively
             logger.info("---test restore adaptively---")
             RoutineLoadTestUtils.sendTestDataToKafka(producer, kafkaCsvTpoics)
             RoutineLoadTestUtils.waitForTaskFinish(runSql, job, tableName, 4)

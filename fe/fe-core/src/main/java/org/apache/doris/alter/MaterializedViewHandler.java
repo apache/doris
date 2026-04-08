@@ -47,7 +47,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.util.IdGeneratorUtil;
+import org.apache.doris.common.util.BufferSizeUtil;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
@@ -202,6 +202,9 @@ public class MaterializedViewHandler extends AlterHandler {
             if (olapTable.existTempPartitions()) {
                 throw new DdlException("Can not alter table when there are temp partitions in table");
             }
+            if (olapTable.hasColumnSeqMapping()) {
+                throw new DdlException("Can not add materialized view when table use column sequence mapping");
+            }
             // check no duplicate column name in full schema
             Set<String> allColumnNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
             for (Column column : olapTable.getFullSchema()) {
@@ -287,6 +290,9 @@ public class MaterializedViewHandler extends AlterHandler {
             olapTable.checkNormalStateForAlter();
             if (olapTable.existTempPartitions()) {
                 throw new DdlException("Can not alter table when there are temp partitions in table");
+            }
+            if  (olapTable.hasColumnSeqMapping()) {
+                throw new DdlException("Can not add rollup when table use column sequence mapping");
             }
 
             // 1 check and make rollup job
@@ -408,7 +414,7 @@ public class MaterializedViewHandler extends AlterHandler {
         long tableId = olapTable.getId();
         int baseSchemaHash = olapTable.getSchemaHashByIndexId(baseIndexId);
         Env env = Env.getCurrentEnv();
-        long bufferSize = IdGeneratorUtil.getBufferSizeForAlterTable(olapTable, Sets.newHashSet(baseIndexId));
+        long bufferSize = BufferSizeUtil.getBufferSizeForAlterTable(olapTable, Sets.newHashSet(baseIndexId));
         IdGeneratorBuffer idGeneratorBuffer = env.getIdGeneratorBuffer(bufferSize);
         long jobId = idGeneratorBuffer.getNextId();
         long mvIndexId = idGeneratorBuffer.getNextId();

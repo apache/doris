@@ -34,9 +34,12 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnary;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalBinary;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalExcept;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLeaf;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnary;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 
 import java.util.Arrays;
 
@@ -222,7 +225,7 @@ public interface PlanPatterns extends Patterns {
     }
 
     /**
-     * create a logicalUnion pattern.
+     * create a logicalIntersect pattern.
      */
     default PatternDescriptor<LogicalIntersect>
             logicalIntersect(
@@ -322,5 +325,70 @@ public interface PlanPatterns extends Patterns {
 
     default PatternDescriptor<OneRowRelation> oneRowRelation() {
         return new PatternDescriptor(new TypePattern(OneRowRelation.class), defaultPromise());
+    }
+
+    /**
+     * create a physicalUnion multi.
+     */
+    default PatternDescriptor<PhysicalUnion> physicalUnion(
+            PatternDescriptor... children) {
+        return new PatternDescriptor(
+                new TypePattern(PhysicalUnion.class,
+                        Arrays.stream(children)
+                                .map(PatternDescriptor::getPattern)
+                                .toArray(Pattern[]::new)),
+                defaultPromise());
+    }
+
+    /**
+     * create a physicalUnion multi.
+     */
+    default PatternDescriptor<PhysicalUnary> physicalUnion() {
+        return new PatternDescriptor(
+                new TypePattern(PhysicalUnary.class, multi().pattern),
+                defaultPromise());
+    }
+
+    /**
+     * create a physicalExcept pattern.
+     */
+    default PatternDescriptor<PhysicalExcept> physicalExcept(PatternDescriptor... children) {
+        return new PatternDescriptor(
+                new TypePattern(PhysicalExcept.class,
+                        Arrays.stream(children)
+                                .map(PatternDescriptor::getPattern)
+                                .toArray(Pattern[]::new)),
+                defaultPromise());
+    }
+
+    /**
+     * create a physicalExcept multi.
+     */
+    default PatternDescriptor<PhysicalExcept> physicalExcept() {
+        return new PatternDescriptor(
+                new TypePattern(PhysicalExcept.class, multi().pattern),
+                defaultPromise());
+    }
+
+    /**
+     * create a physicalIntersect multi.
+     */
+    default PatternDescriptor<PhysicalIntersect> physicalIntersect(
+            PatternDescriptor... children) {
+        return new PatternDescriptor(
+                new TypePattern(PhysicalIntersect.class,
+                        Arrays.stream(children)
+                                .map(PatternDescriptor::getPattern)
+                                .toArray(Pattern[]::new)),
+                defaultPromise());
+    }
+
+    /**
+     * create a physicalIntersect multi.
+     */
+    default PatternDescriptor<PhysicalIntersect> physicalIntersect() {
+        return new PatternDescriptor(
+                new TypePattern(PhysicalIntersect.class, multi().pattern),
+                defaultPromise());
     }
 }

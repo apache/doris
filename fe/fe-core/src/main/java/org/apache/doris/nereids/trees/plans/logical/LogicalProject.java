@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Uuid;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
@@ -63,6 +64,8 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     private final Supplier<Set<NamedExpression>> projectsSet;
     private final boolean isDistinct;
 
+    private final HashMap projectMap;
+
     public LogicalProject(List<NamedExpression> projects, CHILD_TYPE child) {
         this(projects, false, ImmutableList.of(child));
     }
@@ -90,6 +93,17 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
                 : projects;
         this.projectsSet = Suppliers.memoize(() -> Utils.fastToImmutableSet(this.projects));
         this.isDistinct = isDistinct;
+        this.projectMap = new HashMap<>();
+        for (NamedExpression namedExpression : projects) {
+            if (namedExpression.hasUnbound()) {
+                projectMap.clear();
+                break;
+            }
+            if (namedExpression instanceof Alias) {
+                Alias alias = (Alias) namedExpression;
+                projectMap.put(alias.toSlot(), alias.child());
+            }
+        }
     }
 
     /**
@@ -173,33 +187,39 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     @Override
     public LogicalProject<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalProject<>(projects, isDistinct, Utils.fastToImmutableList(children));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalProject<>(projects, isDistinct, Utils.fastToImmutableList(children)));
     }
 
     @Override
     public LogicalProject<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalProject<>(projects, isDistinct,
-                groupExpression, Optional.of(getLogicalProperties()), children);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalProject<>(projects, isDistinct,
+                groupExpression, Optional.of(getLogicalProperties()), children));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalProject<>(projects, isDistinct,
-                groupExpression, logicalProperties, children);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalProject<>(projects, isDistinct,
+                groupExpression, logicalProperties, children));
     }
 
     public LogicalProject<Plan> withProjects(List<NamedExpression> projects) {
-        return new LogicalProject<>(projects, isDistinct, children);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalProject<>(projects, isDistinct, children));
     }
 
     public LogicalProject<Plan> withProjectsAndChild(List<NamedExpression> projects, Plan child) {
-        return new LogicalProject<>(projects, isDistinct, ImmutableList.of(child));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalProject<>(projects, isDistinct, ImmutableList.of(child)));
     }
 
     public LogicalProject<Plan> withDistinct(boolean isDistinct) {
-        return new LogicalProject<>(projects, isDistinct, children);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalProject<>(projects, isDistinct, children));
     }
 
     public boolean isDistinct() {
@@ -315,13 +335,6 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
      *
      */
     public Expression pushDownExpressionPastProject(Expression expression) {
-        HashMap projectMap = new HashMap();
-        for (NamedExpression namedExpression : projects) {
-            if (namedExpression instanceof Alias) {
-                Alias alias = (Alias) namedExpression;
-                projectMap.put(alias.toSlot(), alias.child());
-            }
-        }
         return ExpressionUtils.replace(expression, projectMap);
     }
 }

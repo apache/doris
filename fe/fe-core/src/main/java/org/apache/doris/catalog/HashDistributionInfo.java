@@ -54,16 +54,6 @@ public class HashDistributionInfo extends DistributionInfo {
         return distributionColumns;
     }
 
-    @Override
-    public int getBucketNum() {
-        return bucketNum;
-    }
-
-    @Override
-    public void setBucketNum(int bucketNum) {
-        this.bucketNum = bucketNum;
-    }
-
     public boolean sameDistributionColumns(HashDistributionInfo other) {
         if (distributionColumns.size() != other.distributionColumns.size()) {
             return false;

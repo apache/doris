@@ -25,7 +25,6 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -262,37 +261,34 @@ public class HiveBucketUtil {
 
     private static Optional<Set<Integer>> pruneBucketsFromPredicate(
             Expr dorisExpr, String bucketCol, int bucketVersion, int numBuckets) throws DdlException {
-        TExprOpcode opcode = dorisExpr.getOpcode();
-        switch (opcode) {
-            case EQ: {
-                // Make sure the col slot is always first
-                SlotRef slotRef = HiveMetaStoreClientHelper.convertDorisExprToSlotRef(dorisExpr.getChild(0));
+        if (dorisExpr instanceof BinaryPredicate
+                && ((BinaryPredicate) dorisExpr).getOp() == BinaryPredicate.Operator.EQ) {
+            // Make sure the col slot is always first
+            SlotRef slotRef = HiveMetaStoreClientHelper.convertDorisExprToSlotRef(dorisExpr.getChild(0));
+            LiteralExpr literalExpr =
+                    HiveMetaStoreClientHelper.convertDorisExprToLiteralExpr(dorisExpr.getChild(1));
+            return getPrunedBucketsFromLiteral(slotRef, literalExpr, bucketCol, bucketVersion, numBuckets);
+        } else if (dorisExpr instanceof InPredicate && !((InPredicate) dorisExpr).isNotIn()) {
+            SlotRef slotRef = HiveMetaStoreClientHelper.convertDorisExprToSlotRef(dorisExpr.getChild(0));
+            Optional<Set<Integer>> result = Optional.empty();
+            for (int i = 1; i < dorisExpr.getChildren().size(); i++) {
                 LiteralExpr literalExpr =
-                        HiveMetaStoreClientHelper.convertDorisExprToLiteralExpr(dorisExpr.getChild(1));
-                return getPrunedBucketsFromLiteral(slotRef, literalExpr, bucketCol, bucketVersion, numBuckets);
-            }
-            case FILTER_IN: {
-                SlotRef slotRef = HiveMetaStoreClientHelper.convertDorisExprToSlotRef(dorisExpr.getChild(0));
-                Optional<Set<Integer>> result = Optional.empty();
-                for (int i = 1; i < dorisExpr.getChildren().size(); i++) {
-                    LiteralExpr literalExpr =
-                            HiveMetaStoreClientHelper.convertDorisExprToLiteralExpr(dorisExpr.getChild(i));
-                    Optional<Set<Integer>> childBucket =
-                            getPrunedBucketsFromLiteral(slotRef, literalExpr, bucketCol, bucketVersion, numBuckets);
-                    if (childBucket.isPresent()) {
-                        if (result.isPresent()) {
-                            result.get().addAll(childBucket.get());
-                        } else {
-                            result = Optional.of(new HashSet<>(childBucket.get()));
-                        }
+                        HiveMetaStoreClientHelper.convertDorisExprToLiteralExpr(dorisExpr.getChild(i));
+                Optional<Set<Integer>> childBucket =
+                        getPrunedBucketsFromLiteral(slotRef, literalExpr, bucketCol, bucketVersion, numBuckets);
+                if (childBucket.isPresent()) {
+                    if (result.isPresent()) {
+                        result.get().addAll(childBucket.get());
                     } else {
-                        return Optional.empty();
+                        result = Optional.of(new HashSet<>(childBucket.get()));
                     }
+                } else {
+                    return Optional.empty();
                 }
-                return result;
             }
-            default:
-                return Optional.empty();
+            return result;
+        } else {
+            return Optional.empty();
         }
     }
 

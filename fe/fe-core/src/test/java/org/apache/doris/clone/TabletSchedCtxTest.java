@@ -19,6 +19,7 @@ package org.apache.doris.clone;
 
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.LocalReplica;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -163,31 +164,31 @@ public class TabletSchedCtxTest extends TestWithFeService {
         TabletSchedCtx.CloneSrcComparator countComparator
                 = new TabletSchedCtx.CloneSrcComparator();
         List<Replica> replicaList = Lists.newArrayList();
-        Replica replica1 = new Replica();
+        Replica replica1 = new LocalReplica();
         replica1.setVisibleVersionCount(100);
         replica1.setState(Replica.ReplicaState.NORMAL);
         // user drop true
         replica1.setUserDropTime(System.currentTimeMillis());
 
-        Replica replica2 = new Replica();
+        Replica replica2 = new LocalReplica();
         replica2.setVisibleVersionCount(50);
         replica2.setState(Replica.ReplicaState.NORMAL);
         // user drop false
         replica2.setUserDropTime(-1);
 
-        Replica replica3 = new Replica();
+        Replica replica3 = new LocalReplica();
         replica3.setVisibleVersionCount(-1);
         replica3.setState(Replica.ReplicaState.NORMAL);
         // user drop false
         replica3.setUserDropTime(-1);
 
-        Replica replica4 = new Replica();
+        Replica replica4 = new LocalReplica();
         replica4.setVisibleVersionCount(200);
         replica4.setState(Replica.ReplicaState.NORMAL);
         // user drop false
         replica4.setUserDropTime(-1);
 
-        Replica replica5 = new Replica();
+        Replica replica5 = new LocalReplica();
         replica5.setVisibleVersionCount(-1);
         replica5.setState(Replica.ReplicaState.NORMAL);
         // user drop true

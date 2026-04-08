@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_trinoconnector_information_schema", "p0,external,hive,external_docker,external_docker_hive") {
+suite("test_trinoconnector_information_schema", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         def host_ips = new ArrayList()

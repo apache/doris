@@ -30,6 +30,7 @@ public class LogicalGenerateToPhysicalGenerate extends OneImplementationRuleFact
         return logicalGenerate().then(generate -> new PhysicalGenerate<>(
                 generate.getGenerators(),
                 generate.getGeneratorOutput(),
+                generate.getConjuncts(),
                 generate.getLogicalProperties(),
                 generate.child())
         ).toRule(RuleType.LOGICAL_GENERATE_TO_PHYSICAL_GENERATE);

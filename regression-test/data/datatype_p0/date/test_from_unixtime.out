@@ -22,3 +22,73 @@
 -- !sql8 --
 3001-01-19 00:00:00
 
+-- !hour_from_unixtime1 --
+0
+11
+16
+
+-- !hour_from_unixtime2 --
+0
+
+-- !hour_from_unixtime3 --
+7
+
+-- !hour_from_unixtime4 --
+0
+
+-- !hour_from_unixtime5 --
+0
+
+-- !hour_from_unixtime6 --
+16
+
+-- !minute_from_unixtime1 --
+1
+33
+0
+
+-- !minute_from_unixtime2 --
+0
+
+-- !minute_from_unixtime3 --
+48
+
+-- !minute_from_unixtime4 --
+19
+
+-- !minute_from_unixtime5 --
+0
+
+-- !second_from_unixtime1 --
+40
+20
+0
+
+-- !second_from_unixtime2 --
+0
+
+-- !second_from_unixtime3 --
+34
+
+-- !second_from_unixtime4 --
+5
+
+-- !second_from_unixtime5 --
+0
+
+-- !microsecond_from_unixtime1 --
+123000
+1000
+123457
+
+-- !microsecond_from_unixtime2 --
+0
+
+-- !microsecond_from_unixtime3 --
+123456
+
+-- !microsecond_from_unixtime4 --
+140000
+
+-- !microsecond_from_unixtime5 --
+0

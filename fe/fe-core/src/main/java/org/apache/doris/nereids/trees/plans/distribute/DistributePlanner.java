@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.distribute;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.StatementContext;
@@ -116,7 +117,11 @@ public class DistributePlanner {
             updateProfileIfPresent(SummaryProfile::setAssignFragmentTime);
             return linkedPlans;
         } catch (Throwable t) {
-            LOG.error("Failed to build distribute plans", t);
+            if (t instanceof NereidsException && ((NereidsException) t).isSuppressStackTrace()) {
+                LOG.error("Failed to build distribute plans: {}", t);
+            } else {
+                LOG.error("Failed to build distribute plans", t);
+            }
             Throwables.throwIfInstanceOf(t, RuntimeException.class);
             throw new IllegalStateException(t.toString(), t);
         }

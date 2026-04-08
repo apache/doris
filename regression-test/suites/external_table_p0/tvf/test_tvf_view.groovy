@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_tvf_view", "p0,external,tvf,external_docker,hive") {
+suite("test_tvf_view", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String nameNodeHost = context.config.otherConfigs.get("externalEnvIp")

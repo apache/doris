@@ -1,0 +1,19 @@
+{
+  "version" : 3,
+  "id" : 0,
+  "fields" : [ {
+    "id" : 0,
+    "name" : "id",
+    "type" : "INT"
+  }, {
+    "id" : 1,
+    "name" : "ts_ltz",
+    "type" : "TIMESTAMP(3) WITH LOCAL TIME ZONE"
+  } ],
+  "highestFieldId" : 1,
+  "partitionKeys" : [ ],
+  "primaryKeys" : [ ],
+  "options" : { },
+  "comment" : "",
+  "timeMillis" : 1767687184848
+}

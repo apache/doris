@@ -24,9 +24,9 @@
 
 #include "common/logging.h"
 #include "common/status.h"
+#include "core/allocator.h"
+#include "core/allocator_fwd.h"
 #include "runtime/thread_context.h"
-#include "vec/common/allocator.h"
-#include "vec/common/allocator_fwd.h"
 
 namespace doris {
 

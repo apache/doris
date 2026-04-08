@@ -77,6 +77,9 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileReserv
 import org.apache.doris.nereids.trees.expressions.functions.agg.QuantileUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.RegrIntercept;
 import org.apache.doris.nereids.trees.expressions.functions.agg.RegrSlope;
+import org.apache.doris.nereids.trees.expressions.functions.agg.RegrSxx;
+import org.apache.doris.nereids.trees.expressions.functions.agg.RegrSxy;
+import org.apache.doris.nereids.trees.expressions.functions.agg.RegrSyy;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Retention;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sem;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SequenceCount;
@@ -92,6 +95,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.TopNWeighted;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Variance;
 import org.apache.doris.nereids.trees.expressions.functions.agg.VarianceSamp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.WindowFunnel;
+import org.apache.doris.nereids.trees.expressions.functions.agg.WindowFunnelV2;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -173,6 +177,9 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
                 agg(QuantileUnion.class, "quantile_union"),
                 agg(RegrIntercept.class, "regr_intercept"),
                 agg(RegrSlope.class, "regr_slope"),
+                agg(RegrSxx.class, "regr_sxx"),
+                agg(RegrSxy.class, "regr_sxy"),
+                agg(RegrSyy.class, "regr_syy"),
                 agg(Retention.class, "retention"),
                 agg(Sem.class, "sem"),
                 agg(SequenceCount.class, "sequence_count"),
@@ -187,7 +194,8 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
                 agg(TopNWeighted.class, "topn_weighted"),
                 agg(Variance.class, "var_pop", "variance_pop", "variance"),
                 agg(VarianceSamp.class, "var_samp", "variance_samp"),
-                agg(WindowFunnel.class, "window_funnel")
+                agg(WindowFunnel.class, "window_funnel_v1"),
+                agg(WindowFunnelV2.class, "window_funnel_v2", "window_funnel")
         );
 
         ImmutableMap.Builder<String, Boolean> aggFuncNameNullableMapBuilder

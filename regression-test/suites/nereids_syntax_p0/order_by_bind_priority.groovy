@@ -31,7 +31,7 @@ suite("order_by_bind_priority") {
     qt_test_bind_order_by_in_no_agg_func_output "select abs(c1) xx, sum(c2) from t_order_by_bind_priority group by xx order by min(xx)"
     test {
         sql "select abs(sum(c1)) as c1, c1,sum(c2) as c2 from t_order_by_bind_priority group by c1 order by sum(c1)+c2 asc;"
-        exception "c2 should be grouped by."
+        exception "SORT expression 'c2' must appear in the GROUP BY clause or be used in an aggregate function."
     }
     sql """drop table if exists table_20_undef_partitions2_keys3_properties4_distributed_by58"""
     sql """

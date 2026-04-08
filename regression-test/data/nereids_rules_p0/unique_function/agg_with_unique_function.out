@@ -253,16 +253,20 @@ PhysicalResultSink
 ------------------PhysicalOlapScan[tbl_unique_function_with_one_row]
 
 -- !check_equal_repeat1_shape --
-PhysicalResultSink
---PhysicalProject[a + random(), a + random() + 0, abs(a + random()), sum(a + random() + 0), sum(a + random())]
-----PhysicalQuickSort[MERGE_SORT]
-------PhysicalQuickSort[LOCAL_SORT]
---------PhysicalProject[(a + random() + 1.0) AS `(a + random() + 1.0)`, a + random(), a + random() + 0, abs(a + random()) AS `abs(a + random())`, sum(a + random() + 0), sum(a + random())]
-----------filter((a + random() + 0 > 0.01))
-------------hashAgg[GLOBAL]
---------------hashAgg[LOCAL]
-----------------PhysicalRepeat
-------------------PhysicalProject[a + random(), a + random() + 0, a + random() + 0 AS `a + random() + 0`, a + random() AS `a + random()`]
---------------------PhysicalProject[((a + random()) + 0.0) AS `a + random() + 0`, (a + random()) AS `a + random()`]
-----------------------PhysicalOlapScan[tbl_unique_function_with_one_row]
+PhysicalCteAnchor ( cteId=CTEId#0 )
+--PhysicalCteProducer ( cteId=CTEId#0 )
+----hashAgg[GLOBAL]
+------hashAgg[LOCAL]
+--------PhysicalProject[a + random(), a + random() + 0, a + random() + 0 AS `a + random() + 0`, a + random() AS `a + random()`]
+----------PhysicalProject[((a + random()) + 0.0) AS `a + random() + 0`, (a + random()) AS `a + random()`]
+------------PhysicalOlapScan[tbl_unique_function_with_one_row]
+--PhysicalResultSink
+----PhysicalProject[a + random(), a + random() + 0, abs(a + random()), sum(a + random() + 0), sum(a + random())]
+------PhysicalQuickSort[MERGE_SORT]
+--------PhysicalQuickSort[LOCAL_SORT]
+----------PhysicalProject[(a + random() + 1.0) AS `(a + random() + 1.0)`, a + random(), a + random() + 0, abs(a + random()) AS `abs(a + random())`, sum(a + random() + 0), sum(a + random())]
+------------PhysicalUnion
+--------------PhysicalEmptyRelation
+--------------filter((.a + random() + 0 > 0.01))
+----------------PhysicalCteConsumer ( cteId=CTEId#0 )
 

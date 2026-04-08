@@ -24,8 +24,9 @@ import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.iceberg.CatalogProperties;
+import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.catalog.Catalog;
-import org.apache.iceberg.hadoop.HadoopCatalog;
 
 import java.util.List;
 import java.util.Map;
@@ -44,34 +45,20 @@ public class IcebergFileSystemMetaStoreProperties extends AbstractIcebergPropert
     @Override
     public Catalog initCatalog(String catalogName, Map<String, String> catalogProps,
                                List<StorageProperties> storagePropertiesList) {
-        Configuration configuration = buildConfiguration(storagePropertiesList);
-        HadoopCatalog catalog = new HadoopCatalog();
-        buildCatalogProps(storagePropertiesList);
-        catalog.setConf(configuration);
         try {
-            this.executionAuthenticator.execute(() -> {
-                catalog.initialize(catalogName, catalogProps);
-                return null;
-            });
+            Configuration configuration = new Configuration();
+            toFileIOProperties(storagePropertiesList, catalogProps, configuration);
+            catalogProps.put(CatalogProperties.CATALOG_IMPL, CatalogUtil.ICEBERG_CATALOG_HADOOP);
+            buildExecutionAuthenticator(storagePropertiesList);
+            return this.executionAuthenticator.execute(() ->
+                    buildIcebergCatalog(catalogName, catalogProps, configuration));
         } catch (Exception e) {
             throw new RuntimeException("Failed to initialize iceberg filesystem catalog: "
                     + ExceptionUtils.getRootCauseMessage(e), e);
         }
-
-        return catalog;
     }
 
-    private Configuration buildConfiguration(List<StorageProperties> storagePropertiesList) {
-        Configuration configuration = new Configuration();
-        for (StorageProperties sp : storagePropertiesList) {
-            if (sp.getHadoopStorageConfig() != null) {
-                configuration.addResource(sp.getHadoopStorageConfig());
-            }
-        }
-        return configuration;
-    }
-
-    private void buildCatalogProps(List<StorageProperties> storagePropertiesList) {
+    private void buildExecutionAuthenticator(List<StorageProperties> storagePropertiesList) {
         if (storagePropertiesList.size() == 1 && storagePropertiesList.get(0) instanceof HdfsProperties) {
             HdfsProperties hdfsProps = (HdfsProperties) storagePropertiesList.get(0);
             if (hdfsProps.isKerberos()) {
@@ -83,5 +70,4 @@ public class IcebergFileSystemMetaStoreProperties extends AbstractIcebergPropert
             }
         }
     }
-
 }

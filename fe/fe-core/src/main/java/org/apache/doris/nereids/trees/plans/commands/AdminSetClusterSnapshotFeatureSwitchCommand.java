@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StmtType;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.proto.Cloud;
@@ -31,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.service.FrontendOptions;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -56,6 +58,7 @@ public class AdminSetClusterSnapshotFeatureSwitchCommand extends Command impleme
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate(ctx);
         Cloud.AlterInstanceRequest.Builder builder = Cloud.AlterInstanceRequest.newBuilder()
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached())
                 .setInstanceId(((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId())
                 .setOp(Cloud.AlterInstanceRequest.Operation.SET_SNAPSHOT_PROPERTY)
                 .putProperties(Cloud.AlterInstanceRequest.SnapshotProperty.ENABLE_SNAPSHOT.name(), String.valueOf(on));
@@ -71,9 +74,20 @@ public class AdminSetClusterSnapshotFeatureSwitchCommand extends Command impleme
         if (!Config.isCloudMode()) {
             throw new AnalysisException("The sql is illegal in disk mode ");
         }
-        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, PrivPredicate.ADMIN)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
-                    PrivPredicate.ADMIN.getPrivs().toString());
+        // Check privilege based on configuration
+        if ("admin".equalsIgnoreCase(Config.cluster_snapshot_min_privilege)) {
+            // When configured as admin, check ADMIN privilege
+            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, PrivPredicate.ADMIN)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
+                        PrivPredicate.ADMIN.getPrivs().toString());
+            }
+        } else {
+            // Default or configured as root, check if user is root
+            UserIdentity currentUser = ctx.getCurrentUserIdentity();
+            if (currentUser == null || !currentUser.isRootUser()) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
+                        "root privilege");
+            }
         }
     }
 

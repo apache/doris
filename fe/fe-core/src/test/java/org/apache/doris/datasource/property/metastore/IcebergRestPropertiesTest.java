@@ -17,13 +17,22 @@
 
 package org.apache.doris.datasource.property.metastore;
 
+import org.apache.doris.datasource.property.storage.OSSProperties;
+import org.apache.doris.datasource.property.storage.S3Properties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
+
+import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.CatalogUtil;
+import org.apache.iceberg.aws.AwsClientProperties;
+import org.apache.iceberg.aws.s3.S3FileIOProperties;
 import org.apache.iceberg.rest.auth.OAuth2Properties;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 public class IcebergRestPropertiesTest {
@@ -39,8 +48,8 @@ public class IcebergRestPropertiesTest {
         restProps.initNormalizeAndCheckProps();
 
         Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
-        Assertions.assertEquals(CatalogUtil.ICEBERG_CATALOG_TYPE_REST,
-                catalogProps.get(CatalogUtil.ICEBERG_CATALOG_TYPE));
+        Assertions.assertEquals(CatalogUtil.ICEBERG_CATALOG_REST,
+                catalogProps.get(CatalogProperties.CATALOG_IMPL));
         Assertions.assertEquals("http://localhost:8080", catalogProps.get(CatalogProperties.URI));
         Assertions.assertEquals("s3://warehouse/path", catalogProps.get(CatalogProperties.WAREHOUSE_LOCATION));
         Assertions.assertEquals("prefix", catalogProps.get("prefix"));
@@ -172,8 +181,8 @@ public class IcebergRestPropertiesTest {
 
         Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
         // Should only have basic properties, no OAuth2 properties
-        Assertions.assertEquals(CatalogUtil.ICEBERG_CATALOG_TYPE_REST,
-                catalogProps.get(CatalogUtil.ICEBERG_CATALOG_TYPE));
+        Assertions.assertEquals(CatalogUtil.ICEBERG_CATALOG_REST,
+                catalogProps.get(CatalogProperties.CATALOG_IMPL));
         Assertions.assertEquals("http://localhost:8080", catalogProps.get(CatalogProperties.URI));
         Assertions.assertFalse(catalogProps.containsKey(OAuth2Properties.CREDENTIAL));
         Assertions.assertFalse(catalogProps.containsKey(OAuth2Properties.TOKEN));
@@ -270,7 +279,7 @@ public class IcebergRestPropertiesTest {
         restProps.initNormalizeAndCheckProps();
 
         Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
-        Assertions.assertEquals("glue", catalogProps.get("rest.signing-name"));
+        Assertions.assertEquals("GLUE", catalogProps.get("rest.signing-name"));
         Assertions.assertEquals("us-west-2", catalogProps.get("rest.signing-region"));
     }
 
@@ -426,5 +435,114 @@ public class IcebergRestPropertiesTest {
                 || errorMessage.contains("access-key-id")
                 || errorMessage.contains("secret-access-key")
                 || errorMessage.contains("sigv4-enabled"));
+    }
+
+    @Test
+    public void testToFileIOPropertiesPrefersNonS3Properties() {
+        // When both S3Properties and OSSProperties exist, OSSProperties should be chosen
+        Map<String, String> s3Props = new HashMap<>();
+        s3Props.put("s3.endpoint", "https://s3.us-east-1.amazonaws.com");
+        s3Props.put("s3.access_key", "s3AccessKey");
+        s3Props.put("s3.secret_key", "s3SecretKey");
+        s3Props.put("s3.region", "us-east-1");
+        s3Props.put(StorageProperties.FS_S3_SUPPORT, "true");
+        S3Properties s3 = (S3Properties) StorageProperties.createPrimary(s3Props);
+
+        Map<String, String> ossProps = new HashMap<>();
+        ossProps.put("oss.endpoint", "oss-cn-beijing.aliyuncs.com");
+        ossProps.put("oss.access_key", "ossAccessKey");
+        ossProps.put("oss.secret_key", "ossSecretKey");
+        ossProps.put(StorageProperties.FS_OSS_SUPPORT, "true");
+        OSSProperties oss = (OSSProperties) StorageProperties.createPrimary(ossProps);
+
+        Map<String, String> restPropsMap = new HashMap<>();
+        restPropsMap.put("iceberg.rest.uri", "http://localhost:8080");
+        IcebergRestProperties restProps = new IcebergRestProperties(restPropsMap);
+        restProps.initNormalizeAndCheckProps();
+
+        List<StorageProperties> storageList = new ArrayList<>();
+        storageList.add(s3);
+        storageList.add(oss);
+
+        Map<String, String> fileIOProperties = new HashMap<>();
+        Configuration conf = new Configuration();
+        restProps.toFileIOProperties(storageList, fileIOProperties, conf);
+
+        // OSSProperties should be used, not S3Properties
+        Assertions.assertEquals("oss-cn-beijing.aliyuncs.com", fileIOProperties.get(S3FileIOProperties.ENDPOINT));
+        Assertions.assertEquals("ossAccessKey", fileIOProperties.get(S3FileIOProperties.ACCESS_KEY_ID));
+        Assertions.assertEquals("ossSecretKey", fileIOProperties.get(S3FileIOProperties.SECRET_ACCESS_KEY));
+    }
+
+    @Test
+    public void testToFileIOPropertiesFallsBackToS3Properties() {
+        // When only S3Properties exists, it should be used
+        Map<String, String> s3Props = new HashMap<>();
+        s3Props.put("s3.endpoint", "https://s3.us-east-1.amazonaws.com");
+        s3Props.put("s3.access_key", "s3AccessKey");
+        s3Props.put("s3.secret_key", "s3SecretKey");
+        s3Props.put("s3.region", "us-east-1");
+        s3Props.put(StorageProperties.FS_S3_SUPPORT, "true");
+        S3Properties s3 = (S3Properties) StorageProperties.createPrimary(s3Props);
+
+        Map<String, String> restPropsMap = new HashMap<>();
+        restPropsMap.put("iceberg.rest.uri", "http://localhost:8080");
+        IcebergRestProperties restProps = new IcebergRestProperties(restPropsMap);
+        restProps.initNormalizeAndCheckProps();
+
+        List<StorageProperties> storageList = new ArrayList<>();
+        storageList.add(s3);
+
+        Map<String, String> fileIOProperties = new HashMap<>();
+        Configuration conf = new Configuration();
+        restProps.toFileIOProperties(storageList, fileIOProperties, conf);
+
+        Assertions.assertEquals("https://s3.us-east-1.amazonaws.com", fileIOProperties.get(S3FileIOProperties.ENDPOINT));
+        Assertions.assertEquals("s3AccessKey", fileIOProperties.get(S3FileIOProperties.ACCESS_KEY_ID));
+        Assertions.assertEquals("us-east-1", fileIOProperties.get(AwsClientProperties.CLIENT_REGION));
+    }
+
+    @Test
+    public void testToFileIOPropertiesOnlyFirstNonS3Used() {
+        // When S3Properties comes first, then two non-S3 types, only the first non-S3 is used
+        Map<String, String> s3Props = new HashMap<>();
+        s3Props.put("s3.endpoint", "https://s3.amazonaws.com");
+        s3Props.put("s3.access_key", "s3AK");
+        s3Props.put("s3.secret_key", "s3SK");
+        s3Props.put("s3.region", "us-east-1");
+        s3Props.put(StorageProperties.FS_S3_SUPPORT, "true");
+        S3Properties s3 = (S3Properties) StorageProperties.createPrimary(s3Props);
+
+        Map<String, String> ossProps1 = new HashMap<>();
+        ossProps1.put("oss.endpoint", "oss-cn-beijing.aliyuncs.com");
+        ossProps1.put("oss.access_key", "ossAK1");
+        ossProps1.put("oss.secret_key", "ossSK1");
+        ossProps1.put(StorageProperties.FS_OSS_SUPPORT, "true");
+        OSSProperties oss1 = (OSSProperties) StorageProperties.createPrimary(ossProps1);
+
+        Map<String, String> ossProps2 = new HashMap<>();
+        ossProps2.put("oss.endpoint", "oss-cn-shanghai.aliyuncs.com");
+        ossProps2.put("oss.access_key", "ossAK2");
+        ossProps2.put("oss.secret_key", "ossSK2");
+        ossProps2.put(StorageProperties.FS_OSS_SUPPORT, "true");
+        OSSProperties oss2 = (OSSProperties) StorageProperties.createPrimary(ossProps2);
+
+        Map<String, String> restPropsMap = new HashMap<>();
+        restPropsMap.put("iceberg.rest.uri", "http://localhost:8080");
+        IcebergRestProperties restProps = new IcebergRestProperties(restPropsMap);
+        restProps.initNormalizeAndCheckProps();
+
+        List<StorageProperties> storageList = new ArrayList<>();
+        storageList.add(s3);
+        storageList.add(oss1);
+        storageList.add(oss2);
+
+        Map<String, String> fileIOProperties = new HashMap<>();
+        Configuration conf = new Configuration();
+        restProps.toFileIOProperties(storageList, fileIOProperties, conf);
+
+        // First non-S3Properties (oss1) should be used
+        Assertions.assertEquals("oss-cn-beijing.aliyuncs.com", fileIOProperties.get(S3FileIOProperties.ENDPOINT));
+        Assertions.assertEquals("ossAK1", fileIOProperties.get(S3FileIOProperties.ACCESS_KEY_ID));
     }
 }

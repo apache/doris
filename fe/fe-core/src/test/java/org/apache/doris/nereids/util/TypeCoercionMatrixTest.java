@@ -96,7 +96,7 @@ public class TypeCoercionMatrixTest {
         testProcessComparisonPredicate(NullType.INSTANCE, HllType.INSTANCE, HllType.INSTANCE);
         testProcessComparisonPredicate(NullType.INSTANCE, BitmapType.INSTANCE, BitmapType.INSTANCE);
         testProcessComparisonPredicate(NullType.INSTANCE, QuantileStateType.INSTANCE, QuantileStateType.INSTANCE);
-        testProcessComparisonPredicate(NullType.INSTANCE, new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true)), new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true)));
+        testProcessComparisonPredicate(NullType.INSTANCE, new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true), true), new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true), true));
     }
 
     @Test
@@ -134,7 +134,7 @@ public class TypeCoercionMatrixTest {
         testProcessComparisonPredicate(BooleanType.INSTANCE, HllType.INSTANCE, null);
         testProcessComparisonPredicate(BooleanType.INSTANCE, BitmapType.INSTANCE, null);
         testProcessComparisonPredicate(BooleanType.INSTANCE, QuantileStateType.INSTANCE, null);
-        testProcessComparisonPredicate(BooleanType.INSTANCE, new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true)), null);
+        testProcessComparisonPredicate(BooleanType.INSTANCE, new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true), true), null);
     }
 
     @Test
@@ -180,7 +180,7 @@ public class TypeCoercionMatrixTest {
         testProcessComparisonPredicate(TinyIntType.INSTANCE, HllType.INSTANCE, null);
         testProcessComparisonPredicate(TinyIntType.INSTANCE, BitmapType.INSTANCE, null);
         testProcessComparisonPredicate(TinyIntType.INSTANCE, QuantileStateType.INSTANCE, null);
-        testProcessComparisonPredicate(TinyIntType.INSTANCE, new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true)), null);
+        testProcessComparisonPredicate(TinyIntType.INSTANCE, new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true), true), null);
     }
 
     @Test
@@ -226,7 +226,7 @@ public class TypeCoercionMatrixTest {
         testProcessComparisonPredicate(SmallIntType.INSTANCE, HllType.INSTANCE, null);
         testProcessComparisonPredicate(SmallIntType.INSTANCE, BitmapType.INSTANCE, null);
         testProcessComparisonPredicate(SmallIntType.INSTANCE, QuantileStateType.INSTANCE, null);
-        testProcessComparisonPredicate(SmallIntType.INSTANCE, new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true)), null);
+        testProcessComparisonPredicate(SmallIntType.INSTANCE, new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true), true), null);
     }
 
     @Test
@@ -272,7 +272,7 @@ public class TypeCoercionMatrixTest {
         testProcessComparisonPredicate(IntegerType.INSTANCE, HllType.INSTANCE, null);
         testProcessComparisonPredicate(IntegerType.INSTANCE, BitmapType.INSTANCE, null);
         testProcessComparisonPredicate(IntegerType.INSTANCE, QuantileStateType.INSTANCE, null);
-        testProcessComparisonPredicate(IntegerType.INSTANCE, new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true)), null);
+        testProcessComparisonPredicate(IntegerType.INSTANCE, new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true), true), null);
     }
 
     @Test
@@ -318,7 +318,7 @@ public class TypeCoercionMatrixTest {
         testProcessComparisonPredicate(BigIntType.INSTANCE, HllType.INSTANCE, null);
         testProcessComparisonPredicate(BigIntType.INSTANCE, BitmapType.INSTANCE, null);
         testProcessComparisonPredicate(BigIntType.INSTANCE, QuantileStateType.INSTANCE, null);
-        testProcessComparisonPredicate(BigIntType.INSTANCE, new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true)), null);
+        testProcessComparisonPredicate(BigIntType.INSTANCE, new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true), true), null);
     }
 
     @Test
@@ -364,7 +364,7 @@ public class TypeCoercionMatrixTest {
         testProcessComparisonPredicate(LargeIntType.INSTANCE, HllType.INSTANCE, null);
         testProcessComparisonPredicate(LargeIntType.INSTANCE, BitmapType.INSTANCE, null);
         testProcessComparisonPredicate(LargeIntType.INSTANCE, QuantileStateType.INSTANCE, null);
-        testProcessComparisonPredicate(LargeIntType.INSTANCE, new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true)), null);
+        testProcessComparisonPredicate(LargeIntType.INSTANCE, new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true), true), null);
     }
 
     @Test
@@ -413,7 +413,7 @@ public class TypeCoercionMatrixTest {
         testProcessComparisonPredicate(DecimalV2Type.SYSTEM_DEFAULT, HllType.INSTANCE, null);
         testProcessComparisonPredicate(DecimalV2Type.SYSTEM_DEFAULT, BitmapType.INSTANCE, null);
         testProcessComparisonPredicate(DecimalV2Type.SYSTEM_DEFAULT, QuantileStateType.INSTANCE, null);
-        testProcessComparisonPredicate(DecimalV2Type.SYSTEM_DEFAULT, new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true)), null);
+        testProcessComparisonPredicate(DecimalV2Type.SYSTEM_DEFAULT, new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true), true), null);
     }
 
     @Test
@@ -462,7 +462,7 @@ public class TypeCoercionMatrixTest {
         testProcessComparisonPredicate(DecimalV3Type.createDecimalV3Type(30, 15), HllType.INSTANCE, null);
         testProcessComparisonPredicate(DecimalV3Type.createDecimalV3Type(30, 15), BitmapType.INSTANCE, null);
         testProcessComparisonPredicate(DecimalV3Type.createDecimalV3Type(30, 15), QuantileStateType.INSTANCE, null);
-        testProcessComparisonPredicate(DecimalV3Type.createDecimalV3Type(30, 15), new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true)), null);
+        testProcessComparisonPredicate(DecimalV3Type.createDecimalV3Type(30, 15), new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true), true), null);
     }
 
     @Test
@@ -502,7 +502,7 @@ public class TypeCoercionMatrixTest {
         testProcessComparisonPredicate(FloatType.INSTANCE, HllType.INSTANCE, null);
         testProcessComparisonPredicate(FloatType.INSTANCE, BitmapType.INSTANCE, null);
         testProcessComparisonPredicate(FloatType.INSTANCE, QuantileStateType.INSTANCE, null);
-        testProcessComparisonPredicate(FloatType.INSTANCE, new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true)), null);
+        testProcessComparisonPredicate(FloatType.INSTANCE, new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true), true), null);
     }
 
     @Test
@@ -542,7 +542,7 @@ public class TypeCoercionMatrixTest {
         testProcessComparisonPredicate(DoubleType.INSTANCE, HllType.INSTANCE, null);
         testProcessComparisonPredicate(DoubleType.INSTANCE, BitmapType.INSTANCE, null);
         testProcessComparisonPredicate(DoubleType.INSTANCE, QuantileStateType.INSTANCE, null);
-        testProcessComparisonPredicate(DoubleType.INSTANCE, new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true)), null);
+        testProcessComparisonPredicate(DoubleType.INSTANCE, new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true), true), null);
     }
 
     @Test
@@ -582,7 +582,7 @@ public class TypeCoercionMatrixTest {
         testProcessComparisonPredicate(DateType.INSTANCE, HllType.INSTANCE, null);
         testProcessComparisonPredicate(DateType.INSTANCE, BitmapType.INSTANCE, null);
         testProcessComparisonPredicate(DateType.INSTANCE, QuantileStateType.INSTANCE, null);
-        testProcessComparisonPredicate(DateType.INSTANCE, new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true)), null);
+        testProcessComparisonPredicate(DateType.INSTANCE, new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true), true), null);
     }
 
     @Test
@@ -622,7 +622,7 @@ public class TypeCoercionMatrixTest {
         testProcessComparisonPredicate(DateV2Type.INSTANCE, HllType.INSTANCE, null);
         testProcessComparisonPredicate(DateV2Type.INSTANCE, BitmapType.INSTANCE, null);
         testProcessComparisonPredicate(DateV2Type.INSTANCE, QuantileStateType.INSTANCE, null);
-        testProcessComparisonPredicate(DateV2Type.INSTANCE, new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true)), null);
+        testProcessComparisonPredicate(DateV2Type.INSTANCE, new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true), true), null);
     }
 
     @Test
@@ -662,7 +662,7 @@ public class TypeCoercionMatrixTest {
         testProcessComparisonPredicate(DateTimeType.INSTANCE, HllType.INSTANCE, null);
         testProcessComparisonPredicate(DateTimeType.INSTANCE, BitmapType.INSTANCE, null);
         testProcessComparisonPredicate(DateTimeType.INSTANCE, QuantileStateType.INSTANCE, null);
-        testProcessComparisonPredicate(DateTimeType.INSTANCE, new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true)), null);
+        testProcessComparisonPredicate(DateTimeType.INSTANCE, new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true), true), null);
     }
 
     @Test
@@ -702,7 +702,7 @@ public class TypeCoercionMatrixTest {
         testProcessComparisonPredicate(DateTimeV2Type.of(4), HllType.INSTANCE, null);
         testProcessComparisonPredicate(DateTimeV2Type.of(4), BitmapType.INSTANCE, null);
         testProcessComparisonPredicate(DateTimeV2Type.of(4), QuantileStateType.INSTANCE, null);
-        testProcessComparisonPredicate(DateTimeV2Type.of(4), new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true)), null);
+        testProcessComparisonPredicate(DateTimeV2Type.of(4), new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true), true), null);
     }
 
     @Test
@@ -742,7 +742,7 @@ public class TypeCoercionMatrixTest {
         testProcessComparisonPredicate(TimeV2Type.of(4), HllType.INSTANCE, null);
         testProcessComparisonPredicate(TimeV2Type.of(4), BitmapType.INSTANCE, null);
         testProcessComparisonPredicate(TimeV2Type.of(4), QuantileStateType.INSTANCE, null);
-        testProcessComparisonPredicate(TimeV2Type.of(4), new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true)), null);
+        testProcessComparisonPredicate(TimeV2Type.of(4), new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true), true), null);
     }
 
     @Test
@@ -778,7 +778,7 @@ public class TypeCoercionMatrixTest {
         testProcessComparisonPredicate(IPv4Type.INSTANCE, HllType.INSTANCE, null);
         testProcessComparisonPredicate(IPv4Type.INSTANCE, BitmapType.INSTANCE, null);
         testProcessComparisonPredicate(IPv4Type.INSTANCE, QuantileStateType.INSTANCE, null);
-        testProcessComparisonPredicate(IPv4Type.INSTANCE, new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true)), null);
+        testProcessComparisonPredicate(IPv4Type.INSTANCE, new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true), true), null);
     }
 
     @Test
@@ -814,7 +814,7 @@ public class TypeCoercionMatrixTest {
         testProcessComparisonPredicate(IPv6Type.INSTANCE, HllType.INSTANCE, null);
         testProcessComparisonPredicate(IPv6Type.INSTANCE, BitmapType.INSTANCE, null);
         testProcessComparisonPredicate(IPv6Type.INSTANCE, QuantileStateType.INSTANCE, null);
-        testProcessComparisonPredicate(IPv6Type.INSTANCE, new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true)), null);
+        testProcessComparisonPredicate(IPv6Type.INSTANCE, new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true), true), null);
     }
 
     @Test
@@ -850,7 +850,7 @@ public class TypeCoercionMatrixTest {
         testProcessComparisonPredicate(JsonType.INSTANCE, HllType.INSTANCE, null);
         testProcessComparisonPredicate(JsonType.INSTANCE, BitmapType.INSTANCE, null);
         testProcessComparisonPredicate(JsonType.INSTANCE, QuantileStateType.INSTANCE, null);
-        testProcessComparisonPredicate(JsonType.INSTANCE, new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true)), null);
+        testProcessComparisonPredicate(JsonType.INSTANCE, new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true), true), null);
     }
 
     @Test
@@ -892,7 +892,7 @@ public class TypeCoercionMatrixTest {
         testProcessComparisonPredicate(CharType.createCharType(3), HllType.INSTANCE, null);
         testProcessComparisonPredicate(CharType.createCharType(3), BitmapType.INSTANCE, null);
         testProcessComparisonPredicate(CharType.createCharType(3), QuantileStateType.INSTANCE, null);
-        testProcessComparisonPredicate(CharType.createCharType(3), new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true)), null);
+        testProcessComparisonPredicate(CharType.createCharType(3), new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true), true), null);
     }
 
     @Test
@@ -934,7 +934,7 @@ public class TypeCoercionMatrixTest {
         testProcessComparisonPredicate(VarcharType.createVarcharType(3), HllType.INSTANCE, null);
         testProcessComparisonPredicate(VarcharType.createVarcharType(3), BitmapType.INSTANCE, null);
         testProcessComparisonPredicate(VarcharType.createVarcharType(3), QuantileStateType.INSTANCE, null);
-        testProcessComparisonPredicate(VarcharType.createVarcharType(3), new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true)), null);
+        testProcessComparisonPredicate(VarcharType.createVarcharType(3), new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true), true), null);
     }
 
     @Test
@@ -975,7 +975,7 @@ public class TypeCoercionMatrixTest {
         testProcessComparisonPredicate(StringType.INSTANCE, HllType.INSTANCE, null);
         testProcessComparisonPredicate(StringType.INSTANCE, BitmapType.INSTANCE, null);
         testProcessComparisonPredicate(StringType.INSTANCE, QuantileStateType.INSTANCE, null);
-        testProcessComparisonPredicate(StringType.INSTANCE, new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true)), null);
+        testProcessComparisonPredicate(StringType.INSTANCE, new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true), true), null);
     }
 
     @Test
@@ -1013,7 +1013,7 @@ public class TypeCoercionMatrixTest {
         testProcessComparisonPredicate(arrayType, HllType.INSTANCE, null);
         testProcessComparisonPredicate(arrayType, BitmapType.INSTANCE, null);
         testProcessComparisonPredicate(arrayType, QuantileStateType.INSTANCE, null);
-        testProcessComparisonPredicate(arrayType, new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true)), null);
+        testProcessComparisonPredicate(arrayType, new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true), true), null);
     }
 
     @Test
@@ -1051,7 +1051,7 @@ public class TypeCoercionMatrixTest {
         testProcessComparisonPredicate(mapType, HllType.INSTANCE, null);
         testProcessComparisonPredicate(mapType, BitmapType.INSTANCE, null);
         testProcessComparisonPredicate(mapType, QuantileStateType.INSTANCE, null);
-        testProcessComparisonPredicate(mapType, new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true)), null);
+        testProcessComparisonPredicate(mapType, new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true), true), null);
     }
 
     @Test
@@ -1090,7 +1090,7 @@ public class TypeCoercionMatrixTest {
         testProcessComparisonPredicate(structType, HllType.INSTANCE, null);
         testProcessComparisonPredicate(structType, BitmapType.INSTANCE, null);
         testProcessComparisonPredicate(structType, QuantileStateType.INSTANCE, null);
-        testProcessComparisonPredicate(structType, new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true)), null);
+        testProcessComparisonPredicate(structType, new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true), true), null);
     }
 
     @Test
@@ -1131,7 +1131,7 @@ public class TypeCoercionMatrixTest {
         testProcessComparisonPredicate(HllType.INSTANCE, HllType.INSTANCE, HllType.INSTANCE);
         testProcessComparisonPredicate(HllType.INSTANCE, BitmapType.INSTANCE, null);
         testProcessComparisonPredicate(HllType.INSTANCE, QuantileStateType.INSTANCE, null);
-        testProcessComparisonPredicate(HllType.INSTANCE, new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true)), null);
+        testProcessComparisonPredicate(HllType.INSTANCE, new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true), true), null);
     }
 
     @Test
@@ -1172,7 +1172,7 @@ public class TypeCoercionMatrixTest {
         testProcessComparisonPredicate(BitmapType.INSTANCE, HllType.INSTANCE, null);
         testProcessComparisonPredicate(BitmapType.INSTANCE, BitmapType.INSTANCE, BitmapType.INSTANCE);
         testProcessComparisonPredicate(BitmapType.INSTANCE, QuantileStateType.INSTANCE, null);
-        testProcessComparisonPredicate(BitmapType.INSTANCE, new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true)), null);
+        testProcessComparisonPredicate(BitmapType.INSTANCE, new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true), true), null);
     }
 
     @Test
@@ -1213,12 +1213,12 @@ public class TypeCoercionMatrixTest {
         testProcessComparisonPredicate(QuantileStateType.INSTANCE, HllType.INSTANCE, null);
         testProcessComparisonPredicate(QuantileStateType.INSTANCE, BitmapType.INSTANCE, null);
         testProcessComparisonPredicate(QuantileStateType.INSTANCE, QuantileStateType.INSTANCE, QuantileStateType.INSTANCE);
-        testProcessComparisonPredicate(QuantileStateType.INSTANCE, new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true)), null);
+        testProcessComparisonPredicate(QuantileStateType.INSTANCE, new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true), true), null);
     }
 
     @Test
     public void testProcessComparisonPredicateForAggStateType() {
-        AggStateType aggStateType = new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true));
+        AggStateType aggStateType = new AggStateType("sum", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true), true);
         testProcessComparisonPredicate(aggStateType, NullType.INSTANCE, aggStateType);
         testProcessComparisonPredicate(aggStateType, BooleanType.INSTANCE, null);
         testProcessComparisonPredicate(aggStateType, TinyIntType.INSTANCE, null);
@@ -1256,7 +1256,7 @@ public class TypeCoercionMatrixTest {
         testProcessComparisonPredicate(aggStateType, BitmapType.INSTANCE, null);
         testProcessComparisonPredicate(aggStateType, QuantileStateType.INSTANCE, null);
         testProcessComparisonPredicate(aggStateType, aggStateType, aggStateType);
-        testProcessComparisonPredicate(aggStateType, new AggStateType("avg", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true)), null);
+        testProcessComparisonPredicate(aggStateType, new AggStateType("avg", ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true), true), null);
     }
 
     private void testProcessComparisonPredicate(DataType leftType, DataType rightType, DataType commonType) {

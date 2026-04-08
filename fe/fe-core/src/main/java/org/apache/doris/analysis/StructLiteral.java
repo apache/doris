@@ -18,15 +18,8 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.StructType;
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FormatOptions;
-import org.apache.doris.thrift.TExprNode;
-import org.apache.doris.thrift.TExprNodeType;
-import org.apache.doris.thrift.TTypeDesc;
-import org.apache.doris.thrift.TTypeNode;
 
 import org.apache.commons.lang3.StringUtils;
 
@@ -61,18 +54,8 @@ public class StructLiteral extends LiteralExpr {
     }
 
     @Override
-    protected String toSqlImpl() {
-        List<String> list = new ArrayList<>(children.size());
-        children.forEach(v -> list.add(v.toSqlImpl()));
-        return "STRUCT(" + StringUtils.join(list, ", ") + ")";
-    }
-
-    @Override
-    protected String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
-            TableIf table) {
-        List<String> list = new ArrayList<>(children.size());
-        children.forEach(v -> list.add(v.toSqlImpl(disableTableName, needExternalSql, tableType, table)));
-        return "STRUCT(" + StringUtils.join(list, ", ") + ")";
+    public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
+        return visitor.visitStructLiteral(this, context);
     }
 
     private String getStringValue(Expr expr) {
@@ -91,44 +74,6 @@ public class StructLiteral extends LiteralExpr {
         List<String> list = new ArrayList<>(children.size());
         children.forEach(v -> list.add(getStringValue(v)));
         return "{" + StringUtils.join(list, ", ") + "}";
-    }
-
-    @Override
-    public String getStringValueForQuery(FormatOptions options) {
-        List<String> list = new ArrayList<>(children.size());
-        ++options.level;
-        // same with be default field index start with 1
-        for (int i = 0; i < children.size(); i++) {
-            Expr child = children.get(i);
-            list.add(options.getNestedStringWrapper()
-                    + ((StructType) type).getFields().get(i).getName()
-                    + options.getNestedStringWrapper()
-                    + options.getMapKeyDelim()
-                    + child.getStringValueInComplexTypeForQuery(options));
-        }
-        --options.level;
-        return "{" + StringUtils.join(list, options.getCollectionDelim()) + "}";
-    }
-
-    @Override
-    public String getStringValueForStreamLoad(FormatOptions options) {
-        List<String> list = new ArrayList<>(children.size());
-        // same with be default field index start with 1
-        for (int i = 0; i < children.size(); i++) {
-            Expr child = children.get(i);
-            list.add(child.getStringValueInComplexTypeForQuery(options));
-        }
-        return "{" + StringUtils.join(list, options.getCollectionDelim()) + "}";
-    }
-
-    @Override
-    protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.STRUCT_LITERAL;
-        ((StructType) type).getFields().forEach(v -> msg.setChildType(v.getType().getPrimitiveType().toThrift()));
-        TTypeDesc container = new TTypeDesc();
-        container.setTypes(new ArrayList<TTypeNode>());
-        type.toThrift(container);
-        msg.setType(container);
     }
 
     @Override

@@ -21,8 +21,13 @@ import java.io.IOException;
 import java.io.Serializable;
 import java.util.Map;
 
+import io.debezium.relational.TableId;
+import io.debezium.relational.history.TableChanges;
+
 public interface SourceRecordDeserializer<T, C> extends Serializable {
     void init(Map<String, String> props);
 
     C deserialize(Map<String, String> context, T record) throws IOException;
+
+    default void setTableSchemas(Map<TableId, TableChanges.TableChange> tableSchemas) {}
 }

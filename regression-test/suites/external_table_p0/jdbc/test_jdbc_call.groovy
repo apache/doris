@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_jdbc_call", "p0,external,doris,external_docker,external_docker_doris") {
+suite("test_jdbc_call", "p0,external") {
     String jdbcUrl = context.config.jdbcUrl + "&sessionVariables=return_object_data_as_binary=true"
     String jdbcUser = context.config.jdbcUser
     String jdbcPassword = context.config.jdbcPassword

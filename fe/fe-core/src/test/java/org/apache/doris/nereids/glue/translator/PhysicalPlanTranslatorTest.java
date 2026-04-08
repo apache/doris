@@ -17,6 +17,11 @@
 
 package org.apache.doris.nereids.glue.translator;
 
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.GroupingInfo;
+import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.properties.DataTrait;
@@ -34,16 +39,19 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.planner.AggregationNode;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.Planner;
+import org.apache.doris.planner.RepeatNode;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Sets;
 import mockit.Injectable;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -53,8 +61,17 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 public class PhysicalPlanTranslatorTest extends TestWithFeService {
+
+    @Override
+    protected void runBeforeAll() throws Exception {
+        createDatabase("test_db");
+        createTable("create table test_db.t(a int, b int) distributed by hash(a) buckets 3 "
+                + "properties('replication_num' = '1');");
+        connectContext.getSessionVariable().setDisableNereidsRules("prune_empty_partition");
+    }
 
     @Test
     public void testOlapPrune(@Injectable LogicalProperties placeHolder) throws Exception {
@@ -73,7 +90,7 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
                 Collections.emptyList(), Collections.emptyList(), null, PreAggStatus.on(),
                 ImmutableList.of(), Optional.empty(), t1Properties, Optional.empty(),
                 ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty(),
-                ImmutableList.of(), Optional.empty());
+                Optional.empty(), ImmutableList.of(), Optional.empty());
         Literal t1FilterRight = new IntegerLiteral(1);
         Expression t1FilterExpr = new GreaterThan(col1, t1FilterRight);
         PhysicalFilter<PhysicalOlapScan> filter =
@@ -93,10 +110,6 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
 
     @Test
     public void testAggNeedsFinalize() throws Exception {
-        createDatabase("test_db");
-        createTable("create table test_db.t(a int, b int) distributed by hash(a) buckets 3 "
-                + "properties('replication_num' = '1');");
-        connectContext.getSessionVariable().setDisableNereidsRules("prune_empty_partition");
         String querySql = "select b from test_db.t group by b";
         Planner planner = getSQLPlanner(querySql);
         Assertions.assertNotNull(planner);
@@ -124,5 +137,32 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
         boolean upperNeedsFinalize = needsFinalizeField.getBoolean(upperAggNode);
         Assertions.assertTrue(upperNeedsFinalize,
                 "upper AggregationNode needsFinalize should be true");
+    }
+
+    @Test
+    public void testRepeatInputOutputOrder() throws Exception {
+        String sql = "select grouping(a), grouping(b), grouping_id(a, b), sum(a + 2 * b), sum(a + 3 * b) + grouping_id(b, a, b), b, a, b, a"
+                + " from test_db.t"
+                + " group by grouping sets((a, b), (), (b), (a, b), (a + b), (a * b))";
+        PlanChecker.from(connectContext).checkPlannerResult(sql,
+                planner -> {
+                    Set<RepeatNode> repeatNodes = Sets.newHashSet();
+                    planner.getFragments().stream()
+                            .map(PlanFragment::getPlanRoot)
+                            .forEach(plan -> plan.collect(RepeatNode.class, repeatNodes));
+                    Assertions.assertEquals(1, repeatNodes.size());
+                    RepeatNode repeatNode = repeatNodes.iterator().next();
+                    GroupingInfo groupingInfo = repeatNode.getGroupingInfo();
+                    List<Expr> preRepeatExprs = groupingInfo.getPreRepeatExprs();
+                    TupleDescriptor outputs = groupingInfo.getOutputTupleDesc();
+                    for (int i = 0; i < preRepeatExprs.size(); i++) {
+                        Expr inputExpr = preRepeatExprs.get(i);
+                        Assertions.assertInstanceOf(SlotRef.class, inputExpr);
+                        Column inputColumn = ((SlotRef) inputExpr).getColumn();
+                        Column outputColumn = outputs.getSlots().get(i).getColumn();
+                        Assertions.assertEquals(inputColumn, outputColumn);
+                    }
+                }
+        );
     }
 }

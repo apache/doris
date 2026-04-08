@@ -30,7 +30,8 @@ suite('test_manager_interface_5',"p0") {
         futures.add( thread {
             try{
                 sql """set session_context="trace_id:test_manager_interface_5_trace_id""""
-                sql """ select *  from numbers("number" = "9910") as  a  join numbers('number'="18880094567") as b on a.number = b.number; """
+                sql """ set parallel_pipeline_task_num = 1; """
+                sql """ select count(*)  from numbers("number" = "598318881") as  a  join numbers('number'="598318881") as b on a.number = b.number; """
             }catch(Exception e){
                 
             }
@@ -38,13 +39,13 @@ suite('test_manager_interface_5',"p0") {
 
         futures.add( thread {
             // test trace id in processlist
-            sleep(500);
+            sleep(5000);
             List<List<Object>> result = sql_return_maparray """  show processlist  """
             def queryid = ""
             def x = 0
             logger.info("result = ${result}")
             for( int i =0 ;i < result.size();i++ ){
-                if (result[i]["Info"].contains("18880094567")) {
+                if (result[i]["Info"].contains("598318881")) {
                     queryid = result[i]["QueryId"]
                     assertTrue(result[i]["TraceId"].equals("test_manager_interface_5_trace_id"))
                     x = 1
@@ -58,7 +59,7 @@ suite('test_manager_interface_5',"p0") {
             def x2 = 0
             logger.info("result = ${result}")
             for( int i =0 ;i < result.size();i++ ){
-                if (result[i]["Info"].contains("18880094567")) {
+                if (result[i]["Info"].contains("598318881")) {
                     queryid2 = result[i]["QueryId"]
                     assertTrue(result[i]["TraceId"].equals("test_manager_interface_5_trace_id"))
                     x2 = 1

@@ -18,16 +18,17 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.MysqlTable;
-import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -40,8 +41,9 @@ import org.apache.doris.common.proc.ProcService;
 import org.apache.doris.common.proc.TableProcDir;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.systable.SysTable;
-import org.apache.doris.info.PartitionNamesInfo;
+import org.apache.doris.datasource.systable.SysTableResolver;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.info.TableValuedFunctionRefInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -193,20 +195,42 @@ public class DescribeCommand extends ShowCommand {
     @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         if (dbTableName != null) {
-            dbTableName.analyze(ctx);
+            dbTableName.analyze(ctx.getNameSpaceContext());
             CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalogOrAnalysisException(dbTableName.getCtl());
             DatabaseIf db = catalog.getDbOrAnalysisException(dbTableName.getDb());
-            Pair<String, String> tableNameWithSysTableName
-                    = SysTable.getTableNameWithSysTableName(dbTableName.getTbl());
-            if (!Strings.isNullOrEmpty(tableNameWithSysTableName.second)) {
-                TableIf table = db.getTableOrDdlException(tableNameWithSysTableName.first);
-                isTableValuedFunction = true;
-                Optional<TableValuedFunctionRefInfo> optTvfRef = table.getSysTableFunctionRef(
-                        dbTableName.getCtl(), dbTableName.getDb(), dbTableName.getTbl());
-                if (!optTvfRef.isPresent()) {
-                    throw new AnalysisException("sys table not found: " + tableNameWithSysTableName.second);
+            TableIf fullTable = db.getTableNullable(dbTableName.getTbl());
+            if (fullTable == null) {
+                Pair<String, String> tableNameWithSysTableName
+                        = SysTable.getTableNameWithSysTableName(dbTableName.getTbl());
+                if (!Strings.isNullOrEmpty(tableNameWithSysTableName.second)) {
+                    TableIf table = db.getTableOrDdlException(tableNameWithSysTableName.first);
+                    Optional<SysTableResolver.SysTableDescribe> sysTableDescribeOpt =
+                            SysTableResolver.resolveForDescribe(
+                                    table, dbTableName.getCtl(), dbTableName.getDb(), dbTableName.getTbl());
+                    if (!sysTableDescribeOpt.isPresent()) {
+                        throw new AnalysisException("sys table not found: " + tableNameWithSysTableName.second);
+                    }
+                    SysTableResolver.SysTableDescribe sysTableDescribe = sysTableDescribeOpt.get();
+                    if (sysTableDescribe.isNative()) {
+                        ExternalTable sysTable = sysTableDescribe.getSysExternalTable();
+                        List<Column> columns = sysTable.getFullSchema();
+                        for (Column column : columns) {
+                            List<String> row = Arrays.asList(
+                                    column.getName(),
+                                    column.getOriginType().hideVersionForVersionColumn(true),
+                                    column.isAllowNull() ? "Yes" : "No",
+                                    ((Boolean) column.isKey()).toString(),
+                                    column.getDefaultValue() == null
+                                            ? FeConstants.null_string : column.getDefaultValue(),
+                                    "NONE");
+                            rows.add(row);
+                        }
+                        return new ShowResultSet(getMetaData(), rows);
+                    }
+
+                    isTableValuedFunction = true;
+                    tableValuedFunctionRefInfo = sysTableDescribe.getTvfRef();
                 }
-                tableValuedFunctionRefInfo = optTvfRef.get();
             }
         }
 
@@ -318,8 +342,8 @@ public class DescribeCommand extends ShowCommand {
                             String defineExprStr = "";
                             Expr defineExpr = column.getDefineExpr();
                             if (defineExpr != null) {
-                                column.getDefineExpr().disableTableName();
-                                defineExprStr = defineExpr.toSqlWithoutTbl();
+                                defineExprStr = defineExpr.accept(
+                                        ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE);
                             }
 
                             List<String> row = Arrays.asList(
@@ -343,7 +367,8 @@ public class DescribeCommand extends ShowCommand {
                                 row.set(1, indexMeta.getKeysType().name());
                                 Expr where = indexMeta.getWhereClause();
                                 row.set(getMetaData().getColumns().size() - 1,
-                                        where == null ? "" : where.toSqlWithoutTbl());
+                                        where == null ? "" : where.accept(
+                                                ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE));
                             }
 
                             rows.add(row);
@@ -355,27 +380,13 @@ public class DescribeCommand extends ShowCommand {
                     } // end for indices
                 } else if (table.getType() == TableIf.TableType.ODBC) {
                     isOlapTable = false;
-                    OdbcTable odbcTable = (OdbcTable) table;
-                    List<String> row = Arrays.asList(odbcTable.getHost(),
-                            odbcTable.getPort(),
-                            odbcTable.getUserName(),
-                            odbcTable.getPasswd(),
-                            odbcTable.getOdbcDatabaseName(),
-                            odbcTable.getOdbcTableName(),
-                            odbcTable.getOdbcDriver(),
-                            odbcTable.getOdbcTableTypeName());
+                    List<String> row = Arrays.asList("DEPRECATED", "ODBC tables are no longer supported",
+                            "", "", "", "", "", "");
                     rows.add(row);
                 } else if (table.getType() == TableIf.TableType.JDBC) {
                     isOlapTable = false;
-                    JdbcTable jdbcTable = (JdbcTable) table;
-                    List<String> row = Arrays.asList(jdbcTable.getJdbcUrl(),
-                            jdbcTable.getJdbcUser(),
-                            jdbcTable.getJdbcPasswd(),
-                            jdbcTable.getDriverClass(),
-                            jdbcTable.getDriverUrl(),
-                            jdbcTable.getExternalTableName(),
-                            jdbcTable.getResourceName(),
-                            jdbcTable.getJdbcTypeName());
+                    List<String> row = Arrays.asList("DEPRECATED", "JDBC tables are no longer supported",
+                            "", "", "", "", "", "");
                     rows.add(row);
                 } else if (table.getType() == TableIf.TableType.MYSQL) {
                     isOlapTable = false;

@@ -18,12 +18,15 @@
 package org.apache.doris.load;
 
 import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.Predicate;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ColumnToThrift;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
@@ -316,7 +319,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                 List<Column> columns = indexMeta.getSchema(true);
                 // using to update schema of the rowset, so full columns should be included
                 for (Column column : columns) {
-                    TColumn tCol = column.toThrift();
+                    TColumn tCol = ColumnToThrift.toThrift(column);
                     columnsDesc.add(tCol);
                     String colName = column.tryGetBaseColumnName();
                     colNameToColDesc.put(colName, tCol);
@@ -807,7 +810,8 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                     String notStr = inPredicate.isNotIn() ? "NOT " : "";
                     strBuilder.append(columnName).append(" ").append(notStr).append("IN (");
                     for (int i = 1; i <= inPredicate.getInElementNum(); ++i) {
-                        strBuilder.append(inPredicate.getChild(i).toSql());
+                        strBuilder.append(inPredicate.getChild(i)
+                                .accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
                         strBuilder.append((i != inPredicate.getInElementNum()) ? ", " : "");
                     }
                     strBuilder.append(")");

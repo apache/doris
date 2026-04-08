@@ -28,9 +28,7 @@
 
 namespace doris {
 
-namespace vectorized {
 class Block;
-} // namespace vectorized
 
 namespace flight {
 
@@ -102,7 +100,7 @@ private:
 
     std::shared_ptr<PBackendService_Stub> _brpc_stub = nullptr;
     std::once_flag _timezone_once_flag;
-    std::shared_ptr<vectorized::Block> _block;
+    std::shared_ptr<Block> _block;
 };
 
 } // namespace flight

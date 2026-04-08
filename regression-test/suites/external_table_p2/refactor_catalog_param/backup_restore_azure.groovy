@@ -18,7 +18,7 @@ import org.awaitility.Awaitility;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static groovy.test.GroovyAssert.shouldFail
 
-suite("refactor_storage_backup_restore_azure", "p2,external,new_catalog_property") {
+suite("refactor_storage_backup_restore_azure", "p2,external") {
     
 
 

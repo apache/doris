@@ -18,8 +18,8 @@
 #pragma once
 #include <bvar/latency_recorder.h>
 
-#include "defer_op.h"
-#include "stopwatch.hpp"
+#include "util/defer_op.h"
+#include "util/stopwatch.hpp"
 
 namespace doris {
 

@@ -18,14 +18,18 @@
 package org.apache.doris.common.jni.utils;
 
 import com.esotericsoftware.reflectasm.MethodAccess;
+import org.apache.log4j.Logger;
 
+import java.io.IOException;
 import java.lang.reflect.Method;
+import java.net.URLClassLoader;
 import java.util.HashMap;
 
 /**
  * This class is used for caching the class of UDF.
  */
-public class UdfClassCache {
+public class UdfClassCache implements AutoCloseable {
+    private static final Logger LOG = Logger.getLogger(UdfClassCache.class);
     public Class<?> udfClass;
     // the index of evaluate() method in the class
     public MethodAccess methodAccess;
@@ -42,4 +46,22 @@ public class UdfClassCache {
     // for java-udf  index is evaluate method index
     // for java-udaf index is add method index
     public int methodIndex;
+
+    // Keep a reference to the ClassLoader for static load mode
+    // This ensures the ClassLoader is not garbage collected and can load dependent classes
+    // Note: classLoader may be null when jarPath is empty (UDF loaded from custom_lib via
+    // system class loader), which must not be closed — null is intentional in that case.
+    public URLClassLoader classLoader;
+
+    @Override
+    public void close() {
+        if (classLoader != null) {
+            try {
+                classLoader.close();
+            } catch (IOException e) {
+                LOG.warn("Failed to close ClassLoader", e);
+            }
+            classLoader = null;
+        }
+    }
 }

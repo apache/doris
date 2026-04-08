@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.common.DdlException;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.jupiter.api.Assertions;
@@ -53,5 +54,59 @@ public class AzureResourceTest {
             LOG.info("testPingAzure exception:", e);
             Assertions.assertTrue(false, e.getMessage());
         }
+    }
+
+    @Test
+    public void testEndpointSchemeHandling() throws DdlException {
+        // Test 1: endpoint without scheme should get https:// prefix
+        AzureResource resource1 = new AzureResource("test1");
+        Map<String, String> props1 = new HashMap<>();
+        props1.put("s3.endpoint", "myaccount.blob.core.windows.net");
+        props1.put("s3.region", "eu-west-1");
+        props1.put("s3.access_key", "myaccount");
+        props1.put("s3.secret_key", "mysecret");
+        props1.put("s3.bucket", "mybucket");
+        props1.put("s3.root.path", "mypath");
+        props1.put("provider", "AZURE");
+        props1.put("s3_validity_check", "false");
+        resource1.setProperties(ImmutableMap.copyOf(props1));
+        Map<String, String> result1 = resource1.getCopiedProperties();
+        Assertions.assertEquals("https://myaccount.blob.core.windows.net",
+                result1.get("s3.endpoint"),
+                "Endpoint without scheme should get https:// prefix");
+
+        // Test 2: endpoint with https:// should remain unchanged
+        AzureResource resource2 = new AzureResource("test2");
+        Map<String, String> props2 = new HashMap<>();
+        props2.put("s3.endpoint", "https://myaccount.blob.core.windows.net");
+        props2.put("s3.region", "eu-west-1");
+        props2.put("s3.access_key", "myaccount");
+        props2.put("s3.secret_key", "mysecret");
+        props2.put("s3.bucket", "mybucket");
+        props2.put("s3.root.path", "mypath");
+        props2.put("provider", "AZURE");
+        props2.put("s3_validity_check", "false");
+        resource2.setProperties(ImmutableMap.copyOf(props2));
+        Map<String, String> result2 = resource2.getCopiedProperties();
+        Assertions.assertEquals("https://myaccount.blob.core.windows.net",
+                result2.get("s3.endpoint"),
+                "Endpoint with https:// should remain unchanged");
+
+        // Test 3: endpoint with http:// should remain unchanged
+        AzureResource resource3 = new AzureResource("test3");
+        Map<String, String> props3 = new HashMap<>();
+        props3.put("s3.endpoint", "http://myaccount.blob.core.windows.net");
+        props3.put("s3.region", "eu-west-1");
+        props3.put("s3.access_key", "myaccount");
+        props3.put("s3.secret_key", "mysecret");
+        props3.put("s3.bucket", "mybucket");
+        props3.put("s3.root.path", "mypath");
+        props3.put("provider", "AZURE");
+        props3.put("s3_validity_check", "false");
+        resource3.setProperties(ImmutableMap.copyOf(props3));
+        Map<String, String> result3 = resource3.getCopiedProperties();
+        Assertions.assertEquals("http://myaccount.blob.core.windows.net",
+                result3.get("s3.endpoint"),
+                "Endpoint with http:// should remain unchanged");
     }
 }

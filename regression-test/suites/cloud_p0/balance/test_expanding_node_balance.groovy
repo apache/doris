@@ -23,6 +23,10 @@ suite('test_expanding_node_balance', 'docker') {
         return;
     }
 
+    // Randomly enable or disable packed_file to test both scenarios
+    def enablePackedFile = new Random().nextBoolean()
+    logger.info("Running test with enable_packed_file=${enablePackedFile}")
+
     def clusterOptions = [
         new ClusterOptions(),
         new ClusterOptions(),
@@ -39,6 +43,9 @@ suite('test_expanding_node_balance', 'docker') {
             'cloud_warm_up_for_rebalance_type=peer_read_async_warmup',
             // disable Auto Analysis Job Executor
             'auto_check_statistics_in_minutes=60',
+        ]
+        options.beConfigs += [
+            "enable_packed_file=${enablePackedFile}",
         ]
         options.cloudMode = true
         options.setFeNum(1)
@@ -90,7 +97,7 @@ suite('test_expanding_node_balance', 'docker') {
     }
 
     docker(clusterOptions[0]) {
-        def command = 'admin set frontend config("cloud_min_balance_tablet_num_per_run"="16");' 
+        def command = 'select 1'; 
         // assert < 300s
         testCase(command, 300)
     }

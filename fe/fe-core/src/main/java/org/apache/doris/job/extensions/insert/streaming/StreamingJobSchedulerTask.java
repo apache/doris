@@ -66,12 +66,19 @@ public class StreamingJobSchedulerTask extends AbstractTask {
             }
         }
         streamingInsertJob.replayOffsetProviderIfNeed();
+        if (streamingInsertJob.hasReachedEnd()) {
+            // Source already fully consumed (e.g. snapshot-only mode recovered after FE restart).
+            // Transition directly to FINISHED without creating a new task.
+            streamingInsertJob.updateJobStatus(JobStatus.FINISHED);
+            return;
+        }
         streamingInsertJob.createStreamingTask();
+        streamingInsertJob.setSampleStartTime(System.currentTimeMillis());
         streamingInsertJob.updateJobStatus(JobStatus.RUNNING);
         streamingInsertJob.setAutoResumeCount(0);
     }
 
-    private void handleRunningState() {
+    private void handleRunningState() throws JobException {
         streamingInsertJob.processTimeoutTasks();
         streamingInsertJob.fetchMeta();
     }
@@ -94,7 +101,6 @@ public class StreamingJobSchedulerTask extends AbstractTask {
                 if (autoResumeCount < Long.MAX_VALUE) {
                     streamingInsertJob.setAutoResumeCount(autoResumeCount + 1);
                 }
-                streamingInsertJob.resetFailureInfo(null);
                 streamingInsertJob.updateJobStatus(JobStatus.PENDING);
                 return;
             }

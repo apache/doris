@@ -234,6 +234,7 @@ int lease_instance_recycle_job(TxnKv* txn_kv, std::string_view key, const std::s
     return 0;
 }
 
+// ret: 0: success, 1: tablet not found, -1: failed
 int get_tablet_idx(TxnKv* txn_kv, const std::string& instance_id, int64_t tablet_id,
                    TabletIndexPB& tablet_idx) {
     std::unique_ptr<Transaction> txn;
@@ -247,6 +248,10 @@ int get_tablet_idx(TxnKv* txn_kv, const std::string& instance_id, int64_t tablet
     meta_tablet_idx_key({instance_id, tablet_id}, &key);
     err = txn->get(key, &val);
     if (err != TxnErrorCode::TXN_OK) {
+        if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            LOG(INFO) << "tablet not found, tablet_id=" << tablet_id << " key=" << hex(key);
+            return 1;
+        }
         LOG(WARNING) << fmt::format("failed to get tablet_idx, err={} tablet_id={} key={}", err,
                                     tablet_id, hex(key));
         return -1;

@@ -17,7 +17,7 @@ import java.util.concurrent.ThreadLocalRandom
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_s3tables_write_partitions", "p0,external,iceberg,external_docker,external_docker_iceberg") {
+suite("test_s3tables_write_partitions", "p2,external") {
     // disable this test by default, glue + s3table is recommended
     def run_test = false;
     if (!run_test) {

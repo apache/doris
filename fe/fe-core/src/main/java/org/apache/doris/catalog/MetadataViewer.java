@@ -20,11 +20,11 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.Replica.ReplicaStatus;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.commands.ShowReplicaStatusCommand;
@@ -74,7 +74,9 @@ public class MetadataViewer {
 
             for (String partName : partitions) {
                 Partition partition = olapTable.getPartition(partName);
-                long visibleVersion = partition.getVisibleVersion();
+                // for local mode, getCachedVisibleVersion return visibleVersion.
+                // for cloud mode, the replica version is not updated.
+                long visibleVersion = partition.getCachedVisibleVersion();
                 short replicationNum = olapTable.getPartitionInfo()
                         .getReplicaAllocation(partition.getId()).getTotalReplicaNum();
 
@@ -179,7 +181,9 @@ public class MetadataViewer {
 
             for (String partName : partitions) {
                 Partition partition = olapTable.getPartition(partName);
-                long visibleVersion = partition.getVisibleVersion();
+                // for local mode, getCachedVisibleVersion return visibleVersion.
+                // for cloud mode, the replica version is not updated.
+                long visibleVersion = partition.getCachedVisibleVersion();
                 short replicationNum = olapTable.getPartitionInfo()
                         .getReplicaAllocation(partition.getId()).getTotalReplicaNum();
 

@@ -235,7 +235,7 @@ public class PushDownExpressionsInHashConditionTest extends TestWithFeService im
 
         PlanChecker.from(connectContext, plan).applyTopDown(new PushDownExpressionsInHashCondition())
                 .matches(logicalJoin(logicalProject(logicalOneRowRelation())
-                                .when(p -> p.getProjects().size() == 4
+                                .when("left project", p -> p.getProjects().size() == 4
                                         && p.getProjects().stream().filter(Alias.class::isInstance)
                                         .map(Alias.class::cast).map(UnaryNode::child)
                                         .filter(sameLeft::equals).count() == 1
@@ -246,7 +246,7 @@ public class PushDownExpressionsInHashConditionTest extends TestWithFeService im
                                         .map(Alias.class::cast).map(UnaryNode::child)
                                         .filter(hashLeft::equals).count() == 1),
                         logicalProject(logicalOneRowRelation())
-                                .when(p -> p.getProjects().size() == 4
+                                .when("right project", p -> p.getProjects().size() == 4
                                         && p.getProjects().stream().filter(Alias.class::isInstance)
                                         .map(Alias.class::cast).map(UnaryNode::child)
                                         .filter(sameRight::equals).count() == 1
@@ -256,12 +256,12 @@ public class PushDownExpressionsInHashConditionTest extends TestWithFeService im
                                         && p.getProjects().stream().filter(Alias.class::isInstance)
                                         .map(Alias.class::cast).map(UnaryNode::child)
                                         .filter(hashRight::equals).count() == 1)
-                        ).when(j -> j.getMarkJoinConjuncts().size() == 3
+                        ).when("join mark condition", j -> j.getMarkJoinConjuncts().size() == 3
                         && j.getMarkJoinConjuncts().stream().filter(EqualTo.class::isInstance)
                                 .allMatch(e -> ((EqualTo) e).left() instanceof SlotReference
                                         && ((EqualTo) e).right() instanceof SlotReference)
                         && j.getMarkJoinConjuncts().stream().filter(EqualTo.class::isInstance).count() == 2)
-                        .when(j -> j.getHashJoinConjuncts().size() == 2
+                        .when("join hash condition", j -> j.getHashJoinConjuncts().size() == 2
                         && j.getHashJoinConjuncts().stream().filter(EqualTo.class::isInstance)
                                 .allMatch(e -> ((EqualTo) e).left() instanceof SlotReference
                                         && ((EqualTo) e).right() instanceof SlotReference)

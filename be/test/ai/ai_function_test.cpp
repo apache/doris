@@ -20,26 +20,26 @@
 
 #include <string>
 
+#include "core/block/block.h"
+#include "core/column/column_array.h"
+#include "core/column/column_string.h"
+#include "core/column/column_vector.h"
+#include "core/data_type/data_type_array.h"
+#include "exprs/function/ai/ai_classify.h"
+#include "exprs/function/ai/ai_extract.h"
+#include "exprs/function/ai/ai_filter.h"
+#include "exprs/function/ai/ai_fix_grammar.h"
+#include "exprs/function/ai/ai_generate.h"
+#include "exprs/function/ai/ai_mask.h"
+#include "exprs/function/ai/ai_sentiment.h"
+#include "exprs/function/ai/ai_similarity.h"
+#include "exprs/function/ai/ai_summarize.h"
+#include "exprs/function/ai/ai_translate.h"
+#include "exprs/function/ai/embed.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_runtime_state.h"
-#include "vec/columns/column_array.h"
-#include "vec/columns/column_string.h"
-#include "vec/columns/column_vector.h"
-#include "vec/core/block.h"
-#include "vec/data_types/data_type_array.h"
-#include "vec/functions/ai/ai_classify.h"
-#include "vec/functions/ai/ai_extract.h"
-#include "vec/functions/ai/ai_filter.h"
-#include "vec/functions/ai/ai_fix_grammar.h"
-#include "vec/functions/ai/ai_generate.h"
-#include "vec/functions/ai/ai_mask.h"
-#include "vec/functions/ai/ai_sentiment.h"
-#include "vec/functions/ai/ai_similarity.h"
-#include "vec/functions/ai/ai_summarize.h"
-#include "vec/functions/ai/ai_translate.h"
-#include "vec/functions/ai/embed.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(AIFunctionTest, AISummarizeTest) {
     FunctionAISummarize function;
@@ -662,4 +662,4 @@ TEST(AIFunctionTest, NormalizeEndpointNoopForOtherPaths) {
     ASSERT_EQ(resource.endpoint, "https://localhost/v1/responses");
 }
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -68,6 +68,12 @@ enum SnapshotSwitchStatus {
     SNAPSHOT_SWITCH_ON = 2;
 }
 
+enum SnapshotCompactStatus {
+    SNAPSHOT_COMPACT_UNKNOWN = 0;
+    SNAPSHOT_COMPACT_DOING = 1;
+    SNAPSHOT_COMPACT_DONE = 2;
+}
+
 enum KeySetType {
     UNKNOWN_KEY_SET = 0;
 
@@ -140,6 +146,7 @@ message InstanceInfoPB {
 
     optional int64 snapshot_retained_data_size = 121;
     optional int64 snapshot_billable_data_size = 122;
+    optional SnapshotCompactStatus snapshot_compact_status = 123;
 }
 
 message StagePB {
@@ -506,6 +513,13 @@ message TxnInfoPB {
     // TODO: There are more fields TBD
     optional bool versioned_write = 19;  // versioned write, don't need to write RecycleTxnPB again
     optional bool versioned_read = 20;  // whether to read versioned keys
+    // When enabled, defer deleting pending delete bitmaps until lazy commit completes.
+    // This is used for lazy commit to reduce contention during transaction commit.
+    // The delete bitmap locks will be extended and removed during lazy commit phase.
+    optional bool defer_deleting_pending_delete_bitmaps = 21;
+    // The cluster_id of the compute cluster that performed the load
+    // Set by FE during begin_txn, used by commit_txn for compaction read-write separation
+    optional string load_cluster_id = 22;
 }
 
 // For check txn conflict and txn timeout
@@ -649,6 +663,8 @@ message TabletMetaInfoPB { // For update tablet meta
     optional int64 time_series_compaction_level_threshold = 12;
     optional bool disable_auto_compaction = 13;
     optional bool enable_mow_light_delete = 14;
+    optional int32 vertical_compaction_num_columns_per_group = 15;
+    optional string group_commit_mode = 16;
 }
 
 message TabletCompactionJobPB {
@@ -884,6 +900,17 @@ message TabletStatsPB {
     optional int64 last_full_compaction_time_ms = 13;
     optional int64 index_size = 14;
     optional int64 segment_size = 15;
+    // The cluster ID that most recently performed load or compaction on this tablet
+    optional string last_active_cluster_id = 16;
+    // Timestamp (ms) when the last_active_cluster was updated
+    optional int64 last_active_time_ms = 17;
+    // Current status of the last_active_cluster (filled by MS at get_rowset time)
+    // NORMAL means available, other states (SUSPENDED/MANUAL_SHUTDOWN) or UNKNOWN means unavailable
+    optional ClusterStatus last_active_cluster_status = 18;
+    // Timestamp for timeout judgment
+    // - Normal case: dynamically filled with ClusterPB.mtime (not persisted)
+    // - Deleted case: persisted when first detected as deleted, reused thereafter
+    optional int64 last_active_cluster_status_mtime_ms = 19;
 }
 
 message ObjectFilePB {
@@ -994,12 +1021,13 @@ message SubTxnInfo {
 message TableStatsPB {
     optional int64 table_id = 1;
     optional int64 updated_row_count = 2;
+    optional int64 table_version = 3;
 }
 
 message CommitTxnResponse {
     optional MetaServiceResponseStatus status = 1;
     optional TxnInfoPB txn_info = 2;
-    // <tablet_id, partition_id> --> version
+    // <table_id, partition_id> --> version
     repeated int64 table_ids = 3;
     repeated int64 partition_ids = 4;
     repeated int64 versions = 5;
@@ -1095,6 +1123,17 @@ message GetCurrentMaxTxnResponse {
     optional int64 current_max_txn_id = 2;
 }
 
+message CreateMetaSyncPointRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional string request_ip = 2;
+}
+
+message CreateMetaSyncPointResponse {
+    optional MetaServiceResponseStatus status = 1;
+    optional int64 committed_version = 2;
+    optional string versionstamp = 3;
+}
+
 message AbortTxnWithCoordinatorRequest {
     optional string cloud_unique_id = 1; // For auth
     optional string ip = 2;
@@ -1105,6 +1144,19 @@ message AbortTxnWithCoordinatorRequest {
 
 message AbortTxnWithCoordinatorResponse {
     optional MetaServiceResponseStatus status = 1;
+}
+
+message GetPrepareTxnByCoordinatorRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional string ip = 2;
+    optional int64 id = 3;
+    optional int64 start_time = 4;
+    optional string request_ip = 5;
+}
+
+message GetPrepareTxnByCoordinatorResponse {
+    optional MetaServiceResponseStatus status = 1;
+    repeated TxnInfoPB txn_infos = 2;
 }
 
 message CheckTxnConflictRequest {
@@ -1321,6 +1373,8 @@ message GetRowsetResponse {
     optional SchemaCloudDictionary schema_dict = 4;
     // The current max version of the partition
     optional int64 partition_max_version = 5;
+    // The cluster_id of the requester
+    optional string requester_cluster_id = 6;
 }
 
 message GetSchemaDictRequest {
@@ -1347,6 +1401,7 @@ message IndexRequest {
 
 message IndexResponse {
     optional MetaServiceResponseStatus status = 1;
+    optional int64 table_version = 2;
 }
 
 message PartitionRequest {
@@ -1363,6 +1418,7 @@ message PartitionRequest {
 
 message PartitionResponse {
     optional MetaServiceResponseStatus status = 1;
+    optional int64 table_version = 2;
 }
 
 message RestoreJobRequest {
@@ -1507,6 +1563,8 @@ message GetClusterStatusResponse {
     }
     optional MetaServiceResponseStatus status = 1;
     repeated GetClusterStatusResponseDetail details = 2;
+    // The cluster_id of the requesting node (resolved from cloud_unique_id)
+    optional string requester_cluster_id = 3;
 }
 
 message GetClusterResponse {
@@ -1741,6 +1799,7 @@ enum MetaServiceCode {
     KV_TXN_STORE_COMMIT_RETRYABLE = 1009;
     KV_TXN_STORE_CREATE_RETRYABLE = 1010;
     KV_TXN_TOO_OLD = 1011;
+    KV_TXN_MAYBE_COMMITTED = 1012;
 
     //Doris error
     TXN_GEN_ID_ERR = 2001;
@@ -1756,6 +1815,7 @@ enum MetaServiceCode {
     TABLET_NOT_FOUND = 2011;
     STALE_TABLET_CACHE = 2012;
     STALE_PREPARE_ROWSET = 2013;
+    TXN_ALREADY_COMMITED = 2014;
 
     CLUSTER_NOT_FOUND = 3001;
     ALREADY_EXISTED = 3002;
@@ -1779,7 +1839,10 @@ enum MetaServiceCode {
     STREAMING_JOB_PROGRESS_NOT_FOUND = 5006;
 
     // Rate limit
+    // Request is rejected by the RPC-specific QPS limiter.
     MAX_QPS_LIMIT = 6001;
+    // Request is rejected by the MetaService-wide rate limiter instead of a single RPC limiter.
+    MS_TOO_BUSY = 6002;
 
     ERR_ENCRYPT = 7001;
     ERR_DECPYPT = 7002;
@@ -1805,6 +1868,7 @@ enum MetaServiceCode {
 message DeleteBitmapStoragePB {
     optional bool store_in_fdb = 1;
     optional DeleteBitmapPB delete_bitmap = 2;
+    optional PackedSliceLocationPB packed_slice_location = 3;
 }
 
 message UpdateDeleteBitmapRequest {
@@ -2146,6 +2210,16 @@ message CloneInstanceResponse {
     optional string image_url = 3;
 }
 
+message CompactSnapshotRequest {
+    optional string instance_id = 1;
+    optional string cloud_unique_id = 2;
+    optional string request_ip = 3;
+}
+
+message CompactSnapshotResponse {
+    optional MetaServiceResponseStatus status = 1;
+}
+
 message PackedSlicePB {
     optional string path = 1;
     optional int64 offset = 2;
@@ -2197,12 +2271,14 @@ service MetaService {
     rpc abort_txn(AbortTxnRequest) returns (AbortTxnResponse);
     rpc get_txn(GetTxnRequest) returns (GetTxnResponse);
     rpc get_current_max_txn_id(GetCurrentMaxTxnRequest) returns (GetCurrentMaxTxnResponse);
+    rpc create_meta_sync_point(CreateMetaSyncPointRequest) returns (CreateMetaSyncPointResponse);
     rpc check_txn_conflict(CheckTxnConflictRequest) returns (CheckTxnConflictResponse);
     rpc clean_txn_label(CleanTxnLabelRequest) returns (CleanTxnLabelResponse);
     rpc get_txn_id(GetTxnIdRequest) returns (GetTxnIdResponse);
     rpc begin_sub_txn(BeginSubTxnRequest) returns (BeginSubTxnResponse);
     rpc abort_sub_txn(AbortSubTxnRequest) returns (AbortSubTxnResponse);
     rpc abort_txn_with_coordinator(AbortTxnWithCoordinatorRequest) returns (AbortTxnWithCoordinatorResponse);
+    rpc get_prepare_txn_by_coordinator(GetPrepareTxnByCoordinatorRequest) returns (GetPrepareTxnByCoordinatorResponse);
 
     rpc get_version(GetVersionRequest) returns (GetVersionResponse);
     rpc create_tablets(CreateTabletsRequest) returns (CreateTabletsResponse);
@@ -2284,6 +2360,7 @@ service MetaService {
     rpc drop_snapshot(DropSnapshotRequest) returns (DropSnapshotResponse);
     rpc list_snapshot(ListSnapshotRequest) returns (ListSnapshotResponse);
     rpc clone_instance(CloneInstanceRequest) returns (CloneInstanceResponse);
+    rpc compact_snapshot(CompactSnapshotRequest) returns (CompactSnapshotResponse);
 
     rpc update_packed_file_info(UpdatePackedFileInfoRequest) returns (UpdatePackedFileInfoResponse);
 };

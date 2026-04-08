@@ -21,6 +21,7 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.copier.DeepCopierContext;
 import org.apache.doris.nereids.trees.copier.LogicalPlanDeepCopier;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -40,6 +41,7 @@ import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 /**
  * pull up LogicalCteAnchor to the top of plan to avoid CteAnchor break other rewrite rules pattern
@@ -48,9 +50,13 @@ import java.util.List;
  * and put all of them to the top of plan depends on dependency tree of them.
  */
 public class CTEInline extends DefaultPlanRewriter<LogicalCTEProducer<?>> implements CustomRewriter {
+    // all cte used by recursive cte's recursive child should be inline
+    private Set<CTEId> mustInlineCTEs;
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
+        mustInlineCTEs = jobContext.getCascadesContext().getStatementContext().getMustInlineCTEs();
+
         Plan root = plan.accept(this, null);
         // collect cte id to consumer
         root.foreach(p -> {
@@ -78,17 +84,24 @@ public class CTEInline extends DefaultPlanRewriter<LogicalCTEProducer<?>> implem
                 }
                 return false;
             });
-            ConnectContext connectContext = ConnectContext.get();
-            if (connectContext.getSessionVariable().enableCTEMaterialize
-                    && consumers.size() > connectContext.getSessionVariable().inlineCTEReferencedThreshold) {
-                // not inline
-                Plan right = cteAnchor.right().accept(this, null);
-                return cteAnchor.withChildren(cteAnchor.left(), right);
-            } else {
+            if (mustInlineCTEs.contains(cteAnchor.getCteId())) {
                 // should inline
                 Plan root = cteAnchor.right().accept(this, (LogicalCTEProducer<?>) cteAnchor.left());
                 // process child
                 return root.accept(this, null);
+            } else {
+                ConnectContext connectContext = ConnectContext.get();
+                if (connectContext.getSessionVariable().enableCTEMaterialize
+                        && consumers.size() > connectContext.getSessionVariable().inlineCTEReferencedThreshold) {
+                    // not inline
+                    Plan right = cteAnchor.right().accept(this, null);
+                    return cteAnchor.withChildren(cteAnchor.left(), right);
+                } else {
+                    // should inline
+                    Plan root = cteAnchor.right().accept(this, (LogicalCTEProducer<?>) cteAnchor.left());
+                    // process child
+                    return root.accept(this, null);
+                }
             }
         }
     }

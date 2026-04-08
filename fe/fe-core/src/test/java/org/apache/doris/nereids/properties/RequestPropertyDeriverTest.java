@@ -368,4 +368,96 @@ class RequestPropertyDeriverTest {
         expected.add(Lists.newArrayList(PhysicalProperties.GATHER));
         Assertions.assertEquals(expected, actual);
     }
+
+    @Test
+    void testAggregateWithAggShuffleUseParentKeyDisabled() {
+        // Create ConnectContext with aggShuffleUseParentKey = false
+        ConnectContext testConnectContext = new ConnectContext();
+        testConnectContext.getSessionVariable().aggShuffleUseParentKey = false;
+
+        SlotReference key1 = new SlotReference(new ExprId(0), "col1", IntegerType.INSTANCE, true, ImmutableList.of());
+        SlotReference key2 = new SlotReference(new ExprId(1), "col2", IntegerType.INSTANCE, true, ImmutableList.of());
+        PhysicalHashAggregate<GroupPlan> aggregate = new PhysicalHashAggregate<>(
+                Lists.newArrayList(key1, key2),
+                Lists.newArrayList(key1, key2),
+                new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT),
+                true,
+                logicalProperties,
+                groupPlan
+        );
+        GroupExpression groupExpression = new GroupExpression(aggregate);
+        new Group(null, groupExpression, null);
+
+        // Create a parent hash distribution with key1 only
+        PhysicalProperties parentProperties = PhysicalProperties.createHash(
+                Lists.newArrayList(key1.getExprId()), ShuffleType.REQUIRE);
+
+        new Expectations() {
+            {
+                jobContext.getRequiredProperties();
+                result = parentProperties;
+            }
+        };
+
+        RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(testConnectContext, jobContext);
+        List<List<PhysicalProperties>> actual
+                = requestPropertyDeriver.getRequestChildrenPropertyList(groupExpression);
+
+        // When aggShuffleUseParentKey is false, should only use all groupByExpressions (key1, key2)
+        // and not use parent key (key1) separately
+        List<List<PhysicalProperties>> expected = Lists.newArrayList();
+        expected.add(Lists.newArrayList(PhysicalProperties.createHash(
+                Lists.newArrayList(key1.getExprId(), key2.getExprId()), ShuffleType.REQUIRE)));
+        Assertions.assertEquals(1, actual.size());
+        Assertions.assertEquals(expected, actual);
+    }
+
+    @Test
+    void testAggregateWithAggShuffleUseParentKeyEnabled() {
+        // Create ConnectContext with aggShuffleUseParentKey = true (default value)
+        ConnectContext testConnectContext = new ConnectContext();
+        testConnectContext.getSessionVariable().aggShuffleUseParentKey = true;
+
+        SlotReference key1 = new SlotReference(new ExprId(0), "col1", IntegerType.INSTANCE, true, ImmutableList.of());
+        SlotReference key2 = new SlotReference(new ExprId(1), "col2", IntegerType.INSTANCE, true, ImmutableList.of());
+        PhysicalHashAggregate<GroupPlan> aggregate = new PhysicalHashAggregate<>(
+                Lists.newArrayList(key1, key2),
+                Lists.newArrayList(key1, key2),
+                new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT),
+                true,
+                logicalProperties,
+                groupPlan
+        );
+        GroupExpression groupExpression = new GroupExpression(aggregate);
+        new Group(null, groupExpression, null);
+
+        // Create a parent hash distribution with key1 only
+        PhysicalProperties parentProperties = PhysicalProperties.createHash(
+                Lists.newArrayList(key1.getExprId()), ShuffleType.REQUIRE);
+
+        new Expectations() {
+            {
+                jobContext.getRequiredProperties();
+                result = parentProperties;
+            }
+        };
+        new MockUp<org.apache.doris.nereids.memo.GroupExpression>() {
+            @mockit.Mock
+            org.apache.doris.statistics.Statistics childStatistics(int idx) {
+                return null;
+            }
+        };
+        RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(testConnectContext, jobContext);
+        List<List<PhysicalProperties>> actual
+                = requestPropertyDeriver.getRequestChildrenPropertyList(groupExpression);
+
+        // When aggShuffleUseParentKey is true, shouldUseParent may return true
+        // If shouldUseParent returns true, it will add parent key (key1) first, then all groupByExpressions (key1, key2)
+        Assertions.assertEquals(2, actual.size(), "Should have at least one property request");
+        PhysicalProperties parentProp = PhysicalProperties.createHash(
+                Lists.newArrayList(key1.getExprId()), ShuffleType.REQUIRE);
+        PhysicalProperties aggProp = PhysicalProperties.createHash(
+                Lists.newArrayList(key1.getExprId(), key2.getExprId()), ShuffleType.REQUIRE);
+        Assertions.assertTrue(actual.contains(ImmutableList.of(aggProp)) && actual.contains(ImmutableList.of(parentProp)));
+    }
 }

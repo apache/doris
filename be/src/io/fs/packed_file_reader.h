@@ -48,6 +48,8 @@ public:
 
     bool closed() const override { return _closed; }
 
+    int64_t mtime() const override { return _inner_reader->mtime(); }
+
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                         const IOContext* io_ctx) override;

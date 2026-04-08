@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.analysis.AccessPathInfo;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
@@ -325,6 +324,12 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
 
         Pair<Boolean, List<Function>> replacedGenerators
                 = replaceExpressions(generate.getGenerators(), false, false);
+        for (int i = 0; i < replacedGenerators.second.size(); i++) {
+            DataType dataType = replacedGenerators.second.get(i).getDataType();
+            replacedDataTypes.put(generate.getGeneratorOutput().get(i).getExprId().asInt(),
+                    new AccessPathInfo(dataType, null, null)
+            );
+        }
         Pair<Boolean, List<Slot>> replacedGeneratorOutput
                 = replaceExpressions(generate.getGeneratorOutput(), false, false);
         if (replacedGenerators.first || replacedGeneratorOutput.first) {
@@ -718,7 +723,9 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
             boolean shouldPrune = false;
             for (Slot slot : output) {
                 int slotId = slot.getExprId().asInt();
-                if (slot.getDataType() instanceof NestedColumnPrunable && replacedDataTypes.containsKey(slotId)) {
+                if ((slot.getDataType() instanceof NestedColumnPrunable
+                        || slot.getDataType().isVariantType())
+                        && replacedDataTypes.containsKey(slotId)) {
                     shouldReplaceSlots.add(slotId);
                     shouldPrune = true;
                 }

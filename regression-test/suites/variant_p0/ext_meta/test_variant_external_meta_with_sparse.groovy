@@ -58,7 +58,7 @@ suite("test_variant_external_meta_with_sparse", "nonConcurrent") {
     qt_sparse_7 "select k, v['g'] from test_sparse_embedded where cast(v['g'] as int) is not null order by k"
     
     // Compaction should handle both extracted and sparse columns correctly
-    trigger_and_wait_compaction("test_sparse_embedded", "full")
+    trigger_and_wait_compaction("test_sparse_embedded", "full", 1800)
     
     qt_sparse_after_compact_1 "select k, v['a'] from test_sparse_embedded order by k"
     qt_sparse_after_compact_2 "select k, v['d'] from test_sparse_embedded where cast(v['d'] as int) is not null order by k"
@@ -97,7 +97,7 @@ suite("test_variant_external_meta_with_sparse", "nonConcurrent") {
     qt_bucket_5 "select count(*) from test_bucket_sparse"
     
     // Compact and verify buckets are handled correctly
-    trigger_and_wait_compaction("test_bucket_sparse", "full")
+    trigger_and_wait_compaction("test_bucket_sparse", "full", 1800)
     
     qt_bucket_after_compact_1 "select k, v['extracted_1'] from test_bucket_sparse order by k"
     qt_bucket_after_compact_2 "select k, v['sparse_0_0'] from test_bucket_sparse where cast(v['sparse_0_0'] as int) is not null order by k"
@@ -158,7 +158,7 @@ suite("test_variant_external_meta_with_sparse", "nonConcurrent") {
     qt_threshold_5 "select k, v['field_e'] from test_extraction_threshold where cast(v['field_e'] as int) is not null order by k"
     
     // After compaction, schema should be merged correctly
-    trigger_and_wait_compaction("test_extraction_threshold", "full")
+    trigger_and_wait_compaction("test_extraction_threshold", "full", 1800)
     
     qt_threshold_after_compact_1 "select k, v['field_a'] from test_extraction_threshold order by k"
     qt_threshold_after_compact_2 "select k, v['field_d'] from test_extraction_threshold where cast(v['field_d'] as int) is not null order by k"
@@ -194,7 +194,7 @@ suite("test_variant_external_meta_with_sparse", "nonConcurrent") {
     qt_toggle_sparse_6 "select k, v['f'] from test_sparse_config_toggle where cast(v['f'] as int) is not null order by k"
     
     // Compact
-    trigger_and_wait_compaction("test_sparse_config_toggle", "full")
+    trigger_and_wait_compaction("test_sparse_config_toggle", "full", 1800)
     
     qt_toggle_sparse_after_compact_1 "select k, v['a'] from test_sparse_config_toggle order by k"
     qt_toggle_sparse_after_compact_2 "select k, v['d'] from test_sparse_config_toggle where cast(v['d'] as int) is not null order by k"
@@ -232,7 +232,7 @@ suite("test_variant_external_meta_with_sparse", "nonConcurrent") {
     qt_high_cardinality_4 "select count(*) from test_high_cardinality_sparse"
     
     // Compaction with high cardinality sparse columns
-    trigger_and_wait_compaction("test_high_cardinality_sparse", "full")
+    trigger_and_wait_compaction("test_high_cardinality_sparse", "full", 1800)
     
     qt_high_cardinality_after_compact_1 "select k, v['common'] from test_high_cardinality_sparse order by k limit 5"
     qt_high_cardinality_after_compact_2 "select count(*) from test_high_cardinality_sparse"

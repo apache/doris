@@ -17,15 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.thrift.TColumnRef;
-import org.apache.doris.thrift.TExprNode;
-import org.apache.doris.thrift.TExprNodeType;
-
-import java.util.Optional;
-
 public class ColumnRefExpr extends Expr {
     private String columnName;
     private int columnId;
@@ -45,12 +36,8 @@ public class ColumnRefExpr extends Expr {
         return columnName;
     }
 
-    @Override
-    public String getExprName() {
-        if (!this.exprName.isPresent()) {
-            this.exprName = Optional.of(Utils.normalizeName(getName(), DEFAULT_EXPR_NAME));
-        }
-        return this.exprName.get();
+    public int getColumnId() {
+        return columnId;
     }
 
     public void setName(String name) {
@@ -62,23 +49,8 @@ public class ColumnRefExpr extends Expr {
     }
 
     @Override
-    protected String toSqlImpl() {
-        return columnName;
-    }
-
-    @Override
-    protected String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
-            TableIf table) {
-        return columnName;
-    }
-
-    @Override
-    protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.COLUMN_REF;
-        TColumnRef columnRef = new TColumnRef();
-        columnRef.setColumnId(columnId);
-        columnRef.setColumnName(columnName);
-        msg.column_ref = columnRef;
+    public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
+        return visitor.visitColumnRefExpr(this, context);
     }
 
     @Override

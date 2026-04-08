@@ -17,18 +17,14 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.URI;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.thrift.TFunction;
-import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.io.output.NullOutputStream;
 
@@ -53,6 +49,17 @@ public class Function implements Writable {
         ALWAYS_NULLABLE,
         // like 'count', the output column is always not nullable
         ALWAYS_NOT_NULLABLE
+    }
+
+    public enum BinaryType {
+        BUILTIN,
+        HIVE,
+        NATIVE,
+        IR,
+        RPC,
+        JAVA_UDF,
+        AGG_STATE,
+        PYTHON_UDF
     }
 
     // Function id, every function has a unique id. Now all built-in functions' id is 0
@@ -82,7 +89,7 @@ public class Function implements Writable {
     @SerializedName("l")
     private URI location;
     @SerializedName("bt")
-    private TFunctionBinaryType binaryType;
+    private BinaryType binaryType;
 
     @SerializedName("nm")
     protected NullableMode nullableMode = NullableMode.DEPEND_ON_ARGUMENT;
@@ -103,6 +110,10 @@ public class Function implements Writable {
     protected boolean isStaticLoad = false;
     @SerializedName("eT")
     protected long expirationTime = 360; // default 6 hours;
+    @SerializedName("rv")
+    protected String runtimeVersion;
+    @SerializedName("fc")
+    protected String functionCode;
 
     // Only used for serialization
     protected Function() {
@@ -118,7 +129,7 @@ public class Function implements Writable {
     }
 
     public Function(long id, FunctionName name, List<Type> argTypes, Type retType, boolean hasVarArgs,
-            TFunctionBinaryType binaryType, boolean userVisible, boolean vectorized, NullableMode mode) {
+            BinaryType binaryType, boolean userVisible, boolean vectorized, NullableMode mode) {
         this.id = id;
         this.name = name;
         this.hasVarArgs = hasVarArgs;
@@ -136,7 +147,7 @@ public class Function implements Writable {
 
     public Function(long id, FunctionName name, List<Type> argTypes, Type retType,
             boolean hasVarArgs, boolean vectorized, NullableMode mode) {
-        this(id, name, argTypes, retType, hasVarArgs, TFunctionBinaryType.BUILTIN, true, vectorized, mode);
+        this(id, name, argTypes, retType, hasVarArgs, BinaryType.BUILTIN, true, vectorized, mode);
     }
 
     public Function(Function other) {
@@ -161,6 +172,8 @@ public class Function implements Writable {
         this.isUDTFunction = other.isUDTFunction;
         this.isStaticLoad = other.isStaticLoad;
         this.expirationTime = other.expirationTime;
+        this.runtimeVersion = other.runtimeVersion;
+        this.functionCode = other.functionCode;
     }
 
     public Function clone() {
@@ -212,11 +225,11 @@ public class Function implements Writable {
         this.name = name;
     }
 
-    public TFunctionBinaryType getBinaryType() {
+    public BinaryType getBinaryType() {
         return binaryType;
     }
 
-    public void setBinaryType(TFunctionBinaryType type) {
+    public void setBinaryType(BinaryType type) {
         binaryType = type;
     }
 
@@ -260,12 +273,32 @@ public class Function implements Writable {
         return checksum;
     }
 
+    public boolean isVectorized() {
+        return vectorized;
+    }
+
     public boolean isGlobal() {
         return isGlobal;
     }
 
     public void setGlobal(boolean global) {
         isGlobal = global;
+    }
+
+    public String getRuntimeVersion() {
+        return runtimeVersion;
+    }
+
+    public void setRuntimeVersion(String runtimeVersion) {
+        this.runtimeVersion = runtimeVersion;
+    }
+
+    public String getFunctionCode() {
+        return functionCode;
+    }
+
+    public void setFunctionCode(String functionCode) {
+        this.functionCode = functionCode;
     }
 
     // TODO(cmy): Currently we judge whether it is UDF by wheter the 'location' is set.
@@ -303,51 +336,6 @@ public class Function implements Writable {
             }
         }
         return true;
-    }
-
-    public TFunction toThrift(Type realReturnType, Type[] realArgTypes, Boolean[] realArgTypeNullables) {
-        TFunction fn = new TFunction();
-        fn.setSignature(signatureString());
-        fn.setName(name.toThrift());
-        fn.setBinaryType(binaryType);
-        if (location != null) {
-            fn.setHdfsLocation(location.getLocation());
-        }
-        // `realArgTypes.length != argTypes.length` is true iff this is an aggregation
-        // function.
-        // For aggregation functions, `argTypes` here is already its real type with true
-        // precision and scale.
-        if (realArgTypes.length != argTypes.length) {
-            fn.setArgTypes(Type.toThrift(Lists.newArrayList(argTypes)));
-        } else {
-            fn.setArgTypes(Type.toThrift(Lists.newArrayList(argTypes), Lists.newArrayList(realArgTypes)));
-        }
-
-        // For types with different precisions and scales, return type only indicates a
-        // type with default
-        // precision and scale so we need to transform it to the correct type.
-        if (realReturnType.typeContainsPrecision() || realReturnType.isAggStateType()) {
-            fn.setRetType(realReturnType.toThrift());
-        } else {
-            fn.setRetType(getReturnType().toThrift());
-        }
-        fn.setHasVarArgs(hasVarArgs);
-        // TODO: Comment field is missing?
-        // fn.setComment(comment)
-        fn.setId(id);
-        if (!checksum.isEmpty()) {
-            fn.setChecksum(checksum);
-        }
-        fn.setVectorized(vectorized);
-        fn.setIsUdtfFunction(isUDTFunction);
-        fn.setIsStaticLoad(isStaticLoad);
-        fn.setExpirationTime(expirationTime);
-        return fn;
-    }
-
-    // Child classes must override this function.
-    public String toSql(boolean ifNotExists) {
-        return "";
     }
 
     @Override

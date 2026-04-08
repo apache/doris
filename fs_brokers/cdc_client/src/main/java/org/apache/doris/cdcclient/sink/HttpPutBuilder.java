@@ -18,16 +18,19 @@
 package org.apache.doris.cdcclient.sink;
 
 import org.apache.doris.cdcclient.common.Constants;
+import org.apache.doris.cdcclient.utils.HttpUtil;
 
+import org.apache.commons.codec.binary.Base64;
+import org.apache.commons.collections.MapUtils;
 import org.apache.flink.util.Preconditions;
 import org.apache.http.HttpEntity;
 import org.apache.http.HttpHeaders;
 import org.apache.http.client.methods.HttpPut;
 import org.apache.http.entity.StringEntity;
 
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Properties;
 
 /** Builder for HttpPut. */
 public class HttpPutBuilder {
@@ -67,8 +70,15 @@ public class HttpPutBuilder {
     }
 
     public HttpPutBuilder addTokenAuth(String token) {
-        header.put(HttpHeaders.AUTHORIZATION, "Basic YWRtaW46");
+        header.put(HttpHeaders.AUTHORIZATION, HttpUtil.getAuthHeader());
         header.put("token", token);
+        return this;
+    }
+
+    public HttpPutBuilder baseAuth(String user, String password) {
+        final String authInfo = user + ":" + password;
+        byte[] encoded = Base64.encodeBase64(authInfo.getBytes(StandardCharsets.UTF_8));
+        header.put(HttpHeaders.AUTHORIZATION, "Basic " + new String(encoded));
         return this;
     }
 
@@ -107,9 +117,10 @@ public class HttpPutBuilder {
         return this;
     }
 
-    public HttpPutBuilder addProperties(Properties properties) {
-        // TODO: check duplicate key.
-        properties.forEach((key, value) -> header.put(String.valueOf(key), String.valueOf(value)));
+    public HttpPutBuilder addProperties(Map<String, String> properties) {
+        if (MapUtils.isNotEmpty(properties)) {
+            header.putAll(properties);
+        }
         return this;
     }
 

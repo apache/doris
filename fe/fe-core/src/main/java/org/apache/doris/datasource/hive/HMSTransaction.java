@@ -21,20 +21,17 @@
 
 package org.apache.doris.datasource.hive;
 
-import org.apache.doris.backup.Status;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
-import org.apache.doris.common.util.PathUtils;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.statistics.CommonStatistics;
-import org.apache.doris.fs.FileSystem;
-import org.apache.doris.fs.FileSystemProvider;
-import org.apache.doris.fs.FileSystemUtil;
-import org.apache.doris.fs.remote.ObjFileSystem;
-import org.apache.doris.fs.remote.RemoteFile;
-import org.apache.doris.fs.remote.S3FileSystem;
-import org.apache.doris.fs.remote.SwitchingFileSystem;
+import org.apache.doris.filesystem.FileEntry;
+import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.FileSystemUtil;
+import org.apache.doris.filesystem.Location;
+import org.apache.doris.filesystem.spi.ObjFileSystem;
+import org.apache.doris.foundation.util.PathUtils;
+import org.apache.doris.fs.SpiSwitchingFileSystem;
 import org.apache.doris.nereids.trees.plans.commands.insert.HiveInsertCommandContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileType;
@@ -44,6 +41,7 @@ import org.apache.doris.thrift.TS3MPUPendingUpload;
 import org.apache.doris.thrift.TUpdateMode;
 import org.apache.doris.transaction.Transaction;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
@@ -61,10 +59,8 @@ import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.model.AbortMultipartUploadRequest;
-import software.amazon.awssdk.services.s3.model.CompletedPart;
 
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -136,12 +132,10 @@ public class HMSTransaction implements Transaction {
 
     private final Set<UncompletedMpuPendingUpload> uncompletedMpuPendingUploads = new HashSet<>();
 
-    public HMSTransaction(HiveMetadataOps hiveOps, FileSystemProvider fileSystemProvider, Executor fileSystemExecutor) {
+    public HMSTransaction(HiveMetadataOps hiveOps, SpiSwitchingFileSystem fileSystem,
+            Executor fileSystemExecutor) {
         this.hiveOps = hiveOps;
-        this.fs = fileSystemProvider.get(null);
-        if (!(fs instanceof SwitchingFileSystem)) {
-            throw new RuntimeException("fs should be SwitchingFileSystem");
-        }
+        this.fs = fileSystem;
         if (ConnectContext.get().getExecutor() != null) {
             summaryProfile = Optional.of(ConnectContext.get().getExecutor().getSummaryProfile());
         }
@@ -213,7 +207,11 @@ public class HMSTransaction implements Transaction {
                         });
                     } else {
                         stagingDirectory.ifPresent((v) -> {
-                            fs.makeDir(v);
+                            try {
+                                fs.mkdirs(Location.of(v));
+                            } catch (java.io.IOException e) {
+                                throw new RuntimeException("Failed to create staging directory: " + v, e);
+                            }
                             setLocation(new THiveLocationParams() {{
                                     setWritePath(v);
                                 }
@@ -693,15 +691,11 @@ public class HMSTransaction implements Transaction {
 
     private DeleteRecursivelyResult recursiveDeleteFiles(Path directory, boolean deleteEmptyDir, boolean reverse) {
         try {
-            Status status = fs.directoryExists(directory.toString());
-            if (status.getErrCode().equals(Status.ErrCode.NOT_FOUND)) {
+            boolean dirExists = fs.exists(Location.of(directory.toString()));
+            if (!dirExists) {
                 return new DeleteRecursivelyResult(true, ImmutableList.of());
-            } else if (!status.ok()) {
-                ImmutableList.Builder<String> notDeletedEligibleItems = ImmutableList.builder();
-                notDeletedEligibleItems.add(directory.toString() + "/*");
-                return new DeleteRecursivelyResult(false, notDeletedEligibleItems.build());
             }
-        } catch (Exception e) {
+        } catch (java.io.IOException e) {
             ImmutableList.Builder<String> notDeletedEligibleItems = ImmutableList.builder();
             notDeletedEligibleItems.add(directory.toString() + "/*");
             return new DeleteRecursivelyResult(false, notDeletedEligibleItems.build());
@@ -712,11 +706,12 @@ public class HMSTransaction implements Transaction {
 
     private DeleteRecursivelyResult doRecursiveDeleteFiles(Path directory, boolean deleteEmptyDir,
             String queryId, boolean reverse) {
-        List<RemoteFile> allFiles = new ArrayList<>();
-        Set<String> allDirs = new HashSet<>();
-        Status statusFile = fs.listFiles(directory.toString(), true, allFiles);
-        Status statusDir = fs.listDirectories(directory.toString(), allDirs);
-        if (!statusFile.ok() || !statusDir.ok()) {
+        List<FileEntry> allFiles;
+        Set<String> allDirs;
+        try {
+            allFiles = fs.listFilesRecursive(Location.of(directory.toString()));
+            allDirs = fs.listDirectories(Location.of(directory.toString()));
+        } catch (java.io.IOException e) {
             ImmutableList.Builder<String> notDeletedEligibleItems = ImmutableList.builder();
             notDeletedEligibleItems.add(directory + "/*");
             return new DeleteRecursivelyResult(false, notDeletedEligibleItems.build());
@@ -724,11 +719,13 @@ public class HMSTransaction implements Transaction {
 
         boolean allDescendentsDeleted = true;
         ImmutableList.Builder<String> notDeletedEligibleItems = ImmutableList.builder();
-        for (RemoteFile file : allFiles) {
-            if (reverse ^ file.getName().startsWith(queryId)) {
-                if (!deleteIfExists(file.getPath())) {
+        for (FileEntry file : allFiles) {
+            String fileName = new Path(file.location().uri()).getName();
+            String filePath = file.location().uri();
+            if (reverse ^ fileName.startsWith(queryId)) {
+                if (!deleteIfExists(new Path(filePath))) {
                     allDescendentsDeleted = false;
-                    notDeletedEligibleItems.add(file.getPath().toString());
+                    notDeletedEligibleItems.add(filePath);
                 }
             } else {
                 allDescendentsDeleted = false;
@@ -757,19 +754,21 @@ public class HMSTransaction implements Transaction {
     }
 
     public boolean deleteIfExists(Path path) {
-        Status status = wrapperDeleteWithProfileSummary(path.toString());
-        if (status.ok()) {
-            return true;
+        wrapperDeleteWithProfileSummary(path.toString());
+        try {
+            return !fs.exists(Location.of(path.toString()));
+        } catch (java.io.IOException e) {
+            return false;
         }
-        return !fs.exists(path.toString()).ok();
     }
 
     public boolean deleteDirectoryIfExists(Path path) {
-        Status status = wrapperDeleteDirWithProfileSummary(path.toString());
-        if (status.ok()) {
-            return true;
+        wrapperDeleteDirWithProfileSummary(path.toString());
+        try {
+            return !fs.exists(Location.of(path.toString()));
+        } catch (java.io.IOException e) {
+            return false;
         }
-        return !fs.directoryExists(path.toString()).ok();
     }
 
     private static class TableAndMore {
@@ -1276,27 +1275,33 @@ public class HMSTransaction implements Transaction {
             String targetPath = table.getSd().getLocation();
             String writePath = tableAndMore.getCurrentLocation();
             if (!targetPath.equals(writePath)) {
-                Path path = new Path(targetPath);
-                String oldTablePath = new Path(
-                        path.getParent(), "_temp_" + queryId + "_" + path.getName()).toString();
-                Status status = wrapperRenameDirWithProfileSummary(
-                        targetPath,
-                        oldTablePath,
-                        () -> renameDirectoryTasksForAbort.add(new RenameDirectoryTask(oldTablePath, targetPath)));
-                if (!status.ok()) {
-                    throw new RuntimeException(
-                            "Error to rename dir from " + targetPath + " to " + oldTablePath + status.getErrMsg());
-                }
-                clearDirsForFinish.add(oldTablePath);
+                if (isSubDirectory(targetPath, writePath)) {
+                    String stagingRoot = getImmediateChildPath(targetPath, writePath);
+                    deleteTargetPathContents(targetPath, stagingRoot);
+                    ensureDirectory(targetPath);
+                    wrapperAsyncRenameWithProfileSummary(
+                            fileSystemExecutor,
+                            asyncFileSystemTaskFutures,
+                            fileSystemTaskCancelled,
+                            writePath,
+                            targetPath,
+                            tableAndMore.getFileNames());
+                } else {
+                    Path path = new Path(targetPath);
+                    String oldTablePath = new Path(
+                            path.getParent(), "_temp_" + queryId + "_" + path.getName()).toString();
+                    renameDirectoryTasksForAbort.add(new RenameDirectoryTask(oldTablePath, targetPath));
+                    wrapperRenameDirWithProfileSummary(
+                            targetPath,
+                            oldTablePath,
+                            () -> {});
+                    clearDirsForFinish.add(oldTablePath);
 
-                status = wrapperRenameDirWithProfileSummary(
-                        writePath,
-                        targetPath,
-                        () -> directoryCleanUpTasksForAbort.add(
-                                new DirectoryCleanUpTask(targetPath, true)));
-                if (!status.ok()) {
-                    throw new RuntimeException(
-                            "Error to rename dir from " + writePath + " to " + targetPath + ":" + status.getErrMsg());
+                    directoryCleanUpTasksForAbort.add(new DirectoryCleanUpTask(targetPath, true));
+                    wrapperRenameDirWithProfileSummary(
+                            writePath,
+                            targetPath,
+                            () -> {});
                 }
             } else {
                 if (!tableAndMore.hivePartitionUpdate.s3_mpu_pending_uploads.isEmpty()) {
@@ -1321,13 +1326,14 @@ public class HMSTransaction implements Transaction {
             String writePath = partitionAndMore.getCurrentLocation();
 
             if (!targetPath.equals(writePath)) {
+                directoryCleanUpTasksForAbort.add(new DirectoryCleanUpTask(targetPath, true));
                 wrapperAsyncRenameDirWithProfileSummary(
                         fileSystemExecutor,
                         asyncFileSystemTaskFutures,
                         fileSystemTaskCancelled,
                         writePath,
                         targetPath,
-                        () -> directoryCleanUpTasksForAbort.add(new DirectoryCleanUpTask(targetPath, true)));
+                        () -> {});
             } else {
                 if (!partitionAndMore.hivePartitionUpdate.s3_mpu_pending_uploads.isEmpty()) {
                     objCommit(fileSystemExecutor, asyncFileSystemTaskFutures, fileSystemTaskCancelled,
@@ -1395,28 +1401,24 @@ public class HMSTransaction implements Transaction {
         }
 
         private void runRenameDirTasksForAbort() {
-            Status status;
             for (RenameDirectoryTask task : renameDirectoryTasksForAbort) {
-                status = fs.exists(task.getRenameFrom());
-                if (status.ok()) {
-                    status = wrapperRenameDirWithProfileSummary(task.getRenameFrom(), task.getRenameTo(), () -> {
-                    });
-                    if (!status.ok()) {
-                        LOG.warn("Failed to abort rename dir from {} to {}:{}",
-                                task.getRenameFrom(), task.getRenameTo(), status.getErrMsg());
+                try {
+                    boolean srcExists = fs.exists(Location.of(task.getRenameFrom()));
+                    if (srcExists) {
+                        wrapperRenameDirWithProfileSummary(task.getRenameFrom(), task.getRenameTo(), () -> {
+                        });
                     }
+                } catch (java.io.IOException e) {
+                    LOG.warn("Failed to abort rename dir from {} to {}: {}",
+                            task.getRenameFrom(), task.getRenameTo(), e.getMessage());
                 }
             }
             renameDirectoryTasksForAbort.clear();
         }
 
         private void runClearPathsForFinish() {
-            Status status;
             for (String path : clearDirsForFinish) {
-                status = wrapperDeleteDirWithProfileSummary(path);
-                if (!status.ok()) {
-                    LOG.warn("Failed to recursively delete path {}:{}", path, status.getErrCode());
-                }
+                wrapperDeleteDirWithProfileSummary(path);
             }
         }
 
@@ -1435,26 +1437,18 @@ public class HMSTransaction implements Transaction {
                 Path path = new Path(targetPath);
                 String oldPartitionPath = new Path(
                         path.getParent(), "_temp_" + queryId + "_" + path.getName()).toString();
-                Status status = wrapperRenameDirWithProfileSummary(
+                renameDirectoryTasksForAbort.add(new RenameDirectoryTask(oldPartitionPath, targetPath));
+                wrapperRenameDirWithProfileSummary(
                         targetPath,
                         oldPartitionPath,
-                        () -> renameDirectoryTasksForAbort.add(new RenameDirectoryTask(oldPartitionPath, targetPath)));
-                if (!status.ok()) {
-                    throw new RuntimeException(
-                            "Error to rename dir "
-                                    + "from " + targetPath
-                                    + " to " + oldPartitionPath + ":" + status.getErrMsg());
-                }
+                        () -> {});
                 clearDirsForFinish.add(oldPartitionPath);
 
-                status = wrapperRenameDirWithProfileSummary(
+                directoryCleanUpTasksForAbort.add(new DirectoryCleanUpTask(targetPath, true));
+                wrapperRenameDirWithProfileSummary(
                         writePath,
                         targetPath,
-                        () -> directoryCleanUpTasksForAbort.add(new DirectoryCleanUpTask(targetPath, true)));
-                if (!status.ok()) {
-                    throw new RuntimeException(
-                            "Error to rename dir from " + writePath + " to " + targetPath + ":" + status.getErrMsg());
-                }
+                        () -> {});
             } else {
                 if (!partitionAndMore.hivePartitionUpdate.s3_mpu_pending_uploads.isEmpty()) {
                     s3cleanWhenSuccess.add(targetPath);
@@ -1543,21 +1537,28 @@ public class HMSTransaction implements Transaction {
                 return;
             }
             for (UncompletedMpuPendingUpload uncompletedMpuPendingUpload : uncompletedMpuPendingUploads) {
-                S3FileSystem s3FileSystem = (S3FileSystem) ((SwitchingFileSystem) fs)
-                        .fileSystem(uncompletedMpuPendingUpload.path);
-
-                S3Client s3Client;
+                ObjFileSystem objFs;
                 try {
-                    s3Client = (S3Client) s3FileSystem.getObjStorage().getClient();
-                } catch (UserException e) {
-                    throw new RuntimeException(e);
+                    org.apache.doris.filesystem.FileSystem resolved = ((SpiSwitchingFileSystem) fs)
+                            .forPath(uncompletedMpuPendingUpload.path);
+                    if (!(resolved instanceof ObjFileSystem)) {
+                        LOG.warn("Path '{}' uses non-object-storage backend ({}), skipping MPU abort",
+                                uncompletedMpuPendingUpload.path, resolved.getClass().getSimpleName());
+                        continue;
+                    }
+                    objFs = (ObjFileSystem) resolved;
+                } catch (java.io.IOException e) {
+                    throw new RuntimeException("Failed to resolve filesystem for abort MPU: "
+                            + uncompletedMpuPendingUpload.path, e);
                 }
+                TS3MPUPendingUpload mpu = uncompletedMpuPendingUpload.s3MPUPendingUpload;
+                String remotePath = "s3://" + mpu.getBucket() + "/" + mpu.getKey();
                 asyncFileSystemTaskFutures.add(CompletableFuture.runAsync(() -> {
-                    s3Client.abortMultipartUpload(AbortMultipartUploadRequest.builder()
-                            .bucket(uncompletedMpuPendingUpload.s3MPUPendingUpload.getBucket())
-                            .key(uncompletedMpuPendingUpload.s3MPUPendingUpload.getKey())
-                            .uploadId(uncompletedMpuPendingUpload.s3MPUPendingUpload.getUploadId())
-                            .build());
+                    try {
+                        objFs.getObjStorage().abortMultipartUpload(remotePath, mpu.getUploadId());
+                    } catch (java.io.IOException e) {
+                        LOG.warn("Failed to abort MPU for {}: {}", remotePath, e.getMessage());
+                    }
                 }, fileSystemExecutor));
             }
             uncompletedMpuPendingUploads.clear();
@@ -1620,7 +1621,122 @@ public class HMSTransaction implements Transaction {
         }
     }
 
-    public Status wrapperRenameDirWithProfileSummary(String origFilePath,
+    @VisibleForTesting
+    static boolean isSubDirectory(String parent, String child) {
+        if (parent == null || child == null) {
+            return false;
+        }
+        Path parentPath = new Path(parent);
+        Path childPath = new Path(child);
+        URI parentUri = parentPath.toUri();
+        URI childUri = childPath.toUri();
+        if (!sameFileSystem(parentUri, childUri)) {
+            return false;
+        }
+        String parentPathValue = normalizePath(parentUri.getPath());
+        String childPathValue = normalizePath(childUri.getPath());
+        if (parentPathValue.isEmpty() || childPathValue.isEmpty()) {
+            return false;
+        }
+        return !parentPathValue.equals(childPathValue)
+                && childPathValue.startsWith(parentPathValue + "/");
+    }
+
+    /**
+     * Returns the first-level child path of {@code parent} that contains {@code child},
+     * or null if {@code child} is not a subdirectory of {@code parent}.
+     * Example: parent=/warehouse/table, child=/warehouse/table/.doris_staging/user/uuid
+     * returns /warehouse/table/.doris_staging.
+     */
+    @VisibleForTesting
+    static String getImmediateChildPath(String parent, String child) {
+        if (!isSubDirectory(parent, child)) {
+            return null;
+        }
+        Path parentPath = new Path(parent);
+        URI parentUri = parentPath.toUri();
+        URI childUri = new Path(child).toUri();
+        String parentPathValue = normalizePath(parentUri.getPath());
+        String childPathValue = normalizePath(childUri.getPath());
+        String relative = childPathValue.substring(parentPathValue.length() + 1);
+        int slashIndex = relative.indexOf("/");
+        String firstComponent = slashIndex == -1 ? relative : relative.substring(0, slashIndex);
+        return new Path(parentPath, firstComponent).toString();
+    }
+
+    private static boolean sameFileSystem(URI left, URI right) {
+        String leftScheme = normalizeUriPart(left.getScheme());
+        String rightScheme = normalizeUriPart(right.getScheme());
+        if (!leftScheme.isEmpty() && !rightScheme.isEmpty()
+                && !leftScheme.equalsIgnoreCase(rightScheme)) {
+            return false;
+        }
+        String leftAuthority = normalizeUriPart(left.getAuthority());
+        String rightAuthority = normalizeUriPart(right.getAuthority());
+        if (!leftAuthority.isEmpty() && !rightAuthority.isEmpty()
+                && !leftAuthority.equalsIgnoreCase(rightAuthority)) {
+            return false;
+        }
+        return true;
+    }
+
+    private static String normalizeUriPart(String value) {
+        return value == null ? "" : value;
+    }
+
+    private static String normalizePath(String path) {
+        if (path == null || path.isEmpty()) {
+            return "";
+        }
+        int end = path.length();
+        while (end > 1 && path.charAt(end - 1) == '/') {
+            end--;
+        }
+        return path.substring(0, end);
+    }
+
+    private static boolean pathsEqual(String left, String right) {
+        if (left == null || right == null) {
+            return left == null && right == null;
+        }
+        URI leftUri = new Path(left).toUri();
+        URI rightUri = new Path(right).toUri();
+        if (!sameFileSystem(leftUri, rightUri)) {
+            return false;
+        }
+        return normalizePath(leftUri.getPath()).equals(normalizePath(rightUri.getPath()));
+    }
+
+    @VisibleForTesting
+    void deleteTargetPathContents(String targetPath, String excludedChildPath) {
+        try {
+            Set<String> dirs = fs.listDirectories(Location.of(targetPath));
+            for (String dir : dirs) {
+                if (excludedChildPath != null && pathsEqual(dir, excludedChildPath)) {
+                    continue;
+                }
+                wrapperDeleteDirWithProfileSummary(dir);
+            }
+
+            List<FileEntry> files = fs.listFiles(Location.of(targetPath));
+            for (FileEntry file : files) {
+                wrapperDeleteWithProfileSummary(file.location().uri());
+            }
+        } catch (java.io.IOException e) {
+            throw new RuntimeException("Failed to list/delete contents under " + targetPath, e);
+        }
+    }
+
+    @VisibleForTesting
+    void ensureDirectory(String path) {
+        try {
+            fs.mkdirs(Location.of(path));
+        } catch (java.io.IOException e) {
+            throw new RuntimeException("Failed to create directory " + path + ": " + e.getMessage(), e);
+        }
+    }
+
+    public void wrapperRenameDirWithProfileSummary(String origFilePath,
             String destFilePath,
             Runnable runWhenPathNotExist) {
         summaryProfile.ifPresent(profile -> {
@@ -1628,34 +1744,44 @@ public class HMSTransaction implements Transaction {
             profile.incRenameDirCnt();
         });
 
-        Status status = fs.renameDir(origFilePath, destFilePath, runWhenPathNotExist);
+        try {
+            fs.renameDirectory(Location.of(origFilePath), Location.of(destFilePath), runWhenPathNotExist);
+        } catch (java.io.IOException e) {
+            throw new RuntimeException("Failed to rename directory from " + origFilePath
+                    + " to " + destFilePath + ": " + e.getMessage(), e);
+        }
 
         summaryProfile.ifPresent(SummaryProfile::freshFilesystemOptTime);
-        return status;
     }
 
-    public Status wrapperDeleteWithProfileSummary(String remotePath) {
+    public void wrapperDeleteWithProfileSummary(String remotePath) {
         summaryProfile.ifPresent(profile -> {
             profile.setTempStartTime();
             profile.incDeleteFileCnt();
         });
 
-        Status status = fs.delete(remotePath);
+        try {
+            fs.delete(Location.of(remotePath), false);
+        } catch (java.io.IOException e) {
+            LOG.warn("Failed to delete {}: {}", remotePath, e.getMessage());
+        }
 
         summaryProfile.ifPresent(SummaryProfile::freshFilesystemOptTime);
-        return status;
     }
 
-    public Status wrapperDeleteDirWithProfileSummary(String remotePath) {
+    public void wrapperDeleteDirWithProfileSummary(String remotePath) {
         summaryProfile.ifPresent(profile -> {
             profile.setTempStartTime();
             profile.incDeleteDirRecursiveCnt();
         });
 
-        Status status = fs.deleteDirectory(remotePath);
+        try {
+            fs.delete(Location.of(remotePath), true);
+        } catch (java.io.IOException e) {
+            LOG.warn("Failed to delete directory {}: {}", remotePath, e.getMessage());
+        }
 
         summaryProfile.ifPresent(SummaryProfile::freshFilesystemOptTime);
-        return status;
     }
 
     public void wrapperAsyncRenameWithProfileSummary(Executor executor,
@@ -1708,22 +1834,31 @@ public class HMSTransaction implements Transaction {
         if (isMockedPartitionUpdate) {
             return;
         }
-        ObjFileSystem fileSystem = (ObjFileSystem) ((SwitchingFileSystem) fs).fileSystem(path);
+        ObjFileSystem objFs;
+        try {
+            org.apache.doris.filesystem.FileSystem resolved = ((SpiSwitchingFileSystem) fs).forPath(path);
+            if (!(resolved instanceof ObjFileSystem)) {
+                throw new RuntimeException("Expected ObjFileSystem for MPU commit at path '" + path
+                        + "', got: " + resolved.getClass().getSimpleName()
+                        + ". This path does not point to an object-storage backend.");
+            }
+            objFs = (ObjFileSystem) resolved;
+        } catch (java.io.IOException e) {
+            throw new RuntimeException("Failed to resolve filesystem for MPU commit at path: " + path, e);
+        }
         for (TS3MPUPendingUpload s3MPUPendingUpload : s3MpuPendingUploads) {
             asyncFileSystemTaskFutures.add(CompletableFuture.runAsync(() -> {
                 if (fileSystemTaskCancelled.get()) {
                     return;
                 }
-                List<CompletedPart> completedParts = Lists.newArrayList();
-                for (Map.Entry<Integer, String> entry : s3MPUPendingUpload.getEtags().entrySet()) {
-                    completedParts.add(CompletedPart.builder().eTag(entry.getValue()).partNumber(entry.getKey())
-                              .build());
+                String remotePath = "s3://" + s3MPUPendingUpload.getBucket()
+                        + "/" + s3MPUPendingUpload.getKey();
+                try {
+                    objFs.completeMultipartUpload(remotePath, s3MPUPendingUpload.getUploadId(),
+                            s3MPUPendingUpload.getEtags());
+                } catch (java.io.IOException e) {
+                    throw new RuntimeException("Failed to complete MPU for " + remotePath, e);
                 }
-
-                fileSystem.completeMultipartUpload(s3MPUPendingUpload.getBucket(),
-                         s3MPUPendingUpload.getKey(),
-                         s3MPUPendingUpload.getUploadId(),
-                         s3MPUPendingUpload.getEtags());
                 uncompletedMpuPendingUploads.remove(new UncompletedMpuPendingUpload(s3MPUPendingUpload, path));
             }, fileSystemExecutor));
         }

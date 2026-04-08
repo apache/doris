@@ -825,15 +825,6 @@ void data_rowset_ref_count_key(const DataRowsetRefCountKeyInfo& in, std::string*
     encode_bytes(std::get<2>(in), out);                 // rowset_id
 }
 
-void meta_rowset_key(const MetaRowsetKeyInfo& in, std::string* out) {
-    out->push_back(CLOUD_VERSIONED_KEY_SPACE03);
-    encode_bytes(META_KEY_PREFIX, out);       // "meta"
-    encode_bytes(std::get<0>(in), out);       // instance_id
-    encode_bytes(META_KEY_INFIX_ROWSET, out); // "rowset"
-    encode_int64(std::get<1>(in), out);       // tablet_id
-    encode_bytes(std::get<2>(in), out);       // rowset_id
-}
-
 //==============================================================================
 // Snapshot keys
 //==============================================================================

@@ -25,11 +25,11 @@
 #include <boost/utility/binary.hpp>
 #include <random>
 
+#include "core/column/column_nullable.h"
+#include "core/data_type/primitive_type.h"
+#include "exec/common/endian.h"
 #include "gtest/gtest_pred_impl.h"
-#include "runtime/primitive_type.h"
 #include "util/simd/bits.h"
-#include "vec/columns/column_nullable.h"
-#include "vec/common/endian.h"
 
 namespace doris {
 
@@ -61,23 +61,21 @@ TEST(BitUtil, BigEndianToHost) {
                       wide::UInt256(0xf0debc9a78563412) << 64 | wide::UInt256(0xf0debc9a78563412));
 }
 
-void insert_true(vectorized::ColumnNullable* column, size_t num = 1) {
+void insert_true(ColumnNullable* column, size_t num = 1) {
     for (int i = 0; i < num; i++) {
-        assert_cast<vectorized::ColumnUInt8*>(column->get_nested_column_ptr().get())
-                ->insert_value(1);
+        assert_cast<ColumnUInt8*>(column->get_nested_column_ptr().get())->insert_value(1);
         column->push_false_to_nullmap(1);
     }
 }
 
-void insert_false(vectorized::ColumnNullable* column, size_t num = 1) {
+void insert_false(ColumnNullable* column, size_t num = 1) {
     for (int i = 0; i < num; i++) {
-        assert_cast<vectorized::ColumnUInt8*>(column->get_nested_column_ptr().get())
-                ->insert_value(0);
+        assert_cast<ColumnUInt8*>(column->get_nested_column_ptr().get())->insert_value(0);
         column->push_false_to_nullmap(1);
     }
 }
 
-void insert_null(vectorized::ColumnNullable* column, size_t num = 1) {
+void insert_null(ColumnNullable* column, size_t num = 1) {
     for (int i = 0; i < num; i++) {
         column->insert_default();
     }
@@ -96,8 +94,7 @@ size_t brute_force_count_zero_num(const uint8_t* __restrict data,
 
 TEST(BitUtil, CountZero) {
     {
-        auto column = vectorized::ColumnNullable::create(vectorized::ColumnUInt8::create(),
-                                                         vectorized::ColumnUInt8::create());
+        auto column = ColumnNullable::create(ColumnUInt8::create(), ColumnUInt8::create());
         insert_false(column.get(), 5);
         insert_null(column.get(), 1);
         insert_false(column.get(), 8);
@@ -106,12 +103,12 @@ TEST(BitUtil, CountZero) {
         insert_true(column.get(), 1);
         insert_false(column.get(), 14);
         ASSERT_EQ(
-                brute_force_count_zero_num(assert_cast<const vectorized::ColumnUInt8*>(
-                                                   column->get_nested_column_ptr().get())
-                                                   ->get_data()
-                                                   .data(),
-                                           column->get_null_map_data().data(), column->size()),
-                simd::count_zero_num((int8_t*)assert_cast<const vectorized::ColumnUInt8*>(
+                brute_force_count_zero_num(
+                        assert_cast<const ColumnUInt8*>(column->get_nested_column_ptr().get())
+                                ->get_data()
+                                .data(),
+                        column->get_null_map_data().data(), column->size()),
+                simd::count_zero_num((int8_t*)assert_cast<const ColumnUInt8*>(
                                              column->get_nested_column_ptr().get())
                                              ->get_data()
                                              .data(),
@@ -119,8 +116,7 @@ TEST(BitUtil, CountZero) {
     }
 
     {
-        auto column = vectorized::ColumnNullable::create(vectorized::ColumnUInt8::create(),
-                                                         vectorized::ColumnUInt8::create());
+        auto column = ColumnNullable::create(ColumnUInt8::create(), ColumnUInt8::create());
         std::mt19937 rng(12345);
         std::uniform_int_distribution<int> val_dist(0, 1);
         std::uniform_int_distribution<int> null_dist(0, 5);
@@ -136,12 +132,12 @@ TEST(BitUtil, CountZero) {
             }
         }
         ASSERT_EQ(
-                brute_force_count_zero_num(assert_cast<const vectorized::ColumnUInt8*>(
-                                                   column->get_nested_column_ptr().get())
-                                                   ->get_data()
-                                                   .data(),
-                                           column->get_null_map_data().data(), column->size()),
-                simd::count_zero_num((int8_t*)assert_cast<const vectorized::ColumnUInt8*>(
+                brute_force_count_zero_num(
+                        assert_cast<const ColumnUInt8*>(column->get_nested_column_ptr().get())
+                                ->get_data()
+                                .data(),
+                        column->get_null_map_data().data(), column->size()),
+                simd::count_zero_num((int8_t*)assert_cast<const ColumnUInt8*>(
                                              column->get_nested_column_ptr().get())
                                              ->get_data()
                                              .data(),

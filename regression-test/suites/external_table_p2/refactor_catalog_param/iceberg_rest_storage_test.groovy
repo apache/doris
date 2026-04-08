@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("iceberg_rest_storage_test", "p2,external,iceberg,external_docker,external_docker_iceberg_rest,new_catalog_property") {
+suite("iceberg_rest_storage_test", "p2,external") {
 
     def testQueryAndInsert = { String catalogProperties, String prefix ->
 
@@ -158,10 +158,7 @@ suite("iceberg_rest_storage_test", "p2,external,iceberg,external_docker,external
 
         // =======  TIME TRAVEL TEST  =======
         def iceberg_meta_result = sql """
-        SELECT snapshot_id FROM iceberg_meta(
-                'table' = '${catalog_name}.${db_name}.${table_name}',
-                'query_type' = 'snapshots'
-        ) order by committed_at desc;
+        SELECT snapshot_id FROM ${catalog_name}.${db_name}.${table_name}\$snapshots order by committed_at desc;
         """
         def first_snapshot_id = iceberg_meta_result.get(0).get(0);
         def time_travel = sql """
@@ -432,9 +429,34 @@ suite("iceberg_rest_storage_test", "p2,external,iceberg,external_docker,external
         }
 
         // -------- REST on HDFS --------
+
+        //The Iceberg + HDFS Docker environment has issues in cluster mode.
+        //Therefore, when Doris is running in cluster mode, we can disable this test case for now.
         warehouse = """
          'warehouse' = 'hdfs://${externalEnvIp}:${hdfsPort}${hdfs_parent_path}',
         """
+        def frontendsResult = sql """
+       show frontends
+       """
+        println frontendsResult
+        if (frontendsResult.size() != 1) {
+            println frontendsResult.size()
+            return
+        }
+        def feHost = frontendsResult[0][1];
+        if (!feHost.equalsIgnoreCase(externalEnvIp)) {
+            return
+        }
+        def backendsResult = sql """
+       show backends
+       """
+        if (backendsResult.size() != 1) {
+            return
+        }
+        def beHost = backendsResult[0][1];
+        if (!beHost.equalsIgnoreCase(externalEnvIp)) {
+            return
+        }
         testQueryAndInsert(iceberg_rest_type_prop_hdfs + warehouse + hdfs_storage_properties, "iceberg_rest_on_hdfs")
     }
 }

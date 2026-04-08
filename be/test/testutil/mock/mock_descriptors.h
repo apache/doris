@@ -22,8 +22,8 @@
 
 #include <vector>
 
+#include "core/data_type/data_type.h"
 #include "runtime/descriptors.h"
-#include "vec/data_types/data_type.h"
 
 namespace doris {
 
@@ -37,7 +37,7 @@ public:
 class MockRowDescriptor : public RowDescriptor {
 public:
     MockRowDescriptor() = default;
-    MockRowDescriptor(std::vector<vectorized::DataTypePtr> types, ObjectPool* pool) {
+    MockRowDescriptor(std::vector<DataTypePtr> types, ObjectPool* pool) {
         std::vector<SlotDescriptor*> slots;
         for (auto type : types) {
             auto* slot = pool->add(new SlotDescriptor());
@@ -49,7 +49,7 @@ public:
         tuple_desc->Slots = slots;
         tuple_desc_map.push_back(tuple_desc);
         _tuple_desc_map.push_back(tuple_desc);
-        _num_materialized_slots = types.size();
+        _num_materialized_slots = static_cast<int>(types.size());
     }
     const std::vector<TupleDescriptor*>& tuple_descriptors() const override {
         return tuple_desc_map;
@@ -69,7 +69,7 @@ private:
 
 class MockDescriptorTbl : public DescriptorTbl {
 public:
-    MockDescriptorTbl(std::vector<vectorized::DataTypePtr> types, ObjectPool* pool) {
+    MockDescriptorTbl(std::vector<DataTypePtr> types, ObjectPool* pool) {
         std::vector<SlotDescriptor*> slots;
         for (auto type : types) {
             auto* slot = pool->add(new SlotDescriptor());

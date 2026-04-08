@@ -22,6 +22,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.format.DateTimeChecker;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
@@ -81,10 +82,12 @@ public class SearchSignature {
             int candidateNonStrictMatched = Integer.MAX_VALUE;
             int candidateNonStrictMatchedWithoutStringLiteralCoercion = Integer.MAX_VALUE;
             int candidateDateToDateV2Count = Integer.MIN_VALUE;
+            int candidateTimeZoneCoersionScore = Integer.MIN_VALUE;
             FunctionSignature candidate = null;
             for (FunctionSignature signature : signatures) {
                 if (doMatchArity(signature, arguments)) {
-                    Pair<Boolean, Integer> matchTypesResult = doMatchTypes(signature, arguments, typePredicate);
+                    Pair<Boolean, Pair<Integer, Integer>> matchTypesResult =
+                                                        doMatchTypes(signature, arguments, typePredicate);
                     if (!matchTypesResult.first) {
                         continue;
                     }
@@ -106,17 +109,24 @@ public class SearchSignature {
                     Pair<Integer, Integer> currentNonStrictMatched = nonStrictMatchedCount(signature, arguments);
                     int currentNonStrictMatchedCount = currentNonStrictMatched.first;
                     int currentNonStrictMatchedWithoutStringLiteralCoercion
-                            = currentNonStrictMatchedCount - matchTypesResult.second;
+                            = currentNonStrictMatchedCount - matchTypesResult.second.first;
+                    int currentTimeZoneCoersionScore = matchTypesResult.second.second;
                     if (currentNonStrictMatchedWithoutStringLiteralCoercion
                             < candidateNonStrictMatchedWithoutStringLiteralCoercion) {
                         candidateNonStrictMatchedWithoutStringLiteralCoercion
                                 = currentNonStrictMatchedWithoutStringLiteralCoercion;
                         candidateNonStrictMatched = currentNonStrictMatchedCount;
                         candidateDateToDateV2Count = currentNonStrictMatched.second;
+                        candidateTimeZoneCoersionScore = currentTimeZoneCoersionScore;
                         candidate = signature;
                     } else if (currentNonStrictMatchedWithoutStringLiteralCoercion
                             == candidateNonStrictMatchedWithoutStringLiteralCoercion) {
-                        if (currentNonStrictMatchedCount < candidateNonStrictMatched) {
+                        if (currentTimeZoneCoersionScore > candidateTimeZoneCoersionScore) {
+                            candidateTimeZoneCoersionScore = currentTimeZoneCoersionScore;
+                            candidateNonStrictMatched = currentNonStrictMatchedCount;
+                            candidateDateToDateV2Count = currentNonStrictMatched.second;
+                            candidate = signature;
+                        } else if (currentNonStrictMatchedCount < candidateNonStrictMatched) {
                             candidateNonStrictMatched = currentNonStrictMatchedCount;
                             candidateDateToDateV2Count = currentNonStrictMatched.second;
                             candidate = signature;
@@ -226,9 +236,19 @@ public class SearchSignature {
         return Pair.of(nonStrictMatched, dateToDateV2Count);
     }
 
-    private Pair<Boolean, Integer> doMatchTypes(FunctionSignature sig, List<Expression> arguments,
+    /**
+     * Matches function signature with given arguments using the specified type predicate.
+     *
+     * @return Pair containing:
+     *         - Boolean: whether the signature can successfully match the arguments
+     *         - Pair - Integer, Integer:
+     *           - First integer: count of string literal coercions performed during matching
+     *           - Second integer: priority score for datetime and timestamptz type preferences
+     */
+    private Pair<Boolean, Pair<Integer, Integer>> doMatchTypes(FunctionSignature sig, List<Expression> arguments,
             BiFunction<DataType, DataType, Boolean> typePredicate) {
         int stringLiteralCoersionCount = 0;
+        int timeZoneCoersionScore = 0;
         int arity = arguments.size();
         for (int i = 0; i < arity; i++) {
             DataType sigArgType = sig.getArgType(i);
@@ -243,12 +263,22 @@ public class SearchSignature {
                 if (!realType.isStringLikeType()) {
                     stringLiteralCoersionCount++;
                 }
+
+                String literalValue = ((Literal) argument).getStringValue();
+                if (sigArgType.isTimeStampTzType()) {
+                    boolean hasTimeZone = DateTimeChecker.hasTimeZone(literalValue);
+                    if (hasTimeZone) {
+                        timeZoneCoersionScore++;
+                    } else {
+                        timeZoneCoersionScore--;
+                    }
+                }
             }
             if (!typePredicate.apply(sigArgType, realType)) {
-                return Pair.of(false, stringLiteralCoersionCount);
+                return Pair.of(false, Pair.of(stringLiteralCoersionCount, timeZoneCoersionScore));
             }
         }
-        return Pair.of(true, stringLiteralCoersionCount);
+        return Pair.of(true, Pair.of(stringLiteralCoersionCount, timeZoneCoersionScore));
     }
 
     public static void throwCanNotFoundFunctionException(String name, List<Expression> arguments) {

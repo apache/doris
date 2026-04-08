@@ -75,6 +75,7 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
     if ((rand_subcolumns_count % 2) == 0) {
         rand_subcolumns_count = 0
     }
+    sql """ set default_variant_enable_doc_mode = false """
     sql "set enable_variant_flatten_nested = true"
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
@@ -84,7 +85,7 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 4 
-        properties("replication_num" = "1", "disable_auto_compaction" = "true", "variant_enable_flatten_nested" = "true", "inverted_index_storage_format"= "v2");
+        properties("replication_num" = "1", "disable_auto_compaction" = "true", "deprecated_variant_enable_flatten_nested" = "true", "inverted_index_storage_format"= "v2");
     """
     // 2015
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-0.json'}""")
@@ -121,7 +122,7 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
 
     def tablets = sql_return_maparray """ show tablets from github_events; """
     // trigger compactions for all tablets in github_events
-    trigger_and_wait_compaction("github_events", "full")
+    trigger_and_wait_compaction("github_events", "full", 1800)
 
     sql """set enable_match_without_inverted_index = false"""
     sql """ set enable_common_expr_pushdown = true """
@@ -146,7 +147,7 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
         )
         UNIQUE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 4 
-        properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_enable_flatten_nested" = "true", "bloom_filter_columns" = "v");
+        properties("replication_num" = "1", "disable_auto_compaction" = "false", "deprecated_variant_enable_flatten_nested" = "true", "bloom_filter_columns" = "v");
         """
     sql """insert into github_events2 select * from github_events order by k"""
     sql """select v['payload']['commits'] from github_events order by k ;"""

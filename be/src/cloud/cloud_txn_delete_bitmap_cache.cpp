@@ -26,15 +26,18 @@
 #include "cloud/config.h"
 #include "common/status.h"
 #include "cpp/sync_point.h"
-#include "olap/olap_common.h"
-#include "olap/tablet_meta.h"
-#include "olap/txn_manager.h"
+#include "storage/olap_common.h"
+#include "storage/rowset/rowset_fwd.h"
+#include "storage/tablet/tablet_meta.h"
+#include "storage/txn/txn_manager.h"
 
 namespace doris {
 
 CloudTxnDeleteBitmapCache::CloudTxnDeleteBitmapCache(size_t size_in_bytes)
         : LRUCachePolicy(CachePolicy::CacheType::CLOUD_TXN_DELETE_BITMAP_CACHE, size_in_bytes,
-                         LRUCacheType::SIZE, 86400, 4),
+                         LRUCacheType::SIZE, /*stale_sweep_time_s*/ 86400, /*num_shards*/ 4,
+                         /*element_count_capacity*/ 0, /*enable_prune*/ true,
+                         /*is_lru_k*/ false),
           _stop_latch(1) {}
 
 CloudTxnDeleteBitmapCache::~CloudTxnDeleteBitmapCache() {
@@ -92,6 +95,46 @@ Status CloudTxnDeleteBitmapCache::get_tablet_txn_info(
         return Status::OK();
     }
     return st;
+}
+
+Result<std::pair<RowsetSharedPtr, DeleteBitmapPtr>>
+CloudTxnDeleteBitmapCache::get_rowset_and_delete_bitmap(TTransactionId transaction_id,
+                                                        int64_t tablet_id) {
+    RowsetSharedPtr rowset;
+    {
+        std::shared_lock<std::shared_mutex> rlock(_rwlock);
+        TxnKey txn_key(transaction_id, tablet_id);
+        if (_empty_rowset_markers.contains(txn_key)) {
+            return std::make_pair(nullptr, nullptr);
+        }
+        auto iter = _txn_map.find(txn_key);
+        if (iter == _txn_map.end()) {
+            return ResultError(Status::InternalError<false>(""));
+        }
+        if (!(iter->second.publish_status &&
+              *(iter->second.publish_status) == PublishStatus::SUCCEED)) {
+            return ResultError(Status::InternalError<false>(""));
+        }
+        rowset = iter->second.rowset;
+    }
+
+    std::string key_str = fmt::format("{}/{}", transaction_id, tablet_id);
+    CacheKey key(key_str);
+    Cache::Handle* handle = lookup(key);
+
+    DBUG_EXECUTE_IF("CloudTxnDeleteBitmapCache::get_delete_bitmap.cache_miss", {
+        handle = nullptr;
+        LOG(INFO) << "CloudTxnDeleteBitmapCache::get_delete_bitmap.cache_miss, make cache missed "
+                     "when get delete bitmap, txn_id:"
+                  << transaction_id << ", tablet_id: " << tablet_id;
+    });
+    DeleteBitmapCacheValue* val =
+            handle == nullptr ? nullptr : reinterpret_cast<DeleteBitmapCacheValue*>(value(handle));
+    if (!val) {
+        return ResultError(Status::InternalError<false>(""));
+    }
+    Defer defer {[this, handle] { release(handle); }};
+    return std::make_pair(rowset, val->delete_bitmap);
 }
 
 Status CloudTxnDeleteBitmapCache::get_delete_bitmap(
@@ -229,7 +272,9 @@ void CloudTxnDeleteBitmapCache::remove_expired_tablet_txn_info() {
     std::unique_lock<std::shared_mutex> wlock(_rwlock);
     while (!_expiration_txn.empty()) {
         auto iter = _expiration_txn.begin();
-        if (_txn_map.find(iter->second) == _txn_map.end()) {
+        bool in_txn_map = _txn_map.find(iter->second) != _txn_map.end();
+        bool in_markers = _empty_rowset_markers.find(iter->second) != _empty_rowset_markers.end();
+        if (!in_txn_map && !in_markers) {
             _expiration_txn.erase(iter);
             continue;
         }
@@ -239,6 +284,7 @@ void CloudTxnDeleteBitmapCache::remove_expired_tablet_txn_info() {
         if (iter->first > current_time) {
             break;
         }
+        // Clean from _txn_map if exists
         auto txn_iter = _txn_map.find(iter->second);
         if ((txn_iter != _txn_map.end()) && (iter->first == txn_iter->second.txn_expiration)) {
             LOG_INFO("clean expired delete bitmap")
@@ -250,6 +296,14 @@ void CloudTxnDeleteBitmapCache::remove_expired_tablet_txn_info() {
             CacheKey cache_key(key_str);
             erase(cache_key);
             _txn_map.erase(iter->second);
+        }
+        // Clean from _empty_rowset_markers if exists
+        auto marker_iter = _empty_rowset_markers.find(iter->second);
+        if (marker_iter != _empty_rowset_markers.end()) {
+            LOG_INFO("clean expired empty rowset marker")
+                    .tag("txn_id", iter->second.txn_id)
+                    .tag("tablet_id", iter->second.tablet_id);
+            _empty_rowset_markers.erase(marker_iter);
         }
         _expiration_txn.erase(iter);
     }
@@ -270,6 +324,32 @@ void CloudTxnDeleteBitmapCache::remove_unused_tablet_txn_info(TTransactionId tra
         erase(cache_key);
         _txn_map.erase(txn_key);
     }
+}
+
+void CloudTxnDeleteBitmapCache::mark_empty_rowset(TTransactionId txn_id, int64_t tablet_id,
+                                                  int64_t txn_expiration) {
+    int64_t txn_expiration_min =
+            duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch())
+                    .count() +
+            config::tablet_txn_info_min_expired_seconds;
+    txn_expiration = std::max(txn_expiration_min, txn_expiration);
+
+    if (config::enable_mow_verbose_log) {
+        LOG_INFO("mark empty rowset")
+                .tag("txn_id", txn_id)
+                .tag("tablet_id", tablet_id)
+                .tag("expiration", txn_expiration);
+    }
+    std::unique_lock<std::shared_mutex> wlock(_rwlock);
+    TxnKey txn_key(txn_id, tablet_id);
+    _empty_rowset_markers.emplace(txn_key);
+    _expiration_txn.emplace(txn_expiration, txn_key);
+}
+
+bool CloudTxnDeleteBitmapCache::is_empty_rowset(TTransactionId txn_id, int64_t tablet_id) {
+    std::shared_lock<std::shared_mutex> rlock(_rwlock);
+    TxnKey txn_key(txn_id, tablet_id);
+    return _empty_rowset_markers.contains(txn_key);
 }
 
 void CloudTxnDeleteBitmapCache::_clean_thread_callback() {

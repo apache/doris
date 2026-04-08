@@ -20,7 +20,7 @@ import org.awaitility.Awaitility
 
 import static java.util.concurrent.TimeUnit.SECONDS
 
-suite("test_streaming_mysql_job_create_alter", "p0,external,mysql,external_docker,external_docker_mysql") {
+suite("test_streaming_mysql_job_create_alter", "p0,external,mysql,external_docker,external_docker_mysql,nondatalake") {
     def jobName = "test_streaming_mysql_job_create_alter"
     def currentDb = (sql "select database()")[0][0]
     def table1 = "create_alter_user_info"
@@ -76,7 +76,7 @@ suite("test_streaming_mysql_job_create_alter", "p0,external,mysql,external_docke
                   "table.create.properties1.replication_num" = "1"
                 )
             """
-            exception "Only support target properties with prefix table.create.properties"
+            exception "Not support target properties key table.create.properties1.replication_num"
         }
 
         //error jdbc url format
@@ -221,7 +221,7 @@ suite("test_streaming_mysql_job_create_alter", "p0,external,mysql,external_docke
                         def jobSuccendCount = sql """ select SucceedTaskCount from jobs("type"="insert") where Name = '${jobName}' and ExecuteType='STREAMING' """
                         log.info("jobSuccendCount: " + jobSuccendCount)
                         // check job status and succeed task count larger than 1
-                        jobSuccendCount.size() == 1 && '1' <= jobSuccendCount.get(0).get(0)
+                        jobSuccendCount.size() == 1 && '2' <= jobSuccendCount.get(0).get(0)
                     }
             )
         } catch (Exception ex){

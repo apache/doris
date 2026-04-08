@@ -26,8 +26,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.common.util.DebugPointUtil;
-import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.SimpleScheduler;
@@ -1090,7 +1090,7 @@ public class Backend implements Writable {
             displayTagMap.put("compute_group_name", displayTagMap.remove("cloud_cluster_name"));
         }
 
-        return "{" + new PrintableMap<>(displayTagMap, ":", true, false).toString() + "}";
+        return "{" + new DatasourcePrintableMap<>(displayTagMap, ":", true, false).toString() + "}";
     }
 
     public Long getPublishTaskLastTimeAccumulated() {

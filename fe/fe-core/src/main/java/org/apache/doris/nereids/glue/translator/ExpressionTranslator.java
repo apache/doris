@@ -29,7 +29,6 @@ import org.apache.doris.analysis.ColumnRefExpr;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
-import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.FunctionParams;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LambdaFunctionCallExpr;
@@ -43,6 +42,7 @@ import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
+import org.apache.doris.catalog.FunctionName;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.OlapTable;
@@ -102,15 +102,19 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunctio
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdtf;
+import org.apache.doris.nereids.trees.expressions.functions.udf.PythonUdaf;
+import org.apache.doris.nereids.trees.expressions.functions.udf.PythonUdf;
+import org.apache.doris.nereids.trees.expressions.functions.udf.PythonUdtf;
 import org.apache.doris.nereids.trees.expressions.functions.window.WindowFunction;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.thrift.TDictFunction;
-import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -127,6 +131,8 @@ import java.util.stream.Collectors;
 public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTranslatorContext> {
 
     public static ExpressionTranslator INSTANCE = new ExpressionTranslator();
+
+    private static final Logger LOG = LogManager.getLogger(ExpressionTranslator.class);
 
     /**
      * The entry function of ExpressionTranslator.
@@ -216,21 +222,31 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                         .orElseThrow(() -> new AnalysisException(
                                     "No SlotReference found in Match, SQL is " + match.toSql()));
 
-        Column column = slot.getOriginalColumn()
-                        .orElseThrow(() -> new AnalysisException(
-                                    "SlotReference in Match failed to get Column, SQL is " + match.toSql()));
-
+        // Try to resolve inverted index metadata. When the slot has lost its original
+        // column/table reference (e.g., after CTE inlining or join projection remapping),
+        // we gracefully fall back to invertedIndex = null. The BE can still evaluate MATCH
+        // correctly without inverted index (slow path), or the PushDownProject /
+        // PushDownMatchProjectionAsVirtualColumn rules may have already pushed the expression
+        // down for storage-level index evaluation (fast path).
+        Index invertedIndex = null;
+        String analyzer = match.getAnalyzer().orElse(null);
+        Column column = slot.getOriginalColumn().orElse(null);
         OlapTable olapTbl = getOlapTableDirectly(slot);
-        if (olapTbl == null) {
-            throw new AnalysisException("SlotReference in Match failed to get OlapTable, SQL is " + match.toSql());
+        if (column != null && olapTbl != null) {
+            invertedIndex = olapTbl.getInvertedIndex(column, slot.getSubPath(), analyzer);
+            if (analyzer != null && invertedIndex == null) {
+                throw new AnalysisException("No inverted index found for analyzer '" + analyzer
+                        + "' on column " + column.getName());
+            }
+        } else if (analyzer != null) {
+            LOG.warn("MATCH with analyzer '{}' on slot '{}' lost column metadata, "
+                    + "falling back without inverted index", analyzer, slot.getName());
         }
-
-        Index invertedIndex = olapTbl.getInvertedIndex(column, slot.getSubPath());
 
         MatchPredicate.Operator op = match.op();
         MatchPredicate matchPredicate = new MatchPredicate(op, match.left().accept(this, context),
                 match.right().accept(this, context), match.getDataType().toCatalogDataType(),
-                NullableMode.DEPEND_ON_ARGUMENT, invertedIndex, match.nullable());
+                NullableMode.DEPEND_ON_ARGUMENT, invertedIndex, match.nullable(), analyzer);
         return matchPredicate;
     }
 
@@ -467,7 +483,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 function.hasVarArguments(),
                 null, "", "", null, "",
                 null, "", null, false,
-                isAnalyticFunction, false, TFunctionBinaryType.BUILTIN,
+                isAnalyticFunction, false, Function.BinaryType.BUILTIN,
                 true, true, nullableMode
         );
 
@@ -604,7 +620,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
         org.apache.doris.catalog.ScalarFunction catalogFunction = new org.apache.doris.catalog.ScalarFunction(
                 new FunctionName(dictGet.getName()), argTypes, signature.returnType.toCatalogDataType(),
-                dictGet.hasVarArguments(), "", TFunctionBinaryType.BUILTIN, true, true,
+                dictGet.hasVarArguments(), "", Function.BinaryType.BUILTIN, true, true,
                 NullableMode.ALWAYS_NOT_NULLABLE);
 
         // set special fields
@@ -631,7 +647,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
         org.apache.doris.catalog.ScalarFunction catalogFunction = new org.apache.doris.catalog.ScalarFunction(
                 new FunctionName(dictGetMany.getName()), argTypes, signature.returnType.toCatalogDataType(),
-                dictGetMany.hasVarArguments(), "", TFunctionBinaryType.BUILTIN, true, true,
+                dictGetMany.hasVarArguments(), "", Function.BinaryType.BUILTIN, true, true,
                 NullableMode.ALWAYS_NOT_NULLABLE);
 
         // set special fields
@@ -648,16 +664,32 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     public Expr visitSearchExpression(SearchExpression searchExpression,
             PlanTranslatorContext context) {
         List<Expr> slotChildren = new ArrayList<>();
+        List<Index> fieldIndexes = new ArrayList<>();
 
         // Convert slot reference children from Nereids to Analysis
         for (Expression slotExpr : searchExpression.getSlotChildren()) {
             Expr translatedSlot = slotExpr.accept(this, context);
             slotChildren.add(translatedSlot);
+
+            // Look up the inverted index for each field (needed for variant subcolumn analyzer)
+            Index invertedIndex = null;
+            if (slotExpr instanceof SlotReference) {
+                SlotReference slot = (SlotReference) slotExpr;
+                OlapTable olapTbl = getOlapTableDirectly(slot);
+                if (olapTbl != null) {
+                    Column column = slot.getOriginalColumn().orElse(null);
+                    if (column != null) {
+                        invertedIndex = olapTbl.getInvertedIndex(column, slot.getSubPath());
+                    }
+                }
+            }
+            fieldIndexes.add(invertedIndex);
         }
 
         // Create SearchPredicate with proper slot children for BE "action on slot" detection
         SearchPredicate searchPredicate = new SearchPredicate(searchExpression.getDslString(),
-                searchExpression.getQsPlan(), slotChildren, searchExpression.nullable());
+                searchExpression.getQsPlan(), slotChildren, fieldIndexes,
+                searchExpression.nullable());
         return searchPredicate;
     }
 
@@ -679,7 +711,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         org.apache.doris.catalog.ScalarFunction catalogFunction = new org.apache.doris.catalog.ScalarFunction(
                 new FunctionName(function.getName()), argTypes,
                 function.getDataType().toCatalogDataType(), function.hasVarArguments(),
-                "", TFunctionBinaryType.BUILTIN, true, true, nullableMode);
+                "", Function.BinaryType.BUILTIN, true, true, nullableMode);
 
         // create catalog FunctionCallExpr without analyze again
         return new FunctionCallExpr(catalogFunction, new FunctionParams(false, arguments), function.nullable());
@@ -724,7 +756,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         org.apache.doris.catalog.ScalarFunction catalogFunction = new org.apache.doris.catalog.ScalarFunction(
                 new FunctionName(function.getName()), argTypes,
                 function.getDataType().toCatalogDataType(), function.hasVarArguments(),
-                "", TFunctionBinaryType.BUILTIN, true, true, nullableMode);
+                "", Function.BinaryType.BUILTIN, true, true, nullableMode);
 
         // create catalog FunctionCallExpr without analyze again
         return new FunctionCallExpr(catalogFunction, new FunctionParams(false, arguments), function.nullable());
@@ -794,7 +826,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                         argTypes, argNullables, returnNullable),
                 aggFunction.hasVarArgs(), aggFunction.isUserVisible());
         fn.setNullableMode(NullableMode.ALWAYS_NOT_NULLABLE);
-        fn.setBinaryType(TFunctionBinaryType.AGG_STATE);
+        fn.setBinaryType(Function.BinaryType.AGG_STATE);
         return new FunctionCallExpr(fn, new FunctionParams(fnCall.getChildren()), false);
     }
 
@@ -812,7 +844,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         Function aggFunction = fnCall.getFn();
         aggFunction.setName(new FunctionName(name));
         aggFunction.setArgs(Arrays.asList(fnCall.getChildren().get(0).getType()));
-        aggFunction.setBinaryType(TFunctionBinaryType.AGG_STATE);
+        aggFunction.setBinaryType(Function.BinaryType.AGG_STATE);
         return fnCall;
     }
 
@@ -830,7 +862,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         Function aggFunction = fnCall.getFn();
         aggFunction.setName(new FunctionName(name));
         aggFunction.setArgs(Arrays.asList(fnCall.getChildren().get(0).getType()));
-        aggFunction.setBinaryType(TFunctionBinaryType.AGG_STATE);
+        aggFunction.setBinaryType(Function.BinaryType.AGG_STATE);
         aggFunction.setNullableMode(NullableMode.ALWAYS_NOT_NULLABLE);
         aggFunction.setReturnType(fnCall.getChildren().get(0).getType());
         fnCall.setType(fnCall.getChildren().get(0).getType());
@@ -877,7 +909,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 argTypes,
                 function.getDataType().toCatalogDataType(), function.getIntermediateTypes().toCatalogDataType(),
                 function.hasVarArguments(), null, "", "", null, "", null, "", null, false, false, false,
-                TFunctionBinaryType.BUILTIN, true, true,
+                Function.BinaryType.BUILTIN, true, true,
                 function.nullable() ? NullableMode.ALWAYS_NULLABLE : NullableMode.ALWAYS_NOT_NULLABLE);
 
         return new FunctionCallExpr(catalogFunction,
@@ -906,6 +938,30 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 .map(expression -> expression.accept(this, context))
                 .collect(Collectors.toList()));
         return new FunctionCallExpr(udaf.getCatalogFunction(), exprs, udaf.nullable());
+    }
+
+    @Override
+    public Expr visitPythonUdf(PythonUdf udf, PlanTranslatorContext context) {
+        FunctionParams exprs = new FunctionParams(udf.children().stream()
+                .map(expression -> expression.accept(this, context))
+                .collect(Collectors.toList()));
+        return new FunctionCallExpr(udf.getCatalogFunction(), exprs, udf.nullable());
+    }
+
+    @Override
+    public Expr visitPythonUdaf(PythonUdaf udaf, PlanTranslatorContext context) {
+        FunctionParams exprs = new FunctionParams(udaf.isDistinct(), udaf.children().stream()
+                .map(expression -> expression.accept(this, context))
+                .collect(Collectors.toList()));
+        return new FunctionCallExpr(udaf.getCatalogFunction(), exprs, udaf.nullable());
+    }
+
+    @Override
+    public Expr visitPythonUdtf(PythonUdtf udtf, PlanTranslatorContext context) {
+        FunctionParams exprs = new FunctionParams(udtf.children().stream()
+                .map(expression -> expression.accept(this, context))
+                .collect(Collectors.toList()));
+        return new FunctionCallExpr(udtf.getCatalogFunction(), exprs, udtf.nullable());
     }
 
     // TODO: Supports for `distinct`

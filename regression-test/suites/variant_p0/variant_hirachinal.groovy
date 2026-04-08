@@ -30,10 +30,11 @@ suite("regression_test_variant_hirachinal", "variant_type"){
     def table_name = "var_rs"
     sql "DROP TABLE IF EXISTS ${table_name}"
 
+    sql "set default_variant_enable_doc_mode = false"
     sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (
                 k bigint,
-                v variant
+                v variant<properties("variant_max_subcolumns_count" = "0")>
             )
             DUPLICATE KEY(`k`)
             DISTRIBUTED BY HASH(k) BUCKETS 1
@@ -41,7 +42,7 @@ suite("regression_test_variant_hirachinal", "variant_type"){
         """
     sql """insert into ${table_name} values (-3, '{"a" : 1, "b" : 1.5, "c" : [1, 2, 3]}')"""
     sql """insert into  ${table_name} select * from (select -2, '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : "null", "e" : 7.111}}'  as json_str
-            union  all select -1, '{"a": 1123}' as json_str union all select *, '{"a" : 1234, "xxxx" : "kaana"}' as json_str from numbers("number" = "4096"))t order by 1 limit 4096 ;"""
+            union  all select -1, '{"a": 1123}' as json_str union all select *, '{"a" : 1234, "xxxx" : "kaana"}' as json_str from numbers("number" = "4096"))t order by 1 limit 4098 ;"""
     qt_sql "select * from ${table_name} order by k limit 10"
     qt_sql "select cast(v['c'] as string) from ${table_name} where k = -3 or k = -2 order by k"
     qt_sql "select v['b'] from ${table_name} where k = -3 or k = -2"

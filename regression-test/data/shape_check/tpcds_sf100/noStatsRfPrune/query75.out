@@ -16,7 +16,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------------PhysicalProject
 ----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((item.i_item_sk = catalog_sales.cs_item_sk)) otherCondition=() build RFs:RF0 i_item_sk->[cs_item_sk]
 ------------------------------PhysicalProject
---------------------------------hashJoin[LEFT_OUTER_JOIN colocated] hashCondition=((catalog_sales.cs_item_sk = catalog_returns.cr_item_sk) and (catalog_sales.cs_order_number = catalog_returns.cr_order_number)) otherCondition=()
+--------------------------------hashJoin[LEFT_OUTER_JOIN bucketShuffle] hashCondition=((catalog_sales.cs_item_sk = catalog_returns.cr_item_sk) and (catalog_sales.cs_order_number = catalog_returns.cr_order_number)) otherCondition=()
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF1
 ----------------------------------PhysicalProject
@@ -35,7 +35,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------------PhysicalProject
 ----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((item.i_item_sk = store_sales.ss_item_sk)) otherCondition=() build RFs:RF2 i_item_sk->[ss_item_sk]
 ------------------------------PhysicalProject
---------------------------------hashJoin[LEFT_OUTER_JOIN colocated] hashCondition=((store_sales.ss_item_sk = store_returns.sr_item_sk) and (store_sales.ss_ticket_number = store_returns.sr_ticket_number)) otherCondition=()
+--------------------------------hashJoin[LEFT_OUTER_JOIN bucketShuffle] hashCondition=((store_sales.ss_item_sk = store_returns.sr_item_sk) and (store_sales.ss_ticket_number = store_returns.sr_ticket_number)) otherCondition=()
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF2 RF3
 ----------------------------------PhysicalProject
@@ -54,7 +54,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------------PhysicalProject
 ----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((item.i_item_sk = web_sales.ws_item_sk)) otherCondition=() build RFs:RF4 i_item_sk->[ws_item_sk]
 ------------------------------PhysicalProject
---------------------------------hashJoin[LEFT_OUTER_JOIN colocated] hashCondition=((web_sales.ws_item_sk = web_returns.wr_item_sk) and (web_sales.ws_order_number = web_returns.wr_order_number)) otherCondition=()
+--------------------------------hashJoin[LEFT_OUTER_JOIN bucketShuffle] hashCondition=((web_sales.ws_item_sk = web_returns.wr_item_sk) and (web_sales.ws_order_number = web_returns.wr_order_number)) otherCondition=()
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF4 RF5
 ----------------------------------PhysicalProject

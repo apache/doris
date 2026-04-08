@@ -166,7 +166,7 @@ suite('test_group_commit_redirect', 'docker') {
 
         location = getRedirectLocation(feIp, fePort, "", "async_mode")
         log.info("default location: ${location}")
-        assertTrue(location.contains("11.20.20.19:8040/api/$databaseName/$tableName/_stream_load_forward?") && (location.contains("forward_to=${be1Ip}:${be1HttpPort}") || location.contains("forward_to=${be2Ip}:${be2HttpPort}") || location.contains("forward_to=${be3Ip}:${be3HttpPort}")))
+        assertTrue(location.contains("$feIp:8040/api/$databaseName/$tableName/_stream_load_forward?") && (location.contains("forward_to=${be1Ip}:${be1HttpPort}") || location.contains("forward_to=${be2Ip}:${be2HttpPort}") || location.contains("forward_to=${be3Ip}:${be3HttpPort}")))
 
         location = getRedirectLocation(feIp, fePort, "public", "off_mode")
         log.info("public location: ${location}")
@@ -178,7 +178,7 @@ suite('test_group_commit_redirect', 'docker') {
 
         location = getRedirectLocation(feIp, fePort, "", "off_mode")
         log.info("public location: ${location}")
-        assertTrue(location.contains("11.20.20.19:8040/api/$databaseName/$tableName/_stream_load"))
+        assertTrue(location.contains("$feIp:8040/api/$databaseName/$tableName/_stream_load"))
 
     }
 

@@ -18,7 +18,7 @@
 #include "runtime/memory/cache_manager.h"
 
 #include "runtime/memory/cache_policy.h"
-#include "util/runtime_profile.h"
+#include "runtime/runtime_profile.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -71,6 +71,15 @@ int64_t CacheManager::for_each_cache_refresh_capacity(double adjust_weighted,
     for (const auto& pair : _caches) {
         auto* cache_policy = pair.second;
         if (!cache_policy->enable_prune()) {
+            continue;
+        }
+        // TODO(hezhiqiang): Refactor this to a generic `enable_adjust_capacity` attribute
+        //  in CachePolicy so each cache can declare whether it participates in dynamic
+        //  capacity adjustment, instead of hardcoding the skip here.
+        // Skip ANN IVF list cache: its entries are loaded via expensive disk/network
+        // pread and should not be evicted by transient memory pressure fluctuations.
+        // It already has its own capacity limit and stale-sweep mechanism.
+        if (cache_policy->type() == CachePolicy::CacheType::ANN_INDEX_IVF_LIST_CACHE) {
             continue;
         }
         cache_policy->adjust_capacity_weighted(adjust_weighted);

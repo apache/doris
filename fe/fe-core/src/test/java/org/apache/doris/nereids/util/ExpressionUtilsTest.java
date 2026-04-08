@@ -26,8 +26,22 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.generator.Explode;
+import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeBitmap;
+import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeBitmapOuter;
+import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeMap;
+import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeMapOuter;
+import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeOuter;
+import org.apache.doris.nereids.trees.expressions.functions.generator.PosExplode;
+import org.apache.doris.nereids.trees.expressions.functions.generator.PosExplodeOuter;
+import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBitmap;
+import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
@@ -36,12 +50,12 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
-import java.util.BitSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -226,7 +240,7 @@ public class ExpressionUtilsTest extends TestWithFeService {
         LogicalProject<LogicalOdbcScan> project = new LogicalProject<>(ImmutableList.of(a, bAlias),
                 new LogicalOdbcScan(new RelationId(0), olapTable, ImmutableList.of("test")));
         List<? extends Expression> expressions = ExpressionUtils.shuttleExpressionWithLineage(project.getOutput(),
-                project, new BitSet());
+                project);
         // should not loop, should break out loop
         Assertions.assertEquals(expressions, ImmutableList.of(a, bAlias.toSlot()));
     }
@@ -251,6 +265,34 @@ public class ExpressionUtilsTest extends TestWithFeService {
         Expression replacedExpression2 = ExpressionUtils.replace(a, replaceMap);
         // should return a
         Assertions.assertEquals(a, replacedExpression2);
+    }
+
+    @Test
+    public void testUnnest() {
+        List<Expression> arrayArg = Lists.newArrayList(
+                new ArrayLiteral(Lists.newArrayList(new IntegerLiteral(1))));
+        Unnest unnest = new Unnest(arrayArg, false, false);
+        Assertions.assertTrue(ExpressionUtils.convertUnnest(unnest) instanceof Explode);
+        unnest = new Unnest(arrayArg, true, false);
+        Assertions.assertTrue(ExpressionUtils.convertUnnest(unnest) instanceof PosExplode);
+        unnest = new Unnest(arrayArg, false, true);
+        Assertions.assertTrue(ExpressionUtils.convertUnnest(unnest) instanceof ExplodeOuter);
+        unnest = new Unnest(arrayArg, true, true);
+        Assertions.assertTrue(ExpressionUtils.convertUnnest(unnest) instanceof PosExplodeOuter);
+
+        Map<Literal, Literal> map = Maps.newLinkedHashMap();
+        map.put(new IntegerLiteral(0), new BigIntLiteral(0));
+        List<Expression> mapArg = Lists.newArrayList(new MapLiteral(map));
+        unnest = new Unnest(mapArg, false, false);
+        Assertions.assertTrue(ExpressionUtils.convertUnnest(unnest) instanceof ExplodeMap);
+        unnest = new Unnest(mapArg, false, true);
+        Assertions.assertTrue(ExpressionUtils.convertUnnest(unnest) instanceof ExplodeMapOuter);
+
+        List<Expression> bitmapArg = Lists.newArrayList(new ToBitmap(new IntegerLiteral(1)));
+        unnest = new Unnest(bitmapArg, false, false);
+        Assertions.assertTrue(ExpressionUtils.convertUnnest(unnest) instanceof ExplodeBitmap);
+        unnest = new Unnest(bitmapArg, false, true);
+        Assertions.assertTrue(ExpressionUtils.convertUnnest(unnest) instanceof ExplodeBitmapOuter);
     }
 
     private void assertExpect(List<? extends Expression> originalExpressions,

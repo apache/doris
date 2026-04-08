@@ -26,6 +26,7 @@
 declare -A targetBranch_to_pipelines
 targetBranch_to_pipelines=(
     ['master']='feut beut cloudut compile p0 p1 external performance cloud_p0 cloud_p1 vault_p0 nonConcurrent check_coverage check_coverage_fe'
+    ['branch-4.1']='feut beut cloudut compile p0 p1 external cloud_p0 cloud_p1 vault_p0 nonConcurrent check_coverage check_coverage_fe'
     ['branch-4.0']='feut beut cloudut compile p0 p1 external cloud_p0 cloud_p1 vault_p0 nonConcurrent check_coverage check_coverage_fe'
     ['branch-3.1']='feut beut cloudut compile p0 p1 external cloud_p0 cloud_p1 vault_p0 nonConcurrent check_coverage check_coverage_fe'
     ['branch-3.0']='feut beut cloudut compile p0 p1 external cloud_p0 cloud_p1 vault_p0 nonConcurrent check_coverage'
@@ -73,7 +74,7 @@ conment_to_context=(
     ['cloud_p0']='cloud_p0 (Doris Cloud Regression)'
     ['cloud_p1']='cloud_p1 (Doris Cloud Regression)'
     ['vault_p0']='vault_p0 (Doris Cloud Regression)'
-    ['nonConcurrent']='NonConcurrent Regression (Doris Regression)'
+    ['nonConcurrent']='NonConcurrent Regression (nonConcurrent)'
     ['check_coverage']='check_coverage (Coverage)'
 )
 

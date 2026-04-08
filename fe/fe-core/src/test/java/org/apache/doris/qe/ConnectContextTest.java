@@ -17,16 +17,24 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.qe.ComputeGroupException;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.Pair;
 import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlCommand;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.collect.Lists;
 import mockit.Expectations;
 import mockit.Mocked;
 import org.junit.Assert;
@@ -34,7 +42,9 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.nio.channels.SocketChannel;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -51,6 +61,12 @@ public class ConnectContextTest {
     private Auth auth;
     @Mocked
     private String qualifiedUser;
+    @Mocked
+    private CloudSystemInfoService cloudSystemInfoService;
+    @Mocked
+    private AccessControllerManager accessManager;
+    @Mocked
+    private Backend backend;
 
     @Before
     public void setUp() throws Exception {
@@ -474,5 +490,201 @@ public class ConnectContextTest {
         } catch (NullPointerException e) {
             // Expected behavior
         }
+    }
+
+    @Test
+    public void testGetCloudCluster() throws Exception {
+        // Setup: enable cloud mode by setting cloud_unique_id
+        String originalCloudUniqueId = Config.cloud_unique_id;
+        try {
+            Config.cloud_unique_id = "test-cloud-id";
+
+            ConnectContext ctx = new ConnectContext();
+            ctx.setEnv(env);
+            ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("testUser", "%"));
+
+            // Test 1: Cluster from session variable (step 1)
+            // This tests: "Get cluster from session variable (set by `use @` command or setCloudCluster())"
+            ctx.setCloudCluster("session_cluster");
+            // Verify that setCloudCluster sets session variable
+            Assert.assertEquals("session_cluster", ctx.getSessionVariable().getCloudCluster());
+            new Expectations() {
+                {
+                    env.getCurrentSystemInfo();
+                    result = cloudSystemInfoService;
+                }
+            };
+            String cluster = ctx.getCloudCluster(false);
+            Assert.assertEquals("session_cluster", cluster);
+
+            // Test 2: Cluster from user default (step 2)
+            // This tests: "Get cluster from user's default cluster property if set"
+            ctx.setCloudCluster(null); // Clear session cluster
+            ctx.cloudCluster = null; // Clear cached cluster
+            new Expectations() {
+                {
+                    env.getAuth();
+                    result = auth;
+                    auth.getDefaultCloudCluster("testUser");
+                    result = "user_default_cluster";
+                    env.getCurrentSystemInfo();
+                    result = cloudSystemInfoService;
+                    cloudSystemInfoService.getCloudClusterNames();
+                    result = Lists.newArrayList("user_default_cluster", "other_cluster");
+                }
+            };
+            cluster = ctx.getCloudCluster(false);
+            Assert.assertEquals("user_default_cluster", cluster);
+
+            // Test 3: Cluster from this.cloudCluster cache (step 3)
+            // This tests: "Get cluster from cached variable (this.cloudCluster) if available"
+            ctx.setCloudCluster(null); // Clear session cluster
+            ctx.cloudCluster = "cached_cluster"; // Set cached cluster (from previous policy selection)
+            new Expectations() {
+                {
+                    env.getAuth();
+                    result = auth;
+                    auth.getDefaultCloudCluster("testUser");
+                    result = null; // No user default
+                    env.getCurrentSystemInfo();
+                    result = cloudSystemInfoService;
+                }
+            };
+            cluster = ctx.getCloudCluster(false);
+            Assert.assertEquals("cached_cluster", cluster);
+
+            // Test 4: Cluster from policy (step 4)
+            // This tests: "Choose an authorized cluster by policy if all preceding conditions failed"
+            ctx.setCloudCluster(null); // Clear session cluster
+            ctx.cloudCluster = null; // Clear cached cluster
+            new Expectations() {
+                {
+                    env.getAuth();
+                    result = auth;
+                    auth.getDefaultCloudCluster("testUser");
+                    result = null; // No user default
+                    env.getCurrentSystemInfo();
+                    result = cloudSystemInfoService;
+                    cloudSystemInfoService.getCloudClusterNames();
+                    result = Lists.newArrayList("policy_cluster1", "policy_cluster2");
+                    env.getAccessManager();
+                    result = accessManager;
+                    accessManager.checkCloudPriv((UserIdentity) any, "policy_cluster2",
+                            PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER);
+                    result = true;
+                    cloudSystemInfoService.isStandByComputeGroup("policy_cluster2");
+                    result = false;
+                    cloudSystemInfoService.getBackendsByClusterName("policy_cluster2");
+                    result = Lists.newArrayList(backend);
+                    backend.isAlive();
+                    result = true;
+                }
+            };
+            cluster = ctx.getCloudCluster(false);
+            Assert.assertEquals("policy_cluster2", cluster);
+            // Verify cache is set for subsequent calls
+            Assert.assertEquals("policy_cluster2", ctx.cloudCluster);
+
+            // Test 5: Priority order - session variable takes precedence over this.cloudCluster
+            ctx.setCloudCluster("session_cluster2");
+            ctx.cloudCluster = "cached_cluster2"; // This should be ignored
+            new Expectations() {
+                {
+                    env.getCurrentSystemInfo();
+                    result = cloudSystemInfoService;
+                }
+            };
+            cluster = ctx.getCloudCluster(false);
+            Assert.assertEquals("session_cluster2", cluster); // Session variable wins
+
+            // Test 6: Priority order - user this.cloudCluster over default takes precedence
+            ctx.setCloudCluster(null); // Clear session cluster
+            ctx.cloudCluster = "cached_cluster3"; // This should be ignored
+            new Expectations() {
+                {
+                    env.getAuth();
+                    result = auth;
+                    auth.getDefaultCloudCluster("testUser");
+                    result = "user_default_cluster2";
+                    env.getCurrentSystemInfo();
+                    result = cloudSystemInfoService;
+                    cloudSystemInfoService.getCloudClusterNames();
+                    result = Lists.newArrayList("user_default_cluster2", "other_cluster");
+                }
+            };
+            cluster = ctx.getCloudCluster(false);
+            Assert.assertEquals("cached_cluster3", cluster); // User this.cloudCluster wins
+
+            // Test 7: No cluster available - should throw exception
+            ctx.setCloudCluster(null);
+            ctx.cloudCluster = null;
+            new Expectations() {
+                {
+                    env.getAuth();
+                    result = auth;
+                    auth.getDefaultCloudCluster("testUser");
+                    result = null;
+                    env.getCurrentSystemInfo();
+                    result = cloudSystemInfoService;
+                    cloudSystemInfoService.getCloudClusterNames();
+                    result = Lists.newArrayList("unauthorized_cluster");
+                    env.getAccessManager();
+                    result = accessManager;
+                    accessManager.checkCloudPriv((UserIdentity) any, anyString,
+                            PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER);
+                    result = false; // No authorized cluster
+                }
+            };
+            try {
+                ctx.getCloudCluster(true);
+                Assert.fail("Expected ComputeGroupException");
+            } catch (ComputeGroupException e) {
+                Assert.assertEquals(ComputeGroupException.FailedTypeEnum.CURRENT_USER_NO_AUTH_TO_USE_ANY_COMPUTE_GROUP,
+                        e.getFailedType());
+            }
+        } finally {
+            Config.cloud_unique_id = originalCloudUniqueId;
+        }
+    }
+
+    @Test
+    public void testConnectAttributesDefault() {
+        ConnectContext ctx = new ConnectContext();
+        Map<String, String> attrs = ctx.getConnectAttributes();
+        Assert.assertNotNull("connectAttributes should never be null", attrs);
+        Assert.assertTrue("connectAttributes should default to empty", attrs.isEmpty());
+    }
+
+    @Test
+    public void testConnectAttributesSetAndGet() {
+        ConnectContext ctx = new ConnectContext();
+        Map<String, String> attrs = new HashMap<>();
+        attrs.put("scheduleInfo", "{\"SKYNET_TASKID\":\"523987416281\"}");
+        attrs.put("_client_name", "dataworks-connector");
+
+        ctx.setConnectAttributes(attrs);
+        Map<String, String> result = ctx.getConnectAttributes();
+        Assert.assertEquals(2, result.size());
+        Assert.assertEquals("{\"SKYNET_TASKID\":\"523987416281\"}", result.get("scheduleInfo"));
+        Assert.assertEquals("dataworks-connector", result.get("_client_name"));
+    }
+
+    @Test
+    public void testConnectAttributesDefensiveCopy() {
+        ConnectContext ctx = new ConnectContext();
+        Map<String, String> attrs = new HashMap<>();
+        attrs.put("scheduleInfo", "original");
+        ctx.setConnectAttributes(attrs);
+
+        attrs.put("scheduleInfo", "modified");
+        Assert.assertEquals("original", ctx.getConnectAttributes().get("scheduleInfo"));
+    }
+
+    @Test
+    public void testConnectAttributesSetNull() {
+        ConnectContext ctx = new ConnectContext();
+        ctx.setConnectAttributes(null);
+        Assert.assertNotNull(ctx.getConnectAttributes());
+        Assert.assertTrue(ctx.getConnectAttributes().isEmpty());
     }
 }

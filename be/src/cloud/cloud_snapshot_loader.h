@@ -19,8 +19,8 @@
 
 #include "cloud/cloud_tablet.h"
 #include "common/status.h"
-#include "olap/storage_policy.h"
 #include "runtime/snapshot_loader.h"
+#include "storage/storage_policy.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"

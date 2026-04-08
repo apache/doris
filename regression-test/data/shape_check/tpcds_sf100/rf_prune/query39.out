@@ -5,22 +5,20 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----PhysicalProject
 ------filter(( not (mean = 0.0)) and ((foo.stdev / foo.mean) > 1.0))
 --------hashAgg[GLOBAL]
-----------PhysicalDistribute[DistributionSpecHash]
-------------hashAgg[LOCAL]
+----------PhysicalProject
+------------hashJoin[INNER_JOIN broadcast] hashCondition=((inventory.inv_warehouse_sk = warehouse.w_warehouse_sk)) otherCondition=()
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN broadcast] hashCondition=((inventory.inv_warehouse_sk = warehouse.w_warehouse_sk)) otherCondition=()
+----------------hashJoin[INNER_JOIN broadcast] hashCondition=((inventory.inv_item_sk = item.i_item_sk)) otherCondition=()
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN broadcast] hashCondition=((inventory.inv_item_sk = item.i_item_sk)) otherCondition=()
+--------------------hashJoin[INNER_JOIN broadcast] hashCondition=((inventory.inv_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[inv_date_sk]
+----------------------PhysicalOlapScan[inventory] apply RFs: RF0
 ----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((inventory.inv_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[inv_date_sk]
---------------------------PhysicalOlapScan[inventory] apply RFs: RF0
---------------------------PhysicalProject
-----------------------------filter((date_dim.d_year = 1998) and d_moy IN (1, 2))
-------------------------------PhysicalOlapScan[date_dim]
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[item]
+------------------------filter((date_dim.d_year = 1998) and d_moy IN (1, 2))
+--------------------------PhysicalOlapScan[date_dim]
 ------------------PhysicalProject
---------------------PhysicalOlapScan[warehouse]
+--------------------PhysicalOlapScan[item]
+--------------PhysicalProject
+----------------PhysicalOlapScan[warehouse]
 --PhysicalResultSink
 ----PhysicalQuickSort[MERGE_SORT]
 ------PhysicalDistribute[DistributionSpecGather]

@@ -62,7 +62,7 @@ suite("variant_with_mow") {
     sql """ insert into var_mow values(944935252, '2', 1, 1, 'TRUE', 1741682404960657985, 1741682404960657985, 0, '{"a": 49, "b": 59, "c": 69, "d": 79, "e": 89, "f": 99, "g": 109, "h": 119, "i": 129, "j": 139}'); """
     sql """ insert into var_mow values(944935253, '2', 1, 1, 'TRUE', 1741682404960657985, 1741682404960657985, 0, '{"a": 50, "b": 60, "c": 70, "d": 80, "e": 90, "f": 100, "g": 110, "h": 120, "i": 130, "j": 140}'); """
 
-    trigger_and_wait_compaction("var_mow", "cumulative")
+    trigger_and_wait_compaction("var_mow", "cumulative", 1800)
 
     qt_sql """ select objectId from var_mow objects_alias where objects_alias.portalid = 944935233 and objects_alias.objectTypeId = '2' limit 100 """
 }

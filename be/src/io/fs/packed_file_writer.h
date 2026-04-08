@@ -57,6 +57,9 @@ public:
     // Returns empty index if file is not in merge file
     Status get_packed_slice_location(PackedSliceLocation* location) const;
 
+    // Returns true if this file's data was written to a packed file (not direct write)
+    bool is_in_packed_file() const override { return !_is_direct_write; }
+
 private:
     // Async close: submit data without waiting
     Status _close_async();

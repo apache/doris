@@ -149,7 +149,7 @@ suite("test_grouping_sets", "p0") {
     qt_select20 """SELECT k1 ,GROUPING(k1) FROM test_query_db.test GROUP BY CUBE (k1) ORDER BY k1"""
     test {
         sql "SELECT k1 ,GROUPING(k2) FROM test_query_db.test GROUP BY CUBE (k1) ORDER BY k1"
-        exception "Column in Grouping does not exist in GROUP BY clause"
+        exception "LOGICAL_REPEAT 's GROUPING function 'Grouping(k2)', its argument 'k2' must appear in GROUP BY clause."
     }
 
     // test grouping sets id contain null data
@@ -218,4 +218,14 @@ suite("test_grouping_sets", "p0") {
         select k1, if(grouping(k1)=1, count(k1), 0) from test_query_db.test group by grouping sets((k1))
         order by 1,2
         """
+
+    qt_select25 """
+              SELECT k1, k2, SUM(k3) k3_ FROM test_query_db.test
+              GROUP BY GROUPING SETS ((k1, k2), (k1), (k2), ( ), (k3) ) order by k1, k2, k3_
+            """
+
+    qt_select26 """
+              SELECT k1, k2, SUM(k3)/(SUM(k3)+1) k3_ FROM test_query_db.test
+              GROUP BY GROUPING SETS ((k1, k2), (k1), (k2), ( ), (k3) ) order by k1, k2, k3_
+            """
 }

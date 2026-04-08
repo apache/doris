@@ -19,7 +19,7 @@
 
 #include <unordered_set>
 
-#include "runtime/tablets_channel.h"
+#include "load/channel/tablets_channel.h"
 
 namespace doris {
 

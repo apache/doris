@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.LeafPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.TableId;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
@@ -51,6 +52,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -59,7 +61,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.PriorityQueue;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.annotation.Nullable;
@@ -74,7 +76,9 @@ public class Memo {
             EventChannel.getDefaultChannel().addConsumers(new LogConsumer(GroupMergeEvent.class, EventChannel.LOG)));
     private static long stateId = 0;
     private final ConnectContext connectContext;
-    private final AtomicLong refreshVersion = new AtomicLong(1);
+    // The key is the query tableId, the value is the refresh version when last refresh, this is needed
+    // because struct info refresh base on target tableId.
+    private final Map<Integer, AtomicInteger> refreshVersion = new HashMap<>();
     private final Map<Class<? extends AbstractMaterializedViewRule>, Set<Long>> materializationCheckSuccessMap =
             new LinkedHashMap<>();
     private final Map<Class<? extends AbstractMaterializedViewRule>, Set<Long>> materializationCheckFailMap =
@@ -128,12 +132,28 @@ public class Memo {
         return groupExpressions.size();
     }
 
-    public long getRefreshVersion() {
-        return refreshVersion.get();
+    /** get the refresh version map*/
+    public Map<Integer, AtomicInteger> getRefreshVersion() {
+        return refreshVersion;
     }
 
-    public long incrementAndGetRefreshVersion() {
-        return refreshVersion.incrementAndGet();
+    /** return the incremented refresh version for the given commonTableId*/
+    public long incrementAndGetRefreshVersion(int commonTableId) {
+        return refreshVersion.compute(commonTableId, (k, v) -> {
+            if (v == null) {
+                return new AtomicInteger(1);
+            }
+            v.incrementAndGet();
+            return v;
+        }).get();
+    }
+
+    /** return the incremented refresh version for the given relationId set*/
+    public void incrementAndGetRefreshVersion(BitSet commonTableIdSet) {
+        for (int i = commonTableIdSet.nextSetBit(0); i >= 0;
+                i = commonTableIdSet.nextSetBit(i + 1)) {
+            incrementAndGetRefreshVersion(i);
+        }
     }
 
     /**
@@ -461,13 +481,14 @@ public class Memo {
                     plan.getLogicalProperties(), targetGroup.getLogicalProperties());
             throw new IllegalStateException("Insert a plan into targetGroup but differ in logicalproperties");
         }
-        // TODO Support sync materialized view in the future
         if (connectContext != null
                 && connectContext.getSessionVariable().isEnableMaterializedViewNestRewrite()
                 && plan instanceof LogicalCatalogRelation
                 && ((CatalogRelation) plan).getTable() instanceof MTMV
                 && !plan.getGroupExpression().isPresent()) {
-            incrementAndGetRefreshVersion();
+            TableId mvCommonTableId
+                    = this.connectContext.getStatementContext().getTableId(((CatalogRelation) plan).getTable());
+            incrementAndGetRefreshVersion(mvCommonTableId.asInt());
         }
         Optional<GroupExpression> groupExpr = plan.getGroupExpression();
         if (groupExpr.isPresent()) {
@@ -746,7 +767,7 @@ public class Memo {
 
         ImmutableList.Builder<Plan> groupPlanChildren = ImmutableList.builderWithExpectedSize(childrenGroups.size());
         for (Group childrenGroup : childrenGroups) {
-            groupPlanChildren.add(new GroupPlan(childrenGroup));
+            groupPlanChildren.add(childrenGroup.getGroupPlan());
         }
         return plan.withChildren(groupPlanChildren.build());
     }

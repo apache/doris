@@ -21,7 +21,7 @@
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_mgr.h"
-#include "olap/storage_policy.h"
+#include "storage/storage_policy.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -31,17 +31,24 @@ CloudRowsetBuilder::CloudRowsetBuilder(CloudStorageEngine& engine, const WriteRe
                                        RuntimeProfile* profile)
         : BaseRowsetBuilder(req, profile), _engine(engine) {}
 
-CloudRowsetBuilder::~CloudRowsetBuilder() = default;
+CloudRowsetBuilder::~CloudRowsetBuilder() {
+    // Clear file cache immediately when load fails
+    if (_is_init && _rowset != nullptr && _rowset->rowset_meta()->rowset_state() == PREPARED) {
+        _rowset->clear_cache();
+    }
+}
 
 Status CloudRowsetBuilder::init() {
     _tablet = DORIS_TRY(_engine.get_tablet(_req.tablet_id));
 
     std::shared_ptr<MowContext> mow_context;
     if (_tablet->enable_unique_key_merge_on_write()) {
-        auto st = std::static_pointer_cast<CloudTablet>(_tablet)->sync_rowsets();
-        // sync_rowsets will return INVALID_TABLET_STATE when tablet is under alter
-        if (!st.ok() && !st.is<ErrorCode::INVALID_TABLET_STATE>()) {
-            return st;
+        if (config::cloud_mow_sync_rowsets_when_load_txn_begin) {
+            auto st = std::static_pointer_cast<CloudTablet>(_tablet)->sync_rowsets();
+            // sync_rowsets will return INVALID_TABLET_STATE when tablet is under alter
+            if (!st.ok() && !st.is<ErrorCode::INVALID_TABLET_STATE>()) {
+                return st;
+            }
         }
         RETURN_IF_ERROR(init_mow_context(mow_context));
     }
@@ -91,6 +98,8 @@ Status CloudRowsetBuilder::init() {
 
 Status CloudRowsetBuilder::check_tablet_version_count() {
     int64_t version_count = cloud_tablet()->fetch_add_approximate_num_rowsets(0);
+    DBUG_EXECUTE_IF("RowsetBuilder.check_tablet_version_count.too_many_version",
+                    { version_count = INT_MAX; });
     // TODO(plat1ko): load backoff algorithm
     int32_t max_version_config = cloud_tablet()->max_version_config();
     if (version_count > max_version_config) {
@@ -125,8 +134,17 @@ const RowsetMetaSharedPtr& CloudRowsetBuilder::rowset_meta() {
     return _rowset_writer->rowset_meta();
 }
 
-Status CloudRowsetBuilder::set_txn_related_delete_bitmap() {
+Status CloudRowsetBuilder::set_txn_related_info() {
     if (_tablet->enable_unique_key_merge_on_write()) {
+        // For empty rowsets when skip_writing_empty_rowset_metadata=true,
+        // store only a lightweight marker instead of full rowset info.
+        // This allows CalcDeleteBitmapTask to detect and skip gracefully,
+        // while using minimal memory (~16 bytes per entry).
+        if (_skip_writing_rowset_metadata) {
+            _engine.txn_delete_bitmap_cache().mark_empty_rowset(_req.txn_id, _tablet->tablet_id(),
+                                                                _req.txn_expiration);
+            return Status::OK();
+        }
         if (config::enable_merge_on_write_correctness_check && _rowset->num_rows() != 0) {
             auto st = _tablet->check_delete_bitmap_correctness(
                     _delete_bitmap, _rowset->end_version() - 1, _req.txn_id, *_rowset_ids);
@@ -142,6 +160,15 @@ Status CloudRowsetBuilder::set_txn_related_delete_bitmap() {
         _engine.txn_delete_bitmap_cache().set_tablet_txn_info(
                 _req.txn_id, _tablet->tablet_id(), _delete_bitmap, *_rowset_ids, _rowset,
                 _req.txn_expiration, _partial_update_info);
+    } else {
+        if (config::enable_cloud_make_rs_visible_on_be) {
+            if (_skip_writing_rowset_metadata) {
+                _engine.committed_rs_mgr().mark_empty_rowset(_req.txn_id, _tablet->tablet_id(),
+                                                             _req.txn_expiration);
+            } else {
+                _engine.meta_mgr().cache_committed_rowset(rowset_meta(), _req.txn_expiration);
+            }
+        }
     }
     return Status::OK();
 }

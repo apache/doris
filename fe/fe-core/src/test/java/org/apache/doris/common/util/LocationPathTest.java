@@ -19,7 +19,8 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.fs.FileSystemType;
+import org.apache.doris.filesystem.FileSystemType;
+import org.apache.doris.foundation.property.StoragePropertiesException;
 import org.apache.doris.thrift.TFileType;
 
 import org.apache.commons.lang3.StringUtils;
@@ -102,16 +103,17 @@ public class LocationPathTest {
     }
 
     @Test
-    public void testJFSLocationConvert() {
+    public void testJfsLocationConvertAsHdfsCompatible() {
         LocationPath locationPath = LocationPath.of("jfs://test.com");
         // FE
         Assertions.assertTrue(locationPath.getNormalizedLocation().startsWith("jfs://"));
         // BE
         String loc = locationPath.toStorageLocation().toString();
         Assertions.assertTrue(loc.startsWith("jfs://"));
-        Assertions.assertEquals(FileSystemType.JFS, locationPath.getFileSystemType());
+        // JFS is treated as Hadoop-compatible, so Doris maps it to HDFS file system type.
+        Assertions.assertEquals(FileSystemType.HDFS, locationPath.getFileSystemType());
         Assertions.assertEquals("jfs://test.com", locationPath.getFsIdentifier());
-        Assertions.assertEquals(TFileType.FILE_BROKER, locationPath.getTFileTypeForBE());
+        Assertions.assertEquals(TFileType.FILE_HDFS, locationPath.getTFileTypeForBE());
     }
 
     @Disabled("not support in master")
@@ -298,6 +300,45 @@ public class LocationPathTest {
         Assertions.assertEquals(TFileType.FILE_S3, locationPath.getTFileTypeForBE());
         Assertions.assertEquals(FileSystemType.S3, locationPath.getFileSystemType());
 
+    }
+
+    @Test
+    public void testLocationPathDirect() {
+        StorageProperties storageProperties = STORAGE_PROPERTIES_MAP.get(StorageProperties.Type.S3);
+        LocationPath locationPath = LocationPath.ofDirect("s3://bucket/key", "s3", "s3://bucket", storageProperties);
+        Assertions.assertEquals("s3://bucket/key", locationPath.getNormalizedLocation());
+        Assertions.assertEquals("s3", locationPath.getSchema());
+        Assertions.assertEquals("s3://bucket", locationPath.getFsIdentifier());
+        Assertions.assertEquals(storageProperties, locationPath.getStorageProperties());
+    }
+
+    @Test
+    public void testLocationPathWithCacheFastPath() {
+        StorageProperties storageProperties = STORAGE_PROPERTIES_MAP.get(StorageProperties.Type.S3);
+        String location = "s3://bucket/path/to/file";
+        LocationPath cached = LocationPath.ofWithCache(location, storageProperties, "s3", "s3://");
+        LocationPath full = LocationPath.of(location, STORAGE_PROPERTIES_MAP);
+        Assertions.assertEquals(full.getNormalizedLocation(), cached.getNormalizedLocation());
+        Assertions.assertEquals(full.getFsIdentifier(), cached.getFsIdentifier());
+        Assertions.assertEquals(full.getSchema(), cached.getSchema());
+    }
+
+    @Test
+    public void testLocationPathWithCacheFallback() {
+        StorageProperties storageProperties = STORAGE_PROPERTIES_MAP.get(StorageProperties.Type.S3);
+        String location = "s3://bucket/path/to/file";
+        LocationPath cached = LocationPath.ofWithCache(location, storageProperties, "s3", null);
+        LocationPath full = LocationPath.of(location, STORAGE_PROPERTIES_MAP);
+        Assertions.assertEquals(full.getNormalizedLocation(), cached.getNormalizedLocation());
+        Assertions.assertEquals(full.getFsIdentifier(), cached.getFsIdentifier());
+        Assertions.assertEquals(full.getSchema(), cached.getSchema());
+    }
+
+    @Test
+    public void testLocationPathWithCacheMissingAuthority() {
+        StorageProperties storageProperties = STORAGE_PROPERTIES_MAP.get(StorageProperties.Type.S3);
+        Assertions.assertThrows(StoragePropertiesException.class,
+                () -> LocationPath.ofWithCache("s3:///path", storageProperties, "s3", "s3://"));
     }
 
 }

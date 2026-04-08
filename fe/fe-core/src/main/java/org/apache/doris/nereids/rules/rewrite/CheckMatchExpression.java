@@ -49,16 +49,27 @@ public class CheckMatchExpression extends OneRewriteRuleFactory {
         for (Expression expr : expressions) {
             if (expr instanceof Match) {
                 Match matchExpression = (Match) expr;
-                boolean isSlotReference = matchExpression.left() instanceof SlotReference;
-                boolean isCastChildWithSlotReference = (matchExpression.left() instanceof Cast
-                            && matchExpression.left().child(0) instanceof SlotReference);
-                if (!(isSlotReference || isCastChildWithSlotReference)
+                SlotReference slotReference = getSlotFromSlotOrCastChain(matchExpression.left());
+                if (slotReference == null
                         || !(matchExpression.right() instanceof Literal)) {
                     throw new AnalysisException(String.format("Only support match left operand is SlotRef,"
                             + " right operand is Literal. But meet expression %s", matchExpression));
                 }
+                if (slotReference.getDataType().isVariantType() && !slotReference.hasSubColPath()) {
+                    throw new AnalysisException(String.format("VARIANT root column does not support MATCH predicates. "
+                                    + "Please query a subcolumn instead, for example %s['field'] MATCH 'xxx'",
+                            slotReference.getName()));
+                }
             }
         }
         return filter;
+    }
+
+    private SlotReference getSlotFromSlotOrCastChain(Expression expression) {
+        Expression current = expression;
+        while (current instanceof Cast) {
+            current = current.child(0);
+        }
+        return current instanceof SlotReference ? (SlotReference) current : null;
     }
 }

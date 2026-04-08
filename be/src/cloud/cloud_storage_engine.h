@@ -24,14 +24,15 @@
 //#include "cloud/cloud_cumulative_compaction.h"
 //#include "cloud/cloud_base_compaction.h"
 //#include "cloud/cloud_full_compaction.h"
+#include "cloud/cloud_committed_rs_mgr.h"
 #include "cloud/cloud_cumulative_compaction_policy.h"
 #include "cloud/cloud_tablet.h"
+#include "cloud/cloud_txn_delete_bitmap_cache.h"
 #include "cloud/config.h"
-#include "cloud_txn_delete_bitmap_cache.h"
 #include "io/cache/block_file_cache_factory.h"
-#include "olap/compaction.h"
-#include "olap/storage_engine.h"
-#include "olap/storage_policy.h"
+#include "storage/compaction/compaction.h"
+#include "storage/storage_engine.h"
+#include "storage/storage_policy.h"
 #include "util/threadpool.h"
 
 namespace doris {
@@ -94,6 +95,8 @@ public:
 
     CloudTxnDeleteBitmapCache& txn_delete_bitmap_cache() const { return *_txn_delete_bitmap_cache; }
 
+    CloudCommittedRSMgr& committed_rs_mgr() const { return *_committed_rs_mgr; }
+
     ThreadPool& calc_tablet_delete_bitmap_task_thread_pool() const {
         return *_calc_tablet_delete_bitmap_task_thread_pool;
     }
@@ -133,7 +136,8 @@ public:
     void get_cumu_compaction(int64_t tablet_id,
                              std::vector<std::shared_ptr<CloudCumulativeCompaction>>& res);
 
-    Status submit_compaction_task(const CloudTabletSPtr& tablet, CompactionType compaction_type);
+    Status submit_compaction_task(const CloudTabletSPtr& tablet, CompactionType compaction_type,
+                                  int trigger_method = 0);
 
     Status get_compaction_status_json(std::string* result);
 
@@ -169,6 +173,8 @@ public:
         return *_sync_load_for_tablets_thread_pool;
     }
 
+    ThreadPool& warmup_cache_async_thread_pool() const { return *_warmup_cache_async_thread_pool; }
+
     Status register_compaction_stop_token(CloudTabletSPtr tablet, int64_t initiator);
 
     Status unregister_compaction_stop_token(CloudTabletSPtr tablet, bool clear_ms);
@@ -197,9 +203,10 @@ private:
     std::vector<CloudTabletSPtr> _generate_cloud_compaction_tasks(CompactionType compaction_type,
                                                                   bool check_score);
     Status _adjust_compaction_thread_num();
-    Status _submit_base_compaction_task(const CloudTabletSPtr& tablet);
-    Status _submit_cumulative_compaction_task(const CloudTabletSPtr& tablet);
-    Status _submit_full_compaction_task(const CloudTabletSPtr& tablet);
+    Status _submit_base_compaction_task(const CloudTabletSPtr& tablet, int trigger_method = 0);
+    Status _submit_cumulative_compaction_task(const CloudTabletSPtr& tablet,
+                                              int trigger_method = 0);
+    Status _submit_full_compaction_task(const CloudTabletSPtr& tablet, int trigger_method = 0);
     Status _request_tablet_global_compaction_lock(ReaderType compaction_type,
                                                   const CloudTabletSPtr& tablet,
                                                   std::shared_ptr<CloudCompactionMixin> compaction);
@@ -212,6 +219,7 @@ private:
     std::unique_ptr<cloud::CloudMetaMgr> _meta_mgr;
     std::unique_ptr<CloudTabletMgr> _tablet_mgr;
     std::unique_ptr<CloudTxnDeleteBitmapCache> _txn_delete_bitmap_cache;
+    std::unique_ptr<CloudCommittedRSMgr> _committed_rs_mgr;
     std::unique_ptr<ThreadPool> _calc_tablet_delete_bitmap_task_thread_pool;
     std::unique_ptr<ThreadPool> _sync_delete_bitmap_thread_pool;
 
@@ -221,6 +229,7 @@ private:
     std::unique_ptr<CloudWarmUpManager> _cloud_warm_up_manager;
     std::unique_ptr<TabletHotspot> _tablet_hotspot;
     std::unique_ptr<ThreadPool> _sync_load_for_tablets_thread_pool;
+    std::unique_ptr<ThreadPool> _warmup_cache_async_thread_pool;
     std::unique_ptr<CloudSnapshotMgr> _cloud_snapshot_mgr;
 
     // FileSystem with latest shared storage info, new data will be written to this fs.

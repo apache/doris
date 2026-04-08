@@ -20,6 +20,7 @@ package org.apache.doris.datasource.jdbc.client;
 
 import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.datasource.CatalogProperty;
+import org.apache.doris.datasource.ExternalCatalog;
 
 import com.google.common.collect.Maps;
 
@@ -43,6 +44,8 @@ public class JdbcClientConfig implements Cloneable {
     // Whether to enable mapping BINARY to doris VARBINARY
     // default: false, mapping to doris string type
     private boolean enableMappingVarbinary;
+    // default: false, mapping to doris datetime type
+    private boolean enableMappingTimestampTz;
 
     private Map<String, Boolean> includeDatabaseMap;
     private Map<String, Boolean> excludeDatabaseMap;
@@ -50,8 +53,8 @@ public class JdbcClientConfig implements Cloneable {
 
     public JdbcClientConfig() {
         this.onlySpecifiedDatabase = JdbcResource.getDefaultPropertyValue(JdbcResource.ONLY_SPECIFIED_DATABASE);
-        this.isLowerCaseMetaNames = JdbcResource.getDefaultPropertyValue(JdbcResource.LOWER_CASE_META_NAMES);
-        this.metaNamesMapping = JdbcResource.getDefaultPropertyValue(JdbcResource.META_NAMES_MAPPING);
+        this.isLowerCaseMetaNames = JdbcResource.getDefaultPropertyValue(ExternalCatalog.LOWER_CASE_META_NAMES);
+        this.metaNamesMapping = JdbcResource.getDefaultPropertyValue(ExternalCatalog.META_NAMES_MAPPING);
         this.connectionPoolMinSize = Integer.parseInt(
                 JdbcResource.getDefaultPropertyValue(JdbcResource.CONNECTION_POOL_MIN_SIZE));
         this.connectionPoolMaxSize = Integer.parseInt(
@@ -67,6 +70,8 @@ public class JdbcClientConfig implements Cloneable {
         this.customizedProperties = Maps.newHashMap();
         this.enableMappingVarbinary = Boolean.parseBoolean(
                 JdbcResource.getDefaultPropertyValue(CatalogProperty.ENABLE_MAPPING_VARBINARY));
+        this.enableMappingTimestampTz = Boolean.parseBoolean(
+                JdbcResource.getDefaultPropertyValue(CatalogProperty.ENABLE_MAPPING_TIMESTAMP_TZ));
     }
 
     @Override
@@ -239,6 +244,15 @@ public class JdbcClientConfig implements Cloneable {
 
     public boolean isEnableMappingVarbinary() {
         return enableMappingVarbinary;
+    }
+
+    public JdbcClientConfig setEnableMappingTimestampTz(boolean enableMappingTimestampTz) {
+        this.enableMappingTimestampTz = enableMappingTimestampTz;
+        return this;
+    }
+
+    public boolean isEnableMappingTimestampTz() {
+        return enableMappingTimestampTz;
     }
 
     public void setCustomizedProperties(Map<String, String> customizedProperties) {

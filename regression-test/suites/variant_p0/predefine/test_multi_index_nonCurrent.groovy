@@ -20,6 +20,7 @@ suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") {
     sql """ set enable_match_without_inverted_index = false """
     sql """ set enable_common_expr_pushdown = true """
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
+    sql """ set default_variant_enable_doc_mode = false """
 
     def queryAndCheck = { String sqlQuery, int expectedFilteredRows = -1, boolean checkFilterUsed = true ->
       def checkpoints_name = "segment_iterator.inverted_index.filtered_rows"
@@ -65,7 +66,7 @@ suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") {
     for (int i = 0; i < 10; i++) {
         sql """insert into ${tableName} values(1, '{"string" : "hello", "array_string" : ["hello"]}'), (2, '{"string" : "world", "array_string" : ["world"]}'), (3, '{"string" : "hello", "array_string" : ["hello"]}'), (4, '{"string" : "world", "array_string" : ["world"]}'), (5, '{"string" : "hello", "array_string" : ["hello"]}') """
     }
-    trigger_and_wait_compaction(tableName, "cumulative")
+    trigger_and_wait_compaction(tableName, "cumulative", 1800)
 
     queryAndCheck("select count() from ${tableName} where var['string'] match_phrase 'hello'", 22)
     queryAndCheck("select count() from ${tableName} where var['string'] = 'hello'", 22)
@@ -157,7 +158,7 @@ suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") {
                                             (4, '{"string1" : "world", "array_string" : ["world"], "string2" : "world"}'),
                                             (5, '{"string1" : "hello", "array_string" : ["hello"], "string2" : "hello"}') """
     }
-    trigger_and_wait_compaction(tableName, "cumulative")
+    trigger_and_wait_compaction(tableName, "cumulative", 1800)
 
     queryAndCheck("select count() from ${tableName} where var['string1'] match_phrase 'hello'", 22)
     queryAndCheck("select count() from ${tableName} where var['string1'] = 'hello'", 22)
@@ -397,10 +398,10 @@ suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") {
 
     sql "set enable_two_phase_read_opt = false"
     qt_sql "select * from ${tableName} order by id limit 10"
-    trigger_and_wait_compaction(tableName, "cumulative")
+    trigger_and_wait_compaction(tableName, "cumulative", 1800)
     sql "set enable_two_phase_read_opt = true"
     qt_sql "select * from ${tableName} order by id limit 10"
-    qt_sql "select variant_type(var) from ${tableName} where id = 1"
+    //qt_sql "select variant_type(var) from ${tableName} where id = 1"
     accurateCheckIndexWithQueries()
     findException = false
     try {

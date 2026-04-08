@@ -19,10 +19,10 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.analysis.PassVar;
 import org.apache.doris.analysis.PasswordOptions;
+import org.apache.doris.analysis.TlsOptions;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -46,6 +46,7 @@ public class CreateUserInfo {
     private String role;
     private PasswordOptions passwordOptions;
     private String comment;
+    private TlsOptions tlsOptions;
     private UserIdentity userIdent;
     private PassVar passVar;
     private String userId;
@@ -54,25 +55,25 @@ public class CreateUserInfo {
      * CreateUserInfo
      */
     public CreateUserInfo(UserDesc userDesc) {
-        this(false, userDesc, null, null, "");
+        this(false, userDesc, null, null, "", TlsOptions.notSpecified());
     }
 
     /**
      * CreateUserInfo
      */
     public CreateUserInfo(boolean ifNotExist, UserDesc userDesc,
-            String role, PasswordOptions passwordOptions, String comment) {
+            String role, PasswordOptions passwordOptions, String comment, TlsOptions tlsOptions) {
         this.ifNotExist = ifNotExist;
         this.userIdent = userDesc.getUserIdent();
         this.passVar = userDesc.getPassVar();
         this.role = role;
         this.passwordOptions = passwordOptions;
         this.comment = comment;
+        this.tlsOptions = tlsOptions == null ? TlsOptions.notSpecified() : tlsOptions;
 
-        String uId = Env.getCurrentEnv().getAuth().getUserId(ClusterNamespace
-                .getNameFromFullName(this.userIdent.getUser()));
+        String uId = Env.getCurrentEnv().getAuth().getUserId(this.userIdent.getUser());
         LOG.debug("create user command userIdent {}, userName {}, userId {}",
-                this.userIdent, ClusterNamespace.getNameFromFullName(this.userIdent.getUser()), uId);
+                this.userIdent, this.userIdent.getUser(), uId);
         // avoid this case "jack@'192.1'" and "jack@'192.2'", jack's uid different
         if (Strings.isNullOrEmpty(uId)) {
             userId = UUID.randomUUID().toString();
@@ -83,6 +84,11 @@ public class CreateUserInfo {
         if (this.passwordOptions == null) {
             this.passwordOptions = PasswordOptions.UNSET_OPTION;
         }
+    }
+
+    public CreateUserInfo(boolean ifNotExist, UserDesc userDesc,
+            String role, PasswordOptions passwordOptions, String comment) {
+        this(ifNotExist, userDesc, role, passwordOptions, comment, TlsOptions.notSpecified());
     }
 
     /**
@@ -107,6 +113,9 @@ public class CreateUserInfo {
         }
         passwordOptions.analyze();
 
+        tlsOptions.analyze();
+        userIdent.applyTlsOptions(tlsOptions);
+
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
         }
@@ -126,6 +135,10 @@ public class CreateUserInfo {
 
     public String getComment() {
         return comment;
+    }
+
+    public TlsOptions getTlsOptions() {
+        return tlsOptions;
     }
 
     public UserIdentity getUserIdent() {

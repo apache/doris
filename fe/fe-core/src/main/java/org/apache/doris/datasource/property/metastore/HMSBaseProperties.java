@@ -22,9 +22,9 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.common.security.authentication.KerberosAuthenticationConfig;
-import org.apache.doris.datasource.property.ConnectorPropertiesUtils;
-import org.apache.doris.datasource.property.ConnectorProperty;
-import org.apache.doris.datasource.property.ParamRules;
+import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
+import org.apache.doris.foundation.property.ConnectorProperty;
+import org.apache.doris.foundation.property.ParamRules;
 
 import com.google.common.base.Strings;
 import lombok.Getter;
@@ -159,6 +159,7 @@ public class HMSBaseProperties {
         }
         if (this.hiveMetastoreAuthenticationType.equalsIgnoreCase("kerberos")) {
             hiveConf.set("hadoop.security.authentication", "kerberos");
+            hiveConf.set("hive.metastore.sasl.enabled", "true");
             KerberosAuthenticationConfig authenticationConfig = new KerberosAuthenticationConfig(
                     this.hiveMetastoreClientPrincipal, this.hiveMetastoreClientKeytab, hiveConf);
             this.hmsAuthenticator = HadoopAuthenticator.getHadoopAuthenticator(authenticationConfig);
@@ -175,6 +176,7 @@ public class HMSBaseProperties {
             KerberosAuthenticationConfig authenticationConfig = new KerberosAuthenticationConfig(
                     this.hdfsKerberosPrincipal, this.hdfsKerberosKeytab, hiveConf);
             hiveConf.set("hadoop.security.authentication", "kerberos");
+            hiveConf.set("hive.metastore.sasl.enabled", "true");
             this.hmsAuthenticator = HadoopAuthenticator.getHadoopAuthenticator(authenticationConfig);
             return;
         }

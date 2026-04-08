@@ -32,8 +32,8 @@ import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
-import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.ComplexDataType;
 import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
@@ -457,14 +457,16 @@ public class ComputeSignatureHelper {
 
         boolean hasDateTimeV2Type = false;
         boolean hasTimeV2Type = false;
+        boolean hasTimestampTzType = false;
         boolean hasDecimalV3Type = false;
         for (DataType argumentsType : signature.argumentsTypes) {
             hasDateTimeV2Type |= TypeCoercionUtils.hasDateTimeV2Type(argumentsType);
             hasTimeV2Type |= TypeCoercionUtils.hasTimeV2Type(argumentsType);
             hasDecimalV3Type |= TypeCoercionUtils.hasDecimalV3Type(argumentsType);
+            hasTimestampTzType |= TypeCoercionUtils.hasTimestampTzType(argumentsType);
         }
 
-        if (hasDateTimeV2Type || hasTimeV2Type) {
+        if (hasDateTimeV2Type || hasTimeV2Type || hasTimestampTzType) {
             signature = defaultTimePrecisionPromotion(signature, arguments);
         }
         if (hasDecimalV3Type) {
@@ -504,11 +506,14 @@ public class ComputeSignatureHelper {
                             arguments.get(i).getDataType()))
                     .addAll(extractArgumentTypeBySignature(TimeV2Type.class, targetType,
                             arguments.get(i).getDataType()))
+                    .addAll(extractArgumentTypeBySignature(TimeStampTzType.class, targetType,
+                            arguments.get(i).getDataType()))
                     .build();
             // there's DateTimeV2 and TimeV2 at same time, so we need get exact target type when we promote any slot.
             List<DataType> nestedTargetTypes = ImmutableList.<DataType>builder()
                     .addAll(extractSignatureTypes(DateTimeV2Type.class, targetType, arguments.get(i).getDataType()))
                     .addAll(extractSignatureTypes(TimeV2Type.class, targetType, arguments.get(i).getDataType()))
+                    .addAll(extractSignatureTypes(TimeStampTzType.class, targetType, arguments.get(i).getDataType()))
                     .build();
             if (nestedInputTypes.isEmpty()) {
                 // if no DateTimeV2Type or TimeV2Type in the argument[i], no precision promotion
@@ -552,62 +557,11 @@ public class ComputeSignatureHelper {
         List<DataType> newArgTypes = newArgTypesBuilder.build();
         signature = signature.withArgumentTypes(signature.hasVarArgs, newArgTypes);
         if (signature.returnType instanceof DateTimeV2Type || signature.returnType instanceof TimeV2Type
+                || signature.returnType instanceof TimeStampTzType
                 || signature.returnType instanceof ComplexDataType) {
             signature = signature.withReturnType(
                     TypeCoercionUtils.replaceTimesWithTargetPrecision(signature.returnType, finalTypeScale));
         }
-        return signature;
-    }
-
-    /**
-     * Dynamically compute function signature for variant type arguments.
-     * This method handles cases where the function signature contains variant types
-     * and needs to be adjusted based on the actual argument types.
-     *
-     * @param signature Original function signature
-     * @param arguments List of actual arguments passed to the function
-     * @return Updated function signature with resolved variant types
-     */
-    public static FunctionSignature dynamicComputeVariantArgs(
-            FunctionSignature signature, List<Expression> arguments) {
-
-        List<DataType> newArgTypes = Lists.newArrayListWithCapacity(arguments.size());
-        boolean findVariantType = false;
-
-        for (int i = 0; i < arguments.size(); i++) {
-            // Get signature type for current argument position
-            DataType sigType;
-            if (i >= signature.argumentsTypes.size()) {
-                sigType = signature.getVarArgType().orElseThrow(
-                        () -> new AnalysisException("function arity not match with signature"));
-            } else {
-                sigType = signature.argumentsTypes.get(i);
-            }
-
-            // Get actual type of the argument expression
-            DataType expressionType = arguments.get(i).getDataType();
-
-            // If both signature type and expression type are variant,
-            // use expression type and update return type
-            if (sigType instanceof VariantType && expressionType instanceof VariantType) {
-                // return type is variant, update return type to expression type
-                if (signature.returnType instanceof VariantType) {
-                    signature = signature.withReturnType(expressionType);
-                    if (findVariantType) {
-                        throw new AnalysisException("variant type is not supported in multiple arguments");
-                    } else {
-                        findVariantType = true;
-                    }
-                }
-                newArgTypes.add(expressionType);
-            } else {
-                // Otherwise keep original signature type
-                newArgTypes.add(sigType);
-            }
-        }
-
-        // Update signature with new argument types
-        signature = signature.withArgumentTypes(signature.hasVarArgs, newArgTypes);
         return signature;
     }
 

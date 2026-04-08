@@ -38,7 +38,7 @@
 #include "io/cache/file_cache_common.h"
 #include "io/cache/file_cache_storage.h"
 #include "io/cache/lru_queue_recorder.h"
-#include "util/runtime_profile.h"
+#include "runtime/runtime_profile.h"
 #include "util/threadpool.h"
 
 namespace doris::io {
@@ -200,6 +200,9 @@ public:
         if (_cache_background_block_lru_update_thread.joinable()) {
             _cache_background_block_lru_update_thread.join();
         }
+        if (_ttl_mgr) {
+            _ttl_mgr.reset();
+        }
     }
 
     /// Restore cache from local filesystem.
@@ -307,6 +310,9 @@ public:
 
     void update_ttl_atime(const UInt128Wrapper& hash);
 
+    void pause_ttl_manager();
+    void resume_ttl_manager();
+
     std::map<std::string, double> get_stats();
 
     // for be UTs
@@ -347,7 +353,8 @@ public:
     void remove_query_context(const TUniqueId& query_id);
 
     QueryFileCacheContextPtr get_or_set_query_context(const TUniqueId& query_id,
-                                                      std::lock_guard<std::mutex>&);
+                                                      std::lock_guard<std::mutex>& cache_lock,
+                                                      int file_cache_query_limit_percent);
 
     /// Save a query context information, and adopt different cache policies
     /// for different queries through the context cache layer.
@@ -373,7 +380,8 @@ public:
         QueryFileCacheContextPtr context;
     };
     using QueryFileCacheContextHolderPtr = std::unique_ptr<QueryFileCacheContextHolder>;
-    QueryFileCacheContextHolderPtr get_query_context_holder(const TUniqueId& query_id);
+    QueryFileCacheContextHolderPtr get_query_context_holder(const TUniqueId& query_id,
+                                                            int file_cache_query_limit_percent);
 
     int64_t approximate_available_cache_size() const {
         return std::max<int64_t>(
@@ -501,7 +509,6 @@ private:
     std::string _cache_base_path;
     size_t _capacity = 0;
     size_t _max_file_block_size = 0;
-    size_t _max_query_cache_size = 0;
 
     mutable std::mutex _mutex;
     bool _close {false};

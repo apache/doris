@@ -94,7 +94,6 @@ public class Crc32Internal extends ScalarFunction
         sig = ComputeSignatureHelper.implementFollowToArgumentReturnType(sig, getArguments());
         sig = ComputeSignatureHelper.normalizeDecimalV2(sig, getArguments());
         sig = ComputeSignatureHelper.ensureNestedNullableOfArray(sig, getArguments());
-        sig = ComputeSignatureHelper.dynamicComputeVariantArgs(sig, getArguments());
         return sig;
     }
 

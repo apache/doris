@@ -20,16 +20,14 @@ package org.apache.doris.common.util;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.storage.AzurePropertyUtils;
 import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
-import org.apache.doris.fs.FileSystemType;
+import org.apache.doris.filesystem.FileSystemType;
+import org.apache.doris.foundation.property.StoragePropertiesException;
 import org.apache.doris.fs.SchemaTypeMapper;
 import org.apache.doris.thrift.TFileType;
 
 import com.google.common.base.Strings;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.fs.Path;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.UnsupportedEncodingException;
 import java.net.URI;
@@ -58,7 +56,6 @@ import java.util.UUID;
  * This class is often used by Frontend to pass normalized locations and storage metadata to Backend (BE).
  */
 public class LocationPath {
-    private static final Logger LOG = LogManager.getLogger(LocationPath.class);
     private static final String SCHEME_DELIM = "://";
     private static final String NONSTANDARD_SCHEME_DELIM = ":/";
 
@@ -96,27 +93,25 @@ public class LocationPath {
     }
 
     private static String parseScheme(String finalLocation) {
-        String scheme = "";
-        String[] schemeSplit = finalLocation.split(SCHEME_DELIM);
-        if (schemeSplit.length > 1) {
-            scheme = schemeSplit[0];
-        } else {
-            schemeSplit = finalLocation.split(NONSTANDARD_SCHEME_DELIM);
-            if (schemeSplit.length > 1) {
-                scheme = schemeSplit[0];
-            }
+        // Use indexOf instead of split for better performance
+        int schemeDelimIndex = finalLocation.indexOf(SCHEME_DELIM);
+        if (schemeDelimIndex > 0) {
+            return finalLocation.substring(0, schemeDelimIndex);
+        }
+
+        int nonstandardDelimIndex = finalLocation.indexOf(NONSTANDARD_SCHEME_DELIM);
+        if (nonstandardDelimIndex > 0) {
+            return finalLocation.substring(0, nonstandardDelimIndex);
         }
 
         // if not get scheme, need consider /path/to/local to no scheme
-        if (scheme.isEmpty()) {
-            try {
-                Paths.get(finalLocation);
-            } catch (InvalidPathException exception) {
-                throw new IllegalArgumentException("Fail to parse scheme, invalid location: " + finalLocation);
-            }
+        try {
+            Paths.get(finalLocation);
+        } catch (InvalidPathException exception) {
+            throw new IllegalArgumentException("Fail to parse scheme, invalid location: " + finalLocation);
         }
 
-        return scheme;
+        return "";
     }
 
     /**
@@ -202,6 +197,72 @@ public class LocationPath {
     }
 
     /**
+     * Ultra-fast factory method that directly constructs LocationPath without any parsing.
+     * This is used when the normalized location is already known (e.g., from prefix transformation).
+     *
+     * @param normalizedLocation the already-normalized location string
+     * @param schema             pre-computed schema
+     * @param fsIdentifier       pre-computed filesystem identifier
+     * @param storageProperties  the storage properties (can be null)
+     * @return a new LocationPath instance
+     */
+    public static LocationPath ofDirect(String normalizedLocation,
+                                        String schema,
+                                        String fsIdentifier,
+                                        StorageProperties storageProperties) {
+        return new LocationPath(schema, normalizedLocation, fsIdentifier, storageProperties);
+    }
+
+    /**
+     * Fast factory method that reuses pre-computed schema and fsIdentifier.
+     * This is optimized for batch processing where many files share the same bucket/prefix.
+     *
+     * @param location           the input URI location string
+     * @param storageProperties  pre-computed storage properties for normalization
+     * @param cachedSchema       pre-computed schema (can be null to compute)
+     * @param cachedFsIdPrefix   pre-computed fsIdentifier prefix like "s3://" (can be null to compute)
+     * @return a new LocationPath instance
+     */
+    public static LocationPath ofWithCache(String location,
+                                           StorageProperties storageProperties,
+                                           String cachedSchema,
+                                           String cachedFsIdPrefix) {
+        try {
+            String normalizedLocation = storageProperties.validateAndNormalizeUri(location);
+
+            String fsIdentifier;
+            if (cachedFsIdPrefix != null && normalizedLocation.startsWith(cachedFsIdPrefix)) {
+                // Fast path: extract authority from normalized location without full URI parsing
+                int authorityStart = cachedFsIdPrefix.length();
+                int authorityEnd = normalizedLocation.indexOf('/', authorityStart);
+                if (authorityEnd == -1) {
+                    authorityEnd = normalizedLocation.length();
+                }
+                String authority = normalizedLocation.substring(authorityStart, authorityEnd);
+                if (authority.isEmpty()) {
+                    throw new StoragePropertiesException("Invalid location, missing authority: " + normalizedLocation);
+                }
+                fsIdentifier = cachedFsIdPrefix + authority;
+            } else {
+                // Fallback to full URI parsing
+                String encodedLocation = encodedLocation(normalizedLocation);
+                URI uri = URI.create(encodedLocation);
+                String authority = uri.getAuthority();
+                if (Strings.isNullOrEmpty(authority)) {
+                    throw new StoragePropertiesException("Invalid location, missing authority: " + normalizedLocation);
+                }
+                fsIdentifier = Strings.nullToEmpty(uri.getScheme()) + "://"
+                        + authority;
+            }
+
+            String schema = cachedSchema != null ? cachedSchema : extractScheme(location);
+            return new LocationPath(schema, normalizedLocation, fsIdentifier, storageProperties);
+        } catch (UserException e) {
+            throw new StoragePropertiesException("Failed to create LocationPath for location: " + location, e);
+        }
+    }
+
+    /**
      * Extracts the URI scheme (e.g., "s3", "hdfs") from the location string.
      *
      * @param location the input URI string
@@ -248,6 +309,10 @@ public class LocationPath {
         if (type == StorageProperties.Type.S3
                 && storagePropertiesMap.containsKey(StorageProperties.Type.MINIO)) {
             return storagePropertiesMap.get(StorageProperties.Type.MINIO);
+        }
+        if (type == StorageProperties.Type.S3
+                && storagePropertiesMap.containsKey(StorageProperties.Type.OZONE)) {
+            return storagePropertiesMap.get(StorageProperties.Type.OZONE);
         }
 
         // Step 3: Compatibility fallback based on schema
@@ -302,6 +367,7 @@ public class LocationPath {
     }
 
     public static String getTempWritePath(String loc, String prefix) {
+        // If prefix is relative, it is resolved under loc; if absolute, it is used as the base path.
         Path tempRoot = new Path(loc, prefix);
         Path tempPath = new Path(tempRoot, UUID.randomUUID().toString().replace("-", ""));
         return tempPath.toString();

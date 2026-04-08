@@ -19,18 +19,18 @@ package org.apache.doris.cloud.load;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
-import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.ObjectFilePB;
 import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB.Provider;
 import org.apache.doris.cloud.stage.StageUtil;
-import org.apache.doris.cloud.storage.ListObjectsResult;
-import org.apache.doris.cloud.storage.MockRemote;
-import org.apache.doris.cloud.storage.ObjectFile;
-import org.apache.doris.cloud.storage.RemoteBase;
-import org.apache.doris.cloud.storage.RemoteBase.ObjectInfo;
+import org.apache.doris.cloud.storage.ObjectInfo;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.filesystem.spi.ObjFileSystem;
+import org.apache.doris.filesystem.spi.RemoteObject;
+import org.apache.doris.filesystem.spi.RemoteObjects;
+import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.utframe.TestWithFeService;
@@ -38,17 +38,20 @@ import org.apache.doris.utframe.UtFrameUtils;
 
 import com.google.common.collect.Lists;
 import mockit.Expectations;
-import mockit.Mocked;
+import mockit.Mock;
+import mockit.MockUp;
 import org.junit.Assert;
-import org.junit.Ignore;
 import org.junit.Test;
 
+import java.io.IOException;
 import java.nio.file.FileSystems;
 import java.nio.file.Path;
 import java.nio.file.PathMatcher;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 public class CopyLoadPendingTaskTest extends TestWithFeService {
@@ -58,13 +61,13 @@ public class CopyLoadPendingTaskTest extends TestWithFeService {
     private ConnectContext ctx;
     private ObjectInfo objectInfo = new ObjectInfo(Provider.OSS, "test_ak", "test_sk", "test_bucket", "test_endpoint",
             "test_region", STORAGE_PREFIX);
-    @Mocked
-    RemoteBase remote;
+    // In-memory file store served by MockObjFileSystem
+    private Map<String, RemoteObject> objectStore = new LinkedHashMap<>();
     MockInternalCatalog mockInternalCatalog = new MockInternalCatalog();
 
     private class MockInternalCatalog extends CloudInternalCatalog {
         @Override
-        public List<ObjectFilePB> filterCopyFiles(String stageId, long tableId, List<ObjectFile> objectFiles)
+        public List<ObjectFilePB> filterCopyFiles(String stageId, long tableId, List<RemoteObject> objectFiles)
                 throws DdlException {
             if (tableId == 200) {
                 return objectFiles.stream().filter(f -> !f.getRelativePath().equals("dir1/file_1.csv"))
@@ -77,9 +80,87 @@ public class CopyLoadPendingTaskTest extends TestWithFeService {
         }
     }
 
+    /** Concrete ObjFileSystem subclass backed by the test's objectStore map. */
+    private class MockObjFileSystem extends ObjFileSystem {
+        MockObjFileSystem() {
+            super("test", null);
+        }
+
+        @Override
+        public RemoteObjects listObjectsWithPrefix(String prefix, String subPrefix,
+                String continuationToken) throws IOException {
+            String normalizedPrefix = prefix.isEmpty() ? "" : (prefix.endsWith("/") ? prefix : prefix + "/");
+            String fullPrefix = normalizedPrefix + subPrefix;
+            List<RemoteObject> result = new ArrayList<>();
+            for (Map.Entry<String, RemoteObject> entry : objectStore.entrySet()) {
+                if (entry.getKey().startsWith(fullPrefix)) {
+                    result.add(entry.getValue());
+                }
+            }
+            return new RemoteObjects(result, false, null);
+        }
+
+        @Override
+        public RemoteObjects headObjectWithMeta(String prefix, String subKey) throws IOException {
+            String normalizedPrefix = prefix.isEmpty() ? "" : (prefix.endsWith("/") ? prefix : prefix + "/");
+            String fullKey = normalizedPrefix + subKey;
+            RemoteObject f = objectStore.get(fullKey);
+            if (f == null) {
+                return new RemoteObjects(new ArrayList<>(), false, null);
+            }
+            return new RemoteObjects(Lists.newArrayList(f), false, null);
+        }
+
+        @Override
+        public org.apache.doris.filesystem.FileIterator list(
+                org.apache.doris.filesystem.Location location) throws IOException {
+            throw new UnsupportedOperationException("not used in copy load tests");
+        }
+
+        @Override
+        public void mkdirs(org.apache.doris.filesystem.Location location) throws IOException {
+        }
+
+        @Override
+        public void delete(org.apache.doris.filesystem.Location location, boolean recursive) throws IOException {
+        }
+
+        @Override
+        public void rename(org.apache.doris.filesystem.Location src,
+                org.apache.doris.filesystem.Location dst) throws IOException {
+        }
+
+        @Override
+        public org.apache.doris.filesystem.DorisInputFile newInputFile(
+                org.apache.doris.filesystem.Location location) throws IOException {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public org.apache.doris.filesystem.DorisOutputFile newOutputFile(
+                org.apache.doris.filesystem.Location location) throws IOException {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void close() throws IOException {
+        }
+    }
+
     @Override
     protected void runBeforeAll() throws Exception {
         FeConstants.runningUnitTest = true;
+    }
+
+    /** Registers a MockUp on FileSystemFactory to serve requests from the test's objectStore. */
+    private void setupObjFsMock() {
+        MockObjFileSystem mockObjFs = new MockObjFileSystem();
+        new MockUp<FileSystemFactory>() {
+            @Mock
+            public org.apache.doris.filesystem.FileSystem getFileSystem(StorageProperties sp) throws IOException {
+                return mockObjFs;
+            }
+        };
     }
 
     @Test
@@ -112,7 +193,7 @@ public class CopyLoadPendingTaskTest extends TestWithFeService {
 
     @Test
     public void testParseFileForCopyJob() throws Exception {
-        MockRemote mockRemote = new MockRemote(objectInfo);
+        objectStore.clear();
         ctx = UtFrameUtils.createDefaultCtx();
         List<String> subPrefixes = Lists.newArrayList("", "dir1", "dir2/dir3", "dir4/dir5/dir6");
         // list object files
@@ -121,24 +202,21 @@ public class CopyLoadPendingTaskTest extends TestWithFeService {
                 String relativePath = subPrefixes.get(i) + (subPrefixes.get(i).isEmpty() ? "" : "/") + "file_" + j
                         + ".csv";
                 String etag = "";
-                ObjectFile objectFile = new ObjectFile(
+                RemoteObject objectFile = new RemoteObject(
                         STORAGE_PREFIX + (STORAGE_PREFIX.isEmpty() ? "" : "/") + relativePath, relativePath, etag,
-                        (j + 1) * 10);
-                mockRemote.addObjectFile(objectFile);
+                        (j + 1) * 10, 0L);
+                objectStore.put(objectFile.getKey(), objectFile);
                 System.out.println(
                         "object file=" + objectFile.getKey() + ", " + objectFile.getRelativePath() + ", size: "
                                 + objectFile.getSize());
             }
         }
-        new Expectations(ctx.getEnv(), ctx.getEnv().getInternalCatalog(), remote) {
+        setupObjFsMock();
+        new Expectations(ctx.getEnv(), ctx.getEnv().getInternalCatalog()) {
             {
                 Env.getCurrentInternalCatalog();
                 minTimes = 0;
                 result = mockInternalCatalog;
-
-                RemoteBase.newInstance(objectInfo);
-                minTimes = 0;
-                result = mockRemote;
             }
         };
 
@@ -201,48 +279,72 @@ public class CopyLoadPendingTaskTest extends TestWithFeService {
         } while (false);
     }
 
-    @Ignore
+    /** MockObjFileSystem variant that simulates paginated responses with continuation tokens. */
+    private class PaginatingMockObjFileSystem extends MockObjFileSystem {
+        private final int pageSize;
+
+        PaginatingMockObjFileSystem(int pageSize) {
+            this.pageSize = pageSize;
+        }
+
+        @Override
+        public RemoteObjects listObjectsWithPrefix(String prefix, String subPrefix,
+                String continuationToken) throws IOException {
+            String normalizedPrefix = prefix.isEmpty() ? "" : (prefix.endsWith("/") ? prefix : prefix + "/");
+            String fullPrefix = normalizedPrefix + subPrefix;
+            List<RemoteObject> allResults = new ArrayList<>();
+            for (Map.Entry<String, RemoteObject> entry : objectStore.entrySet()) {
+                if (entry.getKey().startsWith(fullPrefix)) {
+                    allResults.add(entry.getValue());
+                }
+            }
+            int startIdx = 0;
+            if (continuationToken != null) {
+                startIdx = Integer.parseInt(continuationToken);
+            }
+            int endIdx = Math.min(startIdx + pageSize, allResults.size());
+            List<RemoteObject> page = new ArrayList<>(allResults.subList(startIdx, endIdx));
+            boolean isTruncated = endIdx < allResults.size();
+            String nextToken = isTruncated ? String.valueOf(endIdx) : null;
+            return new RemoteObjects(page, isTruncated, nextToken);
+        }
+    }
+
+    /** Registers a paginating MockUp on FileSystemFactory with the given page size. */
+    private void setupPaginatingObjFsMock(int pageSize) {
+        PaginatingMockObjFileSystem mockObjFs = new PaginatingMockObjFileSystem(pageSize);
+        new MockUp<FileSystemFactory>() {
+            @Mock
+            public org.apache.doris.filesystem.FileSystem getFileSystem(StorageProperties sp) throws IOException {
+                return mockObjFs;
+            }
+        };
+    }
+
     @Test
     public void testContinuationToken() throws Exception {
+        objectStore.clear();
         ctx = UtFrameUtils.createDefaultCtx();
-        String prefix = "prefix1";
         List<String> subPrefixes = Lists.newArrayList("", "dir1", "dir2/dir3", "dir4/dir5/dir6");
-        // list object files
-        List<ObjectFile> objectFiles = new ArrayList<>();
+        // Populate objectStore with 10 files (same as testParseFileForCopyJob)
         for (int i = 0; i < subPrefixes.size(); i++) {
             for (int j = 0; j < i + 1; j++) {
                 String relativePath = subPrefixes.get(i) + (subPrefixes.get(i).isEmpty() ? "" : "/") + "file_" + j
                         + ".csv";
                 String etag = "";
-                ObjectFile objectFile = new ObjectFile(prefix + (prefix.isEmpty() ? "" : "/") + relativePath,
-                        relativePath, etag, (j + 1) * 10);
-                objectFiles.add(objectFile);
-                System.out.println(
-                        "object file=" + objectFile.getKey() + ", " + objectFile.getRelativePath() + ", size: "
-                                + objectFile.getSize());
+                RemoteObject objectFile = new RemoteObject(
+                        STORAGE_PREFIX + (STORAGE_PREFIX.isEmpty() ? "" : "/") + relativePath, relativePath, etag,
+                        (j + 1) * 10, 0L);
+                objectStore.put(objectFile.getKey(), objectFile);
             }
         }
-        ListObjectsResult listObjectsResult = new ListObjectsResult(objectFiles, true, "abc");
-        ListObjectsResult listObjectsResult2 = new ListObjectsResult(objectFiles, false, null);
-        // loading or loaded files
-        List<Cloud.ObjectFilePB> files = new ArrayList<>();
-        new Expectations(ctx.getEnv(), ctx.getEnv().getInternalCatalog(), remote) {
+        // Use paginating mock with page size 3 to force multiple continuation token rounds
+        setupPaginatingObjFsMock(3);
+        new Expectations(ctx.getEnv(), ctx.getEnv().getInternalCatalog()) {
             {
-                ((CloudInternalCatalog) Env.getCurrentInternalCatalog()).getCopyFiles(anyString, 100);
+                Env.getCurrentInternalCatalog();
                 minTimes = 0;
-                result = files;
-
-                RemoteBase.newInstance(objectInfo);
-                minTimes = 0;
-                result = remote;
-
-                remote.listObjects(null);
-                minTimes = 0;
-                result = listObjectsResult;
-
-                remote.listObjects("abc");
-                minTimes = 0;
-                result = listObjectsResult2;
+                result = mockInternalCatalog;
             }
         };
 
@@ -253,7 +355,7 @@ public class CopyLoadPendingTaskTest extends TestWithFeService {
         int fileMetaSizeLimit = 0;
 
         CopyLoadPendingTask task = new CopyLoadPendingTask(null, null, null);
-        // test pattern
+        // Pagination should yield the same total results as non-paginated listing
         List<Pair<String, Integer>> patternAndMatchNum = Lists.newArrayList(Pair.of(null, 10), Pair.of("file*csv", 1),
                 Pair.of("**/file*csv", 9), Pair.of("file_0.csv", 1), Pair.of("*/file_[0-9].csv", 2));
         for (Pair<String, Integer> pair : patternAndMatchNum) {
@@ -261,14 +363,14 @@ public class CopyLoadPendingTaskTest extends TestWithFeService {
             List<Pair<TBrokerFileStatus, ObjectFilePB>> fileStatus = new ArrayList<>();
             task.parseFileForCopyJob(stageId, tableId, "q1", pattern, sizeLimit, fileNumLimit, fileMetaSizeLimit,
                     fileStatus, objectInfo, false);
-            Assert.assertTrue("expected: " + pair.second * 2 + ", real: " + fileStatus.size(),
-                    pair.second * 2 == fileStatus.size());
+            Assert.assertEquals("pattern=" + pattern + " with pagination",
+                    pair.second.intValue(), fileStatus.size());
         }
     }
 
     @Test
     public void testParseFileForCopyJobV2() throws Exception {
-        MockRemote mockRemote = new MockRemote(objectInfo);
+        objectStore.clear();
         ctx = UtFrameUtils.createDefaultCtx();
         // add object files
         List<String> subPrefixes = Lists.newArrayList("", "dir1", "dir2", "dir3/dir4");
@@ -276,9 +378,9 @@ public class CopyLoadPendingTaskTest extends TestWithFeService {
             String subPrefix = subPrefixes.get(i);
             for (int j = 0; j < 10; j++) {
                 String relativePath = subPrefix + (subPrefix.isEmpty() ? "" : "/") + "file" + j + ".csv";
-                ObjectFile objectFile = new ObjectFile(STORAGE_PREFIX + "/" + relativePath, relativePath, "",
-                        (j + 1) * 10);
-                mockRemote.addObjectFile(objectFile);
+                RemoteObject objectFile = new RemoteObject(STORAGE_PREFIX + "/" + relativePath, relativePath, "",
+                        (j + 1) * 10, 0L);
+                objectStore.put(objectFile.getKey(), objectFile);
                 System.out.println("Add " + objectFile);
             }
         }
@@ -286,19 +388,15 @@ public class CopyLoadPendingTaskTest extends TestWithFeService {
         List<String> specialNames = Lists.newArrayList("sf,csv", "sd/sf,csv", "sf?csv", "sd/sf?csv", "sf*csv", "sf-csv",
                 "sf[csv", "sf]csv", "sf{csv", "sf}csv");
         for (String specialName : specialNames) {
-            ObjectFile objectFile = new ObjectFile(STORAGE_PREFIX + "/" + specialName, specialName, "", 1);
-            mockRemote.addObjectFile(objectFile);
+            RemoteObject objectFile = new RemoteObject(STORAGE_PREFIX + "/" + specialName, specialName, "", 1, 0L);
+            objectStore.put(objectFile.getKey(), objectFile);
         }
-
-        new Expectations(ctx.getEnv(), ctx.getEnv().getInternalCatalog(), remote) {
+        setupObjFsMock();
+        new Expectations(ctx.getEnv(), ctx.getEnv().getInternalCatalog()) {
             {
                 Env.getCurrentInternalCatalog();
                 minTimes = 0;
                 result = mockInternalCatalog;
-
-                RemoteBase.newInstance(objectInfo);
-                minTimes = 0;
-                result = mockRemote;
             }
         };
 

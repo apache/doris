@@ -20,11 +20,11 @@
 #include <brpc/channel.h>
 #include <brpc/server.h>
 
+#include "exec/sink/load_stream_stub.h"
 #include "gtest/gtest_pred_impl.h"
-#include "olap/olap_common.h"
+#include "storage/olap_common.h"
 #include "util/debug/leakcheck_disabler.h"
 #include "util/faststring.h"
-#include "vec/sink/load_stream_stub.h"
 
 namespace doris {
 

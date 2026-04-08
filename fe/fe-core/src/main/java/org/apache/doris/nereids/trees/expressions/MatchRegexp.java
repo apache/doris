@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
@@ -29,17 +28,20 @@ import java.util.List;
  */
 public class MatchRegexp extends Match {
     public MatchRegexp(Expression left, Expression right) {
-        super(ImmutableList.of(left, right), "MATCH_REGEXP");
+        this(left, right, null);
     }
 
-    private MatchRegexp(List<Expression> children) {
-        super(children, "MATCH_REGEXP");
+    public MatchRegexp(Expression left, Expression right, String analyzer) {
+        super(ImmutableList.of(left, right), "MATCH_REGEXP", analyzer);
+    }
+
+    private MatchRegexp(List<Expression> children, String analyzer) {
+        super(children, "MATCH_REGEXP", analyzer);
     }
 
     @Override
-    public MatchRegexp withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 2);
-        return new MatchRegexp(children);
+    protected MatchRegexp createInstance(List<Expression> children, String analyzer) {
+        return new MatchRegexp(children, analyzer);
     }
 
     @Override

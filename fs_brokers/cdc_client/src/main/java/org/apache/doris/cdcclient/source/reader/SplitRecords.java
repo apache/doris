@@ -17,44 +17,33 @@
 
 package org.apache.doris.cdcclient.source.reader;
 
-import org.apache.flink.cdc.connectors.mysql.source.split.SourceRecords;
 import org.apache.kafka.connect.source.SourceRecord;
 
 import java.util.Iterator;
 
 public class SplitRecords {
     private final String splitId;
-    private final SourceRecords records;
-    private Iterator<SourceRecord> iterator;
+    private final Iterator<SourceRecord> iterator;
 
-    public SplitRecords(String splitId, SourceRecords records) {
+    public SplitRecords(String splitId, Iterator<SourceRecord> iterator) {
         this.splitId = splitId;
-        this.records = records;
-        this.iterator = records.iterator();
+        this.iterator = iterator;
     }
 
     public String getSplitId() {
         return splitId;
     }
 
-    public SourceRecords getRecords() {
-        return records;
-    }
-
     public Iterator<SourceRecord> getIterator() {
         return iterator;
     }
 
-    public void setIterator(Iterator<SourceRecord> iterator) {
-        this.iterator = iterator;
-    }
-
     public boolean isEmpty() {
-        return splitId == null || records == null || !records.iterator().hasNext();
+        return splitId == null || !iterator.hasNext();
     }
 
     @Override
     public String toString() {
-        return "SplitRecords{" + "split=" + splitId + ", records=" + records + '}';
+        return "SplitRecords{" + "split=" + splitId + '}';
     }
 }

@@ -54,7 +54,7 @@ public class GroupExpression {
     private static final EventProducer COST_STATE_TRACER = new EventProducer(CostStateUpdateEvent.class,
             EventChannel.getDefaultChannel().addConsumers(new LogConsumer(CostStateUpdateEvent.class,
                     EventChannel.LOG)));
-    private Cost cost;
+    private Cost cost = null;
     private Group ownerGroup;
     private final List<Group> children;
     private final Plan plan;

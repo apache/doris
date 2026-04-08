@@ -19,10 +19,10 @@
 
 #include <type_traits>
 
+#include "core/data_type/primitive_type.h"
+#include "core/string_ref.h"
+#include "exec/common/hash_table/hash.h"
 #include "exprs/bloom_filter_func_adaptor.h"
-#include "runtime/primitive_type.h"
-#include "vec/common/hash_table/hash.h"
-#include "vec/common/string_ref.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -32,7 +32,7 @@ struct fixed_len_to_uint32_v2 {
         if constexpr (sizeof(T) <= sizeof(uint32_t)) {
             if constexpr (std::is_same_v<T, DateV2Value<DateV2ValueType>>) {
                 return (uint32_t)value.to_date_int_val();
-            } else if constexpr (vectorized::IsDecimalNumber<T>) {
+            } else if constexpr (IsDecimalNumber<T>) {
                 return (uint32_t)value.value;
             } else {
                 return (uint32_t)value;
@@ -46,7 +46,7 @@ struct fixed_len_to_uint32_v2 {
                         value.to_date_int_val()));
             } else if constexpr (std::is_same_v<T, TimestampTzValue>) {
                 return uint32_t(HashCRC32<typename T::underlying_value>()(value.to_date_int_val()));
-            } else if constexpr (vectorized::IsDecimalNumber<T>) {
+            } else if constexpr (IsDecimalNumber<T>) {
                 return uint32_t(HashCRC32<typename T::NativeType>()(value.value));
             } else {
                 return uint32_t(HashCRC32<T>()(value));

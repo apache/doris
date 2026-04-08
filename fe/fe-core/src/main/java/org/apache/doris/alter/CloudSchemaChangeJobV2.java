@@ -17,6 +17,7 @@
 
 package org.apache.doris.alter;
 
+import org.apache.doris.catalog.CloudTabletStatMgr;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -36,6 +37,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.proto.OlapFile;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.thrift.TTaskType;
@@ -90,6 +92,15 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
         }
         LOG.info("commitShadowIndex finished, dbId:{}, tableId:{}, jobId:{}, shadowIdxList:{}",
                 dbId, tableId, jobId, shadowIdxList);
+
+        List<Long> tabletIds = partitionIndexMap.cellSet().stream()
+                .flatMap(cell -> cell.getValue().getTablets().stream().map(Tablet::getId))
+                .collect(Collectors.toList());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("force sync tablet stats for table: {}, tabletNum: {}, tabletIds: {}", tableId,
+                    tabletIds.size(), tabletIds);
+        }
+        CloudTabletStatMgr.getInstance().addActiveTablets(tabletIds);
     }
 
     @Override
@@ -230,7 +241,8 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                 List<Index> tabletIndexes = originIndexId == tbl.getBaseIndexId() ? indexes : null;
 
                 Cloud.CreateTabletsRequest.Builder requestBuilder =
-                        Cloud.CreateTabletsRequest.newBuilder();
+                        Cloud.CreateTabletsRequest.newBuilder()
+                                .setRequestIp(FrontendOptions.getLocalHostAddressCached());
                 for (Tablet shadowTablet : shadowIdx.getTablets()) {
                     OlapFile.TabletMetaCloudPB.Builder builder =
                             ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
@@ -255,7 +267,9 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                                             tbl.rowStorePageSize(),
                                             tbl.variantEnableFlattenNested(), clusterKeyUids,
                                             tbl.storagePageSize(), tbl.getTDEAlgorithmPB(),
-                                            tbl.storageDictPageSize(), true);
+                                            tbl.storageDictPageSize(), true,
+                                            columnSeqMapping,
+                                                    tbl.getVerticalCompactionNumColumnsPerGroup());
                     requestBuilder.addTabletMetas(builder);
                 } // end for rollupTablets
                 requestBuilder.setDbId(dbId);

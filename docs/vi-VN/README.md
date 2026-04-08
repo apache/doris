@@ -46,7 +46,7 @@ under the License.
     &nbsp;
     <a href="https://github.com/apache/doris/discussions"><img src="https://img.shields.io/badge/- Discussion -red?style=social&logo=discourse" height=25></a>
     &nbsp;
-    <a href="https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-35mzao67o-BrpU70FNKPyB6UlgpXf8_w" height=25></a>
+    <a href="https://doris.apache.org/slack" height=25></a>
     &nbsp;
     <a href="https://medium.com/@ApacheDoris"><img src="https://img.shields.io/badge/-Medium-red?style=social&logo=medium" height=25></a>
 
@@ -295,7 +295,7 @@ Liên hệ với chúng tôi thông qua danh sách thư sau.
 
 * Trang web chính thức Apache Doris - [Trang web](https://doris.apache.org)
 * Danh sách thư nhà phát triển - <dev@doris.apache.org>. Gửi thư đến <dev-subscribe@doris.apache.org>, làm theo phản hồi để đăng ký danh sách thư.
-* Kênh Slack - [Tham gia Slack](https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-35mzao67o-BrpU70FNKPyB6UlgpXf8_w)
+* Kênh Slack - [Tham gia Slack](https://doris.apache.org/slack)
 * Twitter - [Theo dõi @doris_apache](https://twitter.com/doris_apache)
 
 

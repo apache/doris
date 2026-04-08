@@ -19,15 +19,15 @@
 
 #include "common/exception.h"
 #include "common/status.h"
+#include "core/data_type/define_primitive_type.h"
+#include "exprs/function_filter.h"
 #include "exprs/hybrid_set.h"
 #include "exprs/minmax_predicate.h"
-#include "function_filter.h"
-#include "olap/bitmap_filter_predicate.h"
-#include "olap/bloom_filter_predicate.h"
-#include "olap/column_predicate.h"
-#include "olap/in_list_predicate.h"
-#include "olap/like_column_predicate.h"
-#include "runtime/define_primitive_type.h"
+#include "storage/predicate/bitmap_filter_predicate.h"
+#include "storage/predicate/bloom_filter_predicate.h"
+#include "storage/predicate/column_predicate.h"
+#include "storage/predicate/in_list_predicate.h"
+#include "storage/predicate/like_column_predicate.h"
 
 namespace doris {
 
@@ -48,18 +48,14 @@ public:
     using BasePtr = HybridSetBase*;
     template <PrimitiveType type, size_t N>
     static BasePtr get_function(bool null_aware) {
-        using CppType = typename PrimitiveTypeTraits<type>::CppType;
-        if constexpr (N >= 1 && N <= FIXED_CONTAINER_MAX_SIZE) {
-            using Set = std::conditional_t<
-                    std::is_same_v<CppType, StringRef>, StringSet<>,
-                    HybridSet<type,
-                              FixedContainer<typename PrimitiveTypeTraits<type>::CppType, N>>>;
-            return new Set(null_aware);
+        if constexpr (is_string_type(type)) {
+            return new StringSet<>(null_aware);
+        } else if constexpr (N >= 1 && N <= FIXED_CONTAINER_MAX_SIZE) {
+            using CppType = typename PrimitiveTypeTraits<type>::CppType;
+            return new HybridSet<type, FixedContainer<CppType, N>>(null_aware);
         } else {
-            using Set = std::conditional_t<
-                    std::is_same_v<CppType, StringRef>, StringSet<>,
-                    HybridSet<type, DynamicContainer<typename PrimitiveTypeTraits<type>::CppType>>>;
-            return new Set(null_aware);
+            using CppType = typename PrimitiveTypeTraits<type>::CppType;
+            return new HybridSet<type, DynamicContainer<CppType>>(null_aware);
         }
     }
 };
@@ -268,11 +264,13 @@ std::shared_ptr<ColumnPredicate> create_olap_column_predicate(
         const TabletColumn* column, bool) {
     // currently only support like predicate
     if constexpr (PT == TYPE_CHAR) {
-        return LikeColumnPredicate<TYPE_CHAR>::create_shared(
-                filter->_opposite, column_id, filter->_fn_ctx, filter->_string_param);
+        return LikeColumnPredicate<TYPE_CHAR>::create_shared(filter->_opposite, column_id,
+                                                             column->name(), filter->_fn_ctx,
+                                                             filter->_string_param);
     } else if constexpr (PT == TYPE_VARCHAR || PT == TYPE_STRING) {
-        return LikeColumnPredicate<TYPE_STRING>::create_shared(
-                filter->_opposite, column_id, filter->_fn_ctx, filter->_string_param);
+        return LikeColumnPredicate<TYPE_STRING>::create_shared(filter->_opposite, column_id,
+                                                               column->name(), filter->_fn_ctx,
+                                                               filter->_string_param);
     }
     throw Exception(ErrorCode::INTERNAL_ERROR, "function filter do not support type {}", PT);
 }

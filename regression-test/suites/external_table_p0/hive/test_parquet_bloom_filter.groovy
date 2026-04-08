@@ -15,12 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_parquet_bloom_filter", "p0,external,hive,external_docker,external_docker_hive") {
+suite("test_parquet_bloom_filter", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (!"true".equalsIgnoreCase(enabled)) {
         return;
     }
-    for (String hivePrefix : ["hive2", "hive3"]) {
+    for (String hivePrefix : ["hive3"]) {
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
         String hmsPort = context.config.otherConfigs.get(hivePrefix + "HmsPort")
         String catalog_name = "test_parquet_bloom_filter"

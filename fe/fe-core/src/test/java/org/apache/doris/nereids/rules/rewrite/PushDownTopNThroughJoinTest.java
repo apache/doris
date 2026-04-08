@@ -76,8 +76,13 @@ class PushDownTopNThroughJoinTest extends TestWithFeService implements MemoPatte
 
     @Test
     void testJoin() {
+        testJoinHelper(JoinType.LEFT_OUTER_JOIN);
+        testJoinHelper(JoinType.ASOF_LEFT_OUTER_JOIN);
+    }
+
+    private void testJoinHelper(JoinType joinType) {
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
-                .join(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
+                .join(scan2, joinType, Pair.of(0, 0))
                 .topN(10, 0, ImmutableList.of(0))
                 .build();
         PlanChecker.from(connectContext, plan)
@@ -94,10 +99,15 @@ class PushDownTopNThroughJoinTest extends TestWithFeService implements MemoPatte
 
     @Test
     void testProject1() {
+        testProject1Helper(JoinType.LEFT_OUTER_JOIN);
+        testProject1Helper(JoinType.ASOF_LEFT_OUTER_JOIN);
+    }
+
+    private void testProject1Helper(JoinType joinType) {
         List<NamedExpression> projectExpres = ImmutableList.of(scan1.getOutput().get(0),
                 new Cast(scan1.getOutput().get(1), VarcharType.SYSTEM_DEFAULT).alias("cast"));
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
-                .join(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
+                .join(scan2, joinType, Pair.of(0, 0))
                 .projectExprs(projectExpres)
                 .topN(10, 0, ImmutableList.of(0))
                 .build();
@@ -178,11 +188,16 @@ class PushDownTopNThroughJoinTest extends TestWithFeService implements MemoPatte
 
     @Test
     void rejectTopNUseProjectComplexExpr() {
+        rejectTopNUseProjectComplexExprHelper(JoinType.LEFT_OUTER_JOIN);
+        rejectTopNUseProjectComplexExprHelper(JoinType.ASOF_LEFT_OUTER_JOIN);
+    }
+
+    private void rejectTopNUseProjectComplexExprHelper(JoinType joinType) {
         List<NamedExpression> projectExpres = ImmutableList.of(
                 (new Add(scan1.getOutput().get(0), scan1.getOutput().get(1))).alias("add")
         );
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
-                .join(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
+                .join(scan2, joinType, Pair.of(0, 0))
                 .projectExprs(projectExpres)
                 .topN(10, 0, ImmutableList.of(0))
                 .build();
@@ -198,8 +213,13 @@ class PushDownTopNThroughJoinTest extends TestWithFeService implements MemoPatte
 
     @Test
     void rejectWrongJoinType() {
+        rejectWrongJoinTypeHelper(JoinType.RIGHT_OUTER_JOIN);
+        rejectWrongJoinTypeHelper(JoinType.ASOF_RIGHT_OUTER_JOIN);
+    }
+
+    private void rejectWrongJoinTypeHelper(JoinType joinType) {
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
-                .join(scan2, JoinType.RIGHT_OUTER_JOIN, Pair.of(0, 0))
+                .join(scan2, joinType, Pair.of(0, 0))
                 .topN(10, 0, ImmutableList.of(0))
                 .build();
         PlanChecker.from(connectContext, plan)

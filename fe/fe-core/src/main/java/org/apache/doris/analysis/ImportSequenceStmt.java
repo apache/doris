@@ -27,9 +27,4 @@ public class ImportSequenceStmt extends StatementBase {
     public String getSequenceColName() {
         return sequenceColName;
     }
-
-    @Override
-    public RedirectStatus getRedirectStatus() {
-        return null;
-    }
 }

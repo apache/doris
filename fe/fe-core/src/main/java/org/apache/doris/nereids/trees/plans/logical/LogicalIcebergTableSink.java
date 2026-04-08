@@ -23,6 +23,7 @@ import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.PropagateFuncDeps;
@@ -65,24 +66,28 @@ public class LogicalIcebergTableSink<CHILD_TYPE extends Plan> extends LogicalTab
         this.dmlCommandType = dmlCommandType;
     }
 
+    /** Update output expressions based on child output and replace child. */
     public Plan withChildAndUpdateOutput(Plan child) {
         List<NamedExpression> output = child.getOutput().stream()
                 .map(NamedExpression.class::cast)
                 .collect(ImmutableList.toImmutableList());
-        return new LogicalIcebergTableSink<>(database, targetTable, cols, output,
-                dmlCommandType, Optional.empty(), Optional.empty(), child);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalIcebergTableSink<>(database, targetTable, cols, output,
+                dmlCommandType, Optional.empty(), Optional.empty(), child));
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "LogicalIcebergTableSink only accepts one child");
-        return new LogicalIcebergTableSink<>(database, targetTable, cols, outputExprs,
-                dmlCommandType, Optional.empty(), Optional.empty(), children.get(0));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalIcebergTableSink<>(database, targetTable, cols, outputExprs,
+                dmlCommandType, Optional.empty(), Optional.empty(), children.get(0)));
     }
 
     public LogicalIcebergTableSink<CHILD_TYPE> withOutputExprs(List<NamedExpression> outputExprs) {
-        return new LogicalIcebergTableSink<>(database, targetTable, cols, outputExprs,
-                dmlCommandType, Optional.empty(), Optional.empty(), child());
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalIcebergTableSink<>(database, targetTable, cols, outputExprs,
+                dmlCommandType, Optional.empty(), Optional.empty(), child()));
     }
 
     public IcebergExternalDatabase getDatabase() {
@@ -137,14 +142,16 @@ public class LogicalIcebergTableSink<CHILD_TYPE extends Plan> extends LogicalTab
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalIcebergTableSink<>(database, targetTable, cols, outputExprs,
-                dmlCommandType, groupExpression, Optional.of(getLogicalProperties()), child());
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalIcebergTableSink<>(database, targetTable, cols, outputExprs,
+                dmlCommandType, groupExpression, Optional.of(getLogicalProperties()), child()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalIcebergTableSink<>(database, targetTable, cols, outputExprs,
-                dmlCommandType, groupExpression, logicalProperties, children.get(0));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalIcebergTableSink<>(database, targetTable, cols, outputExprs,
+                dmlCommandType, groupExpression, logicalProperties, children.get(0)));
     }
 }

@@ -20,18 +20,19 @@
 
 #if defined(__ELF__) && !defined(__FreeBSD__)
 
-#include <common/elf.h>
+#include "common/elf.h"
+
 #include <fcntl.h>
 #include <fmt/format.h>
 #include <sys/mman.h>
 #include <unistd.h>
-#include <vec/common/unaligned.h>
 
 #include <cstring>
 #include <system_error>
 
 #include "common/logging.h"
 #include "common/macros.h"
+#include "util/unaligned.h"
 
 namespace doris {
 

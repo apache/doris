@@ -16,7 +16,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_nereids_refresh_ldap") {
+suite("test_nereids_refresh_ldap", "p0") {
     String user = 'test_nereids_refresh_ldap_user'
 
     try_sql("DROP USER ${user}")

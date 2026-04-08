@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS household_demographics (
     hd_vehicle_count integer
 )
 UNIQUE KEY(hd_demo_sk)
-CLUSTER BY(hd_dep_count, hd_demo_sk, hd_vehicle_count)
+ORDER BY(hd_dep_count, hd_demo_sk, hd_vehicle_count)
 DISTRIBUTED BY HASH(hd_demo_sk) BUCKETS 1
 PROPERTIES (
   "replication_num" = "1"

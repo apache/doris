@@ -238,11 +238,22 @@ struct TSchemaChangeExpr {
 }
 
 // Search DSL parameter structure
+
+// Occur type for Lucene-style boolean queries
+enum TSearchOccur {
+  MUST = 0,      // Term must appear (equivalent to +term)
+  SHOULD = 1,    // Term should appear (optional, but contributes to matching)
+  MUST_NOT = 2   // Term must not appear (equivalent to -term)
+}
+
 struct TSearchClause {
-  1: required string clause_type  // TERM, QUOTED, PREFIX, WILDCARD, REGEXP, RANGE, LIST, ANY_ALL, AND, OR, NOT
+  1: required string clause_type  // TERM, QUOTED, PREFIX, WILDCARD, REGEXP, RANGE, LIST, ANY_ALL, AND, OR, NOT, OCCUR_BOOLEAN, NESTED
   2: optional string field_name   // Field name for leaf clauses
   3: optional string value        // Search value for leaf clauses
-  4: optional list<TSearchClause> children  // Child clauses for compound clauses (AND, OR, NOT)
+  4: optional list<TSearchClause> children  // Child clauses for compound clauses (AND, OR, NOT, OCCUR_BOOLEAN)
+  5: optional TSearchOccur occur  // Occur type for this clause (used with OCCUR_BOOLEAN parent)
+  6: optional i32 minimum_should_match  // Minimum number of SHOULD clauses that must match (for OCCUR_BOOLEAN)
+  7: optional string nested_path  // Path for NESTED clause (e.g., "items")
 }
 
 struct TSearchFieldBinding {
@@ -251,12 +262,15 @@ struct TSearchFieldBinding {
   3: optional string parent_field_name    // Parent field name for variant subcolumns
   4: optional string subcolumn_path       // Subcolumn path for variant fields (e.g., "subcolumn" or "sub1.sub2")
   5: optional bool is_variant_subcolumn   // True if this is a variant subcolumn access
+  6: optional map<string, string> index_properties  // Index properties (parser, lower_case, etc.) from FE Index lookup
 }
 
 struct TSearchParam {
   1: required string original_dsl         // Original DSL string for debugging
   2: required TSearchClause root     // Parsed AST root
   3: required list<TSearchFieldBinding> field_bindings  // Field to slot mappings
+  4: optional string default_operator     // "and" or "or" for TERM tokenization (default: "or")
+  5: optional i32 minimum_should_match    // Minimum number of SHOULD clauses that must match (for Lucene mode TERM tokenization)
 }
 
 // This is essentially a union over the subclasses of Expr.
@@ -310,6 +324,7 @@ struct TExprNode {
   38: optional TVarBinaryLiteral varbinary_literal
   39: optional bool is_cast_nullable
   40: optional TSearchParam search_param
+  41: optional bool short_circuit_evaluation
 }
 
 // A flattened representation of a tree of Expr nodes, obtained by depth-first
@@ -321,5 +336,3 @@ struct TExpr {
 struct TExprList {
   1: required list<TExpr> exprs
 }
-
-

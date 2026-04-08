@@ -19,8 +19,8 @@
 
 #include <gtest/gtest.h>
 
-#include "olap/rowset/segment_v2/inverted_index/analysis_factory_mgr.h"
 #include "runtime/exec_env.h"
+#include "storage/index/inverted/analysis_factory_mgr.h"
 
 namespace doris {
 

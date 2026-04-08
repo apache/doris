@@ -19,6 +19,7 @@ suite("test_predefine_typed_sparse", "p0"){
 
     def tableName = "test_predefine_typed_sparse"
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
+    sql """ set default_variant_enable_doc_mode = false """
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql """CREATE TABLE ${tableName} (
         `id` bigint NULL,
@@ -39,7 +40,7 @@ suite("test_predefine_typed_sparse", "p0"){
 
     qt_sql """ select variant_type(var) from ${tableName} order by id """
     qt_sql """ select * from ${tableName} order by id """
-    trigger_and_wait_compaction(tableName, "cumulative")
+    trigger_and_wait_compaction(tableName, "cumulative", 1800)
     qt_sql """ select * from ${tableName} order by id """
 
     qt_sql """ select variant_type(var) from ${tableName} order by id """

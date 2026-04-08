@@ -17,15 +17,35 @@
 
 suite('test_simplify_range') {
     def tbl_1 = 'test_simplify_range_tbl_1'
-    sql "set disable_nereids_rules='PRUNE_EMPTY_PARTITION'"
+    sql '''
+        SET ignore_shape_nodes='PhysicalDistribute';
+        SET disable_nereids_rules='PRUNE_EMPTY_PARTITION';
+        SET runtime_filter_mode=OFF;
+        SET disable_join_reorder=true;
+        '''
 
     sql "DROP TABLE IF EXISTS  ${tbl_1} FORCE"
-    sql "CREATE TABLE ${tbl_1}(a DECIMAL(16,8), b INT) PROPERTIES ('replication_num' = '1')"
-    sql "INSERT INTO ${tbl_1} VALUES(null, 10)"
-    test {
-        sql "SELECT a BETWEEN 100.02 and 40.123 OR a IN (54.0402) AND b < 10 FROM ${tbl_1}"
-        result([[null]])
-    }
+    sql "CREATE TABLE ${tbl_1}(a DECIMAL(16,8), b INT, c bigint) PROPERTIES ('replication_num' = '1')"
+    sql "INSERT INTO ${tbl_1} VALUES(null, 10, 20), (1, null, null)"
+
+    explainAndOrderResult 'sql_1', """
+        SELECT a BETWEEN 100.02 and 40.123 OR a IN (54.0402) AND b < 10
+        FROM ${tbl_1}
+        """
+
+    explainAndOrderResult 'sql_2', """
+        SELECT b, c
+        FROM ${tbl_1}
+        WHERE a < 10 or ((a != 1 or a is null) and (a != 2 or a is null))
+        """
+
+    explainAndOrderResult 'sql_3', """
+        SELECT b * 0  AS b, SUM(c)
+        FROM ${tbl_1}
+        GROUP BY b
+        HAVING  NOT  b * 0   >  b * 0  *  6;
+        """
+
     sql "DROP TABLE IF EXISTS  ${tbl_1} FORCE"
 
     sql """

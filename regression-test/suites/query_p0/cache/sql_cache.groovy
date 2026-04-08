@@ -167,8 +167,6 @@ suite("sql_cache") {
                     )
                 """
 
-        sql "SET enable_nereids_planner=true"
-        sql "SET enable_fallback_to_original_planner=false"
 
         qt_sql_cache6 """
                     select
@@ -257,6 +255,7 @@ suite("sql_cache") {
         // explain plan with sql cache
         connect {
             sql "set enable_sql_cache=true"
+            sql "set enable_strong_consistency_read=true"
             sql "select 100"
             sql "explain plan select 100"
         }
@@ -272,6 +271,7 @@ suite("sql_cache") {
 
         sql "unset variable all"
         sql "set enable_sql_cache=true"
+        sql "set enable_strong_consistency_read=true"
         sql "insert into test_sql_cache_with_session_variable values(1, 'hello', '2025-01-02 03:04:05')"
         sleep(10000)
 

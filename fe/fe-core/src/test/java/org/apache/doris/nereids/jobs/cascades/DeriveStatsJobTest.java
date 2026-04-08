@@ -68,7 +68,7 @@ public class DeriveStatsJobTest {
         LogicalAggregate agg = constructAgg(olapScan);
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(agg);
         new DeriveStatsJob(cascadesContext.getMemo().getRoot().getLogicalExpression(),
-                new JobContext(cascadesContext, null, Double.MAX_VALUE)).execute();
+                new JobContext(cascadesContext, null)).execute();
         while (!cascadesContext.getJobPool().isEmpty()) {
             cascadesContext.getJobPool().pop().execute();
         }

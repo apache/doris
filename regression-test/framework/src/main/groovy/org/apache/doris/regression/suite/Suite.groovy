@@ -111,6 +111,7 @@ class Suite implements GroovyInterceptable {
 
     private AmazonS3 s3Client = null
     private FileSystem fs = null
+    private String sparkIcebergContainerNameCache = null
 
     Suite(String name, String group, SuiteContext context, SuiteCluster cluster) {
         this.name = name
@@ -1598,6 +1599,130 @@ class Suite implements GroovyInterceptable {
         return result
     }
 
+    /**
+     * Get the spark-iceberg container name by querying docker.
+     * Uses 'docker ps --filter name=spark-iceberg' to find the container.
+     */
+    private String getSparkIcebergContainerName() {
+        if (!Strings.isNullOrEmpty(sparkIcebergContainerNameCache)) {
+            return sparkIcebergContainerNameCache
+        }
+
+        try {
+            // Use docker ps with filter to find containers with 'spark-iceberg' in the name
+            String command = "docker ps --filter name=spark-iceberg --format {{.Names}}"
+            def process = command.execute()
+            process.waitFor()
+            String output = process.in.text.trim()
+
+            if (output) {
+                // Get the first matching container
+                String containerName = output.split('\n')[0].trim()
+                if (containerName) {
+                    sparkIcebergContainerNameCache = containerName
+                    logger.info("Found spark-iceberg container: ${containerName}".toString())
+                    return containerName
+                }
+            }
+
+            logger.warn("No spark-iceberg container found via docker ps")
+            return null
+        } catch (Exception e) {
+            logger.warn("Failed to get spark-iceberg container via docker ps: ${e.message}".toString())
+            return null
+        }
+    }
+
+    /**
+     * Execute Spark SQL on the spark-iceberg container via docker exec.
+     *
+     * Usage in test suite:
+     *   spark_iceberg "CREATE TABLE demo.test_db.t1 (id INT) USING iceberg"
+     *   spark_iceberg "INSERT INTO demo.test_db.t1 VALUES (1)"
+     *   def result = spark_iceberg "SELECT * FROM demo.test_db.t1"
+     *
+     * The container name is found by querying 'docker ps --filter name=spark-iceberg'
+     */
+    String spark_iceberg(String sqlStr, int timeoutSeconds = 120) {
+        String containerName = getSparkIcebergContainerName()
+        if (containerName == null) {
+            throw new RuntimeException("spark-iceberg container not found. Please ensure the container is running.")
+        }
+        String masterUrl = "spark://${containerName}:7077"
+        
+        // Escape double quotes in SQL string for shell command
+        String escapedSql = sqlStr.replaceAll('"', '\\\\"')
+        
+        // Build docker exec command
+        String command = """docker exec ${containerName} spark-sql --master ${masterUrl} --conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions -e "${escapedSql}" """
+        
+        logger.info("Executing Spark Iceberg SQL: ${sqlStr}".toString())
+        logger.info("Container: ${containerName}".toString())
+        
+        try {
+            String result = cmd(command, timeoutSeconds)
+            logger.info("Spark Iceberg SQL result: ${result}".toString())
+            return result
+        } catch (Exception e) {
+            logger.error("Spark Iceberg SQL failed: ${e.message}".toString())
+            throw e
+        }
+    }
+
+    /**
+     * Execute multiple Spark SQL statements on the spark-iceberg container.
+     * Statements are separated by semicolons.
+     * All statements are executed in one spark-sql process to reduce startup overhead.
+     * 
+     * Usage:
+     *   spark_iceberg_multi '''
+     *       CREATE DATABASE IF NOT EXISTS demo.test_db;
+     *       CREATE TABLE demo.test_db.t1 (id INT) USING iceberg;
+     *       INSERT INTO demo.test_db.t1 VALUES (1);
+     *   '''
+     */
+    List<String> spark_iceberg_multi(String sqlStatements, int timeoutSeconds = 300) {
+        def statements = sqlStatements.split(';').collect { it.trim() }.findAll { it }
+
+        if (statements.isEmpty()) {
+            return []
+        }
+
+        String combinedSql = statements.collect { "${it};" }.join(" ")
+        return [spark_iceberg(combinedSql, timeoutSeconds)]
+    }
+
+    /**
+     * Execute Spark SQL on the spark-iceberg container with Paimon extensions enabled.
+     *
+     * Usage in test suite:
+     *   spark_paimon "CREATE TABLE paimon.test_db.t1 (id INT) USING paimon"
+     *   spark_paimon "INSERT INTO paimon.test_db.t1 VALUES (1)"
+     *   def result = spark_paimon "SELECT * FROM paimon.test_db.t1"
+     */
+    String spark_paimon(String sqlStr, int timeoutSeconds = 120) {
+        String containerName = getSparkIcebergContainerName()
+        if (containerName == null) {
+            throw new RuntimeException("spark-iceberg container not found. Please ensure the container is running.")
+        }
+        String masterUrl = "spark://${containerName}:7077"
+
+        String escapedSql = sqlStr.replaceAll('"', '\\\\"')
+        String command = """docker exec ${containerName} spark-sql --master ${masterUrl} --conf spark.sql.extensions=org.apache.paimon.spark.extensions.PaimonSparkSessionExtensions -e "${escapedSql}" """
+
+        logger.info("Executing Spark Paimon SQL: ${sqlStr}".toString())
+        logger.info("Container: ${containerName}".toString())
+
+        try {
+            String result = cmd(command, timeoutSeconds)
+            logger.info("Spark Paimon SQL result: ${result}".toString())
+            return result
+        } catch (Exception e) {
+            logger.error("Spark Paimon SQL failed: ${e.message}".toString())
+            throw e
+        }
+    }
+
     List<List<Object>> db2_docker(String sqlStr, boolean isOrder = false) {
         String cleanedSqlStr = sqlStr.replaceAll("\\s*;\\s*\$", "")
         def (result, meta) = JdbcUtils.executeToList(context.getDB2DockerConnection(), cleanedSqlStr)
@@ -1612,7 +1737,8 @@ class Suite implements GroovyInterceptable {
         return result
     }
 
-    void quickRunTest(String tag, Object arg, boolean isOrder = false) {
+    // rowConverter: { row -> convertedRow }
+    void quickRunTest(String tag, Object arg, boolean isOrder = false, Closure rowConverter = null) {
         if (context.config.generateOutputFile || context.config.forceGenerateOutputFile) {
             Tuple2<List<List<Object>>, ResultSetMetaData> tupleResult = null
             if (arg instanceof PreparedStatement) {
@@ -1646,6 +1772,9 @@ class Suite implements GroovyInterceptable {
                 }
             }
             def (result, meta) = tupleResult
+            if (rowConverter != null) {
+                result = result.collect { rowConverter.call(it) }
+            }
             if (isOrder) {
                 result = sortByToString(result)
             }
@@ -1695,6 +1824,9 @@ class Suite implements GroovyInterceptable {
                 }
             }
             def (realResults, meta) = tupleResult
+            if (rowConverter != null) {
+                realResults = realResults.collect { rowConverter.call(it) }
+            }
             if (isOrder) {
                 realResults = sortByToString(realResults)
             }
@@ -1758,7 +1890,7 @@ class Suite implements GroovyInterceptable {
     }
 
     // test results of two sqls are the same
-    void quickRunTest(String tag, Object arg1, Object arg2) {
+    void quickRunTestTwoSQL(String tag, Object arg1, Object arg2) {
         def (realResults1, meta1) = executeQueryByTag(tag, arg1)
         Iterator<List<Object>> realResultsIter1 = realResults1.iterator()
 
@@ -1802,7 +1934,7 @@ class Suite implements GroovyInterceptable {
             String cleanedSqlStr = sql.replaceAll("\\s*;\\s*\$", "")
             sql = cleanedSqlStr
         }
-        quickRunTest(tag, sql1, sql2)
+        quickRunTestTwoSQL(tag, sql1, sql2)
     }
 
     void quickExecute(String tag, PreparedStatement stmt) {
@@ -1898,72 +2030,92 @@ class Suite implements GroovyInterceptable {
     }
 
     def waitingMTMVTaskFinishedByMvName = { mvName, dbName = context.dbName ->
+        // Wait for the newly submitted MTMV task to become visible in tasks().
         Thread.sleep(2000);
-        String showTasks = "select TaskId,JobId,JobName,MvId,Status,MvName,MvDatabaseName,ErrorMsg from tasks('type'='mv') where MvDatabaseName = '${dbName}' and MvName = '${mvName}' order by CreateTime ASC"
+        String showTasks = """
+                select TaskId, Status, MvName, MvDatabaseName from tasks('type'='mv')
+                where MvDatabaseName = '${dbName}' and MvName = '${mvName}'
+                order by CreateTime DESC limit 1
+                """
         String status = "NULL"
         List<List<Object>> result
-        long startTime = System.currentTimeMillis()
-        long timeoutTimestamp = startTime + 5 * 60 * 1000 // 5 min
-        List<String> toCheckTaskRow = new ArrayList<>();
+        long timeoutTimestamp = System.currentTimeMillis() + 5 * 60 * 1000 // 5 min
+        String lastLoggedStatus = null
+        List<Object> toCheckTaskRow = null
         while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING' || status == 'NULL')) {
             result = sql(showTasks)
-            logger.info("current db is " + dbName + ", showTasks is " + result.toString())
             if (result.isEmpty()) {
-                logger.info("waitingMTMVTaskFinishedByMvName toCheckTaskRow is empty")
-                Thread.sleep(1000);
+                if (lastLoggedStatus != "NULL") {
+                    logger.info("waitingMTMVTaskFinishedByMvName toCheckTaskRow is empty")
+                    lastLoggedStatus = "NULL"
+                }
+                Thread.sleep(500);
                 continue;
             }
-            toCheckTaskRow = result.last();
-            status = toCheckTaskRow.get(4)
-            logger.info("The state of ${showTasks} is ${status}")
-            Thread.sleep(1000);
+            toCheckTaskRow = result[0]
+            status = toCheckTaskRow.get(1).toString()
+            if (lastLoggedStatus != status) {
+                logger.info("The state of ${showTasks} is ${status}, taskId is ${toCheckTaskRow.get(0)}")
+                lastLoggedStatus = status
+            }
+            if (status == 'PENDING' || status == 'RUNNING' || status == 'NULL') {
+                Thread.sleep(500);
+            }
         }
         if (status != "SUCCESS") {
             logger.info("status is not success")
         }
         Assert.assertEquals("SUCCESS", status)
-        def show_tables = sql """
-        show tables from ${toCheckTaskRow.get(6)};
-        """
-        def db_id = getDbId(toCheckTaskRow.get(6))
-        def table_id = getTableId(toCheckTaskRow.get(6), mvName)
         logger.info("waitingMTMVTaskFinished analyze mv name is " + mvName
-                + ", db name is " + toCheckTaskRow.get(6)
-                + ", show_tables are " + show_tables
-                + ", db_id is " + db_id
-                + ", table_id " + table_id)
-        sql "analyze table ${toCheckTaskRow.get(6)}.${mvName} with sync;"
+                + ", db name is " + toCheckTaskRow.get(3)
+                + ", task id is " + toCheckTaskRow.get(0))
+        sql "analyze table ${toCheckTaskRow.get(3)}.${mvName} with sync;"
     }
 
     def waitingMTMVTaskFinishedByMvNameAllowCancel = {mvName, dbName = context.dbName ->
+        // Wait for the newly submitted MTMV task to become visible in tasks().
         Thread.sleep(2000);
-        String showTasks = "select TaskId,JobId,JobName,MvId,Status,MvName,MvDatabaseName,ErrorMsg from tasks('type'='mv') where MvDatabaseName = '${dbName}' and MvName = '${mvName}' order by CreateTime ASC"
+        String showTasks = """
+                select TaskId, Status, MvName, MvDatabaseName, ErrorMsg from tasks('type'='mv')
+                where MvDatabaseName = '${dbName}' and MvName = '${mvName}'
+                order by CreateTime DESC limit 1
+                """
 
         String status = "NULL"
         List<List<Object>> result
-        long startTime = System.currentTimeMillis()
-        long timeoutTimestamp = startTime + 5 * 60 * 1000 // 5 min
-        List<String> toCheckTaskRow = new ArrayList<>();
-        while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING'  || status == 'NULL' || status == 'CANCELED')) {
+        long timeoutTimestamp = System.currentTimeMillis() + 5 * 60 * 1000 // 5 min
+        String lastLoggedStatus = null
+        List<Object> toCheckTaskRow = null
+        while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING'  || status == 'NULL')) {
             result = sql(showTasks)
-            logger.info("current db is " + dbName + ", showTasks result: " + result.toString())
             if (result.isEmpty()) {
-                logger.info("waitingMTMVTaskFinishedByMvName toCheckTaskRow is empty")
-                Thread.sleep(1000);
+                if (lastLoggedStatus != "NULL") {
+                    logger.info("waitingMTMVTaskFinishedByMvName toCheckTaskRow is empty")
+                    lastLoggedStatus = "NULL"
+                }
+                Thread.sleep(500);
                 continue;
             }
-            toCheckTaskRow = result.last()
-            status = toCheckTaskRow.get(4)
-            logger.info("The state of ${showTasks} is ${status}")
-            Thread.sleep(1000);
+            toCheckTaskRow = result[0]
+            status = toCheckTaskRow.get(1).toString()
+            if (lastLoggedStatus != status) {
+                logger.info("The state of ${showTasks} is ${status}, taskId is ${toCheckTaskRow.get(0)}")
+                lastLoggedStatus = status
+            }
+            if (status == 'PENDING' || status == 'RUNNING' || status == 'NULL' || status == 'CANCELED') {
+                Thread.sleep(500);
+            }
         }
         if (status != "SUCCESS") {
             logger.info("status is not success")
-            assertTrue(result.toString().contains("same table"))
+            Assert.assertNotNull(toCheckTaskRow)
+            assertTrue(String.valueOf(toCheckTaskRow.get(4)).contains("same table"))
         }
         // Need to analyze materialized view for cbo to choose the materialized view accurately
-        logger.info("waitingMTMVTaskFinished analyze mv name is " + toCheckTaskRow.get(5))
-        sql "analyze table ${toCheckTaskRow.get(6)}.${mvName} with sync;"
+        logger.info("waitingMTMVTaskFinished analyze mv name is " + toCheckTaskRow.get(2)
+                + ", db name is " + toCheckTaskRow.get(3)
+                + ", task id is " + toCheckTaskRow.get(0))
+        sql "analyze table ${toCheckTaskRow.get(3)}.${mvName} with sync;"
     }
 
     void waitingMVTaskFinishedByMvName(String dbName, String tableName, String indexName) {
@@ -1971,21 +2123,28 @@ class Suite implements GroovyInterceptable {
         String showTasks = "SHOW ALTER TABLE MATERIALIZED VIEW from ${dbName} where TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1"
         String status = "NULL"
         List<List<Object>> result
-        long startTime = System.currentTimeMillis()
-        long timeoutTimestamp = startTime + 5 * 60 * 1000 // 5 min
-        List<String> toCheckTaskRow = new ArrayList<>();
-        while (timeoutTimestamp > System.currentTimeMillis() && (status != 'FINISHED')) {
+        long timeoutTimestamp = System.currentTimeMillis() + 5 * 60 * 1000 // 5 min
+        String lastLoggedStatus = null
+        List<Object> toCheckTaskRow = null
+        while (timeoutTimestamp > System.currentTimeMillis() && (status != 'FINISHED') && (status != 'CANCELLED')) {
             result = sql(showTasks)
-            logger.info("crrent db is " + dbName + ", showTasks result: " + result.toString())
-            toCheckTaskRow = result.last()
-            if (toCheckTaskRow.isEmpty()) {
-                logger.info("waitingMVTaskFinishedByMvName toCheckTaskRow is empty")
-                Thread.sleep(1000);
+            if (result.isEmpty()) {
+                if (lastLoggedStatus != "NULL") {
+                    logger.info("waitingMVTaskFinishedByMvName toCheckTaskRow is empty")
+                    lastLoggedStatus = "NULL"
+                }
+                Thread.sleep(500);
                 continue;
             }
+            toCheckTaskRow = result[0]
             status = toCheckTaskRow.get(8)
-            logger.info("The state of ${showTasks} is ${status}")
-            Thread.sleep(1000);
+            if (lastLoggedStatus != status) {
+                logger.info("The state of ${showTasks} is ${status}")
+                lastLoggedStatus = status
+            }
+            if (status != 'FINISHED' && status != 'CANCELLED') {
+                Thread.sleep(500);
+            }
         }
         if (status != "FINISHED") {
             logger.info("status is not success")
@@ -2028,60 +2187,117 @@ class Suite implements GroovyInterceptable {
     }
 
     void waitingMTMVTaskFinished(String jobName) {
+        // Wait for the newly submitted MTMV task to become visible in tasks().
         Thread.sleep(2000);
-        String showTasks = "select TaskId,JobId,JobName,MvId,Status,MvName,MvDatabaseName,ErrorMsg from tasks('type'='mv') where JobName = '${jobName}' order by CreateTime ASC"
+        String showTasks = """
+                select TaskId, Status, MvName, MvDatabaseName from tasks('type'='mv')
+                where JobName = '${jobName}' order by CreateTime DESC limit 1
+                """
         String status = "NULL"
         List<List<Object>> result
-        long startTime = System.currentTimeMillis()
-        long timeoutTimestamp = startTime + 5 * 60 * 1000 // 5 min
+        long timeoutTimestamp = System.currentTimeMillis() + 5 * 60 * 1000 // 5 min
+        String lastLoggedStatus = null
+        List<Object> taskRow = null
         do {
             result = sql(showTasks)
-            logger.info("result: " + result.toString())
-            if (!result.isEmpty()) {
-                status = result.last().get(4)
+            if (result.isEmpty()) {
+                if (lastLoggedStatus != "NULL") {
+                    logger.info("waitingMTMVTaskFinished task row is empty")
+                    lastLoggedStatus = "NULL"
+                }
+                status = "NULL"
+            } else {
+                taskRow = result[0]
+                status = taskRow.get(1).toString()
+                if (lastLoggedStatus != status) {
+                    logger.info("The state of ${showTasks} is ${status}, taskId is ${taskRow.get(0)}")
+                    lastLoggedStatus = status
+                }
             }
-            logger.info("The state of ${showTasks} is ${status}")
-            Thread.sleep(1000);
+            if (status == 'PENDING' || status == 'RUNNING' || status == 'NULL') {
+                Thread.sleep(500);
+            }
         } while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING' || status == 'NULL'))
         if (status != "SUCCESS") {
             logger.info("status is not success")
         }
         Assert.assertEquals("SUCCESS", status)
         // Need to analyze materialized view for cbo to choose the materialized view accurately
-        def show_tables = sql """
-        show tables from ${result.last().get(6)};
-        """
-        def db_id = getDbId(result.last().get(6))
-        def table_id = getTableId(result.last().get(6), result.last().get(5))
-        logger.info("waitingMTMVTaskFinished analyze mv name is " + result.last().get(5)
-                + ", db name is " + result.last().get(6)
-                + ", show_tables are " + show_tables
-                + ", db_id is " + db_id
-                + ", table_id " + table_id)
-        sql "analyze table ${result.last().get(6)}.${result.last().get(5)} with sync;"
-        String db = result.last().get(6)
-        String table = result.last().get(5)
-        result = sql("show table stats ${db}.${table}")
-        logger.info("table stats: " + result.toString())
-        result = sql("show index stats ${db}.${table} ${table}")
-        logger.info("index stats: " + result.toString())
+        logger.info("waitingMTMVTaskFinished analyze mv name is " + taskRow.get(2)
+                + ", db name is " + taskRow.get(3)
+                + ", task id is " + taskRow.get(0))
+        sql "analyze table ${taskRow.get(3)}.${taskRow.get(2)} with sync;"
+    }
+
+    void waitingMTMVTaskFinishedWithoutAnalyze(String jobName) {
+        // Wait for the newly submitted MTMV task to become visible in tasks().
+        Thread.sleep(2000);
+        String showTasks = """
+                select TaskId, Status from tasks('type'='mv')
+                where JobName = '${jobName}' order by CreateTime DESC limit 1
+                """
+        String status = "NULL"
+        List<List<Object>> result
+        long timeoutTimestamp = System.currentTimeMillis() + 5 * 60 * 1000 // 5 min
+        String lastLoggedStatus = null
+        List<Object> taskRow = null
+        do {
+            result = sql(showTasks)
+            if (result.isEmpty()) {
+                if (lastLoggedStatus != "NULL") {
+                    logger.info("waitingMTMVTaskFinishedWithoutAnalyze task row is empty")
+                    lastLoggedStatus = "NULL"
+                }
+                status = "NULL"
+            } else {
+                taskRow = result[0]
+                status = taskRow.get(1).toString()
+                if (lastLoggedStatus != status) {
+                    logger.info("The state of ${showTasks} is ${status}, taskId is ${taskRow.get(0)}")
+                    lastLoggedStatus = status
+                }
+            }
+            if (status == 'PENDING' || status == 'RUNNING' || status == 'NULL') {
+                Thread.sleep(500);
+            }
+        } while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING' || status == 'NULL'))
+        if (status != "SUCCESS") {
+            logger.info("status is not success")
+        }
+        Assert.assertEquals("SUCCESS", status)
     }
 
     void waitingMTMVTaskFinishedNotNeedSuccess(String jobName) {
+        // Wait for the newly submitted MTMV task to become visible in tasks().
         Thread.sleep(2000);
-        String showTasks = "select TaskId,JobId,JobName,MvId,Status,MvName,MvDatabaseName,ErrorMsg from tasks('type'='mv') where JobName = '${jobName}' order by CreateTime ASC"
+        String showTasks = """
+                select TaskId, Status from tasks('type'='mv')
+                where JobName = '${jobName}' order by CreateTime DESC limit 1
+                """
         String status = "NULL"
         List<List<Object>> result
-        long startTime = System.currentTimeMillis()
-        long timeoutTimestamp = startTime + 5 * 60 * 1000 // 5 min
+        long timeoutTimestamp = System.currentTimeMillis() + 5 * 60 * 1000 // 5 min
+        String lastLoggedStatus = null
+        List<Object> taskRow = null
         do {
             result = sql(showTasks)
-            logger.info("result: " + result.toString())
-            if (!result.isEmpty()) {
-                status = result.last().get(4)
+            if (result.isEmpty()) {
+                if (lastLoggedStatus != "NULL") {
+                    logger.info("waitingMTMVTaskFinishedNotNeedSuccess task row is empty")
+                    lastLoggedStatus = "NULL"
+                }
+                status = "NULL"
+            } else {
+                taskRow = result[0]
+                status = taskRow.get(1).toString()
+                if (lastLoggedStatus != status) {
+                    logger.info("The state of ${showTasks} is ${status}, taskId is ${taskRow.get(0)}")
+                    lastLoggedStatus = status
+                }
             }
-            logger.info("The state of ${showTasks} is ${status}")
-            Thread.sleep(1000);
+            if (status == 'PENDING' || status == 'RUNNING' || status == 'NULL') {
+                Thread.sleep(500);
+            }
         } while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING' || status == 'NULL'))
         if (status != "SUCCESS") {
             logger.info("status is not success")
@@ -2090,6 +2306,8 @@ class Suite implements GroovyInterceptable {
 
     void testFoldConst(String foldSql) {
         def sessionVarOrigValue = sql("select @@debug_skip_fold_constant")
+        def sqlCacheOrigValue = sql("select @@enable_sql_cache")
+        sql("set enable_sql_cache=false")
         String openFoldConstant = "set debug_skip_fold_constant=false";
         sql(openFoldConstant)
         // logger.info(foldSql)
@@ -2104,8 +2322,9 @@ class Suite implements GroovyInterceptable {
         List<List<Object>> resultExpected = tupleResult2.first
         logger.info("result expected: " + resultExpected.toString())
 
-        // restore debug_skip_fold_constant original value
+        // restore original session values
         sql("set debug_skip_fold_constant=${sessionVarOrigValue[0][0]}")
+        sql("set enable_sql_cache=${sqlCacheOrigValue[0][0]}")
 
         String errorMsg = null
         try {
@@ -2141,7 +2360,7 @@ class Suite implements GroovyInterceptable {
     }
 
     boolean isClusterKeyEnabled() {
-        return getFeConfig("random_add_cluster_keys_for_mow").equals("true")
+        return getFeConfig("random_add_order_by_keys_for_mow").equals("true")
     }
 
     boolean enableStoragevault() {
@@ -2423,7 +2642,6 @@ class Suite implements GroovyInterceptable {
         """
         def job_name = getJobName(db, mv_name);
         waitingMTMVTaskFinished(job_name)
-        sql "analyze table ${db}.${mv_name} with sync;"
         // force meta sync to avoid stale meta data on follower fe
         sql """sync;"""
     }
@@ -2441,7 +2659,6 @@ class Suite implements GroovyInterceptable {
         """
         def job_name = getJobName(db, mv_name);
         waitingMTMVTaskFinished(job_name)
-        sql "analyze table ${db}.${mv_name} with sync;"
         // force meta sync to avoid stale meta data on follower fe
         sql """sync;"""
     }
@@ -3239,12 +3456,13 @@ class Suite implements GroovyInterceptable {
         def jsonOutput = new JsonOutput()
         def map = []
         def js = jsonOutput.toJson(map)
-        log.info("fix tablet stat req: /MetaService/http/fix_tablet_stats?token=${token}&cloud_unique_id=${instance_id}&table_id=${table_id} ".toString())
+        def cloudUniqueId = context.config.cloudUniqueId
+        log.info("fix tablet stat req: /MetaService/http/fix_tablet_stats?token=${token}&cloud_unique_id=${cloudUniqueId}&table_id=${table_id} ".toString())
 
         def fix_tablet_stats_api = { request_body, check_func ->
             httpTest {
                 endpoint context.config.metaServiceHttpAddress
-                uri "/MetaService/http/fix_tablet_stats?token=${token}&cloud_unique_id=${instance_id}&table_id=${table_id}"
+                uri "/MetaService/http/fix_tablet_stats?token=${token}&cloud_unique_id=${cloudUniqueId}&table_id=${table_id}"
                 body request_body
                 check check_func
             }

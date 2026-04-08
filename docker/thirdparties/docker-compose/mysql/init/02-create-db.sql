@@ -21,3 +21,4 @@ create database Doris;
 create database doris;
 create database show_test_do_not_modify;
 create database test_varbinary_db;
+create database test_timestamp_tz_db;

@@ -32,12 +32,12 @@
 #include <string_view>
 
 #include "common/status.h"
-#include "olap/field.h"
-#include "olap/field.h" // For OLAP_FIELD_TYPE_BIGINT
-#include "olap/key_coder.h"
-#include "olap/olap_common.h"
+#include "exec/common/hex.h"
+#include "storage/field.h"
+#include "storage/field.h" // For OLAP_FIELD_TYPE_BIGINT
+#include "storage/key_coder.h"
+#include "storage/olap_common.h"
 #include "util/threadpool.h"
-#include "vec/common/hex.h"
 
 namespace doris::io {
 
@@ -330,6 +330,33 @@ std::unique_ptr<BlockMetaIterator> CacheBlockMetaStore::get_all() {
         return nullptr;
     }
     return std::unique_ptr<BlockMetaIterator>(new RocksDBIterator(iter));
+}
+
+size_t CacheBlockMetaStore::approximate_entry_count() const {
+    if (!_db) {
+        LOG(WARNING) << "Database not initialized when counting entries";
+        return 0;
+    }
+
+    rocksdb::ReadOptions read_options;
+    std::unique_ptr<rocksdb::Iterator> iter(
+            _db->NewIterator(read_options, _file_cache_meta_cf_handle.get()));
+    if (!iter) {
+        LOG(WARNING) << "Failed to create iterator when counting entries";
+        return 0;
+    }
+
+    size_t count = 0;
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+        ++count;
+    }
+
+    if (!iter->status().ok()) {
+        LOG(WARNING) << "Iterator encountered error when counting entries: "
+                     << iter->status().ToString();
+    }
+
+    return count;
 }
 
 void CacheBlockMetaStore::delete_key(const BlockMetaKey& key) {

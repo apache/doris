@@ -30,6 +30,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.View;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -42,8 +43,8 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -254,8 +255,8 @@ public class AnalysisManager implements Writable {
             if (table instanceof View) {
                 continue;
             }
-            TableNameInfo tableNameInfo = new TableNameInfo(db.getCatalog().getName(),
-                    db.getFullName(), table.getName());
+            TableNameInfo tableNameInfo = TableNameInfoUtils.fromCatalogDb(db.getCatalog(),
+                    db, table);
             // columnNames null means to add all visible columns.
             // Will get all the visible columns in analyzeTableOp.check()
             AnalyzeTableCommand command = new AnalyzeTableCommand(analyzeProperties, tableNameInfo,
@@ -594,15 +595,36 @@ public class AnalysisManager implements Writable {
             for (Entry<TableNameInfo, Set<Pair<String, String>>> entry : jobMap.entrySet()) {
                 TableNameInfo table = entry.getKey();
                 if (tableNameInfo == null
-                        || tableNameInfo.getCtl() == null && tableNameInfo.getDb() == null
-                        && tableNameInfo.getTbl() == null
-                        || tableNameInfo.equals(table)) {
+                        || matchesFilter(tableNameInfo, table)) {
                     result.add(new AutoAnalysisPendingJob(table.getCtl(),
                             table.getDb(), table.getTbl(), entry.getValue(), priority));
                 }
             }
         }
         return result;
+    }
+
+    private boolean matchesFilter(TableNameInfo filter, TableNameInfo target) {
+        if (StringUtils.isEmpty(filter.getCtl())
+                && StringUtils.isEmpty(filter.getDb())
+                && StringUtils.isEmpty(filter.getTbl())) {
+            return true;
+        }
+
+        if (!StringUtils.isEmpty(filter.getCtl())
+                && !filter.getCtl().equals(target.getCtl())) {
+            return false;
+        }
+        if (!StringUtils.isEmpty(filter.getDb())
+                && !filter.getDb().equals(target.getDb())) {
+            return false;
+        }
+        if (!StringUtils.isEmpty(filter.getTbl())
+                && !filter.getTbl().equals(target.getTbl())) {
+            return false;
+        }
+
+        return true;
     }
 
     public List<AnalysisInfo> findAnalysisJobs(String state, String ctl, String db,

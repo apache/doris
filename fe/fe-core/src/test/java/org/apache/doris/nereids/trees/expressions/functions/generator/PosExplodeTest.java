@@ -40,9 +40,8 @@ public class PosExplodeTest {
     @Test
     public void testGetSignatures() {
         // build posexplode(array<int>, array<str>) expression
-        Expression[] args = {SlotReference.of("int", ArrayType.of(IntegerType.INSTANCE)),
-            SlotReference.of("str", ArrayType.of(StringType.INSTANCE))};
-        PosExplode explode = new PosExplode(args);
+        Expression[] args = {SlotReference.of("str", ArrayType.of(StringType.INSTANCE))};
+        PosExplode explode = new PosExplode(SlotReference.of("int", ArrayType.of(IntegerType.INSTANCE)), args);
 
         // check signature
         List<FunctionSignature> signatures = explode.getSignatures();
@@ -64,8 +63,7 @@ public class PosExplodeTest {
     @Test
     public void testGetSignaturesWithInvalidArgument() {
         // build posexplode(int)
-        Expression[] args = { SlotReference.of("int", IntegerType.INSTANCE) };
-        PosExplode explode = new PosExplode(args);
+        PosExplode explode = new PosExplode(SlotReference.of("int", IntegerType.INSTANCE), new Expression[0]);
 
         Assertions.assertThrows(AnalysisException.class, explode::getSignatures);
     }

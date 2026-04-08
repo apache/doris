@@ -18,13 +18,16 @@
 package org.apache.doris.load.routineload;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.ImportColumnsStmt;
 import org.apache.doris.analysis.Separator;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
@@ -43,7 +46,6 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
-import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
@@ -68,8 +70,10 @@ import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 import org.apache.doris.transaction.AbstractTxnStateChangeCallback;
 import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
@@ -223,6 +227,8 @@ public abstract class RoutineLoadJob
     protected long maxBatchSizeBytes = DEFAULT_MAX_BATCH_SIZE;
 
     protected boolean isPartialUpdate = false;
+    protected TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.APPEND;
+    protected TUniqueKeyUpdateMode uniqueKeyUpdateMode = TUniqueKeyUpdateMode.UPSERT;
 
     protected String sequenceCol;
 
@@ -385,9 +391,15 @@ public abstract class RoutineLoadJob
         jobProperties.put(info.STRICT_MODE, String.valueOf(info.isStrictMode()));
         jobProperties.put(info.SEND_BATCH_PARALLELISM, String.valueOf(this.sendBatchParallelism));
         jobProperties.put(info.LOAD_TO_SINGLE_TABLET, String.valueOf(this.loadToSingleTablet));
-        jobProperties.put(info.PARTIAL_COLUMNS, info.isPartialUpdate() ? "true" : "false");
-        if (info.isPartialUpdate()) {
-            this.isPartialUpdate = true;
+        // Set unique key update mode
+        this.uniqueKeyUpdateMode = info.getUniqueKeyUpdateMode();
+        this.isPartialUpdate = (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS);
+        jobProperties.put(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE, uniqueKeyUpdateMode.name());
+        jobProperties.put(CreateRoutineLoadInfo.PARTIAL_COLUMNS, isPartialUpdate ? "true" : "false");
+        if (uniqueKeyUpdateMode != TUniqueKeyUpdateMode.UPSERT) {
+            this.partialUpdateNewKeyPolicy = info.getPartialUpdateNewKeyPolicy();
+            jobProperties.put(CreateRoutineLoadInfo.PARTIAL_UPDATE_NEW_KEY_POLICY,
+                    this.partialUpdateNewKeyPolicy == TPartialUpdateNewRowPolicy.ERROR ? "ERROR" : "APPEND");
         }
         jobProperties.put(info.MAX_FILTER_RATIO_PROPERTY, String.valueOf(maxFilterRatio));
 
@@ -563,6 +575,10 @@ public abstract class RoutineLoadJob
     @Override
     public LoadTask.MergeType getMergeType() {
         return mergeType;
+    }
+
+    public TUniqueKeyUpdateMode getUniqueKeyUpdateMode() {
+        return uniqueKeyUpdateMode;
     }
 
     @Override
@@ -902,7 +918,7 @@ public abstract class RoutineLoadJob
             MetricRepo.COUNTER_ROUTINE_LOAD_ERROR_ROWS.increase(numOfErrorRows);
             MetricRepo.COUNTER_ROUTINE_LOAD_RECEIVED_BYTES.increase(receivedBytes);
             MetricRepo.COUNTER_ROUTINE_LOAD_TASK_EXECUTE_TIME.increase(taskExecutionTime);
-            MetricRepo.COUNTER_ROUTINE_LOAD_TASK_EXECUTE_TIME.increase(1L);
+            MetricRepo.COUNTER_ROUTINE_LOAD_TASK_EXECUTE_COUNT.increase(1L);
         }
 
         // check error rate
@@ -1042,6 +1058,8 @@ public abstract class RoutineLoadJob
                 ConnectContext.get().setCurrentUserIdentity(this.getUserIdentity());
             } else {
                 setComputeGroup();
+                // Set user identity for privilege check in expression rewrite (e.g., EncryptKeyRef)
+                ConnectContext.get().setCurrentUserIdentity(this.getUserIdentity());
             }
             if (ConnectContext.get().getEnv() == null) {
                 ConnectContext.get().setEnv(Env.getCurrentEnv());
@@ -1054,7 +1072,8 @@ public abstract class RoutineLoadJob
                 throw new UserException("txn does not exist: " + txnId);
             }
             txnState.addTableIndexes(planner.getDestTable());
-            if (isPartialUpdate) {
+            if (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS
+                    || uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS) {
                 txnState.setSchemaForPartialUpdate((OlapTable) table);
             }
 
@@ -1633,6 +1652,10 @@ public abstract class RoutineLoadJob
         this.cloudCluster = cloudCluster;
     }
 
+    public String getClusterInfo() {
+        return Strings.nullToEmpty(cloudCluster);
+    }
+
     // check the correctness of commit info
     protected abstract boolean checkCommitInfo(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment,
                                                TransactionState txnState,
@@ -1686,6 +1709,7 @@ public abstract class RoutineLoadJob
             row.add(otherMsg);
             row.add(userIdentity.getQualifiedUser());
             row.add(comment);
+            row.add(getClusterInfo());
             return row;
         } finally {
             readUnlock();
@@ -1741,7 +1765,8 @@ public abstract class RoutineLoadJob
         }
         // 4.3.where_predicates
         if (whereExpr != null) {
-            sb.append("WHERE ").append(whereExpr.toSqlWithoutTbl()).append(",\n");
+            sb.append("WHERE ").append(whereExpr.accept(
+                    ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE)).append(",\n");
         }
         // 4.4.partitions
         if (partitionNamesInfo != null) {
@@ -1749,7 +1774,8 @@ public abstract class RoutineLoadJob
         }
         // 4.5.delete_on_predicates
         if (deleteCondition != null) {
-            sb.append("DELETE ON ").append(deleteCondition.toSqlWithoutTbl()).append(",\n");
+            sb.append("DELETE ON ").append(deleteCondition.accept(
+                    ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE)).append(",\n");
         }
         // 4.6.source_sequence
         if (sequenceCol != null) {
@@ -1757,7 +1783,8 @@ public abstract class RoutineLoadJob
         }
         // 4.7.preceding_predicates
         if (precedingFilter != null) {
-            sb.append("PRECEDING FILTER ").append(precedingFilter.toSqlWithoutTbl()).append(",\n");
+            sb.append("PRECEDING FILTER ").append(precedingFilter.accept(
+                    ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE)).append(",\n");
         }
         // remove the last ,
         if (sb.charAt(sb.length() - 2) == ',') {
@@ -1852,8 +1879,10 @@ public abstract class RoutineLoadJob
                 ? STAR_STRING : Joiner.on(",").join(partitionNamesInfo.getPartitionNames()));
         jobProperties.put("columnToColumnExpr", columnDescs == null
                 ? STAR_STRING : Joiner.on(",").join(columnDescs.descs));
-        jobProperties.put("precedingFilter", precedingFilter == null ? STAR_STRING : precedingFilter.toSqlWithoutTbl());
-        jobProperties.put("whereExpr", whereExpr == null ? STAR_STRING : whereExpr.toSqlWithoutTbl());
+        jobProperties.put("precedingFilter", precedingFilter == null ? STAR_STRING
+                : precedingFilter.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE));
+        jobProperties.put("whereExpr", whereExpr == null ? STAR_STRING
+                : whereExpr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE));
         if (getFormat().equalsIgnoreCase("json")) {
             jobProperties.put(FileFormatProperties.PROP_FORMAT, "json");
         } else {
@@ -1863,12 +1892,17 @@ public abstract class RoutineLoadJob
                     lineDelimiter == null ? "\n" : lineDelimiter.toString());
         }
         jobProperties.put(LoadCommand.KEY_IN_PARAM_DELETE_CONDITION,
-                deleteCondition == null ? STAR_STRING : deleteCondition.toSqlWithoutTbl());
+                deleteCondition == null ? STAR_STRING
+                        : deleteCondition.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE));
         jobProperties.put(LoadCommand.KEY_IN_PARAM_SEQUENCE_COL,
                 sequenceCol == null ? STAR_STRING : sequenceCol);
 
         // job properties defined in CreateRoutineLoadStmt
         jobProperties.put(CreateRoutineLoadInfo.PARTIAL_COLUMNS, String.valueOf(isPartialUpdate));
+        if (isPartialUpdate) {
+            jobProperties.put(CreateRoutineLoadInfo.PARTIAL_UPDATE_NEW_KEY_POLICY,
+                    partialUpdateNewKeyPolicy == TPartialUpdateNewRowPolicy.ERROR ? "ERROR" : "APPEND");
+        }
         jobProperties.put(CreateRoutineLoadInfo.MAX_ERROR_NUMBER_PROPERTY, String.valueOf(maxErrorNum));
         jobProperties.put(CreateRoutineLoadInfo.MAX_BATCH_INTERVAL_SEC_PROPERTY, String.valueOf(maxBatchIntervalS));
         jobProperties.put(CreateRoutineLoadInfo.MAX_BATCH_ROWS_PROPERTY, String.valueOf(maxBatchRows));
@@ -1918,9 +1952,35 @@ public abstract class RoutineLoadJob
         if (tableId == 0) {
             isMultiTable = true;
         }
+        // Process UNIQUE_KEY_UPDATE_MODE first to ensure correct backward compatibility
+        // with PARTIAL_COLUMNS (HashMap iteration order is not guaranteed)
+        if (jobProperties.containsKey(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE)) {
+            String modeValue = jobProperties.get(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE);
+            TUniqueKeyUpdateMode mode = CreateRoutineLoadInfo.parseUniqueKeyUpdateMode(modeValue);
+            if (mode != null) {
+                uniqueKeyUpdateMode = mode;
+                isPartialUpdate = (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS);
+            } else {
+                uniqueKeyUpdateMode = TUniqueKeyUpdateMode.UPSERT;
+            }
+        }
+        // Process remaining properties
         jobProperties.forEach((k, v) -> {
             if (k.equals(CreateRoutineLoadInfo.PARTIAL_COLUMNS)) {
-                isPartialUpdate = Boolean.parseBoolean(v);
+                // Backward compatibility: only use partial_columns if unique_key_update_mode is not set
+                // unique_key_update_mode takes precedence
+                if (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPSERT) {
+                    isPartialUpdate = Boolean.parseBoolean(v);
+                    if (isPartialUpdate) {
+                        uniqueKeyUpdateMode = TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS;
+                    }
+                }
+            } else if (k.equals(CreateRoutineLoadInfo.PARTIAL_UPDATE_NEW_KEY_POLICY)) {
+                if ("ERROR".equalsIgnoreCase(v)) {
+                    partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.ERROR;
+                } else {
+                    partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.APPEND;
+                }
             }
         });
         try {
@@ -1938,6 +1998,19 @@ public abstract class RoutineLoadJob
                 CreateRoutineLoadCommand command = (CreateRoutineLoadCommand) nereidsParser.parseSingle(
                         origStmt.originStmt);
                 CreateRoutineLoadInfo createRoutineLoadInfo = command.getCreateRoutineLoadInfo();
+                // If tableId is set, resolve the current table name by ID so that
+                // table rename / SWAP TABLE won't cause replay to fail with stale name in origStmt.
+                if (!isMultiTable && tableId != 0) {
+                    try {
+                        Database db = Env.getCurrentEnv().getInternalCatalog().getDb(dbId).orElse(null);
+                        if (db != null) {
+                            db.getTable(tableId).ifPresent(
+                                    table -> createRoutineLoadInfo.setTableName(table.getName()));
+                        }
+                    } catch (Exception ignored) {
+                        // fall through; let validate() surface the real error
+                    }
+                }
                 createRoutineLoadInfo.validate(ctx);
                 setRoutineLoadDesc(createRoutineLoadInfo.getRoutineLoadDesc());
             } finally {
@@ -1959,7 +2032,7 @@ public abstract class RoutineLoadJob
     public abstract NereidsRoutineLoadTaskInfo toNereidsRoutineLoadTaskInfo() throws UserException;
 
     // for ALTER ROUTINE LOAD
-    protected void modifyCommonJobProperties(Map<String, String> jobProperties) {
+    protected void modifyCommonJobProperties(Map<String, String> jobProperties) throws UserException {
         if (jobProperties.containsKey(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY)) {
             this.desireTaskConcurrentNum = Integer.parseInt(
                     jobProperties.remove(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY));
@@ -1989,6 +2062,80 @@ public abstract class RoutineLoadJob
         if (jobProperties.containsKey(CreateRoutineLoadInfo.MAX_BATCH_SIZE_PROPERTY)) {
             this.maxBatchSizeBytes = Long.parseLong(
                     jobProperties.remove(CreateRoutineLoadInfo.MAX_BATCH_SIZE_PROPERTY));
+        }
+
+        if (jobProperties.containsKey(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE)) {
+            String modeStr = jobProperties.remove(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE);
+            TUniqueKeyUpdateMode newMode = CreateRoutineLoadInfo.parseAndValidateUniqueKeyUpdateMode(modeStr);
+            // Validate flexible partial update constraints when changing to UPDATE_FLEXIBLE_COLUMNS
+            if (newMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS) {
+                validateFlexiblePartialUpdateForAlter();
+            }
+            this.uniqueKeyUpdateMode = newMode;
+            this.isPartialUpdate = (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS);
+            this.jobProperties.put(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE, uniqueKeyUpdateMode.name());
+            this.jobProperties.put(CreateRoutineLoadInfo.PARTIAL_COLUMNS, String.valueOf(isPartialUpdate));
+        }
+
+        if (jobProperties.containsKey(CreateRoutineLoadInfo.PARTIAL_COLUMNS)) {
+            // Backward compatibility: only use partial_columns if unique_key_update_mode is UPSERT (not explicitly set)
+            // unique_key_update_mode takes precedence
+            this.isPartialUpdate = Boolean.parseBoolean(
+                    jobProperties.remove(CreateRoutineLoadInfo.PARTIAL_COLUMNS));
+            if (this.isPartialUpdate && uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPSERT) {
+                this.uniqueKeyUpdateMode = TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS;
+            }
+            this.jobProperties.put(CreateRoutineLoadInfo.PARTIAL_COLUMNS, String.valueOf(isPartialUpdate));
+            this.jobProperties.put(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE, uniqueKeyUpdateMode.name());
+        }
+    }
+
+    /**
+     * Validate flexible partial update constraints when altering routine load job.
+     */
+    private void validateFlexiblePartialUpdateForAlter() throws UserException {
+        // Multi-table load does not support flexible partial update
+        if (isMultiTable) {
+            throw new DdlException("Flexible partial update is not supported in multi-table load");
+        }
+
+        // Get the table to check table-level constraints
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
+        if (db == null) {
+            throw new DdlException("Database not found: " + dbId);
+        }
+        Table table = db.getTableNullable(tableId);
+        if (table == null) {
+            throw new DdlException("Table not found: " + tableId);
+        }
+        if (!(table instanceof OlapTable)) {
+            throw new DdlException("Flexible partial update is only supported for OLAP tables");
+        }
+        OlapTable olapTable = (OlapTable) table;
+
+        // Validate table-level constraints (MoW, skip_bitmap, light_schema_change, variant columns)
+        olapTable.validateForFlexiblePartialUpdate();
+
+        // Routine load specific validations
+        // Must use JSON format
+        String format = this.jobProperties.getOrDefault(FileFormatProperties.PROP_FORMAT, "csv");
+        if (!"json".equalsIgnoreCase(format)) {
+            throw new DdlException("Flexible partial update only supports JSON format, but current job uses: "
+                    + format);
+        }
+        // Cannot use fuzzy_parse
+        if (Boolean.parseBoolean(this.jobProperties.getOrDefault(
+                JsonFileFormatProperties.PROP_FUZZY_PARSE, "false"))) {
+            throw new DdlException("Flexible partial update does not support fuzzy_parse");
+        }
+        // Cannot use jsonpaths
+        String jsonPaths = getJsonPaths();
+        if (jsonPaths != null && !jsonPaths.isEmpty()) {
+            throw new DdlException("Flexible partial update does not support jsonpaths");
+        }
+        // Cannot specify COLUMNS mapping
+        if (columnDescs != null && !columnDescs.descs.isEmpty()) {
+            throw new DdlException("Flexible partial update does not support COLUMNS specification");
         }
     }
 }

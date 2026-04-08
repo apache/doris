@@ -1,0 +1,74 @@
+diff --git a/src/client/RemoteBlockReader.cpp b/src/client/RemoteBlockReader.cpp
+--- a/src/client/RemoteBlockReader.cpp	2023-04-11 14:31:06
++++ b/src/client/RemoteBlockReader.cpp	2026-01-15 11:50:44
+@@ -30,6 +30,7 @@
+ #include "WriteBuffer.h"
+ 
+ #include <inttypes.h>
++#include <string>
+ #include <vector>
+ 
+ namespace Hdfs {
+@@ -43,6 +44,7 @@
+                                      SessionConfig& conf)
+     : sentStatus(false),
+       verify(verify),
++      useDatanodeHostname(conf.isUseDatanodeHostname()),
+       binfo(eb),
+       datanode(datanode),
+       checksumSize(0),
+@@ -81,7 +83,8 @@
+ 
+         if (!sock) {
+             sock = shared_ptr<Socket>(new TcpSocketImpl);
+-            sock->connect(dn.getIpAddr().c_str(), dn.getXferPort(),
++            const std::string host = useDatanodeHostname ? dn.getHostName() : dn.getIpAddr();
++            sock->connect(host.c_str(), dn.getXferPort(),
+                           connTimeout);
+             sock->setNoDelay(true);
+         }
+diff --git a/src/client/RemoteBlockReader.h b/src/client/RemoteBlockReader.h
+--- a/src/client/RemoteBlockReader.h	2023-04-11 14:31:06
++++ b/src/client/RemoteBlockReader.h	2026-01-15 11:50:16
+@@ -79,6 +79,7 @@
+ private:
+     bool sentStatus;
+     bool verify; //verify checksum or not.
++    bool useDatanodeHostname;
+     const ExtendedBlock & binfo;
+     DatanodeInfo & datanode;
+     int checksumSize;
+diff --git a/src/common/SessionConfig.cpp b/src/common/SessionConfig.cpp
+--- a/src/common/SessionConfig.cpp	2023-04-11 14:31:06
++++ b/src/common/SessionConfig.cpp	2026-01-15 11:50:09
+@@ -56,6 +56,8 @@
+         }, {
+             &readFromLocal, "dfs.client.read.shortcircuit", true
+         }, {
++            &useDatanodeHostname, "dfs.client.use.datanode.hostname", false
++        }, {
+             &addDatanode, "output.replace-datanode-on-failure", true
+         }, {
+             &notRetryAnotherNode, "input.notretry-another-node", false
+diff --git a/src/common/SessionConfig.h b/src/common/SessionConfig.h
+--- a/src/common/SessionConfig.h	2023-04-11 14:31:06
++++ b/src/common/SessionConfig.h	2026-01-15 11:49:40
+@@ -125,6 +125,10 @@
+         return readFromLocal;
+     }
+ 
++    bool isUseDatanodeHostname() const {
++        return useDatanodeHostname;
++    }
++
+     int32_t getMaxGetBlockInfoRetry() const {
+         return maxGetBlockInfoRetry;
+     }
+@@ -351,6 +355,7 @@
+      */
+     bool useMappedFile;
+     bool readFromLocal;
++    bool useDatanodeHostname;
+     bool notRetryAnotherNode;
+     bool legacyLocalBlockReader;
+     int32_t inputConnTimeout;

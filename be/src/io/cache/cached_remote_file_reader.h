@@ -37,7 +37,8 @@ namespace doris::io {
 struct IOContext;
 struct FileCacheStatistics;
 
-class CachedRemoteFileReader final : public FileReader {
+class CachedRemoteFileReader final : public FileReader,
+                                     public std::enable_shared_from_this<CachedRemoteFileReader> {
 public:
     CachedRemoteFileReader(FileReaderSPtr remote_file_reader, const FileReaderOptions& opts);
 
@@ -55,6 +56,20 @@ public:
 
     static std::pair<size_t, size_t> s_align_size(size_t offset, size_t size, size_t length);
 
+    int64_t mtime() const override { return _remote_file_reader->mtime(); }
+
+    // Asynchronously prefetch a range of file cache blocks.
+    // This method triggers read file cache in dryrun mode to warm up the cache
+    // without actually reading the data into user buffers.
+    //
+    // Parameters:
+    //   offset: Starting offset in the file
+    //   size: Number of bytes to prefetch
+    //   io_ctx: IO context (can be nullptr, will create a dryrun context internally)
+    //
+    // Note: This is a best-effort operation. Errors are logged but not returned.
+    void prefetch_range(size_t offset, size_t size, const IOContext* io_ctx = nullptr);
+
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                         const IOContext* io_ctx) override;
@@ -70,7 +85,8 @@ private:
     void _update_stats(const ReadStatistics& stats, FileCacheStatistics* state,
                        bool is_inverted_index) const;
 
-    bool _is_doris_table;
+    bool _is_doris_table = false;
+    int64_t _tablet_id = -1;
     FileReaderSPtr _remote_file_reader;
     UInt128Wrapper _cache_hash;
     BlockFileCache* _cache;

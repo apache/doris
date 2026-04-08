@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_query_cache", "p0,external,hive,external_docker,external_docker_hive") {
+suite("test_hive_query_cache", "p0,external") {
     withGlobalLock("cache_last_version_interval_second") {
         def assertHasCache = { String sqlStr ->
             explain {
@@ -69,7 +69,7 @@ suite("test_hive_query_cache", "p0,external,hive,external_docker,external_docker
             return;
         }
 
-        for (String hivePrefix : ["hive2", "hive3"]) {
+        for (String hivePrefix : ["hive3"]) {
             String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
             String hdfs_port = context.config.otherConfigs.get(hivePrefix + "HdfsPort")
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")

@@ -20,7 +20,7 @@ import org.apache.kafka.clients.producer.KafkaProducer
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.clients.producer.ProducerConfig
 
-suite("test_trino_kafka_base", "external,kafka,external_docker,external_docker_kafka") {
+suite("test_trino_kafka_base", "p0,external") {
 
     // Ensure that all types are parsed correctly
     def select_top50 = {

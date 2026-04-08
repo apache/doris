@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_search_function") {
+suite("test_search_function", "p0") {
     def tableName = "search_test_table"
     def indexTableName = "search_test_index_table"
     

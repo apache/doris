@@ -46,7 +46,7 @@ under the License.
     &nbsp;
     <a href="https://github.com/apache/doris/discussions"><img src="https://img.shields.io/badge/- Discussion -red?style=social&logo=discourse" height=25></a>
     &nbsp;
-    <a href="https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-35mzao67o-BrpU70FNKPyB6UlgpXf8_w" height=25></a>
+    <a href="https://doris.apache.org/slack" height=25></a>
     &nbsp;
     <a href="https://medium.com/@ApacheDoris"><img src="https://img.shields.io/badge/-Medium-red?style=social&logo=medium" height=25></a>
 
@@ -295,7 +295,7 @@ Aşağıdaki posta listesi aracılığıyla bizimle iletişime geçin.
 
 * Apache Doris Resmi Web Sitesi - [Site](https://doris.apache.org)
 * Geliştirici posta listesi - <dev@doris.apache.org>. Posta listesine abone olmak için <dev-subscribe@doris.apache.org>'a e-posta gönderin, yanıtı takip edin.
-* Slack kanalı - [Slack'e katıl](https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-35mzao67o-BrpU70FNKPyB6UlgpXf8_w)
+* Slack kanalı - [Slack'e katıl](https://doris.apache.org/slack)
 * Twitter - [@doris_apache'i takip edin](https://twitter.com/doris_apache)
 
 

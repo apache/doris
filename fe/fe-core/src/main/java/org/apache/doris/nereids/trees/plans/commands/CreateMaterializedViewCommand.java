@@ -18,9 +18,11 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.MVColumnItem;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StmtType;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
@@ -67,6 +69,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
+import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBitmap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBitmapWithCheck;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
@@ -287,7 +290,6 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
                 translatorContext.createSlotDesc(tupleDescriptor, (SlotReference) slot, olapTable);
                 SlotRef slotRef = translatorContext.findSlotRef(slot.getExprId());
                 slotRef.setLabel("`" + slot.getName() + "`");
-                slotRef.disableTableName();
             }
             return olapScan;
         }
@@ -299,7 +301,7 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
                 throw new AnalysisException(
                         String.format("Only support one filter node, the second is %s", filter.getPredicate()));
             }
-            checkNoNondeterministicFunction(filter);
+            checkNoNondeterministicFunctionOrUnnest(filter);
             Set<Expression> conjuncts = filter.getConjuncts().stream().filter(expr -> {
                 Set<Slot> slots = expr.getInputSlots();
                 for (Slot slot : slots) {
@@ -328,7 +330,9 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
                 }
                 try {
                     Expr defineExpr = translateToLegacyExpr(predicate, context.planTranslatorContext);
-                    context.filterItem = new MVColumnItem(defineExpr.toSqlWithoutTbl(), defineExpr);
+                    context.filterItem = new MVColumnItem(
+                            defineExpr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE),
+                            defineExpr);
                 } catch (Exception ex) {
                     throw new AnalysisException(ex.getMessage());
                 }
@@ -343,7 +347,7 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
                 throw new AnalysisException(String.format("Only support one agg node, the second is %s", aggregate));
             }
             context.keysType = KeysType.AGG_KEYS;
-            checkNoNondeterministicFunction(aggregate);
+            checkNoNondeterministicFunctionOrUnnest(aggregate);
             for (AggregateFunction aggregateFunction : aggregate.getAggregateFunctions()) {
                 validateAggFunnction(aggregateFunction);
             }
@@ -369,7 +373,7 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
             if (context.orderByExprs != null) {
                 throw new AnalysisException(String.format("Only support one sort node, the second is %s", sort));
             }
-            checkNoNondeterministicFunction(sort);
+            checkNoNondeterministicFunctionOrUnnest(sort);
             if (sort.getOrderKeys().stream().anyMatch((
                     orderKey -> orderKey.getExpr().getDataType().isObjectOrVariantType()))) {
                 throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
@@ -390,7 +394,7 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
         @Override
         public Plan visitLogicalProject(LogicalProject<? extends Plan> project, ValidateContext context) {
             super.visit(project, context);
-            checkNoNondeterministicFunction(project);
+            checkNoNondeterministicFunctionOrUnnest(project);
             List<NamedExpression> outputs = project.getOutputs();
             if (!context.exprReplaceMap.isEmpty()) {
                 outputs = ExpressionUtils.replaceNamedExpressions(outputs, context.exprReplaceMap);
@@ -628,7 +632,6 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
 
         private Expr translateToLegacyExpr(Expression expression, PlanTranslatorContext context) {
             Expr expr = ExpressionTranslator.translate(expression, context);
-            expr.disableTableName();
             return expr;
         }
 
@@ -642,14 +645,15 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
             return aggregateFunction.child(0);
         }
 
-        private void checkNoNondeterministicFunction(Plan plan) {
+        private void checkNoNondeterministicFunctionOrUnnest(Plan plan) {
             for (Expression expression : plan.getExpressions()) {
-                Set<Expression> nondeterministicFunctions = expression
-                        .collect(expr -> !((ExpressionTrait) expr).isDeterministic()
-                                && expr instanceof FunctionTrait);
-                if (!nondeterministicFunctions.isEmpty()) {
+                Set<Expression> unsupportedFunctions = expression
+                        .collect(expr -> expr instanceof Unnest || (!((ExpressionTrait) expr).isDeterministic()
+                                && expr instanceof FunctionTrait));
+                if (!unsupportedFunctions.isEmpty()) {
                     throw new AnalysisException(String.format(
-                            "can not contain nonDeterministic expression, the expression is %s ", expression));
+                            "can not contain nonDeterministic expression or unnest, the expression is %s ",
+                            expression));
                 }
             }
         }

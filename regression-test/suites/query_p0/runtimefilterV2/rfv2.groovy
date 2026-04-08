@@ -60,6 +60,9 @@ suite("rfv2") {
     set enable_parallel_result_sink=false;
     """
 
+    // make bucket shuffle set operation stable
+    sql "set parallel_pipeline_task_num=5"
+
     qt_1 """
     explain shape plan
     select * from ((select a1, a2, a3 from a) intersect (select b1, b2, b3 from b) intersect (select c1, c2, c3 from c)) t;

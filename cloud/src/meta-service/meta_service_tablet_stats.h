@@ -104,12 +104,17 @@ void internal_get_load_tablet_stats_batch(MetaServiceCode& code, std::string& ms
 
 MetaServiceResponseStatus parse_fix_tablet_stats_param(
         std::shared_ptr<ResourceManager> resource_mgr, const std::string& table_id_str,
-        const std::string& cloud_unique_id_str, int64_t& table_id, std::string& instance_id);
+        const std::string& cloud_unique_id_str, const std::string& tablet_id_str, int64_t& table_id,
+        std::string& instance_id, int64_t& tablet_id);
 
 MetaServiceResponseStatus fix_tablet_stats_internal(
         std::shared_ptr<TxnKv> txn_kv, std::pair<std::string, std::string>& key_pair,
         std::vector<std::shared_ptr<TabletStatsPB>>& tablet_stat_shared_ptr_vec_batch,
         const std::string& instance_id, size_t batch_size = 20);
+
+std::pair<MetaServiceCode, std::string> fix_versioned_tablet_stats_internal(
+        TxnKv* txn_kv, const std::string& instance_id, const TabletIndexPB& tablet_idx,
+        bool is_versioned_read, bool is_versioned_write, ResourceManager* resource_mgr);
 
 MetaServiceResponseStatus check_new_tablet_stats(
         std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id,

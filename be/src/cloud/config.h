@@ -114,6 +114,8 @@ DECLARE_mBool(use_public_endpoint_for_error_log);
 // the theads which sync the datas which loaded in other clusters
 DECLARE_mInt32(sync_load_for_tablets_thread);
 
+DECLARE_Int32(warmup_cache_async_thread);
+
 DECLARE_mInt32(delete_bitmap_lock_expiration_seconds);
 
 DECLARE_mInt32(get_delete_bitmap_lock_max_retry_times);
@@ -189,9 +191,30 @@ DECLARE_mBool(enable_standby_passive_compaction);
 
 DECLARE_mDouble(standby_compaction_version_ratio);
 
+// Compaction read-write separation: only the "last active" cluster (the one that most recently
+// performed load) is allowed to compact a tablet
+DECLARE_mBool(enable_compaction_rw_separation);
+// Timeout in ms for takeover when last active cluster becomes unavailable (default 5 min)
+DECLARE_mInt64(compaction_cluster_takeover_timeout_ms);
+// Interval in seconds to refresh cluster status cache for compaction read-write separation
+DECLARE_mInt64(cluster_status_cache_refresh_interval_sec);
+// When version count exceeds this ratio of max_tablet_version_num, force compaction
+// even on read-only clusters (safety valve to prevent unbounded version growth)
+DECLARE_mDouble(compaction_rw_separation_version_threshold_ratio);
+
 DECLARE_mBool(enable_cache_read_from_peer);
 
+// Rate limit for warmup download in bytes per second, default 100MB/s
+// <= 0 means no limit
+DECLARE_mInt64(file_cache_warmup_download_rate_limit_bytes_per_second);
+
 DECLARE_mInt64(cache_read_from_peer_expired_seconds);
+
+// Base compaction output: only write index files to file cache, not data files
+DECLARE_mBool(enable_file_cache_write_base_compaction_index_only);
+
+// Cumulative compaction output: only write index files to file cache, not data files
+DECLARE_mBool(enable_file_cache_write_cumu_compaction_index_only);
 
 #include "common/compile_check_end.h"
 } // namespace doris::config

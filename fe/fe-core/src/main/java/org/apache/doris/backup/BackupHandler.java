@@ -27,8 +27,8 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.cloud.backup.CloudRestoreJob;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -39,9 +39,6 @@ import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.fs.FileSystemFactory;
-import org.apache.doris.fs.remote.RemoteFileSystem;
-import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.nereids.trees.plans.commands.BackupCommand;
@@ -209,11 +206,9 @@ public class BackupHandler extends MasterDaemon implements Writable {
                     "broker does not exist: " + command.getBrokerName());
         }
 
-        RemoteFileSystem fileSystem;
-        fileSystem = FileSystemFactory.get(command.getStorageProperties());
         long repoId = env.getNextId();
         Repository repo = new Repository(repoId, command.getName(), command.isReadOnly(), command.getLocation(),
-                fileSystem);
+                command.getStorageProperties());
 
         Status st = repoMgr.addAndInitRepoIfNotExist(repo, false);
         if (!st.ok()) {
@@ -245,12 +240,10 @@ public class BackupHandler extends MasterDaemon implements Writable {
             }
             // Merge new properties with the existing repository's properties
             Map<String, String> mergedProps = mergeProperties(oldRepo, newProps);
-            // Create new remote file system with merged properties
-            RemoteFileSystem fileSystem = FileSystemFactory.get(StorageProperties.createPrimary(mergedProps));
-            // Create new Repository instance with updated file system
+            // Create new Repository instance with merged properties
             Repository newRepo = new Repository(
                     oldRepo.getId(), oldRepo.getName(), oldRepo.isReadOnly(),
-                    oldRepo.getLocation(), fileSystem
+                    oldRepo.getLocation(), StorageProperties.createPrimary(mergedProps)
             );
             // Verify the repository can be connected with new settings
             if (!newRepo.ping()) {
@@ -278,7 +271,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
      */
     private Map<String, String> mergeProperties(Repository repo, Map<String, String> newProps) {
         // General case: just override old props with new ones
-        Map<String, String> combined = new HashMap<>(repo.getRemoteFileSystem().getProperties());
+        Map<String, String> combined = new HashMap<>(repo.getFileSystemDescriptor().getProperties());
         combined.putAll(newProps);
         return combined;
     }
@@ -566,7 +559,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
 
         // Create a backup job
         BackupJob backupJob = new BackupJob(command.getLabel(), db.getId(),
-                ClusterNamespace.getNameFromFullName(db.getFullName()),
+                db.getFullName(),
                 tableRefInfoList, command.getTimeoutMs(), command.getContent(), env, repoId, commitSeq);
         // write log
         env.getEditLog().logBackupJob(backupJob);

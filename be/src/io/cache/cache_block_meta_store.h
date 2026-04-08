@@ -18,6 +18,7 @@
 #pragma once
 
 #include <concurrentqueue.h>
+#include <gen_cpp/file_cache.pb.h>
 #include <rocksdb/db.h>
 #include <rocksdb/options.h>
 #include <rocksdb/slice.h>
@@ -31,7 +32,6 @@
 #include <variant>
 #include <vector>
 
-#include "gen_cpp/file_cache.pb.h"
 #include "io/cache/file_cache_common.h"
 #include "util/threadpool.h"
 
@@ -110,6 +110,9 @@ public:
 
     // Get the approximate size of the write queue
     size_t get_write_queue_size() const;
+
+    // Count entries stored in rocksdb (ignoring pending writes)
+    size_t approximate_entry_count() const;
 
 private:
     void async_write_worker();

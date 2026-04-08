@@ -62,6 +62,7 @@ import java.util.Set;
  * a in (1,2,3) and a > 1 => a in (2,3)
  * a in (1,2,3) and a in (3,4,5) => a = 3
  * a in (1,2,3) and a in (4,5,6) => false
+ * a > 10 and (a < 10 or a > 20 ) => a > 20
  *
  * The logic is as follows:
  * 1. for `And` expression.
@@ -72,7 +73,38 @@ import java.util.Set;
  *    1. a > 1 => RangeValueDesc((1...+∞)), a > 2 => RangeValueDesc((2...+∞))
  *    2. (1...+∞) intersect (2...+∞) => (2...+∞)
  * 2. for `Or` expression (similar to `And`).
- * todo: support a > 10 and (a < 10 or a > 20 ) => a > 20
+ *
+ * How to simplify range for a expression ?
+ *
+ * An expression may contain multiple references, then for each reference, we calculate its range.
+ * After getting the range of each reference, we can reconstruct the expression.
+ *
+ * We use `ValueDesc` to describe the range of a reference, it includes:
+ * 1. EmptyValueDesc: the expression is always false or null for this reference, like `a > 1 and a < 0`.
+ * 2. RangeValueDesc: the expression can be represented as a range for this reference, like `a > 1`.
+ * 3. DiscreteValueDesc: the expression can be represented as discrete values for this reference, like `a in (1,2,3)`.
+ * 4. NotDiscreteValueDesc: the expression can be represented as not discrete values for this reference,
+ *    like `a not in (1,2,3)`.
+ * 5. IsNullValueDesc: the expression is `is null` for this reference, like `a is null`.
+ * 6. IsNotNullValueDesc: the expression is `is not null` for this reference, like `a is not null`.
+ * 7. CompoundValueDesc: the expression is a compound expression (And/Or) for this reference,
+ *    like `a > 10 or a in (0, 1)`
+ * 8. UnknownValueDesc: we cannot infer the range for this reference.
+ *
+ * The expression is a tree structure, each node is an operator (And/Or), leaf node is a simple expression.
+ * The `ValueDesc` is also a tree structure, each node is a `CompoundValueDesc`,
+ * leaf node is one of the other `ValueDesc`.
+ * When we want to simplify a reference's range, that is to say, we want to get the merged `ValueDesc`
+ * for this reference. Here is the simplify range algorithm:
+ * 1. Convert the expression tree to `ValueDesc` tree from bottom to top.
+ * 2. When converting, we can merge `ValueDesc` in the same level for those have the same reference.
+ *    The `merged` is the most important step, it will perform intersect/union operation according to the operator,
+ *    and return a new `ValueDesc` for the reference, and make the reference's range more precise.
+ * 3. After getting the `ValueDesc` tree, we can convert it back to expression tree from bottom to top.
+ *
+ * Since the merged `ValueDesc` is more precise than the original one,
+ * the final expression is simplified than the original one.
+ *
  */
 public class SimplifyRange implements ExpressionPatternRuleFactory, ValueDescVisitor<Expression, Void> {
     public static final SimplifyRange INSTANCE = new SimplifyRange();

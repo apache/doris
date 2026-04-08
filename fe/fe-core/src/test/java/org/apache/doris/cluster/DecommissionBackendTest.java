@@ -19,6 +19,7 @@ package org.apache.doris.cluster;
 
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.LocalReplica;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -308,7 +309,7 @@ public class DecommissionBackendTest extends TestWithFeService {
         TabletInvertedIndex invertIndex = Env.getCurrentInvertedIndex();
         long fakeTabletId =  123123123L;
         TabletMeta fakeTabletMeta = new TabletMeta(1234567L, 1234568L, 1234569L, 1234570L, 0, TStorageMedium.HDD);
-        Replica fakeReplica = new Replica(1234571L, srcBackend.getId(), 0, Replica.ReplicaState.NORMAL);
+        Replica fakeReplica = new LocalReplica(1234571L, srcBackend.getId(), 0, Replica.ReplicaState.NORMAL);
 
         Supplier<List<Long>> getNotInRecycleBinTablets = () -> {
             List<Long> tabletIds = Lists.newArrayList();

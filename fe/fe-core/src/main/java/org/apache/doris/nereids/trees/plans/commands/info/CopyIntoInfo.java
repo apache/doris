@@ -35,8 +35,8 @@ import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB;
 import org.apache.doris.cloud.proto.Cloud.StagePB;
 import org.apache.doris.cloud.proto.Cloud.StagePB.StageType;
 import org.apache.doris.cloud.stage.StageUtil;
-import org.apache.doris.cloud.storage.RemoteBase;
-import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.cloud.storage.ObjectInfo;
+import org.apache.doris.cloud.storage.ObjectInfoAdapter;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.DebugUtil;
@@ -121,7 +121,7 @@ public class CopyIntoInfo {
     private String stageId;
     private StageType stageType;
     private String stagePrefix;
-    private RemoteBase.ObjectInfo objectInfo;
+    private ObjectInfo objectInfo;
     private String userName;
     private TableNameInfo tableNameInfo;
 
@@ -188,7 +188,7 @@ public class CopyIntoInfo {
         if (stage.isEmpty()) {
             throw new AnalysisException("Stage name can not be empty");
         }
-        this.userName = ClusterNamespace.getNameFromFullName(ctx.getCurrentUserIdentity().getQualifiedUser());
+        this.userName = ctx.getCurrentUserIdentity().getQualifiedUser();
         doValidate(userName, db, true);
     }
 
@@ -298,35 +298,12 @@ public class CopyIntoInfo {
         }
 
         // translate copy from description to copy from param
-        legacyCopyFromParam = toLegacyParam(copyFromDesc, analyzer, context, cascadesContext);
+        legacyCopyFromParam = toLegacyParam(copyFromDesc);
     }
 
-    private CopyFromParam toLegacyParam(CopyFromDesc copyFromDesc, ExpressionAnalyzer analyzer,
-                                        PlanTranslatorContext context, CascadesContext cascadesContext) {
+    private CopyFromParam toLegacyParam(CopyFromDesc copyFromDesc) {
         StageAndPattern stageAndPattern = copyFromDesc.getStageAndPattern();
-        List<Expr> exprList = null;
-        if (copyFromDesc.getExprList() != null) {
-            exprList = new ArrayList<>();
-            for (Expression expression : copyFromDesc.getExprList()) {
-                exprList.add(translateToLegacyExpr(expression, analyzer, context, cascadesContext));
-            }
-        }
-        Expr fileFilterExpr = null;
-        if (copyFromDesc.getFileFilterExpr().isPresent()) {
-            fileFilterExpr = translateToLegacyExpr(copyFromDesc.getFileFilterExpr().get(),
-                    analyzer, context, cascadesContext);
-        }
-        List<String> fileColumns = copyFromDesc.getFileColumns();
-        List<Expr> columnMappingList = null;
-        if (copyFromDesc.getColumnMappingList() != null) {
-            columnMappingList = new ArrayList<>();
-            for (Expression expression : copyFromDesc.getColumnMappingList()) {
-                columnMappingList.add(translateToLegacyExpr(expression, analyzer, context, cascadesContext));
-            }
-        }
-        List<String> targetColumns = copyFromDesc.getTargetColumns();
-        return new CopyFromParam(stageAndPattern, exprList, fileFilterExpr, fileColumns, columnMappingList,
-                targetColumns);
+        return new CopyFromParam(stageAndPattern);
     }
 
     private Expr translateToLegacyExpr(Expression expr, ExpressionAnalyzer analyzer, PlanTranslatorContext context,
@@ -357,7 +334,7 @@ public class CopyIntoInfo {
         stageId = stagePB.getStageId();
         ObjectStoreInfoPB objInfo = stagePB.getObjInfo();
         stagePrefix = objInfo.getPrefix();
-        objectInfo = RemoteBase.analyzeStageObjectStoreInfo(stagePB);
+        objectInfo = ObjectInfoAdapter.analyzeStageObjectStoreInfo(stagePB);
         brokerProperties.put(S3Properties.Env.ENDPOINT, objInfo.getEndpoint());
         brokerProperties.put(S3Properties.Env.REGION, objInfo.getRegion());
         brokerProperties.put(S3Properties.Env.ACCESS_KEY, objectInfo.getAk());
@@ -438,7 +415,7 @@ public class CopyIntoInfo {
         return userName;
     }
 
-    public RemoteBase.ObjectInfo getObjectInfo() {
+    public ObjectInfo getObjectInfo() {
         return objectInfo;
     }
 

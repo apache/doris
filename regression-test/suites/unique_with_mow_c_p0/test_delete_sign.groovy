@@ -35,7 +35,7 @@ suite("test_delete_sign", "p0") {
                         col3 INT,
                         col4 variant
                     ) unique key(col1, col2)
-                    CLUSTER BY (`col3`, `col2`) 
+                    ORDER BY (`col3`, `col2`) 
                     distributed by hash(col1) buckets 1
                     properties(
                         "replication_num" = "1",
@@ -60,7 +60,7 @@ suite("test_delete_sign", "p0") {
                         col3 INT,
                         col4 variant
                     ) unique key(col1, col2) 
-                    CLUSTER BY (`col2`, `col3`) 
+                    ORDER BY (`col2`, `col3`) 
                     distributed by hash(col1) buckets 1
                     properties(
                         "replication_num" = "1",
@@ -88,7 +88,7 @@ suite("test_delete_sign", "p0") {
                         col3 INT,
                         col4 variant NULL
                     ) unique key(col1, col2)
-                    CLUSTER BY (`col1`, `col3`)  
+                    ORDER BY (`col1`, `col3`)  
                     distributed by hash(col1) buckets 1
                     properties(
                         "replication_num" = "1",
@@ -114,7 +114,7 @@ suite("test_delete_sign", "p0") {
                         col4 variant default NULL,
                         INDEX idx_col3 (`col3`) USING INVERTED,
                     ) unique key(col1, col2)
-                    CLUSTER BY (`col3`, `col1`, `col2`)  
+                    ORDER BY (`col3`, `col1`, `col2`)  
                     distributed by hash(col1) buckets 1
                     properties(
                         "replication_num" = "1",

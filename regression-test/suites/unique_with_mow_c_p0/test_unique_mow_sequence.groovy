@@ -30,7 +30,7 @@ suite("test_unique_mow_sequence") {
                     `c_mktsegment` varchar(11) NOT NULL COMMENT ""
             )
             UNIQUE KEY (`c_custkey`)
-            CLUSTER BY (`c_nation`, `c_mktsegment`, `c_region`)
+            ORDER BY (`c_nation`, `c_mktsegment`, `c_region`)
             DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 10
             PROPERTIES (
                     "function_column.sequence_type" = 'int',

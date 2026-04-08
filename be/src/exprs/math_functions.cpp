@@ -29,7 +29,7 @@
 #include <limits>
 #include <string_view>
 
-#include "udf/udf.h"
+#include "exprs/function_context.h"
 #include "util/string_parser.hpp"
 
 namespace doris {

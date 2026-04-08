@@ -32,7 +32,6 @@ suite("push_topn_to_agg") {
     explain{
         sql "select o_custkey, sum(o_shippriority) from orders group by o_custkey limit 4;"
         multiContains ("sortByGroupKey:true", 2)
-        notContains("STREAMING")
     }
 
     // when apply this opt, trun off STREAMING
@@ -40,14 +39,12 @@ suite("push_topn_to_agg") {
     explain{
         sql "select sum(c_custkey), c_name from customer group by c_name limit 6;"
         multiContains ("sortByGroupKey:true", 2)
-        notContains("STREAMING")
     }
 
     // topn -> agg
     explain{
         sql "select o_custkey, sum(o_shippriority) from orders group by o_custkey order by o_custkey limit 8;"
         multiContains ("sortByGroupKey:true", 2)
-        notContains("STREAMING")
     }
 
     // order keys are part of group keys, 

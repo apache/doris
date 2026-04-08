@@ -33,6 +33,7 @@ OPTS="$(getopt \
     -l 'image:' \
     -l 'version' \
     -l 'metadata_failure_recovery' \
+    -l 'recovery_journal_id:' \
     -l 'console' \
     -l 'cluster_snapshot:' \
     -- "$@")"
@@ -46,6 +47,7 @@ IMAGE_PATH=''
 IMAGE_TOOL=''
 OPT_VERSION=''
 METADATA_FAILURE_RECOVERY=''
+RECOVERY_JOURNAL_ID=''
 CLUSTER_SNAPSHOT=''
 while true; do
     case "$1" in
@@ -64,6 +66,10 @@ while true; do
     --metadata_failure_recovery)
         METADATA_FAILURE_RECOVERY="-r"
         shift
+        ;;
+    --recovery_journal_id)
+        RECOVERY_JOURNAL_ID="--recovery_journal_id $2"
+        shift 2
         ;;
     --helper)
         HELPER="$2"
@@ -195,7 +201,7 @@ log() {
 
 # Extract the matching key from a Java option for deduplication purposes.
 # Different option types have different key extraction rules:
-#   --add-opens java.base/sun.util.calendar=ALL-UNNAMED -> --add-opens java.base/sun.util.calendar
+#   --add-opens=java.base/sun.util.calendar=ALL-UNNAMED -> --add-opens=java.base/sun.util.calendar
 #   -XX:+HeapDumpOnOutOfMemoryError                     -> -XX:[+-]HeapDumpOnOutOfMemoryError
 #   -XX:HeapDumpPath=/path                              -> -XX:HeapDumpPath
 #   -Dfile.encoding=UTF-8                               -> -Dfile.encoding
@@ -204,9 +210,9 @@ extract_java_opt_key() {
     local param="$1"
 
     case "${param}" in
-        "--add-opens "* | "--add-exports="* | "--add-reads="* | "--add-modules="*)
-            # --add-opens java.base/sun.util.calendar=ALL-UNNAMED
-            # Extract module/package path as key: --add-opens java.base/sun.util.calendar
+        "--add-opens="* | "--add-exports="* | "--add-reads="* | "--add-modules="*)
+            # --add-opens=java.base/sun.util.calendar=ALL-UNNAMED
+            # Extract module/package path as key: --add-opens=java.base/sun.util.calendar
             echo "${param%=*}"
             ;;
         -XX:+* | -XX:-*)
@@ -279,7 +285,7 @@ java_opt_exists() {
 # Arguments:
 #   $1 - The option to add
 # Usage:
-#   add_java_opt_if_missing "--add-opens java.base/sun.util.calendar=ALL-UNNAMED"
+#   add_java_opt_if_missing "--add-opens=java.base/sun.util.calendar=ALL-UNNAMED"
 #   add_java_opt_if_missing "-XX:+HeapDumpOnOutOfMemoryError"
 #   add_java_opt_if_missing "-Dfile.encoding=UTF-8"
 add_java_opt_if_missing() {
@@ -315,23 +321,23 @@ add_java_opt_if_missing "-Darrow.enable_null_check_for_get=false"
 add_java_opt_if_missing "-Djavax.security.auth.useSubjectCredsOnly=false"
 add_java_opt_if_missing "-Dsun.security.krb5.debug=true"
 add_java_opt_if_missing "-Dfile.encoding=UTF-8"
-add_java_opt_if_missing "--add-opens java.base/java.lang=ALL-UNNAMED"
-add_java_opt_if_missing "--add-opens java.base/java.lang.invoke=ALL-UNNAMED"
-add_java_opt_if_missing "--add-opens java.base/java.lang.reflect=ALL-UNNAMED"
-add_java_opt_if_missing "--add-opens java.base/java.io=ALL-UNNAMED"
-add_java_opt_if_missing "--add-opens java.base/java.net=ALL-UNNAMED"
-add_java_opt_if_missing "--add-opens java.base/java.nio=ALL-UNNAMED"
-add_java_opt_if_missing "--add-opens java.base/java.util=ALL-UNNAMED"
-add_java_opt_if_missing "--add-opens java.base/java.util.concurrent=ALL-UNNAMED"
-add_java_opt_if_missing "--add-opens java.base/java.util.concurrent.atomic=ALL-UNNAMED"
-add_java_opt_if_missing "--add-opens java.base/sun.nio.ch=ALL-UNNAMED"
-add_java_opt_if_missing "--add-opens java.base/sun.nio.cs=ALL-UNNAMED"
-add_java_opt_if_missing "--add-opens java.base/sun.security.action=ALL-UNNAMED"
-add_java_opt_if_missing "--add-opens java.base/sun.util.calendar=ALL-UNNAME"
-add_java_opt_if_missing "--add-opens java.security.jgss/sun.security.krb5=ALL-UNNAMED"
-add_java_opt_if_missing "--add-opens java.management/sun.management=ALL-UNNAMED"
-add_java_opt_if_missing "--add-opens java.base/jdk.internal.ref=ALL-UNNAMED"
-add_java_opt_if_missing "--add-opens java.xml/com.sun.org.apache.xerces.internal.jaxp=ALL-UNNAMED"
+add_java_opt_if_missing "--add-opens=java.base/java.lang=ALL-UNNAMED"
+add_java_opt_if_missing "--add-opens=java.base/java.lang.invoke=ALL-UNNAMED"
+add_java_opt_if_missing "--add-opens=java.base/java.lang.reflect=ALL-UNNAMED"
+add_java_opt_if_missing "--add-opens=java.base/java.io=ALL-UNNAMED"
+add_java_opt_if_missing "--add-opens=java.base/java.net=ALL-UNNAMED"
+add_java_opt_if_missing "--add-opens=java.base/java.nio=ALL-UNNAMED"
+add_java_opt_if_missing "--add-opens=java.base/java.util=ALL-UNNAMED"
+add_java_opt_if_missing "--add-opens=java.base/java.util.concurrent=ALL-UNNAMED"
+add_java_opt_if_missing "--add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED"
+add_java_opt_if_missing "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED"
+add_java_opt_if_missing "--add-opens=java.base/sun.nio.cs=ALL-UNNAMED"
+add_java_opt_if_missing "--add-opens=java.base/sun.security.action=ALL-UNNAMED"
+add_java_opt_if_missing "--add-opens=java.base/sun.util.calendar=ALL-UNNAME"
+add_java_opt_if_missing "--add-opens=java.security.jgss/sun.security.krb5=ALL-UNNAMED"
+add_java_opt_if_missing "--add-opens=java.management/sun.management=ALL-UNNAMED"
+add_java_opt_if_missing "--add-opens=java.base/jdk.internal.ref=ALL-UNNAMED"
+add_java_opt_if_missing "--add-opens=java.xml/com.sun.org.apache.xerces.internal.jaxp=ALL-UNNAMED"
 
 log "${final_java_opt}"
 export JAVA_OPTS="${final_java_opt}"
@@ -358,6 +364,14 @@ fi
 # should after jars in lib/, or it will override the hadoop jars in lib/
 if [[ -d "${DORIS_HOME}/lib/jindofs" ]]; then
     for f in "${DORIS_HOME}/lib/jindofs"/*.jar; do
+        CLASSPATH="${CLASSPATH}:${f}"
+    done
+fi
+
+# add juicefs
+# should after jars in lib/, or it will override the hadoop jars in lib/
+if [[ -d "${DORIS_HOME}/lib/juicefs" ]]; then
+    for f in "${DORIS_HOME}/lib/juicefs"/*.jar; do
         CLASSPATH="${CLASSPATH}:${f}"
     done
 fi
@@ -418,12 +432,12 @@ if [[ "${IMAGE_TOOL}" -eq 1 ]]; then
         echo "Internal error, USE IMAGE_TOOL like: ./start_fe.sh --image image_path"
     fi
 elif [[ "${RUN_DAEMON}" -eq 1 ]]; then
-    nohup ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} -XX:-OmitStackTraceInFastThrow -XX:OnOutOfMemoryError="kill -9 %p" ${coverage_opt:+${coverage_opt}} org.apache.doris.DorisFE ${HELPER:+${HELPER}} "${METADATA_FAILURE_RECOVERY}" "${CLUSTER_SNAPSHOT}" "$@" >>"${STDOUT_LOGGER}" 2>&1 </dev/null &
+    nohup ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} -XX:-OmitStackTraceInFastThrow -XX:OnOutOfMemoryError="kill -9 %p" ${coverage_opt:+${coverage_opt}} org.apache.doris.DorisFE ${HELPER:+${HELPER}} "${METADATA_FAILURE_RECOVERY}" "${RECOVERY_JOURNAL_ID:+${RECOVERY_JOURNAL_ID}}" "${CLUSTER_SNAPSHOT}" "$@" >>"${STDOUT_LOGGER}" 2>&1 </dev/null &
 elif [[ "${RUN_CONSOLE}" -eq 1 ]]; then
     export DORIS_LOG_TO_STDERR=1
-    ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} -XX:-OmitStackTraceInFastThrow -XX:OnOutOfMemoryError="kill -9 %p" ${coverage_opt:+${coverage_opt}} org.apache.doris.DorisFE ${HELPER:+${HELPER}} ${OPT_VERSION:+${OPT_VERSION}} "${METADATA_FAILURE_RECOVERY}" "${CLUSTER_SNAPSHOT}" "$@" </dev/null
+    ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} -XX:-OmitStackTraceInFastThrow -XX:OnOutOfMemoryError="kill -9 %p" ${coverage_opt:+${coverage_opt}} org.apache.doris.DorisFE ${HELPER:+${HELPER}} ${OPT_VERSION:+${OPT_VERSION}} "${METADATA_FAILURE_RECOVERY}" "${RECOVERY_JOURNAL_ID:+${RECOVERY_JOURNAL_ID}}" "${CLUSTER_SNAPSHOT}" "$@" >>"${STDOUT_LOGGER}" </dev/null
 else
-    ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} -XX:-OmitStackTraceInFastThrow -XX:OnOutOfMemoryError="kill -9 %p" ${coverage_opt:+${coverage_opt}} org.apache.doris.DorisFE ${HELPER:+${HELPER}} ${OPT_VERSION:+${OPT_VERSION}} "${METADATA_FAILURE_RECOVERY}" "${CLUSTER_SNAPSHOT}" "$@" >>"${STDOUT_LOGGER}" 2>&1 </dev/null
+    ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} -XX:-OmitStackTraceInFastThrow -XX:OnOutOfMemoryError="kill -9 %p" ${coverage_opt:+${coverage_opt}} org.apache.doris.DorisFE ${HELPER:+${HELPER}} ${OPT_VERSION:+${OPT_VERSION}} "${METADATA_FAILURE_RECOVERY}" "${RECOVERY_JOURNAL_ID:+${RECOVERY_JOURNAL_ID}}" "${CLUSTER_SNAPSHOT}" "$@" >>"${STDOUT_LOGGER}" 2>&1 </dev/null
 fi
 
 if [[ "${OPT_VERSION}" != "" ]]; then

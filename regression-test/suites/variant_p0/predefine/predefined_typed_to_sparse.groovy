@@ -16,6 +16,8 @@
 // under the License.
 suite("test_predefine_typed_to_sparse", "p0"){ 
     sql """ set enable_common_expr_pushdown = true """
+    sql """ set default_variant_enable_doc_mode = false """
+    sql """ set enable_variant_schema_auto_cast = false """
     def count = new Random().nextInt(10) + 1
 
      def load_json_data = {table_name, file_name ->
@@ -126,7 +128,7 @@ suite("test_predefine_typed_to_sparse", "p0"){
 
     qt_sql """ select * from ${tableName} order by id limit 10 """
 
-    trigger_and_wait_compaction(tableName, "cumulative")
+    trigger_and_wait_compaction(tableName, "cumulative", 1800)
 
     qt_sql """ select * from ${tableName} order by id limit 10"""
 
@@ -208,7 +210,7 @@ suite("test_predefine_typed_to_sparse", "p0"){
     qt_sql """ select * from ${tableName} order by id limit 10 """
     qt_sql """ select var['array_decimal_1'], var['array_ipv6_1'], var['int_1'], var['int_nested'], var['string_1'], var['string_1_nested'], var['decimal_1'], var['datetime_1'], var['datetimev2_1'], var['date_1'], var['datev2_1'], var['ipv4_1'], var['ipv6_1'], var['largeint_1'], var['char_1'] from ${tableName} order by id """
 
-    trigger_and_wait_compaction(tableName, "cumulative")
+    trigger_and_wait_compaction(tableName, "cumulative", 1800)
 
     qt_sql """ select variant_type(var) from ${tableName} limit 1"""
     qt_sql """ select * from ${tableName} order by id limit 10"""

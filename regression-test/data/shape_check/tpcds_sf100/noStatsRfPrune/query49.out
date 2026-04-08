@@ -30,7 +30,7 @@ PhysicalResultSink
 ------------------------------------------------------PhysicalProject
 --------------------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((ws.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF2 d_date_sk->[ws_sold_date_sk]
 ----------------------------------------------------------PhysicalProject
-------------------------------------------------------------hashJoin[INNER_JOIN colocated] hashCondition=((ws.ws_item_sk = wr.wr_item_sk) and (ws.ws_order_number = wr.wr_order_number)) otherCondition=() build RFs:RF0 wr_order_number->[ws_order_number];RF1 wr_item_sk->[ws_item_sk]
+------------------------------------------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((ws.ws_item_sk = wr.wr_item_sk) and (ws.ws_order_number = wr.wr_order_number)) otherCondition=() build RFs:RF0 wr_order_number->[ws_order_number];RF1 wr_item_sk->[ws_item_sk]
 --------------------------------------------------------------PhysicalProject
 ----------------------------------------------------------------filter((ws.ws_net_paid > 0.00) and (ws.ws_net_profit > 1.00) and (ws.ws_quantity > 0))
 ------------------------------------------------------------------PhysicalOlapScan[web_sales(ws)] apply RFs: RF0 RF1 RF2
@@ -62,7 +62,7 @@ PhysicalResultSink
 ------------------------------------------------------PhysicalProject
 --------------------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((cs.cs_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF5 d_date_sk->[cs_sold_date_sk]
 ----------------------------------------------------------PhysicalProject
-------------------------------------------------------------hashJoin[INNER_JOIN colocated] hashCondition=((cs.cs_item_sk = cr.cr_item_sk) and (cs.cs_order_number = cr.cr_order_number)) otherCondition=() build RFs:RF3 cr_order_number->[cs_order_number];RF4 cr_item_sk->[cs_item_sk]
+------------------------------------------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((cs.cs_item_sk = cr.cr_item_sk) and (cs.cs_order_number = cr.cr_order_number)) otherCondition=() build RFs:RF3 cr_order_number->[cs_order_number];RF4 cr_item_sk->[cs_item_sk]
 --------------------------------------------------------------PhysicalProject
 ----------------------------------------------------------------filter((cs.cs_net_paid > 0.00) and (cs.cs_net_profit > 1.00) and (cs.cs_quantity > 0))
 ------------------------------------------------------------------PhysicalOlapScan[catalog_sales(cs)] apply RFs: RF3 RF4 RF5
@@ -94,7 +94,7 @@ PhysicalResultSink
 ------------------------------------------------------PhysicalProject
 --------------------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((sts.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF8 d_date_sk->[ss_sold_date_sk]
 ----------------------------------------------------------PhysicalProject
-------------------------------------------------------------hashJoin[INNER_JOIN colocated] hashCondition=((sts.ss_item_sk = sr.sr_item_sk) and (sts.ss_ticket_number = sr.sr_ticket_number)) otherCondition=() build RFs:RF6 sr_ticket_number->[ss_ticket_number];RF7 sr_item_sk->[ss_item_sk]
+------------------------------------------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((sts.ss_item_sk = sr.sr_item_sk) and (sts.ss_ticket_number = sr.sr_ticket_number)) otherCondition=() build RFs:RF6 sr_ticket_number->[ss_ticket_number];RF7 sr_item_sk->[ss_item_sk]
 --------------------------------------------------------------PhysicalProject
 ----------------------------------------------------------------filter((sts.ss_net_paid > 0.00) and (sts.ss_net_profit > 1.00) and (sts.ss_quantity > 0))
 ------------------------------------------------------------------PhysicalOlapScan[store_sales(sts)] apply RFs: RF6 RF7 RF8

@@ -46,7 +46,7 @@ under the License.
     &nbsp;
     <a href="https://github.com/apache/doris/discussions"><img src="https://img.shields.io/badge/- Discussion -red?style=social&logo=discourse" height=25></a>
     &nbsp;
-    <a href="https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-35mzao67o-BrpU70FNKPyB6UlgpXf8_w" height=25></a>
+    <a href="https://doris.apache.org/slack" height=25></a>
     &nbsp;
     <a href="https://medium.com/@ApacheDoris"><img src="https://img.shields.io/badge/-Medium-red?style=social&logo=medium" height=25></a>
 
@@ -295,7 +295,7 @@ Doris Spark/Flink-এর জন্য Connector-এর মাধ্যমে Dor
 
 * Apache Doris অফিসিয়াল ওয়েবসাইট - [সাইট](https://doris.apache.org)
 * ডেভেলপার মেইলিং তালিকা - <dev@doris.apache.org>। মেইলিং তালিকায় সাবস্ক্রাইব করতে <dev-subscribe@doris.apache.org>-এ ইমেইল করুন, উত্তর অনুসরণ করুন।
-* Slack চ্যানেল - [Slack-এ যোগ দিন](https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-35mzao67o-BrpU70FNKPyB6UlgpXf8_w)
+* Slack চ্যানেল - [Slack-এ যোগ দিন](https://doris.apache.org/slack)
 * Twitter - [@doris_apache অনুসরণ করুন](https://twitter.com/doris_apache)
 
 

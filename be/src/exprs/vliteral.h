@@ -1,0 +1,79 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#pragma once
+
+#include <memory>
+#include <string>
+
+#include "common/object_pool.h"
+#include "common/status.h"
+#include "core/data_type/data_type.h"
+#include "core/data_type_serde/data_type_serde.h"
+#include "exprs/vexpr.h"
+
+namespace doris {
+class TExprNode;
+
+class Block;
+class VExprContext;
+
+class VLiteral : public VExpr {
+    ENABLE_FACTORY_CREATOR(VLiteral);
+
+public:
+    VLiteral(const TExprNode& node, bool should_init = true)
+            : VExpr(node), _expr_name(_data_type->get_name()) {
+        if (should_init) {
+            init(node);
+        }
+    }
+
+#ifdef BE_TEST
+    VLiteral() = default;
+    MOCK_FUNCTION std::string value() const;
+#endif
+
+    Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
+    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
+                          size_t count, ColumnPtr& result_column) const override;
+
+    const std::string& expr_name() const override { return _expr_name; }
+    std::string debug_string() const override;
+
+    double execute_cost() const override { return 0.0; }
+
+    MOCK_FUNCTION std::string value(const DataTypeSerDe::FormatOptions& options) const;
+
+    const ColumnPtr& get_column_ptr() const { return _column_ptr; }
+    const DataTypePtr& get_data_type() const { return _data_type; }
+
+    bool is_literal() const override { return true; }
+
+    bool equals(const VExpr& other) override;
+
+    uint64_t get_digest(uint64_t seed) const override;
+
+protected:
+    ColumnPtr _column_ptr;
+    std::string _expr_name;
+
+private:
+    void init(const TExprNode& node);
+};
+
+} // namespace doris

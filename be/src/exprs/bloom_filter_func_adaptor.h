@@ -18,13 +18,13 @@
 #pragma once
 
 #include "common/status.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
+#include "core/data_type/primitive_type.h"
+#include "core/string_ref.h"
 #include "exprs/block_bloom_filter.hpp"
 #include "exprs/filter_base.h"
 #include "exprs/hybrid_set.h"
-#include "runtime/primitive_type.h"
-#include "vec/columns/column_nullable.h"
-#include "vec/columns/column_string.h"
-#include "vec/common/string_ref.h"
 
 namespace doris {
 
@@ -87,15 +87,29 @@ struct CommonFindOp {
                                                               number, is_parse_column);
     }
 
-    static void insert_batch(BloomFilterAdaptor& bloom_filter, const vectorized::ColumnPtr& column,
+    template <typename Func>
+    static void for_each_with_filter(size_t n, const uint8_t* __restrict filter, Func&& f) {
+        if (filter != nullptr) {
+            for (size_t i = 0; i < n; ++i) {
+                if (filter[i]) {
+                    std::forward<Func>(f)(i);
+                }
+            }
+        } else {
+            for (size_t i = 0; i < n; ++i) {
+                std::forward<Func>(f)(i);
+            }
+        }
+    }
+
+    static void insert_batch(BloomFilterAdaptor& bloom_filter, const ColumnPtr& column,
                              size_t start) {
         const auto size = column->size();
         if (column->is_nullable()) {
-            const auto* nullable = assert_cast<const vectorized::ColumnNullable*>(column.get());
+            const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
             const auto& col = nullable->get_nested_column();
             const auto& nullmap =
-                    assert_cast<const vectorized::ColumnUInt8&>(nullable->get_null_map_column())
-                            .get_data();
+                    assert_cast<const ColumnUInt8&>(nullable->get_null_map_column()).get_data();
 
             const T* data = (T*)col.get_raw_data().data;
             for (size_t i = start; i < size; i++) {
@@ -121,17 +135,16 @@ struct CommonFindOp {
         }
     }
 
-    static void find_batch(const BloomFilterAdaptor& bloom_filter,
-                           const vectorized::ColumnPtr& column, uint8_t* results) {
+    static void find_batch(const BloomFilterAdaptor& bloom_filter, const ColumnPtr& column,
+                           uint8_t* results, const uint8_t* __restrict filter) {
         const T* __restrict data = nullptr;
         const uint8_t* __restrict nullmap = nullptr;
         if (column->is_nullable()) {
-            const auto* nullable = assert_cast<const vectorized::ColumnNullable*>(column.get());
+            const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
             if (nullable->has_null()) {
-                nullmap =
-                        assert_cast<const vectorized::ColumnUInt8&>(nullable->get_null_map_column())
-                                .get_data()
-                                .data();
+                nullmap = assert_cast<const ColumnUInt8&>(nullable->get_null_map_column())
+                                  .get_data()
+                                  .data();
             }
             data = (T*)nullable->get_nested_column().get_raw_data().data;
         } else {
@@ -140,24 +153,28 @@ struct CommonFindOp {
 
         const auto size = column->size();
         if (nullmap) {
-            for (size_t i = 0; i < size; i++) {
+            auto update = [&](size_t i) {
                 if (!nullmap[i]) {
                     results[i] = bloom_filter.test_element<fixed_len_to_uint32_method>(data[i]);
                 } else {
                     results[i] = bloom_filter.contain_null();
                 }
-            }
+            };
+            for_each_with_filter(size, filter, update);
         } else {
-            for (size_t i = 0; i < size; i++) {
+            auto update = [&](size_t i) {
                 results[i] = bloom_filter.test_element<fixed_len_to_uint32_method>(data[i]);
-            }
+            };
+            for_each_with_filter(size, filter, update);
         }
     }
 };
 
 template <typename fixed_len_to_uint32_method>
 struct StringFindOp : CommonFindOp<fixed_len_to_uint32_method, StringRef> {
-    static void insert_batch(BloomFilterAdaptor& bloom_filter, const vectorized::ColumnPtr& column,
+    using CommonFindOp<fixed_len_to_uint32_method, StringRef>::for_each_with_filter;
+
+    static void insert_batch(BloomFilterAdaptor& bloom_filter, const ColumnPtr& column,
                              size_t start) {
         auto _insert_batch_col_str = [&](const auto& col, const uint8_t* __restrict nullmap,
                                          size_t start, size_t size) {
@@ -171,61 +188,62 @@ struct StringFindOp : CommonFindOp<fixed_len_to_uint32_method, StringRef> {
         };
 
         if (column->is_nullable()) {
-            const auto* nullable = assert_cast<const vectorized::ColumnNullable*>(column.get());
+            const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
             const auto& nullmap =
-                    assert_cast<const vectorized::ColumnUInt8&>(nullable->get_null_map_column())
-                            .get_data();
+                    assert_cast<const ColumnUInt8&>(nullable->get_null_map_column()).get_data();
             if (nullable->get_nested_column().is_column_string64()) {
-                _insert_batch_col_str(assert_cast<const vectorized::ColumnString64&>(
-                                              nullable->get_nested_column()),
-                                      nullmap.data(), start, nullmap.size());
+                _insert_batch_col_str(
+                        assert_cast<const ColumnString64&>(nullable->get_nested_column()),
+                        nullmap.data(), start, nullmap.size());
             } else {
                 _insert_batch_col_str(
-                        assert_cast<const vectorized::ColumnString&>(nullable->get_nested_column()),
+                        assert_cast<const ColumnString&>(nullable->get_nested_column()),
                         nullmap.data(), start, nullmap.size());
             }
         } else {
             if (column->is_column_string64()) {
-                _insert_batch_col_str(assert_cast<const vectorized::ColumnString64&>(*column),
-                                      nullptr, start, column->size());
+                _insert_batch_col_str(assert_cast<const ColumnString64&>(*column), nullptr, start,
+                                      column->size());
             } else {
-                _insert_batch_col_str(assert_cast<const vectorized::ColumnString&>(*column),
-                                      nullptr, start, column->size());
+                _insert_batch_col_str(assert_cast<const ColumnString&>(*column), nullptr, start,
+                                      column->size());
             }
         }
     }
 
-    static void find_batch(const BloomFilterAdaptor& bloom_filter,
-                           const vectorized::ColumnPtr& column, uint8_t* results) {
+    static void find_batch(const BloomFilterAdaptor& bloom_filter, const ColumnPtr& column,
+                           uint8_t* results, const uint8_t* __restrict filter) {
         if (column->is_nullable()) {
-            const auto* nullable = assert_cast<const vectorized::ColumnNullable*>(column.get());
-            const auto& col =
-                    assert_cast<const vectorized::ColumnString&>(nullable->get_nested_column());
+            const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
+            const auto& col = assert_cast<const ColumnString&>(nullable->get_nested_column());
             const auto& nullmap =
-                    assert_cast<const vectorized::ColumnUInt8&>(nullable->get_null_map_column())
-                            .get_data();
-
+                    assert_cast<const ColumnUInt8&>(nullable->get_null_map_column()).get_data();
             if (nullable->has_null()) {
-                for (size_t i = 0; i < col.size(); i++) {
+                auto update = [&](size_t i) {
                     if (!nullmap[i]) {
                         results[i] = bloom_filter.test_element<fixed_len_to_uint32_method>(
                                 col.get_data_at(i));
                     } else {
                         results[i] = bloom_filter.contain_null();
                     }
-                }
+                };
+                for_each_with_filter(column->size(), filter, update);
             } else {
-                for (size_t i = 0; i < col.size(); i++) {
+                auto update = [&](size_t i) {
                     results[i] = bloom_filter.test_element<fixed_len_to_uint32_method>(
                             col.get_data_at(i));
-                }
+                };
+                for_each_with_filter(column->size(), filter, update);
             }
         } else {
-            const auto& col = assert_cast<const vectorized::ColumnString*>(column.get());
-            for (size_t i = 0; i < col->size(); i++) {
+            const auto& col = assert_cast<const ColumnString*>(column.get());
+
+            auto update = [&](size_t i) {
                 results[i] =
                         bloom_filter.test_element<fixed_len_to_uint32_method>(col->get_data_at(i));
-            }
+            };
+
+            for_each_with_filter(column->size(), filter, update);
         }
     }
 };

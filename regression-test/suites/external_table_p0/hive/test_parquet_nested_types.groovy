@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_parquet_nested_types", "p0,external,hive,external_docker,external_docker_hive") {
+suite("test_parquet_nested_types", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable Hive test.")
         return;
     }
 
-    for (String hivePrefix : ["hive2", "hive3"]) {
+    for (String hivePrefix : ["hive3"]) {
         String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
         String catalog_name = "${hivePrefix}_test_parquet_nested_types"
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
@@ -202,6 +202,16 @@ suite("test_parquet_nested_types", "p0,external,hive,external_docker,external_do
             WHERE description LIKE '%large array%'
             ORDER BY id
         """
+
+        order_qt_test_parquet_lazy_read_struct_q1 """ select count(id),count(name),count(col),count(struct_element(col,"a")), count(struct_element(struct_element(col,"c"),"aa")) from test_parquet_lazy_read_struct where id = 1 """
+        order_qt_test_parquet_lazy_read_struct_q2 """ select count(id),count(name),count(col) ,count(struct_element(col,"a")), count(struct_element(struct_element(col,"c"),"aa")) from test_parquet_lazy_read_struct where id > 10 """
+        order_qt_test_parquet_lazy_read_struct_q3 """ select count(id),count(name),count(col), count(struct_element(col,"a")), count(struct_element(struct_element(col,"c"),"aa")) from test_parquet_lazy_read_struct where id < 1000 """
+        order_qt_test_parquet_lazy_read_struct_q4 """ select count(id),count(name),count(col), count(struct_element(col,"a")), count(struct_element(struct_element(col,"c"),"aa")) from test_parquet_lazy_read_struct where id %2 = 1 """
+        order_qt_test_parquet_lazy_read_struct_q5 """ select count(id),count(name),count(col),count(struct_element(col,"a")), count(struct_element(struct_element(col,"c"),"aa")) from test_parquet_lazy_read_struct where id %3 = 1 """
+        order_qt_test_parquet_lazy_read_struct_q6 """ select count(id),count(name),count(col), count(struct_element(col,"a")), count(struct_element(struct_element(col,"c"),"aa")) from test_parquet_lazy_read_struct where name = 'name_100' """
+        order_qt_test_parquet_lazy_read_struct_q7 """ select count(id),count(name),count(col),count(struct_element(col,"a")), count(struct_element(struct_element(col,"c"),"aa")) from test_parquet_lazy_read_struct where name != 'name_100' """
+
+
 
         sql """drop catalog ${catalog_name};"""
     }

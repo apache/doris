@@ -52,6 +52,17 @@ public:
     virtual void clone_instance(const CloneInstanceRequest& request,
                                 CloneInstanceResponse* response);
 
+    // Manually trigger snapshot compact for an instance.
+    virtual std::pair<MetaServiceCode, std::string> compact_snapshot(std::string_view instance_id);
+
+    // Decouple a cloned instance from its source snapshot.
+    //
+    // It removes the snapshot reference key in the source instance, and clears
+    // source_snapshot_id and source_instance_id from the cloned instance PB.
+    // The instance must have been created via clone_instance, and its snapshot_compact_status
+    // must be SNAPSHOT_COMPACT_DONE.
+    std::pair<MetaServiceCode, std::string> decouple_instance(std::string_view instance_id);
+
     virtual std::pair<MetaServiceCode, std::string> set_multi_version_status(
             std::string_view instance_id, MultiVersionStatus multi_version_status);
 
@@ -82,6 +93,14 @@ public:
     // Parse the serialized snapshot id to versionstamp.
     static bool parse_snapshot_versionstamp(std::string_view snapshot_id,
                                             Versionstamp* versionstamp);
+
+    // Get all snapshots of the specific instance.
+    //
+    // If the instance is created by rollback, also get the snapshots of all its predecessor instances.
+    // If the required_snapshot_id is not empty, only get the snapshot with the specific snapshot_id.
+    static std::pair<MetaServiceCode, std::string> get_all_snapshots(
+            Transaction* txn, std::string_view instance_id, std::string_view required_snapshot_id,
+            std::vector<std::pair<SnapshotPB, Versionstamp>>* snapshots);
 
     // Migrate the single version keys to multi-version keys for the instance.
     // Return 0 for success otherwise error.

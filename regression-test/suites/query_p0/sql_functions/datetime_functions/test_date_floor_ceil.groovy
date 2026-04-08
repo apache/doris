@@ -16,8 +16,6 @@
 // under the License.
 
 suite("test_date_floor_ceil") {
-    sql "set enable_nereids_planner=true;"
-    sql "set enable_fallback_to_original_planner=false;"
     sql "set enable_fold_constant_by_be=false;"
 
     qt_sql1 """select date_floor("2023-07-14 10:51:11",interval 5 second); """
@@ -309,4 +307,42 @@ suite("test_date_floor_ceil") {
     testFoldConst("SELECT YEAR_CEIL('2001-01-01 0:00:00.000001', 10);");
     testFoldConst("SELECT YEAR_CEIL('2001-01-01 0:00:00.000001', '1970-01-01');");
     testFoldConst("SELECT YEAR_CEIL('2001-01-01 0:00:00.000001', 10, '1970-01-01');");
+
+    // period < 1 should throw exception (FE constant folding path)
+    test {
+        sql "select date_floor('2007-01-02', interval 0 month);"
+        exception "out of range"
+    }
+    test {
+        sql "select date_ceil('2007-01-02', interval 0 month);"
+        exception "out of range"
+    }
+    test {
+        sql "select month_floor('2023-07-14 15:30:45', 0);"
+        exception "out of range"
+    }
+    test {
+        sql "select date_floor('2023-07-14 15:30:45', interval -1 month);"
+        exception "out of range"
+    }
+
+    // period < 1 should throw exception (BE path, the original bug scenario)
+    sql """set debug_skip_fold_constant = true"""
+    test {
+        sql "select date_floor('2007-01-02', interval 0 month);"
+        exception "out of range"
+    }
+    test {
+        sql "select date_ceil('2007-01-02', interval 0 month);"
+        exception "out of range"
+    }
+    test {
+        sql "select month_floor('2023-07-14 15:30:45', 0);"
+        exception "out of range"
+    }
+    test {
+        sql "select date_floor('2023-07-14 15:30:45', interval -1 month);"
+        exception "out of range"
+    }
+    sql """set debug_skip_fold_constant = false"""
 }

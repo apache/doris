@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include "vec/common/string_ref.h"
+#include "core/string_ref.h"
 
 namespace doris {
 class StringSearch;

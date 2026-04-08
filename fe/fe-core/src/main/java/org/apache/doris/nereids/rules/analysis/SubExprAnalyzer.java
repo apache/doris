@@ -227,7 +227,7 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
             throw new IllegalStateException("Missing CascadesContext");
         }
         CascadesContext subqueryContext = CascadesContext.newContextWithCteContext(
-                cascadesContext, expr.getQueryPlan(), cascadesContext.getCteContext());
+                cascadesContext, expr.getQueryPlan(), cascadesContext.getCteContext(), null);
         // don't use `getScope()` because we only need `getScope().getOuterScope()` and `getScope().getSlots()`
         // otherwise unexpected errors may occur
         Scope subqueryScope = new Scope(getScope().getOuterScope(),

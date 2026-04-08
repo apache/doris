@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_iceberg_view_query_p0", "p0,external,iceberg,external_docker,external_docker_iceberg") {
+suite("test_iceberg_view_query_p0", "p0,external") {
 
     String enableIcebergTest = context.config.otherConfigs.get("enableIcebergTest")
     // if (enableIcebergTest == null || !enableIcebergTest.equalsIgnoreCase("true")) {

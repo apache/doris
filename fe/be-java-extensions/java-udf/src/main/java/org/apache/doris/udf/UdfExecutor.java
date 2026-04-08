@@ -55,13 +55,9 @@ public class UdfExecutor extends BaseExecutor {
      */
     @Override
     public void close() {
-        // We are now un-usable (because the class loader has been
-        // closed), so null out method_ and classLoader_.
-        if (!isStaticLoad) {
-            super.close();
-        } else if (outputTable != null) {
-            outputTable.close();
-        }
+        // Call parent's close method which handles classLoader properly
+        // It will only close classLoader if not in static load mode
+        super.close();
     }
 
     public long evaluate(Map<String, String> inputParams, Map<String, String> outputParams) throws UdfRuntimeException {

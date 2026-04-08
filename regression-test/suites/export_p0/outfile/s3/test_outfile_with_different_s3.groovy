@@ -71,8 +71,24 @@ suite("test_outfile_with_different_s3", "p0") {
         String region = getS3Region()
         String bucket = context.config.otherConfigs.get("s3BucketName");
 
-        def outfile_url = outfile_to_S3(bucket, s3_endpoint, region, ak, sk)
+        def outFilePath = "${bucket}/outfile_different_s3/exp_"
+        test {
+            // change the ak/sk order
+            sql """
+                SELECT * FROM ${export_table_name} t ORDER BY user_id
+                INTO OUTFILE "s3://${outFilePath}"
+                FORMAT AS parquet
+                PROPERTIES (
+                    "s3.endpoint" = "${s3_endpoint}",
+                    "s3.region" = "${region}",
+                    "s3.access_key" = "${sk}", 
+                    "s3.secret_key"="${ak}" 
+                );
+            """
+            exception "InvalidAccessKeyId"
+        }
 
+        def outfile_url = outfile_to_S3(bucket, s3_endpoint, region, ak, sk)
         // http schema
         qt_s3_tvf_1_http """ SELECT * FROM S3 (
             "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.parquet",
@@ -92,6 +108,10 @@ suite("test_outfile_with_different_s3", "p0") {
             "region" = "${region}"
         );
         """
+
+
+
+
     } finally {
     }
 

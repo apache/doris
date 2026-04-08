@@ -27,15 +27,15 @@
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/metrics/doris_metrics.h"
 #include "runtime/exec_env.h"
+#include "runtime/runtime_profile.h"
 #include "runtime/thread_context.h"
 #include "util/brpc_client_cache.h"
 #include "util/bvar_helper.h"
 #include "util/debug_points.h"
 #include "util/defer_op.h"
-#include "util/doris_metrics.h"
 #include "util/network_util.h"
-#include "util/runtime_profile.h"
 
 namespace doris::io {
 // read from peer
@@ -133,7 +133,8 @@ Status PeerFileCacheReader::fetch_blocks(const std::vector<FileBlockSPtr>& block
         return Status::RpcError<false>(cntl.ErrorText());
     }
     if (resp.has_status()) {
-        Status st2 = Status::create(resp.status());
+        Status st2 = Status::create<false>(resp.status());
+        LOG_EVERY_N(WARNING, 1000) << "peer cache read failed, status=" << st2.msg();
         if (!st2.ok()) return st2;
     }
 

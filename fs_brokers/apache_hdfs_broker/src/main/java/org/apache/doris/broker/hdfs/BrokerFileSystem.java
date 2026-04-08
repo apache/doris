@@ -32,7 +32,6 @@ public class BrokerFileSystem {
     private FileSystemIdentity identity;
     private FileSystem dfsFileSystem;
     private volatile long lastAccessTimestamp;
-    private long createTimestamp;
     private UUID fileSystemId;
 
     public BrokerFileSystem(FileSystemIdentity identity) {
@@ -40,14 +39,12 @@ public class BrokerFileSystem {
         this.lock = new ReentrantLock();
         this.dfsFileSystem = null;
         this.lastAccessTimestamp = System.currentTimeMillis();
-        this.createTimestamp = System.currentTimeMillis();
         this.fileSystemId = UUID.randomUUID();
     }
 
     public synchronized void setFileSystem(FileSystem fileSystem) {
         this.dfsFileSystem = fileSystem;
         this.lastAccessTimestamp = System.currentTimeMillis();
-        this.createTimestamp = System.currentTimeMillis();
     }
 
     public void closeFileSystem() {
@@ -85,12 +82,8 @@ public class BrokerFileSystem {
         return lock;
     }
 
-    public boolean isExpiredByLastAccessTime(long expirationIntervalSecs) {
-        return System.currentTimeMillis() - lastAccessTimestamp > expirationIntervalSecs * 1000;
-    }
-
-    public boolean isExpiredByCreateTime(long expirationIntervalSecs) {
-        return System.currentTimeMillis() - createTimestamp > expirationIntervalSecs * 1000;
+    public boolean isExpiredByLastAccessTime() {
+        return System.currentTimeMillis() - lastAccessTimestamp > BrokerConfig.client_expire_seconds * 1000L;
     }
 
     @Override

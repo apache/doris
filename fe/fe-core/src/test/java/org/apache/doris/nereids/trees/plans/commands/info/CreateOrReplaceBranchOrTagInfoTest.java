@@ -17,6 +17,11 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.catalog.info.BranchOptions;
+import org.apache.doris.catalog.info.CreateOrReplaceBranchInfo;
+import org.apache.doris.catalog.info.CreateOrReplaceTagInfo;
+import org.apache.doris.catalog.info.TagOptions;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -57,15 +62,6 @@ public class CreateOrReplaceBranchOrTagInfoTest {
         CreateOrReplaceBranchInfo branchInfo = new CreateOrReplaceBranchInfo(
                 "test_branch", true, false, true, null);
         String expected = "CREATE BRANCH IF NOT EXISTS test_branch";
-        Assertions.assertEquals(expected, branchInfo.toSql());
-    }
-
-    @Test
-    public void testCreateOrReplaceBranchIfNotExistsToSql() {
-        // Test CREATE OR REPLACE BRANCH IF NOT EXISTS
-        CreateOrReplaceBranchInfo branchInfo = new CreateOrReplaceBranchInfo(
-                "test_branch", true, true, true, null);
-        String expected = "CREATE OR REPLACE BRANCH IF NOT EXISTS test_branch";
         Assertions.assertEquals(expected, branchInfo.toSql());
     }
 

@@ -15,19 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "mock_in_expr.h"
+#include "testutil/mock/mock_in_expr.h"
 
 #include <gtest/gtest.h>
 
 #include <memory>
 
+#include "exprs/function/in.h"
+#include "exprs/vexpr_context.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_descriptors.h"
 #include "testutil/mock/mock_runtime_state.h"
-#include "vec/exprs/vexpr_context.h"
-#include "vec/functions/in.h"
 
-namespace doris::vectorized {
+namespace doris {
 TEST(MockInExprTest, test) {
     auto in = std::make_shared<MockInExpr>();
     auto expr_ctx = std::make_shared<VExprContext>(in);
@@ -45,7 +45,7 @@ TEST(MockInExprTest, test) {
     }
 
     {
-        auto* state = reinterpret_cast<vectorized::InState*>(
+        auto* state = reinterpret_cast<InState*>(
                 expr_ctx->fn_context(in->fn_context_index())
                         ->get_function_state(FunctionContext::FRAGMENT_LOCAL));
 
@@ -59,7 +59,7 @@ TEST(MockInExprTest, create_with_ctx) {
             MockInExpr::create_with_ctx(ColumnHelper::create_column<DataTypeInt64>({1, 1, 100}));
     auto pred = expr_ctx->root();
 
-    auto* state = reinterpret_cast<vectorized::InState*>(
+    auto* state = reinterpret_cast<InState*>(
             expr_ctx->fn_context(pred->fn_context_index())
                     ->get_function_state(FunctionContext::FRAGMENT_LOCAL));
 
@@ -102,4 +102,4 @@ Status MockInExpr::open(RuntimeState* state, VExprContext* context,
     return Status::OK();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

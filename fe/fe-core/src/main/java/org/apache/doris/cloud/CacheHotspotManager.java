@@ -528,7 +528,7 @@ public class CacheHotspotManager extends MasterDaemon {
             String dbName = tmp[0];
             Long partitionId = Long.parseLong(line.get(2));
             Long indexId = Long.parseLong(line.get(3));
-            Database db = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:" + dbName);
+            Database db = Env.getCurrentInternalCatalog().getDbNullable(dbName);
             if (db == null) {
                 continue;
             }

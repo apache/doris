@@ -18,22 +18,16 @@
 package org.apache.doris.cdcclient.utils;
 
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
-import org.apache.doris.job.cdc.request.JobBaseConfig;
 
-import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.flink.cdc.connectors.mysql.debezium.DebeziumUtils;
-import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceConfig;
-import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceConfigFactory;
-import org.apache.flink.cdc.connectors.mysql.source.offset.BinlogOffset;
-import org.apache.flink.cdc.connectors.mysql.source.offset.BinlogOffsetUtils;
-import org.apache.flink.cdc.connectors.mysql.table.StartupOptions;
 
-import java.sql.SQLException;
 import java.time.ZoneId;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -42,116 +36,39 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Preconditions;
 import com.mysql.cj.conf.ConnectionUrl;
-import io.debezium.connector.mysql.MySqlConnection;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class ConfigUtil {
-    private static final ObjectMapper mapper = new ObjectMapper();
+    private static ObjectMapper objectMapper = new ObjectMapper();
+    private static final Logger LOG = LoggerFactory.getLogger(ConfigUtil.class);
 
-    public static String getServerId(long jobId) {
-        return String.valueOf(Math.abs(String.valueOf(jobId).hashCode()));
+    public static String getServerId(String jobId) {
+        // Use bitwise AND with Integer.MAX_VALUE to strip the sign bit,
+        // which avoids the edge case where Math.abs(Integer.MIN_VALUE) returns MIN_VALUE
+        // (negative).
+        return String.valueOf(jobId.hashCode() & Integer.MAX_VALUE);
     }
 
-    public static MySqlSourceConfig generateMySqlConfig(JobBaseConfig config) {
-        return generateMySqlConfig(config.getConfig(), getServerId(config.getJobId()));
+    public static ZoneId getServerTimeZoneFromJdbcUrl(String jdbcUrl) {
+        if (jdbcUrl == null) {
+            return ZoneId.systemDefault();
+        }
+        if (jdbcUrl.startsWith("jdbc:mysql://") || jdbcUrl.startsWith("jdbc:mariadb://")) {
+            return getServerTimeZone(jdbcUrl);
+        } else if (jdbcUrl.startsWith("jdbc:postgresql://")) {
+            return getPostgresServerTimeZone(jdbcUrl);
+        }
+        return ZoneId.systemDefault();
     }
 
-    public static MySqlSourceConfig generateMySqlConfig(Map<String, String> config) {
-        return generateMySqlConfig(config, "0");
-    }
-
-    public static ZoneId getServerTimeZone(String jdbcUrl) {
+    private static ZoneId getServerTimeZone(String jdbcUrl) {
         Preconditions.checkNotNull(jdbcUrl, "jdbcUrl is null");
         ConnectionUrl cu = ConnectionUrl.getConnectionUrlInstance(jdbcUrl, null);
         return getTimeZoneFromProps(cu.getOriginalProperties());
     }
 
-    private static MySqlSourceConfig generateMySqlConfig(
-            Map<String, String> cdcConfig, String serverId) {
-        MySqlSourceConfigFactory configFactory = new MySqlSourceConfigFactory();
-        ConnectionUrl cu =
-                ConnectionUrl.getConnectionUrlInstance(
-                        cdcConfig.get(DataSourceConfigKeys.JDBC_URL), null);
-        configFactory.hostname(cu.getMainHost().getHost());
-        configFactory.port(cu.getMainHost().getPort());
-        configFactory.username(cdcConfig.get(DataSourceConfigKeys.USER));
-        configFactory.password(cdcConfig.get(DataSourceConfigKeys.PASSWORD));
-        String databaseName = cdcConfig.get(DataSourceConfigKeys.DATABASE);
-        configFactory.databaseList(databaseName);
-        configFactory.serverId(serverId);
-        configFactory.serverTimeZone(getTimeZoneFromProps(cu.getOriginalProperties()).toString());
-
-        configFactory.includeSchemaChanges(false);
-
-        String includingTables = cdcConfig.get(DataSourceConfigKeys.INCLUDE_TABLES);
-        String[] includingTbls =
-                Arrays.stream(includingTables.split(","))
-                        .map(t -> databaseName + "." + t.trim())
-                        .toArray(String[]::new);
-        configFactory.tableList(includingTbls);
-
-        String excludingTables = cdcConfig.get(DataSourceConfigKeys.EXCLUDE_TABLES);
-        if (StringUtils.isNotEmpty(excludingTables)) {
-            String excludingTbls =
-                    Arrays.stream(excludingTables.split(","))
-                            .map(t -> databaseName + "." + t.trim())
-                            .collect(Collectors.joining(","));
-            configFactory.excludeTableList(excludingTbls);
-        }
-
-        // setting startMode
-        String startupMode = cdcConfig.get(DataSourceConfigKeys.OFFSET);
-        if (DataSourceConfigKeys.OFFSET_INITIAL.equalsIgnoreCase(startupMode)) {
-            // do not need set offset when initial
-            // configFactory.startupOptions(StartupOptions.initial());
-        } else if (DataSourceConfigKeys.OFFSET_EARLIEST.equalsIgnoreCase(startupMode)) {
-            configFactory.startupOptions(StartupOptions.earliest());
-            BinlogOffset binlogOffset =
-                    initializeEffectiveOffset(
-                            configFactory, StartupOptions.earliest().binlogOffset);
-            configFactory.startupOptions(StartupOptions.specificOffset(binlogOffset));
-        } else if (DataSourceConfigKeys.OFFSET_LATEST.equalsIgnoreCase(startupMode)) {
-            configFactory.startupOptions(StartupOptions.latest());
-            BinlogOffset binlogOffset =
-                    initializeEffectiveOffset(configFactory, StartupOptions.latest().binlogOffset);
-            configFactory.startupOptions(StartupOptions.specificOffset(binlogOffset));
-        } else if (isJson(startupMode)) {
-            // start from specific offset
-            Map<String, String> offsetMap = toStringMap(startupMode);
-            if (MapUtils.isEmpty(offsetMap)) {
-                throw new RuntimeException("Incorrect offset " + startupMode);
-            }
-            if (offsetMap.containsKey(BinlogOffset.BINLOG_FILENAME_OFFSET_KEY)
-                    && offsetMap.containsKey(BinlogOffset.BINLOG_POSITION_OFFSET_KEY)) {
-                BinlogOffset binlogOffset = new BinlogOffset(offsetMap);
-                configFactory.startupOptions(StartupOptions.specificOffset(binlogOffset));
-            } else {
-                throw new RuntimeException("Incorrect offset " + startupMode);
-            }
-        } else if (is13Timestamp(startupMode)) {
-            // start from timestamp
-            Long ts = Long.parseLong(startupMode);
-            BinlogOffset binlogOffset =
-                    initializeEffectiveOffset(
-                            configFactory, StartupOptions.timestamp(ts).binlogOffset);
-            configFactory.startupOptions(StartupOptions.specificOffset(binlogOffset));
-        } else {
-            throw new RuntimeException("Unknown offset " + startupMode);
-        }
-
-        Properties jdbcProperteis = new Properties();
-        jdbcProperteis.putAll(cu.getOriginalProperties());
-        configFactory.jdbcProperties(jdbcProperteis);
-
-        // configFactory.heartbeatInterval(Duration.ofMillis(1));
-        if (cdcConfig.containsKey(DataSourceConfigKeys.SPLIT_SIZE)) {
-            configFactory.splitSize(
-                    Integer.parseInt(cdcConfig.get(DataSourceConfigKeys.SPLIT_SIZE)));
-        }
-
-        return configFactory.createConfig(0);
-    }
-
-    private static ZoneId getTimeZoneFromProps(Map<String, String> originalProperties) {
+    public static ZoneId getTimeZoneFromProps(Map<String, String> originalProperties) {
         if (originalProperties != null && originalProperties.containsKey("serverTimezone")) {
             String timeZone = originalProperties.get("serverTimezone");
             if (StringUtils.isNotEmpty(timeZone)) {
@@ -161,39 +78,147 @@ public class ConfigUtil {
         return ZoneId.systemDefault();
     }
 
-    private static BinlogOffset initializeEffectiveOffset(
-            MySqlSourceConfigFactory configFactory, BinlogOffset binlogOffset) {
-        MySqlSourceConfig config = configFactory.createConfig(0);
-        try (MySqlConnection connection = DebeziumUtils.createMySqlConnection(config)) {
-            return BinlogOffsetUtils.initializeEffectiveOffset(binlogOffset, connection, config);
-        } catch (SQLException e) {
-            throw new RuntimeException(e);
+    public static ZoneId getPostgresServerTimeZone(String jdbcUrl) {
+        Preconditions.checkNotNull(jdbcUrl, "jdbcUrl is null");
+        try {
+            java.util.Properties props = org.postgresql.Driver.parseURL(jdbcUrl, null);
+            if (props != null && props.containsKey("timezone")) {
+                String timeZone = props.getProperty("timezone");
+                if (StringUtils.isNotEmpty(timeZone)) {
+                    return ZoneId.of(timeZone);
+                }
+            }
+        } catch (Exception e) {
+            LOG.warn("Failed to parse Postgres JDBC URL for timezone: {}", jdbcUrl);
+        }
+        return ZoneId.systemDefault();
+    }
+
+    public static ZoneId getPostgresServerTimeZoneFromProps(java.util.Properties props) {
+        if (props != null && props.containsKey("timezone")) {
+            String timeZone = props.getProperty("timezone");
+            if (StringUtils.isNotEmpty(timeZone)) {
+                return ZoneId.of(timeZone);
+            }
+        }
+        return ZoneId.systemDefault();
+    }
+
+    /** Optimized debezium parameters */
+    public static Properties getDefaultDebeziumProps() {
+        Properties properties = new Properties();
+        return properties;
+    }
+
+    public static String[] getTableList(String schema, Map<String, String> cdcConfig) {
+        String includingTables = cdcConfig.get(DataSourceConfigKeys.INCLUDE_TABLES);
+        String table = cdcConfig.get(DataSourceConfigKeys.TABLE);
+        if (StringUtils.isNotEmpty(includingTables)) {
+            return Arrays.stream(includingTables.split(","))
+                    .map(t -> schema + "." + t.trim())
+                    .toArray(String[]::new);
+        } else if (StringUtils.isNotEmpty(table)) {
+            Preconditions.checkArgument(!table.contains(","), "table only supports one table");
+            return new String[] {schema + "." + table.trim()};
+        } else {
+            return new String[0];
         }
     }
 
-    private static boolean is13Timestamp(String s) {
+    public static boolean is13Timestamp(String s) {
         return s != null && s.matches("\\d{13}");
     }
 
-    private static boolean isJson(String str) {
+    public static boolean isJson(String str) {
         if (str == null || str.trim().isEmpty()) {
             return false;
         }
         try {
-            JsonNode node = mapper.readTree(str);
+            JsonNode node = objectMapper.readTree(str);
             return node.isObject();
         } catch (Exception e) {
             return false;
         }
     }
 
-    private static Map<String, String> toStringMap(String json) {
+    /**
+     * Parse the exclude-column set for a specific table from config.
+     *
+     * <p>Looks for key {@code "table.<tableName>.exclude_columns"} whose value is a comma-separated
+     * column list, e.g. {@code "secret,internal_note"}.
+     *
+     * @return column name set (original case preserved); empty set when the key is absent
+     */
+    public static Set<String> parseExcludeColumns(Map<String, String> config, String tableName) {
+        String key =
+                DataSourceConfigKeys.TABLE
+                        + "."
+                        + tableName
+                        + "."
+                        + DataSourceConfigKeys.TABLE_EXCLUDE_COLUMNS_SUFFIX;
+        String value = config.get(key);
+        if (StringUtils.isEmpty(value)) {
+            return Collections.emptySet();
+        }
+        return Arrays.stream(value.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .collect(Collectors.toSet());
+    }
+
+    /**
+     * Parse all per-table exclude-column sets from config at once.
+     *
+     * <p>Scans all keys matching {@code "table.<tableName>.exclude_columns"} and returns a map from
+     * table name to its excluded column set. Intended to be called once during initialization.
+     */
+    public static Map<String, Set<String>> parseAllExcludeColumns(Map<String, String> config) {
+        String prefix = DataSourceConfigKeys.TABLE + ".";
+        String suffix = "." + DataSourceConfigKeys.TABLE_EXCLUDE_COLUMNS_SUFFIX;
+        Map<String, Set<String>> result = new HashMap<>();
+        for (String key : config.keySet()) {
+            if (key.startsWith(prefix) && key.endsWith(suffix)) {
+                String tableName = key.substring(prefix.length(), key.length() - suffix.length());
+                if (!tableName.isEmpty()) {
+                    result.put(tableName, parseExcludeColumns(config, tableName));
+                }
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Parse all target-table name mappings from config.
+     *
+     * <p>Scans all keys matching {@code "table.<srcTableName>.target_table"} and returns a map from
+     * source table name to target (Doris) table name. Tables without a mapping are NOT included;
+     * callers should use {@code getOrDefault(srcTable, srcTable)}.
+     */
+    public static Map<String, String> parseAllTargetTableMappings(Map<String, String> config) {
+        String prefix = DataSourceConfigKeys.TABLE + ".";
+        String suffix = "." + DataSourceConfigKeys.TABLE_TARGET_TABLE_SUFFIX;
+        Map<String, String> result = new HashMap<>();
+        for (Map.Entry<String, String> entry : config.entrySet()) {
+            String key = entry.getKey();
+            if (key.startsWith(prefix) && key.endsWith(suffix)) {
+                String srcTable = key.substring(prefix.length(), key.length() - suffix.length());
+                String rawValue = entry.getValue();
+                String dstTable = rawValue != null ? rawValue.trim() : "";
+                if (!srcTable.isEmpty() && !dstTable.isEmpty()) {
+                    result.put(srcTable, dstTable);
+                }
+            }
+        }
+        return result;
+    }
+
+    public static Map<String, String> toStringMap(String json) {
         if (!isJson(json)) {
             return null;
         }
 
         try {
-            return mapper.readValue(json, new TypeReference<Map<String, String>>() {});
+            return objectMapper.readValue(json, new TypeReference<Map<String, String>>() {});
         } catch (JsonProcessingException e) {
             return null;
         }

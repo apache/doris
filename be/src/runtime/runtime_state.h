@@ -42,12 +42,13 @@
 #include "common/config.h"
 #include "common/factory_creator.h"
 #include "common/status.h"
+#include "exec/scan/vector_search_user_params.h"
 #include "io/fs/s3_file_system.h"
+#include "runtime/runtime_profile.h"
 #include "runtime/task_execution_context.h"
 #include "runtime/workload_group/workload_group.h"
 #include "util/debug_util.h"
-#include "util/runtime_profile.h"
-#include "vec/runtime/vector_search_user_params.h"
+#include "util/timezone_utils.h"
 
 namespace doris {
 class RuntimeFilter;
@@ -56,13 +57,11 @@ inline int32_t get_execution_rpc_timeout_ms(int32_t execution_timeout_sec) {
     return std::min(config::execution_max_rpc_timeout_sec, execution_timeout_sec) * 1000;
 }
 
-namespace pipeline {
 class PipelineXLocalStateBase;
 class PipelineXSinkLocalStateBase;
 class PipelineFragmentContext;
 class PipelineTask;
 class Dependency;
-} // namespace pipeline
 
 class DescriptorTbl;
 class ObjectPool;
@@ -73,6 +72,7 @@ class MemTrackerLimiter;
 class QueryContext;
 class RuntimeFilterConsumer;
 class RuntimeFilterProducer;
+class TaskExecutionContext;
 
 // A collection of items that are part of the global state of a
 // query and shared across all execution nodes of that query.
@@ -122,6 +122,11 @@ public:
     int64_t scan_queue_mem_limit() const {
         return _query_options.__isset.scan_queue_mem_limit ? _query_options.scan_queue_mem_limit
                                                            : _query_options.mem_limit / 20;
+    }
+
+    bool enable_adjust_conjunct_order_by_cost() const {
+        return _query_options.__isset.enable_adjust_conjunct_order_by_cost &&
+               _query_options.enable_adjust_conjunct_order_by_cost;
     }
 
     int32_t max_column_reader_num() const {
@@ -175,6 +180,10 @@ public:
     // if possible, use timezone_obj() rather than timezone()
     const std::string& timezone() const { return _timezone; }
     const cctz::time_zone& timezone_obj() const { return _timezone_obj; }
+    void set_timezone(const std::string& timezone) {
+        _timezone = timezone;
+        TimezoneUtils::find_cctz_time_zone(_timezone, _timezone_obj);
+    }
     const std::string& lc_time_names() const { return _lc_time_names; }
     const std::string& user() const { return _user; }
     const TUniqueId& query_id() const { return _query_id; }
@@ -500,6 +509,16 @@ public:
         _iceberg_commit_datas.emplace_back(iceberg_commit_data);
     }
 
+    std::vector<TMCCommitData> mc_commit_datas() const {
+        std::lock_guard<std::mutex> lock(_mc_commit_datas_mutex);
+        return _mc_commit_datas;
+    }
+
+    void add_mc_commit_datas(const TMCCommitData& mc_commit_data) {
+        std::lock_guard<std::mutex> lock(_mc_commit_datas_mutex);
+        _mc_commit_datas.emplace_back(mc_commit_data);
+    }
+
     // local runtime filter mgr, the runtime filter do not have remote target or
     // not need local merge should regist here. the instance exec finish, the local
     // runtime filter mgr can release the memory of local runtime filter
@@ -511,7 +530,7 @@ public:
         _runtime_filter_mgr = runtime_filter_mgr;
     }
 
-    QueryContext* get_query_ctx() { return _query_ctx; }
+    QueryContext* get_query_ctx() const { return _query_ctx; }
 
     [[nodiscard]] bool low_memory_mode() const;
 
@@ -528,6 +547,27 @@ public:
         return _query_options.__isset.enable_profile && _query_options.enable_profile;
     }
 
+    int cte_max_recursion_depth() const {
+        return _query_options.__isset.cte_max_recursion_depth
+                       ? _query_options.cte_max_recursion_depth
+                       : 0;
+    }
+
+    bool enable_streaming_agg_hash_join_force_passthrough() const {
+        return _query_options.__isset.enable_streaming_agg_hash_join_force_passthrough &&
+               _query_options.enable_streaming_agg_hash_join_force_passthrough;
+    }
+
+    bool enable_distinct_streaming_agg_force_passthrough() const {
+        return _query_options.__isset.enable_distinct_streaming_agg_force_passthrough &&
+               _query_options.enable_distinct_streaming_agg_force_passthrough;
+    }
+
+    bool enable_broadcast_join_force_passthrough() const {
+        return _query_options.__isset.enable_broadcast_join_force_passthrough &&
+               _query_options.enable_broadcast_join_force_passthrough;
+    }
+
     int rpc_verbose_profile_max_instance_count() const {
         return _query_options.__isset.rpc_verbose_profile_max_instance_count
                        ? _query_options.rpc_verbose_profile_max_instance_count
@@ -541,6 +581,11 @@ public:
 
     bool enable_parallel_scan() const {
         return _query_options.__isset.enable_parallel_scan && _query_options.enable_parallel_scan;
+    }
+
+    bool enable_aggregate_function_null_v2() const {
+        return _query_options.__isset.enable_aggregate_function_null_v2 &&
+               _query_options.enable_aggregate_function_null_v2;
     }
 
     bool is_read_csv_empty_line_as_null() const {
@@ -574,8 +619,8 @@ public:
 
     void set_be_exec_version(int32_t version) noexcept { _query_options.be_exec_version = version; }
 
-    using LocalState = doris::pipeline::PipelineXLocalStateBase;
-    using SinkLocalState = doris::pipeline::PipelineXSinkLocalStateBase;
+    using LocalState = doris::PipelineXLocalStateBase;
+    using SinkLocalState = doris::PipelineXSinkLocalStateBase;
     // get result can return an error message, and we will only call it during the prepare.
     void emplace_local_state(int id, std::unique_ptr<LocalState> state);
 
@@ -598,6 +643,8 @@ public:
         _task_execution_context_inited = true;
         _task_execution_context = context;
     }
+
+    bool task_execution_context_inited() const { return _task_execution_context_inited; }
 
     std::weak_ptr<TaskExecutionContext> get_task_execution_context() {
         CHECK(_task_execution_context_inited)
@@ -626,37 +673,91 @@ public:
 
     int64_t spill_min_revocable_mem() const {
         if (_query_options.__isset.min_revocable_mem) {
-            return std::max(_query_options.min_revocable_mem, (int64_t)1);
+            return std::max(_query_options.min_revocable_mem, (int64_t)1 << 20);
         }
-        return 1;
-    }
-
-    int64_t spill_sort_mem_limit() const {
-        if (_query_options.__isset.spill_sort_mem_limit) {
-            return std::max(_query_options.spill_sort_mem_limit, (int64_t)16777216);
-        }
-        return 134217728;
-    }
-
-    int64_t spill_sort_batch_bytes() const {
-        if (_query_options.__isset.spill_sort_batch_bytes) {
-            return std::max(_query_options.spill_sort_batch_bytes, (int64_t)8388608);
-        }
-        return 8388608;
+        return 32 << 20;
     }
 
     int spill_aggregation_partition_count() const {
         if (_query_options.__isset.spill_aggregation_partition_count) {
-            return std::min(std::max(_query_options.spill_aggregation_partition_count, 16), 8192);
+            return std::min(std::max(2, _query_options.spill_aggregation_partition_count), 32);
         }
-        return 32;
+        return 8;
     }
 
     int spill_hash_join_partition_count() const {
         if (_query_options.__isset.spill_hash_join_partition_count) {
-            return std::min(std::max(_query_options.spill_hash_join_partition_count, 16), 8192);
+            return std::min(std::max(2, _query_options.spill_hash_join_partition_count), 32);
         }
-        return 32;
+        return 8;
+    }
+
+    int spill_repartition_max_depth() const {
+        if (_query_options.__isset.spill_repartition_max_depth) {
+            // Clamp to a reasonable range: [1, 128]
+            return std::max(1, std::min(_query_options.spill_repartition_max_depth, 128));
+        }
+        return 8;
+    }
+
+    int64_t spill_buffer_size_bytes() const {
+        // clamp to [1MB, 256MB]
+        constexpr int64_t kMin = 1LL * 1024 * 1024;
+        constexpr int64_t kMax = 256LL * 1024 * 1024;
+        if (_query_options.__isset.spill_buffer_size_bytes) {
+            int64_t v = _query_options.spill_buffer_size_bytes;
+            if (v < kMin) return kMin;
+            if (v > kMax) return kMax;
+            return v;
+        }
+        return 8LL * 1024 * 1024;
+    }
+
+    // Per-sink memory limits: after spill is triggered, the sink proactively
+    // spills when its revocable memory exceeds this threshold.
+    // Clamped to [1MB, 4GB], default 64MB.
+    int64_t spill_join_build_sink_mem_limit_bytes() const {
+        constexpr int64_t kMin = 1LL * 1024 * 1024;
+        constexpr int64_t kMax = 4LL * 1024 * 1024 * 1024;
+        constexpr int64_t kDefault = 64LL * 1024 * 1024;
+        if (_query_options.__isset.spill_join_build_sink_mem_limit_bytes) {
+            int64_t v = _query_options.spill_join_build_sink_mem_limit_bytes;
+            return std::min(std::max(v, kMin), kMax);
+        }
+        return kDefault;
+    }
+
+    int64_t spill_aggregation_sink_mem_limit_bytes() const {
+        constexpr int64_t kMin = 1LL * 1024 * 1024;
+        constexpr int64_t kMax = 4LL * 1024 * 1024 * 1024;
+        constexpr int64_t kDefault = 64LL * 1024 * 1024;
+        if (_query_options.__isset.spill_aggregation_sink_mem_limit_bytes) {
+            int64_t v = _query_options.spill_aggregation_sink_mem_limit_bytes;
+            return std::min(std::max(v, kMin), kMax);
+        }
+        return kDefault;
+    }
+
+    int64_t spill_sort_sink_mem_limit_bytes() const {
+        constexpr int64_t kMin = 1LL * 1024 * 1024;
+        constexpr int64_t kMax = 4LL * 1024 * 1024 * 1024;
+        constexpr int64_t kDefault = 64LL * 1024 * 1024;
+        if (_query_options.__isset.spill_sort_sink_mem_limit_bytes) {
+            int64_t v = _query_options.spill_sort_sink_mem_limit_bytes;
+            return std::min(std::max(v, kMin), kMax);
+        }
+        return kDefault;
+    }
+
+    int64_t spill_sort_merge_mem_limit_bytes() const {
+        constexpr int64_t kMin = 1LL * 1024 * 1024;
+        constexpr int64_t kMax = 4LL * 1024 * 1024 * 1024;
+        constexpr int64_t kDefault = 64LL * 1024 * 1024;
+        if (_query_options.__isset.spill_sort_merge_mem_limit_bytes) {
+            int64_t v = _query_options.spill_sort_merge_mem_limit_bytes;
+            return std::min(std::max(v, kMin), kMax);
+        }
+        return kDefault;
     }
 
     int64_t low_memory_mode_buffer_limit() const {
@@ -683,8 +784,13 @@ public:
             return _query_options.minimum_operator_memory_required_kb * 1024;
         } else {
             // refer other database
-            return 100 * 1024;
+            return 4 * 1024 * 1024;
         }
+    }
+
+    MOCK_FUNCTION bool enable_use_hybrid_sort() const {
+        return _query_options.__isset.enable_use_hybrid_sort &&
+               _query_options.enable_use_hybrid_sort;
     }
 
     void set_max_operator_id(int max_operator_id) { _max_operator_id = max_operator_id; }
@@ -705,10 +811,22 @@ public:
 
     void set_id_file_map();
     VectorSearchUserParams get_vector_search_params() const {
-        return VectorSearchUserParams(_query_options.hnsw_ef_search,
-                                      _query_options.hnsw_check_relative_distance,
-                                      _query_options.hnsw_bounded_queue, _query_options.ivf_nprobe);
+        VectorSearchUserParams params;
+        params.hnsw_ef_search = _query_options.hnsw_ef_search;
+        params.hnsw_check_relative_distance = _query_options.hnsw_check_relative_distance;
+        params.hnsw_bounded_queue = _query_options.hnsw_bounded_queue;
+        params.ivf_nprobe = _query_options.ivf_nprobe;
+        return params;
     }
+
+    bool runtime_filter_wait_infinitely() const {
+        return _query_options.__isset.runtime_filter_wait_infinitely &&
+               _query_options.runtime_filter_wait_infinitely;
+    }
+
+    const std::set<int>& get_deregister_runtime_filter() const;
+
+    void merge_register_runtime_filter(const std::set<int>& runtime_filter_ids);
 
 private:
     Status create_error_log_file();
@@ -815,9 +933,12 @@ private:
     mutable std::mutex _iceberg_commit_datas_mutex;
     std::vector<TIcebergCommitData> _iceberg_commit_datas;
 
-    std::vector<std::unique_ptr<doris::pipeline::PipelineXLocalStateBase>> _op_id_to_local_state;
+    mutable std::mutex _mc_commit_datas_mutex;
+    std::vector<TMCCommitData> _mc_commit_datas;
 
-    std::unique_ptr<doris::pipeline::PipelineXSinkLocalStateBase> _sink_local_state;
+    std::vector<std::unique_ptr<doris::PipelineXLocalStateBase>> _op_id_to_local_state;
+
+    std::unique_ptr<doris::PipelineXSinkLocalStateBase> _sink_local_state;
 
     QueryContext* _query_ctx = nullptr;
 
@@ -836,6 +957,8 @@ private:
 
     // used for encoding the global lazy materialize
     std::shared_ptr<IdFileMap> _id_file_map = nullptr;
+
+    std::set<int> _registered_runtime_filter_ids;
 };
 
 #define RETURN_IF_CANCELLED(state)               \

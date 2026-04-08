@@ -24,6 +24,7 @@ suite("test_variant_custom_analyzer", "p0") {
     sql "set default_variant_max_subcolumns_count = 100"
     sql """ set enable_match_without_inverted_index = false """
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
+    sql """ set default_variant_enable_doc_mode = false """
 
     sql """
         CREATE INVERTED INDEX TOKENIZER IF NOT EXISTS edge_ngram_phone_number_tokenizer
@@ -106,7 +107,7 @@ suite("test_variant_custom_analyzer", "p0") {
     sql """ insert into ${indexTbName1} values(6, '{"ch" : "β-carbon nitrid"}'); """
 
     try {
-        trigger_and_wait_compaction(indexTbName1, "full")
+        trigger_and_wait_compaction(indexTbName1, "full", 1800)
         sql "sync"
         sql """ set enable_common_expr_pushdown = true; """
 

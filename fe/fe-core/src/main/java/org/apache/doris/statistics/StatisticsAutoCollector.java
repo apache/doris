@@ -25,7 +25,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.MasterDaemon;
-import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.persist.TableStatsDeletionLog;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
@@ -148,6 +148,9 @@ public class StatisticsAutoCollector extends MasterDaemon {
         if (StatisticsUtil.enablePartitionAnalyze() && table.isPartitionedTable()) {
             analysisMethod = AnalysisMethod.FULL;
         }
+        if (table instanceof IcebergExternalTable) { // IcebergExternalTable table only support full analyze now
+            analysisMethod = AnalysisMethod.FULL;
+        }
         boolean isSampleAnalyze = analysisMethod.equals(AnalysisMethod.SAMPLE);
         OlapTable olapTable = table instanceof OlapTable ? (OlapTable) table : null;
         AnalysisManager manager = Env.getServingEnv().getAnalysisManager();
@@ -229,9 +232,7 @@ public class StatisticsAutoCollector extends MasterDaemon {
         if (tableIf == null) {
             return false;
         }
-        return tableIf instanceof OlapTable
-                || tableIf instanceof HMSExternalTable
-                && ((HMSExternalTable) tableIf).getDlaType().equals(HMSExternalTable.DLAType.HIVE);
+        return StatisticsUtil.supportAutoAnalyze(tableIf);
     }
 
     protected AnalysisInfo createAnalyzeJobForTbl(TableIf table, Set<Pair<String, String>> jobColumns,

@@ -38,6 +38,15 @@ export TP_LIB_DIR="${DORIS_THIRDPARTY}/installed/lib"
 HADOOP_DEPS_NAME="hadoop-deps"
 . "${DORIS_HOME}/env.sh"
 
+# ===== Build Profile =====
+if [[ "${DORIS_BUILD_PROFILE}" == "1" ]]; then
+    _BP_STATE="${DORIS_HOME}/.build_profile_state.$$"
+    "${DORIS_HOME}/build_profile.sh" collect "${_BP_STATE}" "$*"
+    trap '"${DORIS_HOME}/build_profile.sh" record "${_BP_STATE}" 130; exit 130' INT TERM
+    trap '"${DORIS_HOME}/build_profile.sh" record "${_BP_STATE}" $?; exit $?' ERR
+fi
+# ===== End Build Profile =====
+
 # Check args
 usage() {
     echo "
@@ -55,18 +64,24 @@ Usage: $0 <options>
      --broker                   build Broker. Default ON.
      --hive-udf                 build Hive UDF library for Ingestion Load. Default ON.
      --be-java-extensions       build Backend java extensions. Default ON.
+     --be-cdc-client            build Cdc Client for backend. Default ON.
      --be-extension-ignore      build be-java-extensions package, choose which modules to ignore. Multiple modules separated by commas.
+     --enable-dynamic-arch      enable dynamic CPU detection in OpenBLAS. Default ON.
+     --disable-dynamic-arch     disable dynamic CPU detection in OpenBLAS.
      --clean                    clean and build target
      --output                   specify the output directory
      -j                         build Backend parallel
 
   Environment variables:
     USE_AVX2                    If the CPU does not support AVX2 instruction set, please set USE_AVX2=0. Default is ON.
+    ENABLE_DYNAMIC_ARCH         If set ENABLE_DYNAMIC_ARCH=ON, it will enable dynamic CPU detection in OpenBLAS. Default is ON. Can also use --enable-dynamic-arch flag.
     ARM_MARCH                   Specify the ARM architecture instruction set. Default is armv8-a+crc.
     STRIP_DEBUG_INFO            If set STRIP_DEBUG_INFO=ON, the debug information in the compiled binaries will be stored separately in the 'be/lib/debug_info' directory. Default is OFF.
     DISABLE_BE_JAVA_EXTENSIONS  If set DISABLE_BE_JAVA_EXTENSIONS=ON, we will do not build binary with java-udf,hadoop-hudi-scanner,jdbc-scanner and so on Default is OFF.
     DISABLE_JAVA_CHECK_STYLE    If set DISABLE_JAVA_CHECK_STYLE=ON, it will skip style check of java code in FE.
     DISABLE_BUILD_AZURE         If set DISABLE_BUILD_AZURE=ON, it will not build azure into BE.
+    DISABLE_BUILD_JUICEFS       If set DISABLE_BUILD_JUICEFS=OFF, it will package juicefs-hadoop jar into FE/BE output. Default is ON (skip).
+    DISABLE_BUILD_JINDOFS       If set DISABLE_BUILD_JINDOFS=OFF, it will package jindofs jars into FE/BE output. Default is ON (skip).
 
   Eg.
     $0                                      build all
@@ -88,6 +103,8 @@ Usage: $0 <options>
     USE_AVX2=0 $0 --be                      build Backend and not using AVX2 instruction.
     USE_AVX2=0 STRIP_DEBUG_INFO=ON $0       build all and not using AVX2 instruction, and strip the debug info for Backend
     ARM_MARCH=armv8-a+crc+simd $0 --be      build Backend with specified ARM architecture instruction set
+    $0 --be --disable-dynamic-arch          build Backend with DYNAMIC_ARCH disabled in OpenBLAS
+    ENABLE_DYNAMIC_ARCH=OFF $0 --be         build Backend with DYNAMIC_ARCH disabled via environment variable
   "
     exit 1
 }
@@ -96,6 +113,7 @@ clean_gensrc() {
     pushd "${DORIS_HOME}/gensrc"
     make clean
     rm -rf "${DORIS_HOME}/gensrc/build"
+    rm -rf "${DORIS_HOME}/fe/fe-thrift/target"
     rm -rf "${DORIS_HOME}/fe/fe-common/target"
     rm -rf "${DORIS_HOME}/fe/fe-core/target"
     popd
@@ -144,6 +162,8 @@ if ! OPTS="$(getopt \
     -l 'be-java-extensions' \
     -l 'be-cdc-client' \
     -l 'be-extension-ignore:' \
+    -l 'enable-dynamic-arch' \
+    -l 'disable-dynamic-arch' \
     -l 'clean' \
     -l 'coverage' \
     -l 'help' \
@@ -170,6 +190,7 @@ BUILD_BE_CDC_CLIENT=0
 BUILD_OBS_DEPENDENCIES=1
 BUILD_COS_DEPENDENCIES=1
 BUILD_HIVE_UDF=0
+ENABLE_DYNAMIC_ARCH='ON'
 CLEAN=0
 HELP=0
 PARAMETER_COUNT="$#"
@@ -262,6 +283,14 @@ else
         --exclude-cos-dependencies)
             BUILD_COS_DEPENDENCIES=0
             shift
+            ;;
+        --enable-dynamic-arch)
+            ENABLE_DYNAMIC_ARCH='ON'
+            shift
+            ;;
+        --disable-dynamic-arch)
+            ENABLE_DYNAMIC_ARCH='OFF'
+            shift
             ;;           
         --clean)
             CLEAN=1
@@ -311,7 +340,7 @@ else
         BUILD_META_TOOL='ON'
         BUILD_FILE_CACHE_MICROBENCH_TOOL='OFF'
         BUILD_INDEX_TOOL='ON'
-	BUILD_TASK_EXECUTOR_SIMULATOR='OFF'
+	    BUILD_TASK_EXECUTOR_SIMULATOR='OFF'
         BUILD_HIVE_UDF=1
         BUILD_BE_JAVA_EXTENSIONS=1
         BUILD_BE_CDC_CLIENT=1
@@ -473,6 +502,20 @@ if [[ "$(echo "${DISABLE_BUILD_AZURE}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]
     BUILD_AZURE='OFF'
 fi
 
+if [[ "$(echo "${DISABLE_BUILD_JINDOFS}" | tr '[:lower:]' '[:upper:]')" == "OFF" ]]; then
+    BUILD_JINDOFS='ON'
+else
+    BUILD_JINDOFS='OFF'
+fi
+export DISABLE_BUILD_JINDOFS
+
+if [[ "$(echo "${DISABLE_BUILD_JUICEFS}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]; then
+    BUILD_JUICEFS='OFF'
+else
+    BUILD_JUICEFS='ON'
+fi
+export DISABLE_BUILD_JUICEFS
+
 if [[ -z "${ENABLE_INJECTION_POINT}" ]]; then
     ENABLE_INJECTION_POINT='OFF'
 fi
@@ -521,6 +564,8 @@ echo "Get params:
     BUILD_BE_JAVA_EXTENSIONS            -- ${BUILD_BE_JAVA_EXTENSIONS}
     BUILD_BE_CDC_CLIENT                 -- ${BUILD_BE_CDC_CLIENT}
     BUILD_HIVE_UDF                      -- ${BUILD_HIVE_UDF}
+    BUILD_JUICEFS                       -- ${BUILD_JUICEFS}
+    BUILD_JINDOFS                       -- ${BUILD_JINDOFS}
     PARALLEL                            -- ${PARALLEL}
     CLEAN                               -- ${CLEAN}
     GLIBC_COMPATIBILITY                 -- ${GLIBC_COMPATIBILITY}
@@ -558,18 +603,26 @@ fi
 FE_MODULES=''
 modules=("")
 if [[ "${BUILD_FE}" -eq 1 ]]; then
-    modules+=("fe-common")
+    modules+=("fe-extension-spi")
+    modules+=("fe-extension-loader")
     modules+=("fe-core")
+    # Filesystem API and SPI plugin modules (loaded at runtime as plugins)
+    modules+=("fe-filesystem/fe-filesystem-api")
+    modules+=("fe-filesystem/fe-filesystem-spi")
+    for _fs_mod in s3 oss cos obs azure hdfs local broker; do
+        if [[ -d "${DORIS_HOME}/fe/fe-filesystem/fe-filesystem-${_fs_mod}" ]]; then
+            modules+=("fe-filesystem/fe-filesystem-${_fs_mod}")
+        fi
+    done
+    unset _fs_mod
     if [[ "${WITH_TDE_DIR}" != "" ]]; then
         modules+=("fe-${WITH_TDE_DIR}")
     fi
 fi
 if [[ "${BUILD_HIVE_UDF}" -eq 1 ]]; then
-    modules+=("fe-common")
     modules+=("hive-udf")
 fi
 if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
-    modules+=("fe-common")
     modules+=("be-java-extensions/iceberg-metadata-scanner")
     modules+=("be-java-extensions/hadoop-hudi-scanner")
     modules+=("be-java-extensions/java-common")
@@ -577,12 +630,13 @@ if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
     modules+=("be-java-extensions/jdbc-scanner")
     modules+=("be-java-extensions/paimon-scanner")
     modules+=("be-java-extensions/trino-connector-scanner")
-    modules+=("be-java-extensions/max-compute-scanner")
+    modules+=("be-java-extensions/max-compute-connector")
     modules+=("be-java-extensions/avro-scanner")
     # lakesoul-scanner has been deprecated
     # modules+=("be-java-extensions/lakesoul-scanner")
     modules+=("be-java-extensions/preload-extensions")
     modules+=("be-java-extensions/${HADOOP_DEPS_NAME}")
+    modules+=("be-java-extensions/java-writer")
 
     # If the BE_EXTENSION_IGNORE variable is not empty, remove the modules that need to be ignored from FE_MODULES
     if [[ -n "${BE_EXTENSION_IGNORE}" ]]; then
@@ -627,7 +681,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
     fi
 
     echo "-- Make program: ${MAKE_PROGRAM}"
-    echo "-- Use ccache: ${CMAKE_USE_CCACHE}"
+    echo "-- Use ccache: ${CMAKE_USE_CCACHE_CXX} and ${CMAKE_USE_CCACHE_C}"
     echo "-- Extra cxx flags: ${EXTRA_CXX_FLAGS:-}"
     echo "-- Build fs benchmark tool: ${BUILD_FS_BENCHMARK}"
     echo "-- Build task executor simulator: ${BUILD_TASK_EXECUTOR_SIMULATOR}"
@@ -645,7 +699,9 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DBUILD_FS_BENCHMARK="${BUILD_FS_BENCHMARK}" \
         -DBUILD_TASK_EXECUTOR_SIMULATOR="${BUILD_TASK_EXECUTOR_SIMULATOR}" \
         -DBUILD_FILE_CACHE_LRU_TOOL="${BUILD_FILE_CACHE_LRU_TOOL}" \
-        ${CMAKE_USE_CCACHE:+${CMAKE_USE_CCACHE}} \
+        ${CMAKE_USE_CCACHE_CXX:+${CMAKE_USE_CCACHE_CXX}} \
+        ${CMAKE_USE_CCACHE_C:+${CMAKE_USE_CCACHE_C}} \
+        -DUBSAN_IGNORELIST="${UBSAN_IGNORELIST}" \
         -DUSE_LIBCPP="${USE_LIBCPP}" \
         -DBUILD_META_TOOL="${BUILD_META_TOOL}" \
         -DBUILD_FILE_CACHE_MICROBENCH_TOOL="${BUILD_FILE_CACHE_MICROBENCH_TOOL}" \
@@ -662,6 +718,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DENABLE_CLANG_COVERAGE="${DENABLE_CLANG_COVERAGE}" \
         -DDORIS_JAVA_HOME="${JAVA_HOME}" \
         -DBUILD_AZURE="${BUILD_AZURE}" \
+        -DENABLE_DYNAMIC_ARCH="${ENABLE_DYNAMIC_ARCH}" \
         -DWITH_TDE_DIR="${WITH_TDE_DIR}" \
         "${DORIS_HOME}/be"
 
@@ -704,6 +761,7 @@ if [[ "${BUILD_CLOUD}" -eq 1 ]]; then
         -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
         -DBUILD_AZURE="${BUILD_AZURE}" \
         -DBUILD_CHECK_META="${BUILD_CHECK_META:-OFF}" \
+        -DENABLE_DYNAMIC_ARCH="${ENABLE_DYNAMIC_ARCH}" \
         "${DORIS_HOME}/cloud/"
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
@@ -739,6 +797,58 @@ function build_ui() {
     cp -r "${ui_dist}"/* "${DORIS_HOME}/fe/fe-core/src/main/resources/static"/
 }
 
+function build_fe_modules() {
+    local thread_count="${FE_MAVEN_THREADS:-1C}"
+    local retry_thread_count="${FE_MAVEN_RETRY_THREADS:-1}"
+    local log_file
+    local -a dependency_mvn_opts=()
+    local -a extra_mvn_opts=()
+    local -a user_settings_opts=()
+    local -a mvn_cmd=(
+        "${MVN_CMD}"
+        package
+        -pl
+        "${FE_MODULES}"
+        -am
+        -Dskip.doc=true
+        -DskipTests
+    )
+
+    if [[ "${DISABLE_JAVA_CHECK_STYLE}" = "ON" ]]; then
+        mvn_cmd+=("-Dcheckstyle.skip=true")
+    fi
+    if [[ -n "${MVN_OPT}" ]]; then
+        # shellcheck disable=SC2206
+        extra_mvn_opts=(${MVN_OPT})
+    fi
+    if [[ "${BUILD_OBS_DEPENDENCIES}" -eq 0 ]]; then
+        dependency_mvn_opts+=("-Dobs.dependency.scope=provided")
+    fi
+    if [[ "${BUILD_COS_DEPENDENCIES}" -eq 0 ]]; then
+        dependency_mvn_opts+=("-Dcos.dependency.scope=provided")
+    fi
+    if [[ -n "${USER_SETTINGS_MVN_REPO}" && -f "${USER_SETTINGS_MVN_REPO}" ]]; then
+        user_settings_opts=(-gs "${USER_SETTINGS_MVN_REPO}")
+    fi
+
+    mvn_cmd+=("${extra_mvn_opts[@]}" "${dependency_mvn_opts[@]}" "${user_settings_opts[@]}" -T "${thread_count}")
+    log_file="$(mktemp)"
+    if "${mvn_cmd[@]}" 2>&1 | tee "${log_file}"; then
+        rm -f "${log_file}"
+        return 0
+    fi
+    if [[ "${thread_count}" != "${retry_thread_count}" ]] && \
+            grep -Eq "Could not acquire lock\(s\)|isn't a file" "${log_file}"; then
+        echo "FE Maven build hit parallel build issue (lock contention or reactor artifact race). Retrying with -T ${retry_thread_count}."
+        mvn_cmd=("${mvn_cmd[@]:0:${#mvn_cmd[@]}-2}" -T "${retry_thread_count}")
+        "${mvn_cmd[@]}"
+        rm -f "${log_file}"
+        return 0
+    fi
+    rm -f "${log_file}"
+    return 1
+}
+
 # FE UI must be built before building FE
 if [[ "${BUILD_FE}" -eq 1 ]]; then
     if [[ "${BUILD_UI}" -eq 1 ]]; then
@@ -753,28 +863,7 @@ if [[ "${FE_MODULES}" != '' ]]; then
     if [[ "${CLEAN}" -eq 1 ]]; then
         clean_fe
     fi
-    DEPENDENCIES_MVN_OPTS=" "
-    if [[ "${BUILD_OBS_DEPENDENCIES}" -eq 0 ]]; then
-        DEPENDENCIES_MVN_OPTS+=" -Dobs.dependency.scope=provided "
-    fi
-    if [[ "${BUILD_COS_DEPENDENCIES}" -eq 0 ]]; then
-        DEPENDENCIES_MVN_OPTS+=" -Dcos.dependency.scope=provided "
-    fi
-    
-    if [[ "${DISABLE_JAVA_CHECK_STYLE}" = "ON" ]]; then
-        # Allowed user customer set env param USER_SETTINGS_MVN_REPO means settings.xml file path
-        if [[ -n ${USER_SETTINGS_MVN_REPO} && -f ${USER_SETTINGS_MVN_REPO} ]]; then
-            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true ${MVN_OPT:+${MVN_OPT}} ${DEPENDENCIES_MVN_OPTS}  -gs "${USER_SETTINGS_MVN_REPO}" -T 1C
-        else
-            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true ${MVN_OPT:+${MVN_OPT}} ${DEPENDENCIES_MVN_OPTS}  -T 1C
-        fi
-    else
-        if [[ -n ${USER_SETTINGS_MVN_REPO} && -f ${USER_SETTINGS_MVN_REPO} ]]; then
-            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests ${MVN_OPT:+${MVN_OPT}} ${DEPENDENCIES_MVN_OPTS}  -gs "${USER_SETTINGS_MVN_REPO}" -T 1C
-        else
-            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests ${MVN_OPT:+${MVN_OPT}} ${DEPENDENCIES_MVN_OPTS}  -T 1C
-        fi
-    fi
+    build_fe_modules
     cd "${DORIS_HOME}"
 fi
 
@@ -793,7 +882,6 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     cp -r -p "${DORIS_HOME}/conf/ldap.conf" "${DORIS_OUTPUT}/fe/conf"/
     cp -r -p "${DORIS_HOME}/conf/mysql_ssl_default_certificate" "${DORIS_OUTPUT}/fe/"/
     rm -rf "${DORIS_OUTPUT}/fe/lib"/*
-    install -d "${DORIS_OUTPUT}/fe/lib/jindofs"
     cp -r -p "${DORIS_HOME}/fe/fe-core/target/lib"/* "${DORIS_OUTPUT}/fe/lib"/
     cp -r -p "${DORIS_HOME}/fe/fe-core/target/doris-fe.jar" "${DORIS_OUTPUT}/fe/lib"/
     if [[ "${WITH_TDE_DIR}" != "" ]]; then
@@ -802,15 +890,8 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
 
     #cp -r -p "${DORIS_HOME}/docs/build/help-resource.zip" "${DORIS_OUTPUT}/fe/lib"/
 
-    # copy jindofs jars, only support for Linux x64 or arm
-    if [[ "${TARGET_SYSTEM}" == 'Linux' ]] && [[ "${TARGET_ARCH}" == 'x86_64' ]]; then
-        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-[0-9]*.jar "${DORIS_OUTPUT}/fe/lib/jindofs"/
-        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-linux-ubuntu22-x86_64-[0-9]*.jar "${DORIS_OUTPUT}/fe/lib/jindofs"/
-        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-sdk-[0-9]*.jar "${DORIS_OUTPUT}/fe/lib/jindofs"/
-    elif [[ "${TARGET_SYSTEM}" == 'Linux' ]] && [[ "${TARGET_ARCH}" == 'aarch64' ]]; then
-        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-linux-el7-aarch64-[0-9]*.jar "${DORIS_OUTPUT}/fe/lib/jindofs"/
-        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-sdk-[0-9]*.jar "${DORIS_OUTPUT}/fe/lib/jindofs"/
-    fi
+    # Third-party filesystem jars (JuiceFS, JindoFS) are packaged by post-build.sh
+    "${DORIS_HOME}/post-build.sh" --fe --output "${DORIS_OUTPUT}"
 
     cp -r -p "${DORIS_HOME}/minidump" "${DORIS_OUTPUT}/fe"/
     cp -r -p "${DORIS_HOME}/webroot/static" "${DORIS_OUTPUT}/fe/webroot"/
@@ -825,6 +906,24 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     mkdir -p "${DORIS_OUTPUT}/fe/plugins/connectors/"
     mkdir -p "${DORIS_OUTPUT}/fe/plugins/hadoop_conf/"
     mkdir -p "${DORIS_OUTPUT}/fe/plugins/java_extensions/"
+
+    # Deploy filesystem provider plugins as independent plugin directories
+    # Each sub-directory is one storage backend loaded at runtime by FileSystemPluginManager.
+    FS_PLUGIN_DIR="${DORIS_OUTPUT}/fe/plugins/filesystem"
+    for fs_module in s3 azure oss cos obs hdfs local broker; do
+        fs_plugin_target="${FS_PLUGIN_DIR}/${fs_module}"
+        fs_module_dir="${DORIS_HOME}/fe/fe-filesystem/fe-filesystem-${fs_module}"
+        if [ ! -d "${fs_module_dir}" ]; then
+            continue
+        fi
+        mkdir -p "${fs_plugin_target}"
+        # Unpack the self-contained plugin zip produced by maven-assembly-plugin.
+        # Layout inside the zip: <plugin>.jar at root + lib/*.jar for runtime deps.
+        # DirectoryPluginRuntimeManager picks up both root and lib/ jars automatically.
+        unzip -o "${fs_module_dir}/target/doris-fe-filesystem-${fs_module}.zip" \
+            -d "${fs_plugin_target}/"
+    done
+    unset FS_PLUGIN_DIR fs_module fs_plugin_target fs_module_dir
 
     if [ "${TARGET_SYSTEM}" = "Darwin" ] || [ "${TARGET_SYSTEM}" = "Linux" ]; then
       mkdir -p "${DORIS_OUTPUT}/fe/arthas"
@@ -912,13 +1011,14 @@ EOF
     extensions_modules+=("hadoop-hudi-scanner")
     extensions_modules+=("paimon-scanner")
     extensions_modules+=("trino-connector-scanner")
-    extensions_modules+=("max-compute-scanner")
+    extensions_modules+=("max-compute-connector")
     extensions_modules+=("avro-scanner")
     # lakesoul-scanner has been deprecated
     # extensions_modules+=("lakesoul-scanner")
     extensions_modules+=("preload-extensions")
     extensions_modules+=("iceberg-metadata-scanner")
     extensions_modules+=("${HADOOP_DEPS_NAME}")
+    extensions_modules+=("java-writer")
 
     if [[ -n "${BE_EXTENSION_IGNORE}" ]]; then
         IFS=',' read -r -a ignore_modules <<<"${BE_EXTENSION_IGNORE}"
@@ -957,6 +1057,13 @@ EOF
             mkdir "${BE_HADOOP_HDFS_DIR}"
             HADOOP_DEPS_JAR_DIR="${DORIS_HOME}/fe/be-java-extensions/${HADOOP_DEPS_NAME}/target"
             echo "HADOOP_DEPS_JAR_DIR: ${HADOOP_DEPS_JAR_DIR}"
+            if  [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 && ! -d "${HADOOP_DEPS_JAR_DIR}/lib" ]]; then
+                echo "WARN: lib directory missing (likely due to Maven cache). Regenerating..."
+                pushd "${DORIS_HOME}/fe/be-java-extensions/${HADOOP_DEPS_NAME}"
+                "${MVN_CMD}" dependency:copy-dependencies -DskipTests -Dcheckstyle.skip=true
+                mv target/dependency target/lib
+                popd
+            fi
             if [[ -f "${HADOOP_DEPS_JAR_DIR}/${HADOOP_DEPS_NAME}.jar" ]]; then
                 echo "Copy Be Extensions hadoop deps jar to ${BE_HADOOP_HDFS_DIR}"
                 cp "${HADOOP_DEPS_JAR_DIR}/${HADOOP_DEPS_NAME}.jar" "${BE_HADOOP_HDFS_DIR}"
@@ -977,16 +1084,8 @@ EOF
         fi
     done        
 
-    # copy jindofs jars, only support for Linux x64 or arm
-    install -d "${DORIS_OUTPUT}/be/lib/java_extensions/jindofs"/
-    if [[ "${TARGET_SYSTEM}" == 'Linux' ]] && [[ "$TARGET_ARCH" == 'x86_64' ]]; then
-        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/jindofs"/
-        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-linux-ubuntu22-x86_64-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/jindofs"/
-        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-sdk-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/jindofs"/
-    elif [[ "${TARGET_SYSTEM}" == 'Linux' ]] && [[ "$TARGET_ARCH" == 'aarch64' ]]; then
-        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-linux-el7-aarch64-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/jindofs"/
-        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-sdk-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/jindofs"/
-    fi
+    # Third-party filesystem jars (JuiceFS, JindoFS) are packaged by post-build.sh
+    "${DORIS_HOME}/post-build.sh" --be --output "${DORIS_OUTPUT}"
 
     cp -r -p "${DORIS_THIRDPARTY}/installed/webroot"/* "${DORIS_OUTPUT}/be/www"/
     copy_common_files "${DORIS_OUTPUT}/be/"
@@ -995,9 +1094,11 @@ EOF
     mkdir -p "${DORIS_OUTPUT}/be/storage"
     mkdir -p "${DORIS_OUTPUT}/be/plugins/jdbc_drivers/"
     mkdir -p "${DORIS_OUTPUT}/be/plugins/java_udf/"
+    mkdir -p "${DORIS_OUTPUT}/be/plugins/python_udf/"
     mkdir -p "${DORIS_OUTPUT}/be/plugins/connectors/"
     mkdir -p "${DORIS_OUTPUT}/be/plugins/hadoop_conf/"
     mkdir -p "${DORIS_OUTPUT}/be/plugins/java_extensions/"
+    cp -r -p "${DORIS_HOME}/be/src/udf/python/python_server.py" "${DORIS_OUTPUT}/be/plugins/python_udf/"
 fi
 
 if [[ "${BUILD_BROKER}" -eq 1 ]]; then
@@ -1043,6 +1144,10 @@ echo "***************************************"
 
 if [[ -n "${DORIS_POST_BUILD_HOOK}" ]]; then
     eval "${DORIS_POST_BUILD_HOOK}"
+fi
+
+if [[ "${DORIS_BUILD_PROFILE}" == "1" ]]; then
+    "${DORIS_HOME}/build_profile.sh" record "${_BP_STATE}" 0
 fi
 
 exit 0

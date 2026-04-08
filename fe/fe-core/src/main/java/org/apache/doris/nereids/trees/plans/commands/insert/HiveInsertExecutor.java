@@ -23,10 +23,9 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSTransaction;
-import org.apache.doris.datasource.hive.HiveMetaStoreCache;
+import org.apache.doris.datasource.hive.HiveExternalMetaCache;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.THivePartitionUpdate;
@@ -89,8 +88,8 @@ public class HiveInsertExecutor extends BaseExternalTableInsertExecutor {
         List<String> modifiedPartNames = Lists.newArrayList();
         List<String> newPartNames = Lists.newArrayList();
         if (hmsTable.isPartitionedTable() && partitionUpdates != null && !partitionUpdates.isEmpty()) {
-            HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                    .getMetaStoreCache((HMSExternalCatalog) hmsTable.getCatalog());
+            HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                    .hive(hmsTable.getCatalog().getId());
             cache.refreshAffectedPartitions(hmsTable, partitionUpdates, modifiedPartNames, newPartNames);
         } else {
             // Non-partitioned table or no partition updates, do full table refresh
@@ -98,6 +97,8 @@ public class HiveInsertExecutor extends BaseExternalTableInsertExecutor {
         }
 
         // Write edit log to notify other FEs
+        long updateTime = System.currentTimeMillis();
+        hmsTable.setUpdateTime(updateTime);
         ExternalObjectLog log;
         if (!modifiedPartNames.isEmpty() || !newPartNames.isEmpty()) {
             // Partition-level refresh for other FEs
@@ -106,13 +107,14 @@ public class HiveInsertExecutor extends BaseExternalTableInsertExecutor {
                     table.getDatabase().getFullName(),
                     table.getName(),
                     modifiedPartNames,
-                    newPartNames);
+                    newPartNames,
+                    updateTime);
         } else {
             // Full table refresh for other FEs
             log = ExternalObjectLog.createForRefreshTable(
                     hmsTable.getCatalog().getId(),
                     table.getDatabase().getFullName(),
-                    table.getName());
+                    table.getName(), updateTime);
         }
         Env.getCurrentEnv().getEditLog().logRefreshExternalTable(log);
     }

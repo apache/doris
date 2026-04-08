@@ -191,5 +191,26 @@ suite("test_show_routine_load","p0") {
         } finally {
             sql "stop routine load for testShow"
         }
+
+        // test show routine load computegroup
+        try {
+            sql """
+                CREATE ROUTINE LOAD testShowComputeGroup ON ${tableName}
+                COLUMNS TERMINATED BY ","
+                FROM KAFKA
+                (
+                    "kafka_broker_list" = "${externalEnvIp}:${kafka_port}",
+                    "kafka_topic" = "${kafkaCsvTpoics[0]}",
+                    "property.kafka_default_offsets" = "OFFSET_BEGINNING"
+                );
+            """
+            def res = sql "show routine load for testShowComputeGroup"
+            // ComputeGroup is the last column (index 22)
+            def computeGroupStr = res[0][22]
+            log.info("routine load computegroup: ${computeGroupStr.toString()}".toString())
+            assertNotNull(computeGroupStr)
+        } finally {
+            sql "stop routine load for testShowComputeGroup"
+        }
     }
 }

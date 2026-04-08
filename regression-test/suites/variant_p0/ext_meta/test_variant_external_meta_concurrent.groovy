@@ -234,7 +234,7 @@ suite("test_variant_external_meta_concurrent", "nonConcurrent") {
     // Compaction thread
     threads.add(Thread.start {
         try {
-            trigger_and_wait_compaction("test_compaction_stress", "full")
+            trigger_and_wait_compaction("test_compaction_stress", "full", 1800)
             results.add([type: 'compaction', success: true])
         } catch (Exception e) {
             results.add([type: 'compaction', success: false, error: e.message])

@@ -22,10 +22,10 @@ PhysicalResultSink
 --------------------------------------PhysicalProject
 ----------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((warehouse.w_warehouse_sk = inventory.inv_warehouse_sk)) otherCondition=()
 ------------------------------------------PhysicalProject
---------------------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((catalog_sales.cs_item_sk = inventory.inv_item_sk)) otherCondition=((inventory.inv_quantity_on_hand < catalog_sales.cs_quantity))
+--------------------------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((catalog_sales.cs_item_sk = inventory.inv_item_sk)) otherCondition=((inventory.inv_quantity_on_hand < catalog_sales.cs_quantity))
 ----------------------------------------------PhysicalOlapScan[inventory] apply RFs: RF4
 ----------------------------------------------PhysicalProject
-------------------------------------------------hashJoin[LEFT_OUTER_JOIN colocated] hashCondition=((catalog_returns.cr_item_sk = catalog_sales.cs_item_sk) and (catalog_returns.cr_order_number = catalog_sales.cs_order_number)) otherCondition=()
+------------------------------------------------hashJoin[LEFT_OUTER_JOIN bucketShuffle] hashCondition=((catalog_returns.cr_item_sk = catalog_sales.cs_item_sk) and (catalog_returns.cr_order_number = catalog_sales.cs_order_number)) otherCondition=()
 --------------------------------------------------PhysicalProject
 ----------------------------------------------------hashJoin[LEFT_OUTER_JOIN broadcast] hashCondition=((catalog_sales.cs_promo_sk = promotion.p_promo_sk)) otherCondition=()
 ------------------------------------------------------PhysicalProject

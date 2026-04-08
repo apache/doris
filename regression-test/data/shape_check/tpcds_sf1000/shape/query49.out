@@ -28,7 +28,7 @@ PhysicalResultSink
 --------------------------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------------------------hashAgg[LOCAL]
 ------------------------------------------------------PhysicalProject
---------------------------------------------------------hashJoin[INNER_JOIN colocated] hashCondition=((ws.ws_item_sk = wr.wr_item_sk) and (ws.ws_order_number = wr.wr_order_number)) otherCondition=() build RFs:RF1 ws_order_number->[wr_order_number];RF2 ws_item_sk->[wr_item_sk]
+--------------------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((ws.ws_item_sk = wr.wr_item_sk) and (ws.ws_order_number = wr.wr_order_number)) otherCondition=() build RFs:RF1 ws_order_number->[wr_order_number];RF2 ws_item_sk->[wr_item_sk]
 ----------------------------------------------------------PhysicalProject
 ------------------------------------------------------------filter((wr.wr_return_amt > 10000.00))
 --------------------------------------------------------------PhysicalOlapScan[web_returns(wr)] apply RFs: RF1 RF2
@@ -60,7 +60,7 @@ PhysicalResultSink
 --------------------------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------------------------hashAgg[LOCAL]
 ------------------------------------------------------PhysicalProject
---------------------------------------------------------hashJoin[INNER_JOIN colocated] hashCondition=((cs.cs_item_sk = cr.cr_item_sk) and (cs.cs_order_number = cr.cr_order_number)) otherCondition=() build RFs:RF4 cs_order_number->[cr_order_number];RF5 cs_item_sk->[cr_item_sk]
+--------------------------------------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((cs.cs_item_sk = cr.cr_item_sk) and (cs.cs_order_number = cr.cr_order_number)) otherCondition=() build RFs:RF4 cs_order_number->[cr_order_number];RF5 cs_item_sk->[cr_item_sk]
 ----------------------------------------------------------PhysicalProject
 ------------------------------------------------------------filter((cr.cr_return_amount > 10000.00))
 --------------------------------------------------------------PhysicalOlapScan[catalog_returns(cr)] apply RFs: RF4 RF5
@@ -92,7 +92,7 @@ PhysicalResultSink
 --------------------------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------------------------hashAgg[LOCAL]
 ------------------------------------------------------PhysicalProject
---------------------------------------------------------hashJoin[INNER_JOIN colocated] hashCondition=((sts.ss_item_sk = sr.sr_item_sk) and (sts.ss_ticket_number = sr.sr_ticket_number)) otherCondition=() build RFs:RF7 ss_ticket_number->[sr_ticket_number];RF8 ss_item_sk->[sr_item_sk]
+--------------------------------------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((sts.ss_item_sk = sr.sr_item_sk) and (sts.ss_ticket_number = sr.sr_ticket_number)) otherCondition=() build RFs:RF7 ss_ticket_number->[sr_ticket_number];RF8 ss_item_sk->[sr_item_sk]
 ----------------------------------------------------------PhysicalProject
 ------------------------------------------------------------filter((sr.sr_return_amt > 10000.00))
 --------------------------------------------------------------PhysicalOlapScan[store_returns(sr)] apply RFs: RF7 RF8

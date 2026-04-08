@@ -17,12 +17,11 @@
 
 #pragma once
 
-#include "vec/sink/vdata_stream_sender.h"
+#include "exec/exchange/vdata_stream_sender.h"
 
-namespace doris::vectorized {
+namespace doris {
 struct MockChannel : public Channel {
-    MockChannel(pipeline::ExchangeSinkLocalState* parent, TUniqueId fragment_instance_id,
-                bool is_local)
+    MockChannel(ExchangeSinkLocalState* parent, TUniqueId fragment_instance_id, bool is_local)
             : Channel(parent, TNetworkAddress {}, fragment_instance_id, 0) {
         _is_local = is_local;
     }
@@ -82,4 +81,4 @@ struct MockChannel : public Channel {
     MutableBlock _send_block;
 };
 
-} // namespace doris::vectorized
+} // namespace doris

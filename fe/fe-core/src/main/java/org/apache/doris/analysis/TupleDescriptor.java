@@ -29,12 +29,13 @@ import com.google.common.base.MoreObjects;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 
 public class TupleDescriptor {
     private final TupleId id;
-    private final String debugName; // debug only
     private final ArrayList<SlotDescriptor> slots;
+    private final HashMap<Integer, SlotDescriptor> idToSlotDesc;
 
     // underlying table, if there is one
     private TableIf table;
@@ -46,17 +47,12 @@ public class TupleDescriptor {
     public TupleDescriptor(TupleId id) {
         this.id = id;
         this.slots = new ArrayList<SlotDescriptor>();
-        this.debugName = "";
-    }
-
-    public TupleDescriptor(TupleId id, String debugName) {
-        this.id = id;
-        this.slots = new ArrayList<SlotDescriptor>();
-        this.debugName = debugName;
+        this.idToSlotDesc = new HashMap<>();
     }
 
     public void addSlot(SlotDescriptor desc) {
         slots.add(desc);
+        idToSlotDesc.putIfAbsent(desc.getId().asInt(), desc);
     }
 
     public TupleId getId() {
@@ -82,12 +78,7 @@ public class TupleDescriptor {
      * @return this slot's desc
      */
     public SlotDescriptor getSlot(int slotId) {
-        for (SlotDescriptor slotDesc : slots) {
-            if (slotDesc.getId().asInt() == slotId) {
-                return slotDesc;
-            }
-        }
-        return null;
+        return idToSlotDesc.get(slotId);
     }
 
     public ArrayList<SlotId> getAllSlotIds() {
@@ -138,22 +129,6 @@ public class TupleDescriptor {
             slotStrings.add(slot.debugString());
         }
         return MoreObjects.toStringHelper(this).add("id", id.asInt()).add("tbl", tblStr)
-                .add("slots", "[" + Joiner.on(", ").join(slotStrings) + "]")
-                .toString();
-    }
-
-    public String debugString() {
-        // TODO(zc):
-        // String tblStr = (getTable() == null ? "null" : getTable().getFullName());
-        String tblStr = (getTable() == null ? "null" : getTable().getName());
-        List<String> slotStrings = Lists.newArrayList();
-        for (SlotDescriptor slot : slots) {
-            slotStrings.add(slot.debugString());
-        }
-        return MoreObjects.toStringHelper(this)
-                .add("id", id.asInt())
-                .add("name", debugName)
-                .add("tbl", tblStr)
                 .add("slots", "[" + Joiner.on(", ").join(slotStrings) + "]")
                 .toString();
     }

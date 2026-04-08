@@ -30,7 +30,6 @@ import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.proto.Cloud;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.AuthorizationException;
@@ -246,12 +245,24 @@ public class Auth implements Writable {
         Set<Role> roles = Sets.newHashSet();
         Set<String> roleNames = userRoleManager.getRolesByUser(userIdentity);
         for (String roleName : roleNames) {
-            roles.add(roleManager.getRole(roleName));
+            Role role = roleManager.getRole(roleName);
+            if (role != null) {
+                roles.add(role);
+            }
         }
         if (isLdapAuthEnabled()) {
             Set<Role> ldapRoles = ldapManager.getUserRoles(userIdentity.getQualifiedUser());
             if (!CollectionUtils.isEmpty(ldapRoles)) {
                 roles.addAll(ldapRoles);
+            }
+        }
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx != null && userIdentity.equals(ctx.getCurrentUserIdentity())) {
+            for (String roleName : ctx.getAuthenticatedRoles()) {
+                Role role = roleManager.getRole(roleName);
+                if (role != null) {
+                    roles.add(role);
+                }
             }
         }
         return roles;
@@ -271,6 +282,14 @@ public class Auth implements Writable {
 
     public List<UserIdentity> getUserIdentityForLdap(String remoteUser, String remoteHost) {
         return userManager.getUserIdentityUncheckPasswd(remoteUser, remoteHost);
+    }
+
+    public List<UserIdentity> getUserIdentityForExternalAuth(String remoteUser, String remoteHost) {
+        return userManager.getUserIdentityUncheckPasswd(remoteUser, remoteHost);
+    }
+
+    public boolean doesUserExist(String remoteUser, String remoteHost) {
+        return !userManager.getUserIdentityUncheckPasswd(remoteUser, remoteHost).isEmpty();
     }
 
     // ==== Global ====
@@ -565,7 +584,7 @@ public class Auth implements Writable {
     private void dropUserInternal(UserIdentity userIdent, boolean ignoreIfNonExists, boolean isReplay)
             throws DdlException {
         writeLock();
-        String mysqlUserName = ClusterNamespace.getNameFromFullName(userIdent.getUser());
+        String mysqlUserName = userIdent.getUser();
         String toDropMysqlUserId;
         try {
             // check if user exists
@@ -1338,12 +1357,17 @@ public class Auth implements Writable {
         List<String> userAuthInfo = Lists.newArrayList();
         // ================= UserIdentity =======================
         userAuthInfo.add(userIdent.toString());
+        String requireSan = Strings.isNullOrEmpty(userIdent.getSan())
+                ? FeConstants.null_string
+                : userIdent.getSan();
         if (isLdapAuthEnabled() && ldapManager.doesUserExist(userIdent.getQualifiedUser())) {
             // ============== Comment ==============
             userAuthInfo.add(FeConstants.null_string);
             LdapUserInfo ldapUserInfo = ldapManager.getUserInfo(userIdent.getQualifiedUser());
             // ============== Password ==============
             userAuthInfo.add(ldapUserInfo.isSetPasswd() ? "Yes" : "No");
+            // ============== RequireSan ==============
+            userAuthInfo.add(requireSan);
             // ============== Roles ==============
             userAuthInfo.add(Joiner.on(",").join(getRoleNamesByUserWithLdap(userIdent,
                     ConnectContext.get().getSessionVariable().showUserDefaultRole)));
@@ -1353,11 +1377,14 @@ public class Auth implements Writable {
                 userAuthInfo.add(FeConstants.null_string);
                 userAuthInfo.add(FeConstants.null_string);
                 userAuthInfo.add(FeConstants.null_string);
+                userAuthInfo.add(FeConstants.null_string);
             } else {
                 // ============== Comment ==============
                 userAuthInfo.add(user.getComment());
                 // ============== Password ==============
                 userAuthInfo.add(user.hasPassword() ? "Yes" : "No");
+                // ============== RequireSan ==============
+                userAuthInfo.add(requireSan);
                 // ============== Roles ==============
                 userAuthInfo.add(Joiner.on(",").join(userRoleManager
                         .getRolesByUser(userIdent, ConnectContext.get().getSessionVariable().showUserDefaultRole)));
@@ -1710,7 +1737,7 @@ public class Auth implements Writable {
                         }
                         for (PrivEntry entry : tablePrivTable.getEntries()) {
                             TablePrivEntry tablePrivEntry = (TablePrivEntry) entry;
-                            String dbName = ClusterNamespace.getNameFromFullName(tablePrivEntry.getOrigDb());
+                            String dbName = tablePrivEntry.getOrigDb();
                             String tblName = tablePrivEntry.getOrigTbl();
                             // Don't show privileges in information_schema
                             if (InfoSchemaDb.DATABASE_NAME.equals(dbName)
@@ -1720,8 +1747,7 @@ public class Auth implements Writable {
                             }
 
                             String grantee = new String("\'")
-                                    .concat(ClusterNamespace
-                                            .getNameFromFullName(user.getUserIdentity().getQualifiedUser()))
+                                    .concat(user.getUserIdentity().getQualifiedUser())
                                     .concat("\'@\'").concat(user.getUserIdentity().getHost()).concat("\'");
                             String isGrantable = tablePrivEntry.getPrivSet().get(2) ? "YES" : "NO"; // GRANT_PRIV
                             for (Privilege priv : tablePrivEntry.getPrivSet().toPrivilegeList()) {
@@ -1762,7 +1788,7 @@ public class Auth implements Writable {
                         for (PrivEntry entry : dbPrivTable.getEntries()) {
                             DbPrivEntry dbPrivEntry = (DbPrivEntry) entry;
                             String origDb = dbPrivEntry.getOrigDb();
-                            String dbName = ClusterNamespace.getNameFromFullName(dbPrivEntry.getOrigDb());
+                            String dbName = dbPrivEntry.getOrigDb();
                             // Don't show privileges in information_schema
                             if (InfoSchemaDb.DATABASE_NAME.equals(dbName)
                                     || !checkDbPriv(currentUser, InternalCatalog.INTERNAL_CATALOG_NAME, origDb,
@@ -1771,8 +1797,7 @@ public class Auth implements Writable {
                             }
 
                             String grantee = new String("\'")
-                                    .concat(ClusterNamespace
-                                            .getNameFromFullName(user.getUserIdentity().getQualifiedUser()))
+                                    .concat(user.getUserIdentity().getQualifiedUser())
                                     .concat("\'@\'").concat(user.getUserIdentity().getHost()).concat("\'");
                             String isGrantable = dbPrivEntry.getPrivSet().get(2) ? "YES" : "NO"; // GRANT_PRIV
                             for (Privilege priv : dbPrivEntry.getPrivSet().toPrivilegeList()) {
@@ -1817,7 +1842,7 @@ public class Auth implements Writable {
                             continue;
                         }
                         String grantee = new String("\'")
-                                .concat(ClusterNamespace.getNameFromFullName(user.getUserIdentity().getQualifiedUser()))
+                                .concat(user.getUserIdentity().getQualifiedUser())
                                 .concat("\'@\'").concat(user.getUserIdentity().getHost()).concat("\'");
                         String isGrantable = privEntry.getPrivSet().get(2) ? "YES" : "NO"; // GRANT_PRIV
                         for (Privilege globalPriv : privEntry.getPrivSet().toPrivilegeList()) {
@@ -1894,6 +1919,9 @@ public class Auth implements Writable {
                 case MODIFY_COMMENT:
                     modifyComment(userIdent, comment);
                     break;
+                case SET_TLS_REQUIRE:
+                    updateUserTlsRequirements(userIdent);
+                    break;
                 default:
                     throw new DdlException("Unknown alter user operation type: " + opType.name());
             }
@@ -1919,6 +1947,14 @@ public class Auth implements Writable {
         userRoleManager.dropUser(userIdent);
         userRoleManager.addUserRole(userIdent, role);
         userRoleManager.addUserRole(userIdent, roleManager.getUserDefaultRoleName(userIdent));
+    }
+
+    private void updateUserTlsRequirements(UserIdentity userIdent) throws DdlException {
+        User user = userManager.getUserByUserIdentity(userIdent);
+        if (user == null) {
+            throw new DdlException("user: " + userIdent + " does not exist");
+        }
+        user.setUserIdentity(userIdent);
     }
 
     private void modifyComment(UserIdentity userIdent, String comment) throws DdlException {

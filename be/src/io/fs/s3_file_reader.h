@@ -53,6 +53,8 @@ public:
 
     bool closed() const override { return _closed.load(std::memory_order_acquire); }
 
+    int64_t mtime() const override { return 0; }
+
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                         const IOContext* io_ctx) override;

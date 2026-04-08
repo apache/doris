@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_paimon_catalog_varbinary", "p0,external,doris,external_docker,external_docker_doris,new_catalog_property") {
+suite("test_paimon_catalog_varbinary", "p0,external") {
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String hdfs_port = context.config.otherConfigs.get("hive2HdfsPort")

@@ -36,13 +36,13 @@
 #include <utility>
 
 #include "common/config.h"
-#include "exec/schema_scanner/schema_scanner_helper.h"
+#include "core/block/block.h"
+#include "information_schema/schema_scanner_helper.h"
 #include "io/cache/file_cache_common.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "service/backend_options.h"
 #include "util/slice.h"
-#include "vec/core/block.h"
 
 namespace doris {
 class TUniqueId;
@@ -94,8 +94,13 @@ Status FileCacheFactory::create_file_cache(const std::string& cache_base_path,
             LOG_ERROR("").tag("file cache path", cache_base_path).tag("error", strerror(errno));
             return Status::IOError("{} statfs error {}", cache_base_path, strerror(errno));
         }
+#if defined(__APPLE__)
+        const auto block_size = stat.f_bsize;
+#else
+        const auto block_size = stat.f_frsize ? stat.f_frsize : stat.f_bsize;
+#endif
         size_t disk_capacity = static_cast<size_t>(static_cast<size_t>(stat.f_blocks) *
-                                                   static_cast<size_t>(stat.f_bsize));
+                                                   static_cast<size_t>(block_size));
         if (file_cache_settings.capacity == 0 || disk_capacity < file_cache_settings.capacity) {
             LOG_INFO(
                     "The cache {} config size {} is larger than disk size {} or zero, recalc "
@@ -115,6 +120,42 @@ Status FileCacheFactory::create_file_cache(const std::string& cache_base_path,
         _path_to_cache[cache_base_path] = cache.get();
         _caches.push_back(std::move(cache));
         _capacity += file_cache_settings.capacity;
+    }
+
+    return Status::OK();
+}
+
+Status FileCacheFactory::reload_file_cache(const std::vector<CachePath>& cache_base_paths) {
+    {
+        std::unique_lock lock(_mtx);
+        for (const auto& cache_path : cache_base_paths) {
+            if (_path_to_cache.find(cache_path.path) == _path_to_cache.end()) {
+                return Status::InternalError(
+                        "Current file cache not support file cache num changes");
+            }
+        }
+
+        for (const auto& cache_path : cache_base_paths) {
+            auto cache_map_iter = _path_to_cache.find(cache_path.path);
+            auto cache_iter = std::find_if(_caches.begin(), _caches.end(),
+                                           [cache_map_iter](const auto& cache_uptr) {
+                                               return cache_uptr.get() == cache_map_iter->second;
+                                           });
+
+            if (cache_iter == _caches.end()) {
+                return Status::InternalError("Target relaod cache in path {} may has been released",
+                                             cache_path.path);
+            }
+
+            // deconstruct target reload first
+            *cache_iter = std::unique_ptr<BlockFileCache>();
+            // after deconstruct the BlockFileCache, construct the BlockFileCache again
+            *cache_iter =
+                    std::make_unique<BlockFileCache>(cache_path.path, cache_path.init_settings());
+            cache_map_iter->second = cache_iter->get();
+
+            RETURN_IF_ERROR(cache_iter->get()->initialize());
+        }
     }
 
     return Status::OK();
@@ -196,10 +237,12 @@ BlockFileCache* FileCacheFactory::get_by_path(const std::string& cache_base_path
 }
 
 std::vector<BlockFileCache::QueryFileCacheContextHolderPtr>
-FileCacheFactory::get_query_context_holders(const TUniqueId& query_id) {
+FileCacheFactory::get_query_context_holders(const TUniqueId& query_id,
+                                            int file_cache_query_limit_percent) {
     std::vector<BlockFileCache::QueryFileCacheContextHolderPtr> holders;
     for (const auto& cache : _caches) {
-        holders.push_back(cache->get_query_context_holder(query_id));
+        holders.push_back(
+                cache->get_query_context_holder(query_id, file_cache_query_limit_percent));
     }
     return holders;
 }
@@ -250,8 +293,13 @@ std::string validate_capacity(const std::string& path, int64_t new_capacity,
         valid_capacity = 0; // caller will handle the error
         return ret;
     }
+#if defined(__APPLE__)
+    const auto block_size = stat.f_bsize;
+#else
+    const auto block_size = stat.f_frsize ? stat.f_frsize : stat.f_bsize;
+#endif
     size_t disk_capacity = static_cast<size_t>(static_cast<size_t>(stat.f_blocks) *
-                                               static_cast<size_t>(stat.f_bsize));
+                                               static_cast<size_t>(block_size));
     if (new_capacity == 0 || disk_capacity < new_capacity) {
         auto ret = fmt::format(
                 "The cache {} config size {} is larger than disk size {} or zero, recalc "
@@ -299,7 +347,7 @@ std::string FileCacheFactory::reset_capacity(const std::string& path, int64_t ne
     return "Unknown the cache path " + path;
 }
 
-void FileCacheFactory::get_cache_stats_block(vectorized::Block* block) {
+void FileCacheFactory::get_cache_stats_block(Block* block) {
     // std::shared_lock<std::shared_mutex> read_lock(_qs_ctx_map_lock);
     TBackend be = BackendOptions::get_local_backend();
     int64_t be_id = be.id;

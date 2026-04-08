@@ -17,6 +17,7 @@
 
 #include "cloud/cloud_meta_mgr.h"
 
+#include <gen_cpp/cloud.pb.h>
 #include <gtest/gtest.h>
 
 #include <chrono>
@@ -27,11 +28,10 @@
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
 #include "cpp/sync_point.h"
-#include "gen_cpp/cloud.pb.h"
-#include "olap/olap_common.h"
-#include "olap/rowset/rowset_factory.h"
-#include "olap/rowset/rowset_meta.h"
-#include "olap/tablet_meta.h"
+#include "storage/olap_common.h"
+#include "storage/rowset/rowset_factory.h"
+#include "storage/rowset/rowset_meta.h"
+#include "storage/tablet/tablet_meta.h"
 #include "util/uid_util.h"
 
 namespace doris {

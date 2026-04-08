@@ -19,7 +19,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import org.awaitility.Awaitility
 
-suite("test_timing_refresh_catalog", "p0,external,doris,external_docker,external_docker_doris") {
+suite("test_timing_refresh_catalog", "p0,external") {
 
     String jdbcUrl = context.config.jdbcUrl
     String jdbcUser = "test_timing_refresh_catalog_user"

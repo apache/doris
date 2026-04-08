@@ -120,6 +120,19 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         return tRoutineLoadTask;
     }
 
+    @Override
+    public void updateAdaptiveTimeout(RoutineLoadJob routineLoadJob) {
+        if (!isEof) {
+            long maxBatchIntervalS = Math.max(routineLoadJob.getMaxBatchIntervalS(),
+                    Config.routine_load_adaptive_min_batch_interval_sec);
+            long timeoutSec = maxBatchIntervalS * Config.routine_load_task_timeout_multiplier;
+            long realTimeoutSec = Math.max(timeoutSec, Config.routine_load_task_min_timeout_sec);
+            this.timeoutMs = realTimeoutSec * 1000;
+        } else {
+            this.timeoutMs = routineLoadJob.getTimeout() * 1000;
+        }
+    }
+
     private void adaptiveBatchParam(TRoutineLoadTask tRoutineLoadTask, RoutineLoadJob routineLoadJob) {
         long maxBatchIntervalS = routineLoadJob.getMaxBatchIntervalS();
         long maxBatchRows = routineLoadJob.getMaxBatchRows();
@@ -128,9 +141,6 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
             maxBatchIntervalS = Math.max(maxBatchIntervalS, Config.routine_load_adaptive_min_batch_interval_sec);
             maxBatchRows = Math.max(maxBatchRows, RoutineLoadJob.DEFAULT_MAX_BATCH_ROWS);
             maxBatchSize = Math.max(maxBatchSize, RoutineLoadJob.DEFAULT_MAX_BATCH_SIZE);
-            this.timeoutMs = maxBatchIntervalS * Config.routine_load_task_timeout_multiplier * 1000;
-        } else {
-            this.timeoutMs = routineLoadJob.getTimeout() * 1000;
         }
         tRoutineLoadTask.setMaxIntervalS(maxBatchIntervalS);
         tRoutineLoadTask.setMaxBatchRows(maxBatchRows);

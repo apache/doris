@@ -40,7 +40,7 @@ public interface SplitGenerator {
     /**
      * Whether the producer(e.g. ScanNode) support batch mode.
      */
-    default boolean isBatchMode() throws UserException {
+    default boolean isBatchMode() {
         return false;
     }
 

@@ -17,7 +17,7 @@
 import static groovy.test.GroovyAssert.shouldFail;
 import java.util.concurrent.ThreadLocalRandom
 
-suite("azure_blob_all_test", "p2,external,new_catalog_property") {
+suite("azure_blob_all_test", "p2,external") {
 
 
     String abfsAzureAccountName = context.config.otherConfigs.get("abfsAccountName")

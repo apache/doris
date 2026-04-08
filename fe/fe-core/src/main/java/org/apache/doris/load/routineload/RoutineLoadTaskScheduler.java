@@ -165,6 +165,10 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
             throw e;
         }
 
+        // update adaptive timeout before beginTxn to ensure transaction timeout matches task timeout
+        RoutineLoadJob routineLoadJob = routineLoadManager.getJob(routineLoadTaskInfo.getJobId());
+        routineLoadTaskInfo.updateAdaptiveTimeout(routineLoadJob);
+
         // begin txn
         try {
             if (!routineLoadTaskInfo.beginTxn()) {
@@ -191,6 +195,9 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
         try {
             long startTime = System.currentTimeMillis();
             tRoutineLoadTask = routineLoadTaskInfo.createRoutineLoadTask();
+            if (DebugPointUtil.isEnable("FE.RoutineLoadTaskScheduler.createRoutineLoadTask.exception")) {
+                throw new RuntimeException("debug point: createRoutineLoadTask.exception");
+            }
             if (LOG.isDebugEnabled()) {
                 LOG.debug("create routine load task cost(ms): {}, job id: {}",
                         (System.currentTimeMillis() - startTime), routineLoadTaskInfo.getJobId());
@@ -204,12 +211,12 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
                             new ErrorReason(InternalErrorCode.META_NOT_FOUND_ERR, "meta not found: " + e.getMessage()),
                             false);
             throw e;
-        } catch (UserException e) {
+        } catch (Exception e) {
             // set BE id to -1 to release the BE slot
             routineLoadTaskInfo.setBeId(-1);
             routineLoadManager.getJob(routineLoadTaskInfo.getJobId())
                     .updateState(JobState.PAUSED,
-                            new ErrorReason(e.getErrorCode(),
+                            new ErrorReason(InternalErrorCode.CREATE_TASKS_ERR,
                                     "failed to create task: " + e.getMessage()), false);
             throw e;
         }

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.annotation.DependsRules;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.FuncDeps;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -78,28 +79,8 @@ public class EliminateGroupByKey implements RewriteRuleFactory {
     }
 
     LogicalAggregate<Plan> eliminateGroupByKey(LogicalAggregate<? extends Plan> agg, Set<Slot> requireOutput) {
-        Map<Expression, Set<Slot>> groupBySlots = new HashMap<>();
-        Set<Slot> validSlots = new HashSet<>();
-        for (Expression expression : agg.getGroupByExpressions()) {
-            groupBySlots.put(expression, expression.getInputSlots());
-            validSlots.addAll(expression.getInputSlots());
-        }
-
-        FuncDeps funcDeps = agg.child().getLogicalProperties()
-                .getTrait().getAllValidFuncDeps(validSlots);
-        if (funcDeps.isEmpty()) {
-            return null;
-        }
-
-        Set<Set<Slot>> minGroupBySlots = funcDeps.eliminateDeps(new HashSet<>(groupBySlots.values()), requireOutput);
-        Set<Expression> removeExpression = new HashSet<>();
-        for (Entry<Expression, Set<Slot>> entry : groupBySlots.entrySet()) {
-            if (!minGroupBySlots.contains(entry.getValue())
-                    && !requireOutput.containsAll(entry.getValue())) {
-                removeExpression.add(entry.getKey());
-            }
-        }
-
+        Set<Expression> removeExpression = findCanBeRemovedExpressions(agg, requireOutput,
+                agg.child().getLogicalProperties().getTrait());
         List<Expression> newGroupExpression = new ArrayList<>();
         for (Expression expression : agg.getGroupByExpressions()) {
             if (!removeExpression.contains(expression)) {
@@ -113,5 +94,33 @@ public class EliminateGroupByKey implements RewriteRuleFactory {
             }
         }
         return agg.withGroupByAndOutput(newGroupExpression, newOutput);
+    }
+
+    /**
+     * return removeExpression
+     */
+    public static Set<Expression> findCanBeRemovedExpressions(LogicalAggregate<? extends Plan> agg,
+            Set<Slot> requireOutput, DataTrait dataTrait) {
+        Map<Expression, Set<Slot>> groupBySlots = new HashMap<>();
+        Set<Slot> validSlots = new HashSet<>();
+        for (Expression expression : agg.getGroupByExpressions()) {
+            groupBySlots.put(expression, expression.getInputSlots());
+            validSlots.addAll(expression.getInputSlots());
+        }
+
+        FuncDeps funcDeps = dataTrait.getAllValidFuncDeps(validSlots);
+        if (funcDeps.isEmpty()) {
+            return new HashSet<>();
+        }
+
+        Set<Set<Slot>> minGroupBySlots = funcDeps.eliminateDeps(new HashSet<>(groupBySlots.values()), requireOutput);
+        Set<Expression> removeExpression = new HashSet<>();
+        for (Entry<Expression, Set<Slot>> entry : groupBySlots.entrySet()) {
+            if (!minGroupBySlots.contains(entry.getValue())
+                    && !requireOutput.containsAll(entry.getValue())) {
+                removeExpression.add(entry.getKey());
+            }
+        }
+        return removeExpression;
     }
 }

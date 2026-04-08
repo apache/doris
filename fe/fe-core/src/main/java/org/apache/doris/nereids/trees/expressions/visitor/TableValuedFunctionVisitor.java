@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.visitor;
 
 import org.apache.doris.nereids.trees.expressions.functions.table.Backends;
 import org.apache.doris.nereids.trees.expressions.functions.table.Catalogs;
+import org.apache.doris.nereids.trees.expressions.functions.table.CdcStream;
 import org.apache.doris.nereids.trees.expressions.functions.table.File;
 import org.apache.doris.nereids.trees.expressions.functions.table.Frontends;
 import org.apache.doris.nereids.trees.expressions.functions.table.FrontendsDisks;
@@ -27,12 +28,11 @@ import org.apache.doris.nereids.trees.expressions.functions.table.Hdfs;
 import org.apache.doris.nereids.trees.expressions.functions.table.Http;
 import org.apache.doris.nereids.trees.expressions.functions.table.HttpStream;
 import org.apache.doris.nereids.trees.expressions.functions.table.HudiMeta;
-import org.apache.doris.nereids.trees.expressions.functions.table.IcebergMeta;
 import org.apache.doris.nereids.trees.expressions.functions.table.Jobs;
 import org.apache.doris.nereids.trees.expressions.functions.table.Local;
 import org.apache.doris.nereids.trees.expressions.functions.table.MvInfos;
 import org.apache.doris.nereids.trees.expressions.functions.table.Numbers;
-import org.apache.doris.nereids.trees.expressions.functions.table.PaimonMeta;
+import org.apache.doris.nereids.trees.expressions.functions.table.ParquetMeta;
 import org.apache.doris.nereids.trees.expressions.functions.table.PartitionValues;
 import org.apache.doris.nereids.trees.expressions.functions.table.Partitions;
 import org.apache.doris.nereids.trees.expressions.functions.table.Query;
@@ -80,6 +80,10 @@ public interface TableValuedFunctionVisitor<R, C> {
         return visitTableValuedFunction(http, context);
     }
 
+    default R visitCdcStream(CdcStream cdcStream, C context) {
+        return visitTableValuedFunction(cdcStream, context);
+    }
+
     default R visitFrontendsDisks(FrontendsDisks frontendsDisks, C context) {
         return visitTableValuedFunction(frontendsDisks, context);
     }
@@ -104,20 +108,16 @@ public interface TableValuedFunctionVisitor<R, C> {
         return visitTableValuedFunction(hudiMeta, context);
     }
 
-    default R visitIcebergMeta(IcebergMeta icebergMeta, C context) {
-        return visitTableValuedFunction(icebergMeta, context);
-    }
-
-    default R visitPaimonMeta(PaimonMeta paimonMeta, C context) {
-        return visitTableValuedFunction(paimonMeta, context);
-    }
-
     default R visitLocal(Local local, C context) {
         return visitTableValuedFunction(local, context);
     }
 
     default R visitNumbers(Numbers numbers, C context) {
         return visitTableValuedFunction(numbers, context);
+    }
+
+    default R visitParquetMeta(ParquetMeta parquetMeta, C context) {
+        return visitTableValuedFunction(parquetMeta, context);
     }
 
     default R visitS3(S3 s3, C context) {

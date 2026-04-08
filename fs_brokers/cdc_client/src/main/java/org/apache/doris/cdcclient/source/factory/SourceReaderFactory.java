@@ -19,6 +19,7 @@ package org.apache.doris.cdcclient.source.factory;
 
 import org.apache.doris.cdcclient.source.reader.SourceReader;
 import org.apache.doris.cdcclient.source.reader.mysql.MySqlSourceReader;
+import org.apache.doris.cdcclient.source.reader.postgres.PostgresSourceReader;
 
 import java.util.Map;
 import java.util.Objects;
@@ -36,11 +37,12 @@ public final class SourceReaderFactory {
 
     static {
         register(DataSource.MYSQL, MySqlSourceReader::new);
+        register(DataSource.POSTGRES, PostgresSourceReader::new);
     }
 
     private SourceReaderFactory() {}
 
-    public static void register(DataSource source, Supplier<SourceReader> supplier) {
+    private static void register(DataSource source, Supplier<SourceReader> supplier) {
         Objects.requireNonNull(source, "source");
         Objects.requireNonNull(supplier, "supplier");
         REGISTRY.put(source, supplier);

@@ -36,6 +36,27 @@ namespace doris {
 
 using namespace Azure::Storage::Blobs;
 
+TEST(AzureObjStorageClientTlsHelperTest, detects_tls_ca_error) {
+    EXPECT_TRUE(io::is_azure_tls_ca_error_message(
+            "Problem with the SSL CA cert (path? access rights?)"));
+    EXPECT_TRUE(io::is_azure_tls_ca_error_message(
+            "curl error: peer failed verification for cert chain"));
+    EXPECT_TRUE(io::is_azure_tls_ca_error_message("unable to get local issuer certificate"));
+    EXPECT_FALSE(io::is_azure_tls_ca_error_message("AuthenticationFailed"));
+}
+
+TEST(AzureObjStorageClientTlsHelperTest, appends_debug_suffix_only_for_tls_ca_error) {
+    std::string_view debug_ctx = "tls_debug(selected_ca_file='/etc/ssl/certs/ca-bundle.crt')";
+
+    EXPECT_EQ(io::build_azure_tls_debug_suffix(
+                      "Problem with the SSL CA cert (path? access rights?)", debug_ctx),
+              ", tls_debug(selected_ca_file='/etc/ssl/certs/ca-bundle.crt')");
+    EXPECT_EQ(io::build_azure_tls_debug_suffix("AuthenticationFailed", debug_ctx), "");
+    EXPECT_EQ(io::build_azure_tls_debug_suffix(
+                      "Problem with the SSL CA cert (path? access rights?)", ""),
+              "");
+}
+
 class AzureObjStorageClientTest : public testing::Test {
 protected:
     static std::shared_ptr<io::ObjStorageClient> obj_storage_client;

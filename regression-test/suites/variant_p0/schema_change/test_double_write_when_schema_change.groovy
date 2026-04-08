@@ -61,13 +61,13 @@ suite("double_write_schema_change_with_variant", "nonConcurrent") {
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
-            v variant,
+            v variant<PROPERTIES ("variant_enable_doc_mode" = "false")>,
             change_column double,
             INDEX idx_var(v) USING INVERTED PROPERTIES("parser" = "english") COMMENT ''
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 2
-        properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_enable_flatten_nested" = "true");
+        properties("replication_num" = "1", "disable_auto_compaction" = "false", "deprecated_variant_enable_flatten_nested" = "true");
     """
 
     set_be_config.call("memory_limitation_per_thread_for_schema_change_bytes", "6294967296")

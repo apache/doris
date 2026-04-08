@@ -22,8 +22,8 @@
 #include <cstdint>
 #include <vector>
 
+#include "core/uint128.h"
 #include "io/io_common.h"
-#include "vec/common/uint128.h"
 
 namespace doris::io {
 
@@ -34,7 +34,7 @@ inline static constexpr size_t DEFAULT_DISPOSABLE_PERCENT = 5;
 inline static constexpr size_t DEFAULT_INDEX_PERCENT = 5;
 inline static constexpr size_t DEFAULT_TTL_PERCENT = 50;
 
-using uint128_t = vectorized::UInt128;
+using uint128_t = UInt128;
 
 enum FileCacheType {
     INDEX = 2,
@@ -232,6 +232,8 @@ public:
     }
 
     void move_to_end(Iterator queue_it, std::lock_guard<std::mutex>& cache_lock);
+
+    void resize(Iterator queue_it, size_t new_size, std::lock_guard<std::mutex>& cache_lock);
 
     std::string to_string(std::lock_guard<std::mutex>& cache_lock) const;
 

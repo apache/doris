@@ -43,6 +43,10 @@ import java.time.temporal.ChronoField;
 import java.util.List;
 import java.util.stream.Collectors;
 
+/**
+ * @deprecated Use {@link MySQLTypeHandler} instead.
+ */
+@Deprecated
 public class MySQLJdbcExecutor extends BaseJdbcExecutor {
     private static final Logger LOG = Logger.getLogger(MySQLJdbcExecutor.class);
 
@@ -166,6 +170,9 @@ public class MySQLJdbcExecutor extends BaseJdbcExecutor {
                     return null;
                 }
                 return data;
+            }
+            case TIMESTAMPTZ: {
+                return resultSet.getObject(columnIndex + 1, LocalDateTime.class);
             }
             default:
                 throw new IllegalArgumentException("Unsupported column type: " + type.getType());

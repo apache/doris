@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
+import org.apache.doris.analysis.SearchDslParser;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
@@ -54,13 +55,14 @@ public class SearchTest {
     public void testGetQsPlan() {
         String dsl = "title:hello AND content:world";
         StringLiteral dslLiteral = new StringLiteral(dsl);
-        Search searchFunc = new Search(dslLiteral);
+        StringLiteral optionsLiteral = new StringLiteral("{\"mode\":\"standard\"}");
+        Search searchFunc = new Search(dslLiteral, optionsLiteral);
 
         SearchDslParser.QsPlan plan = searchFunc.getQsPlan();
         Assertions.assertNotNull(plan);
-        Assertions.assertNotNull(plan.root);
-        Assertions.assertEquals(SearchDslParser.QsClauseType.AND, plan.root.type);
-        Assertions.assertEquals(2, plan.fieldBindings.size());
+        Assertions.assertNotNull(plan.getRoot());
+        Assertions.assertEquals(SearchDslParser.QsClauseType.AND, plan.getRoot().getType());
+        Assertions.assertEquals(2, plan.getFieldBindings().size());
     }
 
     @Test
@@ -147,15 +149,16 @@ public class SearchTest {
     public void testComplexDslParsing() {
         String complexDsl = "(title:\"machine learning\" OR content:AI) AND NOT category:spam";
         StringLiteral dslLiteral = new StringLiteral(complexDsl);
-        Search searchFunc = new Search(dslLiteral);
+        StringLiteral optionsLiteral = new StringLiteral("{\"mode\":\"standard\"}");
+        Search searchFunc = new Search(dslLiteral, optionsLiteral);
 
         SearchDslParser.QsPlan plan = searchFunc.getQsPlan();
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(SearchDslParser.QsClauseType.AND, plan.root.type);
-        Assertions.assertEquals(2, plan.root.children.size());
+        Assertions.assertEquals(SearchDslParser.QsClauseType.AND, plan.getRoot().getType());
+        Assertions.assertEquals(2, plan.getRoot().getChildren().size());
 
         // Should detect 3 unique fields: title, content, category
-        Assertions.assertEquals(3, plan.fieldBindings.size());
+        Assertions.assertEquals(3, plan.getFieldBindings().size());
     }
 
     @Test
@@ -169,7 +172,7 @@ public class SearchTest {
             searchFunc.getQsPlan();
             Assertions.assertTrue(false, "Expected exception for invalid DSL");
         } catch (RuntimeException e) {
-            Assertions.assertTrue(e.getMessage().contains("Invalid search DSL syntax"));
+            Assertions.assertTrue(e.getMessage().contains("Invalid search DSL"));
         }
     }
 }

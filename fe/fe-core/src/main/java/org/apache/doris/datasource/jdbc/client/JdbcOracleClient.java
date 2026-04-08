@@ -155,15 +155,23 @@ public class JdbcOracleClient extends JdbcClient {
         if (oracleType.startsWith("INTERVAL")) {
             oracleType = oracleType.substring(0, 8);
         } else if (oracleType.startsWith("TIMESTAMP")) {
-            if (oracleType.contains("TIME ZONE") || oracleType.contains("LOCAL TIME ZONE")) {
-                return Type.UNSUPPORTED;
-            }
             // oracle can support nanosecond, will lose precision
             int scale = fieldSchema.getDecimalDigits().orElse(0);
             if (scale > 6) {
                 scale = 6;
             }
-            return ScalarType.createDatetimeV2Type(scale);
+            if (oracleType.contains("LOCAL TIME ZONE")) {
+                //TIMESTAMP(s) WITH LOCAL TIME ZONE
+                return enableMappingTimestampTz ? ScalarType.createTimeStampTzType(scale)
+                        : ScalarType.createDatetimeV2Type(scale);
+            } else if (oracleType.contains("TIME ZONE")) {
+                //TIMESTAMP(s) WITH TIME ZONE
+                return Type.UNSUPPORTED;
+            } else {
+                //TIMESTAMP(s)
+                oracleType = "TIMESTAMP";
+                return ScalarType.createDatetimeV2Type(scale);
+            }
         }
         switch (oracleType) {
             /**

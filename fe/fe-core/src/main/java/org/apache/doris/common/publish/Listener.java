@@ -22,7 +22,7 @@ import org.apache.doris.system.Backend;
 // Used to
 public interface Listener {
     // Called when publish
-    public void onResponse(Backend node);
+    void onResponse(Backend node);
 
-    public void onFailure(Backend node, Throwable t);
+    void onFailure(Backend node, Throwable t);
 }

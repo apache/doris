@@ -399,6 +399,9 @@ private:
                                             std::vector<CallLocation>& locations,
                                             const size_t max_size) const;
 
+    std::string_view getFunctionNameFromDie(const CompilationUnit& srcu, uint64_t die_offset,
+                                            bool& die_for_inline_broken) const;
+
     // Read an abbreviation from a std::string_view, return true if at end; remove_prefix section
     static bool readAbbreviation(std::string_view& section, DIEAbbreviation& abbr);
 

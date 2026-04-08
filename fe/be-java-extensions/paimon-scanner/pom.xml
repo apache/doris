@@ -53,17 +53,6 @@ under the License.
             <artifactId>paimon-common</artifactId>
             <version>${paimon.version}</version>
         </dependency>
-        <!-- For BE Paimon OSS/S3 Access -->
-        <dependency>
-            <groupId>org.apache.paimon</groupId>
-            <artifactId>paimon-s3</artifactId>
-            <version>${paimon.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.paimon</groupId>
-            <artifactId>paimon-oss</artifactId>
-            <version>${paimon.version}</version>
-        </dependency>
         <dependency>
             <groupId>org.apache.paimon</groupId>
             <artifactId>paimon-hive-connector-3.1</artifactId>

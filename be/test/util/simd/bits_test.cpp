@@ -148,14 +148,147 @@ TEST(BitsTest, FindByte) {
 }
 
 TEST(BitsTest, ContainByte) {
-    std::vector<uint8_t> v = {5, 0, 1, 7, 1, 9, 0, 3};
-    const uint8_t* data = v.data();
-    EXPECT_TRUE(contain_byte<uint8_t>(data, v.size(), static_cast<signed char>(5)));
-    EXPECT_TRUE(contain_byte<uint8_t>(data, v.size(), static_cast<signed char>(0)));
-    EXPECT_TRUE(contain_byte<uint8_t>(data, v.size(), static_cast<signed char>(1)));
-    EXPECT_TRUE(contain_byte<uint8_t>(data, v.size(), static_cast<signed char>(3)));
-    EXPECT_FALSE(contain_byte<uint8_t>(data, v.size(), static_cast<signed char>(42)));
-    EXPECT_FALSE(contain_byte<uint8_t>(data, 0, static_cast<signed char>(5)));
+    // Case 1: all zeros
+    {
+        std::vector<uint8_t> v = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+        const uint8_t* data = v.data();
+        EXPECT_TRUE(contain_zero(data, v.size()));
+        EXPECT_FALSE(contain_one(data, v.size()));
+    }
+
+    // Case 2: all ones
+    {
+        std::vector<uint8_t> v = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                                  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
+        const uint8_t* data = v.data();
+        EXPECT_FALSE(contain_zero(data, v.size()));
+        EXPECT_TRUE(contain_one(data, v.size()));
+    }
+
+    // Case 3: single zero at start
+    {
+        std::vector<uint8_t> v = {0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
+        const uint8_t* data = v.data();
+        EXPECT_TRUE(contain_zero(data, v.size()));
+        EXPECT_TRUE(contain_one(data, v.size()));
+    }
+
+    // Case 4: single one at start
+    {
+        std::vector<uint8_t> v = {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+        const uint8_t* data = v.data();
+        EXPECT_TRUE(contain_zero(data, v.size()));
+        EXPECT_TRUE(contain_one(data, v.size()));
+    }
+
+    // Case 5: single zero at end
+    {
+        std::vector<uint8_t> v = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0};
+        const uint8_t* data = v.data();
+        EXPECT_TRUE(contain_zero(data, v.size()));
+        EXPECT_TRUE(contain_one(data, v.size()));
+    }
+
+    // Case 6: single one at end
+    {
+        std::vector<uint8_t> v = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
+        const uint8_t* data = v.data();
+        EXPECT_TRUE(contain_zero(data, v.size()));
+        EXPECT_TRUE(contain_one(data, v.size()));
+    }
+
+    // Case 7: alternating zeros and ones
+    {
+        std::vector<uint8_t> v = {0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1};
+        const uint8_t* data = v.data();
+        EXPECT_TRUE(contain_zero(data, v.size()));
+        EXPECT_TRUE(contain_one(data, v.size()));
+    }
+
+    // Case 8: small size zeros (less than SIMD block)
+    {
+        std::vector<uint8_t> v = {0, 0, 0};
+        const uint8_t* data = v.data();
+        EXPECT_TRUE(contain_zero(data, v.size()));
+        EXPECT_FALSE(contain_one(data, v.size()));
+    }
+
+    // Case 9: small size ones
+    {
+        std::vector<uint8_t> v = {1, 1, 1};
+        const uint8_t* data = v.data();
+        EXPECT_FALSE(contain_zero(data, v.size()));
+        EXPECT_TRUE(contain_one(data, v.size()));
+    }
+
+    // Case 10: size = 1, zero
+    {
+        std::vector<uint8_t> v = {0};
+        const uint8_t* data = v.data();
+        EXPECT_TRUE(contain_zero(data, v.size()));
+        EXPECT_FALSE(contain_one(data, v.size()));
+    }
+
+    // Case 11: size = 1, one
+    {
+        std::vector<uint8_t> v = {1};
+        const uint8_t* data = v.data();
+        EXPECT_FALSE(contain_zero(data, v.size()));
+        EXPECT_TRUE(contain_one(data, v.size()));
+    }
+
+    // Case 12: large size with zero in middle
+    {
+        std::vector<uint8_t> v(100, 1);
+        v[50] = 0;
+        const uint8_t* data = v.data();
+        EXPECT_TRUE(contain_zero(data, v.size()));
+        EXPECT_TRUE(contain_one(data, v.size()));
+    }
+
+    // Case 13: large size with one in middle (all zeros except one)
+    {
+        std::vector<uint8_t> v(100, 0);
+        v[50] = 1;
+        const uint8_t* data = v.data();
+        EXPECT_TRUE(contain_zero(data, v.size()));
+        EXPECT_TRUE(contain_one(data, v.size()));
+    }
+
+    // Case 14: SIMD block boundary (32 bytes for AVX2)
+    {
+        std::vector<uint8_t> v(32, 1);
+        const uint8_t* data = v.data();
+        EXPECT_FALSE(contain_zero(data, v.size()));
+        EXPECT_TRUE(contain_one(data, v.size()));
+    }
+
+    // Case 15: SIMD block + 1 byte
+    {
+        std::vector<uint8_t> v(33, 0);
+        v[32] = 1;
+        const uint8_t* data = v.data();
+        EXPECT_TRUE(contain_zero(data, v.size()));
+        EXPECT_TRUE(contain_one(data, v.size()));
+    }
+
+    // Case 16: multiple SIMD blocks all zeros
+    {
+        std::vector<uint8_t> v(128, 0);
+        const uint8_t* data = v.data();
+        EXPECT_TRUE(contain_zero(data, v.size()));
+        EXPECT_FALSE(contain_one(data, v.size()));
+    }
+
+    // Case 17: multiple SIMD blocks with one at different position
+    {
+        std::vector<uint8_t> v(128, 0);
+        v[64] = 1;
+        const uint8_t* data = v.data();
+        EXPECT_TRUE(contain_zero(data, v.size()));
+        EXPECT_TRUE(contain_one(data, v.size()));
+    }
 }
 
 TEST(BitsTest, FindOne) {

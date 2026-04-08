@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StmtType;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.snapshot.CloudSnapshotHandler;
@@ -73,9 +74,20 @@ public class AdminCreateClusterSnapshotCommand extends Command implements Forwar
         if (!Config.isCloudMode()) {
             throw new AnalysisException("The sql is illegal in disk mode ");
         }
-        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, PrivPredicate.ADMIN)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
-                    PrivPredicate.ADMIN.getPrivs().toString());
+        // Check privilege based on configuration
+        if ("admin".equalsIgnoreCase(Config.cluster_snapshot_min_privilege)) {
+            // When configured as admin, check ADMIN privilege
+            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, PrivPredicate.ADMIN)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
+                        PrivPredicate.ADMIN.getPrivs().toString());
+            }
+        } else {
+            // Default or configured as root, check if user is root
+            UserIdentity currentUser = ctx.getCurrentUserIdentity();
+            if (currentUser == null || !currentUser.isRootUser()) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
+                        "root privilege");
+            }
         }
 
         for (Map.Entry<String, String> entry : properties.entrySet()) {

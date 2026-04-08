@@ -23,7 +23,7 @@ import java.time.ZoneId
 
 
 
-suite("paimon_time_travel", "p0,external,doris,external_docker,external_docker_doris") {
+suite("paimon_time_travel", "p0,external") {
     logger.info("start paimon test")
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
@@ -152,6 +152,9 @@ suite("paimon_time_travel", "p0,external,doris,external_docker,external_docker_d
                 throw e
             }
         }
+
+        // tag on expired snapshot should still be readable
+        qt_expired_tag_count """select count(*) from ${tableName}_expired_tag FOR VERSION AS OF 't_exp_1';"""
 
         List<List<Object>> branchesResult = sql """ select branch_name from ${tableName}\$branches order by branch_name;"""
         logger.info("Query result from ${tableName}\$branches: ${branchesResult}")
@@ -339,6 +342,10 @@ suite("paimon_time_travel", "p0,external,doris,external_docker,external_docker_d
         test {
             sql """ select * from ${tableName} for version as of 'not_exists_tag'; """
             exception "can't find snapshot by tag: not_exists_tag"
+        }
+        test {
+            sql """ select * from ${tableName}_expired_tag for version as of 1; """
+            exception "can't find snapshot by id: 1"
         }
 
         // Use branch function to query tags

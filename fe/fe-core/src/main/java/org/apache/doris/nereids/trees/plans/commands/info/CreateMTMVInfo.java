@@ -125,7 +125,7 @@ public class CreateMTMVInfo extends CreateTableInfo {
      */
     public void analyze(ConnectContext ctx) throws Exception {
         // analyze table name
-        tableNameInfo.analyze(ctx);
+        tableNameInfo.analyze(ctx.getNameSpaceContext());
         if (!InternalCatalog.INTERNAL_CATALOG_NAME.equals(tableNameInfo.getCtl())) {
             throw new AnalysisException("Only support creating asynchronous materialized views in internal catalog");
         }
@@ -285,7 +285,7 @@ public class CreateMTMVInfo extends CreateTableInfo {
         this.setPartitionTableInfo(partitionDesc == null
                 ? PartitionTableInfo.EMPTY : partitionDesc.convertToPartitionTableInfo());
         this.setRollups(Lists.newArrayList());
-        this.setClusterKeysColumnNames(Lists.newArrayList());
+        this.setSortOrderFields(Lists.newArrayList());
         this.setIndexes(Lists.newArrayList());
 
         this.analyzeEngine();

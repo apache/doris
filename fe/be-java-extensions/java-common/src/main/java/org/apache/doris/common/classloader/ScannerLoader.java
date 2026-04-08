@@ -18,16 +18,14 @@
 package org.apache.doris.common.classloader;
 
 import org.apache.doris.common.jni.utils.ExpiringMap;
-import org.apache.doris.common.jni.utils.Log4jOutputStream;
 import org.apache.doris.common.jni.utils.UdfClassCache;
 
 import com.google.common.collect.Streams;
-import org.apache.log4j.Level;
-import org.apache.log4j.Logger;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.PrintStream;
 import java.io.UncheckedIOException;
 import java.net.MalformedURLException;
 import java.net.URL;
@@ -47,7 +45,48 @@ import java.util.stream.Collectors;
  * BE will load scanners by JNI call, and then the JniConnector on BE will get scanner class by getLoadedClass.
  */
 public class ScannerLoader {
-    public static final Logger LOG = Logger.getLogger(ScannerLoader.class);
+    static {
+        // Explicitly initialize log4j2 to ensure logging works in JNI environment
+        try {
+            // Set logPath system property if not already set or normalize it
+            String logPath = System.getProperty("logPath");
+            if (logPath == null || logPath.isEmpty()) {
+                String dorisHome = System.getenv("DORIS_HOME");
+                if (dorisHome != null) {
+                    logPath = dorisHome + "/log/jni.log";
+                }
+            }
+            // Normalize path to remove double slashes
+            if (logPath != null) {
+                logPath = logPath.replaceAll("//+", "/");
+                System.setProperty("logPath", logPath);
+            }
+
+            // Point log4j2 to our configuration file in classpath
+            System.setProperty("log4j2.configurationFile", "log4j2.xml");
+
+            // Disable log4j2's shutdown hook to prevent premature shutdown in JNI environment
+            System.setProperty("log4j.shutdownHookEnabled", "false");
+
+            // Force log4j2 to reconfigure with our settings
+            org.apache.logging.log4j.core.LoggerContext ctx =
+                    (org.apache.logging.log4j.core.LoggerContext) LogManager.getContext(false);
+            ctx.reconfigure();
+
+            // Log initialization success
+            Logger logger = LogManager.getLogger(ScannerLoader.class);
+            logger.info("Log4j2 initialized successfully. Log file: {}", logPath);
+
+            // Test SLF4J bridge
+            org.slf4j.Logger slf4jLogger = org.slf4j.LoggerFactory.getLogger(ScannerLoader.class);
+            slf4jLogger.info("SLF4J bridge to log4j2 verified successfully");
+        } catch (Exception e) {
+            System.err.println("Failed to initialize log4j2: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    public static final Logger LOG = LogManager.getLogger(ScannerLoader.class);
     private static final Map<String, Class<?>> loadedClasses = new HashMap<>();
     private static final ExpiringMap<String, UdfClassCache> udfLoadedClasses = new ExpiringMap<>();
     private static final String CLASS_SUFFIX = ".class";
@@ -57,27 +96,20 @@ public class ScannerLoader {
      * Load all classes from $DORIS_HOME/lib/java_extensions/*
      */
     public void loadAllScannerJars() {
-        redirectStdStreamsToLog4j();
+        LOG.info("Starting to load scanner JARs from $DORIS_HOME/lib/java_extensions/");
         String basePath = System.getenv("DORIS_HOME");
         File library = new File(basePath, "/lib/java_extensions/");
+        LOG.info("Scanner library path: {}", library.getAbsolutePath());
         // TODO: add thread pool to load each scanner
         listFiles(library).stream().filter(File::isDirectory).forEach(sd -> {
+            LOG.info("Loading scanner from directory: {}", sd.getName());
             JniScannerClassLoader classLoader = new JniScannerClassLoader(sd.getName(), buildClassPath(sd),
                         this.getClass().getClassLoader());
             try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
                 loadJarClassFromDir(sd, classLoader);
             }
         });
-    }
-
-    private void redirectStdStreamsToLog4j() {
-        Logger outLogger = Logger.getLogger("stdout");
-        PrintStream logPrintStream = new PrintStream(new Log4jOutputStream(outLogger, Level.INFO));
-        System.setOut(logPrintStream);
-
-        Logger errLogger = Logger.getLogger("stderr");
-        PrintStream errorPrintStream = new PrintStream(new Log4jOutputStream(errLogger, Level.ERROR));
-        System.setErr(errorPrintStream);
+        LOG.info("Finished loading scanner JARs");
     }
 
     public static UdfClassCache getUdfClassLoader(String functionSignature) {
@@ -86,12 +118,12 @@ public class ScannerLoader {
 
     public static synchronized void cacheClassLoader(String functionSignature, UdfClassCache classCache,
             long expirationTime) {
-        LOG.info("Cache UDF for: " + functionSignature);
+        LOG.info("Cache UDF for: {}", functionSignature);
         udfLoadedClasses.put(functionSignature, classCache, expirationTime * 60 * 1000L);
     }
 
     public synchronized void cleanUdfClassLoader(String functionSignature) {
-        LOG.info("cleanUdfClassLoader for: " + functionSignature);
+        LOG.info("cleanUdfClassLoader for: {}", functionSignature);
         udfLoadedClasses.remove(functionSignature);
     }
 

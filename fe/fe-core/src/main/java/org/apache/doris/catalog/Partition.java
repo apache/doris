@@ -83,22 +83,12 @@ public class Partition extends MetaObject {
      * next version(hash): next version is set after finished committing, it should equals to committed version + 1
      */
 
-    // not have committedVersion because committedVersion = nextVersion - 1
-    @Deprecated
-    @SerializedName(value = "cvh", alternate = {"committedVersionHash"})
-    private long committedVersionHash;
     @SerializedName(value = "vv", alternate = {"visibleVersion"})
     private long visibleVersion;
     @SerializedName(value = "vvt", alternate = {"visibleVersionTime"})
     private long visibleVersionTime;
-    @Deprecated
-    @SerializedName(value = "vvh", alternate = {"visibleVersionHash"})
-    private long visibleVersionHash;
     @SerializedName(value = "nv", alternate = {"nextVersion"})
     protected long nextVersion;
-    @Deprecated
-    @SerializedName(value = "nvh", alternate = {"nextVersionHash"})
-    private long nextVersionHash;
     @SerializedName(value = "di", alternate = {"distributionInfo"})
     private DistributionInfo distributionInfo;
 
@@ -181,18 +171,6 @@ public class Partition extends MetaObject {
         } else {
             return partitions.stream().map(Partition::getVisibleVersion).collect(Collectors.toList());
         }
-    }
-
-    /**
-     * if visibleVersion is 1, do not return creation time but 0
-     *
-     * @return
-     */
-    public long getVisibleVersionTimeIgnoreInit() {
-        if (visibleVersion == 1) {
-            return 0L;
-        }
-        return visibleVersionTime;
     }
 
     // The method updateVisibleVersionAndVersionHash is called when fe restart, the visibleVersionTime is updated

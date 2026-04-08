@@ -71,6 +71,7 @@ struct FileDescription {
     // because for a hive table, differenet partitions may have different
     // locations(or fs), so different files may have different fs.
     std::string fs_name;
+    bool file_cache_admission = true;
 };
 
 } // namespace io
@@ -118,6 +119,7 @@ public:
         case TStorageBackendType::BROKER:
             return TFileType::FILE_BROKER;
         case TStorageBackendType::HDFS:
+        case TStorageBackendType::JFS:
             return TFileType::FILE_HDFS;
         default:
             return ResultError(Status::FatalError("not match type to convert, from type:{}", type));
@@ -126,6 +128,12 @@ public:
 
 private:
     static std::string _get_fs_name(const io::FileDescription& file_description);
+
+    /// Create FileReader without FS
+    static Result<io::FileReaderSPtr> _create_file_reader_internal(
+            const io::FileSystemProperties& system_properties,
+            const io::FileDescription& file_description,
+            const io::FileReaderOptions& reader_options, RuntimeProfile* profile = nullptr);
 };
 
 } // namespace doris

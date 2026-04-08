@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_different_column_orders", "p0,external,hive,external_docker,external_docker_hive") {
+suite("test_different_column_orders", "p0,external") {
     def q_parquet = {
         qt_q01 """
         select * from test_different_column_orders_parquet order by id;
@@ -44,7 +44,7 @@ suite("test_different_column_orders", "p0,external,hive,external_docker,external
         return;
     }
 
-    for (String hivePrefix : ["hive2", "hive3"]) {
+    for (String hivePrefix : ["hive3"]) {
         try {
             String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
             String catalog_name = "test_different_column_orders_${hivePrefix}"

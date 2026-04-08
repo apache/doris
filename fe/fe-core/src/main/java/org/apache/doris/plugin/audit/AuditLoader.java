@@ -168,6 +168,7 @@ public class AuditLoader extends Plugin implements AuditPlugin {
 
         // execution info
         logBuffer.append(event.queryTime).append(AUDIT_TABLE_COL_SEPARATOR);
+        logBuffer.append(event.queueTimeMs).append(AUDIT_TABLE_COL_SEPARATOR);
         logBuffer.append(event.cpuTimeMs).append(AUDIT_TABLE_COL_SEPARATOR);
         logBuffer.append(event.peakMemoryBytes).append(AUDIT_TABLE_COL_SEPARATOR);
         logBuffer.append(event.scanBytes).append(AUDIT_TABLE_COL_SEPARATOR);

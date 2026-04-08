@@ -30,13 +30,13 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/status.h"
+#include "core/custom_allocator.h"
 #include "runtime/exec_env.h"
+#include "runtime/runtime_profile.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_management/io_throttle.h"
-#include "util/runtime_profile.h"
 #include "util/slice.h"
 #include "util/threadpool.h"
-#include "vec/common/custom_allocator.h"
 namespace doris {
 
 #include "common/compile_check_begin.h"
@@ -449,6 +449,13 @@ void PrefetchBuffer::prefetch_buffer() {
         _prefetched.notify_all();
     }
 
+    // Lazy-allocate the backing buffer on first actual prefetch, avoiding the cost of
+    // pre-allocating memory for readers that are initialized but never read (e.g. when
+    // many file readers are created concurrently for a TVF scan over many small S3 files).
+    if (!_buf) {
+        _buf = std::make_unique<char[]>(_size);
+    }
+
     int read_range_index = search_read_range(_offset);
     size_t buf_size;
     if (read_range_index == -1) {
@@ -560,10 +567,6 @@ Status PrefetchBuffer::read_buffer(size_t off, const char* out, size_t buf_len,
         reset_offset((off / _size) * _size);
         return read_buffer(off, out, buf_len, bytes_read);
     }
-    auto start = std::chrono::steady_clock::now();
-    // The baseline time is calculated by dividing the size of each buffer by MB/s.
-    // If it exceeds this value, it is considered a slow I/O operation.
-    constexpr auto read_time_baseline = std::chrono::seconds(s_max_pre_buffer_size / 1024 / 1024);
     {
         std::unique_lock lck {_lock};
         // buffer must be prefetched or it's closed
@@ -579,11 +582,6 @@ Status PrefetchBuffer::read_buffer(size_t off, const char* out, size_t buf_len,
         if (UNLIKELY(BufferStatus::CLOSED == _buffer_status)) {
             return Status::OK();
         }
-    }
-    auto duration = std::chrono::duration_cast<std::chrono::seconds>(
-            std::chrono::steady_clock::now() - start);
-    if (duration > read_time_baseline) [[unlikely]] {
-        LOG_WARNING("The prefetch io is too slow");
     }
     RETURN_IF_ERROR(_prefetch_status);
     // there is only parquet would do not sequence read
@@ -635,9 +633,14 @@ void PrefetchBuffer::_collect_profile_before_close() {
 
 // buffered reader
 PrefetchBufferedReader::PrefetchBufferedReader(RuntimeProfile* profile, io::FileReaderSPtr reader,
-                                               PrefetchRange file_range, const IOContext* io_ctx,
+                                               PrefetchRange file_range,
+                                               std::shared_ptr<const IOContext> io_ctx,
                                                int64_t buffer_size)
-        : _reader(std::move(reader)), _file_range(file_range), _io_ctx(io_ctx) {
+        : _reader(std::move(reader)), _file_range(file_range), _io_ctx_holder(std::move(io_ctx)) {
+    if (_io_ctx_holder == nullptr) {
+        _io_ctx_holder = std::make_shared<IOContext>();
+    }
+    _io_ctx = _io_ctx_holder.get();
     if (buffer_size == -1L) {
         buffer_size = config::remote_storage_read_buffer_mb * 1024 * 1024;
     }
@@ -674,8 +677,8 @@ PrefetchBufferedReader::PrefetchBufferedReader(RuntimeProfile* profile, io::File
     // to make sure the buffer reader will start to read at right position.
     for (int i = 0; i < buffer_num; i++) {
         _pre_buffers.emplace_back(std::make_shared<PrefetchBuffer>(
-                _file_range, s_max_pre_buffer_size, _whole_pre_buffer_size, _reader.get(), _io_ctx,
-                sync_buffer));
+                _file_range, s_max_pre_buffer_size, _whole_pre_buffer_size, _reader.get(),
+                _io_ctx_holder, sync_buffer));
     }
 }
 
@@ -845,6 +848,23 @@ Result<io::FileReaderSPtr> DelegateReader::create_file_reader(
         RuntimeProfile* profile, const FileSystemProperties& system_properties,
         const FileDescription& file_description, const io::FileReaderOptions& reader_options,
         AccessMode access_mode, const IOContext* io_ctx, const PrefetchRange file_range) {
+    std::shared_ptr<const IOContext> io_ctx_holder;
+    if (io_ctx != nullptr) {
+        // Old API: best-effort safety by copying the IOContext onto the heap.
+        io_ctx_holder = std::make_shared<IOContext>(*io_ctx);
+    }
+    return create_file_reader(profile, system_properties, file_description, reader_options,
+                              access_mode, std::move(io_ctx_holder), file_range);
+}
+
+Result<io::FileReaderSPtr> DelegateReader::create_file_reader(
+        RuntimeProfile* profile, const FileSystemProperties& system_properties,
+        const FileDescription& file_description, const io::FileReaderOptions& reader_options,
+        AccessMode access_mode, std::shared_ptr<const IOContext> io_ctx,
+        const PrefetchRange file_range) {
+    if (io_ctx == nullptr) {
+        io_ctx = std::make_shared<IOContext>();
+    }
     return FileFactory::create_file_reader(system_properties, file_description, reader_options,
                                            profile)
             .transform([&](auto&& reader) -> io::FileReaderSPtr {

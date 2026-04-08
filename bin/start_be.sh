@@ -254,6 +254,14 @@ if [[ -d "${DORIS_HOME}/lib/java_extensions/jindofs" ]]; then
     done
 fi
 
+# add juicefs
+# should after jars in lib/hadoop_hdfs/, or it will override the hadoop jars in lib/hadoop_hdfs
+if [[ -d "${DORIS_HOME}/lib/java_extensions/juicefs" ]]; then
+    for f in "${DORIS_HOME}/lib/java_extensions/juicefs"/*.jar; do
+        DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
+    done
+fi
+
 # add custom_libs to CLASSPATH
 # ATTN, custom_libs is deprecated, use plugins/java_extensions
 if [[ -d "${DORIS_HOME}/custom_lib" ]]; then
@@ -341,7 +349,11 @@ fi
 export AWS_MAX_ATTEMPTS=2
 
 # filter known leak
-export LSAN_OPTIONS=suppressions=${DORIS_HOME}/conf/lsan_suppr.conf
+export LSAN_OPTIONS="
+    report_objects=1
+    suppressions='${DORIS_HOME}/conf/lsan_suppr.conf'
+    malloc_context_size=50
+"
 export ASAN_OPTIONS=suppressions=${DORIS_HOME}/conf/asan_suppr.conf
 export UBSAN_OPTIONS=suppressions=${DORIS_HOME}/conf/ubsan_suppr.conf
 
@@ -407,7 +419,7 @@ COMMON_OPTS="-Dsun.java.command=DorisBE -XX:-CriticalJNINatives"
 
 if [[ "${java_version}" -eq 17 ]]; then
     if [[ -z ${JAVA_OPTS_FOR_JDK_17} ]]; then
-        JAVA_OPTS_FOR_JDK_17="-Xmx1024m ${LOG_PATH} -Xlog:gc:${DORIS_HOME}/log/be.gc.log.${CUR_DATE} ${COMMON_OPTS} --add-opens java.base/java.net=ALL-UNNAMED"
+        JAVA_OPTS_FOR_JDK_17="-Xmx1024m ${LOG_PATH} -Xlog:gc:${DORIS_HOME}/log/be.gc.log.${CUR_DATE} ${COMMON_OPTS} --add-opens=java.base/java.net=ALL-UNNAMED"
     fi
     final_java_opt="${JAVA_OPTS_FOR_JDK_17}"
 else
@@ -429,7 +441,7 @@ fi
 
 # Extract the matching key from a Java option for deduplication purposes.
 # Different option types have different key extraction rules:
-#   --add-opens java.base/sun.util.calendar=ALL-UNNAMED -> --add-opens java.base/sun.util.calendar
+#   --add-opens=java.base/sun.util.calendar=ALL-UNNAMED -> --add-opens=java.base/sun.util.calendar
 #   -XX:+HeapDumpOnOutOfMemoryError                     -> -XX:[+-]HeapDumpOnOutOfMemoryError
 #   -XX:HeapDumpPath=/path                              -> -XX:HeapDumpPath
 #   -Dfile.encoding=UTF-8                               -> -Dfile.encoding
@@ -438,9 +450,9 @@ extract_java_opt_key() {
     local param="$1"
 
     case "${param}" in
-        "--add-opens "* | "--add-exports="* | "--add-reads="* | "--add-modules="*)
-            # --add-opens java.base/sun.util.calendar=ALL-UNNAMED
-            # Extract module/package path as key: --add-opens java.base/sun.util.calendar
+        "--add-opens="* | "--add-exports="* | "--add-reads="* | "--add-modules="*)
+            # --add-opens=java.base/sun.util.calendar=ALL-UNNAMED
+            # Extract module/package path as key: --add-opens=java.base/sun.util.calendar
             echo "${param%=*}"
             ;;
         -XX:+* | -XX:-*)
@@ -513,7 +525,7 @@ java_opt_exists() {
 # Arguments:
 #   $1 - The option to add
 # Usage:
-#   add_java_opt_if_missing "--add-opens java.base/sun.util.calendar=ALL-UNNAMED"
+#   add_java_opt_if_missing "--add-opens=java.base/sun.util.calendar=ALL-UNNAMED"
 #   add_java_opt_if_missing "-XX:+HeapDumpOnOutOfMemoryError"
 #   add_java_opt_if_missing "-Dfile.encoding=UTF-8"
 add_java_opt_if_missing() {
@@ -533,23 +545,23 @@ add_java_opt_if_missing "-Djol.skipHotspotSAAttach=true"
 add_java_opt_if_missing "-Djavax.security.auth.useSubjectCredsOnly=false"
 add_java_opt_if_missing "-Dsun.security.krb5.debug=true"
 add_java_opt_if_missing "-Dfile.encoding=UTF-8"
-add_java_opt_if_missing "--add-opens java.base/java.lang=ALL-UNNAMED"
-add_java_opt_if_missing "--add-opens java.base/java.lang.invoke=ALL-UNNAMED"
-add_java_opt_if_missing "--add-opens java.base/java.lang.reflect=ALL-UNNAMED"
-add_java_opt_if_missing "--add-opens java.base/java.io=ALL-UNNAMED"
-add_java_opt_if_missing "--add-opens java.base/java.net=ALL-UNNAMED"
-add_java_opt_if_missing "--add-opens java.base/java.nio=ALL-UNNAMED"
-add_java_opt_if_missing "--add-opens java.base/java.util=ALL-UNNAMED"
-add_java_opt_if_missing "--add-opens java.base/java.util.concurrent=ALL-UNNAMED"
-add_java_opt_if_missing "--add-opens java.base/java.util.concurrent.atomic=ALL-UNNAMED"
-add_java_opt_if_missing "--add-opens java.base/sun.nio.ch=ALL-UNNAMED"
-add_java_opt_if_missing "--add-opens java.base/sun.nio.cs=ALL-UNNAMED"
-add_java_opt_if_missing "--add-opens java.base/sun.security.action=ALL-UNNAMED"
-add_java_opt_if_missing "--add-opens java.base/sun.util.calendar=ALL-UNNAME"
-add_java_opt_if_missing "--add-opens java.security.jgss/sun.security.krb5=ALL-UNNAMED"
-add_java_opt_if_missing "--add-opens java.management/sun.management=ALL-UNNAMED"
-add_java_opt_if_missing "--add-opens java.base/jdk.internal.ref=ALL-UNNAMED"
-add_java_opt_if_missing "--add-opens java.xml/com.sun.org.apache.xerces.internal.jaxp=ALL-UNNAMED"
+add_java_opt_if_missing "--add-opens=java.base/java.lang=ALL-UNNAMED"
+add_java_opt_if_missing "--add-opens=java.base/java.lang.invoke=ALL-UNNAMED"
+add_java_opt_if_missing "--add-opens=java.base/java.lang.reflect=ALL-UNNAMED"
+add_java_opt_if_missing "--add-opens=java.base/java.io=ALL-UNNAMED"
+add_java_opt_if_missing "--add-opens=java.base/java.net=ALL-UNNAMED"
+add_java_opt_if_missing "--add-opens=java.base/java.nio=ALL-UNNAMED"
+add_java_opt_if_missing "--add-opens=java.base/java.util=ALL-UNNAMED"
+add_java_opt_if_missing "--add-opens=java.base/java.util.concurrent=ALL-UNNAMED"
+add_java_opt_if_missing "--add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED"
+add_java_opt_if_missing "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED"
+add_java_opt_if_missing "--add-opens=java.base/sun.nio.cs=ALL-UNNAMED"
+add_java_opt_if_missing "--add-opens=java.base/sun.security.action=ALL-UNNAMED"
+add_java_opt_if_missing "--add-opens=java.base/sun.util.calendar=ALL-UNNAME"
+add_java_opt_if_missing "--add-opens=java.security.jgss/sun.security.krb5=ALL-UNNAMED"
+add_java_opt_if_missing "--add-opens=java.management/sun.management=ALL-UNNAMED"
+add_java_opt_if_missing "--add-opens=java.base/jdk.internal.ref=ALL-UNNAMED"
+add_java_opt_if_missing "--add-opens=java.xml/com.sun.org.apache.xerces.internal.jaxp=ALL-UNNAMED"
 
 # set LIBHDFS_OPTS for hadoop libhdfs
 export LIBHDFS_OPTS="${final_java_opt}"

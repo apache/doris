@@ -30,21 +30,23 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
+#include "common/metrics/doris_metrics.h"
 #include "common/status.h"
 #include "io/fs/broker_file_system.h"
-#include "util/doris_metrics.h"
 
 namespace doris::io {
 struct IOContext;
 
 BrokerFileReader::BrokerFileReader(const TNetworkAddress& broker_addr, Path path, size_t file_size,
                                    TBrokerFD fd,
-                                   std::shared_ptr<BrokerServiceConnection> connection)
+                                   std::shared_ptr<BrokerServiceConnection> connection,
+                                   int64_t mtime)
         : _path(std::move(path)),
           _file_size(file_size),
           _broker_addr(broker_addr),
           _fd(fd),
-          _connection(std::move(connection)) {
+          _connection(std::move(connection)),
+          _mtime(mtime) {
     DorisMetrics::instance()->broker_file_open_reading->increment(1);
     DorisMetrics::instance()->broker_file_reader_total->increment(1);
 }

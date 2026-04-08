@@ -23,8 +23,8 @@
 #include <string>
 #include <vector>
 
+#include "core/data_type/data_type.h"
 #include "rapidjson/document.h"
-#include "vec/data_types/data_type.h"
 
 namespace doris {
 
@@ -38,9 +38,8 @@ public:
 
     Status parse(const std::string& scroll_result, bool exactly_once = false);
     // Add time_zone info to convert time field of ES to local time zone of Doris
-    Status fill_columns(const TupleDescriptor* _tuple_desc,
-                        std::vector<vectorized::MutableColumnPtr>& columns, bool* line_eof,
-                        const std::map<std::string, std::string>& docvalue_context,
+    Status fill_columns(const TupleDescriptor* _tuple_desc, std::vector<MutableColumnPtr>& columns,
+                        bool* line_eof, const std::map<std::string, std::string>& docvalue_context,
                         const cctz::time_zone& time_zone);
 
     const std::string& get_scroll_id();
@@ -48,7 +47,7 @@ public:
 
 private:
     Status parse_column(const rapidjson::Value& col, PrimitiveType sub_type, bool pure_doc_value,
-                        vectorized::Array& array, const cctz::time_zone& time_zone);
+                        Array& array, const cctz::time_zone& time_zone);
     std::string _scroll_id;
     int _size;
     rapidjson::SizeType _line_index;

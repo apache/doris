@@ -18,7 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.alter.AlterCancelException;
-import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -73,7 +72,6 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
 
     public volatile boolean isDropped = false;
 
-    private boolean hasCompoundKey = false;
     @SerializedName(value = "id")
     protected long id;
     @SerializedName(value = "name")
@@ -118,12 +116,11 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
      */
     protected Map<String, Column> nameToColumn;
 
-    // DO NOT persist this variable.
-    protected boolean isTypeRead = false;
     // table(view)'s comment
     @SerializedName(value = "comment")
     protected String comment = "";
 
+    @Deprecated
     @SerializedName(value = "ta")
     protected TableAttributes tableAttributes = new TableAttributes();
 
@@ -350,14 +347,6 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
         this.commitLock.unlock();
     }
 
-    public boolean isTypeRead() {
-        return isTypeRead;
-    }
-
-    public void setTypeRead(boolean isTypeRead) {
-        this.isTypeRead = isTypeRead;
-    }
-
     public long getId() {
         return id;
     }
@@ -396,13 +385,13 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
         return isTemporary ? Util.getTempTableDisplayName(name) : name;
     }
 
-    public Constraint getConstraint(String name) {
-        return getConstraintsMap().get(name);
-    }
-
-    @Override
-    public Map<String, Constraint> getConstraintsMapUnsafe() {
-        return tableAttributes.getConstraintsMap();
+    /**
+     * @deprecated Use ConstraintManager for constraint access.
+     *             This method will be removed in a future version.
+     */
+    @Deprecated
+    public TableAttributes getTableAttributes() {
+        return tableAttributes;
     }
 
     public TableType getType() {
@@ -490,7 +479,6 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
         }
         if (keys.size() > 1) {
             keys.forEach(key -> key.setCompoundKey(true));
-            hasCompoundKey = true;
         }
     }
 

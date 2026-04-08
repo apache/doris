@@ -7,6 +7,7 @@ set enable_decimal256 = true;
 DROP DATABASE IF EXISTS `runtime_filter_type_data_id_750002`;
 CREATE DATABASE `runtime_filter_type_data_id_750002`;
 USE `runtime_filter_type_data_id_750002`;
+set default_variant_enable_doc_mode = false;
 
 DROP TABLE IF EXISTS `table_100_undef_partitions2_keys3_properties4_distributed_by5`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;

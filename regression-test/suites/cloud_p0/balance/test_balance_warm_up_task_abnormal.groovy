@@ -22,6 +22,11 @@ suite('test_balance_warm_up_task_abnormal', 'docker') {
     if (!isCloudMode()) {
         return;
     }
+
+    // Randomly enable or disable packed_file to test both scenarios
+    def enablePackedFile = new Random().nextBoolean()
+    logger.info("Running test with enable_packed_file=${enablePackedFile}")
+
     def options = new ClusterOptions()
     options.feConfigs += [
         'cloud_cluster_check_interval_second=1',
@@ -36,7 +41,8 @@ suite('test_balance_warm_up_task_abnormal', 'docker') {
         'report_tablet_interval_seconds=1',
         'schedule_sync_tablets_interval_s=18000',
         'disable_auto_compaction=true',
-        'sys_log_verbose_modules=*'
+        'sys_log_verbose_modules=*',
+        "enable_packed_file=${enablePackedFile}",
     ]
     options.setFeNum(1)
     options.setBeNum(1)
@@ -105,13 +111,14 @@ suite('test_balance_warm_up_task_abnormal', 'docker') {
 
         // test recover from abnormal
         sql """ALTER COMPUTE GROUP compute_cluster PROPERTIES ('balance_type'='without_warmup')"""
-        sleep(5 * 1000)
 
-        def afterAlterResult = sql_return_maparray """ADMIN SHOW REPLICA DISTRIBUTION FROM $table"""
-        logger.info("after alter balance policy result {}", afterAlterResult)
-        // now mapping is changed to 1 replica in each be
-        assert afterAlterResult.any { row ->
-            Integer.valueOf((String) row.ReplicaNum) == 1
+        awaitUntil(60) {
+            def afterAlterResult = sql_return_maparray """ADMIN SHOW REPLICA DISTRIBUTION FROM $table"""
+            logger.info("after alter balance policy result {}", afterAlterResult)
+            // now mapping is changed to 1 replica in each be
+            afterAlterResult.any { row ->
+                Integer.valueOf((String) row.ReplicaNum) == 1
+            }
         }
     }
 

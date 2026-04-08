@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_jdbc_mysql_catalog_table_comment") {
+suite("test_jdbc_mysql_catalog_table_comment", "p0") {
     String ex_table_name = "test_table_comment";
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     String s3_endpoint = getS3Endpoint()

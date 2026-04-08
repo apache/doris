@@ -19,6 +19,9 @@ import org.apache.doris.regression.suite.ClusterOptions
 
 suite("test_cu_compaction", "docker") {
     def options = new ClusterOptions()
+    Random random = new Random()
+    def enablePackedFile = random.nextBoolean()
+    logger.info("enable_packed_file: ${enablePackedFile}")
     options.beConfigs += [
         'delete_bitmap_store_version=2',
         'delete_bitmap_max_bytes_store_in_fdb=-1',
@@ -30,7 +33,8 @@ suite("test_cu_compaction", "docker") {
         'path_gc_check_interval_second=1',
         'trash_file_expire_time_sec=0',
         'tablet_rowset_stale_sweep_time_sec=1',
-        'min_garbage_sweep_interval=1'
+        'min_garbage_sweep_interval=1',
+        "enable_packed_file=${enablePackedFile}"
     ]
     options.setFeNum(1)
     options.setBeNum(1)

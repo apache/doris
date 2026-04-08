@@ -19,32 +19,49 @@ package org.apache.doris.datasource.iceberg.helper;
 
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.statistics.CommonStatistics;
+import org.apache.doris.thrift.TFileContent;
+import org.apache.doris.thrift.TIcebergColumnStats;
 import org.apache.doris.thrift.TIcebergCommitData;
 
 import com.google.common.base.VerifyException;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
+import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileFormat;
+import org.apache.iceberg.FileMetadata;
+import org.apache.iceberg.Metrics;
 import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.SortOrder;
+import org.apache.iceberg.Table;
 import org.apache.iceberg.io.WriteResult;
 import org.apache.iceberg.types.Types;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
 public class IcebergWriterHelper {
+    private static final Logger LOG = LogManager.getLogger(IcebergWriterHelper.class);
 
     private static final int DEFAULT_FILE_COUNT = 1;
 
     public static WriteResult convertToWriterResult(
-            FileFormat format,
-            PartitionSpec spec,
+            Table table,
             List<TIcebergCommitData> commitDataList) {
         List<DataFile> dataFiles = new ArrayList<>();
+
+        // Get table specification information
+        PartitionSpec spec = table.spec();
+        FileFormat fileFormat = IcebergUtils.getFileFormat(table);
+
         for (TIcebergCommitData commitData : commitDataList) {
             //get the files path
             String location = commitData.getFilePath();
@@ -53,7 +70,7 @@ public class IcebergWriterHelper {
             long fileSize = commitData.getFileSize();
             long recordCount = commitData.getRowCount();
             CommonStatistics stat = new CommonStatistics(recordCount, DEFAULT_FILE_COUNT, fileSize);
-
+            Metrics metrics = buildDataFileMetrics(table, fileFormat, commitData);
             Optional<PartitionData> partitionData = Optional.empty();
             //get and check partitionValues when table is partitionedTable
             if (spec.isPartitioned()) {
@@ -67,7 +84,8 @@ public class IcebergWriterHelper {
                 // Convert human-readable partition values to PartitionData
                 partitionData = Optional.of(convertToPartitionData(partitionValues, spec));
             }
-            DataFile dataFile = genDataFile(format, location, spec, partitionData, stat);
+            DataFile dataFile = genDataFile(fileFormat, location, spec, partitionData, stat, metrics,
+                    table.sortOrder());
             dataFiles.add(dataFile);
         }
         return WriteResult.builder()
@@ -81,12 +99,14 @@ public class IcebergWriterHelper {
             String location,
             PartitionSpec spec,
             Optional<PartitionData> partitionData,
-            CommonStatistics statistics) {
+            CommonStatistics statistics, Metrics metrics, SortOrder sortOrder) {
 
         DataFiles.Builder builder = DataFiles.builder(spec)
                 .withPath(location)
                 .withFileSizeInBytes(statistics.getTotalFileBytes())
                 .withRecordCount(statistics.getRowCount())
+                .withMetrics(metrics)
+                .withSortOrder(sortOrder)
                 .withFormat(format);
 
         partitionData.ifPresent(builder::withPartition);
@@ -131,5 +151,120 @@ public class IcebergWriterHelper {
         }
 
         return partitionData;
+    }
+
+    private static Metrics buildDataFileMetrics(Table table, FileFormat fileFormat, TIcebergCommitData commitData) {
+        Map<Integer, Long> columnSizes = new HashMap<>();
+        Map<Integer, Long> valueCounts = new HashMap<>();
+        Map<Integer, Long> nullValueCounts = new HashMap<>();
+        Map<Integer, ByteBuffer> lowerBounds = new HashMap<>();
+        Map<Integer, ByteBuffer> upperBounds = new HashMap<>();
+        if (commitData.isSetColumnStats()) {
+            TIcebergColumnStats stats = commitData.column_stats;
+            if (stats.isSetColumnSizes()) {
+                columnSizes = stats.column_sizes;
+            }
+            if (stats.isSetValueCounts()) {
+                valueCounts = stats.value_counts;
+            }
+            if (stats.isSetNullValueCounts()) {
+                nullValueCounts = stats.null_value_counts;
+            }
+            if (stats.isSetLowerBounds()) {
+                lowerBounds = stats.lower_bounds;
+            }
+            if (stats.isSetUpperBounds()) {
+                upperBounds = stats.upper_bounds;
+            }
+        }
+
+        return new Metrics(commitData.getRowCount(), columnSizes, valueCounts,
+                nullValueCounts, null, lowerBounds, upperBounds);
+    }
+
+    /**
+     * Convert TIcebergCommitData list to DeleteFile list for delete operations.
+     *
+     * @param format File format (Parquet/ORC)
+     * @param spec Partition specification
+     * @param commitDataList List of commit data from BE
+     * @return List of DeleteFile objects ready to be committed
+     */
+    public static List<DeleteFile> convertToDeleteFiles(
+            FileFormat format,
+            PartitionSpec spec,
+            List<TIcebergCommitData> commitDataList) {
+        List<DeleteFile> deleteFiles = new ArrayList<>();
+
+        for (TIcebergCommitData commitData : commitDataList) {
+            // Only process delete files
+            if (commitData.getFileContent() == null
+                    || commitData.getFileContent() == TFileContent.DATA) {
+                continue;
+            }
+
+            String deleteFilePath = commitData.getFilePath();
+            long fileSize = commitData.getFileSize();
+            long recordCount = commitData.getRowCount();
+            boolean isDeletionVector = commitData.isSetContentOffset()
+                    && commitData.isSetContentSizeInBytes();
+            FileFormat effectiveFormat = isDeletionVector ? FileFormat.PUFFIN : format;
+
+            // Build delete file metadata
+            FileMetadata.Builder deleteBuilder = FileMetadata.deleteFileBuilder(spec)
+                    .withPath(deleteFilePath)
+                    .withFormat(effectiveFormat)
+                    .withFileSizeInBytes(fileSize)
+                    .withRecordCount(recordCount);
+
+            // Set delete file content type
+            if (commitData.getFileContent() == TFileContent.POSITION_DELETES) {
+                deleteBuilder.ofPositionDeletes();
+            } else if (commitData.getFileContent() == TFileContent.DELETION_VECTOR) {
+                deleteBuilder.ofPositionDeletes();
+            } else {
+                throw new VerifyException("Iceberg delete only supports position deletes, but got "
+                        + commitData.getFileContent());
+            }
+
+            if (isDeletionVector) {
+                deleteBuilder.withContentOffset(commitData.getContentOffset());
+                deleteBuilder.withContentSizeInBytes(commitData.getContentSizeInBytes());
+            }
+
+            if (commitData.isSetReferencedDataFilePath()
+                    && commitData.getReferencedDataFilePath() != null
+                    && !commitData.getReferencedDataFilePath().isEmpty()) {
+                deleteBuilder.withReferencedDataFile(commitData.getReferencedDataFilePath());
+            }
+
+            // Add partition information if table is partitioned
+            if (spec.isPartitioned()) {
+                PartitionData partitionData;
+                if (commitData.getPartitionValues() != null && !commitData.getPartitionValues().isEmpty()) {
+                    // Convert partition values to PartitionData
+                    List<String> partitionValues = commitData.getPartitionValues().stream()
+                            .map(s -> s.equals("null") ? null : s)
+                            .collect(Collectors.toList());
+                    partitionData = convertToPartitionData(partitionValues, spec);
+                } else if (commitData.getPartitionDataJson() != null && !commitData.getPartitionDataJson().isEmpty()) {
+                    List<String> partitionValues = IcebergUtils.parsePartitionValuesFromJson(
+                            commitData.getPartitionDataJson());
+                    if (!partitionValues.isEmpty()) {
+                        partitionData = convertToPartitionData(partitionValues, spec);
+                    } else {
+                        partitionData = new PartitionData(spec.partitionType());
+                    }
+                } else {
+                    throw new VerifyException("No partition data for partitioned table");
+                }
+                deleteBuilder.withPartition(partitionData);
+            }
+
+            DeleteFile deleteFile = deleteBuilder.build();
+            deleteFiles.add(deleteFile);
+        }
+
+        return deleteFiles;
     }
 }

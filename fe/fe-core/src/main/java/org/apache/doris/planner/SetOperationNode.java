@@ -18,6 +18,9 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.ExprToThriftVisitor;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.thrift.TExceptNode;
 import org.apache.doris.thrift.TExplainLevel;
@@ -65,6 +68,8 @@ public abstract class SetOperationNode extends PlanNode {
 
     private boolean isColocate = false;
 
+    private DistributionMode distributionMode = DistributionMode.PARTITIONED;
+
     protected SetOperationNode(PlanNodeId id, TupleId tupleId, String planNodeName) {
         super(id, tupleId.asList(), planNodeName);
         this.setOpResultExprs = Lists.newArrayList();
@@ -87,15 +92,23 @@ public abstract class SetOperationNode extends PlanNode {
         this.isColocate = colocate;
     }
 
+    public DistributionMode getDistributionMode() {
+        return distributionMode;
+    }
+
+    public void setDistributionMode(DistributionMode distributionMode) {
+        this.distributionMode = distributionMode;
+    }
+
     protected void toThrift(TPlanNode msg, TPlanNodeType nodeType) {
         Preconditions.checkState(materializedResultExprLists.size() == children.size());
         List<List<TExpr>> texprLists = Lists.newArrayList();
         for (List<Expr> exprList : materializedResultExprLists) {
-            texprLists.add(Expr.treesToThrift(exprList));
+            texprLists.add(ExprToThriftVisitor.treesToThrift(exprList));
         }
         List<List<TExpr>> constTexprLists = Lists.newArrayList();
         for (List<Expr> constTexprList : materializedConstExprLists) {
-            constTexprLists.add(Expr.treesToThrift(constTexprList));
+            constTexprLists.add(ExprToThriftVisitor.treesToThrift(constTexprList));
         }
         Preconditions.checkState(firstMaterializedChildIdx <= children.size());
         switch (nodeType) {
@@ -137,7 +150,8 @@ public abstract class SetOperationNode extends PlanNode {
         if (CollectionUtils.isNotEmpty(materializedConstExprLists)) {
             output.append(prefix).append("constant exprs: ").append("\n");
             for (List<Expr> exprs : materializedConstExprLists) {
-                output.append(prefix).append("    ").append(exprs.stream().map(Expr::toSql)
+                output.append(prefix).append("    ").append(exprs.stream()
+                        .map(e -> e.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE))
                         .collect(Collectors.joining(" | "))).append("\n");
             }
         }
@@ -145,7 +159,8 @@ public abstract class SetOperationNode extends PlanNode {
             if (CollectionUtils.isNotEmpty(materializedResultExprLists)) {
                 output.append(prefix).append("child exprs: ").append("\n");
                 for (List<Expr> exprs : materializedResultExprLists) {
-                    output.append(prefix).append("    ").append(exprs.stream().map(Expr::toSql)
+                    output.append(prefix).append("    ").append(exprs.stream()
+                            .map(e -> e.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE))
                             .collect(Collectors.joining(" | "))).append("\n");
                 }
             }
@@ -173,5 +188,9 @@ public abstract class SetOperationNode extends PlanNode {
         }
         numInstances = Math.max(1, numInstances);
         return numInstances;
+    }
+
+    public boolean isBucketShuffle() {
+        return distributionMode.equals(DistributionMode.BUCKET_SHUFFLE);
     }
 }

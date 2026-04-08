@@ -68,6 +68,7 @@ public class SortInfo {
         isAscOrder = Lists.newArrayList(other.isAscOrder);
         nullsFirstParams = Lists.newArrayList(other.nullsFirstParams);
         sortTupleDesc = other.sortTupleDesc;
+        useTwoPhaseRead = other.useTwoPhaseRead;
     }
 
     public List<Expr> getOrderingExprs() {
@@ -76,10 +77,6 @@ public class SortInfo {
 
     public List<Boolean> getIsAscOrder() {
         return isAscOrder;
-    }
-
-    public List<Boolean> getNullsFirstParams() {
-        return nullsFirstParams;
     }
 
     public void setUseTwoPhaseRead() {
@@ -114,7 +111,7 @@ public class SortInfo {
      */
     public TSortInfo toThrift() {
         TSortInfo sortInfo = new TSortInfo(
-                Expr.treesToThrift(orderingExprs),
+                ExprToThriftVisitor.treesToThrift(orderingExprs),
                 isAscOrder,
                 nullsFirstParams);
         if (useTwoPhaseRead) {

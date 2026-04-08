@@ -27,9 +27,4 @@ public class ImportDeleteOnStmt extends StatementBase {
     public Expr getExpr() {
         return expr;
     }
-
-    @Override
-    public RedirectStatus getRedirectStatus() {
-        return null;
-    }
 }

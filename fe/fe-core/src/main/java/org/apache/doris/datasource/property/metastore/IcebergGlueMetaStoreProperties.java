@@ -24,8 +24,8 @@ import org.apache.doris.datasource.property.storage.StorageProperties;
 import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.iceberg.CatalogProperties;
+import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.aws.AwsProperties;
-import org.apache.iceberg.aws.glue.GlueCatalog;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
 import org.apache.iceberg.catalog.Catalog;
 
@@ -65,15 +65,11 @@ public class IcebergGlueMetaStoreProperties extends AbstractIcebergProperties {
         appendS3Props(catalogProps);
         appendGlueProps(catalogProps);
         catalogProps.put("client.region", glueProperties.glueRegion);
-        if (StringUtils.isNotBlank(warehouse)) {
-            catalogProps.put(CatalogProperties.WAREHOUSE_LOCATION, warehouse);
-        } else {
-            catalogProps.put(CatalogProperties.WAREHOUSE_LOCATION, CHECKED_WAREHOUSE);
-        }
-
-        GlueCatalog catalog = new GlueCatalog();
-        catalog.initialize(catalogName, catalogProps);
-        return catalog;
+        catalogProps.putIfAbsent(CatalogProperties.WAREHOUSE_LOCATION, CHECKED_WAREHOUSE);
+        // can not set
+        catalogProps.remove(CatalogUtil.ICEBERG_CATALOG_TYPE);
+        catalogProps.put(CatalogProperties.CATALOG_IMPL, CatalogUtil.ICEBERG_CATALOG_GLUE);
+        return buildIcebergCatalog(catalogName, catalogProps, null);
     }
 
     private void appendS3Props(Map<String, String> props) {

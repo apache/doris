@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_meta_cache", "p0,external,hive,external_docker,external_docker_hive") {
+suite("test_hive_meta_cache", "p0,external") {
     String catalog_name = "test_hive_meta_cache"
     String catalog_name_no_cache = "test_hive_meta_no_cache"
 

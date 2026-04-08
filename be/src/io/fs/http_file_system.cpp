@@ -20,11 +20,11 @@
 #include <fstream>
 
 #include "common/status.h"
-#include "http/http_status.h"
 #include "io/fs/err_utils.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/http_file_reader.h"
+#include "service/http/http_status.h"
 
 namespace doris::io {
 HttpFileSystem::HttpFileSystem(Path&& root_path, std::string id,
@@ -56,7 +56,7 @@ Status HttpFileSystem::open_file_internal(const Path& path, FileReaderSPtr* read
     // Pass properties (including HTTP headers) to the file reader
     file_info.extend_info = _properties;
 
-    auto http_reader = std::make_shared<HttpFileReader>(file_info, path.native());
+    auto http_reader = std::make_shared<HttpFileReader>(file_info, path.native(), opts.mtime);
     RETURN_IF_ERROR(http_reader->open(opts));
     *reader = http_reader;
     return Status::OK();

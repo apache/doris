@@ -17,6 +17,8 @@
 
 #include "cloud/cloud_cumulative_compaction.h"
 
+#include <gen_cpp/cloud.pb.h>
+
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "cloud/config.h"
@@ -24,10 +26,9 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "cpp/sync_point.h"
-#include "gen_cpp/cloud.pb.h"
-#include "olap/compaction.h"
-#include "olap/cumulative_compaction_policy.h"
 #include "service/backend_options.h"
+#include "storage/compaction/compaction.h"
+#include "storage/compaction/cumulative_compaction_policy.h"
 #include "util/debug_points.h"
 #include "util/trace.h"
 #include "util/uuid_generator.h"
@@ -289,6 +290,22 @@ Status CloudCumulativeCompaction::modify_rowsets() {
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
         LOG(INFO) << "CloudCumulativeCompaction::modify_rowsets.enable_spin_wait, exit";
+    });
+
+    // Block only NOTREADY tablets (SC new tablets) before compaction commit.
+    // RUNNING tablets (system tables, base tablets) are not affected.
+    DBUG_EXECUTE_IF("CloudCumulativeCompaction::modify_rowsets.block_notready", {
+        if (_tablet->tablet_state() == TABLET_NOTREADY) {
+            LOG(INFO) << "block NOTREADY tablet compaction before commit"
+                      << ", tablet_id=" << _tablet->tablet_id() << ", output=["
+                      << _input_rowsets.front()->start_version() << "-"
+                      << _input_rowsets.back()->end_version() << "]";
+            while (DebugPoints::instance()->is_enable(
+                    "CloudCumulativeCompaction::modify_rowsets.block_notready")) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            }
+            LOG(INFO) << "release NOTREADY tablet compaction, tablet_id=" << _tablet->tablet_id();
+        }
     });
 
     DeleteBitmapPtr output_rowset_delete_bitmap = nullptr;

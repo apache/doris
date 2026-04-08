@@ -25,6 +25,7 @@ import org.apache.doris.datasource.TableFormatType;
 import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.DeletionFile;
+import org.apache.paimon.table.source.Split;
 
 import java.util.List;
 import java.util.Map;
@@ -33,22 +34,33 @@ import java.util.UUID;
 
 public class PaimonSplit extends FileSplit {
     private static final LocationPath DUMMY_PATH = LocationPath.of("/dummyPath");
-    private DataSplit split;
+    // Paimon split - can be DataSplit or other Split types (e.g., from system tables)
+    private Split paimonSplit;
     private TableFormatType tableFormatType;
     private Optional<DeletionFile> optDeletionFile = Optional.empty();
     private Optional<Long> optRowCount = Optional.empty();
     private Optional<Long> schemaId = Optional.empty();
     private Map<String, String> paimonPartitionValues = null;
 
-    public PaimonSplit(DataSplit split) {
+    /**
+     * Constructor for Paimon splits.
+     * Handles both DataSplit (regular data tables) and other Split types (system tables).
+     */
+    public PaimonSplit(Split paimonSplit) {
         super(DUMMY_PATH, 0, 0, 0, 0, null, null);
-        this.split = split;
+        this.paimonSplit = paimonSplit;
         this.tableFormatType = TableFormatType.PAIMON;
 
-        List<DataFileMeta> dataFileMetas = split.dataFiles();
-        this.path = LocationPath.of("/" + dataFileMetas.get(0).fileName());
-        this.selfSplitWeight = dataFileMetas.stream().mapToLong(DataFileMeta::fileSize).sum();
-
+        if (paimonSplit instanceof DataSplit) {
+            // For DataSplit, extract file info for path and weight calculation
+            DataSplit dataSplit = (DataSplit) paimonSplit;
+            List<DataFileMeta> dataFileMetas = dataSplit.dataFiles();
+            this.path = LocationPath.of("/" + dataFileMetas.get(0).fileName());
+            this.selfSplitWeight = dataFileMetas.stream().mapToLong(DataFileMeta::fileSize).sum();
+        } else {
+            // For non-DataSplit (e.g., system tables), use row count as weight
+            this.selfSplitWeight = paimonSplit.rowCount();
+        }
     }
 
     private PaimonSplit(LocationPath file, long start, long length, long fileLength, long modificationTime,
@@ -66,8 +78,20 @@ public class PaimonSplit extends FileSplit {
         return getPathString();
     }
 
-    public DataSplit getSplit() {
-        return split;
+    /**
+     * Returns the underlying Paimon split.
+     * For JNI reader serialization.
+     */
+    public Split getSplit() {
+        return paimonSplit;
+    }
+
+    /**
+     * Returns the split as DataSplit if it's a DataSplit instance.
+     * Returns null if this is a non-DataSplit system table split.
+     */
+    public DataSplit getDataSplit() {
+        return paimonSplit instanceof DataSplit ? (DataSplit) paimonSplit : null;
     }
 
     public TableFormatType getTableFormatType() {

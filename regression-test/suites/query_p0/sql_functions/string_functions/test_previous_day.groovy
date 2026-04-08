@@ -1,0 +1,127 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+suite('test_previous_day') {
+    sql 'drop table if exists previous_day_args;'
+    sql '''
+        create table previous_day_args (
+            k0 int,
+            a date not null,
+            b date null,
+            c datetime not null,
+            d datetime null,
+            e string not null,
+            f string null
+        )
+        DISTRIBUTED BY HASH(k0)
+        PROPERTIES
+        (
+            "replication_num" = "1"
+        );
+    '''
+
+    qt_empty_nullable 'select previous_day(a, e), previous_day(c, e) from previous_day_args order by k0'
+    qt_empty_not_nullable 'select previous_day(b, f), previous_day(d, f) from previous_day_args order by k0'
+    qt_empty_partial_nullable 'select previous_day(a, f), previous_day(c, f) from previous_day_args order by k0'
+
+    sql "insert into previous_day_args values (1, '2025-01-01', null, '2025-01-01 00:00:00', null, 'MONDAY', null), (2, '2025-01-02', '2025-01-02', '2025-01-02 00:00:00', '2025-01-02 00:00:00', 'TUESDAY', 'TUESDAY')"
+    qt_all_null 'select previous_day(b, f), previous_day(d, f) from previous_day_args order by k0'
+
+    sql 'truncate table previous_day_args'
+
+    sql """
+        insert into previous_day_args(k0, a, b, c, d, e, f) values
+        -- normal date
+        (1, '2024-03-15', '2024-03-15', '2024-03-15 10:00:00', '2024-03-15 10:00:00', 'MON', 'MONDAY'),
+
+        -- first week of 0000
+        (2, '0000-01-01', '0000-01-01', '0000-01-01 00:00:00', '0000-01-01 00:00:00', 'SUN', 'SUNDAY'),
+
+        -- last day of 0000
+        (3, '0000-12-31', '0000-12-31', '0000-12-31 23:59:59', '0000-12-31 23:59:59', 'FRI', 'FRIDAY'),
+
+        -- 0000-02-28
+        (4, '0000-02-28', '0000-02-28', '0000-02-28 12:00:00', '0000-02-28 12:00:00', 'MO', 'MONDAY'),
+
+        -- leap year date before and after
+        (5, '2024-02-28', '2024-02-28', '2024-02-28 00:00:00', '2024-02-28 00:00:00', 'WED', 'WEDNESDAY'),
+        (6, '2024-02-29', '2024-02-29', '2024-02-29 00:00:00', '2024-02-29 00:00:00', 'THU', 'THURSDAY'),
+
+        -- non leap year date before and after
+        (7, '2023-02-28', '2023-02-28', '2023-02-28 00:00:00', '2023-02-28 00:00:00', 'TUE', 'TUESDAY'),
+        (8, '2023-03-01', '2023-03-01', '2023-03-01 00:00:00', '2023-03-01 00:00:00', 'WE', 'WEDNESDAY'),
+
+        -- 1900 non leap year date before and after
+        (9, '1900-02-28', '1900-02-28', '1900-02-28 00:00:00', '1900-02-28 00:00:00', 'WED', 'WEDNESDAY'),
+        (10, '1900-03-01', '1900-03-01', '1900-03-01 00:00:00', '1900-03-01 00:00:00', 'THU', 'THURSDAY'),
+
+        -- last second of 9999
+        (11, '9999-12-31', '9999-12-31', '9999-12-31 23:59:59', '9999-12-31 23:59:59', 'FRI', 'FRIDAY'),
+
+        -- first second of 1970
+        (12, '1969-12-31', '1969-12-31', '1969-12-31 23:59:59', '1969-12-31 23:59:59', 'WED', 'WEDNESDAY'),
+        (13, '1970-01-01', '1970-01-01', '1970-01-01 00:00:00', '1970-01-01 00:00:00', 'THU', 'THURSDAY');
+    """
+
+    qt_nullable 'select previous_day(b, f), previous_day(d, f) from previous_day_args order by k0'
+    qt_not_nullable 'select previous_day(a, e), previous_day(c, e) from previous_day_args order by k0'
+    qt_partial_nullable 'select previous_day(a, f), previous_day(c, f), previous_day(b, e), previous_day(d, e) from previous_day_args order by k0'
+    qt_nullable_no_null 'select previous_day(a, nullable(e)), previous_day(c, nullable(e)) from previous_day_args order by k0'
+
+    // timestamptz literals (calculated in UTC) vs local datetime (no casts)
+    qt_timestamptz_literal "select previous_day('2025-10-10 23:00:00-08:00', 'FRI'), previous_day('2025-10-10 23:00:00+02:00', 'SAT')"
+    qt_timestamptz_mixed "select previous_day('2025-10-11 07:30:00+08:00', 'SAT'), previous_day('2025-10-11 00:30:00Z', 'SAT')"
+
+    /// consts. most by BE-UT
+    qt_const_nullable 'select previous_day(NULL, NULL) from previous_day_args order by k0'
+    qt_partial_const_nullable 'select previous_day(NULL, e) from previous_day_args order by k0'
+    qt_const_not_nullable "select previous_day('2025-01-01', 'MONDAY') from previous_day_args order by k0"
+    qt_const_other_nullable "select previous_day('2025-01-01', f) from previous_day_args order by k0"
+    qt_const_other_not_nullable "select previous_day(a, 'FRI') from previous_day_args order by k0"
+    qt_const_nullable_no_null "select previous_day(nullable('2025-01-01'), nullable('MON'))"
+    qt_const_nullable_no_null_multirows 'select previous_day(nullable(c), nullable(e)) from previous_day_args order by k0'
+    qt_const_partial_nullable_no_null "select previous_day('2025-01-01', nullable(e)) from previous_day_args order by k0"
+
+    /// folding
+    testFoldConst("select previous_day('', 'SA')")
+    testFoldConst('select previous_day(NULL, NULL)')
+    testFoldConst("select previous_day(NULL, 'FRI')")
+    testFoldConst("select previous_day('2025-01-01', NULL)")
+    testFoldConst("select previous_day('2025-01-01', 'MONDAY')")
+    testFoldConst("select previous_day(nullable('2025-01-01'), nullable('SUN'))")
+    testFoldConst("select previous_day('2025-01-01', nullable('WE'))")
+    testFoldConst("select previous_day(nullable('2025-01-01'), 'TH')")
+    testFoldConst("select previous_day(nullable('2025-01-01 12:34:56'), 'MONDAY')")
+    testFoldConst("select previous_day('2025-10-10 23:00:00-08:00', 'FRI')")
+    testFoldConst("select previous_day('2025-10-10 23:00:00+02:00', 'SAT')")
+    testFoldConst("select previous_day('2025-10-11 07:30:00+08:00', 'SAT')")
+    testFoldConst("select previous_day('2025-10-11 00:30:00Z', 'SAT')")
+
+    /// error cases
+    test {
+        sql """ select previous_day('2025-01-01', 'SO') """
+        exception 'Function previous_day failed to parse weekday: SO'
+    }
+    test {
+        sql """ select previous_day('2025-01-01', 'MONDDY') """
+        exception 'Function previous_day failed to parse weekday: MONDDY'
+    }
+    test {
+        sql """ select previous_day('2025-01-01', '') """
+        exception 'Function previous_day failed to parse weekday: '
+    }
+}

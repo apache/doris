@@ -76,7 +76,7 @@ suite("regression_test_variant", "p0"){
     }
     sql "set experimental_enable_nereids_planner=true"
     sql "set enable_fallback_to_original_planner=false"
-
+    sql """ set default_variant_enable_doc_mode = false """
     try {
         def key_types = ["DUPLICATE", "UNIQUE"]
         for (int i = 0; i < key_types.size(); i++) {
@@ -252,7 +252,7 @@ suite("regression_test_variant", "p0"){
         sql """insert into ${table_name} values (9, '{"a" : [123, {"a" : 1}]}')"""
         sql """insert into ${table_name} values (10, '{"a" : [{"a" : 1}, 123]}')"""
         sql "select v['a'] from ${table_name} order by k"
-        trigger_and_wait_compaction(table_name, "full")
+        trigger_and_wait_compaction(table_name, "full", 1800)
         qt_sql_29 "select cast(v['a'] as string) from ${table_name} order by k"
         // b? 7.111  [123,{"xx":1}]  {"b":{"c":456,"e":7.111}}       456
         qt_sql_30 "select v['b']['e'], v['a'], v['b'], v['b']['c'] from jsonb_values where cast(v['b']['e'] as double) > 1;"

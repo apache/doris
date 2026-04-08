@@ -20,8 +20,8 @@
 #include <gen_cpp/function_service.pb.h> // IWYU pragma: keep
 #include <gen_cpp/internal_service.pb.h> // IWYU pragma: keep
 
-#include "util/doris_metrics.h"
-#include "util/metrics.h"
+#include "common/metrics/doris_metrics.h"
+#include "common/metrics/metrics.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"

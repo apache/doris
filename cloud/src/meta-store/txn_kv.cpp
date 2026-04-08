@@ -125,7 +125,7 @@ static std::tuple<fdb_bool_t, int> apply_key_selector(RangeKeySelector selector)
 }
 
 int FdbTxnKv::init() {
-    network_ = std::make_shared<fdb::Network>(FDBNetworkOption {});
+    network_ = std::make_shared<fdb::Network>();
     int ret = network_->init();
     if (ret != 0) {
         LOG(WARNING) << "failed to init network";
@@ -138,7 +138,30 @@ int FdbTxnKv::init() {
         LOG(WARNING) << "failed to init database";
         return ret;
     }
-    return 0;
+
+    // Access the database to ensure the cluster file is valid, and eat the first cluster_version_changed error if any.
+    while (true) {
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "init fdb txn kv failed, create txn: " << err;
+            return -1;
+        }
+
+        std::string status_json_key = "\xff\xff/status/json";
+        std::string value;
+        err = txn->get(status_json_key, &value, true);
+        if (err == TxnErrorCode::TXN_RETRYABLE_NOT_COMMITTED) {
+            continue;
+        }
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "init fdb txn kv failed, get status json key: " << err;
+            return -1;
+        }
+
+        LOG(INFO) << "fdb txn kv is initialized";
+        return 0;
+    }
 }
 
 TxnErrorCode FdbTxnKv::create_txn(std::unique_ptr<Transaction>* txn) {
@@ -243,6 +266,57 @@ namespace doris::cloud::fdb {
 // https://apple.github.io/foundationdb/known-limitations.html#design-limitations
 constexpr size_t FDB_VALUE_BYTES_LIMIT = 100'000; // 100 KB
 
+// FDB internal structure sizes for approximate size calculation
+// See fdbclient/ReadYourWrites.actor.cpp for details
+constexpr size_t FDB_SIZEOF_KEYRANGEREF = 32; // sizeof(KeyRangeRef)
+constexpr size_t FDB_SIZEOF_MUTATIONREF = 56; // sizeof(MutationRef)
+
+// Helper functions for calculating approximate size according to FDB's implementation
+namespace {
+
+// Calculate approximate size for read operation on single key
+// Formula: 2*key + 1 + sizeof(KeyRangeRef)
+// See fdbclient/ReadYourWrites.actor.cpp:329
+inline constexpr size_t read_get_approximate_size(size_t key_size) {
+    return key_size * 2 + 1 + FDB_SIZEOF_KEYRANGEREF;
+}
+
+// Calculate approximate size for read operation on range
+// Formula: begin + end + sizeof(KeyRangeRef)
+// See fdbclient/ReadYourWrites.actor.cpp:245-280
+inline constexpr size_t read_get_range_approximate_size(size_t begin_size, size_t end_size) {
+    return begin_size + end_size + FDB_SIZEOF_KEYRANGEREF;
+}
+
+// Calculate approximate size for write operation (set/atomic_op)
+// Formula: key + val + sizeof(MutationRef) + sizeof(KeyRangeRef) + 2*key + 1
+// See fdbclient/ReadYourWrites.actor.cpp:2267-2269
+inline constexpr size_t write_set_approximate_size(size_t key_size, size_t val_size) {
+    size_t write_conflict = FDB_SIZEOF_KEYRANGEREF + key_size * 2 + 1;
+    return key_size + val_size + FDB_SIZEOF_MUTATIONREF + write_conflict;
+}
+
+// Calculate approximate size for clear operation on single key
+// Formula: 2*key + 2*sizeof(KeyRangeRef)
+// See fdbclient/ReadYourWrites.actor.cpp:2361-2362
+inline constexpr size_t write_clear_approximate_size(size_t key_size) {
+    return key_size * 2 + FDB_SIZEOF_KEYRANGEREF * 2;
+}
+
+// Calculate approximate size for clear_range operation
+// Formula: begin+end + sizeof(MutationRef) + sizeof(KeyRangeRef) + begin+end
+// See fdbclient/ReadYourWrites.actor.cpp:2304-2306
+inline constexpr size_t write_clear_range_approximate_size(size_t begin_size, size_t end_size) {
+    size_t write_conflict = FDB_SIZEOF_KEYRANGEREF + begin_size + end_size;
+    return begin_size + end_size + FDB_SIZEOF_MUTATIONREF + write_conflict;
+}
+
+} // anonymous namespace
+
+std::string_view KNOB_LOAD_BALANCE_ZONE_ID_LOCALITY_ENABLED =
+        "load_balance_zone_id_locality_enabled=1";
+std::string_view KNOB_LOAD_BALANCE_DC_ID_LOCALITY_ENABLED = "load_balance_dc_id_locality_enabled=1";
+
 // Ref https://apple.github.io/foundationdb/api-error-codes.html#developer-guide-error-codes.
 constexpr fdb_error_t FDB_ERROR_CODE_TIMED_OUT = 1004;
 constexpr fdb_error_t FDB_ERROR_CODE_TXN_TOO_OLD = 1007;
@@ -250,6 +324,7 @@ constexpr fdb_error_t FDB_ERROR_CODE_TXN_CONFLICT = 1020;
 constexpr fdb_error_t FDB_ERROR_COMMIT_UNKNOWN_RESULT = 1021;
 constexpr fdb_error_t FDB_ERROR_CODE_TXN_TIMED_OUT = 1031;
 constexpr fdb_error_t FDB_ERROR_CODE_TOO_MANY_WATCHES = 1032;
+constexpr fdb_error_t FDB_ERROR_CODE_CLUSTER_VERSION_CHANGED = 1039;
 constexpr fdb_error_t FDB_ERROR_CODE_INVALID_OPTION_VALUE = 2006;
 constexpr fdb_error_t FDB_ERROR_CODE_INVALID_OPTION = 2007;
 constexpr fdb_error_t FDB_ERROR_CODE_VERSION_INVALID = 2011;
@@ -288,6 +363,8 @@ static TxnErrorCode cast_as_txn_code(fdb_error_t err) {
         return TxnErrorCode::TXN_CONFLICT;
     case FDB_ERROR_CODE_TOO_MANY_WATCHES:
         return TxnErrorCode::TXN_TOO_MANY_WATCHES;
+    case FDB_ERROR_CODE_CLUSTER_VERSION_CHANGED:
+        return TxnErrorCode::TXN_RETRYABLE_NOT_COMMITTED;
     }
 
     if (fdb_error_predicate(FDB_ERROR_PREDICATE_MAYBE_COMMITTED, err)) {
@@ -316,11 +393,50 @@ int Network::init() {
         return 1;
     }
 
+    LOG(INFO) << "select fdb api version: " << fdb_get_max_api_version();
+
     // Setup network thread
-    // Optional setting
-    // FDBNetworkOption opt;
-    // fdb_network_set_option()
-    (void)opt_;
+    if (config::enable_fdb_external_client_directory &&
+        !config::fdb_external_client_directory.empty()) {
+        err = fdb_network_set_option(FDB_NET_OPTION_EXTERNAL_CLIENT_DIRECTORY,
+                                     (const uint8_t*)config::fdb_external_client_directory.c_str(),
+                                     config::fdb_external_client_directory.size());
+        if (err) {
+            LOG(WARNING) << "failed to set fdb external client directory, dir: "
+                         << config::fdb_external_client_directory
+                         << ", err: " << fdb_get_error(err);
+            return 1;
+        }
+        LOG(INFO) << "set fdb external client directory: " << config::fdb_external_client_directory;
+    }
+
+    if (config::enable_fdb_locality_load_balance) {
+        if (!config::fdb_zone_id.empty()) {
+            err = fdb_network_set_option(
+                    FDB_NET_OPTION_KNOB,
+                    (const uint8_t*)KNOB_LOAD_BALANCE_ZONE_ID_LOCALITY_ENABLED.data(),
+                    KNOB_LOAD_BALANCE_ZONE_ID_LOCALITY_ENABLED.size());
+            if (err) {
+                LOG(WARNING) << "failed to set fdb load balance zone id locality enabled, err: "
+                             << fdb_get_error(err);
+                return 1;
+            }
+            LOG(INFO) << "set fdb load balance zone id locality enabled";
+        }
+        if (!config::fdb_dc_id.empty()) {
+            err = fdb_network_set_option(
+                    FDB_NET_OPTION_KNOB,
+                    (const uint8_t*)KNOB_LOAD_BALANCE_DC_ID_LOCALITY_ENABLED.data(),
+                    KNOB_LOAD_BALANCE_DC_ID_LOCALITY_ENABLED.size());
+            if (err) {
+                LOG(WARNING) << "failed to set fdb load balance dc id locality enabled, err: "
+                             << fdb_get_error(err);
+                return 1;
+            }
+            LOG(INFO) << "set fdb load balance dc id locality enabled";
+        }
+    }
+
     // ATTN: Network can be configured only once,
     //       even if fdb_stop_network() is called successfully
     err = fdb_setup_network(); // Must be called only once before any
@@ -372,12 +488,36 @@ void Network::stop() {
 // =============================================================================
 
 int Database::init() {
-    // TODO: process opt
     fdb_error_t err = fdb_create_database(cluster_file_path_.c_str(), &db_);
     if (err) {
         LOG(WARNING) << __PRETTY_FUNCTION__ << " fdb_create_database error: " << fdb_get_error(err)
                      << " conf: " << cluster_file_path_;
         return 1;
+    }
+
+    if (config::enable_fdb_locality_load_balance) {
+        if (!config::fdb_zone_id.empty()) {
+            err = fdb_database_set_option(db_, FDB_DB_OPTION_MACHINE_ID,
+                                          (const uint8_t*)config::fdb_zone_id.c_str(),
+                                          config::fdb_zone_id.size());
+            if (err) {
+                LOG(WARNING) << "failed to set FDB_DB_OPTION_MACHINE_ID: " << fdb_get_error(err)
+                             << ", zone_id: " << config::fdb_zone_id;
+                return 1;
+            }
+            LOG(INFO) << "set FDB_DB_OPTION_MACHINE_ID (zone_id): " << config::fdb_zone_id;
+        }
+        if (!config::fdb_dc_id.empty()) {
+            err = fdb_database_set_option(db_, FDB_DB_OPTION_DATACENTER_ID,
+                                          (const uint8_t*)config::fdb_dc_id.c_str(),
+                                          config::fdb_dc_id.size());
+            if (err) {
+                LOG(WARNING) << "failed to set FDB_DB_OPTION_DATACENTER_ID: " << fdb_get_error(err)
+                             << ", dc_id: " << config::fdb_dc_id;
+                return 1;
+            }
+            LOG(INFO) << "set FDB_DB_OPTION_DATACENTER_ID (dc_id): " << config::fdb_dc_id;
+        }
     }
 
     return 0;
@@ -450,7 +590,7 @@ void Transaction::put(std::string_view key, std::string_view val) {
 
     ++num_put_keys_;
     put_bytes_ += key.size() + val.size();
-    approximate_bytes_ += key.size() * 3 + val.size(); // See fdbclient/ReadYourWrites.actor.cpp
+    approximate_bytes_ += write_set_approximate_size(key.size(), val.size());
 
     if (val.size() > FDB_VALUE_BYTES_LIMIT) {
         LOG_WARNING("txn put with large value")
@@ -495,7 +635,9 @@ TxnErrorCode Transaction::get(std::string_view key, std::string* val, bool snaps
     may_logging_single_version_reading(key);
 
     StopWatch sw;
-    approximate_bytes_ += key.size() * 2; // See fdbclient/ReadYourWrites.actor.cpp for details
+    if (!snapshot) {
+        approximate_bytes_ += read_get_approximate_size(key.size());
+    }
     auto* fut = fdb_transaction_get(txn_, (uint8_t*)key.data(), key.size(), snapshot);
 
     g_bvar_txn_kv_get_count_normalized << 1;
@@ -539,7 +681,9 @@ TxnErrorCode Transaction::get(std::string_view begin, std::string_view end,
     may_logging_single_version_reading(begin);
 
     StopWatch sw;
-    approximate_bytes_ += begin.size() + end.size();
+    if (!opts.snapshot) {
+        approximate_bytes_ += read_get_range_approximate_size(begin.size(), end.size());
+    }
     DORIS_CLOUD_DEFER {
         g_bvar_txn_kv_range_get << sw.elapsed_us();
     };
@@ -599,7 +743,7 @@ void Transaction::atomic_set_ver_key(std::string_view key_prefix, std::string_vi
     g_bvar_txn_kv_atomic_set_ver_key << sw.elapsed_us();
     ++num_put_keys_;
     put_bytes_ += key.size() + val.size();
-    approximate_bytes_ += key.size() * 3 + val.size();
+    approximate_bytes_ += write_set_approximate_size(key.size(), val.size());
 
     if (val.size() > FDB_VALUE_BYTES_LIMIT) {
         LOG_WARNING("atomic_set_ver_key with large value")
@@ -628,7 +772,7 @@ bool Transaction::atomic_set_ver_key(std::string_view key, uint32_t offset, std:
     g_bvar_txn_kv_atomic_set_ver_key << sw.elapsed_us();
     ++num_put_keys_;
     put_bytes_ += key_buf.size() + val.size();
-    approximate_bytes_ += key_buf.size() * 3 + val.size();
+    approximate_bytes_ += write_set_approximate_size(key_buf.size(), val.size());
 
     if (val.size() > FDB_VALUE_BYTES_LIMIT) {
         LOG_WARNING("atomic_set_ver_key with large value")
@@ -656,7 +800,7 @@ void Transaction::atomic_set_ver_value(std::string_view key, std::string_view va
     g_bvar_txn_kv_atomic_set_ver_value << sw.elapsed_us();
     ++num_put_keys_;
     put_bytes_ += key.size() + val.size();
-    approximate_bytes_ += key.size() * 3 + val.size();
+    approximate_bytes_ += write_set_approximate_size(key.size(), val.size());
 
     if (val.size() > FDB_VALUE_BYTES_LIMIT) {
         LOG_WARNING("atomic_set_ver_value with large value")
@@ -676,7 +820,7 @@ void Transaction::atomic_add(std::string_view key, int64_t to_add) {
     g_bvar_txn_kv_atomic_add << sw.elapsed_us();
     ++num_put_keys_;
     put_bytes_ += key.size() + 8;
-    approximate_bytes_ += key.size() * 3 + 8;
+    approximate_bytes_ += write_set_approximate_size(key.size(), 8);
 }
 
 bool Transaction::decode_atomic_int(std::string_view data, int64_t* val) {
@@ -698,7 +842,7 @@ void Transaction::remove(std::string_view key) {
     g_bvar_txn_kv_remove << sw.elapsed_us();
     ++num_del_keys_;
     delete_bytes_ += key.size();
-    approximate_bytes_ += key.size() * 4; // See fdbclient/ReadYourWrites.actor.cpp for details.
+    approximate_bytes_ += write_clear_approximate_size(key.size());
 }
 
 void Transaction::remove(std::string_view begin, std::string_view end) {
@@ -708,8 +852,7 @@ void Transaction::remove(std::string_view begin, std::string_view end) {
     g_bvar_txn_kv_range_remove << sw.elapsed_us();
     num_del_keys_ += 2;
     delete_bytes_ += begin.size() + end.size();
-    approximate_bytes_ +=
-            (begin.size() + end.size()) * 2; // See fdbclient/ReadYourWrites.actor.cpp for details.
+    approximate_bytes_ += write_clear_range_approximate_size(begin.size(), end.size());
 }
 
 TxnErrorCode Transaction::commit() {
@@ -747,6 +890,11 @@ TxnErrorCode Transaction::commit() {
             static_cast<void>(report_conflicting_range()); // don't overwrite the original error.
         } else {
             g_bvar_txn_kv_commit_error_counter << 1;
+        }
+        // If cluster_version_changed is thrown during commit, it should be interpreted similarly to
+        // commit_unknown_result. The commit may or may not have been completed.
+        if (err == FDB_ERROR_CODE_CLUSTER_VERSION_CHANGED) {
+            return TxnErrorCode::TXN_MAYBE_COMMITTED;
         }
         return cast_as_txn_code(err);
     }
@@ -838,6 +986,41 @@ TxnErrorCode Transaction::abort() {
     return TxnErrorCode::TXN_OK;
 }
 
+size_t Transaction::approximate_bytes(bool fetch_from_underlying_kv) const {
+    if (!fetch_from_underlying_kv) {
+        return approximate_bytes_;
+    }
+
+    auto* fut = fdb_transaction_get_approximate_size(txn_);
+    DORIS_CLOUD_DEFER {
+        fdb_future_destroy(fut);
+    };
+
+    auto code = await_future(fut);
+    if (code != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to await future for fdb_transaction_get_approximate_size, code="
+                     << code;
+        return static_cast<size_t>(-1);
+    }
+
+    auto err = fdb_future_get_error(fut);
+    if (err) {
+        LOG(WARNING) << "failed to get approximate size, code=" << err
+                     << " msg=" << fdb_get_error(err);
+        return static_cast<size_t>(-1);
+    }
+
+    int64_t size = 0;
+    err = fdb_future_get_int64(fut, &size);
+    if (err) {
+        LOG(WARNING) << "failed to extract int64 from approximate size future, code=" << err
+                     << " msg=" << fdb_get_error(err);
+        return static_cast<size_t>(-1);
+    }
+
+    return static_cast<size_t>(size);
+}
+
 void Transaction::enable_get_versionstamp() {
     versionstamp_enabled_ = true;
 }
@@ -861,6 +1044,94 @@ TxnErrorCode Transaction::get_conflicting_range(
         std::vector<std::pair<std::string, std::string>>* values) {
     constexpr std::string_view start = "\xff\xff/transaction/conflicting_keys/";
     constexpr std::string_view end = "\xff\xff/transaction/conflicting_keys/\xff";
+
+    int limit = 0;
+    int target_bytes = 0;
+    FDBStreamingMode mode = FDB_STREAMING_MODE_WANT_ALL;
+    int iteration = 0;
+    fdb_bool_t snapshot = 0;
+    fdb_bool_t reverse = 0;
+    FDBFuture* future = fdb_transaction_get_range(
+            txn_, FDB_KEYSEL_FIRST_GREATER_OR_EQUAL((uint8_t*)start.data(), start.size()),
+            FDB_KEYSEL_FIRST_GREATER_OR_EQUAL((uint8_t*)end.data(), end.size()), limit,
+            target_bytes, mode, iteration, snapshot, reverse);
+
+    DORIS_CLOUD_DEFER {
+        fdb_future_destroy(future);
+    };
+
+    RETURN_IF_ERROR(await_future(future));
+
+    FDBKeyValue const* out_kvs;
+    int out_kvs_count;
+    fdb_bool_t out_more;
+    do {
+        fdb_error_t err =
+                fdb_future_get_keyvalue_array(future, &out_kvs, &out_kvs_count, &out_more);
+        if (err) {
+            LOG(WARNING) << "get_conflicting_range get keyvalue array error: "
+                         << fdb_get_error(err);
+            return cast_as_txn_code(err);
+        }
+        for (int i = 0; i < out_kvs_count; i++) {
+            std::string_view key((char*)out_kvs[i].key, out_kvs[i].key_length);
+            std::string_view value((char*)out_kvs[i].value, out_kvs[i].value_length);
+            key.remove_prefix(start.size());
+            values->emplace_back(key, value);
+        }
+    } while (out_more);
+
+    return TxnErrorCode::TXN_OK;
+}
+
+TxnErrorCode Transaction::get_read_conflict_range(
+        std::vector<std::pair<std::string, std::string>>* values) {
+    constexpr std::string_view start = "\xff\xff/transaction/read_conflict_range/";
+    constexpr std::string_view end = "\xff\xff/transaction/read_conflict_range/\xff";
+
+    int limit = 0;
+    int target_bytes = 0;
+    FDBStreamingMode mode = FDB_STREAMING_MODE_WANT_ALL;
+    int iteration = 0;
+    fdb_bool_t snapshot = 0;
+    fdb_bool_t reverse = 0;
+    FDBFuture* future = fdb_transaction_get_range(
+            txn_, FDB_KEYSEL_FIRST_GREATER_OR_EQUAL((uint8_t*)start.data(), start.size()),
+            FDB_KEYSEL_FIRST_GREATER_OR_EQUAL((uint8_t*)end.data(), end.size()), limit,
+            target_bytes, mode, iteration, snapshot, reverse);
+
+    DORIS_CLOUD_DEFER {
+        fdb_future_destroy(future);
+    };
+
+    RETURN_IF_ERROR(await_future(future));
+
+    FDBKeyValue const* out_kvs;
+    int out_kvs_count;
+    fdb_bool_t out_more;
+    do {
+        fdb_error_t err =
+                fdb_future_get_keyvalue_array(future, &out_kvs, &out_kvs_count, &out_more);
+        if (err) {
+            LOG(WARNING) << "get_conflicting_range get keyvalue array error: "
+                         << fdb_get_error(err);
+            return cast_as_txn_code(err);
+        }
+        for (int i = 0; i < out_kvs_count; i++) {
+            std::string_view key((char*)out_kvs[i].key, out_kvs[i].key_length);
+            std::string_view value((char*)out_kvs[i].value, out_kvs[i].value_length);
+            key.remove_prefix(start.size());
+            values->emplace_back(key, value);
+        }
+    } while (out_more);
+
+    return TxnErrorCode::TXN_OK;
+}
+
+TxnErrorCode Transaction::get_write_conflict_range(
+        std::vector<std::pair<std::string, std::string>>* values) {
+    constexpr std::string_view start = "\xff\xff/transaction/write_conflict_range/";
+    constexpr std::string_view end = "\xff\xff/transaction/write_conflict_range/\xff";
 
     int limit = 0;
     int target_bytes = 0;
@@ -926,7 +1197,45 @@ TxnErrorCode Transaction::report_conflicting_range() {
         out += fmt::format("[{}, {}): {}", hex(start), hex(end), conflict_count);
     }
 
-    LOG(WARNING) << "conflicting key ranges: " << out;
+    key_values.clear();
+    RETURN_IF_ERROR(get_read_conflict_range(&key_values));
+    if (key_values.size() % 2 != 0) {
+        LOG(WARNING) << "the read conflict range is not well-formed, size=" << key_values.size();
+        return TxnErrorCode::TXN_INVALID_DATA;
+    }
+    std::string read_conflict_range_out;
+    for (size_t i = 0; i < key_values.size(); i += 2) {
+        std::string_view start = key_values[i].first;
+        std::string_view end = key_values[i + 1].first;
+        std::string_view conflict_count = key_values[i].second;
+        if (!read_conflict_range_out.empty()) {
+            read_conflict_range_out += ", ";
+        }
+        read_conflict_range_out +=
+                fmt::format("[{}, {}): {}", hex(start), hex(end), conflict_count);
+    }
+
+    key_values.clear();
+    RETURN_IF_ERROR(get_write_conflict_range(&key_values));
+    if (key_values.size() % 2 != 0) {
+        LOG(WARNING) << "the write conflict range is not well-formed, size=" << key_values.size();
+        return TxnErrorCode::TXN_INVALID_DATA;
+    }
+    std::string write_conflict_range_out;
+    for (size_t i = 0; i < key_values.size(); i += 2) {
+        std::string_view start = key_values[i].first;
+        std::string_view end = key_values[i + 1].first;
+        std::string_view conflict_count = key_values[i].second;
+        if (!write_conflict_range_out.empty()) {
+            write_conflict_range_out += ", ";
+        }
+        write_conflict_range_out +=
+                fmt::format("[{}, {}): {}", hex(start), hex(end), conflict_count);
+    }
+
+    LOG(WARNING) << "conflicting key ranges: " << out
+                 << ", read conflict range: " << read_conflict_range_out
+                 << ", write conflict range: " << write_conflict_range_out;
 
     return TxnErrorCode::TXN_OK;
 }
@@ -974,7 +1283,9 @@ TxnErrorCode Transaction::batch_get(std::vector<std::optional<std::string>>* res
             may_logging_single_version_reading(k);
             futures.emplace_back(
                     fdb_transaction_get(txn_, (uint8_t*)k.data(), k.size(), opts.snapshot));
-            approximate_bytes_ += k.size() * 2;
+            if (!opts.snapshot) {
+                approximate_bytes_ += read_get_approximate_size(k.size());
+            }
         }
 
         size_t num_futures = futures.size();
@@ -1052,7 +1363,9 @@ TxnErrorCode Transaction::batch_scan(
                     snapshot, reverse);
 
             futures.emplace_back(fut);
-            approximate_bytes_ += start.size() + end.size();
+            if (!opts.snapshot) {
+                approximate_bytes_ += read_get_range_approximate_size(start.size(), end.size());
+            }
         }
 
         size_t num_futures = futures.size();

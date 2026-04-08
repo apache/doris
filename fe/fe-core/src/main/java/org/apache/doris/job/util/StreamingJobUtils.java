@@ -22,16 +22,21 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.util.SmallFileMgr;
+import org.apache.doris.common.util.SmallFileMgr.SmallFile;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
-import org.apache.doris.datasource.jdbc.client.JdbcMySQLClient;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
 import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.exception.JobException;
+import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
@@ -48,25 +53,29 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import lombok.extern.log4j.Log4j2;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.text.StringSubstitutor;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Log4j2
 public class StreamingJobUtils {
-    public static final String TABLE_PROPS_PREFIX = "table.create.properties.";
     public static final String INTERNAL_STREAMING_JOB_META_TABLE_NAME = "streaming_job_meta";
     public static final String FULL_QUALIFIED_META_TBL_NAME = InternalCatalog.INTERNAL_CATALOG_NAME
             + "." + FeConstants.INTERNAL_DB_NAME + "." + INTERNAL_STREAMING_JOB_META_TABLE_NAME;
@@ -94,6 +103,8 @@ public class StreamingJobUtils {
 
     private static final ObjectMapper objectMapper = new ObjectMapper();
 
+    private static int lastSelectedBackendIndex = 0;
+
     public static void createMetaTableIfNotExist() throws Exception {
         Optional<Database> optionalDatabase =
                 Env.getCurrentEnv().getInternalCatalog()
@@ -114,7 +125,7 @@ public class StreamingJobUtils {
         }
     }
 
-    public static Map<String, List<SnapshotSplit>> restoreSplitsToJob(Long jobId) throws IOException {
+    public static Map<String, List<SnapshotSplit>> restoreSplitsToJob(Long jobId) throws JobException {
         List<ResultRow> resultRows;
         String sql = String.format(SELECT_SPLITS_TABLE_TEMPLATE, jobId);
         try (AutoCloseConnectContext context
@@ -124,12 +135,17 @@ public class StreamingJobUtils {
         }
 
         Map<String, List<SnapshotSplit>> tableSplits = new LinkedHashMap<>();
-        for (ResultRow row : resultRows) {
-            String tableName = row.get(0);
-            String chunkListStr = row.get(1);
-            List<SnapshotSplit> splits =
-                    new ArrayList<>(Arrays.asList(objectMapper.readValue(chunkListStr, SnapshotSplit[].class)));
-            tableSplits.put(tableName, splits);
+        try {
+            for (ResultRow row : resultRows) {
+                String tableName = row.get(0);
+                String chunkListStr = row.get(1);
+                List<SnapshotSplit> splits =
+                        new ArrayList<>(Arrays.asList(objectMapper.readValue(chunkListStr, SnapshotSplit[].class)));
+                tableSplits.put(tableName, splits);
+            }
+        } catch (IOException ex) {
+            log.warn("Failed to deserialize snapshot splits from job {} meta table: {}", jobId, ex.getMessage());
+            throw new JobException(ex);
         }
         return tableSplits;
     }
@@ -199,8 +215,7 @@ public class StreamingJobUtils {
         return ctx;
     }
 
-    private static JdbcClient getJdbcClient(DataSourceType sourceType, Map<String, String> properties)
-            throws JobException {
+    public static JdbcClient getJdbcClient(DataSourceType sourceType, Map<String, String> properties) {
         JdbcClientConfig config = new JdbcClientConfig();
         config.setCatalog(sourceType.name());
         config.setUser(properties.get(DataSourceConfigKeys.USER));
@@ -208,54 +223,93 @@ public class StreamingJobUtils {
         config.setDriverClass(properties.get(DataSourceConfigKeys.DRIVER_CLASS));
         config.setDriverUrl(properties.get(DataSourceConfigKeys.DRIVER_URL));
         config.setJdbcUrl(properties.get(DataSourceConfigKeys.JDBC_URL));
-        switch (sourceType) {
-            case MYSQL:
-                JdbcClient client = JdbcMySQLClient.createJdbcClient(config);
-                return client;
-            default:
-                throw new JobException("Unsupported source type " + sourceType);
-        }
+        return JdbcClient.createJdbcClient(config);
     }
 
-    public static Backend selectBackend(Long jobId) throws JobException {
+    public static Backend selectBackend() throws JobException {
         Backend backend = null;
         BeSelectionPolicy policy = null;
 
-        policy = new BeSelectionPolicy.Builder()
-                .setEnableRoundRobin(true)
-                .needLoadAvailable().build();
+        policy = new BeSelectionPolicy.Builder().setEnableRoundRobin(true).needLoadAvailable().build();
+        policy.nextRoundRobinIndex = getLastSelectedBackendIndexAndUpdate();
+
         List<Long> backendIds;
-        backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, -1);
+        backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
         if (backendIds.isEmpty()) {
             throw new JobException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
         }
-        // jobid % backendSize
-        long index = backendIds.get(jobId.intValue() % backendIds.size());
-        backend = Env.getCurrentSystemInfo().getBackend(index);
+        backend = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
         if (backend == null) {
             throw new JobException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
         }
         return backend;
     }
 
-    public static List<CreateTableCommand> generateCreateTableCmds(String targetDb, DataSourceType sourceType,
+    private static synchronized int getLastSelectedBackendIndexAndUpdate() {
+        int index = lastSelectedBackendIndex;
+        lastSelectedBackendIndex = (index >= Integer.MAX_VALUE - 1) ? 0 : index + 1;
+        return index;
+    }
+
+    /**
+     * When enabling SSL, you need to convert FILE:ca.pem to FILE:ca.pem:md5.
+     */
+    public static Map<String, String> convertCertFile(long dbId, Map<String, String> sourceProperties)
+            throws JobException {
+        SmallFileMgr smallFileMgr = Env.getCurrentEnv().getSmallFileMgr();
+        Map<String, String> newProps = new HashMap<>(sourceProperties);
+        if (sourceProperties.containsKey(DataSourceConfigKeys.SSL_ROOTCERT)) {
+            String certFile = sourceProperties.get(DataSourceConfigKeys.SSL_ROOTCERT);
+            if (certFile.startsWith("FILE:")) {
+                String file = certFile.substring(certFile.indexOf(":") + 1);
+                try {
+                    SmallFile smallFile =
+                            smallFileMgr.getSmallFile(dbId, StreamingInsertJob.JOB_FILE_CATALOG, file, true);
+                    newProps.put(DataSourceConfigKeys.SSL_ROOTCERT, "FILE:" + smallFile.id + ":" + smallFile.md5);
+                } catch (DdlException ex) {
+                    throw new JobException("ssl root cert file not found: " + certFile, ex);
+                }
+            } else {
+                throw new JobException("ssl root cert is not in expected format, "
+                        + "should start with FILE:, got " + certFile);
+            }
+        }
+        return newProps;
+    }
+
+    /**
+     * Generate CREATE TABLE commands for the Doris target tables.
+     *
+     * <p>Returns a {@link LinkedHashMap} whose key is the <b>source</b> (upstream) table name and
+     * whose value is the corresponding {@link CreateTableCommand} that creates the Doris target
+     * table (which may have a different name when {@code table.<src>.target_table} is configured).
+     * Callers must use the map key as the PG/MySQL source table identifier for CDC monitoring and
+     * the {@link CreateTableCommand} value for the actual DDL execution.
+     */
+    public static LinkedHashMap<String, CreateTableCommand> generateCreateTableCmds(String targetDb,
+            DataSourceType sourceType,
             Map<String, String> properties, Map<String, String> targetProperties)
             throws JobException {
-        List<CreateTableCommand> createtblCmds = new ArrayList<>();
+        LinkedHashMap<String, CreateTableCommand> createtblCmds = new LinkedHashMap<>();
         String includeTables = properties.get(DataSourceConfigKeys.INCLUDE_TABLES);
         String excludeTables = properties.get(DataSourceConfigKeys.EXCLUDE_TABLES);
         List<String> includeTablesList = new ArrayList<>();
         if (includeTables != null) {
             includeTablesList = Arrays.asList(includeTables.split(","));
         }
+        List<String> excludeTablesList = new ArrayList<>();
+        if (excludeTables != null) {
+            excludeTablesList = Arrays.asList(excludeTables.split(","));
+        }
 
-        String database = properties.get(DataSourceConfigKeys.DATABASE);
         JdbcClient jdbcClient = getJdbcClient(sourceType, properties);
+        String database = getRemoteDbName(sourceType, properties);
         List<String> tablesNameList = jdbcClient.getTablesNameList(database);
         if (tablesNameList.isEmpty()) {
             throw new JobException("No tables found in database " + database);
         }
         Map<String, String> tableCreateProperties = getTableCreateProperties(targetProperties);
+
         List<String> noPrimaryKeyTables = new ArrayList<>();
         for (String table : tablesNameList) {
             if (!includeTablesList.isEmpty() && !includeTablesList.contains(table)) {
@@ -264,17 +318,35 @@ public class StreamingJobUtils {
                 continue;
             }
 
-            if (excludeTables != null && excludeTables.contains(table)) {
+            // if set include_tables, exclude_tables is ignored
+            if (includeTablesList.isEmpty()
+                    && !excludeTablesList.isEmpty() && excludeTablesList.contains(table)) {
                 log.info("Skip table {} in database {} as it in exclude_tables {}", table, database,
                         excludeTables);
                 continue;
             }
 
-            List<Column> columns = jdbcClient.getColumnsFromJdbc(database, table);
             List<String> primaryKeys = jdbcClient.getPrimaryKeys(database, table);
+            List<Column> columns = getColumns(jdbcClient, database, table, primaryKeys);
             if (primaryKeys.isEmpty()) {
                 noPrimaryKeyTables.add(table);
             }
+
+            // Resolve target (Doris) table name; defaults to source table name if not configured
+            String targetTableName = properties.getOrDefault(
+                    DataSourceConfigKeys.TABLE + "." + table + "."
+                            + DataSourceConfigKeys.TABLE_TARGET_TABLE_SUFFIX,
+                    table).trim();
+
+            // Validate and apply exclude_columns for this table
+            Set<String> excludeColumns = parseExcludeColumns(properties, table);
+            if (!excludeColumns.isEmpty()) {
+                validateExcludeColumns(excludeColumns, table, columns, primaryKeys);
+                columns = columns.stream()
+                        .filter(col -> !excludeColumns.contains(col.getName()))
+                        .collect(Collectors.toList());
+            }
+
             // Convert Column to ColumnDefinition
             List<ColumnDefinition> columnDefinitions = columns.stream().map(col -> {
                 DataType dataType = DataType.fromCatalogType(col.getType());
@@ -296,7 +368,7 @@ public class StreamingJobUtils {
                     false, // isTemp
                     InternalCatalog.INTERNAL_CATALOG_NAME, // ctlName
                     targetDb, // dbName
-                    table, // tableName
+                    targetTableName, // tableName
                     columnDefinitions, // columns
                     ImmutableList.of(), // indexes
                     "olap", // engineName
@@ -311,7 +383,8 @@ public class StreamingJobUtils {
                     ImmutableList.of() // clusterKeyColumnNames
             );
             CreateTableCommand createtblCmd = new CreateTableCommand(Optional.empty(), createtblInfo);
-            createtblCmds.add(createtblCmd);
+            // Key: source (PG/MySQL) table name; Value: command that creates the Doris target table
+            createtblCmds.put(table, createtblCmd);
         }
         if (createtblCmds.isEmpty()) {
             throw new JobException("Can not found match table in database " + database);
@@ -324,11 +397,110 @@ public class StreamingJobUtils {
         return createtblCmds;
     }
 
+    public static List<Column> getColumns(JdbcClient jdbcClient,
+            String database,
+            String table,
+            List<String> primaryKeys) {
+        List<Column> columns = jdbcClient.getColumnsFromJdbc(database, table);
+        columns.forEach(col -> {
+            Preconditions.checkArgument(!col.getType().isUnsupported(),
+                    "Unsupported column type, table:[%s], column:[%s]", table, col.getName());
+            if (col.getType().isVarchar()) {
+                // The length of varchar needs to be multiplied by 3.
+                int len = col.getType().getLength() * 3;
+                if (len > ScalarType.MAX_VARCHAR_LENGTH) {
+                    col.setType(ScalarType.createStringType());
+                } else {
+                    col.setType(ScalarType.createVarcharType(len));
+                }
+            } else if (col.getType().isChar()) {
+                // The length of char needs to be multiplied by 3.
+                int len = col.getType().getLength() * 3;
+                if (len > ScalarType.MAX_CHAR_LENGTH) {
+                    col.setType(ScalarType.createVarcharType(len));
+                } else {
+                    col.setType(ScalarType.createCharType(len));
+                }
+            }
+
+            // string can not to be key
+            if (primaryKeys.contains(col.getName())
+                    && col.getDataType() == PrimitiveType.STRING) {
+                col.setType(ScalarType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH));
+            }
+        });
+
+        // sort columns for primary keys
+        columns.sort(
+                Comparator
+                        .comparing((Column col) -> !primaryKeys.contains(col.getName()))
+                        .thenComparing(
+                                col -> primaryKeys.contains(col.getName())
+                                        ? primaryKeys.indexOf(col.getName())
+                                        : Integer.MAX_VALUE
+                        )
+        );
+
+        return columns;
+    }
+
+    /**
+     * The remoteDB implementation differs for each data source;
+     * refer to the hierarchical mapping in the JDBC catalog.
+     */
+    public static String getRemoteDbName(DataSourceType sourceType, Map<String, String> properties) {
+        String remoteDb = null;
+        switch (sourceType) {
+            case MYSQL:
+                remoteDb = properties.get(DataSourceConfigKeys.DATABASE);
+                Preconditions.checkArgument(StringUtils.isNotEmpty(remoteDb), "database is required");
+                break;
+            case POSTGRES:
+                remoteDb = properties.get(DataSourceConfigKeys.SCHEMA);
+                Preconditions.checkArgument(StringUtils.isNotEmpty(remoteDb), "schema is required");
+                break;
+            default:
+                throw new RuntimeException("Unsupported source type " + sourceType);
+        }
+        return remoteDb;
+    }
+
+    private static Set<String> parseExcludeColumns(Map<String, String> properties, String tableName) {
+        String key = DataSourceConfigKeys.TABLE + "." + tableName + "."
+                + DataSourceConfigKeys.TABLE_EXCLUDE_COLUMNS_SUFFIX;
+        String value = properties.get(key);
+        if (StringUtils.isEmpty(value)) {
+            return Collections.emptySet();
+        }
+        return Arrays.stream(value.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .collect(Collectors.toSet());
+    }
+
+    private static void validateExcludeColumns(Set<String> excludeColumns, String tableName,
+            List<Column> columns, List<String> primaryKeys) throws JobException {
+        Set<String> colNames = columns.stream().map(Column::getName).collect(Collectors.toSet());
+        for (String col : excludeColumns) {
+            if (!colNames.contains(col)) {
+                throw new JobException(String.format(
+                        "exclude_columns validation failed: column '%s' does not exist in table '%s'",
+                        col, tableName));
+            }
+            if (primaryKeys.contains(col)) {
+                throw new JobException(String.format(
+                        "exclude_columns validation failed: column '%s' in table '%s'"
+                                + " is a primary key column and cannot be excluded",
+                        col, tableName));
+            }
+        }
+    }
+
     private static Map<String, String> getTableCreateProperties(Map<String, String> properties) {
         final Map<String, String> tableCreateProps = new HashMap<>();
         for (Map.Entry<String, String> entry : properties.entrySet()) {
-            if (entry.getKey().startsWith(TABLE_PROPS_PREFIX)) {
-                String subKey = entry.getKey().substring(TABLE_PROPS_PREFIX.length());
+            if (entry.getKey().startsWith(DataSourceConfigKeys.TABLE_PROPS_PREFIX)) {
+                String subKey = entry.getKey().substring(DataSourceConfigKeys.TABLE_PROPS_PREFIX.length());
                 tableCreateProps.put(subKey, entry.getValue());
             }
         }

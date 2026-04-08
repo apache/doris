@@ -51,7 +51,7 @@ public class AbstractVendedCredentialsProviderTest {
         }
 
         @Override
-        protected boolean isVendedCredentialsEnabled(MetastoreProperties metastoreProperties) {
+        public boolean isVendedCredentialsEnabled(MetastoreProperties metastoreProperties) {
             return isVendedCredentialsEnabledResult;
         }
 
@@ -199,7 +199,7 @@ public class AbstractVendedCredentialsProviderTest {
         // Test the case where extractRawVendedCredentials returns null (simulating an internal failure)
         AbstractVendedCredentialsProvider provider = new AbstractVendedCredentialsProvider() {
             @Override
-            protected boolean isVendedCredentialsEnabled(MetastoreProperties metastoreProperties) {
+            public boolean isVendedCredentialsEnabled(MetastoreProperties metastoreProperties) {
                 return true;
             }
 
@@ -230,7 +230,7 @@ public class AbstractVendedCredentialsProviderTest {
         // Create a minimal provider that doesn't override getTableName() to test the default implementation
         AbstractVendedCredentialsProvider provider = new AbstractVendedCredentialsProvider() {
             @Override
-            protected boolean isVendedCredentialsEnabled(MetastoreProperties metastoreProperties) {
+            public boolean isVendedCredentialsEnabled(MetastoreProperties metastoreProperties) {
                 return true;
             }
 

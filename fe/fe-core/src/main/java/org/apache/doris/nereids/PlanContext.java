@@ -18,12 +18,13 @@
 package org.apache.doris.nereids;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DistributionSpecReplicated;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.Statistics;
 
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -34,23 +35,21 @@ import java.util.List;
  */
 public class PlanContext {
     private final ConnectContext connectContext;
-    private final List<Statistics> childrenStats;
-    private final Statistics planStats;
-    private final int arity;
-    private boolean isBroadcastJoin = false;
-    private final boolean isStatsReliable;
+    private final GroupExpression groupExpression;
+    private final boolean isBroadcastJoin;
 
     /**
      * Constructor for PlanContext.
      */
-    public PlanContext(ConnectContext connectContext, GroupExpression groupExpression) {
+    public PlanContext(ConnectContext connectContext, GroupExpression groupExpression,
+            List<PhysicalProperties> childrenProperties) {
         this.connectContext = connectContext;
-        this.arity = groupExpression.arity();
-        this.planStats = groupExpression.getOwnerGroup().getStatistics();
-        this.isStatsReliable = groupExpression.getOwnerGroup().isStatsReliable();
-        this.childrenStats = new ArrayList<>(groupExpression.arity());
-        for (int i = 0; i < groupExpression.arity(); i++) {
-            childrenStats.add(groupExpression.childStatistics(i));
+        this.groupExpression = groupExpression;
+        if (childrenProperties.size() >= 2
+                && childrenProperties.get(1).getDistributionSpec() instanceof DistributionSpecReplicated) {
+            isBroadcastJoin = true;
+        } else {
+            isBroadcastJoin = false;
         }
     }
 
@@ -58,38 +57,34 @@ public class PlanContext {
         return connectContext.getSessionVariable();
     }
 
-    public void setBroadcastJoin() {
-        isBroadcastJoin = true;
-    }
-
     public boolean isBroadcastJoin() {
         return isBroadcastJoin;
     }
 
     public int arity() {
-        return arity;
+        return groupExpression.arity();
     }
 
     public Statistics getStatisticsWithCheck() {
-        return planStats;
+        return groupExpression.getOwnerGroup().getStatistics();
     }
 
     public boolean isStatsReliable() {
-        return isStatsReliable;
+        return groupExpression.getOwnerGroup().isStatsReliable();
     }
 
     /**
      * Get child statistics.
      */
     public Statistics getChildStatistics(int index) {
-        return childrenStats.get(index);
-    }
-
-    public List<Statistics> getChildrenStatistics() {
-        return childrenStats;
+        return groupExpression.childStatistics(index);
     }
 
     public StatementContext getStatementContext() {
         return connectContext.getStatementContext();
+    }
+
+    public ConnectContext getConnectContext() {
+        return connectContext;
     }
 }

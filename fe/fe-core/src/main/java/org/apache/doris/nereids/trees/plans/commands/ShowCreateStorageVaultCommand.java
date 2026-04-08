@@ -27,7 +27,7 @@ import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -37,6 +37,7 @@ import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.rpc.RpcException;
+import org.apache.doris.service.FrontendOptions;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -76,7 +77,9 @@ public class ShowCreateStorageVaultCommand extends ShowCommand {
         List<List<String>> rows = Lists.newArrayList();
         try {
             Cloud.GetObjStoreInfoResponse response = MetaServiceProxy.getInstance()
-                    .getObjStoreInfo(Cloud.GetObjStoreInfoRequest.newBuilder().build());
+                    .getObjStoreInfo(Cloud.GetObjStoreInfoRequest.newBuilder()
+                            .setRequestIp(FrontendOptions.getLocalHostAddressCached())
+                            .build());
             AccessControllerManager accessManager = Env.getCurrentEnv().getAccessManager();
             UserIdentity user = ctx.getCurrentUserIdentity();
 
@@ -135,7 +138,7 @@ public class ShowCreateStorageVaultCommand extends ShowCommand {
             properties.put("s3.external_endpoint", objectInfo.getExternalEndpoint());
         }
 
-        stmtBuilder.append(new PrintableMap<>(properties, " = ", true, true, true));
+        stmtBuilder.append(new DatasourcePrintableMap<>(properties, " = ", true, true, true));
         stmtBuilder.append(")\n");
 
         return stmtBuilder.toString();
@@ -165,7 +168,7 @@ public class ShowCreateStorageVaultCommand extends ShowCommand {
         buildConf.getHdfsConfsList().stream()
                 .map(hdfsConfKVPair -> properties.put(hdfsConfKVPair.getKey(), hdfsConfKVPair.getValue()));
 
-        stmtBuilder.append(new PrintableMap<>(properties, " = ", true, true, true));
+        stmtBuilder.append(new DatasourcePrintableMap<>(properties, " = ", true, true, true));
         stmtBuilder.append(")\n");
 
         return stmtBuilder.toString();

@@ -18,29 +18,16 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.alter.AlterCancelException;
-import org.apache.doris.catalog.constraint.Constraint;
-import org.apache.doris.catalog.constraint.ForeignKeyConstraint;
-import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
-import org.apache.doris.catalog.constraint.TableIdentifier;
-import org.apache.doris.catalog.constraint.UniqueConstraint;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.datasource.systable.SysTable;
-import org.apache.doris.info.TableValuedFunctionRefInfo;
-import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
-import org.apache.doris.persist.AlterConstraintLog;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
@@ -49,14 +36,11 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 
 public interface TableIf {
     Logger LOG = LogManager.getLogger(TableIf.class);
@@ -190,11 +174,6 @@ public interface TableIf {
 
     BaseAnalysisTask createAnalysisTask(AnalysisInfo info);
 
-    // For empty table, nereids require getting 1 as row count. This is a wrap function for nereids to call getRowCount.
-    default long getRowCountForNereids() {
-        return Math.max(getRowCount(), 1);
-    }
-
     DatabaseIf getDatabase();
 
     Optional<ColumnStatistic> getColumnStatistic(String colName);
@@ -211,226 +190,6 @@ public interface TableIf {
 
     void write(DataOutput out) throws IOException;
 
-    // Don't use it outside due to its thread-unsafe, use get specific constraints instead.
-    default Map<String, Constraint> getConstraintsMapUnsafe() {
-        throw new RuntimeException(String.format("Not implemented constraint for table %s. "
-                + "And the function can't be called outside, consider get specific function "
-                + "like getForeignKeyConstraints/getPrimaryKeyConstraints/getUniqueConstraints.", this));
-    }
-
-    default Set<ForeignKeyConstraint> getForeignKeyConstraints() {
-        try {
-            return getConstraintsMapUnsafe().values().stream()
-                    .filter(ForeignKeyConstraint.class::isInstance)
-                    .map(ForeignKeyConstraint.class::cast)
-                    .collect(ImmutableSet.toImmutableSet());
-        } catch (Exception ignored) {
-            return ImmutableSet.of();
-        }
-    }
-
-    default Map<String, Constraint> getConstraintsMap() {
-        try {
-            return ImmutableMap.copyOf(getConstraintsMapUnsafe());
-        } catch (Exception ignored) {
-            return ImmutableMap.of();
-        }
-    }
-
-    default Set<PrimaryKeyConstraint> getPrimaryKeyConstraints() {
-        try {
-            ImmutableSet.Builder<PrimaryKeyConstraint> constraintBuilder = ImmutableSet.builder();
-            for (Constraint constraint : getConstraintsMapUnsafe().values()) {
-                if (!(constraint instanceof PrimaryKeyConstraint)) {
-                    continue;
-                }
-                constraintBuilder.add((PrimaryKeyConstraint) constraint);
-            }
-            return constraintBuilder.build();
-        } catch (Exception ignored) {
-            return ImmutableSet.of();
-        }
-    }
-
-    default Set<UniqueConstraint> getUniqueConstraints() {
-        try {
-            ImmutableSet.Builder<UniqueConstraint> constraintBuilder = ImmutableSet.builder();
-            for (Constraint constraint : getConstraintsMapUnsafe().values()) {
-                if (!(constraint instanceof UniqueConstraint)) {
-                    continue;
-                }
-                constraintBuilder.add((UniqueConstraint) constraint);
-            }
-            return constraintBuilder.build();
-        } catch (Exception ignored) {
-            return ImmutableSet.of();
-        }
-    }
-
-    // Note this function is not thread safe
-    default void checkConstraintNotExistenceUnsafe(String name, Constraint primaryKeyConstraint,
-            Map<String, Constraint> constraintMap) {
-        if (constraintMap.containsKey(name)) {
-            throw new RuntimeException(String.format("Constraint name %s has existed", name));
-        }
-        for (Map.Entry<String, Constraint> entry : constraintMap.entrySet()) {
-            if (entry.getValue().equals(primaryKeyConstraint)) {
-                throw new RuntimeException(String.format(
-                        "Constraint %s has existed, named %s", primaryKeyConstraint, entry.getKey()));
-            }
-        }
-    }
-
-    default void addUniqueConstraint(String name, ImmutableList<String> columns, boolean replay) {
-        Map<String, Constraint> constraintMap = getConstraintsMapUnsafe();
-        UniqueConstraint uniqueConstraint = new UniqueConstraint(name, ImmutableSet.copyOf(columns));
-        checkConstraintNotExistenceUnsafe(name, uniqueConstraint, constraintMap);
-        constraintMap.put(name, uniqueConstraint);
-        if (!replay) {
-            Env.getCurrentEnv().getEditLog().logAddConstraint(
-                    new AlterConstraintLog(uniqueConstraint, this));
-        }
-    }
-
-    default void addPrimaryKeyConstraint(String name, ImmutableList<String> columns, boolean replay) {
-        Map<String, Constraint> constraintMap = getConstraintsMapUnsafe();
-        PrimaryKeyConstraint primaryKeyConstraint = new PrimaryKeyConstraint(name, ImmutableSet.copyOf(columns));
-        checkConstraintNotExistenceUnsafe(name, primaryKeyConstraint, constraintMap);
-        constraintMap.put(name, primaryKeyConstraint);
-        if (!replay) {
-            Env.getCurrentEnv().getEditLog().logAddConstraint(
-                    new AlterConstraintLog(primaryKeyConstraint, this));
-        }
-    }
-
-    default PrimaryKeyConstraint tryGetPrimaryKeyForForeignKeyUnsafe(
-            PrimaryKeyConstraint requirePrimaryKey, TableIf referencedTable) {
-        Optional<Constraint> primaryKeyConstraint = referencedTable.getConstraintsMapUnsafe().values().stream()
-                .filter(requirePrimaryKey::equals)
-                .findFirst();
-        if (!primaryKeyConstraint.isPresent()) {
-            throw new AnalysisException(String.format(
-                    "Foreign key constraint requires a primary key constraint %s in %s",
-                    requirePrimaryKey.getPrimaryKeyNames(), referencedTable.getName()));
-        }
-        return ((PrimaryKeyConstraint) (primaryKeyConstraint.get()));
-    }
-
-    default void addForeignConstraint(String name, ImmutableList<String> columns,
-            TableIf referencedTable, ImmutableList<String> referencedColumns, boolean replay) {
-        Map<String, Constraint> constraintMap = getConstraintsMapUnsafe();
-        ForeignKeyConstraint foreignKeyConstraint =
-                new ForeignKeyConstraint(name, columns, referencedTable, referencedColumns);
-        checkConstraintNotExistenceUnsafe(name, foreignKeyConstraint, constraintMap);
-        PrimaryKeyConstraint requirePrimaryKeyName = new PrimaryKeyConstraint(name,
-                foreignKeyConstraint.getReferencedColumnNames());
-        PrimaryKeyConstraint primaryKeyConstraint =
-                tryGetPrimaryKeyForForeignKeyUnsafe(requirePrimaryKeyName, referencedTable);
-        primaryKeyConstraint.addForeignTable(this);
-        constraintMap.put(name, foreignKeyConstraint);
-        if (!replay) {
-            Env.getCurrentEnv().getEditLog().logAddConstraint(
-                    new AlterConstraintLog(foreignKeyConstraint, this));
-        }
-    }
-
-    default void replayAddConstraint(Constraint constraint) {
-        if (constraint instanceof UniqueConstraint) {
-            UniqueConstraint uniqueConstraint = (UniqueConstraint) constraint;
-            this.addUniqueConstraint(constraint.getName(),
-                    ImmutableList.copyOf(uniqueConstraint.getUniqueColumnNames()), true);
-        } else if (constraint instanceof PrimaryKeyConstraint) {
-            PrimaryKeyConstraint primaryKeyConstraint = (PrimaryKeyConstraint) constraint;
-            this.addPrimaryKeyConstraint(primaryKeyConstraint.getName(),
-                    ImmutableList.copyOf(primaryKeyConstraint.getPrimaryKeyNames()), true);
-        } else if (constraint instanceof ForeignKeyConstraint) {
-            ForeignKeyConstraint foreignKey = (ForeignKeyConstraint) constraint;
-            this.addForeignConstraint(foreignKey.getName(),
-                    ImmutableList.copyOf(foreignKey.getForeignKeyNames()),
-                    foreignKey.getReferencedTable(),
-                    ImmutableList.copyOf(foreignKey.getReferencedColumnNames()), true);
-        }
-    }
-
-    default void replayDropConstraint(String name) {
-        dropConstraint(name, true);
-    }
-
-    // when table has foreign key constraint referencing to primary key of other table,
-    // need to remove this table identifier from primary table's foreign table set when drop this
-    // when table has primary key constraint, when drop table(this), need to remove the foreign key referenced this
-    default void removeTableIdentifierFromPrimaryTable() {
-        Map<String, Constraint> constraintMap = getConstraintsMapUnsafe();
-        for (Constraint constraint : constraintMap.values()) {
-            dropConstraintRefWithLock(constraint);
-        }
-    }
-
-    default void dropConstraintRefWithLock(Constraint constraint) {
-        List<TableIf> tables = getConstraintRelatedTables(constraint);
-        tables.sort((Comparator.comparing(TableIf::getId)));
-        MetaLockUtils.writeLockTables(tables);
-        try {
-            dropConstraintRef(constraint);
-        } finally {
-            MetaLockUtils.writeUnlockTables(tables);
-        }
-    }
-
-    default void dropConstraintRef(Constraint constraint) {
-        if (constraint instanceof PrimaryKeyConstraint) {
-            ((PrimaryKeyConstraint) constraint).getForeignTables()
-                    .forEach(t -> t.dropFKReferringPK(this, (PrimaryKeyConstraint) constraint));
-        } else if (constraint instanceof ForeignKeyConstraint) {
-            ForeignKeyConstraint foreignKeyConstraint = (ForeignKeyConstraint) constraint;
-            Optional<TableIf> primaryTableIf = foreignKeyConstraint.getReferencedTableOrNull();
-            if (primaryTableIf.isPresent()) {
-                Map<String, Constraint> refTableConstraintMap = primaryTableIf.get().getConstraintsMapUnsafe();
-                for (Constraint refTableConstraint : refTableConstraintMap.values()) {
-                    if (refTableConstraint instanceof PrimaryKeyConstraint) {
-                        PrimaryKeyConstraint primaryKeyConstraint = (PrimaryKeyConstraint) refTableConstraint;
-                        primaryKeyConstraint.removeForeignTable(new TableIdentifier(this));
-                    }
-                }
-            }
-        }
-    }
-
-    default List<TableIf> getConstraintRelatedTables(Constraint constraint) {
-        List<TableIf> tables = Lists.newArrayList();
-        if (constraint instanceof PrimaryKeyConstraint) {
-            tables.addAll(((PrimaryKeyConstraint) constraint).getForeignTables());
-        } else if (constraint instanceof ForeignKeyConstraint) {
-            tables.add(((ForeignKeyConstraint) constraint).getReferencedTable());
-        }
-        return tables;
-    }
-
-    default void dropConstraint(String name, boolean replay) {
-        Map<String, Constraint> constraintMap = getConstraintsMapUnsafe();
-        if (!constraintMap.containsKey(name)) {
-            throw new AnalysisException(
-                    String.format("Unknown constraint %s on table %s.", name, this.getName()));
-        }
-        Constraint constraint = constraintMap.get(name);
-        constraintMap.remove(name);
-        dropConstraintRefWithLock(constraint);
-        if (!replay) {
-            Env.getCurrentEnv().getEditLog().logDropConstraint(new AlterConstraintLog(constraint, this));
-        }
-    }
-
-    default void dropFKReferringPK(TableIf table, PrimaryKeyConstraint constraint) {
-        Map<String, Constraint> constraintMap = getConstraintsMapUnsafe();
-        Set<String> fkName = constraintMap.entrySet().stream()
-                .filter(e -> e.getValue() instanceof ForeignKeyConstraint
-                        && ((ForeignKeyConstraint) e.getValue()).isReferringPK(table, constraint))
-                .map(Entry::getKey)
-                .collect(Collectors.toSet());
-        fkName.forEach(constraintMap::remove);
-
-    }
-
     /**
      * return true if this kind of table need read lock when doing query plan.
      *
@@ -445,10 +204,13 @@ public interface TableIf {
      */
     enum TableType {
         MYSQL, ODBC, OLAP, SCHEMA, INLINE_VIEW, VIEW, BROKER, ELASTICSEARCH, HIVE,
-        @Deprecated ICEBERG, @Deprecated HUDI, JDBC,
+        @Deprecated
+        ICEBERG, @Deprecated
+        HUDI, JDBC,
         TABLE_VALUED_FUNCTION, HMS_EXTERNAL_TABLE, ES_EXTERNAL_TABLE, MATERIALIZED_VIEW, JDBC_EXTERNAL_TABLE,
         ICEBERG_EXTERNAL_TABLE, TEST_EXTERNAL_TABLE, PAIMON_EXTERNAL_TABLE, MAX_COMPUTE_EXTERNAL_TABLE,
-        HUDI_EXTERNAL_TABLE, TRINO_CONNECTOR_EXTERNAL_TABLE, LAKESOUl_EXTERNAL_TABLE, DICTIONARY, DORIS_EXTERNAL_TABLE;
+        HUDI_EXTERNAL_TABLE, TRINO_CONNECTOR_EXTERNAL_TABLE, LAKESOUl_EXTERNAL_TABLE, DICTIONARY, DORIS_EXTERNAL_TABLE,
+        STREAM;
 
         public String toEngineName() {
             switch (this) {
@@ -485,10 +247,14 @@ public interface TableIf {
                 case ICEBERG:
                 case ICEBERG_EXTERNAL_TABLE:
                     return "iceberg";
+                case PAIMON_EXTERNAL_TABLE:
+                    return "paimon";
                 case DICTIONARY:
                     return "dictionary";
                 case DORIS_EXTERNAL_TABLE:
                     return "External_Doris";
+                case STREAM:
+                    return "Stream";
                 default:
                     return null;
             }
@@ -528,6 +294,7 @@ public interface TableIf {
                 case MATERIALIZED_VIEW:
                 case TRINO_CONNECTOR_EXTERNAL_TABLE:
                 case DORIS_EXTERNAL_TABLE:
+                case STREAM:
                     return "BASE TABLE";
                 default:
                     return null;
@@ -549,7 +316,7 @@ public interface TableIf {
 
     default List<String> getFullQualifiers() {
         return ImmutableList.of(getDatabase().getCatalog().getName(),
-                ClusterNamespace.getNameFromFullName(getDatabase().getFullName()),
+                getDatabase().getFullName(),
                 getName());
     }
 
@@ -560,7 +327,7 @@ public interface TableIf {
             return "null.null." + getName();
         } else {
             return db.getCatalog().getName()
-                    + "." + ClusterNamespace.getNameFromFullName(db.getFullName())
+                    + "." + db.getFullName()
                     + "." + getName();
         }
     }
@@ -572,10 +339,6 @@ public interface TableIf {
     default long getDataSize(boolean singleReplica) {
         // TODO: Each tableIf should impl it by itself.
         return 0;
-    }
-
-    default boolean isDistributionColumn(String columnName) {
-        return false;
     }
 
     default boolean isPartitionColumn(Column column) {
@@ -598,46 +361,28 @@ public interface TableIf {
         return false;
     }
 
-    default List<SysTable> getSupportedSysTables() {
-        return Lists.newArrayList();
+    /**
+     * Get the map of supported system table types for this table.
+     * Key is the system table name (e.g., "snapshots", "partitions").
+     *
+     * @return map of system table name to SysTable
+     */
+    default Map<String, SysTable> getSupportedSysTables() {
+        return Collections.emptyMap();
     }
 
     /**
-     * Get TableValuedFunction by tableNameWithSysTableName
+     * Find the SysTable that matches the given table name.
+     * Uses O(1) map lookup after extracting the system table name suffix.
      *
-     * @param ctlName
-     * @param dbName
-     * @param tableNameWithSysTableName: eg: table$partitions
-     * @return
+     * @param tableNameWithSysTableName e.g., "table$partitions"
+     * @return the matching SysTable, or empty if not found
      */
-    default Optional<TableValuedFunction> getSysTableFunction(
-            String ctlName, String dbName, String tableNameWithSysTableName) {
-        for (SysTable sysTable : getSupportedSysTables()) {
-            if (sysTable.containsMetaTable(tableNameWithSysTableName)) {
-                return Optional.of(sysTable.createFunction(ctlName, dbName,
-                        tableNameWithSysTableName));
-            }
+    default Optional<SysTable> findSysTable(String tableNameWithSysTableName) {
+        String sysTableName = SysTable.getTableNameWithSysTableName(tableNameWithSysTableName).second;
+        if (sysTableName.isEmpty()) {
+            return Optional.empty();
         }
-        return Optional.empty();
-    }
-
-    /**
-     * Get TableValuedFunctionRef by tableNameWithSysTableName
-     *
-     * @param ctlName
-     * @param dbName
-     * @param tableNameWithSysTableName: eg: table$partitions
-     * @return
-     */
-    default Optional<TableValuedFunctionRefInfo> getSysTableFunctionRef(
-            String ctlName, String dbName, String tableNameWithSysTableName) {
-        for (SysTable sysTable : getSupportedSysTables()) {
-            if (sysTable.containsMetaTable(tableNameWithSysTableName)) {
-                return Optional.of(sysTable.createFunctionRef(ctlName, dbName,
-                        tableNameWithSysTableName));
-            }
-        }
-        return Optional.empty();
+        return Optional.ofNullable(getSupportedSysTables().get(sysTableName));
     }
 }
-

@@ -13,7 +13,7 @@ PhysicalResultSink
 --------------------PhysicalProject
 ----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((inventory.inv_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[inv_date_sk]
 ------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((item.i_item_sk = inventory.inv_item_sk)) otherCondition=() build RFs:RF0 i_item_sk->[inv_item_sk]
+--------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((item.i_item_sk = inventory.inv_item_sk)) otherCondition=() build RFs:RF0 i_item_sk->[inv_item_sk]
 ----------------------------PhysicalOlapScan[inventory] apply RFs: RF0 RF1 RF2
 ----------------------------PhysicalProject
 ------------------------------filter((item.i_current_price <= 1.49) and (item.i_current_price >= 0.99))

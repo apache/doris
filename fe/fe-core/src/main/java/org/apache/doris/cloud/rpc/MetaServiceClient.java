@@ -221,6 +221,11 @@ public class MetaServiceClient {
                 .getCurrentMaxTxnId(request);
     }
 
+    public Cloud.CreateMetaSyncPointResponse createMetaSyncPoint(Cloud.CreateMetaSyncPointRequest request) {
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .createMetaSyncPoint(request);
+    }
+
     public Cloud.BeginSubTxnResponse beginSubTxn(Cloud.BeginSubTxnRequest request) {
         if (!request.hasCloudUniqueId()) {
             Cloud.BeginSubTxnRequest.Builder builder = Cloud.BeginSubTxnRequest.newBuilder();
@@ -484,6 +489,19 @@ public class MetaServiceClient {
         }
         return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
                 .abortTxnWithCoordinator(request);
+    }
+
+    public Cloud.GetPrepareTxnByCoordinatorResponse
+            getPrepareTxnByCoordinator(Cloud.GetPrepareTxnByCoordinatorRequest request) {
+        if (!request.hasCloudUniqueId()) {
+            Cloud.GetPrepareTxnByCoordinatorRequest.Builder builder =
+                    Cloud.GetPrepareTxnByCoordinatorRequest.newBuilder();
+            builder.mergeFrom(request);
+            return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                    .getPrepareTxnByCoordinator(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+        }
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .getPrepareTxnByCoordinator(request);
     }
 
     public Cloud.FinishTabletJobResponse

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_sqlserver_all_types_select", "p0,external,sqlserver,external_docker,external_docker_sqlserver") {
+suite("test_sqlserver_all_types_select", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String s3_endpoint = getS3Endpoint()

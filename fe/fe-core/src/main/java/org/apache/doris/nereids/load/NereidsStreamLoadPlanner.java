@@ -38,6 +38,7 @@ import org.apache.doris.planner.FileLoadScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanContext;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
@@ -145,20 +146,9 @@ public class NereidsStreamLoadPlanner {
             }
         }
 
-        if (uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS && !destTable.hasSkipBitmapColumn()) {
-            String tblName = destTable.getName();
-            throw new UserException("Flexible partial update can only support table with skip bitmap hidden column."
-                    + " But table " + tblName + " doesn't have it. You can use `ALTER TABLE " + tblName
-                    + " ENABLE FEATURE \"UPDATE_FLEXIBLE_COLUMNS\";` to add it to the table.");
-        }
-        if (uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS
-                && !destTable.getEnableLightSchemaChange()) {
-            throw new UserException("Flexible partial update can only support table with light_schema_change enabled."
-                    + " But table " + destTable.getName() + "'s property light_schema_change is false");
-        }
-        if (uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS
-                && destTable.hasVariantColumns()) {
-            throw new UserException("Flexible partial update can only support table without variant columns.");
+        if (uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS) {
+            // Validate table-level constraints for flexible partial update
+            destTable.validateForFlexiblePartialUpdate();
         }
         HashSet<String> partialUpdateInputColumns = new HashSet<>();
         if (uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS) {
@@ -264,7 +254,10 @@ public class NereidsStreamLoadPlanner {
         scanTupleDesc.setTable(destTable);
         NereidsLoadPlanInfoCollector.LoadPlanInfo loadPlanInfo = planInfoCollector.collectLoadPlanInfo(streamLoadPlan,
                 descriptorTable, scanTupleDesc);
-        FileLoadScanNode fileScanNode = new FileLoadScanNode(new PlanNodeId(0), loadPlanInfo.getDestTuple());
+        String clusterName = ConnectContext.get() == null ? ""
+                : ConnectContext.get().getSessionVariable().resolveCloudClusterName();
+        FileLoadScanNode fileScanNode = new FileLoadScanNode(new PlanNodeId(0), loadPlanInfo.getDestTuple(),
+                ScanContext.builder().clusterName(clusterName).build());
         fileScanNode.finalizeForNereids(loadId, Lists.newArrayList(fileGroupInfo), Lists.newArrayList(context),
                 Lists.newArrayList(loadPlanInfo));
         scanNode = fileScanNode;

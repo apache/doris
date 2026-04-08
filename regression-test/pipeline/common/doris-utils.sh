@@ -704,6 +704,8 @@ archive_doris_logs() {
         if [[ -d "${DORIS_HOME}"/be/storage/error_log ]]; then
             cp --parents -rf "be/storage/error_log" "${archive_dir}"/
         fi
+        # dmesg log
+        dmesg -T | tail -n2000 >"${archive_dir}"/dmesg.log
     )
 
     if tar -I pigz \
@@ -1001,4 +1003,18 @@ function print_running_pipeline_tasks() {
     echo ""
     curl -m 10 "http://127.0.0.1:${webserver_port}/api/running_pipeline_tasks/30" 2>&1 | tee "${DORIS_HOME}"/be/log/running_pipeline_tasks_30
     echo "------------------------${FUNCNAME[0]}--------------------------"
+}
+
+function get_jstack_and_jmap_of_fe() {
+    if ! pgrep -f "org.apache.doris.DorisFE"; then
+        echo "ERROR: org.apache.doris.DorisFE process not found."
+        return 1
+    fi
+    local fe_pid=$(pgrep -f "org.apache.doris.DorisFE")
+    echo "INFO: try to 
+    jstack $fe_pid >${DORIS_HOME}/fe/log/fe_stack.txt
+    jmap -dump:live,file=${DORIS_HOME}/fe/log/DorisFE.hprof $fe_pid
+    "
+    jstack $fe_pid >"${DORIS_HOME}"/fe/log/fe_stack.txt
+    jmap -dump:live,file="${DORIS_HOME}"/fe/log/DorisFE.hprof $fe_pid
 }

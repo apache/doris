@@ -20,8 +20,10 @@ package org.apache.doris.task;
 import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ColumnToThrift;
 import org.apache.doris.common.Config;
 import org.apache.doris.thrift.TAlterMaterializedViewParam;
 import org.apache.doris.thrift.TAlterTabletReqV2;
@@ -151,7 +153,7 @@ public class AlterReplicaTask extends AgentTask {
                     List<SlotRef> slots = Lists.newArrayList();
                     entry.getValue().collect(SlotRef.class, slots);
                     TAlterMaterializedViewParam mvParam = new TAlterMaterializedViewParam(entry.getKey());
-                    mvParam.setMvExpr(entry.getValue().treeToThrift());
+                    mvParam.setMvExpr(ExprToThriftVisitor.treeToThrift(entry.getValue()));
                     req.addToMaterializedViewParams(mvParam);
                     objectPool.put(entry.getKey(), mvParam);
                 } else {
@@ -165,7 +167,7 @@ public class AlterReplicaTask extends AgentTask {
             Object value = objectPool.get(Column.WHERE_SIGN);
             if (value == null) {
                 TAlterMaterializedViewParam mvParam = new TAlterMaterializedViewParam(Column.WHERE_SIGN);
-                mvParam.setMvExpr(whereClause.treeToThrift());
+                mvParam.setMvExpr(ExprToThriftVisitor.treeToThrift(whereClause));
                 req.addToMaterializedViewParams(mvParam);
                 objectPool.put(Column.WHERE_SIGN, mvParam);
             } else {
@@ -180,7 +182,7 @@ public class AlterReplicaTask extends AgentTask {
             if (value == null) {
                 List<TColumn> columns = new ArrayList<TColumn>();
                 for (Column column : baseSchemaColumns) {
-                    columns.add(column.toThrift());
+                    columns.add(ColumnToThrift.toThrift(column));
                 }
                 objectPool.put(baseSchemaColumns, columns);
                 req.setColumns(columns);

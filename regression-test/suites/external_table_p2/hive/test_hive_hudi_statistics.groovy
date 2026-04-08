@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_hudi_statistics", "p2,external,hive,hudi") {
+suite("test_hive_hudi_statistics", "p2,external") {
 
     Boolean ignoreP2 = true;
     if (ignoreP2) {

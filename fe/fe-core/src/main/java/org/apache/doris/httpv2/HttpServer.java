@@ -153,9 +153,9 @@ public class HttpServer extends SpringBootServletInitializer {
         }
         properties.put("spring.resources.static-locations", "classpath:/static/");
         properties.put("server.servlet.context-path", "/");
-        properties.put("spring.http.encoding.charset", "UTF-8");
-        properties.put("spring.http.encoding.enabled", true);
-        properties.put("spring.http.encoding.force", true);
+        properties.put("server.servlet.encoding.charset", "UTF-8");
+        properties.put("server.servlet.encoding.enabled", true);
+        properties.put("server.servlet.encoding.force", true);
         // enable jetty config
         properties.put("server.jetty.acceptors", this.acceptors);
         properties.put("server.jetty.max-http-post-size", this.maxHttpPostSize);

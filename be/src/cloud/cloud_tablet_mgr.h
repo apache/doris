@@ -25,8 +25,8 @@
 #include <vector>
 
 #include "common/status.h"
-#include "olap/olap_common.h"
-#include "olap/tablet_fwd.h"
+#include "storage/olap_common.h"
+#include "storage/tablet/tablet_fwd.h"
 
 namespace doris {
 

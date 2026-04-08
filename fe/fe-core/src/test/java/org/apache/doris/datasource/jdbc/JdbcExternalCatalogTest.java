@@ -21,6 +21,7 @@ import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.CatalogFactory;
+import org.apache.doris.datasource.ExternalCatalog;
 
 import com.google.common.collect.Maps;
 import org.junit.Assert;
@@ -96,14 +97,14 @@ public class JdbcExternalCatalogTest {
                 exception1.getMessage());
 
         jdbcExternalCatalog.getCatalogProperty().addProperty(JdbcResource.ONLY_SPECIFIED_DATABASE, "true");
-        jdbcExternalCatalog.getCatalogProperty().addProperty(JdbcResource.LOWER_CASE_META_NAMES, "1");
+        jdbcExternalCatalog.getCatalogProperty().addProperty(ExternalCatalog.LOWER_CASE_META_NAMES, "1");
         Exception exception2 = Assert.assertThrows(DdlException.class, () -> jdbcExternalCatalog.checkProperties());
         Assert.assertEquals("errCode = 2, detailMessage = lower_case_meta_names must be true or false",
                 exception2.getMessage());
 
         jdbcExternalCatalog.getCatalogProperty().addProperty(JdbcResource.ONLY_SPECIFIED_DATABASE, "false");
-        jdbcExternalCatalog.getCatalogProperty().addProperty(JdbcResource.LOWER_CASE_META_NAMES, "false");
-        jdbcExternalCatalog.getCatalogProperty().addProperty(JdbcResource.INCLUDE_DATABASE_LIST, "db1,db2");
+        jdbcExternalCatalog.getCatalogProperty().addProperty(ExternalCatalog.LOWER_CASE_META_NAMES, "false");
+        jdbcExternalCatalog.getCatalogProperty().addProperty(ExternalCatalog.INCLUDE_DATABASE_LIST, "db1,db2");
         DdlException exceptione3 = Assert.assertThrows(DdlException.class, () -> jdbcExternalCatalog.checkProperties());
         Assert.assertEquals(
                 "errCode = 2, detailMessage = include_database_list and exclude_database_list cannot be set when only_specified_database is false",

@@ -46,7 +46,7 @@ under the License.
     &nbsp;
     <a href="https://github.com/apache/doris/discussions"><img src="https://img.shields.io/badge/- Discussion -red?style=social&logo=discourse" height=25></a>
     &nbsp;
-    <a href="https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-35mzao67o-BrpU70FNKPyB6UlgpXf8_w" height=25></a>
+    <a href="https://doris.apache.org/slack" height=25></a>
     &nbsp;
     <a href="https://medium.com/@ApacheDoris"><img src="https://img.shields.io/badge/-Medium-red?style=social&logo=medium" height=25></a>
 
@@ -295,7 +295,7 @@ Contactați-ne prin următoarea listă de corespondență.
 
 * Site-ul web oficial Apache Doris - [Site](https://doris.apache.org)
 * Lista de corespondență pentru dezvoltatori - <dev@doris.apache.org>. Trimiteți un e-mail la <dev-subscribe@doris.apache.org>, urmați răspunsul pentru a vă abona la lista de corespondență.
-* Canalul Slack - [Alăturați-vă la Slack](https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-35mzao67o-BrpU70FNKPyB6UlgpXf8_w)
+* Canalul Slack - [Alăturați-vă la Slack](https://doris.apache.org/slack)
 * Twitter - [Urmăriți @doris_apache](https://twitter.com/doris_apache)
 
 

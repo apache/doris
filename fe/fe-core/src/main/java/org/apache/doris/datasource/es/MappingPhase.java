@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.es;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.EsTable;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -115,14 +114,14 @@ public class MappingPhase implements SearchPhase {
     private static void resolveDocValuesFields(SearchContext searchContext, ObjectNode fieldObject, String colName,
             String fieldType) {
         String docValueField = null;
-        if (EsTable.DEFAULT_DOCVALUE_DISABLED_FIELDS.contains(fieldType)) {
+        if (EsUtil.DEFAULT_DOCVALUE_DISABLED_FIELDS.contains(fieldType)) {
             JsonNode fieldsObject = fieldObject.get("fields");
             if (fieldsObject != null) {
                 Iterator<String> fieldNames = fieldsObject.fieldNames();
                 while (fieldNames.hasNext()) {
                     String fieldName = fieldNames.next();
                     ObjectNode innerTypeObject = (ObjectNode) fieldsObject.get(fieldName);
-                    if (EsTable.DEFAULT_DOCVALUE_DISABLED_FIELDS.contains(innerTypeObject.get("type").asText())) {
+                    if (EsUtil.DEFAULT_DOCVALUE_DISABLED_FIELDS.contains(innerTypeObject.get("type").asText())) {
                         continue;
                     }
                     if (innerTypeObject.has("doc_values")) {

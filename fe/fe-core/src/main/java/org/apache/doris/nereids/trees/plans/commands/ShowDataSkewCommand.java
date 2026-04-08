@@ -61,7 +61,7 @@ public class ShowDataSkewCommand extends ShowCommand {
 
     @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        tableRefInfo.analyze(ctx);
+        tableRefInfo.analyze(ctx.getNameSpaceContext());
         // disallow external catalog
         Util.prohibitExternalCatalog(tableRefInfo.getTableNameInfo().getCtl(), this.getClass().getSimpleName());
         if (!Env.getCurrentEnv().getAccessManager()
@@ -74,7 +74,7 @@ public class ShowDataSkewCommand extends ShowCommand {
                     tableRefInfo.getTableNameInfo().getDb() + "." + tableRefInfo.getTableNameInfo().getTbl());
         }
         try {
-            tableRefInfo.analyze(ctx);
+            tableRefInfo.analyze(ctx.getNameSpaceContext());
             Util.prohibitExternalCatalog(tableRefInfo.getTableNameInfo().getCtl(), this.getClass().getSimpleName());
 
             List<List<String>> results = MetadataViewer.getDataSkew(tableRefInfo.getTableNameInfo().getDb(),

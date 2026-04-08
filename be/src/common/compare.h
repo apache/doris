@@ -18,7 +18,7 @@
 #include <cmath>
 
 #include "common/compiler_util.h"
-#include "runtime/type_limit.h"
+#include "core/type_limit.h"
 
 #pragma once
 namespace doris {

@@ -17,26 +17,21 @@
 
 package org.apache.doris.analysis;
 
-import lombok.Getter;
-
 public class StageAndPattern {
 
-    @Getter
-    private String stageName;
-    @Getter
-    private String pattern;
+    private final String stageName;
+    private final String pattern;
 
     public StageAndPattern(String stageName, String pattern) {
         this.stageName = stageName;
         this.pattern = pattern;
     }
 
-    public String toSql() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("@").append(stageName);
-        if (pattern != null) {
-            sb.append("('").append(pattern).append("')");
-        }
-        return sb.toString();
+    public String getStageName() {
+        return stageName;
+    }
+
+    public String getPattern() {
+        return pattern;
     }
 }

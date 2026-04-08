@@ -107,6 +107,18 @@ class RoutineLoadTestUtils {
     }
 
     static int waitForTaskFinish(Closure sqlRunner, String job, String tableName, int expectedMinRows = 0, int maxAttempts = 60) {
+        return waitForTaskFinishInternal(sqlRunner, job, tableName, expectedMinRows, maxAttempts, false)
+    }
+
+    /**
+     * Wait for routine load task to finish for MOW (Merge-on-Write) unique key tables.
+     * Uses skip_delete_bitmap=true to properly count rows during partial update operations.
+     */
+    static int waitForTaskFinishMoW(Closure sqlRunner, String job, String tableName, int expectedMinRows = 0, int maxAttempts = 60) {
+        return waitForTaskFinishInternal(sqlRunner, job, tableName, expectedMinRows, maxAttempts, true)
+    }
+
+    private static int waitForTaskFinishInternal(Closure sqlRunner, String job, String tableName, int expectedMinRows, int maxAttempts, boolean isMoW) {
         def count = 0
         while (true) {
             def res = sqlRunner.call("show routine load for ${job}")
@@ -114,7 +126,18 @@ class RoutineLoadTestUtils {
             def statistic = res[0][14].toString()
             logger.info("Routine load state: ${routineLoadState}")
             logger.info("Routine load statistic: ${statistic}")
-            def rowCount = sqlRunner.call("select count(*) from ${tableName}")
+            def rowCount
+            if (isMoW) {
+                // For MOW tables, use skip_delete_bitmap to properly count rows
+                sqlRunner.call("set skip_delete_bitmap=true")
+                sqlRunner.call("set skip_delete_sign=true")
+                sqlRunner.call("sync")
+                rowCount = sqlRunner.call("select count(*) from ${tableName}")
+                sqlRunner.call("set skip_delete_bitmap=false")
+                sqlRunner.call("set skip_delete_sign=false")
+            } else {
+                rowCount = sqlRunner.call("select count(*) from ${tableName}")
+            }
             if (routineLoadState == "RUNNING" && rowCount[0][0] > expectedMinRows) {
                 break
             }
@@ -129,7 +152,7 @@ class RoutineLoadTestUtils {
         return count
     }
 
-    static void waitForTaskAbort(Closure sqlRunner, String job, int maxAttempts = 60) {
+    static void waitForTaskAbort(Closure sqlRunner, String job, int maxAttempts = 60, int expectedAbortedTaskNum = 1) {
         def count = 0
         while (true) {
             def res = sqlRunner.call("show routine load for ${job}")
@@ -137,12 +160,40 @@ class RoutineLoadTestUtils {
             logger.info("Routine load statistic: ${statistic}")
             def jsonSlurper = new JsonSlurper()
             def json = jsonSlurper.parseText(res[0][14])
-            if (json.abortedTaskNum > 1) {
+            if (json.abortedTaskNum > expectedAbortedTaskNum) {
                 break
             }
             if (count > maxAttempts) {
                 Assert.assertEquals(1, 2)
                 break;
+            } else {
+                sleep(1000)
+                count++
+            }
+        }
+    }
+
+    static void checkTxnTimeoutMatchesTaskTimeout(Closure sqlRunner, String jobName, String expectedTimeoutMs, int maxAttempts = 60) {
+        def count = 0
+        while (true) {
+            def taskRes = sqlRunner.call("SHOW ROUTINE LOAD TASK WHERE JobName = '${jobName}'")
+            if (taskRes.size() > 0) {
+                def txnId = taskRes[0][1].toString()
+                logger.info("Task txnId: ${txnId}, task timeout: ${taskRes[0][6].toString()}")
+                if (txnId != null && txnId != "null" && txnId != "-1") {
+                    // Get transaction timeout from SHOW TRANSACTION
+                    def txnRes = sqlRunner.call("SHOW TRANSACTION WHERE id = ${txnId}")
+                    if (txnRes.size() > 0) {
+                        def txnTimeoutMs = txnRes[0][13].toString()
+                        logger.info("Transaction timeout (ms): ${txnTimeoutMs}, expected: ${expectedTimeoutMs}")
+                        Assert.assertEquals(expectedTimeoutMs, txnTimeoutMs)
+                        break
+                    }
+                }
+            }
+            if (count > maxAttempts) {
+                Assert.fail("Timeout waiting for task and transaction to be created")
+                break
             } else {
                 sleep(1000)
                 count++

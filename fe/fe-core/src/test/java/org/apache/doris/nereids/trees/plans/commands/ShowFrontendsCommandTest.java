@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.common.AnalysisException;
@@ -25,11 +26,17 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ShowResultSet;
+import org.apache.doris.tablefunction.FrontendsDisksTableValuedFunction;
+import org.apache.doris.tablefunction.FrontendsTableValuedFunction;
 
+import com.google.common.collect.ImmutableList;
 import mockit.Expectations;
 import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 
 public class ShowFrontendsCommandTest {
     private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
@@ -80,7 +87,13 @@ public class ShowFrontendsCommandTest {
     public void testNormal() throws Exception {
         runBefore();
         ShowFrontendsCommand command = new ShowFrontendsCommand(null);
-        Assertions.assertDoesNotThrow(() -> command.doRun(ctx, null));
+        ShowResultSet showResultSet = command.doRun(ctx, null);
+        List<Column> columnList = showResultSet.getMetaData().getColumns();
+        ImmutableList<String> frontendsTitleNames = FrontendsTableValuedFunction.getFrontendsTitleNames();
+        Assertions.assertTrue(!columnList.isEmpty() && columnList.size() == frontendsTitleNames.size());
+        for (int i = 0; i < frontendsTitleNames.size(); i++) {
+            Assertions.assertTrue(columnList.get(i).getName().equalsIgnoreCase(frontendsTitleNames.get(i)));
+        }
     }
 
     @Test
@@ -113,6 +126,53 @@ public class ShowFrontendsCommandTest {
             }
         };
         ShowFrontendsCommand command = new ShowFrontendsCommand(null);
+        Assertions.assertThrows(AnalysisException.class, () -> command.doRun(ctx, null));
+    }
+
+    @Test
+    public void testNormalShowFrontendsDisks() throws Exception {
+        runBefore();
+        ShowFrontendsCommand command = new ShowFrontendsCommand("disks");
+        ShowResultSet showResultSet = command.doRun(ctx, null);
+        List<Column> columnList = showResultSet.getMetaData().getColumns();
+        ImmutableList<String> frontendsDisksTitleNames = FrontendsDisksTableValuedFunction
+                .getFrontendsDisksTitleNames();
+        Assertions.assertTrue(!columnList.isEmpty() && columnList.size() == frontendsDisksTitleNames.size());
+        for (int i = 0; i < frontendsDisksTitleNames.size(); i++) {
+            Assertions.assertTrue(columnList.get(i).getName().equalsIgnoreCase(frontendsDisksTitleNames.get(i)));
+        }
+    }
+
+    @Test
+    public void testNoPrivilegeShowFrontendsDisks() throws Exception {
+        new Expectations() {
+            {
+                Env.getCurrentEnv();
+                minTimes = 0;
+                result = env;
+
+                env.getAccessManager();
+                minTimes = 0;
+                result = accessControllerManager;
+
+                env.getCatalogMgr();
+                minTimes = 0;
+                result = catalogMgr;
+
+                catalogMgr.getCatalog(anyString);
+                minTimes = 0;
+                result = catalog;
+
+                ConnectContext.get();
+                minTimes = 0;
+                result = ctx;
+
+                accessControllerManager.checkDbPriv(ctx, internalCtl, infoDB, PrivPredicate.SELECT);
+                minTimes = 0;
+                result = false;
+            }
+        };
+        ShowFrontendsCommand command = new ShowFrontendsCommand("disks");
         Assertions.assertThrows(AnalysisException.class, () -> command.doRun(ctx, null));
     }
 }

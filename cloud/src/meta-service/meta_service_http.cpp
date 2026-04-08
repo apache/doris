@@ -134,7 +134,7 @@ HttpResponse http_json_reply(MetaServiceCode code, const std::string& msg,
     d.SetObject();
     if (code == MetaServiceCode::OK) {
         d.AddMember("code", "OK", d.GetAllocator());
-        d.AddMember("msg", "", d.GetAllocator());
+        d.AddMember("msg", rapidjson::StringRef(msg.data(), msg.size()), d.GetAllocator());
     } else {
         d.AddMember("code", rapidjson::StringRef(status_msg.data(), status_msg.size()),
                     d.GetAllocator());
@@ -460,6 +460,38 @@ static HttpResponse process_query_rate_limit(MetaServiceImpl* service, brpc::Con
     return http_json_reply(MetaServiceCode::OK, "", sb.GetString());
 }
 
+static HttpResponse process_show_config(MetaServiceImpl*, brpc::Controller* cntl) {
+    auto& uri = cntl->http_request().uri();
+    std::string_view conf_name = http_query(uri, "conf_key");
+
+    if (config::full_conf_map == nullptr) {
+        return http_json_reply(MetaServiceCode::UNDEFINED_ERR, "config map not initialized");
+    }
+
+    rapidjson::Document d;
+    d.SetArray();
+
+    for (auto& [name, field] : *config::Register::_s_field_map) {
+        if (!conf_name.empty() && name != conf_name) {
+            continue;
+        }
+        auto it = config::full_conf_map->find(name);
+        std::string value = (it != config::full_conf_map->end()) ? it->second : "";
+
+        rapidjson::Value entry(rapidjson::kArrayType);
+        entry.PushBack(rapidjson::Value(name.c_str(), d.GetAllocator()), d.GetAllocator());
+        entry.PushBack(rapidjson::Value(field.type, d.GetAllocator()), d.GetAllocator());
+        entry.PushBack(rapidjson::Value(value.c_str(), d.GetAllocator()), d.GetAllocator());
+        entry.PushBack(rapidjson::Value(field.valmutable), d.GetAllocator());
+        d.PushBack(entry, d.GetAllocator());
+    }
+
+    rapidjson::StringBuffer sb;
+    rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(sb);
+    d.Accept(writer);
+    return http_json_reply(MetaServiceCode::OK, "", sb.GetString());
+}
+
 static HttpResponse process_update_config(MetaServiceImpl* service, brpc::Controller* cntl) {
     const auto& uri = cntl->http_request().uri();
     bool persist = (http_query(uri, "persist") == "true");
@@ -609,9 +641,10 @@ static HttpResponse process_fix_tablet_stats(MetaServiceImpl* service, brpc::Con
     auto& uri = ctrl->http_request().uri();
     std::string_view cloud_unique_id = http_query(uri, "cloud_unique_id");
     std::string_view table_id = http_query(uri, "table_id");
+    std::string_view tablet_id = http_query(uri, "tablet_id");
 
-    MetaServiceResponseStatus st =
-            service->fix_tablet_stats(std::string(cloud_unique_id), std::string(table_id));
+    MetaServiceResponseStatus st = service->fix_tablet_stats(
+            std::string(cloud_unique_id), std::string(table_id), std::string(tablet_id));
     return http_text_reply(st, st.DebugString());
 }
 
@@ -688,17 +721,72 @@ static HttpResponse process_txn_lazy_commit(MetaServiceImpl* service, brpc::Cont
     return http_json_reply(code, msg);
 }
 
-static HttpResponse process_unknown(MetaServiceImpl*, brpc::Controller*) {
+static HttpResponse process_unknown(MetaServiceImpl*, brpc::Controller* cntl) {
     // ATTN: To be compatible with cloud manager versions higher than this MS
-    return http_json_reply(MetaServiceCode::OK, "");
+    const auto& uri = cntl->http_request().uri();
+    std::string query_params;
+    for (auto it = uri.QueryBegin(); it != uri.QueryEnd(); ++it) {
+        if (!query_params.empty()) query_params += "&";
+        query_params += it->first + "=" + it->second;
+    }
+    LOG(WARNING) << "unknown http request path=" << uri.path() << " query_params=[" << query_params
+                 << "]";
+    return http_json_reply(MetaServiceCode::OK, "no handler found for path: " + uri.path());
 }
 
 static HttpResponse process_list_snapshot(MetaServiceImpl* service, brpc::Controller* ctrl) {
     ListSnapshotRequest req;
-    PARSE_MESSAGE_OR_RETURN(ctrl, req);
+    auto& uri = ctrl->http_request().uri();
+    std::string instance_id(http_query(uri, "instance_id"));
+    if (instance_id.empty()) {
+        PARSE_MESSAGE_OR_RETURN(ctrl, req);
+    } else {
+        req.set_instance_id(instance_id);
+    }
+
     ListSnapshotResponse resp;
     service->list_snapshot(ctrl, &req, &resp, nullptr);
     return http_json_reply_message(resp.status(), resp);
+}
+
+static HttpResponse process_drop_snapshot(MetaServiceImpl* service, brpc::Controller* ctrl) {
+    auto& uri = ctrl->http_request().uri();
+    std::string instance_id(http_query(uri, "instance_id"));
+    std::string snapshot_id(http_query(uri, "snapshot_id"));
+    if (instance_id.empty()) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "instance_id is empty");
+    }
+    if (snapshot_id.empty()) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "snapshot_id is empty");
+    }
+    DropSnapshotRequest req;
+    req.set_snapshot_id(snapshot_id);
+    DropSnapshotResponse resp;
+    service->snapshot_manager()->drop_snapshot(instance_id, req, &resp);
+    return http_json_reply(resp.status());
+}
+
+static HttpResponse process_compact_snapshot(MetaServiceImpl* service, brpc::Controller* ctrl) {
+    auto& uri = ctrl->http_request().uri();
+    std::string instance_id(http_query(uri, "instance_id"));
+    if (instance_id.empty()) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "instance_id is empty");
+    }
+    CompactSnapshotRequest req;
+    req.set_instance_id(instance_id);
+    CompactSnapshotResponse resp;
+    service->compact_snapshot(ctrl, &req, &resp, nullptr);
+    return http_json_reply(resp.status());
+}
+
+static HttpResponse process_decouple_instance(MetaServiceImpl* service, brpc::Controller* ctrl) {
+    auto& uri = ctrl->http_request().uri();
+    std::string instance_id(http_query(uri, "instance_id"));
+    if (instance_id.empty()) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "instance_id is empty");
+    }
+    auto [code, msg] = service->snapshot_manager()->decouple_instance(instance_id);
+    return http_json_reply(code, msg);
 }
 
 static HttpResponse process_set_snapshot_property(MetaServiceImpl* service,
@@ -932,13 +1020,19 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
             {"v1/get_cluster_status", process_get_cluster_status},
             // snapshot related
             {"list_snapshot", process_list_snapshot},
+            {"drop_snapshot", process_drop_snapshot},
             {"set_snapshot_property", process_set_snapshot_property},
             {"get_snapshot_property", process_get_snapshot_property},
             {"set_multi_version_status", process_set_multi_version_status},
             {"v1/list_snapshot", process_list_snapshot},
+            {"v1/drop_snapshot", process_drop_snapshot},
             {"v1/set_snapshot_property", process_set_snapshot_property},
             {"v1/get_snapshot_property", process_get_snapshot_property},
             {"v1/set_multi_version_status", process_set_multi_version_status},
+            {"compact_snapshot", process_compact_snapshot},
+            {"v1/compact_snapshot", process_compact_snapshot},
+            {"decouple_instance", process_decouple_instance},
+            {"v1/decouple_instance", process_decouple_instance},
             // misc
             {"abort_txn", process_abort_txn},
             {"abort_tablet_job", process_abort_tablet_job},
@@ -947,6 +1041,7 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
             {"adjust_rate_limit", process_adjust_rate_limit},
             {"list_rate_limit", process_query_rate_limit},
             {"update_config", process_update_config},
+            {"show_config", process_show_config},
             {"v1/abort_txn", process_abort_txn},
             {"v1/abort_tablet_job", process_abort_tablet_job},
             {"v1/alter_ram_user", process_alter_ram_user},
@@ -954,6 +1049,7 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
             {"v1/adjust_rate_limit", process_adjust_rate_limit},
             {"v1/list_rate_limit", process_query_rate_limit},
             {"v1/update_config", process_update_config},
+            {"v1/show_config", process_show_config},
     };
 
     auto* cntl = static_cast<brpc::Controller*>(controller);

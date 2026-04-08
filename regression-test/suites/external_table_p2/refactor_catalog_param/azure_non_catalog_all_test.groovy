@@ -18,7 +18,7 @@ import org.awaitility.Awaitility;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static groovy.test.GroovyAssert.shouldFail
 
-suite("azure_non_catalog_all_test", "p2,external,new_catalog_property") {
+suite("azure_non_catalog_all_test", "p2,external") {
 
     // create internal table
     def createDBAndTbl = { String dbName , String table->

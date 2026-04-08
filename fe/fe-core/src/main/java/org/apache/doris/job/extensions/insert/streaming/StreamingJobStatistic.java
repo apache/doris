@@ -38,6 +38,9 @@ public class StreamingJobStatistic {
     @Getter
     @Setter
     private long fileSize;
+    @Getter
+    @Setter
+    private long filteredRows;
 
     public String toJson() {
         return new Gson().toJson(this);

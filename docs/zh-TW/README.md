@@ -46,7 +46,7 @@ under the License.
     &nbsp;
     <a href="https://github.com/apache/doris/discussions"><img src="https://img.shields.io/badge/- Discussion -red?style=social&logo=discourse" height=25></a>
     &nbsp;
-    <a href="https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-35mzao67o-BrpU70FNKPyB6UlgpXf8_w" height=25></a>
+    <a href="https://doris.apache.org/slack" height=25></a>
     &nbsp;
     <a href="https://medium.com/@ApacheDoris"><img src="https://img.shields.io/badge/-Medium-red?style=social&logo=medium" height=25></a>
 
@@ -295,7 +295,7 @@ Doris 通過 Connector 支援 Spark/Flink 讀取儲存在 Doris 中的資料，�
 
 * Apache Doris 官方網站 - [網站](https://doris.apache.org)
 * 開發者郵件列表 - <dev@doris.apache.org>。發送郵件至 <dev-subscribe@doris.apache.org>，按照回覆訂閱郵件列表。
-* Slack 頻道 - [加入 Slack](https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-35mzao67o-BrpU70FNKPyB6UlgpXf8_w)
+* Slack 頻道 - [加入 Slack](https://doris.apache.org/slack)
 * Twitter - [關注 @doris_apache](https://twitter.com/doris_apache)
 
 

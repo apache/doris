@@ -30,6 +30,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.LocalReplica;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndexMeta;
@@ -70,6 +71,7 @@ import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
 import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentBoundedBatchTask;
@@ -249,8 +251,9 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         this.metaVersion = metaVersion;
         this.reserveReplica = reserveReplica;
         this.reserveColocate = reserveColocate;
-        // if backup snapshot is come from a cluster with force replication allocation, ignore the origin allocation
-        if (jobInfo.isForceReplicationAllocation) {
+        // if is cloud mode or backup snapshot is come from a cluster with force replication allocation,
+        // ignore the origin allocation
+        if (Config.isCloudMode() || jobInfo.isForceReplicationAllocation) {
             this.reserveReplica = false;
         }
         this.reserveDynamicPartitionEnable = reserveDynamicPartitionEnable;
@@ -443,7 +446,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     continue;
                 }
                 ((DownloadTask) task).updateBrokerProperties(
-                        repo.getRemoteFileSystem().getStorageProperties().getBackendConfigProperties());
+                        repo.getFileSystemDescriptor().getBackendConfigProperties());
                 AgentTaskQueue.updateTask(beId, TTaskType.DOWNLOAD, signature, task);
             }
             LOG.info("finished to update download job properties. {}", this);
@@ -953,7 +956,9 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                         return;
                     }
                 } else {
-                    remoteOdbcTable.resetIdsForRestore(env);
+                    // ODBC tables are deprecated. We can no longer reset IDs for restore.
+                    // Just add the table as-is for metadata compatibility.
+                    LOG.warn("Skipping resetIdsForRestore for deprecated ODBC table: {}", backupOdbcTableName);
                     stagingRestoreTables.add(remoteOdbcTable);
                 }
             }
@@ -995,7 +1000,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 }
                 // set restored table's new name after all 'genFileMapping'
                 String tableName = jobInfo.getAliasByOriginNameIfSet(restoreTbl.getName());
-                if (Env.isStoredTableNamesLowerCase()) {
+                if (GlobalVariable.isStoredTableNamesLowerCase()) {
                     tableName = tableName.toLowerCase();
                 }
                 if ((restoreTbl.getType() == TableType.OLAP || restoreTbl
@@ -1451,7 +1456,9 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             localTbl.rowStorePageSize(),
                             localTbl.variantEnableFlattenNested(),
                             localTbl.storagePageSize(), localTbl.getTDEAlgorithm(),
-                            localTbl.storageDictPageSize());
+                            localTbl.storageDictPageSize(),
+                            localTbl.getColumnSeqMapping(),
+                            localTbl.getVerticalCompactionNumColumnsPerGroup());
                     task.setInvertedIndexFileStorageFormat(localTbl.getInvertedIndexFileStorageFormat());
                     task.setInRestoreMode(true);
                     if (baseTabletRef != null) {
@@ -1536,8 +1543,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     for (Map.Entry<Tag, List<Long>> entry : beIds.entrySet()) {
                         for (Long beId : entry.getValue()) {
                             long newReplicaId = env.getNextId();
-                            Replica newReplica = new Replica(newReplicaId, beId, ReplicaState.NORMAL, visibleVersion,
-                                    schemaHash);
+                            Replica newReplica = new LocalReplica(newReplicaId, beId, ReplicaState.NORMAL,
+                                    visibleVersion, schemaHash);
                             newTablet.addReplica(newReplica, true /* is restore */);
                         }
                     }
@@ -1996,8 +2003,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     protected DownloadTask createDownloadTask(long beId, long signature, long jobId, long dbId,
                                               Map<String, String> srcToDest, FsBroker brokerAddr) {
         return new DownloadTask(null, beId, signature, jobId, dbId, srcToDest,
-            brokerAddr, repo.getRemoteFileSystem().getStorageProperties().getBackendConfigProperties(),
-            repo.getRemoteFileSystem().getStorageType(), repo.getLocation(), "");
+            brokerAddr, repo.getFileSystemDescriptor().getBackendConfigProperties(),
+            repo.getFileSystemDescriptor().getThriftStorageType(), repo.getLocation(), "");
     }
 
     // Get the id mapping for snapshot, user should hold the lock of table.
@@ -2532,7 +2539,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     private Status atomicReplaceOlapTables(Database db, boolean isReplay) {
         for (String tableName : jobInfo.backupOlapTableObjects.keySet()) {
             String originName = jobInfo.getAliasByOriginNameIfSet(tableName);
-            if (Env.isStoredTableNamesLowerCase()) {
+            if (GlobalVariable.isStoredTableNamesLowerCase()) {
                 originName = originName.toLowerCase();
             }
             String aliasName = tableAliasWithAtomicRestore(originName);
@@ -2614,7 +2621,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         }
         for (BackupJobInfo.BackupViewInfo backupViewInfo : jobInfo.newBackupObjects.views) {
             String originName = jobInfo.getAliasByOriginNameIfSet(backupViewInfo.name);
-            if (Env.isStoredTableNamesLowerCase()) {
+            if (GlobalVariable.isStoredTableNamesLowerCase()) {
                 originName = originName.toLowerCase();
             }
             String aliasName = tableAliasWithAtomicRestore(originName);

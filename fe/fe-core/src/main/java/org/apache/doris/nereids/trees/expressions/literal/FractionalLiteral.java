@@ -17,10 +17,10 @@
 
 package org.apache.doris.nereids.trees.expressions.literal;
 
+import org.apache.doris.common.FractionalFormat;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.CastException;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.literal.format.FractionalFormat;
 import org.apache.doris.nereids.types.DataType;
 
 import java.math.BigDecimal;

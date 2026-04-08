@@ -23,6 +23,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InternalCatalog;
@@ -35,8 +36,6 @@ import org.apache.doris.qe.StmtExecutor;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 
-import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.util.Map;
 import java.util.Objects;
 
@@ -81,7 +80,7 @@ public class CreateCatalogCommand extends Command implements ForwardWithSync, Ne
                     + " to enable it temporarily.");
         }
 
-        String currentDateTime = LocalDateTime.now(ZoneId.systemDefault()).toString().replace("T", " ");
+        String currentDateTime = TimeUtils.longToTimeString(System.currentTimeMillis());
         properties.put(ExternalCatalog.CREATE_TIME, currentDateTime);
         PropertyAnalyzer.checkCatalogProperties(properties, false);
     }

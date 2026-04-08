@@ -46,7 +46,7 @@ under the License.
     &nbsp;
     <a href="https://github.com/apache/doris/discussions"><img src="https://img.shields.io/badge/- Discussion -red?style=social&logo=discourse" height=25></a>
     &nbsp;
-    <a href="https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-35mzao67o-BrpU70FNKPyB6UlgpXf8_w" height=25></a>
+    <a href="https://doris.apache.org/slack" height=25></a>
     &nbsp;
     <a href="https://medium.com/@ApacheDoris"><img src="https://img.shields.io/badge/-Medium-red?style=social&logo=medium" height=25></a>
 
@@ -295,7 +295,7 @@ Doris Spark/Flink के लिए Connector के माध्यम से Do
 
 * Apache Doris आधिकारिक वेबसाइट - [साइट](https://doris.apache.org)
 * डेवलपर मेलिंग सूची - <dev@doris.apache.org>। मेलिंग सूची की सदस्यता लेने के लिए <dev-subscribe@doris.apache.org> को मेल करें, उत्तर का अनुसरण करें।
-* Slack चैनल - [Slack में शामिल हों](https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-35mzao67o-BrpU70FNKPyB6UlgpXf8_w)
+* Slack चैनल - [Slack में शामिल हों](https://doris.apache.org/slack)
 * Twitter - [@doris_apache को फॉलो करें](https://twitter.com/doris_apache)
 
 

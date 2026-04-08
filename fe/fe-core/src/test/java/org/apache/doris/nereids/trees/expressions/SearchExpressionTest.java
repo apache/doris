@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.nereids.trees.expressions.functions.scalar.SearchDslParser;
+import org.apache.doris.analysis.SearchDslParser;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.StringType;
@@ -212,7 +212,7 @@ public class SearchExpressionTest {
         Assertions.assertEquals(2, searchExpr.children().size());
         Assertions.assertEquals(titleSlot, searchExpr.children().get(0));
         Assertions.assertEquals(contentSlot, searchExpr.children().get(1));
-        Assertions.assertEquals(2, searchExpr.getQsPlan().fieldBindings.size());
+        Assertions.assertEquals(2, searchExpr.getQsPlan().getFieldBindings().size());
     }
 
     @Test

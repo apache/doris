@@ -22,6 +22,7 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
@@ -59,6 +60,8 @@ public class AggregationNode extends PlanNode {
     private boolean useStreamingPreagg;
 
     private SortInfo sortByGroupKey;
+
+    private boolean queryCacheCandidate;
 
     /**
      * Create an agg node that is not an intermediate node.
@@ -111,13 +114,13 @@ public class AggregationNode extends PlanNode {
         List<TSortInfo> aggSortInfos = Lists.newArrayList();
         // only serialize agg exprs that are being materialized
         for (FunctionCallExpr e : aggInfo.getMaterializedAggregateExprs()) {
-            aggregateFunctions.add(e.treeToThrift());
+            aggregateFunctions.add(ExprToThriftVisitor.treeToThrift(e));
             List<TExpr> orderingExpr = Lists.newArrayList();
             List<Boolean> isAscs = Lists.newArrayList();
             List<Boolean> nullFirsts = Lists.newArrayList();
 
             e.getOrderByElements().forEach(o -> {
-                orderingExpr.add(o.getExpr().treeToThrift());
+                orderingExpr.add(ExprToThriftVisitor.treeToThrift(o.getExpr()));
                 isAscs.add(o.getIsAsc());
                 nullFirsts.add(o.getNullsFirstParam());
             });
@@ -137,7 +140,7 @@ public class AggregationNode extends PlanNode {
         }
         List<Expr> groupingExprs = aggInfo.getGroupingExprs();
         if (groupingExprs != null) {
-            msg.agg_node.setGroupingExprs(Expr.treesToThrift(groupingExprs));
+            msg.agg_node.setGroupingExprs(ExprToThriftVisitor.treesToThrift(groupingExprs));
         }
     }
 
@@ -160,6 +163,9 @@ public class AggregationNode extends PlanNode {
 
         normalizedPlan.setNodeType(TPlanNodeType.AGGREGATION_NODE);
         normalizedPlan.setAggregationNode(normalizedAggregateNode);
+        if (sortByGroupKey != null) {
+            normalizedAggregateNode.setSortInfo(sortByGroupKey.toThrift());
+        }
     }
 
     @Override
@@ -243,5 +249,13 @@ public class AggregationNode extends PlanNode {
 
     public void setSortByGroupKey(SortInfo sortByGroupKey) {
         this.sortByGroupKey = sortByGroupKey;
+    }
+
+    public boolean isQueryCacheCandidate() {
+        return queryCacheCandidate;
+    }
+
+    public void setQueryCacheCandidate(boolean queryCacheCandidate) {
+        this.queryCacheCandidate = queryCacheCandidate;
     }
 }

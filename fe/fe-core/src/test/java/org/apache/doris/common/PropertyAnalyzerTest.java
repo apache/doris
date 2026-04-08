@@ -368,4 +368,99 @@ public class PropertyAnalyzerTest {
             Assertions.assertNotNull(e.getMessage());
         }
     }
+
+    @Test
+    public void testAnalyzeSequenceMap() throws AnalysisException {
+        List<Column> columns = Lists.newArrayList();
+        columns.add(new Column("k1", PrimitiveType.INT));
+        columns.add(new Column("k2", PrimitiveType.TINYINT));
+        columns.add(new Column("s1", PrimitiveType.DATETIMEV2));
+        columns.add(new Column("s2", PrimitiveType.BIGINT));
+        columns.add(new Column("c",
+                ScalarType.createType(PrimitiveType.VARCHAR), false, AggregateType.REPLACE, "", ""));
+        columns.add(
+                new Column("d", ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.REPLACE, "0", ""));
+        columns.add(new Column("e", ScalarType.createType(PrimitiveType.FLOAT), false, AggregateType.REPLACE, "0", ""));
+        columns.get(0).setIsKey(true);
+        columns.get(1).setIsKey(true);
+
+        Map<String, String> properties = Maps.newHashMap();
+
+        properties.put(PropertyAnalyzer.PROPERTIES_SEQUENCE_MAPPING + ".s1", "c,d");
+        // test not unique table
+        try {
+            PropertyAnalyzer.analyzeSeqMapping(properties, columns, KeysType.AGG_KEYS);
+            Assertions.fail("Expected AnalysisException was not thrown");
+        } catch (AnalysisException e) {
+            Assertions.assertNotNull(e.getMessage());
+        }
+        // test conflict with PROPERTIES_FUNCTION_COLUMN
+        properties.put(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "." + PropertyAnalyzer.PROPERTIES_SEQUENCE_TYPE,
+                "");
+        try {
+            PropertyAnalyzer.analyzeSeqMapping(properties, columns, KeysType.UNIQUE_KEYS);
+            Assertions.fail("Expected AnalysisException was not thrown");
+        } catch (AnalysisException e) {
+            Assertions.assertNotNull(e.getMessage());
+        }
+        // test sequence column data type doesn't correct
+        properties.clear();
+        properties.put(PropertyAnalyzer.PROPERTIES_SEQUENCE_MAPPING + ".c", "s1, d");
+        properties.put(PropertyAnalyzer.PROPERTIES_SEQUENCE_MAPPING + ".s2", "e");
+        try {
+            PropertyAnalyzer.analyzeSeqMapping(properties, columns, KeysType.UNIQUE_KEYS);
+            Assertions.fail("Expected AnalysisException was not thrown");
+        } catch (AnalysisException e) {
+            Assertions.assertNotNull(e.getMessage());
+        }
+        // test sequence column not exists
+        properties.clear();
+        properties.put(PropertyAnalyzer.PROPERTIES_SEQUENCE_MAPPING + ".s3", "s1,c,d");
+        properties.put(PropertyAnalyzer.PROPERTIES_SEQUENCE_MAPPING + ".s2", "e");
+        try {
+            PropertyAnalyzer.analyzeSeqMapping(properties, columns, KeysType.UNIQUE_KEYS);
+            Assertions.fail("Expected AnalysisException was not thrown");
+        } catch (AnalysisException e) {
+            Assertions.assertNotNull(e.getMessage());
+        }
+        // test mapping column not exits
+        properties.clear();
+        properties.put(PropertyAnalyzer.PROPERTIES_SEQUENCE_MAPPING + ".s1", "c,d");
+        properties.put(PropertyAnalyzer.PROPERTIES_SEQUENCE_MAPPING + ".s2", "e,f");
+        try {
+            PropertyAnalyzer.analyzeSeqMapping(properties, columns, KeysType.UNIQUE_KEYS);
+            Assertions.fail("Expected AnalysisException was not thrown");
+        } catch (AnalysisException e) {
+            Assertions.assertNotNull(e.getMessage());
+        }
+        // test mapping column should not be key column
+        properties.clear();
+        properties.put(PropertyAnalyzer.PROPERTIES_SEQUENCE_MAPPING + ".s1", "c,d");
+        properties.put(PropertyAnalyzer.PROPERTIES_SEQUENCE_MAPPING + ".s2", "e,k1");
+        try {
+            PropertyAnalyzer.analyzeSeqMapping(properties, columns, KeysType.UNIQUE_KEYS);
+            Assertions.fail("Expected AnalysisException was not thrown");
+        } catch (AnalysisException e) {
+            Assertions.assertNotNull(e.getMessage());
+        }
+        // test mapping column should cover all value column
+        properties.clear();
+        properties.put(PropertyAnalyzer.PROPERTIES_SEQUENCE_MAPPING + ".s1", "c");
+        properties.put(PropertyAnalyzer.PROPERTIES_SEQUENCE_MAPPING + ".s2", "e");
+        try {
+            PropertyAnalyzer.analyzeSeqMapping(properties, columns, KeysType.UNIQUE_KEYS);
+            Assertions.fail("Expected AnalysisException was not thrown");
+        } catch (AnalysisException e) {
+            Assertions.assertNotNull(e.getMessage());
+        }
+        // test ok
+        properties.clear();
+        properties.put(PropertyAnalyzer.PROPERTIES_SEQUENCE_MAPPING + ".s1", "c,d");
+        properties.put(PropertyAnalyzer.PROPERTIES_SEQUENCE_MAPPING + ".s2", "e");
+        try {
+            PropertyAnalyzer.analyzeSeqMapping(properties, columns, KeysType.UNIQUE_KEYS);
+        } catch (AnalysisException e) {
+            Assert.fail();
+        }
+    }
 }

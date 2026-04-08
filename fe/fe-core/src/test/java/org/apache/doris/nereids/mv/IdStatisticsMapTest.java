@@ -67,6 +67,15 @@ public class IdStatisticsMapTest extends SqlTestBase {
                 return true;
             }
         };
+
+        new MockUp<MTMV>() {
+            @Mock
+            public boolean canBeCandidate() {
+                return true;
+            }
+        };
+        connectContext.getState().setIsQuery(true);
+
         connectContext.getSessionVariable().enableMaterializedViewRewrite = true;
         connectContext.getSessionVariable().enableMaterializedViewNestRewrite = true;
         connectContext.getSessionVariable().setPreMaterializedViewRewriteStrategy(PreRewriteStrategy.NOT_IN_RBO.name());
@@ -124,6 +133,8 @@ public class IdStatisticsMapTest extends SqlTestBase {
                 return true;
             }
         };
+        connectContext.getState().setIsQuery(true);
+
         connectContext.getSessionVariable().enableMaterializedViewRewrite = true;
         connectContext.getSessionVariable().enableMaterializedViewNestRewrite = true;
         connectContext.getSessionVariable().setPreMaterializedViewRewriteStrategy(

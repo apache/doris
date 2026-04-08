@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS catalog_returns (
     cr_net_loss decimal(7,2)
 )
 UNIQUE KEY(cr_item_sk, cr_order_number)
-CLUSTER BY(cr_returned_time_sk)
+ORDER BY(cr_returned_time_sk)
 DISTRIBUTED BY HASH(cr_item_sk) BUCKETS 1
 PROPERTIES (
   "replication_num" = "1"

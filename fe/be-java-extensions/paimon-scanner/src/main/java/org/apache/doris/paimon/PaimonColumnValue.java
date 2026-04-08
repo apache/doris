@@ -150,6 +150,15 @@ public class PaimonColumnValue implements ColumnValue {
     }
 
     @Override
+    public LocalDateTime getTimeStampTz() {
+        Timestamp ts = record.getTimestamp(idx, dorisType.getPrecision());
+        LocalDateTime v = ts.toInstant()
+                .atZone(ZoneId.of("UTC"))
+                .toLocalDateTime();
+        return v;
+    }
+
+    @Override
     public boolean isNull() {
         return record.isNullAt(idx);
     }

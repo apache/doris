@@ -78,7 +78,7 @@ struct ObjectStorageUploadResponse {
     std::optional<std::string> etag = std::nullopt;
 };
 
-struct ObjectStorageHeadResponse {
+struct ObjectStorageHeadResponse : ObjectStorageResponse {
     ObjectStorageResponse resp {};
     long long file_size {0};
 };

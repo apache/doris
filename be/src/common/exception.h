@@ -46,9 +46,9 @@ public:
     int code() const { return _code; }
     std::string message() const { return _err_msg ? _err_msg->_msg : ""; }
 
-    const std::string& to_string() const;
+    const std::string& to_string() const { return _cache_string; }
 
-    const char* what() const noexcept override { return to_string().c_str(); }
+    const char* what() const noexcept override { return _cache_string.c_str(); }
 
     Status to_status() const { return {code(), _err_msg->_msg, _err_msg->_stack}; }
 
@@ -61,22 +61,8 @@ private:
         std::string _stack;
     };
     std::unique_ptr<ErrMsg> _err_msg;
-    mutable std::string _cache_string;
+    std::string _cache_string {};
 };
-
-inline const std::string& Exception::to_string() const {
-    if (!_cache_string.empty()) {
-        return _cache_string;
-    }
-    fmt::memory_buffer buf;
-    fmt::format_to(buf, "[E{}] {}", _code, _err_msg ? _err_msg->_msg : "");
-    if (_err_msg && !_err_msg->_stack.empty()) {
-        fmt::format_to(buf, "\n{}", _err_msg->_stack);
-    }
-    _cache_string = fmt::to_string(buf);
-    return _cache_string;
-}
-
 } // namespace doris
 
 #define RETURN_IF_CATCH_EXCEPTION(stmt)                                                          \

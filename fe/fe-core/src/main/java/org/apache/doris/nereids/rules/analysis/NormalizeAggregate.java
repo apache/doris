@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
+import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -129,33 +130,34 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
                         .toRule(RuleType.NORMALIZE_AGGREGATE));
     }
 
+    /**
+     * The LogicalAggregate node may contain window agg functions and usual agg functions
+     *         we call window agg functions as window-agg and usual agg functions as trivial-agg for short
+     *         This rule simplify LogicalAggregate node by:
+     *         1. Push down some exprs from old LogicalAggregate node to a new child LogicalProject Node,
+     *         2. create a new LogicalAggregate with normalized group by exprs and trivial-aggs
+     *         3. Pull up normalized old LogicalAggregate's output exprs to a new parent LogicalProject Node
+     *         Push down exprs:
+     *         1. all group by exprs
+     *         2. child contains subquery expr in trivial-agg
+     *         3. child contains window expr in trivial-agg
+     *         4. all input slots of trivial-agg
+     *         5. expr(including subquery) in distinct trivial-agg
+     *         Normalize LogicalAggregate's output.
+     *         1. normalize group by exprs by outputs of bottom LogicalProject
+     *         2. normalize trivial-aggs by outputs of bottom LogicalProject
+     *         3. build normalized agg outputs
+     *         Pull up exprs:
+     *         normalize all output exprs in old LogicalAggregate to build a parent project node, typically includes:
+     *         1. simple slots
+     *         2. aliases
+     *            a. alias with no aggs child
+     *            b. alias with trivial-agg child
+     *            c. alias with window-agg
+     */
     @SuppressWarnings("checkstyle:UnusedLocalVariable")
-    private LogicalPlan normalizeAgg(LogicalAggregate<Plan> aggregate, Optional<LogicalHaving<?>> having,
+    public LogicalPlan normalizeAgg(LogicalAggregate<Plan> aggregate, Optional<LogicalHaving<?>> having,
             CascadesContext ctx) {
-        // The LogicalAggregate node may contain window agg functions and usual agg functions
-        // we call window agg functions as window-agg and usual agg functions as trivial-agg for short
-        // This rule simplify LogicalAggregate node by:
-        // 1. Push down some exprs from old LogicalAggregate node to a new child LogicalProject Node,
-        // 2. create a new LogicalAggregate with normalized group by exprs and trivial-aggs
-        // 3. Pull up normalized old LogicalAggregate's output exprs to a new parent LogicalProject Node
-        // Push down exprs:
-        // 1. all group by exprs
-        // 2. child contains subquery expr in trivial-agg
-        // 3. child contains window expr in trivial-agg
-        // 4. all input slots of trivial-agg
-        // 5. expr(including subquery) in distinct trivial-agg
-        // Normalize LogicalAggregate's output.
-        // 1. normalize group by exprs by outputs of bottom LogicalProject
-        // 2. normalize trivial-aggs by outputs of bottom LogicalProject
-        // 3. build normalized agg outputs
-        // Pull up exprs:
-        // normalize all output exprs in old LogicalAggregate to build a parent project node, typically includes:
-        // 1. simple slots
-        // 2. aliases
-        //    a. alias with no aggs child
-        //    b. alias with trivial-agg child
-        //    c. alias with window-agg
-
         // Push down exprs:
         // collect group by exprs
         Set<Expression> groupingByExprs = Utils.fastToImmutableSet(aggregate.getGroupByExpressions());
@@ -178,7 +180,8 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
                     if (arg instanceof Literal) {
                         continue;
                     }
-                    if (arg.containsType(SubqueryExpr.class, WindowExpression.class, PreferPushDownProject.class)) {
+                    if (arg.containsType(SubqueryExpr.class, WindowExpression.class, Unnest.class,
+                            PreferPushDownProject.class)) {
                         needPushDownSelfExprs.add(arg);
                     } else {
                         needPushDownInputs.add(arg);
@@ -297,17 +300,32 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
             }
             if (!missingSlotsInAggregate.isEmpty()) {
                 if (SqlModeHelper.hasOnlyFullGroupBy()) {
-                    throw new AnalysisException(String.format("%s not in aggregate's output", missingSlotsInAggregate
-                            .stream().map(NamedExpression::getName).collect(Collectors.joining(", "))));
+                    throw new AnalysisException(String.format("PROJECT expression %s must appear in the GROUP BY"
+                            + " clause or be used in an aggregate function",
+                            missingSlotsInAggregate.stream()
+                                    .map(slot -> "'" + slot.getName() + "'")
+                                    .collect(Collectors.joining(", "))));
                 } else {
                     // for any slots missing in aggregate's output, we should add a any_value(slot) into
                     // aggregate's output list and slot itself into bottom project's output list
                     bottomProjects = Sets.union(bottomProjects, missingSlotsInAggregate);
                     Map<Expression, Expression> replaceMap = Maps.newHashMap();
+                    Map<String, Alias> normalizedAggExistingAlias = Maps.newHashMap();
+                    for (NamedExpression output : normalizedAggOutputBuilder.build()) {
+                        if (output instanceof Alias) {
+                            normalizedAggExistingAlias.put(output.getName(), (Alias) output);
+                        }
+                    }
                     for (Slot slot : missingSlotsInAggregate) {
-                        Alias anyValue = new Alias(new AnyValue(slot), slot.getName());
-                        replaceMap.put(slot, anyValue.toSlot());
-                        normalizedAggOutputBuilder.add(anyValue);
+                        AnyValue anyValue = new AnyValue(false, normalizedGroupExprs.isEmpty(), slot);
+                        Alias exisitingAlias = normalizedAggExistingAlias.get(slot.getName());
+                        if (exisitingAlias != null && anyValue.equals(exisitingAlias.child())) {
+                            replaceMap.put(slot, exisitingAlias.toSlot());
+                        } else {
+                            Alias anyValueAlias = new Alias(anyValue, slot.getName());
+                            replaceMap.put(slot, anyValueAlias.toSlot());
+                            normalizedAggOutputBuilder.add(anyValueAlias);
+                        }
                     }
                     upperProjects = upperProjects.stream()
                             .map(e -> (NamedExpression) ExpressionUtils.replace(e, replaceMap))

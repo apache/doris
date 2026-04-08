@@ -333,8 +333,6 @@ public class HyperGraph {
         private final List<FilterEdge> filterEdges = new ArrayList<>();
         private final List<AbstractNode> nodes = new ArrayList<>();
 
-        // These hyperGraphs should be replaced nodes when building all
-        private final Map<Long, List<HyperGraph>> replacedHyperGraphs = new LinkedHashMap<>();
         private final HashMap<Slot, Long> slotToNodeMap = new LinkedHashMap<>();
         private final Map<Long, List<NamedExpression>> complexProject = new LinkedHashMap<>();
         private Set<Slot> finalOutputs;
@@ -400,8 +398,9 @@ public class HyperGraph {
                 Group group = ((GroupPlan) plan).getGroup();
                 GroupExpression groupExpression = group.getLogicalExpressions().get(0);
                 return buildForMv(groupExpression.getPlan()
-                        .withChildren(
-                                groupExpression.children().stream().map(GroupPlan::new).collect(Collectors.toList())));
+                        .withChildren(groupExpression.children().stream()
+                                .map(Group::getGroupPlan)
+                                .collect(Collectors.toList())));
             }
             // process Project
             if (isValidProject(plan)) {

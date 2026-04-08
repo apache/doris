@@ -146,7 +146,7 @@ struct TQueryOptions {
   // if set, this will overwrite the BE config.
   30: optional i32 max_pushdown_conditions_per_column
   // whether enable spilling to disk
-  31: optional bool enable_spilling = false;
+  // 31: optional bool enable_spilling = false;
   // whether enable parallel merge in exchange node
   32: optional bool enable_enable_exchange_node_parallel_merge = false; // deprecated
 
@@ -418,14 +418,66 @@ struct TQueryOptions {
   179: optional bool enable_parquet_filter_by_bloom_filter = true;
   180: optional i32 max_file_scanners_concurrency = 0;
   181: optional i32 min_file_scanners_concurrency = 0;
+  182: optional i32 ivf_nprobe = 32;
+  // Enable hybrid sorting: dynamically selects between PdqSort and TimSort based on 
+  // runtime profiling to choose the most efficient algorithm for the data pattern
+  183: optional bool enable_use_hybrid_sort = false;
+  184: optional i32 cte_max_recursion_depth;
+
+  185: optional bool enable_parquet_file_page_cache = true;
+
+  186: optional bool enable_streaming_agg_hash_join_force_passthrough;
+
+  187: optional bool enable_distinct_streaming_agg_force_passthrough;
+
+  188: optional bool enable_broadcast_join_force_passthrough;
+
+  189: optional bool enable_aggregate_function_null_v2 = false;
+
+  195: optional bool enable_left_semi_direct_return_opt;
+
+  200: optional bool enable_adjust_conjunct_order_by_cost;
+  // Use paimon-cpp to read Paimon splits on BE
+  201: optional bool enable_paimon_cpp_reader = false;
+  // Whether all fragments of this query are assigned to a single backend.
+  // When true, the streaming aggregation operator can use more aggressive
+  // hash table expansion thresholds since all data is local.
+  202: optional bool single_backend_query = false;
+
+  203: optional bool enable_inverted_index_wand_query = true;
+
+  // Per-read/per-write buffer size used during spill I/O, in bytes. Controls the
+  // I/O batch size for spill write and merge read. This value can be overridden
+  // per-query by setting the session variable `spill_buffer_size_bytes` in FE.
+  // Default is 8MB.
+  204: optional i64 spill_buffer_size_bytes = 8388608
+
+  // Per-sink memory limit after spill is triggered. When a sink operator's revocable
+  // memory exceeds the corresponding threshold, it proactively spills to disk.
+  // Default is 64MB for all three.
+  205: optional i64 spill_join_build_sink_mem_limit_bytes = 67108864
+  206: optional i64 spill_aggregation_sink_mem_limit_bytes = 67108864
+  207: optional i64 spill_sort_sink_mem_limit_bytes = 67108864
+
+  // Total memory budget for the sort merge phase after spill. Divided by
+  // spill_buffer_size_bytes gives the number of files merged in parallel.
+  // Default is 64MB.
+  208: optional i64 spill_sort_merge_mem_limit_bytes = 67108864
+
+  // Maximum depth for repartitioning recursion. Controls how many recursive
+  // repartition rounds are allowed before giving up and treating a partition
+  // as terminal. This value can be overridden per-query by setting the
+  // session variable `spill_repartition_max_depth` in FE. Default is 8.
+  209: optional i32 spill_repartition_max_depth = 8
 
 
-  182: optional i32 ivf_nprobe = 1;
-
+  210: optional double max_scan_mem_ratio = 0.3;
+  211: optional bool enable_adaptive_scan = false;
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.
   1000: optional bool disable_file_cache = false
+  1001: optional i32 file_cache_query_limit_percent = -1
 }
 
 
@@ -668,6 +720,7 @@ struct TPipelineFragmentParams {
   // Used by 2.1
   44: optional list<i32> topn_filter_source_node_ids
   45: optional map<string, TAIResource> ai_resources
+  46: optional bool need_notify_close
 
   // For cloud
   1000: optional bool is_mow_table;

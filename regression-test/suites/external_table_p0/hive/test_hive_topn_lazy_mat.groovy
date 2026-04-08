@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_topn_lazy_mat", "p0,external,hive,external_docker,external_docker_hive") {
+suite("test_hive_topn_lazy_mat", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("diable Hive test.")
@@ -210,7 +210,7 @@ suite("test_hive_topn_lazy_mat", "p0,external,hive,external_docker,external_dock
             contains("projectList:[id, name, value, active, score, file_id]")
             contains("column_descs_lists[[`name` text NULL, `value` double NULL, `active` boolean NULL, `score` double NULL, `file_id` int NULL]]")
             contains("locations: [[1, 2, 3, 4, 5]]")
-            contains("table_idxs: [[1, 2, 3, 4, 5]]")
+            contains("column_idxs_lists: [[1, 2, 3, 4, 5]]")
             contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__orc_topn_lazy_mat_table]")
         }
        
@@ -219,7 +219,7 @@ suite("test_hive_topn_lazy_mat", "p0,external,hive,external_docker,external_dock
             contains("projectList:[file_id, id]")
             contains("column_descs_lists[[`id` int NULL, `file_id` int NULL]]")
             contains("locations: [[1, 2]]")
-            contains("table_idxs: [[0, 5]]")
+            contains("column_idxs_lists: [[0, 5]]")
             contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__orc_topn_lazy_mat_table]")
         }
 
@@ -229,7 +229,7 @@ suite("test_hive_topn_lazy_mat", "p0,external,hive,external_docker,external_dock
             contains("projectList:[name, length(a.name), value, id, name, value, active, score, file_id, id, name, value, active, score, file_id]")
             contains("column_descs_lists[[`name` text NULL, `value` double NULL, `active` boolean NULL, `score` double NULL, `file_id` int NULL], [`value` double NULL, `active` boolean NULL, `score` double NULL, `file_id` int NULL]]")
             contains("locations: [[5, 6, 7, 8, 9], [10, 11, 12, 13]]")
-            contains("table_idxs: [[1, 2, 3, 4, 5], [2, 3, 4, 5]]")
+            contains("column_idxs_lists: [[1, 2, 3, 4, 5], [2, 3, 4, 5]]")
             contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__orc_topn_lazy_mat_table, __DORIS_GLOBAL_ROWID_COL__parquet_topn_lazy_mat_table]")
         }
 

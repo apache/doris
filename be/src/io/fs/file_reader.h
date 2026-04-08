@@ -90,6 +90,9 @@ public:
 
     virtual const std::string& get_data_dir_path() { return VIRTUAL_REMOTE_DATA_DIR; }
 
+    // File modification time (seconds since epoch). Default to 0 meaning unknown.
+    virtual int64_t mtime() const = 0;
+
 protected:
     virtual Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                 const IOContext* io_ctx) = 0;

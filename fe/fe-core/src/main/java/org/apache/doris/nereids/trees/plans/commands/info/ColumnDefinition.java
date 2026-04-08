@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.ColumnNullableType;
 import org.apache.doris.analysis.DefaultValueExprDef;
@@ -190,6 +189,18 @@ public class ColumnDefinition {
 
     public void setGeneratedColumnsThatReferToThis(Set<String> generatedColumnsThatReferToThis) {
         this.generatedColumnsThatReferToThis = generatedColumnsThatReferToThis;
+    }
+
+    public String getComment() {
+        return getComment(false);
+    }
+
+    public String getComment(boolean escapeQuota) {
+        String comment = this.comment == null ? "" : this.comment;
+        if (!escapeQuota) {
+            return comment;
+        }
+        return SqlUtils.escapeQuota(comment);
     }
 
     /**
@@ -684,8 +695,8 @@ public class ColumnDefinition {
     }
 
     public static String removeNamePrefix(String colName) {
-        if (colName.startsWith(SchemaChangeHandler.SHADOW_NAME_PREFIX)) {
-            return colName.substring(SchemaChangeHandler.SHADOW_NAME_PREFIX.length());
+        if (colName.startsWith(Column.SHADOW_NAME_PREFIX)) {
+            return colName.substring(Column.SHADOW_NAME_PREFIX.length());
         }
         return colName;
     }

@@ -21,13 +21,13 @@ import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -75,7 +75,7 @@ public class ExecuteActionCommand extends Command implements ForwardWithSync {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        tableNameInfo.analyze(ctx);
+        tableNameInfo.analyze(ctx.getNameSpaceContext());
         CatalogIf<?> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(tableNameInfo.getCtl());
         if (catalog == null) {
             throw new AnalysisException("Catalog " + tableNameInfo.getCtl() + " does not exist");
@@ -105,7 +105,7 @@ public class ExecuteActionCommand extends Command implements ForwardWithSync {
 
             action.validate(tableNameInfo, ctx.getCurrentUserIdentity());
             ResultSet resultSet = action.execute(table);
-            logRefreshTable(table);
+            logRefreshTable(table, System.currentTimeMillis());
             if (resultSet != null) {
                 executor.sendResultSet(resultSet);
             }
@@ -150,7 +150,7 @@ public class ExecuteActionCommand extends Command implements ForwardWithSync {
      * @param table the table to log
      * @throws UserException if the table type is not supported
      */
-    private void logRefreshTable(TableIf table) throws UserException {
+    private void logRefreshTable(TableIf table, long updateTime) throws UserException {
         if (table instanceof ExternalTable) {
             ExternalTable externalTable = (ExternalTable) table;
             Env.getCurrentEnv().getEditLog()
@@ -158,7 +158,7 @@ public class ExecuteActionCommand extends Command implements ForwardWithSync {
                             ExternalObjectLog.createForRefreshTable(
                                     externalTable.getCatalog().getId(),
                                     externalTable.getDbName(),
-                                    externalTable.getName()));
+                                    externalTable.getName(), updateTime));
         } else {
             // support more table in future
             throw new UserException("Unsupported table type: " + table.getClass().getName() + " for refresh table");

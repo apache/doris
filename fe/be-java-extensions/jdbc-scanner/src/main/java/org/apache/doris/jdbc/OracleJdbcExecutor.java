@@ -36,6 +36,10 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 
+/**
+ * @deprecated Use {@link OracleTypeHandler} instead.
+ */
+@Deprecated
 public class OracleJdbcExecutor extends BaseJdbcExecutor {
     private static final Logger LOG = Logger.getLogger(OracleJdbcExecutor.class);
     private final CharsetDecoder utf8Decoder = StandardCharsets.UTF_8.newDecoder();
@@ -103,6 +107,9 @@ public class OracleJdbcExecutor extends BaseJdbcExecutor {
                 return resultSet.getObject(columnIndex + 1);
             case VARBINARY:
                 return resultSet.getObject(columnIndex + 1, byte[].class);
+            case TIMESTAMPTZ:
+                Timestamp ts = resultSet.getObject(columnIndex + 1, Timestamp.class);
+                return ts == null ? null : LocalDateTime.ofInstant(ts.toInstant(), java.time.ZoneOffset.UTC);
             default:
                 throw new IllegalArgumentException("Unsupported column type: " + type.getType());
         }

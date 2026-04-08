@@ -35,6 +35,10 @@ import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * @deprecated Use {@link PostgreSQLTypeHandler} instead.
+ */
+@Deprecated
 public class PostgreSQLJdbcExecutor extends BaseJdbcExecutor {
     private static final Logger LOG = Logger.getLogger(PostgreSQLJdbcExecutor.class);
 
@@ -47,7 +51,8 @@ public class PostgreSQLJdbcExecutor extends BaseJdbcExecutor {
             VectorTable outputTable) {
         for (int i = 0; i < columnCount; ++i) {
             if (outputTable.getColumnType(i).getType() == Type.DATETIME
-                    || outputTable.getColumnType(i).getType() == Type.DATETIMEV2) {
+                    || outputTable.getColumnType(i).getType() == Type.DATETIMEV2
+                    || outputTable.getColumnType(i).getType() == Type.TIMESTAMPTZ) {
                 block.add(new Object[batchSizeNum]);
             } else if (outputTable.getColumnType(i).getType() == Type.STRING
                     || outputTable.getColumnType(i).getType() == Type.ARRAY) {
@@ -89,6 +94,13 @@ public class PostgreSQLJdbcExecutor extends BaseJdbcExecutor {
                 return resultSet.getObject(columnIndex + 1);
             case VARBINARY:
                 return resultSet.getBytes(columnIndex + 1);
+            case TIMESTAMPTZ:
+                OffsetDateTime offsetDateTime = resultSet.getObject(columnIndex + 1, OffsetDateTime.class);
+                if (offsetDateTime == null) {
+                    return null;
+                } else {
+                    return Timestamp.from(offsetDateTime.toInstant());
+                }
             case ARRAY:
                 java.sql.Array array = resultSet.getArray(columnIndex + 1);
                 return array == null ? null : convertArrayToList(array.getArray());
@@ -107,6 +119,14 @@ public class PostgreSQLJdbcExecutor extends BaseJdbcExecutor {
                         return ((Timestamp) input).toLocalDateTime();
                     } else if (input instanceof OffsetDateTime) {
                         return ((OffsetDateTime) input).toLocalDateTime();
+                    } else {
+                        return input;
+                    }
+                }, LocalDateTime.class);
+            case TIMESTAMPTZ:
+                return createConverter(input -> {
+                    if (input instanceof Timestamp) {
+                        return LocalDateTime.ofInstant(((Timestamp) input).toInstant(), java.time.ZoneOffset.UTC);
                     } else {
                         return input;
                     }

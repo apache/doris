@@ -48,6 +48,7 @@ suite ("mv_ignore_predicate") {
     sql "insert into d_table select 5,null,null,null;"
 
     sql "analyze table d_table with sync;"
+    sql """alter table d_table modify column k4 set stats ('row_count'='7');"""
 
     qt_select_star "select * from d_table order by k1;"
 

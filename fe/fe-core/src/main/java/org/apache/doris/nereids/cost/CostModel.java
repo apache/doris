@@ -99,7 +99,8 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
             parallelInstance = 8;
         } else {
             beNumber = Math.max(1, connectContext.getEnv().getClusterInfo().getBackendsNumber(true));
-            parallelInstance = Math.max(1, connectContext.getSessionVariable().getParallelExecInstanceNum());
+            String clusterName = sessionVariable.resolveCloudClusterName(connectContext);
+            parallelInstance = Math.max(1, sessionVariable.getParallelExecInstanceNum(clusterName));
         }
         this.hboPlanStatisticsProvider = Objects.requireNonNull(Env.getCurrentEnv().getHboPlanStatisticsManager()
                 .getHboPlanStatisticsProvider(), "HboPlanStatisticsProvider is null");
@@ -452,7 +453,8 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
             );
         }
         double probeShortcutFactor = 1.0;
-        if (ConnectContext.get() != null && ConnectContext.get().getStatementContext() != null
+        if (rightRowCount < 10 * leftRowCount
+                && ConnectContext.get() != null && ConnectContext.get().getStatementContext() != null
                 && !ConnectContext.get().getStatementContext().isHasUnknownColStats()
                 && physicalHashJoin.getJoinType().isLeftSemiOrAntiJoin()
                 && physicalHashJoin.getOtherJoinConjuncts().isEmpty()

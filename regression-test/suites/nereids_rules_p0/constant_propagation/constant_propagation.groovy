@@ -393,7 +393,7 @@ suite('constant_propagation') {
 
     test {
         sql 'select a, b, a + b, c from t1 where a = 1 and b = 2 group by a, b'
-        exception "c not in aggregate's output"
+        exception "PROJECT expression 'c' must appear in the GROUP BY clause or be used in an aggregate function"
     }
 
     explain_and_result 'union_1', '''

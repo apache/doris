@@ -47,10 +47,6 @@ import java.util.stream.Collectors;
 public abstract class Resource implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(OdbcCatalogResource.class);
     public static final String REFERENCE_SPLIT = "@";
-    public static final String INCLUDE_DATABASE_LIST = "include_database_list";
-    public static final String EXCLUDE_DATABASE_LIST = "exclude_database_list";
-    public static final String LOWER_CASE_META_NAMES = "lower_case_meta_names";
-    public static final String META_NAMES_MAPPING = "meta_names_mapping";
 
     public enum ResourceType {
         UNKNOWN,
@@ -65,6 +61,9 @@ public abstract class Resource implements Writable, GsonPostProcessable {
         AI;
 
         public static ResourceType fromString(String resourceType) {
+            if ("jfs".equalsIgnoreCase(resourceType) || "juicefs".equalsIgnoreCase(resourceType)) {
+                return HDFS;
+            }
             for (ResourceType type : ResourceType.values()) {
                 if (type.name().equalsIgnoreCase(resourceType)) {
                     return type;
@@ -191,8 +190,7 @@ public abstract class Resource implements Writable, GsonPostProcessable {
                 resource = new HMSResource(name);
                 break;
             case ES:
-                resource = new EsResource(name);
-                break;
+                throw new DdlException("ES resource is no longer supported. Please use ES Catalog instead.");
             case AI:
                 resource = new AIResource(name);
                 break;

@@ -40,7 +40,7 @@ public class PaimonVendedCredentialsProvider extends AbstractVendedCredentialsPr
     }
 
     @Override
-    protected boolean isVendedCredentialsEnabled(MetastoreProperties metastoreProperties) {
+    public boolean isVendedCredentialsEnabled(MetastoreProperties metastoreProperties) {
         // Paimon REST catalog always supports vended credentials if it's REST type
         return metastoreProperties instanceof PaimonRestMetaStoreProperties;
     }

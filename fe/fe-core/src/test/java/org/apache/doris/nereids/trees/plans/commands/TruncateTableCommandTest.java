@@ -21,11 +21,11 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.util.DebugPointUtil;
-import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -119,7 +119,7 @@ public class TruncateTableCommandTest extends TestWithFeService {
         tableNameInfo = new TableNameInfo("internal", "testcommand", "test");
         PartitionNamesInfo partitionNamesInfo = new PartitionNamesInfo(false);
         TruncateTableCommand truncateTableCommand2 = new TruncateTableCommand(tableNameInfo, Optional.of(partitionNamesInfo), false);
-        Assertions.assertThrows(AnalysisException.class, () -> truncateTableCommand2.validate(connectContext));
+        Assertions.assertThrows(RuntimeException.class, () -> truncateTableCommand2.validate(connectContext));
     }
 
     @Test

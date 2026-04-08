@@ -56,6 +56,25 @@
     static RegisterConfValidator reg_validator_##FIELD_NAME( \
             #FIELD_NAME, []() -> bool { return validator_##FIELD_NAME(FIELD_NAME); });
 
+// DEFINE_ON_UPDATE macro is used to register a callback function that will be called
+// when the config field is updated at runtime.
+// The callback function signature is: void callback(T old_value, T new_value)
+// where T is the type of the config field.
+// Example:
+//   DEFINE_ON_UPDATE(my_config, [](int64_t old_val, int64_t new_val) {
+//       LOG(INFO) << "my_config changed from " << old_val << " to " << new_val;
+//   });
+#define DEFINE_ON_UPDATE_IMPL(FIELD_NAME, CALLBACK)                               \
+    static auto on_update_callback_##FIELD_NAME = CALLBACK;                       \
+    static RegisterConfUpdateCallback reg_update_callback_##FIELD_NAME(           \
+            #FIELD_NAME, [](const void* old_ptr, const void* new_ptr) {           \
+                on_update_callback_##FIELD_NAME(                                  \
+                        *reinterpret_cast<const decltype(FIELD_NAME)*>(old_ptr),  \
+                        *reinterpret_cast<const decltype(FIELD_NAME)*>(new_ptr)); \
+            });
+
+#define DEFINE_ON_UPDATE(name, callback) DEFINE_ON_UPDATE_IMPL(name, callback)
+
 #define DEFINE_Int16(name, defaultstr) DEFINE_FIELD(int16_t, name, defaultstr, false)
 #define DEFINE_Bools(name, defaultstr) DEFINE_FIELD(std::vector<bool>, name, defaultstr, false)
 #define DEFINE_Doubles(name, defaultstr) DEFINE_FIELD(std::vector<double>, name, defaultstr, false)
@@ -289,6 +308,8 @@ DECLARE_Int32(download_worker_count);
 DECLARE_Int32(make_snapshot_worker_count);
 // the count of thread to release snapshot
 DECLARE_Int32(release_snapshot_worker_count);
+// the count of thread to make committed rowsets visible in cloud mode
+DECLARE_Int32(cloud_make_committed_rs_visible_worker_count);
 // report random wait a little time to avoid FE receiving multiple be reports at the same time.
 // do not set it to false for production environment
 DECLARE_mBool(report_random_wait);
@@ -381,8 +402,10 @@ DECLARE_mInt32(doris_scan_range_max_mb);
 DECLARE_mInt32(doris_scanner_row_num);
 // single read execute fragment row bytes
 DECLARE_mInt32(doris_scanner_row_bytes);
-// single read execute fragment max run time millseconds
+// Deprecated. single read execute fragment max run time millseconds
 DECLARE_mInt32(doris_scanner_max_run_time_ms);
+// Minimum interval in milliseconds between adaptive scanner concurrency adjustments
+DECLARE_mInt32(doris_scanner_dynamic_interval_ms);
 // (Advanced) Maximum size of per-query receive-side buffer
 DECLARE_mInt32(exchg_node_buffer_size_bytes);
 DECLARE_mInt32(exchg_buffer_queue_capacity_factor);
@@ -432,6 +455,12 @@ DECLARE_mInt32(trash_file_expire_time_sec);
 // modify them upon necessity
 DECLARE_Int32(min_file_descriptor_number);
 DECLARE_mBool(disable_segment_cache);
+// Enable checking segment rows consistency between rowset meta and segment footer
+DECLARE_mBool(enable_segment_rows_consistency_check);
+DECLARE_mBool(enable_segment_rows_check_core);
+// ATTENTION: For test only. In test environment, there are no historical data,
+// so all rowset meta should have segment rows info.
+DECLARE_mBool(fail_when_segment_rows_not_in_rowset_meta);
 DECLARE_String(row_cache_mem_limit);
 
 // Cache for storage page size
@@ -447,6 +476,12 @@ DECLARE_Int32(index_page_cache_percentage);
 DECLARE_Bool(disable_storage_page_cache);
 // whether to disable row cache feature in storage
 DECLARE_mBool(disable_storage_row_cache);
+// Parquet page cache: threshold ratio for caching decompressed vs compressed pages
+// If uncompressed_size / compressed_size <= threshold, cache decompressed;
+// otherwise cache compressed if enable_parquet_cache_compressed_pages = true
+DECLARE_Double(parquet_page_cache_decompress_threshold);
+// Parquet page cache: whether to enable caching compressed pages (when ratio exceeds threshold)
+DECLARE_Bool(enable_parquet_cache_compressed_pages);
 // whether to disable pk page cache feature in storage
 DECLARE_Bool(disable_pk_storage_page_cache);
 
@@ -480,6 +515,15 @@ DECLARE_mInt32(vertical_compaction_num_columns_per_group);
 DECLARE_Int32(vertical_compaction_max_row_source_memory_mb);
 // In vertical compaction, max dest segment file size
 DECLARE_mInt64(vertical_compaction_max_segment_size);
+// Threshold for sparse column compaction optimization (average bytes per row)
+// Density threshold for sparse column compaction optimization
+// density = (total_cells - null_cells) / total_cells, smaller means more sparse
+// When density <= threshold, enable sparse optimization
+// 0 = disable optimization, 1 = always enable
+// Default 1 means always enable sparse optimization
+DECLARE_mDouble(sparse_column_compaction_threshold_percent);
+// Enable RLE batch Put optimization for compaction
+DECLARE_mBool(enable_rle_batch_put_optimization);
 
 // If enabled, segments will be flushed column by column
 DECLARE_mBool(enable_vertical_segment_writer);
@@ -571,6 +615,9 @@ DECLARE_mInt32(base_compaction_trace_threshold);
 DECLARE_mInt32(cumulative_compaction_trace_threshold);
 DECLARE_mBool(disable_compaction_trace_log);
 
+DECLARE_mBool(enable_compaction_task_tracker);
+DECLARE_mInt32(compaction_task_tracker_max_records);
+
 // Interval to picking rowset to compact, in seconds
 DECLARE_mInt64(pick_rowset_to_compact_interval_sec);
 
@@ -610,6 +657,13 @@ DECLARE_String(ssl_private_key_path);
 DECLARE_Bool(enable_all_http_auth);
 // Number of webserver workers
 DECLARE_Int32(webserver_num_workers);
+
+// Async replies: stream load only now
+// reply wait timeout only happens if:
+// 1. Stream load fragment execution times out
+//    HTTP request freed → stream load canceled
+// 2. Client disconnects
+DECLARE_mInt32(async_reply_timeout_s);
 
 DECLARE_Bool(enable_single_replica_load);
 // Number of download workers for single replica load
@@ -823,12 +877,17 @@ DECLARE_mInt32(storage_flood_stage_usage_percent); // 90%
 // The min bytes that should be left of a data dir
 DECLARE_mInt64(storage_flood_stage_left_capacity_bytes); // 1GB
 // number of thread for flushing memtable per store
-DECLARE_Int32(flush_thread_num_per_store);
+DECLARE_mInt32(flush_thread_num_per_store);
 // number of thread for flushing memtable per store, for high priority load task
-DECLARE_Int32(high_priority_flush_thread_num_per_store);
+DECLARE_mInt32(high_priority_flush_thread_num_per_store);
 // number of threads = min(flush_thread_num_per_store * num_store,
 //                         max_flush_thread_num_per_cpu * num_cpu)
-DECLARE_Int32(max_flush_thread_num_per_cpu);
+DECLARE_mInt32(max_flush_thread_num_per_cpu);
+// minimum flush threads per cpu when adaptive flush is enabled (default 0.5)
+DECLARE_mDouble(min_flush_thread_num_per_cpu);
+
+// Whether to enable adaptive flush thread adjustment
+DECLARE_mBool(enable_adaptive_flush_threads);
 
 // config for tablet meta checkpoint
 DECLARE_mInt32(tablet_meta_checkpoint_min_new_rowsets_num);
@@ -1070,7 +1129,6 @@ DECLARE_Int32(min_s3_file_system_thread_num);
 DECLARE_Int32(max_s3_file_system_thread_num);
 
 DECLARE_Bool(enable_time_lut);
-DECLARE_mBool(enable_simdjson_reader);
 
 DECLARE_mBool(enable_query_like_bloom_filter);
 // number of s3 scanner thread pool size
@@ -1131,6 +1189,21 @@ DECLARE_mInt32(segcompaction_num_threads);
 // enable java udf and jdbc scannode
 DECLARE_Bool(enable_java_support);
 
+// enable python udf
+DECLARE_Bool(enable_python_udf_support);
+// python env mode, options: conda, venv
+DECLARE_String(python_env_mode);
+// root path of conda runtime, python_env_mode should be conda
+DECLARE_String(python_conda_root_path);
+// root path of venv runtime, python_env_mode should be venv
+DECLARE_String(python_venv_root_path);
+// python interpreter paths used by venv, e.g. /usr/bin/python3.7:/usr/bin/python3.6
+DECLARE_String(python_venv_interpreter_paths);
+// max python processes in global shared pool, each version can have up to this many processes
+DECLARE_mInt32(max_python_process_num);
+// Memory limit in bytes for all Python UDF processes; warning is logged when exceeded
+DECLARE_mInt64(python_udf_processes_memory_limit_bytes);
+
 // Set config randomly to check more issues in github workflow
 DECLARE_Bool(enable_fuzzy_mode);
 
@@ -1159,7 +1232,7 @@ DECLARE_Bool(enable_file_cache);
 DECLARE_String(file_cache_path);
 DECLARE_Int64(file_cache_each_block_size);
 DECLARE_Bool(clear_file_cache);
-DECLARE_Bool(enable_file_cache_query_limit);
+DECLARE_mBool(enable_file_cache_query_limit);
 DECLARE_Int32(file_cache_enter_disk_resource_limit_mode_percent);
 DECLARE_Int32(file_cache_exit_disk_resource_limit_mode_percent);
 DECLARE_mBool(enable_evict_file_cache_in_advance);
@@ -1189,6 +1262,11 @@ DECLARE_mBool(enable_file_cache_adaptive_write);
 DECLARE_mDouble(file_cache_keep_base_compaction_output_min_hit_ratio);
 DECLARE_mDouble(file_cache_meta_store_vs_file_system_diff_num_threshold);
 DECLARE_mDouble(file_cache_keep_schema_change_output_min_hit_ratio);
+DECLARE_mDouble(file_cache_leak_fs_to_meta_ratio_threshold);
+DECLARE_mInt64(file_cache_leak_scan_interval_seconds);
+DECLARE_mInt32(file_cache_leak_scan_batch_files);
+DECLARE_mInt32(file_cache_leak_scan_pause_ms);
+DECLARE_mInt64(file_cache_leak_grace_seconds);
 DECLARE_mInt64(file_cache_remove_block_qps_limit);
 DECLARE_mInt64(file_cache_background_gc_interval_ms);
 DECLARE_mInt64(file_cache_background_block_lru_update_interval_ms);
@@ -1208,6 +1286,8 @@ DECLARE_mInt64(file_cache_background_lru_dump_update_cnt_threshold);
 DECLARE_mInt64(file_cache_background_lru_dump_tail_record_num);
 DECLARE_mInt64(file_cache_background_lru_log_replay_interval_ms);
 DECLARE_mBool(enable_evaluate_shadow_queue_diff);
+
+DECLARE_mBool(file_cache_enable_only_warm_up_idx);
 
 // inverted index searcher cache
 // cache entry stay time after lookup
@@ -1339,10 +1419,20 @@ DECLARE_mBool(variant_use_cloud_schema_dict_cache);
 // Threshold to estimate a column is sparsed
 // Notice: TEST ONLY
 DECLARE_mInt64(variant_threshold_rows_to_estimate_sparse_column);
+// Max json key length in bytes when parsing json into variant subcolumns/jsonb.
+DECLARE_mInt32(variant_max_json_key_length);
 // Treat invalid json format str as string, instead of throwing exception if false
 DECLARE_mBool(variant_throw_exeception_on_invalid_json);
 // Enable vertical compact subcolumns of variant column
 DECLARE_mBool(enable_vertical_compact_variant_subcolumns);
+DECLARE_mBool(enable_variant_doc_sparse_write_subcolumns);
+// Maximum depth of nested arrays to track with NestedGroup
+// Reserved for future use when NestedGroup expansion moves to storage layer
+DECLARE_mInt32(variant_nested_group_max_depth);
+// When true, discard scalar data that conflicts with NestedGroup array<object>
+// data at the same path. This simplifies compaction by always prioritizing
+// nested structure over scalar. When false, report an error on conflict.
+DECLARE_mBool(variant_nested_group_discard_scalar_on_conflict);
 
 DECLARE_mBool(enable_merge_on_write_correctness_check);
 // USED FOR DEBUGING
@@ -1428,6 +1518,7 @@ DECLARE_String(doris_cgroup_cpu_path);
 DECLARE_mBool(enable_be_proc_monitor);
 DECLARE_mInt32(be_proc_monitor_interval_ms);
 DECLARE_Int32(workload_group_metrics_interval_ms);
+DECLARE_Int32(workload_policy_check_interval_ms);
 
 // This config controls whether the s3 file writer would flush cache asynchronously
 DECLARE_Bool(enable_flush_file_cache_async);
@@ -1481,14 +1572,14 @@ DECLARE_String(spill_storage_root_path);
 DECLARE_String(spill_storage_limit);
 DECLARE_mInt32(spill_gc_interval_ms);
 DECLARE_mInt32(spill_gc_work_time_ms);
+// Maximum size of each spill part file before rotation (bytes). Default 1GB.
+DECLARE_mInt64(spill_file_part_size_bytes);
 DECLARE_Int64(spill_in_paused_queue_timeout_ms);
 DECLARE_Int64(wait_cancel_release_memory_ms);
 
 DECLARE_mBool(check_segment_when_build_rowset_meta);
 
 DECLARE_Int32(num_query_ctx_map_partitions);
-
-DECLARE_mBool(force_azure_blob_global_endpoint);
 
 DECLARE_mBool(enable_s3_rate_limiter);
 DECLARE_mInt64(s3_get_bucket_tokens);
@@ -1508,6 +1599,7 @@ DECLARE_mInt32(max_s3_client_retry);
 DECLARE_mInt32(s3_read_base_wait_time_ms);
 DECLARE_mInt32(s3_read_max_wait_time_ms);
 DECLARE_mBool(enable_s3_object_check_after_upload);
+DECLARE_mInt32(aws_client_request_timeout_ms);
 
 // write as inverted index tmp directory
 DECLARE_String(tmp_file_dir);
@@ -1534,6 +1626,9 @@ DECLARE_mInt64(hive_sink_max_file_size);
 /** Iceberg sink configurations **/
 DECLARE_mInt64(iceberg_sink_max_file_size);
 
+/** Paimon file system configurations **/
+DECLARE_Strings(paimon_file_system_scheme_mappings);
+
 // Number of open tries, default 1 means only try to open once.
 // Retry the Open num_retries time waiting 100 milliseconds between retries.
 DECLARE_mInt32(thrift_client_open_num_tries);
@@ -1550,6 +1645,21 @@ DECLARE_mInt64(string_overflow_size);
 DECLARE_Int64(num_buffered_reader_prefetch_thread_pool_min_thread);
 // The max thread num for BufferedReaderPrefetchThreadPool
 DECLARE_Int64(num_buffered_reader_prefetch_thread_pool_max_thread);
+
+DECLARE_mBool(enable_segment_prefetch_verbose_log);
+// The thread num for SegmentPrefetchThreadPool
+DECLARE_Int64(segment_prefetch_thread_pool_thread_num_min);
+DECLARE_Int64(segment_prefetch_thread_pool_thread_num_max);
+
+DECLARE_mInt32(segment_file_cache_consume_rowids_batch_size);
+// Enable segment file cache block prefetch for query
+DECLARE_mBool(enable_query_segment_file_cache_prefetch);
+// Number of blocks to prefetch ahead in segment iterator for query
+DECLARE_mInt32(query_segment_file_cache_prefetch_block_size);
+// Enable segment file cache block prefetch for compaction
+DECLARE_mBool(enable_compaction_segment_file_cache_prefetch);
+// Number of blocks to prefetch ahead in segment iterator for compaction
+DECLARE_mInt32(compaction_segment_file_cache_prefetch_block_size);
 // The min thread num for S3FileUploadThreadPool
 DECLARE_Int64(num_s3_file_upload_thread_pool_min_thread);
 // The max thread num for S3FileUploadThreadPool
@@ -1680,6 +1790,11 @@ DECLARE_mInt64(max_csv_line_reader_output_buffer_size);
 DECLARE_Int32(omp_threads_limit);
 // The capacity of segment partial column cache, used to cache column readers for each segment.
 DECLARE_mInt32(max_segment_partial_column_cache_size);
+// Cache for ANN index IVF on-disk list data.
+// Default "70%" means 70% of total physical memory.
+DECLARE_String(ann_index_ivf_list_cache_limit);
+// Stale sweep time for ANN index IVF list cache in seconds.
+DECLARE_mInt32(ann_index_ivf_list_cache_stale_sweep_time_sec);
 // Chunk size for ANN/vector index building per training/adding batch
 DECLARE_mInt64(ann_index_build_chunk_size);
 
@@ -1693,6 +1808,14 @@ DECLARE_mBool(print_stack_when_cache_miss);
 DECLARE_mBool(read_cluster_cache_opt_verbose_log);
 
 DECLARE_mString(aws_credentials_provider_version);
+
+// Concurrency stats dump configuration
+DECLARE_mBool(enable_concurrency_stats_dump);
+DECLARE_mInt32(concurrency_stats_dump_interval_ms);
+
+DECLARE_mBool(cloud_mow_sync_rowsets_when_load_txn_begin);
+
+DECLARE_mBool(enable_cloud_make_rs_visible_on_be);
 
 #ifdef BE_TEST
 // test s3
@@ -1753,6 +1876,26 @@ public:
         }
         // register validator to _s_field_validator
         _s_field_validator->insert(std::make_pair(std::string(fname), validator));
+    }
+};
+
+// RegisterConfUpdateCallback class is used to store callback functions that will be called
+// when a config field is updated at runtime.
+// The callback function takes two void pointers: old_value and new_value.
+// The actual type casting is done in the DEFINE_ON_UPDATE macro.
+class RegisterConfUpdateCallback {
+public:
+    using CallbackFunc = std::function<void(const void* old_ptr, const void* new_ptr)>;
+    // Callback map for each config name.
+    static std::map<std::string, CallbackFunc>* _s_field_update_callback;
+
+public:
+    RegisterConfUpdateCallback(const char* fname, const CallbackFunc& callback) {
+        if (_s_field_update_callback == nullptr) {
+            _s_field_update_callback = new std::map<std::string, CallbackFunc>();
+        }
+        // register callback to _s_field_update_callback
+        _s_field_update_callback->insert(std::make_pair(std::string(fname), callback));
     }
 };
 

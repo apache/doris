@@ -47,15 +47,20 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergDeleteSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergMergeSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalMaxComputeTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -73,6 +78,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -113,7 +119,8 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
      */
     public List<List<PhysicalProperties>> getRequestChildrenPropertyList(GroupExpression groupExpression) {
         requestPropertyToChildren = Lists.newArrayList();
-        groupExpression.getPlan().accept(this, new PlanContext(connectContext, groupExpression));
+        groupExpression.getPlan().accept(this,
+                new PlanContext(connectContext, groupExpression, Collections.emptyList()));
         return requestPropertyToChildren;
     }
 
@@ -141,7 +148,7 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
 
     @Override
     public Void visitPhysicalOlapTableSink(PhysicalOlapTableSink<? extends Plan> olapTableSink, PlanContext context) {
-        if (connectContext != null && !connectContext.getSessionVariable().enableStrictConsistencyDml) {
+        if (connectContext != null && !connectContext.getSessionVariable().isEnableStrictConsistencyDml()) {
             addRequestPropertyToChildren(PhysicalProperties.ANY);
         } else {
             addRequestPropertyToChildren(olapTableSink.getRequirePhysicalProperties());
@@ -151,7 +158,7 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
 
     @Override
     public Void visitPhysicalHiveTableSink(PhysicalHiveTableSink<? extends Plan> hiveTableSink, PlanContext context) {
-        if (connectContext != null && !connectContext.getSessionVariable().enableStrictConsistencyDml) {
+        if (connectContext != null && !connectContext.getSessionVariable().isEnableStrictConsistencyDml()) {
             addRequestPropertyToChildren(PhysicalProperties.ANY);
         } else {
             addRequestPropertyToChildren(hiveTableSink.getRequirePhysicalProperties());
@@ -162,7 +169,7 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
     @Override
     public Void visitPhysicalIcebergTableSink(
             PhysicalIcebergTableSink<? extends Plan> icebergTableSink, PlanContext context) {
-        if (connectContext != null && !connectContext.getSessionVariable().enableStrictConsistencyDml) {
+        if (connectContext != null && !connectContext.getSessionVariable().isEnableStrictConsistencyDml()) {
             addRequestPropertyToChildren(PhysicalProperties.ANY);
         } else {
             addRequestPropertyToChildren(icebergTableSink.getRequirePhysicalProperties());
@@ -171,9 +178,50 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
     }
 
     @Override
+    public Void visitPhysicalMaxComputeTableSink(
+            PhysicalMaxComputeTableSink<? extends Plan> mcTableSink, PlanContext context) {
+        if (connectContext != null && !connectContext.getSessionVariable().isEnableStrictConsistencyDml()) {
+            addRequestPropertyToChildren(PhysicalProperties.ANY);
+        } else {
+            addRequestPropertyToChildren(mcTableSink.getRequirePhysicalProperties());
+        }
+        return null;
+    }
+
+    @Override
+    public Void visitPhysicalIcebergDeleteSink(
+            PhysicalIcebergDeleteSink<? extends Plan> icebergDeleteSink, PlanContext context) {
+        if (connectContext != null && !connectContext.getSessionVariable().enableStrictConsistencyDml) {
+            addRequestPropertyToChildren(PhysicalProperties.ANY);
+        } else {
+            addRequestPropertyToChildren(icebergDeleteSink.getRequirePhysicalProperties());
+        }
+        return null;
+    }
+
+    @Override
+    public Void visitPhysicalIcebergMergeSink(
+            PhysicalIcebergMergeSink<? extends Plan> icebergMergeSink, PlanContext context) {
+        if (connectContext != null && !connectContext.getSessionVariable().enableStrictConsistencyDml) {
+            addRequestPropertyToChildren(PhysicalProperties.ANY);
+        } else {
+            addRequestPropertyToChildren(icebergMergeSink.getRequirePhysicalProperties());
+        }
+        return null;
+    }
+
+    @Override
     public Void visitPhysicalJdbcTableSink(
             PhysicalJdbcTableSink<? extends Plan> jdbcTableSink, PlanContext context) {
         // Always use gather properties for jdbcTableSink
+        addRequestPropertyToChildren(PhysicalProperties.GATHER);
+        return null;
+    }
+
+    @Override
+    public Void visitPhysicalTVFTableSink(
+            PhysicalTVFTableSink<? extends Plan> tvfTableSink, PlanContext context) {
+        // TVF sink writes to a single file on a single BE, so all data must be gathered
         addRequestPropertyToChildren(PhysicalProperties.GATHER);
         return null;
     }
@@ -282,6 +330,10 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         } else {
             // shuffle all column
             // TODO: for wide table, may be we should add a upper limit of shuffle columns
+
+            // TODO: open comment when support `enable_local_shuffle_planner` and change to REQUIRE
+            // intersect/except always need hash distribution, we use REQUIRE to auto select
+            // bucket shuffle or execution shuffle
             addRequestPropertyToChildren(setOperation.getRegularChildrenOutputs().stream()
                     .map(childOutputs -> childOutputs.stream()
                             .map(SlotReference::getExprId)
@@ -312,6 +364,13 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
             }
         }
 
+        return null;
+    }
+
+    @Override
+    public Void visitPhysicalRecursiveUnion(PhysicalRecursiveUnion<? extends Plan, ? extends Plan> recursiveUnion,
+            PlanContext context) {
+        addRequestPropertyToChildren(PhysicalProperties.GATHER, PhysicalProperties.GATHER);
         return null;
     }
 
@@ -455,7 +514,7 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
                 Set<ExprId> intersectId = Sets.intersection(new HashSet<>(parentHashExprIds),
                         new HashSet<>(groupByExprIds));
                 if (!intersectId.isEmpty() && intersectId.size() < groupByExprIds.size()) {
-                    if (shouldUseParent(parentHashExprIds, agg)) {
+                    if (shouldUseParent(parentHashExprIds, agg, context)) {
                         addRequestPropertyToChildren(PhysicalProperties.createHash(
                                 Utils.fastToImmutableList(intersectId), ShuffleType.REQUIRE));
                     }
@@ -469,7 +528,11 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         return null;
     }
 
-    private boolean shouldUseParent(List<ExprId> parentHashExprIds, PhysicalHashAggregate<? extends Plan> agg) {
+    private boolean shouldUseParent(List<ExprId> parentHashExprIds, PhysicalHashAggregate<? extends Plan> agg,
+            PlanContext context) {
+        if (!context.getConnectContext().getSessionVariable().aggShuffleUseParentKey) {
+            return false;
+        }
         Optional<GroupExpression> groupExpression = agg.getGroupExpression();
         if (!groupExpression.isPresent()) {
             return true;

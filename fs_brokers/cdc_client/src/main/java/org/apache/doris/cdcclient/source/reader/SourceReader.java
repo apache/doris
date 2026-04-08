@@ -17,9 +17,9 @@
 
 package org.apache.doris.cdcclient.source.reader;
 
-import org.apache.doris.cdcclient.model.response.RecordWithMeta;
+import org.apache.doris.cdcclient.source.deserialize.DeserializeResult;
+import org.apache.doris.cdcclient.source.factory.DataSource;
 import org.apache.doris.job.cdc.request.CompareOffsetRequest;
-import org.apache.doris.job.cdc.request.FetchRecordRequest;
 import org.apache.doris.job.cdc.request.FetchTableSplitsRequest;
 import org.apache.doris.job.cdc.request.JobBaseConfig;
 import org.apache.doris.job.cdc.request.JobBaseRecordRequest;
@@ -29,28 +29,37 @@ import org.apache.flink.api.connector.source.SourceSplit;
 import org.apache.kafka.connect.source.SourceRecord;
 
 import java.io.IOException;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
+import io.debezium.relational.TableId;
+import io.debezium.relational.history.TableChanges;
+
 /** Source Reader Interface */
 public interface SourceReader {
+    String SPLIT_ID = "splitId";
+
     /** Initialization, called when the program starts */
-    void initialize(Map<String, String> config);
+    void initialize(String jobId, DataSource dataSource, Map<String, String> config);
 
     /** Divide the data to be read. For example: split mysql to chunks */
     List<AbstractSourceSplit> getSourceSplits(FetchTableSplitsRequest config);
 
-    /** Reading Data */
-    RecordWithMeta read(FetchRecordRequest meta) throws Exception;
+    /** Construct a split and submit a split reading task. */
+    SplitReadResult prepareAndSubmitSplit(JobBaseRecordRequest baseReq) throws Exception;
 
-    /** Reading Data for split reader */
-    SplitReadResult readSplitRecords(JobBaseRecordRequest baseReq) throws Exception;
+    /** Retrieve data from the current split(s). */
+    Iterator<SourceRecord> pollRecords() throws Exception;
 
     /** Extract offset information from snapshot split state. */
-    Map<String, String> extractSnapshotOffset(SourceSplit split, Object splitState);
+    Map<String, String> extractSnapshotStateOffset(Object splitState);
+
+    /** Extract offset information from binlog split states. */
+    Map<String, String> extractBinlogStateOffset(Object splitState);
 
     /** Extract offset information from binlog split. */
-    Map<String, String> extractBinlogOffset(SourceSplit split);
+    Map<String, String> extractBinlogOffset(SourceSplit splitState);
 
     /** Is the split a binlog split */
     boolean isBinlogSplit(SourceSplit split);
@@ -68,7 +77,25 @@ public interface SourceReader {
     int compareOffset(CompareOffsetRequest compareOffsetRequest);
 
     /** Called when closing */
-    void close(Long jobId);
+    void close(JobBaseConfig jobConfig);
 
-    List<String> deserialize(Map<String, String> config, SourceRecord element) throws IOException;
+    DeserializeResult deserialize(Map<String, String> config, SourceRecord element)
+            throws IOException;
+
+    /**
+     * Apply schema changes to the in-memory tableSchemas. Called after schema change is executed on
+     * Doris.
+     */
+    default void applySchemaChange(Map<TableId, TableChanges.TableChange> updatedSchemas) {}
+
+    /** Serialize current tableSchemas to JSON for persistence via commitOffset. */
+    default String serializeTableSchemas() {
+        return null;
+    }
+
+    /**
+     * Commits the given offset with the source database. Used by some source like Postgres to
+     * indicate how far the source TX log can be discarded.
+     */
+    default void commitSourceOffset(String jobId, SourceSplit sourceSplit) {}
 }

@@ -26,7 +26,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.HiveMetaStoreCache;
+import org.apache.doris.datasource.hive.HiveExternalMetaCache;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.datasource.hive.HivePartition;
 import org.apache.doris.datasource.hive.HiveProperties;
@@ -48,6 +48,7 @@ import org.apache.doris.thrift.THiveSerDeProperties;
 import org.apache.doris.thrift.THiveTableSink;
 
 import com.google.common.base.Strings;
+import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.Table;
 
@@ -168,7 +169,10 @@ public class HiveTableSink extends BaseExternalTableDataSink {
 
     private String createTempPath(String location) {
         String user = ConnectContext.get().getCurrentUserIdentity().getUser();
-        return LocationPath.getTempWritePath(location, "/tmp/.doris_staging/" + user);
+        String stagingBaseDir = targetTable.getCatalog().getCatalogProperty()
+                .getOrDefault(HMSExternalCatalog.HIVE_STAGING_DIR, HMSExternalCatalog.DEFAULT_STAGING_BASE_DIR);
+        String stagingDir = new Path(stagingBaseDir, user).toString();
+        return LocationPath.getTempWritePath(location, stagingDir);
     }
 
     private void setCompressType(THiveTableSink tSink, TFileFormatType formatType) {
@@ -204,9 +208,9 @@ public class HiveTableSink extends BaseExternalTableDataSink {
         List<HivePartition> hivePartitions = new ArrayList<>();
         if (targetTable.isPartitionedTable()) {
             // Get partitions from cache instead of HMS client (similar to HiveScanNode)
-            HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                    .getMetaStoreCache((HMSExternalCatalog) targetTable.getCatalog());
-            HiveMetaStoreCache.HivePartitionValues partitionValues =
+            HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                    .hive(targetTable.getCatalog().getId());
+            HiveExternalMetaCache.HivePartitionValues partitionValues =
                     targetTable.getHivePartitionValues(MvccUtil.getSnapshotFromContext(targetTable));
             List<List<String>> partitionValuesList =
                     new ArrayList<>(partitionValues.getPartitionValuesMap().values());

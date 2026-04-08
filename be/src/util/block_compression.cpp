@@ -51,11 +51,11 @@
 #include "absl/strings/substitute.h"
 #include "common/config.h"
 #include "common/factory_creator.h"
-#include "exec/decompressor.h"
+#include "exec/common/endian.h"
 #include "runtime/thread_context.h"
+#include "util/decompressor.h"
 #include "util/defer_op.h"
 #include "util/faststring.h"
-#include "vec/common/endian.h"
 
 namespace orc {
 /**

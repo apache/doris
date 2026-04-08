@@ -71,7 +71,7 @@ show partitions two_partition_tb;
 show partitions three_partition_tb;
 */
 
-suite("test_max_compute_partition_prune", "p2,external,maxcompute,external_remote,external_remote_maxcompute") {
+suite("test_max_compute_partition_prune", "p2,external") {
 
 
     def one_partition_1_1 = """SELECT * FROM one_partition_tb WHERE part1 = 2024 ORDER BY id;"""

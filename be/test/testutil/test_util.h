@@ -20,9 +20,9 @@
 #include <cstdlib>
 #include <string>
 
+#include "core/data_type_serde/data_type_serde.h"
 #include "gflags/gflags.h"
 #include "gtest/gtest.h"
-#include "vec/data_types/serde/data_type_serde.h"
 
 DECLARE_bool(gen_out);
 DECLARE_bool(gen_regression_case);
@@ -95,14 +95,13 @@ char rand_rng_char();
 std::string rand_rng_string(size_t length = 8);
 std::string rand_rng_by_type(FieldType fieldType);
 
-void load_columns_data_from_file(vectorized::MutableColumns& columns,
-                                 vectorized::DataTypeSerDeSPtrs serders, char col_spliter,
-                                 std::set<int> idxes, const std::string& column_data_file,
+void load_columns_data_from_file(MutableColumns& columns, DataTypeSerDeSPtrs serders,
+                                 char col_spliter, std::set<int> idxes,
+                                 const std::string& column_data_file,
                                  const cctz::time_zone* tz = nullptr);
-void load_data_from_csv(const vectorized::DataTypeSerDeSPtrs serders,
-                        vectorized::MutableColumns& columns, const std::string& file_path,
-                        const char spliter = ';', const std::set<int> idxes = {0},
-                        const cctz::time_zone* tz = nullptr);
+void load_data_from_csv(const DataTypeSerDeSPtrs serders, MutableColumns& columns,
+                        const std::string& file_path, const char spliter = ';',
+                        const std::set<int> idxes = {0}, const cctz::time_zone* tz = nullptr);
 void check_or_generate_res_file(const std::string& res_file_path,
                                 const std::vector<std::vector<std::string>>& res_columns);
 

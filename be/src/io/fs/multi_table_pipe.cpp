@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "multi_table_pipe.h"
+#include "io/fs/multi_table_pipe.h"
 
 #include <gen_cpp/FrontendService.h>
 #include <gen_cpp/FrontendService_types.h>
@@ -27,11 +27,11 @@
 #include <type_traits>
 
 #include "common/status.h"
-#include "runtime/client_cache.h"
+#include "load/stream_load/new_load_stream_mgr.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/runtime_state.h"
-#include "runtime/stream_load/new_load_stream_mgr.h"
+#include "util/client_cache.h"
 #include "util/debug_points.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/thrift_util.h"
@@ -341,7 +341,7 @@ void MultiTablePipe::_handle_consumer_finished() {
               << " number_filtered_rows=" << _ctx->number_filtered_rows
               << " number_unselected_rows=" << _ctx->number_unselected_rows
               << ", ctx: " << _ctx->brief();
-    _ctx->promise.set_value(_status); // when all done, finish the routine load task
+    _ctx->load_status_promise.set_value(_status); // when all done, finish the routine load task
 }
 
 } // namespace io

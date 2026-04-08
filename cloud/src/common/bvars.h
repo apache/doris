@@ -551,8 +551,10 @@ extern BvarLatencyRecorderWithTag g_bvar_ms_commit_txn_eventually;
 extern BvarLatencyRecorderWithTag g_bvar_ms_abort_txn;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_txn;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_current_max_txn_id;
+extern BvarLatencyRecorderWithTag g_bvar_ms_create_meta_sync_point;
 extern BvarLatencyRecorderWithTag g_bvar_ms_check_txn_conflict;
 extern BvarLatencyRecorderWithTag g_bvar_ms_abort_txn_with_coordinator;
+extern BvarLatencyRecorderWithTag g_bvar_ms_get_prepare_txn_by_coordinator;
 extern BvarLatencyRecorderWithTag g_bvar_ms_begin_sub_txn;
 extern BvarLatencyRecorderWithTag g_bvar_ms_abort_sub_txn;
 extern BvarLatencyRecorderWithTag g_bvar_ms_clean_txn_label;
@@ -619,6 +621,7 @@ extern BvarLatencyRecorderWithTag g_bvar_ms_abort_snapshot;
 extern BvarLatencyRecorderWithTag g_bvar_ms_drop_snapshot;
 extern BvarLatencyRecorderWithTag g_bvar_ms_list_snapshot;
 extern BvarLatencyRecorderWithTag g_bvar_ms_clone_instance;
+extern BvarLatencyRecorderWithTag g_bvar_ms_compact_snapshot;
 extern BvarLatencyRecorderWithTag g_bvar_ms_update_packed_file_info;
 extern bvar::Adder<int64_t> g_bvar_update_delete_bitmap_fail_counter;
 extern bvar::Adder<int64_t> g_bvar_get_delete_bitmap_fail_counter;
@@ -629,6 +632,7 @@ extern MBvarLatencyRecorderWithStatus<60> g_bvar_instance_txn_commit_with_tablet
 extern bvar::LatencyRecorder g_bvar_ms_scan_instance_update;
 extern bvar::LatencyRecorder g_bvar_txn_lazy_committer_waiting_duration;
 extern bvar::LatencyRecorder g_bvar_txn_lazy_committer_committing_duration;
+extern bvar::LatencyRecorder g_bvar_txn_lazy_committer_commit_partition_duration;
 extern bvar::Adder<int64_t> g_bvar_txn_lazy_committer_submitted;
 extern bvar::Adder<int64_t> g_bvar_txn_lazy_committer_finished;
 
@@ -666,8 +670,34 @@ extern BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_recycle_cost_ms;
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_scanned_kv_num;
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_corrected_kv_num;
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_recycled_object_num;
+
+extern BvarStatusWithTag<int64_t> g_bvar_recycler_batch_delete_rowset_plan_count;
+extern BvarStatusWithTag<int64_t> g_bvar_recycler_batch_delete_failures;
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_bytes_object_deleted;
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_rowset_scanned_num;
+
+// Operation Log Recycler BVars
+// Note: generic metrics (last_round_to_recycle_num/bytes, last_round_recycled_num/bytes, etc.)
+// are reported by RecyclerMetricsContext with operation_type = "recycle_operation_logs".
+extern mBvarStatus<int64_t> g_bvar_recycler_oplog_last_round_total_num;
+extern mBvarStatus<int64_t> g_bvar_recycler_oplog_last_round_not_recycled_num;
+extern mBvarIntAdder g_bvar_recycler_oplog_recycle_failed_num;
+extern mBvarStatus<int64_t> g_bvar_recycler_oplog_last_round_recycled_commit_partition_num;
+extern mBvarStatus<int64_t> g_bvar_recycler_oplog_last_round_recycled_drop_partition_num;
+extern mBvarStatus<int64_t> g_bvar_recycler_oplog_last_round_recycled_commit_index_num;
+extern mBvarStatus<int64_t> g_bvar_recycler_oplog_last_round_recycled_drop_index_num;
+extern mBvarStatus<int64_t> g_bvar_recycler_oplog_last_round_recycled_update_tablet_num;
+extern mBvarStatus<int64_t> g_bvar_recycler_oplog_last_round_recycled_compaction_num;
+extern mBvarStatus<int64_t> g_bvar_recycler_oplog_last_round_recycled_schema_change_num;
+extern mBvarStatus<int64_t> g_bvar_recycler_oplog_last_round_recycled_commit_txn_num;
+extern mBvarIntAdder g_bvar_recycler_oplog_recycled_commit_partition_num;
+extern mBvarIntAdder g_bvar_recycler_oplog_recycled_drop_partition_num;
+extern mBvarIntAdder g_bvar_recycler_oplog_recycled_commit_index_num;
+extern mBvarIntAdder g_bvar_recycler_oplog_recycled_drop_index_num;
+extern mBvarIntAdder g_bvar_recycler_oplog_recycled_update_tablet_num;
+extern mBvarIntAdder g_bvar_recycler_oplog_recycled_compaction_num;
+extern mBvarIntAdder g_bvar_recycler_oplog_recycled_schema_change_num;
+extern mBvarIntAdder g_bvar_recycler_oplog_recycled_commit_txn_num;
 
 // txn_kv's bvars
 extern bvar::LatencyRecorder g_bvar_txn_kv_get;
@@ -726,19 +756,9 @@ extern bvar::Status<int64_t> g_bvar_fdb_qos_worst_data_lag_storage_server_ns;
 extern bvar::Status<int64_t> g_bvar_fdb_qos_worst_durability_lag_storage_server_ns;
 extern bvar::Status<int64_t> g_bvar_fdb_qos_worst_log_server_queue_bytes;
 extern bvar::Status<int64_t> g_bvar_fdb_qos_worst_storage_server_queue_bytes;
-extern bvar::Status<int64_t> g_bvar_fdb_workload_conflict_rate_hz;
-extern bvar::Status<int64_t> g_bvar_fdb_workload_location_rate_hz;
-extern bvar::Status<int64_t> g_bvar_fdb_workload_keys_read_hz;
-extern bvar::Status<int64_t> g_bvar_fdb_workload_read_bytes_hz;
-extern bvar::Status<int64_t> g_bvar_fdb_workload_read_rate_hz;
-extern bvar::Status<int64_t> g_bvar_fdb_workload_write_rate_hz;
-extern bvar::Status<int64_t> g_bvar_fdb_workload_written_bytes_hz;
-extern bvar::Status<int64_t> g_bvar_fdb_workload_transactions_started_hz;
-extern bvar::Status<int64_t> g_bvar_fdb_workload_transactions_committed_hz;
-extern bvar::Status<int64_t> g_bvar_fdb_workload_transactions_rejected_hz;
 extern bvar::Status<int64_t> g_bvar_fdb_client_thread_busyness_percent;
-extern mBvarStatus<int64_t> g_bvar_fdb_process_status_int;
-extern mBvarStatus<double> g_bvar_fdb_process_status_float;
+extern mBvarStatus<double> g_bvar_fdb_cluster_processes;
+extern mBvarStatus<double> g_bvar_fdb_cluster_workload;
 
 // checker
 extern BvarStatusWithTag<long> g_bvar_checker_num_scanned;
@@ -869,12 +889,14 @@ extern mBvarInt64Adder g_bvar_rpc_kv_abort_txn_put_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_abort_txn_del_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_get_txn_get_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_get_current_max_txn_id_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_create_meta_sync_point_del_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_begin_sub_txn_get_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_begin_sub_txn_put_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_begin_sub_txn_del_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_abort_sub_txn_get_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_abort_sub_txn_put_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_abort_txn_with_coordinator_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_get_prepare_txn_by_coordinator_get_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_check_txn_conflict_get_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_clean_txn_label_get_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_clean_txn_label_put_counter;
@@ -901,6 +923,8 @@ extern mBvarInt64Adder g_bvar_rpc_kv_drop_snapshot_del_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_clone_instance_get_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_clone_instance_put_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_clone_instance_del_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_compact_snapshot_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_compact_snapshot_put_counter;
 
 extern mBvarInt64Adder g_bvar_rpc_kv_get_rowset_get_bytes;
 extern mBvarInt64Adder g_bvar_rpc_kv_get_version_get_bytes;
@@ -1007,12 +1031,14 @@ extern mBvarInt64Adder g_bvar_rpc_kv_abort_txn_put_bytes;
 extern mBvarInt64Adder g_bvar_rpc_kv_abort_txn_del_bytes;
 extern mBvarInt64Adder g_bvar_rpc_kv_get_txn_get_bytes;
 extern mBvarInt64Adder g_bvar_rpc_kv_get_current_max_txn_id_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_create_meta_sync_point_del_bytes;
 extern mBvarInt64Adder g_bvar_rpc_kv_begin_sub_txn_get_bytes;
 extern mBvarInt64Adder g_bvar_rpc_kv_begin_sub_txn_put_bytes;
 extern mBvarInt64Adder g_bvar_rpc_kv_begin_sub_txn_del_bytes;
 extern mBvarInt64Adder g_bvar_rpc_kv_abort_sub_txn_get_bytes;
 extern mBvarInt64Adder g_bvar_rpc_kv_abort_sub_txn_put_bytes;
 extern mBvarInt64Adder g_bvar_rpc_kv_abort_txn_with_coordinator_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_get_prepare_txn_by_coordinator_get_bytes;
 extern mBvarInt64Adder g_bvar_rpc_kv_check_txn_conflict_get_bytes;
 extern mBvarInt64Adder g_bvar_rpc_kv_clean_txn_label_get_bytes;
 extern mBvarInt64Adder g_bvar_rpc_kv_clean_txn_label_put_bytes;
@@ -1039,6 +1065,8 @@ extern mBvarInt64Adder g_bvar_rpc_kv_list_snapshot_del_bytes;
 extern mBvarInt64Adder g_bvar_rpc_kv_clone_instance_get_bytes;
 extern mBvarInt64Adder g_bvar_rpc_kv_clone_instance_put_bytes;
 extern mBvarInt64Adder g_bvar_rpc_kv_clone_instance_del_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_compact_snapshot_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_compact_snapshot_put_bytes;
 
 // meta ranges
 extern mBvarStatus<int64_t> g_bvar_fdb_kv_ranges_count;

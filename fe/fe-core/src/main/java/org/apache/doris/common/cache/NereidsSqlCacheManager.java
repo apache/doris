@@ -64,6 +64,7 @@ import org.apache.doris.proto.Types.PUniqueId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ResultSet;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.qe.cache.SqlCache;
 import org.apache.doris.rpc.RpcException;
@@ -278,6 +279,13 @@ public class NereidsSqlCacheManager {
         SqlCacheContext sqlCacheContext = sqlCaches.getIfPresent(key);
         if (sqlCacheContext == null) {
             return Optional.empty();
+        }
+
+        try {
+            StmtExecutor.syncJournalIfNeeded(connectContext);
+        } catch (Throwable t) {
+            LOG.warn("syncJournalIfNeeded failed", t);
+            return invalidateCache(key);
         }
 
         // LOG.info("Total size: " + GraphLayout.parseInstance(sqlCacheContext).totalSize());

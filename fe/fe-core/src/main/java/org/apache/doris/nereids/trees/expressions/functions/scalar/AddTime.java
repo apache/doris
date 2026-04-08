@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
 
 import com.google.common.base.Preconditions;
@@ -41,7 +42,10 @@ public class AddTime extends ScalarFunction implements BinaryExpression, Explici
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DateTimeV2Type.WILDCARD).args(DateTimeV2Type.WILDCARD,
                     TimeV2Type.WILDCARD),
-            FunctionSignature.ret(TimeV2Type.WILDCARD).args(TimeV2Type.WILDCARD, TimeV2Type.WILDCARD));
+            FunctionSignature.ret(TimeV2Type.WILDCARD).args(TimeV2Type.WILDCARD, TimeV2Type.WILDCARD),
+            FunctionSignature.ret(TimeStampTzType.WILDCARD).args(TimeStampTzType.WILDCARD,
+                    TimeV2Type.WILDCARD)
+    );
 
     public AddTime(Expression arg0, Expression arg1) {
         super("add_time", arg0, arg1);

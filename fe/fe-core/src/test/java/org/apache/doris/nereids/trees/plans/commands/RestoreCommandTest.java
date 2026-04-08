@@ -18,10 +18,10 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
@@ -29,6 +29,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.ImmutableMap;
 import mockit.Expectations;
 import mockit.Mocked;
 import org.apache.commons.collections4.map.HashedMap;
@@ -135,5 +136,20 @@ public class RestoreCommandTest {
         String repoName2 = "__keep_on_local__";
         RestoreCommand command5 = new RestoreCommand(labelNameInfo, repoName2, tableRefInfos, properties2, isExclude);
         Assertions.assertThrows(DdlException.class, () -> command5.validate(connectContext));
+    }
+
+    @Test
+    public void testAnalyzePropertiesWithImmutableMap() {
+        LabelNameInfo labelNameInfo = new LabelNameInfo(dbName, "label0");
+        Map<String, String> properties = ImmutableMap.of(
+                "timeout", "86400",
+                "backup_timestamp", "2025-06-12-11-15-20");
+
+        RestoreCommand command = new RestoreCommand(labelNameInfo, "testRepo",
+                new ArrayList<>(), properties, false);
+
+        Assertions.assertDoesNotThrow(command::analyzeProperties);
+        Assertions.assertEquals(86400L * 1000, command.getTimeoutMs());
+        Assertions.assertEquals("2025-06-12-11-15-20", command.getBackupTimestamp());
     }
 }

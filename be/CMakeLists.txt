@@ -51,6 +51,10 @@ elseif (CMAKE_SYSTEM_NAME MATCHES "Darwin")
     add_definitions(-D OS_MACOSX)
 endif ()
 
+if (OS_MACOSX)
+    add_definitions(-DBOOST_PROCESS_POSIX_NO_SIGTIMEDWAIT -UBOOST_POSIX_HAS_SIGTIMEDWAIT)
+endif()
+
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     set (COMPILER_GCC 1)
     option(ENABLE_PCH "enable pch" OFF)
@@ -119,7 +123,11 @@ endif()
 
 # Set dirs
 set(BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
-set(ENV{DORIS_HOME} "${BASE_DIR}/..")
+if (DEFINED ENV{DORIS_HOME})
+    message(STATUS "DORIS_HOME is $ENV{DORIS_HOME}")
+else()
+    message(FATAL_ERROR "DORIS_HOME is not defined")
+endif()
 set(BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}")
 set(GENSRC_DIR "${BASE_DIR}/../gensrc/build/")
 set(COMMON_SRC_DIR "${BASE_DIR}/../common")
@@ -145,6 +153,17 @@ message(STATUS "build task executor simulator: ${BUILD_TASK_EXECUTOR_SIMULATOR}"
 
 option(BUILD_FILE_CACHE_LRU_TOOL "ON for building file cache lru tool or OFF for not" OFF)
 message(STATUS "build file cache lru tool: ${BUILD_FILE_CACHE_LRU_TOOL}")
+
+option(ENABLE_PAIMON_CPP "Enable Paimon C++ integration" ON)
+set(PAIMON_HOME "" CACHE PATH "Paimon install prefix")
+
+# Allow env to override when reconfiguring (avoid picking /usr/local).
+if (DEFINED ENV{ENABLE_PAIMON_CPP})
+    set(ENABLE_PAIMON_CPP "$ENV{ENABLE_PAIMON_CPP}" CACHE BOOL "" FORCE)
+endif()
+if (DEFINED ENV{PAIMON_HOME} AND NOT PAIMON_HOME)
+    set(PAIMON_HOME "$ENV{PAIMON_HOME}" CACHE PATH "" FORCE)
+endif()
 
 set(CMAKE_SKIP_RPATH TRUE)
 set(Boost_USE_STATIC_LIBS ON)
@@ -282,6 +301,10 @@ endif()
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_C_STANDARD 17)
 
+add_compile_options(
+  "-ffile-prefix-map=$ENV{DORIS_HOME}=."
+)
+
 add_compile_options(-g
                     -gdwarf-5
                     -Wall
@@ -294,7 +317,6 @@ add_compile_options(-g
                     $<$<COMPILE_LANGUAGE:CXX>:-Wnon-virtual-dtor>)
 
 add_compile_options(-Wno-unused-parameter
-                    -Wno-deprecated-declarations
                     -Wno-sign-compare)
 
 if (COMPILER_GCC)
@@ -306,7 +328,8 @@ if (COMPILER_GCC)
                         -Wno-nonnull
                         -Wno-stringop-overread
                         -Wno-stringop-overflow
-                        -Wno-array-bounds)
+                        -Wno-array-bounds
+                        -Wno-maybe-uninitialized)
 endif ()
 
 if (COMPILER_CLANG)
@@ -403,7 +426,11 @@ endif()
 #   -O3: Enable all compiler optimizations
 #   -DNDEBUG: Turn off dchecks/asserts/debug only code.
 set(CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
-set(CXX_FLAGS_ASAN "-O0 -fsanitize=address -fsanitize=undefined -fno-sanitize=float-cast-overflow  -fsanitize-ignorelist=${BASE_DIR}/../conf/ubsan_ignorelist.txt -DUNDEFINED_BEHAVIOR_SANITIZER -DADDRESS_SANITIZER")
+message(STATUS "UBSAN_IGNORELIST is ${UBSAN_IGNORELIST}")
+set(CXX_FLAGS_ASAN "-O0 -fsanitize=address -fsanitize=undefined -fno-sanitize=float-cast-overflow -DUNDEFINED_BEHAVIOR_SANITIZER -DADDRESS_SANITIZER")
+if (COMPILER_CLANG)
+    set(CXX_FLAGS_ASAN "${CXX_FLAGS_ASAN} -fsanitize-ignorelist=${UBSAN_IGNORELIST}")
+endif()
 set(CXX_FLAGS_LSAN "-O0 -fsanitize=leak -DLEAK_SANITIZER")
 ## Use for BE-UT
 set(CXX_FLAGS_ASAN_UT "-O0 -fsanitize=address -DADDRESS_SANITIZER")
@@ -513,21 +540,19 @@ set(DORIS_LINK_LIBS
     ${WL_START_GROUP}
     Agent
     Common
+    Core
     Exec
     Exprs
+    Format
     IO
-    Olap
+    Storage
     Runtime
-    RuntimeFilter
     Service
     Udf
     Util
     DorisGen
-    Webserver
-    Geo
-    GeoType
-    Vec
-    Pipeline
+    Load
+    InformationSchema
     Cloud
     ${WL_END_GROUP}
     CommonCPP
@@ -544,6 +569,10 @@ set(COMMON_THIRDPARTY
     Boost::container
     ${COMMON_THIRDPARTY}
 )
+
+if (ENABLE_PAIMON_CPP)
+    message(STATUS "Paimon C++ enabled: legacy thirdparty static linkage mode")
+endif()
 
 if ((ARCH_AMD64 OR ARCH_AARCH64) AND OS_LINUX)
     add_library(hadoop_hdfs STATIC IMPORTED)
@@ -572,6 +601,13 @@ endif()
 if (absl_FOUND)
     set(COMMON_THIRDPARTY
         ${COMMON_THIRDPARTY}
+        absl::cord
+        absl::cord_internal
+        absl::cordz_functions
+        absl::cordz_info
+        absl::cordz_update_scope
+        absl::cordz_update_tracker
+        absl::crc_cord_state
         absl::flags
         absl::random_random
         absl::spinlock_wait
@@ -597,6 +633,19 @@ if (BUILD_BENCHMARK)
     )
 endif()
 
+set(PAIMON_FACTORY_REGISTRY_LIBS)
+if (ENABLE_PAIMON_CPP)
+    # Plan B: Doris Arrow is now built with COMPUTE/DATASET/ACERO/FILESYSTEM,
+    # so arrow, arrow_dataset, arrow_acero are all in COMMON_THIRDPARTY via
+    # thirdparty.cmake.  paimon-cpp reuses the same Arrow (no paimon_deps).
+    # No dual-stack selection needed — single Arrow for everything.
+
+    # paimon_parquet_file_format depends on Arrow Dataset symbols.
+    # Force-link it with --whole-archive so its factory registration runs.
+    set(PAIMON_FACTORY_REGISTRY_LIBS paimon_parquet_file_format)
+    list(REMOVE_ITEM COMMON_THIRDPARTY ${PAIMON_FACTORY_REGISTRY_LIBS})
+endif()
+
 set(DORIS_DEPENDENCIES
     ${DORIS_DEPENDENCIES}
     ${WL_START_GROUP}
@@ -613,6 +662,29 @@ set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ic)
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} clucene-core-static)
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} clucene-shared-static)
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} clucene-contribs-lib)
+
+if (ENABLE_PAIMON_CPP)
+    if (PAIMON_FACTORY_REGISTRY_LIBS)
+        if (APPLE)
+            foreach(lib ${PAIMON_FACTORY_REGISTRY_LIBS})
+                set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES}
+                    -Wl,-force_load,$<TARGET_FILE:${lib}>)
+            endforeach()
+        else()
+            set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES}
+                -Wl,--whole-archive
+                ${PAIMON_FACTORY_REGISTRY_LIBS}
+                -Wl,--no-whole-archive)
+        endif()
+    endif()
+
+    # paimon-cpp internal dependencies (renamed with _paimon suffix)
+    # These must come after paimon libraries to resolve symbols.
+    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} roaring_bitmap_paimon)
+    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} xxhash_paimon)
+    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} fmt_paimon)
+    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} tbb_paimon)
+endif()
 
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ${WL_END_GROUP})
 
@@ -636,6 +708,11 @@ else()
         -lresolv
         -liconv
     )
+    # On macOS arm64, large binaries (>2GB) can cause the virtual address space
+    # to overlap with the dyld shared cache region, resulting in "dyld cache not
+    # loaded: syscall to map cache into shared region failed". Use -dead_strip to
+    # remove unreachable code/data and reduce binary size.
+    add_link_options(-Wl,-dead_strip)
 endif()
 
 
@@ -714,10 +791,16 @@ if (ENABLE_CLANG_COVERAGE AND ENABLE_CLANG_COVERAGE STREQUAL ON AND COMPILER_CLA
 endif ()
 
 if (MAKE_TEST)
-    add_compile_options(-fprofile-arcs -ftest-coverage -DGTEST_USE_OWN_TR1_TUPLE=0)
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fprofile-arcs -ftest-coverage")
-    if (NOT OS_MACOSX)
-        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lgcov")
+    add_compile_options(-DGTEST_USE_OWN_TR1_TUPLE=0)
+    # Only add GCC-style coverage when using GCC compiler
+    # to avoid duplicate symbol errors (e.g., __gcov_fork, __gcov_reset)
+    # between libgcov.a and libclang_rt.profile-x86_64.a
+    if (COMPILER_GCC)
+        add_compile_options(-fprofile-arcs -ftest-coverage)
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fprofile-arcs -ftest-coverage")
+        if (NOT OS_MACOSX)
+            set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lgcov")
+        endif()
     endif()
     add_definitions(-DBE_TEST)
     if (ARCH_ARM)
@@ -818,38 +901,39 @@ endfunction(pch_reuse target)
 
 add_subdirectory(${SRC_DIR}/agent)
 add_subdirectory(${SRC_DIR}/common)
+add_subdirectory(${SRC_DIR}/core)
 add_subdirectory(${SRC_DIR}/exec)
 add_subdirectory(${SRC_DIR}/exprs)
+add_subdirectory(${SRC_DIR}/format)
 add_subdirectory(${SRC_DIR}/gen_cpp)
-add_subdirectory(${SRC_DIR}/geo)
-add_subdirectory(${SRC_DIR}/http)
 add_subdirectory(${SRC_DIR}/io)
-add_subdirectory(${SRC_DIR}/olap/rowset/segment_v2/ann_index)
-add_subdirectory(${SRC_DIR}/olap)
+add_subdirectory(${SRC_DIR}/storage/index/ann)
+add_subdirectory(${SRC_DIR}/storage)
 add_subdirectory(${SRC_DIR}/runtime)
-add_subdirectory(${SRC_DIR}/runtime_filter)
 add_subdirectory(${SRC_DIR}/service) # this include doris_be
 add_subdirectory(${SRC_DIR}/udf)
 add_subdirectory(${SRC_DIR}/cloud)
+add_subdirectory(${SRC_DIR}/load)
+add_subdirectory(${SRC_DIR}/information_schema)
 
 option(BUILD_META_TOOL "Build meta tool" OFF)
-if (BUILD_META_TOOL)
+option(BUILD_INDEX_TOOL "Build index tool" OFF)
+if (BUILD_META_TOOL OR BUILD_INDEX_TOOL)
     add_subdirectory(${SRC_DIR}/tools)
 endif()
 
 option(BUILD_FILE_CACHE_MICROBENCH_TOOL "Build file cache mirobench Tool" OFF)
 if (BUILD_FILE_CACHE_MICROBENCH_TOOL)
     add_subdirectory(${SRC_DIR}/io/tools)
-endif()
-
-option(BUILD_INDEX_TOOL "Build index tool" OFF)
-if (BUILD_INDEX_TOOL)
-    add_subdirectory(${SRC_DIR}/index-tools)
+    install(FILES
+        ${BASE_DIR}/../bin/start_file_cache_microbench.sh
+        PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE
+        GROUP_READ GROUP_WRITE GROUP_EXECUTE
+        WORLD_READ WORLD_EXECUTE
+        DESTINATION ${OUTPUT_DIR}/bin)
 endif()
 
 add_subdirectory(${SRC_DIR}/util)
-add_subdirectory(${SRC_DIR}/vec)
-add_subdirectory(${SRC_DIR}/pipeline)
 
 # this include doris_be_test
 if (MAKE_TEST)

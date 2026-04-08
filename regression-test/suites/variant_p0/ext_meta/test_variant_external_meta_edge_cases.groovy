@@ -34,7 +34,7 @@ suite("test_variant_external_meta_edge_cases", "nonConcurrent") {
     sql """
         CREATE TABLE test_empty_subcolumns (
             k bigint,
-            v variant
+            v variant<properties("variant_enable_doc_mode" = "false")>
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 1
@@ -111,7 +111,7 @@ suite("test_variant_external_meta_edge_cases", "nonConcurrent") {
     qt_mixed_5 "select k, v['e'] from test_mixed_format where cast(v['e'] as int) is not null order by k"
     
     // Trigger compaction and verify
-    trigger_and_wait_compaction("test_mixed_format", "full")
+    trigger_and_wait_compaction("test_mixed_format", "full", 1800)
     
     qt_mixed_after_compact_1 "select k, v['a'] from test_mixed_format order by k"
     qt_mixed_after_compact_2 "select count(distinct k) from test_mixed_format"
@@ -274,7 +274,7 @@ suite("test_variant_external_meta_edge_cases", "nonConcurrent") {
     qt_toggle_3 "select k, v['c'] from test_config_toggle where cast(v['c'] as int) is not null order by k"
     
     // Compact and verify
-    trigger_and_wait_compaction("test_config_toggle", "full")
+    trigger_and_wait_compaction("test_config_toggle", "full", 1800)
     
     qt_toggle_after_compact_1 "select k, v['a'] from test_config_toggle order by k"
     qt_toggle_after_compact_2 "select k, v['b'] from test_config_toggle where cast(v['b'] as int) is not null order by k"

@@ -189,7 +189,7 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         checkContainsAll(false, "TA is null", "TA != 10");
         checkContainsAll(true, "TA is null", "TA is null");
         checkContainsAll(false, "TA is null", "TA is not null");
-        checkContainsAll(true, "TA is null", "TA is null and (TA > 10)");
+        checkContainsAll(false, "TA is null", "TA is null and (TA > 10)");
         checkContainsAll(false, "TA is null", "TA is null or (TA > 10)");
 
         checkContainsAll(false, "TA is not null", "TA is null and null");
@@ -293,8 +293,8 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewrite("TA is null", "TA is null");
         assertRewrite("TA is null and null or TA = 1", "TA = 1");
         assertRewrite("TA is null and null or TA is null", "TA is null");
-        assertRewrite("TA is null and null or (TA is null and TA > 10) ", "(TA > 10 and TA is null) or TA is null and null");
-        assertRewrite("TA is null and null or TA is not null", "TA is not null or TA is null and null");
+        assertRewrite("TA is null and null or (TA is null and TA > 10) ", "TA is null and null");
+        assertRewrite("TA is null and null or TA is not null", "TA is not null or null");
         assertRewriteNotNull("TA != 1 or TA != 2", "TRUE");
         assertRewrite("TA is null or TA is not null", "TRUE");
         assertRewrite("TA > 5 and TA > 1 and TA > 10", "TA > 10");
@@ -320,7 +320,7 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewrite("TA in (1,2,3) and TA >= 1", "TA in (1,2,3)");
         assertRewrite("TA in (1,2,3) and TA > 1", "TA IN (2, 3)");
         assertRewrite("TA in (1,2,3) or TA >= 1", "TA >= 1");
-        assertRewrite("TA is null and (TA = 4 or TA = 5)", "TA in (4, 5) and TA is null");
+        assertRewrite("TA is null and (TA = 4 or TA = 5)", "TA is null and null");
         assertRewrite("(TA != 3 or TA is null) and (TA = 4 or TA = 5)", "TA in (4, 5)");
         assertRewrite("TA in (1)", "TA in (1)");
         assertRewrite("TA in (1,2,3) and TA < 10", "TA in (1,2,3)");
@@ -347,7 +347,21 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewrite("TA > 3 and TB < 5 and TA < 1", "TA is null and null and TB < 5");
         assertRewrite("(TA > 3 and TA < 1) or TB < 5", "(TA is null and null) or TB < 5");
 
+        assertRewrite("TA is null and TA > 10", "TA is null and null");
+        assertRewrite("TA is null and TA = 10", "TA is null and null");
+        assertRewrite("TA is null and TA != 10", "TA is null and null");
+        assertRewriteNotNull("TA is null and TA > 10", "FALSE");
+        assertRewriteNotNull("TA is null and TA = 10", "FALSE");
+        assertRewriteNotNull("TA is null and TA != 10", "FALSE");
+        assertRewrite("TA is not null or TA > 10", "TA is not null or null");
+        assertRewrite("TA is not null or TA = 10", "TA is not null or null");
+        assertRewrite("TA is not null or TA != 10", "TA is not null or null");
+        assertRewriteNotNull("TA is not null or TA > 10", "TRUE");
+        assertRewriteNotNull("TA is not null or TA = 10", "TRUE");
+        assertRewriteNotNull("TA is not null or TA != 10", "TRUE");
+
         // A and (B or C) = A
+        assertRewrite("TA < 10 and (TA is not null or TA is null and null)", "TA < 10");
         assertRewrite("TA > 10 and (TA > 5 or (TA is not null and TA > 1))", "TA > 10");
         assertRewrite("TA > 10 and (TA != 4 or (TA is not null and TA > 1))", "TA > 10");
         assertRewrite("TA = 5 and (TA != 4 or (TA is not null and TA > 1))", "TA = 5");
@@ -355,7 +369,8 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewrite("TA = 5 and (TA > 3 or (TA is not null and TA > 1))", "TA = 5");
         assertRewrite("TA not in (1, 2) and (TA not in (1) or (TA is not null and TA > 1))", "TA not in (1, 2)");
         assertRewrite("TA not in (1, 2) and (TA not in (1, 2) or (TA is not null and TA > 1))", "TA not in (1, 2)");
-        assertRewrite("TA not in (1, 2) and (TA not in (2, 3) or (TA is not null and TA > 1))", "TA not in (1, 2) and (TA not in (2, 3) or (TA > 1 and TA is not null))");
+        assertRewrite("TA not in (2, 3) or (TA is not null and TA > 1)", "TA is not null or null");
+        assertRewrite("TA not in (1, 2) and (TA not in (2, 3) or (TA is not null and TA > 1))", "TA not in (1, 2)");
         assertRewrite("TA is null and null and (TA = 10 or (TA is not null and TA > 1))", "TA is null and null");
         assertRewrite("TA is null and null and (TA != 10 or (TA is not null and TA > 1))", "TA is null and null");
         assertRewrite("TA is null and null and (TA > 20 or (TA is not null and TA > 1))", "TA is null and null");
@@ -372,7 +387,7 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewriteNotNull("TA is not null", "TA is not null");
         assertRewrite("TA is null and null or TA is null", "TA is null");
         assertRewriteNotNull("TA is null and null or TA is null", "TA is null");
-        assertRewrite("TA is null and null or TA is not null", "TA is not null or TA is null and null");
+        assertRewrite("TA is null and null or TA is not null", "TA is not null or null");
         assertRewriteNotNull("TA is null and null or TA is not null", "not TA is null");
         assertRewrite("TA is null or TA is not null", "TRUE");
         assertRewriteNotNull("TA is null or TA is not null", "TRUE");
@@ -393,18 +408,17 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewrite("(TA is null or null) or TA is null", "TA is null or null");
         assertRewrite("(TA is not null and null) and TA is null", "FALSE");
         assertRewrite("(TA is not null and null) or TA is null", "TA is not null and null or TA is null");
-        // can simplify to 'TA is null and null', but not supported yet, because it treat 'TA is not null or null' to RangeAll
-        assertRewrite("(TA is not null or null) and TA is null", "(TA is not null or null) and TA is null");
+        assertRewrite("(TA is not null or null) and TA is null", "TA is null and null");
         assertRewrite("(TA is not null or null) or TA is null", "TRUE");
         assertRewrite("(TA is null and null) and TA is not null", "FALSE");
-        assertRewrite("(TA is null and null) or TA is not null", "TA is not null or TA is null and null");
+        assertRewrite("(TA is null and null) or TA is not null", "TA is not null or null");
         assertRewrite("(TA is null or null) and TA is not null", "(TA is null or null) and TA is not null");
         assertRewrite("(TA is null or null) or TA is not null", "TRUE");
         assertRewrite("(TA is not null and null) and TA is not null", "TA is not null and null");
         // can simplify to 'TA is not null', but not supported yet
         assertRewrite("(TA is not null and null) or TA is not null", "TA is not null and null or TA is not null");
         // can simplify to 'TA is not null', but not supported yet
-        assertRewrite("(TA is not null or null) and TA is not null", "(TA is not null or null) and TA is not null");
+        assertRewrite("(TA is not null or null) and TA is not null", "TA is not null");
         assertRewrite("(TA is not null or null) or TA is not null", "TA is not null or null");
 
         assertRewrite("(XA is null and null) and XA is null", "FALSE");
@@ -432,6 +446,62 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         // can simplify to 'TRUE', but not supported yet
         assertRewrite("(XA is not null or null) and XA is not null", "XA is not null");
         assertRewrite("(XA is not null or null) or XA is not null", "TRUE");
+
+        assertRewrite("TA < 10 or (TA is null or (TA != 1 and TA != 2))", "TRUE");
+        assertRewrite("TA < 10 or ((TA != 1 or TA is null) and (TA != 2 or TA is null))", "TRUE");
+
+        assertRewrite("(TA between 10 and 20 or TA between 30 and 40) and (TA between 5 and 15 or TA between 35 and 45)",
+                "(TA between 10 and 20 or TA between 30 and 40) and (TA between 5 and 15 or TA between 35 and 45)");
+        assertRewrite("(TA between 10 and 20 or TA > 30) and (TA between 5 and 15 or TA > 40)",
+                "(TA between 10 and 20 or TA > 30) and (TA between 5 and 15 or TA > 40)");
+
+        assertRewrite("TA < 10 and TA is not null or TA > 20 and TA is not null",
+                "TA < 10 and TA is not null or TA > 20 and TA is not null");
+        assertRewrite("TA < 10 and TA != 0 or TA > 20 and TA != 25", "TA < 10 and TA != 0 or TA > 20 and TA != 25");
+
+        // A and ((B1 and B2) or (C1 and C2))
+        assertRewrite("TA = 15 and (TA < 10 and TA is not null or TA > 20 and TA is not null)", "FALSE");
+        assertRewrite("TA = 15 and (TA < 10 and TA is not null or TA > 20 and TA is null)", "TA is null and null");
+        assertRewrite("TA = 15 and (TA < 10 and TA != 0 or TA > 20 and TA != 25)", "TA is null and null");
+        assertRewriteNotNull("TA = 15 and (TA < 10 and TA is not null or TA > 20 and TA is not null)", "FALSE");
+        assertRewriteNotNull("TA = 15 and (TA < 10 and TA is not null or TA > 20 and TA is null)", "FALSE");
+        assertRewriteNotNull("TA = 15 and (TA < 10 and TA != 0 or TA > 20 and TA != 25)", "FALSE");
+
+        // A or ((B1 or B2) and (C1 or C2))
+        assertRewrite("TA < 10 or ((TA != 1 or TA is null) and (TA != 2 or TA is null))", "TRUE");
+        assertRewrite("TA < 10 or ((TA != 1 or TA is not null) and (TA != 2 or TA is not null))", "TA is not null or null");
+        assertRewrite("TA < 10 or ((TA != 1 or TA is null) and (TA != 2 or TA is not null))", "TA is not null or null");
+        assertRewrite("TA < 10 or ((TA != 1 or TA is null) and (TA is null or TA is not null))", "TRUE");
+        assertRewrite("TA < 100 or (TA between 10 and 20 or TA > 30) and (TA between 5 and 15 or TA > 40)", "TA is not null or null");
+        assertRewriteNotNull("(TA between 10 and 20 or TA between 30 and 40) and (TA between 5 and 15 or TA between 35 and 45)",
+                "(TA between 10 and 20 or TA between 30 and 40) and (TA between 5 and 15 or TA between 35 and 45)");
+        assertRewriteNotNull("(TA between 10 and 20 or TA > 30) and (TA between 5 and 15 or TA > 40)",
+                "(TA between 10 and 20 or TA > 30) and (TA between 5 and 15 or TA > 40)");
+        assertRewriteNotNull("TA < 10 or ((TA != 1 or TA is null) and (TA != 2 or TA is null))", "TRUE");
+        assertRewriteNotNull("TA < 10 or ((TA != 1 or TA is not null) and (TA != 2 or TA is not null))", "TRUE");
+        assertRewriteNotNull("TA < 10 or ((TA != 1 or TA is null) and (TA != 2 or TA is not null))", "TRUE");
+        assertRewriteNotNull("TA < 10 or ((TA != 1 or TA is null) and (TA is null or TA is not null))", "TRUE");
+        assertRewriteNotNull("TA < 100 or (TA between 10 and 20 or TA > 30) and (TA between 5 and 15 or TA > 40)", "TRUE");
+
+        assertRewrite("TA is not null or TA is null and null", "TA is not null or null");
+        assertRewrite("TA > 100 and (TA < 10 or TA between 15 and 20)", "TA is null and null");
+        assertRewrite("TA > 100 and (TA < 10 or TA between 15 and 20 or TA between 110 and 115)", "TA between 110 and 115");
+        assertRewrite("TA > 100 and (TA < 10 or TA between 15 and 20 or TA is null)", "TA is null and null");
+        assertRewrite("TA > 100 and (TA < 10 or TA between 15 and 20 or TA is not null)", "TA > 100");
+        assertRewriteNotNull("TA is not null or TA is null and null", "TA is not null");
+        assertRewriteNotNull("TA > 100 and (TA < 10 or TA between 15 and 20)", "FALSE");
+        assertRewriteNotNull("TA > 100 and (TA < 10 or TA between 15 and 20 or TA is null)", "FALSE");
+        assertRewriteNotNull("TA > 100 and (TA < 10 or TA between 15 and 20 or TA is not null)", "TA > 100");
+        assertRewrite("TA > 100 or (TA < 120 and TA is null)", "TA > 100");
+        assertRewrite("TA > 100 or (TA < 120 and TA is not null)", "TA is not null or null");
+        assertRewrite("TA > 100 or (TA < 120 and TA != 80)",
+                "TA > 100 or ((TA is not null or null) and TA != 80)");
+        assertRewrite("TA > 100 or (TA < 120 and TA != 110)", "TA is not null or null");
+        assertRewriteNotNull("TA > 100 or (TA < 120 and TA is null)", "TA > 100");
+        assertRewriteNotNull("TA > 100 or (TA < 120 and TA is not null)", "TRUE");
+        assertRewriteNotNull("TA > 100 or (TA < 120 and TA != 80)",
+                "TA != 80");
+        assertRewriteNotNull("TA > 100 or (TA < 120 and TA != 110)", "TRUE");
 
         assertRewrite("TA + TC", "TA + TC");
         assertRewrite("(TA + TC >= 1 and TA + TC <=3 ) or (TA + TC > 5 and TA + TC < 7)", "(TA + TC >= 1 and TA + TC <=3 ) or (TA + TC > 5 and TA + TC < 7)");
@@ -671,6 +741,16 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewrite("CA > timestamp '2024-01-03 00:50:00' and CB < timestamp '2024-01-05 00:50:00' and CA < timestamp '2024-01-01 00:50:00'", "CA is null and null and CB < timestamp '2024-01-05 00:50:00'");
         assertRewrite("(CA > timestamp '2024-01-03 00:50:00' and CA < timestamp '2024-01-01 00:50:00') or CB < timestamp '2024-01-05 00:50:00'",
                 "(CA is null and null) OR CB < timestamp '2024-01-05 00:50:00'");
+    }
+
+    @Test
+    public void testMixTypes() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(SimplifyRange.INSTANCE)
+        ));
+        assertRewrite("(TA > 1 and FALSE or FALSE and SA > 'aaaa') and TB is null", "FALSE");
+        assertRewrite("(TA > 1 and FALSE or FALSE and SA > 'aaaa') and (TA > 1 and FALSE or FALSE and SA > 'aaaa') and TB is null",
+                "FALSE");
     }
 
     private ValueDesc getValueDesc(String expression) {

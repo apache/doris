@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_trino_hive_orc", "all_types,external,hive,external_docker,external_docker_hive") {
+suite("test_trino_hive_orc", "p0,external") {
 
     // Ensure that all types are parsed correctly
     def select_top50 = {

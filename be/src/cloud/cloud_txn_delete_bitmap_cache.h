@@ -19,13 +19,13 @@
 
 #include <mutex>
 
-#include "olap/lru_cache.h"
-#include "olap/olap_common.h"
-#include "olap/partial_update_info.h"
-#include "olap/rowset/rowset.h"
-#include "olap/tablet_meta.h"
-#include "olap/txn_manager.h"
+#include "storage/olap_common.h"
+#include "storage/partial_update_info.h"
+#include "storage/rowset/rowset.h"
+#include "storage/tablet/tablet_meta.h"
+#include "storage/txn/txn_manager.h"
 #include "util/countdown_latch.h"
+#include "util/lru_cache.h"
 
 namespace doris {
 
@@ -59,6 +59,16 @@ public:
 
     void remove_unused_tablet_txn_info(TTransactionId transaction_id, int64_t tablet_id);
 
+    // Mark a rowset as empty/skipped (lightweight marker, no rowset stored)
+    // Used for empty rowsets when skip_writing_empty_rowset_metadata is enabled
+    void mark_empty_rowset(TTransactionId txn_id, int64_t tablet_id, int64_t txn_expiration);
+
+    // Check if this is a known empty/skipped rowset
+    // Returns true if was marked as empty rowset
+    // Note: Does not remove the marker, as CalcDeleteBitmapTask may retry.
+    // Cleanup is handled by expiration-based removal in remove_expired_tablet_txn_info()
+    bool is_empty_rowset(TTransactionId txn_id, int64_t tablet_id);
+
     // !!!ATTENTION!!!: the delete bitmap stored in CloudTxnDeleteBitmapCache contains sentinel marks,
     // and the version in BitmapKey is DeleteBitmap::TEMP_VERSION_COMMON.
     // when using delete bitmap from this cache, the caller should manually remove these marks if don't need it
@@ -66,6 +76,10 @@ public:
     Status get_delete_bitmap(TTransactionId transaction_id, int64_t tablet_id,
                              DeleteBitmapPtr* delete_bitmap, RowsetIdUnorderedSet* rowset_ids,
                              std::shared_ptr<PublishStatus>* publish_status);
+
+    // the caller should guarantee that the txn `transaction_id` has been published successfully in MS
+    Result<std::pair<RowsetSharedPtr, DeleteBitmapPtr>> get_rowset_and_delete_bitmap(
+            TTransactionId transaction_id, int64_t tablet_id);
 
 private:
     void _clean_thread_callback();
@@ -107,6 +121,9 @@ private:
 
     std::map<TxnKey, TxnVal> _txn_map;
     std::multimap<int64_t, TxnKey> _expiration_txn;
+    // Lightweight markers for empty/skipped rowsets (only stores TxnKey, ~16 bytes per entry)
+    // Used to track empty rowsets that were not committed to meta-service
+    std::set<TxnKey> _empty_rowset_markers;
     std::shared_mutex _rwlock;
     std::shared_ptr<Thread> _clean_thread;
     CountDownLatch _stop_latch;

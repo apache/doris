@@ -224,7 +224,9 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         }
         writeLock();
         try {
-            deleteStreamingJob(job);
+            if (!isReplay) {
+                deleteStreamingJob(job);
+            }
             jobMap.remove(job.getJobId());
             if (isReplay) {
                 job.onReplayEnd(job);

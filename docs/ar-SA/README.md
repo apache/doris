@@ -46,7 +46,7 @@ under the License.
     &nbsp;
     <a href="https://github.com/apache/doris/discussions"><img src="https://img.shields.io/badge/- Discussion -red?style=social&logo=discourse" height=25></a>
     &nbsp;
-    <a href="https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-35mzao67o-BrpU70FNKPyB6UlgpXf8_w" height=25></a>
+    <a href="https://doris.apache.org/slack" height=25></a>
     &nbsp;
     <a href="https://medium.com/@ApacheDoris"><img src="https://img.shields.io/badge/-Medium-red?style=social&logo=medium" height=25></a>
 
@@ -295,7 +295,7 @@ Apache Doris لديه الآن قاعدة مستخدمين واسعة في ال�
 
 * الموقع الرسمي لـ Apache Doris - [الموقع](https://doris.apache.org)
 * قائمة بريد المطورين - <dev@doris.apache.org>. أرسل بريدًا إلكترونيًا إلى <dev-subscribe@doris.apache.org>، اتبع الرد للاشتراك في قائمة البريد.
-* قناة Slack - [انضم إلى Slack](https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-35mzao67o-BrpU70FNKPyB6UlgpXf8_w)
+* قناة Slack - [انضم إلى Slack](https://doris.apache.org/slack)
 * Twitter - [تابع @doris_apache](https://twitter.com/doris_apache)
 
 

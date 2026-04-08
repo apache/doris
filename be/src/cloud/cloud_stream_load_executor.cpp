@@ -24,7 +24,7 @@
 #include "cloud/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "runtime/stream_load/stream_load_context.h"
+#include "load/stream_load/stream_load_context.h"
 #include "util/debug_points.h"
 
 namespace doris {
@@ -104,6 +104,11 @@ Status CloudStreamLoadExecutor::operate_txn_2pc(StreamLoadContext* ctx) {
 
 Status CloudStreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
     DBUG_EXECUTE_IF("StreamLoadExecutor.commit_txn.block", DBUG_BLOCK);
+    DBUG_EXECUTE_IF("StreamLoadExecutor.commit_txn.crash", {
+        LOG(INFO) << "debug point " << DP_NAME << " trigger crash";
+        volatile int* p = nullptr;
+        *p = 1;
+    });
     // forward to fe to excute commit transaction for MoW table
     if (ctx->is_mow_table() || !config::enable_stream_load_commit_txn_on_be ||
         ctx->load_type == TLoadType::ROUTINE_LOAD) {

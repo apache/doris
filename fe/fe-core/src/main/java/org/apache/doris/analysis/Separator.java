@@ -108,7 +108,7 @@ public class Separator implements ParseNode {
         }
     }
 
-    public static String convertLineDelimiter(String originStr) throws AnalysisException {
+    private static String convertLineDelimiter(String originStr) throws AnalysisException {
         if (Strings.isNullOrEmpty(originStr)) {
             throw new AnalysisException("Line delimiter is null or empty");
         }

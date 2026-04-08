@@ -39,7 +39,7 @@
 #include "cpp/sync_point.h"
 #include "io/fs/file_reader.h"
 #include "io/io_common.h"
-#include "olap/rowset/beta_rowset.h"
+#include "storage/rowset/beta_rowset.h"
 #include "util/bvar_helper.h"
 
 namespace doris::io {
@@ -173,14 +173,6 @@ std::unordered_map<std::string, RowsetMetaSharedPtr> snapshot_rs_metas(BaseTable
     return id_to_rowset_meta_map;
 }
 
-static void clean_up_expired_mappings(void* arg) {
-    // Reclaim ownership with unique_ptr for automatic memory management
-    std::unique_ptr<int64_t> tablet_id(static_cast<int64_t*>(arg));
-    auto& manager = ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager();
-    manager.remove_balanced_tablet(*tablet_id);
-    VLOG_DEBUG << "Removed expired balanced warm up cache tablet: tablet_id=" << *tablet_id;
-}
-
 void FileCacheBlockDownloader::download_file_cache_block(
         const DownloadTask::FileCacheBlockMetaVec& metas) {
     std::unordered_set<int64_t> synced_tablets;
@@ -189,9 +181,34 @@ void FileCacheBlockDownloader::download_file_cache_block(
                    << ", rowset_id=" << meta.rowset_id() << ", segment_id=" << meta.segment_id()
                    << ", offset=" << meta.offset() << ", size=" << meta.size()
                    << ", type=" << meta.cache_type();
+
+        // Helper to decrease inflight count on early return.
+        // NOTE: This lambda captures 'this' pointer. It's safe because:
+        // 1. download_segment_file() calls download_done synchronously
+        // 2. ~FileCacheBlockDownloader() waits for all workers to finish via _workers->shutdown()
+        // If this assumption changes (e.g., async callback), consider using shared_from_this pattern.
+        auto decrease_inflight_count = [this, tablet_id = meta.tablet_id()]() {
+            std::lock_guard lock(_inflight_mtx);
+            auto it = _inflight_tablets.find(tablet_id);
+            if (it == _inflight_tablets.end()) {
+                LOG(WARNING) << "inflight ref cnt not exist, tablet id " << tablet_id;
+            } else {
+                it->second--;
+                VLOG_DEBUG << "download_file_cache_block: inflight_tablets[" << tablet_id
+                           << "] = " << it->second;
+                if (it->second <= 0) {
+                    DCHECK_EQ(it->second, 0) << it->first;
+                    _inflight_tablets.erase(it);
+                    VLOG_DEBUG << "download_file_cache_block: erase inflight_tablets[" << tablet_id
+                               << "]";
+                }
+            }
+        };
+
         CloudTabletSPtr tablet;
         if (auto res = _engine.tablet_mgr().get_tablet(meta.tablet_id(), false); !res.has_value()) {
             LOG(INFO) << "failed to find tablet " << meta.tablet_id() << " : " << res.error();
+            decrease_inflight_count();
             return;
         } else {
             tablet = std::move(res).value();
@@ -210,53 +227,35 @@ void FileCacheBlockDownloader::download_file_cache_block(
         if (find_it == id_to_rowset_meta_map.end()) {
             LOG(WARNING) << "download_file_cache_block: tablet_id=" << meta.tablet_id()
                          << " rowset_id not found, rowset_id=" << meta.rowset_id();
+            decrease_inflight_count();
             return;
         }
 
         auto storage_resource = find_it->second->remote_storage_resource();
         if (!storage_resource) {
             LOG(WARNING) << storage_resource.error();
+            decrease_inflight_count();
+            return;
+        }
+        // Use RowsetMeta::fs() instead of storage_resource->fs to support packed file.
+        // RowsetMeta::fs() wraps the underlying FileSystem with PackedFileSystem when
+        // packed_slice_locations is not empty, which correctly maps segment file paths
+        // to their actual locations within packed files.
+        auto file_system = find_it->second->fs();
+        if (!file_system) {
+            LOG(WARNING) << "download_file_cache_block: failed to get file system for tablet_id="
+                         << meta.tablet_id() << ", rowset_id=" << meta.rowset_id();
+            decrease_inflight_count();
             return;
         }
 
-        auto download_done = [&, tablet_id = meta.tablet_id()](Status st) {
-            std::lock_guard lock(_inflight_mtx);
-            auto it = _inflight_tablets.find(tablet_id);
+        // Capture decrease_inflight_count by value to ensure lifetime safety
+        // even if download_done is called asynchronously in the future
+        auto download_done = [decrease_inflight_count, tablet_id = meta.tablet_id()](Status st) {
             TEST_SYNC_POINT_CALLBACK("FileCacheBlockDownloader::download_file_cache_block");
-            if (it == _inflight_tablets.end()) {
-                LOG(WARNING) << "inflight ref cnt not exist, tablet id " << tablet_id;
-            } else {
-                it->second--;
-                VLOG_DEBUG << "download_file_cache_block: inflight_tablets[" << tablet_id
-                           << "] = " << it->second;
-                if (it->second <= 0) {
-                    DCHECK_EQ(it->second, 0) << it->first;
-                    _inflight_tablets.erase(it);
-                    VLOG_DEBUG << "download_file_cache_block: erase inflight_tablets[" << tablet_id
-                               << "]";
-                }
-            }
-            // Use std::make_unique to avoid raw pointer allocation
-            auto tablet_id_ptr = std::make_unique<int64_t>(tablet_id);
-            unsigned long expired_ms = g_tablet_report_inactive_duration_ms;
-            if (doris::config::cache_read_from_peer_expired_seconds > 0 &&
-                doris::config::cache_read_from_peer_expired_seconds <=
-                        g_tablet_report_inactive_duration_ms / 1000) {
-                expired_ms = doris::config::cache_read_from_peer_expired_seconds * 1000;
-            }
-            bthread_timer_t timer_id;
-            // ATTN: The timer callback will reclaim ownership of the tablet_id_ptr, so we need to release it after the timer is added.
-            if (const int rc =
-                        bthread_timer_add(&timer_id, butil::milliseconds_from_now(expired_ms),
-                                          clean_up_expired_mappings, tablet_id_ptr.get());
-                rc == 0) {
-                tablet_id_ptr.release();
-            } else {
-                LOG(WARNING) << "Fail to add timer for clean up expired mappings for tablet_id="
-                             << tablet_id << " rc=" << rc;
-            }
+            decrease_inflight_count();
             LOG(INFO) << "download_file_cache_block: download_done, tablet_Id=" << tablet_id
-                      << " status=" << st.to_string() << " expired_ms=" << expired_ms;
+                      << " status=" << st.to_string();
         };
 
         std::string path;
@@ -278,7 +277,7 @@ void FileCacheBlockDownloader::download_file_cache_block(
                                                   : -1, // To avoid trigger get file size IO
                 .offset = meta.offset(),
                 .download_size = meta.size(),
-                .file_system = storage_resource.value()->fs,
+                .file_system = file_system,
                 .ctx =
                         {
                                 .is_index_data = meta.cache_type() == ::doris::FileCacheType::INDEX,
@@ -287,6 +286,7 @@ void FileCacheBlockDownloader::download_file_cache_block(
                                 .is_warmup = true,
                         },
                 .download_done = std::move(download_done),
+                .tablet_id = meta.tablet_id(),
         };
         download_segment_file(download_meta);
     });
@@ -301,6 +301,7 @@ void FileCacheBlockDownloader::download_segment_file(const DownloadFileMeta& met
             .is_doris_table = true,
             .cache_base_path {},
             .file_size = meta.file_size,
+            .tablet_id = meta.tablet_id,
     };
     auto st = meta.file_system->open_file(meta.path, &file_reader, &opts);
     if (!st.ok()) {

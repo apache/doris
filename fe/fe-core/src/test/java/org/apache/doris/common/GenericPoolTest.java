@@ -35,6 +35,8 @@ import org.apache.doris.thrift.TIngestBinlogResult;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPublishTopicRequest;
 import org.apache.doris.thrift.TPublishTopicResult;
+import org.apache.doris.thrift.TPythonEnvInfo;
+import org.apache.doris.thrift.TPythonPackageInfo;
 import org.apache.doris.thrift.TQueryIngestBinlogRequest;
 import org.apache.doris.thrift.TQueryIngestBinlogResult;
 import org.apache.doris.thrift.TRoutineLoadTask;
@@ -244,6 +246,16 @@ public class GenericPoolTest {
         @Override
         public org.apache.doris.thrift.TTestStorageConnectivityResponse testStorageConnectivity(
                 org.apache.doris.thrift.TTestStorageConnectivityRequest request) throws TException {
+            return null;
+        }
+
+        @Override
+        public List<TPythonEnvInfo> getPythonEnvs() throws TException {
+            return null;
+        }
+
+        @Override
+        public List<TPythonPackageInfo> getPythonPackages(String pythonVersion) throws TException {
             return null;
         }
     }

@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.functions.combinator.UnionComb
 import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DataTypeUtils;
 
 import java.util.List;
 import java.util.Objects;
@@ -75,7 +76,7 @@ public class AggCombinerFunctionBuilder extends FunctionBuilder {
                 return false;
             }
 
-            return nestedBuilder.canApply(((AggStateType) argument.getDataType()).getMockedExpressions());
+            return nestedBuilder.canApply(DataTypeUtils.getMockedExpressions((AggStateType) argument.getDataType()));
         }
     }
 
@@ -121,7 +122,7 @@ public class AggCombinerFunctionBuilder extends FunctionBuilder {
         if (arg instanceof StateCombinator) {
             nestedArguments = arg.children();
         } else {
-            nestedArguments = ((AggStateType) arg.getDataType()).getMockedExpressions();
+            nestedArguments = DataTypeUtils.getMockedExpressions((AggStateType) arg.getDataType());
         }
 
         return (AggregateFunction) nestedBuilder.build(nestedName, nestedArguments).first;

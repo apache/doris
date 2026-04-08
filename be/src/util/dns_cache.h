@@ -39,6 +39,11 @@ public:
     Status get(const std::string& hostname, std::string* ip);
 
 private:
+    // Resolve hostname to IP address.
+    // If resolution fails, falls back to cached IP if available.
+    // Returns the resolved IP, or cached IP on failure, or empty string if no cache available.
+    std::string _resolve_hostname(const std::string& hostname);
+
     // update the ip of hostname in cache
     Status _update(const std::string& hostname);
 

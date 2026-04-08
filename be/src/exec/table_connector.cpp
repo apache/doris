@@ -28,19 +28,19 @@
 #include <string_view>
 #include <type_traits>
 
-#include "runtime/decimalv2_value.h"
-#include "runtime/define_primitive_type.h"
-#include "util/binary_cast.hpp"
-#include "vec/columns/column.h"
-#include "vec/columns/column_array.h"
-#include "vec/columns/column_nullable.h"
-#include "vec/common/assert_cast.h"
-#include "vec/core/block.h"
-#include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_array.h"
-#include "vec/data_types/data_type_date_or_datetime_v2.h"
-#include "vec/data_types/data_type_nullable.h"
-#include "vec/runtime/vdatetime_value.h"
+#include "core/assert_cast.h"
+#include "core/binary_cast.hpp"
+#include "core/block/block.h"
+#include "core/column/column.h"
+#include "core/column/column_array.h"
+#include "core/column/column_nullable.h"
+#include "core/data_type/data_type.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_date_or_datetime_v2.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/define_primitive_type.h"
+#include "core/value/decimalv2_value.h"
+#include "core/value/vdatetime_value.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"

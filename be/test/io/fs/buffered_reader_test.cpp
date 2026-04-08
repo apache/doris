@@ -68,6 +68,8 @@ public:
 
     bool closed() const override { return _reader->closed(); }
 
+    int64_t mtime() const override { return _reader->mtime(); }
+
 private:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                         const io::IOContext* io_ctx) override {
@@ -95,6 +97,8 @@ public:
     size_t size() const override { return _size; }
 
     bool closed() const override { return _closed; }
+
+    int64_t mtime() const override { return 0; }
 
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
@@ -129,6 +133,8 @@ public:
     size_t size() const override { return _delegate->size(); }
 
     bool closed() const override { return _delegate->closed(); }
+
+    int64_t mtime() const override { return _delegate->mtime(); }
 
     const io::PrefetchRange& last_read_range() const { return *_last_read_range; }
 

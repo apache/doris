@@ -47,10 +47,11 @@ github:
         strict: false
         contexts:
           - License Check
+          - Check for secrets
           - Clang Formatter
           - CheckStyle
           - P0 Regression (Doris Regression)
-          - NonConcurrent Regression (Doris Regression)
+          - NonConcurrent Regression (nonConcurrent)
           - External Regression (Doris External Regression)
           - cloud_p0 (Doris Cloud Regression)
           - vault_p0 (Doris Cloud Regression)
@@ -69,6 +70,27 @@ github:
         dismiss_stale_reviews: true
         require_code_owner_reviews: true
         required_approving_review_count: 1
+    branch-4.1:
+      required_status_checks:
+        strict: false
+        contexts:
+          - License Check
+          - Clang Formatter
+          - CheckStyle
+          - Build Broker
+          - FE UT (Doris FE UT)
+          - BE UT (Doris BE UT)
+          - Cloud UT (Doris Cloud UT)
+          - COMPILE (DORIS_COMPILE)
+          - P0 Regression (Doris Regression)
+          - NonConcurrent Regression (nonConcurrent)
+          - External Regression (Doris External Regression) 
+          - cloud_p0 (Doris Cloud Regression)
+          - vault_p0 (Doris Cloud Regression)
+      required_pull_request_reviews:
+        require_code_owner_reviews: true
+        required_approving_review_count: 1
+        dismiss_stale_reviews: true
     branch-4.0:
       required_status_checks:
         strict: false
@@ -77,13 +99,12 @@ github:
           - Clang Formatter
           - CheckStyle
           - Build Broker
-          - Build Third Party Libraries (Linux)
           - FE UT (Doris FE UT)
           - BE UT (Doris BE UT)
           - Cloud UT (Doris Cloud UT)
           - COMPILE (DORIS_COMPILE)
           - P0 Regression (Doris Regression)
-          - NonConcurrent Regression (Doris Regression)
+          - NonConcurrent Regression (nonConcurrent)
           - External Regression (Doris External Regression) 
           - cloud_p0 (Doris Cloud Regression)
           - vault_p0 (Doris Cloud Regression)
@@ -105,7 +126,7 @@ github:
           - Cloud UT (Doris Cloud UT)
           - COMPILE (DORIS_COMPILE)
           - P0 Regression (Doris Regression)
-          - NonConcurrent Regression (Doris Regression)
+          - NonConcurrent Regression (nonConcurrent)
           - External Regression (Doris External Regression) 
           - cloud_p0 (Doris Cloud Regression)
           - vault_p0 (Doris Cloud Regression)
@@ -127,7 +148,7 @@ github:
           - Cloud UT (Doris Cloud UT)
           - COMPILE (DORIS_COMPILE)
           - P0 Regression (Doris Regression)
-          - NonConcurrent Regression (Doris Regression)
+          - NonConcurrent Regression (nonConcurrent)
           - External Regression (Doris External Regression)
           - cloud_p0 (Doris Cloud Regression)
           - vault_p0 (Doris Cloud Regression)
@@ -140,7 +161,6 @@ github:
         strict: false
         contexts:
           - License Check
-          - Clang Formatter
           - CheckStyle
           - Build Broker
           - Build Third Party Libraries (Linux)
@@ -177,9 +197,8 @@ github:
     - shuke987
     - wm1581066
     - doris-robot
-    - echo-hhj
-    - yuanyuan8983
-    - yz-jayhua
     - ixzc
+    - deardeng
+    - wyxxxcat
 notifications:
   pullrequests_status:  commits@doris.apache.org

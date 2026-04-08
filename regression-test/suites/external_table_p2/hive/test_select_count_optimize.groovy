@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_select_count_optimize", "p2,external,hive,external_remote,external_remote_hive") {
+suite("test_select_count_optimize", "p2,external") {
 
     Boolean ignoreP2 = true;
     if (ignoreP2) {

@@ -52,6 +52,12 @@ public:
     // Returns duration of sleep in nanoseconds (to distinguish sleeping on different kinds of S3RateLimiters for metrics)
     int64_t add(size_t amount);
 
+    size_t get_max_speed() const { return _max_speed; }
+
+    size_t get_max_burst() const { return _max_burst; }
+
+    size_t get_limit() const { return _limit; }
+
 private:
     std::pair<size_t, double> _update_remain_token(long now, size_t amount);
     size_t _count {0};
@@ -74,6 +80,12 @@ public:
     int64_t add(size_t amount);
 
     int reset(size_t max_speed, size_t max_burst, size_t limit);
+
+    size_t get_max_speed() const { return rate_limiter->get_max_speed(); }
+
+    size_t get_max_burst() const { return rate_limiter->get_max_burst(); }
+
+    size_t get_limit() const { return rate_limiter->get_limit(); }
 
 private:
     std::shared_mutex rate_limiter_rw_lock;
