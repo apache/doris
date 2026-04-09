@@ -420,4 +420,5 @@ std::string CpuInfo::debug_string() {
     stream << std::endl;
     return stream.str();
 }
+#include "common/compile_check_avoid_end.h"
 } // namespace doris
