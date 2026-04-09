@@ -1329,12 +1329,11 @@ TEST_F(VerticalCompactionTest, TestFooterRawDataBytesAccuracy) {
 
     // Collect raw_data_bytes per column from footer
     std::unordered_map<int32_t, uint64_t> raw_bytes_by_uid;
-    auto st = segments[0]->traverse_column_meta_pbs(
-            [&](const segment_v2::ColumnMetaPB& meta) {
-                if (meta.unique_id() >= 0 && meta.has_raw_data_bytes()) {
-                    raw_bytes_by_uid[meta.unique_id()] = meta.raw_data_bytes();
-                }
-            });
+    auto st = segments[0]->traverse_column_meta_pbs([&](const segment_v2::ColumnMetaPB& meta) {
+        if (meta.unique_id() >= 0 && meta.has_raw_data_bytes()) {
+            raw_bytes_by_uid[meta.unique_id()] = meta.raw_data_bytes();
+        }
+    });
     ASSERT_TRUE(st.ok()) << st;
 
     // Verify INT column (uid=1): raw_data_bytes should be exactly kNumRows * sizeof(int32_t).
@@ -1351,8 +1350,8 @@ TEST_F(VerticalCompactionTest, TestFooterRawDataBytesAccuracy) {
     ASSERT_TRUE(raw_bytes_by_uid.count(2) > 0)
             << "VARCHAR column raw_data_bytes not found in footer";
     EXPECT_EQ(raw_bytes_by_uid[2], kNumRows * kStringLen)
-            << "VARCHAR column: expected " << kNumRows * kStringLen
-            << " total raw_data_bytes, got " << raw_bytes_by_uid[2];
+            << "VARCHAR column: expected " << kNumRows * kStringLen << " total raw_data_bytes, got "
+            << raw_bytes_by_uid[2];
 }
 
 } // namespace doris
