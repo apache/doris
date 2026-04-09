@@ -26,7 +26,6 @@
 
 namespace doris {
 
-
 namespace {
 
 enum class Metrics {
@@ -167,7 +166,6 @@ void ShowHotspotAction::handle(HttpRequest* req) {
     });
 
     HttpChannel::send_reply(req, HttpStatus::OK, res);
-
 }
 
 } // namespace doris

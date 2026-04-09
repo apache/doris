@@ -1254,6 +1254,5 @@ inline bool SegmentWriter::_is_mow_with_cluster_key() {
     return _is_mow() && !_tablet_schema->cluster_key_uids().empty();
 }
 
-
 } // namespace segment_v2
 } // namespace doris

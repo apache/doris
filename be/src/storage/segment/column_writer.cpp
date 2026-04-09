@@ -1397,5 +1397,4 @@ Status VariantColumnWriter::append_nullable(const uint8_t* null_map, const uint8
     return _impl->append_nullable(null_map, ptr, num_rows);
 }
 
-
 } // namespace doris::segment_v2

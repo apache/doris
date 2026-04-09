@@ -405,4 +405,3 @@ AggregateFunctionPtr create_aggregate_function_min_max_by(const String& name,
 }
 
 } // namespace doris
-

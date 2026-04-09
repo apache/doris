@@ -40,7 +40,6 @@ struct IOContext;
 namespace doris {
 class Block;
 
-
 // Doris Native format reader.
 // it will read a sequence of Blocks encoded in Doris Native binary format.
 //

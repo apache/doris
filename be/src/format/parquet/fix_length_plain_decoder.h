@@ -83,5 +83,4 @@ public:
     Status skip_values(size_t num_values) override;
 };
 
-
 } // namespace doris

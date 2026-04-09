@@ -92,7 +92,6 @@
 namespace doris {
 class TExpr;
 
-
 bvar::Adder<int64_t> g_sink_write_bytes;
 bvar::PerSecond<bvar::Adder<int64_t>> g_sink_write_bytes_per_second("sink_throughput_byte",
                                                                     &g_sink_write_bytes, 60);

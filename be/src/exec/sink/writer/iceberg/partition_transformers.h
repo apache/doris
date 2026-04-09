@@ -31,7 +31,6 @@ class Type;
 class PartitionField;
 }; // namespace iceberg
 
-
 class IColumn;
 class PartitionColumnTransform;
 

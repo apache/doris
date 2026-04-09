@@ -48,7 +48,6 @@
 
 namespace doris {
 
-
 RowsetMeta::~RowsetMeta() {
     if (_handle) {
         TabletSchemaCache::instance()->release(_handle);
@@ -404,6 +403,5 @@ bool operator==(const RowsetMeta& a, const RowsetMeta& b) {
         return false;
     return true;
 }
-
 
 } // namespace doris

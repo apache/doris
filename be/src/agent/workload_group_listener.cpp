@@ -27,7 +27,6 @@
 
 namespace doris {
 
-
 void WorkloadGroupListener::handle_topic_info(const std::vector<TopicInfo>& topic_info_list) {
     std::set<uint64_t> current_wg_ids;
     bool is_set_workload_group_info = false;

@@ -31,7 +31,6 @@
 
 namespace doris::segment_v2 {
 
-
 Status DummyBinaryColumnReader::new_binary_column_iterator(ColumnIteratorUPtr* iter) const {
     static const TabletColumn binary_column = []() {
         TabletColumn binary_column;

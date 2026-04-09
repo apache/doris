@@ -40,7 +40,6 @@ class RuntimeProfile;
 
 using namespace ErrorCode;
 
-
 Status VStatisticsIterator::init(const StorageReadOptions& opts) {
     if (!_init) {
         _push_down_agg_type_opt = opts.push_down_agg_type_opt;
@@ -479,6 +478,5 @@ RowwiseIterator* new_vstatistics_iterator(std::shared_ptr<Segment> segment, cons
 RowwiseIteratorUPtr new_auto_increment_iterator(const Schema& schema, size_t num_rows) {
     return std::make_unique<VAutoIncrementIterator>(schema, num_rows);
 }
-
 
 } // namespace doris

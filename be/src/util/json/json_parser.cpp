@@ -382,6 +382,5 @@ StringRef JSONDataParser<ParserImpl>::getNameOfNested(const PathInData::Parts& p
     return {};
 }
 
-
 template class JSONDataParser<SimdJSONParser>;
 } // namespace doris

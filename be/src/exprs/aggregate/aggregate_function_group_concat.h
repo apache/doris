@@ -168,4 +168,3 @@ public:
 };
 
 } // namespace doris
-

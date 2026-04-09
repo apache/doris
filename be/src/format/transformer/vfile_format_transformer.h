@@ -61,4 +61,3 @@ protected:
     DataTypeSerDe::FormatOptions _options;
 };
 } // namespace doris
-

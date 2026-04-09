@@ -69,4 +69,3 @@ public:
 };
 
 } // namespace doris
-

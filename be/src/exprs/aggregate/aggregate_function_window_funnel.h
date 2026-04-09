@@ -398,4 +398,3 @@ protected:
     using IAggregateFunction::version;
 };
 } // namespace doris
-

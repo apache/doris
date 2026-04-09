@@ -989,4 +989,3 @@ AggregateFunctionPtr create_aggregate_function_single_value_any_value_function(
         const String& name, const DataTypes& argument_types, const DataTypePtr& result_type,
         const bool result_is_nullable, const AggregateFunctionAttr& attr = {});
 } // namespace doris
-

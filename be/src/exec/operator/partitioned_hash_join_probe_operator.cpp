@@ -39,7 +39,6 @@
 
 namespace doris {
 
-
 PartitionedHashJoinProbeLocalState::PartitionedHashJoinProbeLocalState(RuntimeState* state,
                                                                        OperatorXBase* parent)
         : PipelineXSpillLocalState(state, parent), _child_block(Block::create_unique()) {}

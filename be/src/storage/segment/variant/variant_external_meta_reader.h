@@ -31,7 +31,6 @@
 
 namespace doris::segment_v2 {
 
-
 // Encapsulates reading of externalized Variant subcolumn metas.
 // It discovers key/value indexed-columns from SegmentFooterPB, supports:
 // - availability check
@@ -88,6 +87,5 @@ private:
     DorisCallOnce<Status> _load_once_call;
     bool _loaded = false;
 };
-
 
 } // namespace doris::segment_v2

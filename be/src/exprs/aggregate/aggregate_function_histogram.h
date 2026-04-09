@@ -37,8 +37,7 @@
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "util/io_helper.h"
 
-namespace doris {
-} // namespace doris
+namespace doris {} // namespace doris
 
 namespace doris {
 
@@ -231,4 +230,3 @@ private:
 };
 
 } // namespace doris
-

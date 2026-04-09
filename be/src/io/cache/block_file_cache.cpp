@@ -2462,7 +2462,6 @@ template void BlockFileCache::remove(FileBlockSPtr file_block,
                                      std::lock_guard<std::mutex>& cache_lock,
                                      std::lock_guard<std::mutex>& block_lock, bool sync);
 
-
 Status BlockFileCache::report_file_cache_inconsistency(std::vector<std::string>& results) {
     InconsistencyContext inconsistency_context;
     RETURN_IF_ERROR(check_file_cache_consistency(inconsistency_context));

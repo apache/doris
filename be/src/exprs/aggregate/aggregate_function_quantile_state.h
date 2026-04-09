@@ -155,4 +155,3 @@ AggregateFunctionPtr create_aggregate_function_quantile_state_union(
         const bool result_is_nullable, const AggregateFunctionAttr& attr);
 
 } // namespace doris
-

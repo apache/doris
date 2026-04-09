@@ -45,7 +45,6 @@
 
 namespace doris {
 
-
 using namespace ErrorCode;
 
 static const uint32_t MAX_SHARD_NUM = 1024;
@@ -329,6 +328,5 @@ void LoadPathMgr::clean_error_log() {
         }
     }
 }
-
 
 } // namespace doris

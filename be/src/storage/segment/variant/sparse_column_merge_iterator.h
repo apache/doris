@@ -52,7 +52,6 @@
 
 namespace doris::segment_v2 {
 
-
 // Implementation for merge processor
 class SparseColumnMergeIterator : public BaseBinaryColumnProcessor {
 public:
@@ -127,6 +126,5 @@ private:
                                               ColumnString& dst_sparse_column_values,
                                               const StringRef& src_path, size_t row);
 };
-
 
 } // namespace doris::segment_v2

@@ -1630,5 +1630,4 @@ Status FragmentMgr::reset_global_rf(const TUniqueId& query_id,
     }
 }
 
-
 } // namespace doris

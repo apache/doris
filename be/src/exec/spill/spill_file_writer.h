@@ -109,4 +109,3 @@ private:
 };
 using SpillFileWriterSPtr = std::shared_ptr<SpillFileWriter>;
 } // namespace doris
-

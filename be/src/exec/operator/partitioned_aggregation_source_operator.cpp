@@ -37,7 +37,6 @@
 
 namespace doris {
 
-
 PartitionedAggLocalState::PartitionedAggLocalState(RuntimeState* state, OperatorXBase* parent)
         : Base(state, parent) {}
 

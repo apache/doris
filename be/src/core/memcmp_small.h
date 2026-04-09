@@ -219,4 +219,3 @@ inline bool memory_is_zero_small_allow_overflow15(const void* data, size_t size)
 }
 
 #endif
-

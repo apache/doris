@@ -40,7 +40,6 @@ class IColumn;
 class DataTypeDate;
 class DataTypeDateV2;
 
-
 /** DateTime stores time as unix timestamp.
 	* The value itself is independent of time zone.
 	*

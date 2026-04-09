@@ -55,7 +55,6 @@ class TabletSchema;
 
 namespace segment_v2 {
 
-
 class ColumnIterator;
 class InvertedIndexIterator;
 class InvertedIndexFileReader;
@@ -516,7 +515,6 @@ private:
     // current rowid
     ordinal_t _current_rowid = 0;
 };
-
 
 } // namespace segment_v2
 } // namespace doris

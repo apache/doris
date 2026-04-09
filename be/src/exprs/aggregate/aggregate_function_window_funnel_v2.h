@@ -674,4 +674,3 @@ protected:
 };
 
 } // namespace doris
-

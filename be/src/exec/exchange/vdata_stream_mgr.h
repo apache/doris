@@ -93,4 +93,3 @@ private:
     uint32_t get_hash_value(const TUniqueId& fragment_instance_id, PlanNodeId node_id);
 };
 } // namespace doris
-

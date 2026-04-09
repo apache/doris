@@ -52,7 +52,6 @@
 
 namespace doris::segment_v2 {
 
-
 // Base class for sparse column processors with common functionality
 class BaseBinaryColumnProcessor : public ColumnIterator {
 protected:
@@ -164,6 +163,5 @@ private:
         dst->insert_many_defaults(num_rows);
     }
 };
-
 
 } // namespace doris::segment_v2

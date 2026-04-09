@@ -56,7 +56,6 @@ class Block;
 class PathInData;
 class IDataType;
 
-
 struct OlapTableIndexSchema;
 class TColumn;
 class TOlapTableIndex;

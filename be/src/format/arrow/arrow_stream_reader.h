@@ -38,7 +38,6 @@ class FileSystem;
 struct IOContext;
 } // namespace io
 
-
 struct ScannerCounter;
 class Block;
 

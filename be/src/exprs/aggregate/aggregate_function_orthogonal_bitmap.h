@@ -419,4 +419,3 @@ private:
     int _argument_size;
 };
 } // namespace doris
-

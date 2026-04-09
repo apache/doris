@@ -118,4 +118,3 @@ private:
     uint64_t _bytes_sent = 0;
 };
 } // namespace doris
-

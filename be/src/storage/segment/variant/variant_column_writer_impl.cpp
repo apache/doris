@@ -59,7 +59,6 @@
 
 namespace doris::segment_v2 {
 
-
 void _init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column,
                        CompressionTypePB compression_type) {
     meta->Clear();
@@ -1916,6 +1915,5 @@ Status VariantDocCompactWriter::finalize() {
 uint64_t VariantDocCompactWriter::estimate_buffer_size() {
     return _column->byte_size();
 }
-
 
 } // namespace doris::segment_v2

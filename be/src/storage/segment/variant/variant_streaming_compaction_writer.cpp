@@ -30,7 +30,6 @@
 
 namespace doris::segment_v2 {
 
-
 VariantStreamingCompactionWriter::VariantStreamingCompactionWriter(
         const ColumnWriterOptions& opts, const TabletColumn* column,
         NestedGroupWriteProvider* nested_group_provider, VariantStatistics* statistics)
@@ -306,6 +305,5 @@ Status VariantStreamingCompactionWriter::write_bloom_filter_index() {
     RETURN_IF_ERROR(_nested_group_provider->write_bloom_filter_index());
     return Status::OK();
 }
-
 
 } // namespace doris::segment_v2

@@ -231,5 +231,4 @@ bool inline try_read_bool_text(UInt8& x, const StringRef& buf) {
     return result == StringParser::PARSE_SUCCESS;
 }
 
-
 } // namespace doris

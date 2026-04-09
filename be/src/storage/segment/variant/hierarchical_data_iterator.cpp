@@ -40,7 +40,6 @@
 
 namespace doris::segment_v2 {
 
-
 Status HierarchicalDataIterator::create(ColumnIteratorUPtr* reader, int32_t col_uid,
                                         PathInData path, const SubcolumnColumnMetaInfo::Node* node,
                                         std::unique_ptr<SubstreamIterator>&& binary_column_reader,
@@ -611,6 +610,5 @@ Status HierarchicalDataIterator::_init_null_map_and_clear_columns(MutableColumnP
     }
     return Status::OK();
 }
-
 
 } // namespace doris::segment_v2

@@ -36,4 +36,3 @@ inline void assert_arity_range(const std::string& name, const DataTypes& argumen
 }
 
 } // namespace doris
-

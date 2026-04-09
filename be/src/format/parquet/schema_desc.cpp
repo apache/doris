@@ -712,5 +712,4 @@ uint64_t FieldSchema::get_max_column_id() const {
     return max_column_id;
 }
 
-
 } // namespace doris

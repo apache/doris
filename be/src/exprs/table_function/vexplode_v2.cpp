@@ -291,5 +291,4 @@ int VExplodeV2TableFunction::get_value(MutableColumnPtr& column, int max_step) {
     return max_step;
 }
 
-
 } // namespace doris

@@ -39,7 +39,6 @@
 #include "util/threadpool.h"
 namespace doris {
 
-
 namespace io {
 struct IOContext;
 
@@ -999,6 +998,5 @@ void RangeCacheFileReader::_collect_profile_before_close() {
 }
 
 } // namespace io
-
 
 } // namespace doris

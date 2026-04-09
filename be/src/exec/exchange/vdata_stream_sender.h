@@ -226,4 +226,3 @@ private:
     } while (0)
 
 } // namespace doris
-

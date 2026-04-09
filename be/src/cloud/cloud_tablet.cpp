@@ -2032,5 +2032,4 @@ void CloudTablet::apply_visible_pending_rowsets() {
     }
 }
 
-
 } // namespace doris

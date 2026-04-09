@@ -51,7 +51,6 @@
 namespace doris {
 using namespace ErrorCode;
 
-
 #define RETURN_IF_NOT_EOF_AND_OK(stmt)                                 \
     do {                                                               \
         const Status& _status_ = (stmt);                               \

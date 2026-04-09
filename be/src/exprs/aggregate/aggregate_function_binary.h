@@ -96,4 +96,3 @@ struct AggregateFunctionBinary
 };
 
 } // namespace doris
-

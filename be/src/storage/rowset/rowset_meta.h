@@ -43,7 +43,6 @@
 
 namespace doris {
 
-
 class RowsetMeta : public MetadataAdder<RowsetMeta> {
 public:
     RowsetMeta() = default;

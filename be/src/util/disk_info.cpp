@@ -41,7 +41,6 @@
 
 namespace doris {
 
-
 bool DiskInfo::_s_initialized;
 std::vector<DiskInfo::Disk> DiskInfo::_s_disks;
 std::map<dev_t, int> DiskInfo::_s_device_id_to_disk_id;
@@ -233,6 +232,5 @@ Status DiskInfo::get_disk_devices(const std::vector<std::string>& paths,
     fclose(fp);
     return status;
 }
-
 
 } // namespace doris

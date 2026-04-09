@@ -517,4 +517,3 @@ template <PrimitiveType... AllowedTypes>
 using creator_with_type_list = creator_with_type_list_base<0, AllowedTypes...>;
 
 } // namespace  doris
-

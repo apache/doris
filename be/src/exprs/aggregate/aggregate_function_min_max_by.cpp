@@ -83,4 +83,3 @@ void register_aggregate_function_max_min_by(AggregateFunctionSimpleFactory& fact
 }
 
 } // namespace doris
-

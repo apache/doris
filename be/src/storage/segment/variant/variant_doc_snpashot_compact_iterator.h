@@ -65,5 +65,4 @@ private:
     ColumnIteratorUPtr _doc_value_iterator;
 };
 
-
 } // namespace doris::segment_v2

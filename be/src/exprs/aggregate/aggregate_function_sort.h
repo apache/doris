@@ -212,4 +212,3 @@ AggregateFunctionPtr transform_to_sort_agg_function(const AggregateFunctionPtr& 
                                                     const SortDescription& sort_desc,
                                                     RuntimeState* state);
 } // namespace doris
-

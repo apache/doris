@@ -509,4 +509,3 @@ struct std::hash<std::pair<First, Second>> {
         return doris::util_hash::HashLen16(h1, h2);
     }
 };
-

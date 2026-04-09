@@ -19,7 +19,6 @@
 
 namespace doris {
 
-
 Status FixLengthPlainDecoder::skip_values(size_t num_values) {
     _offset += _type_length * num_values;
     if (UNLIKELY(_offset > _data->size)) {
@@ -37,6 +36,5 @@ Status FixLengthPlainDecoder::decode_values(MutableColumnPtr& doris_column, Data
         return _decode_values<false>(doris_column, data_type, select_vector, is_dict_filter);
     }
 }
-
 
 } // namespace doris

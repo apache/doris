@@ -25,7 +25,6 @@
 namespace doris {
 class RuntimeState;
 
-
 class AnalyticSourceOperatorX;
 class AnalyticLocalState final : public PipelineXLocalState<AnalyticSharedState> {
 public:

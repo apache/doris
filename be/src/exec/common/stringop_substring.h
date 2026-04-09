@@ -277,5 +277,4 @@ private:
     }
 };
 
-
 } // namespace doris

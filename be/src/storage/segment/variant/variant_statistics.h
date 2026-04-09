@@ -25,7 +25,6 @@
 
 namespace doris::segment_v2 {
 
-
 struct VariantStatistics {
     std::map<std::string, int64_t> subcolumns_non_null_size;
     std::map<std::string, uint32_t> sparse_column_non_null_size;

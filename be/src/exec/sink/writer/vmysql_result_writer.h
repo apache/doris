@@ -103,4 +103,3 @@ private:
     const bool _is_binary_format;
 };
 } // namespace doris
-

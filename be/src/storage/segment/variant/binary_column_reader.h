@@ -30,7 +30,6 @@
 
 namespace doris::segment_v2 {
 
-
 enum class BinaryColumnType {
     SINGLE_SPARSE = 0,
     MULTIPLE_SPARSE = 1,

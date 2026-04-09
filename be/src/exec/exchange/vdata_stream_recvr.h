@@ -290,4 +290,3 @@ protected:
 };
 
 } // namespace doris
-

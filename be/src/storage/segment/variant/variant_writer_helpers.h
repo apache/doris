@@ -32,7 +32,6 @@ class OlapBlockDataConvertor;
 
 namespace segment_v2 {
 
-
 namespace variant_writer_helpers {
 
 Status convert_and_write_column(OlapBlockDataConvertor* converter, const TabletColumn& column,
@@ -51,7 +50,6 @@ Status prepare_subcolumn_writer_target(
         std::unique_ptr<ColumnWriter>* out_writer, TabletColumn* out_tablet_column);
 
 } // namespace variant_writer_helpers
-
 
 } // namespace segment_v2
 } // namespace doris

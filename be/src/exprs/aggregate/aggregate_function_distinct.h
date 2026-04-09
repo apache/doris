@@ -369,4 +369,3 @@ struct FunctionStableTransfer<AggregateFunctionDistinct<Data, false>> {
 };
 
 } // namespace doris
-

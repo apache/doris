@@ -53,7 +53,6 @@ namespace doris::segment_v2 {
 
 class ColumnReaderCache;
 
-
 struct PathWithColumnAndType {
     PathInData path;
     ColumnPtr column;
@@ -185,6 +184,5 @@ private:
         return Status::OK();
     }
 };
-
 
 } // namespace doris::segment_v2

@@ -46,7 +46,6 @@
 namespace doris {
 class Block;
 
-
 std::vector<SchemaScanner::ColumnDesc> SchemaTabletsScanner::_s_tbls_columns = {
         //   name,       type,          size,     is_null
         {"BE_ID", TYPE_BIGINT, sizeof(int64_t), true},

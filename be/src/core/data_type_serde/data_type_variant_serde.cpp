@@ -37,7 +37,6 @@
 
 namespace doris {
 
-
 Status DataTypeVariantSerDe::write_column_to_mysql_binary(const IColumn& column,
                                                           MysqlRowBinaryBuffer& row_buffer,
                                                           int64_t row_idx, bool col_const,

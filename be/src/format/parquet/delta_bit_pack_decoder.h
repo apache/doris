@@ -520,5 +520,4 @@ Status DeltaBitPackDecoder<T>::_get_internal(T* buffer, uint32_t num_values,
     return Status::OK();
 }
 
-
 } // namespace doris

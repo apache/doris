@@ -112,4 +112,3 @@ IPv6 inline ipv4_to_ipv6(IPv4 ipv4) {
 }
 
 } // namespace doris
-

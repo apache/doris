@@ -313,4 +313,3 @@ void register_function_convert_tz(SimpleFunctionFactory& factory) {
 }
 
 } // namespace doris
-

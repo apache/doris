@@ -36,7 +36,6 @@ class SlotDescriptor;
 class TupleDescriptor;
 class Block;
 
-
 /**
  * JdbcJniReader reads data from JDBC data sources via the unified JniReader
  * framework. It delegates scanning to Java-side JdbcJniScanner (extends JniScanner).

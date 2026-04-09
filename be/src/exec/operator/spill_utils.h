@@ -111,5 +111,4 @@ inline void update_profile_from_inner_profile(const std::string& name,
     }
 }
 
-
 } // namespace doris

@@ -235,4 +235,3 @@ void NormalizeFloat(T& val) {
 }
 
 } // namespace doris
-

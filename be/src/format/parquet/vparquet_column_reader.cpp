@@ -1002,5 +1002,4 @@ template class ScalarColumnReader<true, false>;
 template class ScalarColumnReader<false, true>;
 template class ScalarColumnReader<false, false>;
 
-
 }; // namespace doris

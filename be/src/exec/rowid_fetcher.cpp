@@ -73,7 +73,6 @@
 
 namespace doris {
 
-
 Status RowIDFetcher::init() {
     DorisNodesInfo nodes_info;
     nodes_info.setNodes(_fetch_option.t_fetch_opt.nodes_info);
@@ -1111,6 +1110,5 @@ Status RowIdStorageReader::read_doris_format_row(
     }
     return Status::OK();
 }
-
 
 } // namespace doris

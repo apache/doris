@@ -61,7 +61,6 @@
 
 namespace doris {
 
-
 class PointQueryResultBlockBuffer final : public MySQLResultBlockBuffer {
 public:
     PointQueryResultBlockBuffer(RuntimeState* state) : MySQLResultBlockBuffer(state) {}
@@ -626,6 +625,5 @@ Status PointQueryExecutor::_output_data() {
     _reusable->return_block(_result_block);
     return Status::OK();
 }
-
 
 } // namespace doris

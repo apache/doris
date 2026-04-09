@@ -145,4 +145,3 @@ AggregateFunctionPtr create_aggregate_function_HLL(const std::string& name,
                                                    const bool result_is_nullable);
 
 } // namespace doris
-

@@ -28,7 +28,6 @@
 
 namespace doris {
 
-
 bool CgroupCpuCtl::is_a_valid_cgroup_path(std::string cg_path) {
     if (!cg_path.empty()) {
         if (cg_path.back() != '/') {
@@ -443,6 +442,5 @@ Status CgroupV2CpuCtl::modify_cg_cpu_soft_limit_no_lock(int cpu_weight) {
 Status CgroupV2CpuCtl::add_thread_to_cgroup() {
     return CgroupCpuCtl::add_thread_to_cgroup(_cgroup_v2_query_wg_thread_file);
 }
-
 
 } // namespace doris

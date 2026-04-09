@@ -78,7 +78,6 @@
 namespace doris {
 namespace {
 
-
 DataTypePtr create_array_of_type(PrimitiveType type, size_t num_dimensions, bool is_nullable,
                                  int precision = -1, int scale = -1) {
     DataTypePtr result = type == PrimitiveType::INVALID_TYPE
@@ -2712,6 +2711,5 @@ bool ColumnVariant::is_doc_mode() const {
     const auto& offset = serialized_doc_value_column_offsets();
     return subcolumns.size() == 1 && offset[num_rows - 1] != 0;
 }
-
 
 } // namespace doris

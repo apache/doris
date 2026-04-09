@@ -533,5 +533,4 @@ public:
     void reset_filter_map_index() override { _filter_map_index = 0; }
 };
 
-
 }; // namespace doris

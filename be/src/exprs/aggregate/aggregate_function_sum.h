@@ -314,4 +314,3 @@ template <PrimitiveType T>
 using AggregateFunctionSumSimpleReader = typename SumSimpleForAggReader<T>::Function;
 
 } // namespace doris
-

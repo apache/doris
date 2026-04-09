@@ -31,4 +31,3 @@ void register_aggregate_function_reader_load(AggregateFunctionSimpleFactory& fac
 void register_aggregate_function_replace_reader_load(AggregateFunctionSimpleFactory& factory);
 
 } // namespace doris
-

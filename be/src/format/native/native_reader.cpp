@@ -30,7 +30,6 @@
 
 namespace doris {
 
-
 NativeReader::NativeReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                            const TFileRangeDesc& range, io::IOContext* io_ctx, RuntimeState* state)
         : _profile(profile),
@@ -362,6 +361,5 @@ Status NativeReader::_init_schema_from_pblock(const PBlock& pblock) {
     _schema_inited = true;
     return Status::OK();
 }
-
 
 } // namespace doris

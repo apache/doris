@@ -675,4 +675,3 @@ struct MultiExpression {};   // Must have multiple parameters (more than 1)
 struct VarargsExpression {}; // Uncertain number of parameters
 
 } // namespace doris
-

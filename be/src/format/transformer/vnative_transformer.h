@@ -32,7 +32,6 @@ class FileWriter;
 namespace doris {
 class Block;
 
-
 // Doris Native format writer.
 // It serializes vectorized Blocks into Doris Native binary format.
 class VNativeTransformer final : public VFileFormatTransformer {

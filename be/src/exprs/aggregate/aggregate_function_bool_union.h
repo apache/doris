@@ -106,4 +106,3 @@ public:
     }
 };
 } // namespace doris
-

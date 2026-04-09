@@ -188,4 +188,3 @@ public:
     static AggregateFunctionSimpleFactory& instance();
 };
 }; // namespace doris
-

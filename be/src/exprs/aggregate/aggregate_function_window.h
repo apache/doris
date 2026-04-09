@@ -689,4 +689,3 @@ private:
 };
 
 } // namespace doris
-

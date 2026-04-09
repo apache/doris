@@ -605,4 +605,3 @@ private:
             is_nullable; /// Plain array is better than std::vector due to one indirection less.
 };
 } // namespace doris
-
