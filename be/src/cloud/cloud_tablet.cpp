@@ -491,9 +491,8 @@ void CloudTablet::delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete,
     _tablet_meta->modify_rs_metas({}, rs_metas, false);
 }
 
-void CloudTablet::delete_rowsets_for_schema_change(
-        const std::vector<RowsetSharedPtr>& to_delete,
-        std::unique_lock<std::shared_mutex>&) {
+void CloudTablet::delete_rowsets_for_schema_change(const std::vector<RowsetSharedPtr>& to_delete,
+                                                   std::unique_lock<std::shared_mutex>&) {
     if (to_delete.empty()) {
         return;
     }

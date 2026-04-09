@@ -1363,8 +1363,7 @@ TEST_F(CloudTabletWarmUpStateTest, TestWarmedUpOverridesNotWarmedUp) {
 
 class CloudTabletDeleteRowsetsForSchemaChangeTest : public testing::Test {
 public:
-    CloudTabletDeleteRowsetsForSchemaChangeTest()
-            : _engine(CloudStorageEngine(EngineOptions {})) {}
+    CloudTabletDeleteRowsetsForSchemaChangeTest() : _engine(CloudStorageEngine(EngineOptions {})) {}
 
     void SetUp() override {
         _tablet_meta.reset(new TabletMeta(1, 2, 15673, 15674, 4, 5, TTabletSchema(), 6, {{7, 8}},
