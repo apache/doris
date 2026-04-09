@@ -488,6 +488,12 @@ public class CreateTableInfo {
                 throw new AnalysisException("Disable to create table with `DECIMAL` type columns,"
                         + "please use `DECIMALV3`.");
             }
+            if (columnDef.getType().isFileType() && !engineName.equals(ENGINE_FILESET)) {
+                throw new AnalysisException(
+                        "FILE type column '" + columnDef.getName()
+                                + "' is only allowed in fileset engine tables. "
+                                + "Use 'ENGINE = fileset' to create a fileset table.");
+            }
         }
         // check duplicated columns
         Map<String, ColumnDefinition> columnMap = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);

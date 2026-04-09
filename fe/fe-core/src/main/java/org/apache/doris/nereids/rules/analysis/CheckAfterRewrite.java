@@ -196,6 +196,14 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
             });
+        } else if (plan instanceof LogicalFilter) {
+            LogicalFilter<?> filter = (LogicalFilter<?>) plan;
+            for (Expression conjunct : filter.getConjuncts()) {
+                if (conjunct.anyMatch(e -> ((Expression) e).getDataType().isFileType())) {
+                    throw new AnalysisException(
+                            "FILE type does not support filter conditions: " + conjunct.toSql());
+                }
+            }
         } else if (plan instanceof LogicalJoin) {
             LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) plan;
             for (Expression conjunct : join.getHashJoinConjuncts()) {

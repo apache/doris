@@ -138,4 +138,43 @@ public class CheckFileTypeTest extends TestWithFeService {
                         "SELECT row_number() OVER (PARTITION BY `file`) FROM fileset_tbl"
                 ).rewrite());
     }
+
+    @Test
+    public void testFilterOnFileType() {
+        ExceptionChecker.expectThrowsWithMsg(
+                AnalysisException.class,
+                "FILE type does not support filter conditions",
+                () -> PlanChecker.from(connectContext).analyze(
+                        "SELECT `file` FROM fileset_tbl WHERE `file` = `file`"
+                ).rewrite());
+    }
+
+    @Test
+    public void testCreateOlapTableWithFileColumn() {
+        ExceptionChecker.expectThrowsWithMsg(
+                Exception.class,
+                "FILE type column",
+                () -> createTable("CREATE TABLE file_in_olap (\n"
+                        + "    id INT,\n"
+                        + "    file_ref FILE NULL\n"
+                        + ")\n"
+                        + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                        + "PROPERTIES (\n"
+                        + "    'replication_allocation' = 'tag.location.default: 1'\n"
+                        + ")"));
+    }
+
+    @Test
+    public void testCreateOlapTableWithOnlyFileColumn() {
+        ExceptionChecker.expectThrowsWithMsg(
+                Exception.class,
+                "FILE type column",
+                () -> createTable("CREATE TABLE file_only_olap (\n"
+                        + "    `file` FILE NULL\n"
+                        + ")\n"
+                        + "DISTRIBUTED BY HASH(`file`) BUCKETS 1\n"
+                        + "PROPERTIES (\n"
+                        + "    'replication_allocation' = 'tag.location.default: 1'\n"
+                        + ")"));
+    }
 }
