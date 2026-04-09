@@ -126,11 +126,6 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     @Getter
     @Setter
     protected long autoResumeCount;
-
-    public long getMaxAutoResumeCount() {
-        return Config.streaming_job_max_auto_resume_count;
-    }
-
     @Getter
     @SerializedName("props")
     private Map<String, String> properties;
@@ -339,6 +334,10 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         if (lock.writeLock().isHeldByCurrentThread()) {
             lock.writeLock().unlock();
         }
+    }
+
+    public long getMaxAutoResumeCount() {
+        return Config.streaming_job_max_auto_resume_count;
     }
 
     private UnboundTVFRelation getCurrentTvf() {

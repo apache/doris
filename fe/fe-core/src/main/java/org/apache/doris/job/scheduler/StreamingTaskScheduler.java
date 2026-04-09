@@ -23,7 +23,6 @@ import org.apache.doris.common.CustomThreadFactory;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.job.common.FailureReason;
-
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.streaming.AbstractStreamingTask;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
