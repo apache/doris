@@ -31,6 +31,9 @@ public class AccessPathInfo {
     public static final String ACCESS_MAP_KEYS = "KEYS";
     public static final String ACCESS_MAP_VALUES = "VALUES";
     public static final String ACCESS_OFFSET = "OFFSET";
+    // Suffix appended to a string-column path to indicate that only the offset array
+    // (not the char data) is needed — agreed with BE as the special path component name.
+    public static final String ACCESS_STRING_OFFSET = ACCESS_OFFSET;
     public static final String ACCESS_NULL = "NULL";
 
     private DataType prunedType;
