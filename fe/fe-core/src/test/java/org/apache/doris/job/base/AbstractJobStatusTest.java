@@ -263,10 +263,9 @@ class AbstractJobStatusTest {
     }
 
     @Test
-    void testPendingFromRetrying() throws Exception {
+    void testPendingFromRetryingIsInvalid() {
         DummyJob job = new DummyJob(JobStatus.RETRYING);
-        job.updateJobStatus(JobStatus.PENDING);
-        Assertions.assertEquals(JobStatus.PENDING, job.getJobStatus());
+        Assertions.assertThrows(IllegalArgumentException.class, () -> job.updateJobStatus(JobStatus.PENDING));
     }
 
     @Test

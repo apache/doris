@@ -310,7 +310,8 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         }
         String errorMsg = String.format("Can't update job %s status to the %s status",
                 jobStatus.name(), newJobStatus.name());
-        if (newJobStatus.equals(JobStatus.PENDING) && jobStatus.equals(JobStatus.STOPPED)) {
+        if (newJobStatus.equals(JobStatus.PENDING)
+                && (jobStatus.equals(JobStatus.STOPPED) || jobStatus.equals(JobStatus.RETRYING))) {
             throw new IllegalArgumentException(errorMsg);
         }
         if (newJobStatus.equals(JobStatus.RUNNING)
