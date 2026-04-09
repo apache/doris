@@ -36,14 +36,14 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.load.routineload.kafka.KafkaProgress;
-import org.apache.doris.load.routineload.kafka.KafkaRoutineLoadJob;
-import org.apache.doris.load.routineload.kafka.KafkaTaskInfo;
 import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.load.routineload.RoutineLoadStatistic;
 import org.apache.doris.load.routineload.RoutineLoadTaskInfo;
+import org.apache.doris.load.routineload.kafka.KafkaProgress;
+import org.apache.doris.load.routineload.kafka.KafkaRoutineLoadJob;
+import org.apache.doris.load.routineload.kafka.KafkaTaskInfo;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.rpc.RpcException;
@@ -1231,4 +1231,3 @@ public class GlobalTransactionMgrTest {
         Assert.assertEquals(lastFailedVersion, replica.getLastFailedVersion());
     }
 }
-
