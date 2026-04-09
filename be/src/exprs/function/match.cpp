@@ -24,6 +24,7 @@
 #include "storage/index/index_reader_helper.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "util/debug_points.h"
+#include "vec/common/string_searcher.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -41,6 +42,42 @@ const InvertedIndexAnalyzerCtx* get_match_analyzer_ctx(FunctionContext* context)
                 context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
     }
     return analyzer_ctx;
+}
+
+// Execute the fast token search path using SIMD-optimized TokenSearcher.
+// TokenSearcherType is either ASCIICaseSensitiveTokenSearcher or
+// ASCIICaseInsensitiveTokenSearcher. MatchFn is called per row with the
+// searchers vector, haystack pointers, and the result array entry.
+template <typename TokenSearcherType, typename MatchFn>
+void execute_token_search(const std::vector<TermInfo>& query_tokens, size_t input_rows_count,
+                          const ColumnString* string_col, ColumnUInt8::Container& result,
+                          MatchFn match_fn) {
+    std::vector<TokenSearcherType> searchers;
+    searchers.reserve(query_tokens.size());
+    for (const auto& term_info : query_tokens) {
+        const auto& token = term_info.get_single_term();
+        searchers.emplace_back(token.data(), token.size());
+    }
+    for (size_t i = 0; i < input_rows_count; i++) {
+        const auto str_ref = string_col->get_data_at(i);
+        const auto* haystack = reinterpret_cast<const uint8_t*>(str_ref.data);
+        const auto* haystack_end = haystack + str_ref.size;
+        match_fn(searchers, haystack, haystack_end, result[i]);
+    }
+}
+
+// Dispatch to case-sensitive or case-insensitive TokenSearcher based on is_lowercase.
+template <typename MatchFn>
+void dispatch_token_search(bool is_lowercase, const std::vector<TermInfo>& query_tokens,
+                           size_t input_rows_count, const ColumnString* string_col,
+                           ColumnUInt8::Container& result, MatchFn match_fn) {
+    if (is_lowercase) {
+        execute_token_search<ASCIICaseInsensitiveTokenSearcher>(query_tokens, input_rows_count,
+                                                                string_col, result, match_fn);
+    } else {
+        execute_token_search<ASCIICaseSensitiveTokenSearcher>(query_tokens, input_rows_count,
+                                                              string_col, result, match_fn);
+    }
 }
 
 } // namespace
@@ -286,6 +323,33 @@ Status FunctionMatchBase::check(FunctionContext* context, const std::string& fun
     return Status::OK();
 }
 
+bool FunctionMatchBase::can_use_token_search(const InvertedIndexAnalyzerCtx* analyzer_ctx,
+                                             const ColumnArray::Offsets64* array_offsets) {
+    if (analyzer_ctx == nullptr || array_offsets != nullptr) {
+        return false;
+    }
+    if (!analyzer_ctx->should_tokenize()) {
+        return false;
+    }
+    // Fast path cannot apply char_filter_map transformations to raw data
+    if (!analyzer_ctx->char_filter_map.empty()) {
+        return false;
+    }
+    // Only PARSER_STANDARD uses StandardAnalyzer with ASCII-compatible tokenization
+    // that closely matches TokenSearcher's isTokenSeparator logic (non-alphanumeric ASCII
+    // characters are separators, bytes >= 128 are non-separators).
+    // Known minor divergences from Lucene's UAX#29 rules exist for characters like
+    // underscore and apostrophe, but these match in practice for typical text data.
+    // PARSER_ENGLISH uses SimpleAnalyzer which treats digits as separators (incompatible).
+    // PARSER_UNICODE uses StandardAnalyzer but is intended for Unicode-heavy data where
+    // Lucene's UAX#29 rules differ from TokenSearcher's ASCII-only separator logic.
+    // PARSER_CHINESE uses CJK-specific tokenization (incompatible).
+    // NOTE: New parser types must be explicitly added here after verifying their
+    // tokenization rules match TokenSearcher's ASCII isTokenSeparator logic.
+    auto parser_type = analyzer_ctx->parser_type;
+    return parser_type == InvertedIndexParserType::PARSER_STANDARD;
+}
+
 Status FunctionMatchAny::execute_match(FunctionContext* context, const std::string& column_name,
                                        const std::string& match_query_str, size_t input_rows_count,
                                        const ColumnString* string_col,
@@ -305,12 +369,33 @@ Status FunctionMatchAny::execute_match(FunctionContext* context, const std::stri
         return Status::OK();
     }
 
+    // Fast path: use TokenSearcher (SIMD) instead of per-row Lucene tokenization
+    if (can_use_token_search(analyzer_ctx, array_offsets)) {
+        bool all_single_terms = std::all_of(query_tokens.begin(), query_tokens.end(),
+                                            [](const TermInfo& t) { return t.is_single_term(); });
+
+        if (all_single_terms) {
+            dispatch_token_search(
+                    analyzer_ctx->is_lowercase, query_tokens, input_rows_count, string_col, result,
+                    [](const auto& searchers, const uint8_t* haystack, const uint8_t* haystack_end,
+                       uint8_t& matched) {
+                        for (const auto& searcher : searchers) {
+                            if (searcher.search(haystack, haystack_end) < haystack_end) {
+                                matched = 1;
+                                break;
+                            }
+                        }
+                    });
+            return Status::OK();
+        }
+    }
+
+    // Original slow path: per-row Lucene tokenization + linear matching
     auto current_src_array_offset = 0;
     for (int i = 0; i < input_rows_count; i++) {
         auto data_tokens = analyse_data_token(column_name, analyzer_ctx, string_col, i,
                                               array_offsets, current_src_array_offset);
 
-        // TODO: more efficient impl
         for (auto& term_info : query_tokens) {
             auto it =
                     std::find_if(data_tokens.begin(), data_tokens.end(), [&](const TermInfo& info) {
@@ -345,12 +430,33 @@ Status FunctionMatchAll::execute_match(FunctionContext* context, const std::stri
         return Status::OK();
     }
 
+    // Fast path: use TokenSearcher (SIMD) instead of per-row Lucene tokenization
+    if (can_use_token_search(analyzer_ctx, array_offsets)) {
+        bool all_single_terms = std::all_of(query_tokens.begin(), query_tokens.end(),
+                                            [](const TermInfo& t) { return t.is_single_term(); });
+
+        if (all_single_terms) {
+            dispatch_token_search(
+                    analyzer_ctx->is_lowercase, query_tokens, input_rows_count, string_col, result,
+                    [](const auto& searchers, const uint8_t* haystack, const uint8_t* haystack_end,
+                       uint8_t& matched) {
+                        for (const auto& searcher : searchers) {
+                            if (searcher.search(haystack, haystack_end) >= haystack_end) {
+                                return;
+                            }
+                        }
+                        matched = 1;
+                    });
+            return Status::OK();
+        }
+    }
+
+    // Original slow path
     auto current_src_array_offset = 0;
     for (int i = 0; i < input_rows_count; i++) {
         auto data_tokens = analyse_data_token(column_name, analyzer_ctx, string_col, i,
                                               array_offsets, current_src_array_offset);
 
-        // TODO: more efficient impl
         auto find_count = 0;
         for (auto& term_info : query_tokens) {
             auto it =
