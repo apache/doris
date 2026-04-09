@@ -239,7 +239,6 @@ Status TransactionalHiveReader::on_after_init_reader(ReaderInitContext* /*ctx*/)
     }
     if (num_delete_rows > 0) {
         set_push_down_agg_type(TPushAggOp::NONE);
-        lock_push_down_agg_type();
         set_delete_rows(&_acid_delete_rows);
         COUNTER_UPDATE(_transactional_orc_profile.num_delete_files, num_delete_files);
         COUNTER_UPDATE(_transactional_orc_profile.num_delete_rows, num_delete_rows);

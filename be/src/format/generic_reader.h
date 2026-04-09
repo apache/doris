@@ -109,13 +109,10 @@ class GenericReader : public ProfileCollector {
 public:
     GenericReader() : _push_down_agg_type(TPushAggOp::type::NONE) {}
     void set_push_down_agg_type(TPushAggOp::type push_down_agg_type) {
-        if (!_push_down_agg_type_locked) {
-            _push_down_agg_type = push_down_agg_type;
-        }
+        DCHECK(!_reader_initialized)
+                << "set_push_down_agg_type must not be called after init_reader completes";
+        _push_down_agg_type = push_down_agg_type;
     }
-    // Lock the current push_down_agg_type so FileScanner cannot override it.
-    // Used by readers that must disable COUNT pushdown (e.g., ACID deletes, Paimon DV).
-    void lock_push_down_agg_type() { _push_down_agg_type_locked = true; }
     TPushAggOp::type get_push_down_agg_type() const { return _push_down_agg_type; }
 
     /// Template method for reading blocks.
@@ -202,6 +199,7 @@ public:
             RETURN_IF_ERROR(on_after_init_reader(ctx));
         }
 
+        _reader_initialized = true;
         return Status::OK();
     }
 
@@ -259,7 +257,7 @@ protected:
     const size_t _MIN_BATCH_SIZE = 4064; // 4094 - 32(padding)
 
     TPushAggOp::type _push_down_agg_type {};
-    bool _push_down_agg_type_locked = false;
+    bool _reader_initialized = false;
 
 public:
     // Pass condition cache context to the reader for HIT/MISS tracking.

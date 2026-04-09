@@ -978,7 +978,6 @@ Status FileScanner::_get_next_reader() {
                     _state->query_options().enable_paimon_cpp_reader) {
                     auto cpp_reader = PaimonCppReader::create_unique(_file_slot_descs, _state,
                                                                      _profile, range, _params);
-                    cpp_reader->set_push_down_agg_type(_get_push_down_agg_type());
                     if (!_is_load && !_push_down_conjuncts.empty()) {
                         PaimonPredicateConverter predicate_converter(_file_slot_descs, _state);
                         auto predicate = predicate_converter.build(_push_down_conjuncts);
@@ -1257,7 +1256,6 @@ Status FileScanner::_init_parquet_reader(FileMetaCache* file_meta_cache_ptr,
                             : -1;
             iceberg_reader->set_row_lineage_columns(std::move(row_lineage_columns));
         }
-        iceberg_reader->set_push_down_agg_type(_get_push_down_agg_type());
 
         init_status = static_cast<GenericReader*>(iceberg_reader.get())->init_reader(&pctx);
         _cur_reader = std::move(iceberg_reader);
@@ -1271,7 +1269,6 @@ Status FileScanner::_init_parquet_reader(FileMetaCache* file_meta_cache_ptr,
             RETURN_IF_ERROR(_create_row_id_column_iterator());
             paimon_reader->set_row_id_column_iterator(_row_id_column_iterator_pair);
         }
-        paimon_reader->set_push_down_agg_type(_get_push_down_agg_type());
         init_status = static_cast<GenericReader*>(paimon_reader.get())->init_reader(&pctx);
         _cur_reader = std::move(paimon_reader);
     } else if (range.__isset.table_format_params &&
@@ -1284,7 +1281,6 @@ Status FileScanner::_init_parquet_reader(FileMetaCache* file_meta_cache_ptr,
             RETURN_IF_ERROR(_create_row_id_column_iterator());
             hudi_reader->set_row_id_column_iterator(_row_id_column_iterator_pair);
         }
-        hudi_reader->set_push_down_agg_type(_get_push_down_agg_type());
         init_status = static_cast<GenericReader*>(hudi_reader.get())->init_reader(&pctx);
         _cur_reader = std::move(hudi_reader);
     } else if (range.table_format_params.table_format_type == "hive") {
@@ -1296,7 +1292,6 @@ Status FileScanner::_init_parquet_reader(FileMetaCache* file_meta_cache_ptr,
             RETURN_IF_ERROR(_create_row_id_column_iterator());
             hive_reader->set_row_id_column_iterator(_row_id_column_iterator_pair);
         }
-        hive_reader->set_push_down_agg_type(_get_push_down_agg_type());
         init_status = static_cast<GenericReader*>(hive_reader.get())->init_reader(&pctx);
         _cur_reader = std::move(hive_reader);
     } else if (range.table_format_params.table_format_type == "tvf") {
@@ -1306,7 +1301,6 @@ Status FileScanner::_init_parquet_reader(FileMetaCache* file_meta_cache_ptr,
                     &_state->timezone_obj(), _io_ctx.get(), _state, file_meta_cache_ptr,
                     _state->query_options().enable_parquet_lazy_mat);
         }
-        parquet_reader->set_push_down_agg_type(_get_push_down_agg_type());
         if (_row_id_column_iterator_pair.second != -1) {
             RETURN_IF_ERROR(_create_row_id_column_iterator());
             parquet_reader->set_row_id_column_iterator(_row_id_column_iterator_pair);
@@ -1320,7 +1314,6 @@ Status FileScanner::_init_parquet_reader(FileMetaCache* file_meta_cache_ptr,
                     &_state->timezone_obj(), _io_ctx.get(), _state, file_meta_cache_ptr,
                     _state->query_options().enable_parquet_lazy_mat);
         }
-        parquet_reader->set_push_down_agg_type(_get_push_down_agg_type());
         init_status = static_cast<GenericReader*>(parquet_reader.get())->init_reader(&pctx);
         _cur_reader = std::move(parquet_reader);
     }
@@ -1350,7 +1343,6 @@ Status FileScanner::_init_orc_reader(FileMetaCache* file_meta_cache_ptr,
             RETURN_IF_ERROR(_create_row_id_column_iterator());
             tran_orc_reader->set_row_id_column_iterator(_row_id_column_iterator_pair);
         }
-        tran_orc_reader->set_push_down_agg_type(_get_push_down_agg_type());
         init_status = static_cast<GenericReader*>(tran_orc_reader.get())->init_reader(&octx);
 
         _cur_reader = std::move(tran_orc_reader);
@@ -1381,7 +1373,6 @@ Status FileScanner::_init_orc_reader(FileMetaCache* file_meta_cache_ptr,
                             : -1;
             iceberg_reader->set_row_lineage_columns(std::move(row_lineage_columns));
         }
-        iceberg_reader->set_push_down_agg_type(_get_push_down_agg_type());
         init_status = static_cast<GenericReader*>(iceberg_reader.get())->init_reader(&octx);
 
         _cur_reader = std::move(iceberg_reader);
@@ -1395,7 +1386,6 @@ Status FileScanner::_init_orc_reader(FileMetaCache* file_meta_cache_ptr,
             RETURN_IF_ERROR(_create_row_id_column_iterator());
             paimon_reader->set_row_id_column_iterator(_row_id_column_iterator_pair);
         }
-        paimon_reader->set_push_down_agg_type(_get_push_down_agg_type());
         init_status = static_cast<GenericReader*>(paimon_reader.get())->init_reader(&octx);
 
         _cur_reader = std::move(paimon_reader);
@@ -1409,7 +1399,6 @@ Status FileScanner::_init_orc_reader(FileMetaCache* file_meta_cache_ptr,
             RETURN_IF_ERROR(_create_row_id_column_iterator());
             hudi_reader->set_row_id_column_iterator(_row_id_column_iterator_pair);
         }
-        hudi_reader->set_push_down_agg_type(_get_push_down_agg_type());
         init_status = static_cast<GenericReader*>(hudi_reader.get())->init_reader(&octx);
 
         _cur_reader = std::move(hudi_reader);
@@ -1423,7 +1412,6 @@ Status FileScanner::_init_orc_reader(FileMetaCache* file_meta_cache_ptr,
             RETURN_IF_ERROR(_create_row_id_column_iterator());
             hive_reader->set_row_id_column_iterator(_row_id_column_iterator_pair);
         }
-        hive_reader->set_push_down_agg_type(_get_push_down_agg_type());
         init_status = static_cast<GenericReader*>(hive_reader.get())->init_reader(&octx);
 
         _cur_reader = std::move(hive_reader);
@@ -1435,7 +1423,6 @@ Status FileScanner::_init_orc_reader(FileMetaCache* file_meta_cache_ptr,
                     _state->timezone(), _io_ctx.get(), file_meta_cache_ptr,
                     _state->query_options().enable_orc_lazy_mat);
         }
-        orc_reader->set_push_down_agg_type(_get_push_down_agg_type());
         if (_row_id_column_iterator_pair.second != -1) {
             RETURN_IF_ERROR(_create_row_id_column_iterator());
             orc_reader->set_row_id_column_iterator(_row_id_column_iterator_pair);
@@ -1449,7 +1436,6 @@ Status FileScanner::_init_orc_reader(FileMetaCache* file_meta_cache_ptr,
                     _state->timezone(), _io_ctx.get(), file_meta_cache_ptr,
                     _state->query_options().enable_orc_lazy_mat);
         }
-        orc_reader->set_push_down_agg_type(_get_push_down_agg_type());
         init_status = static_cast<GenericReader*>(orc_reader.get())->init_reader(&octx);
         _cur_reader = std::move(orc_reader);
     }

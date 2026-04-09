@@ -73,7 +73,6 @@ Status PaimonOrcReader::_init_deletion_vector() {
     // Cannot do count push down if there are delete files
     if (!get_scan_range().table_format_params.paimon_params.__isset.row_count) {
         set_push_down_agg_type(TPushAggOp::NONE);
-        lock_push_down_agg_type();
     }
     const auto& deletion_file = table_desc.deletion_file;
 
@@ -207,7 +206,6 @@ Status PaimonParquetReader::_init_deletion_vector() {
 
     if (!get_scan_range().table_format_params.paimon_params.__isset.row_count) {
         set_push_down_agg_type(TPushAggOp::NONE);
-        lock_push_down_agg_type();
     }
     const auto& deletion_file = table_desc.deletion_file;
 

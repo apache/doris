@@ -69,13 +69,6 @@ public:
     template <typename... Args>
     IcebergReaderMixin(ShardedKVCache* kv_cache, Args&&... args)
             : BaseReader(std::forward<Args>(args)...), _kv_cache(kv_cache) {
-        // Initialize table-level row count from scan range (replicates master's
-        // GenericReader constructor logic).
-        const auto& range = this->get_scan_range();
-        if (range.table_format_params.__isset.table_level_row_count) {
-            _table_level_row_count = range.table_format_params.table_level_row_count;
-        }
-
         static const char* iceberg_profile = "IcebergProfile";
         ADD_TIMER(this->get_profile(), iceberg_profile);
         _iceberg_profile.num_delete_files = ADD_CHILD_COUNTER(this->get_profile(), "NumDeleteFiles",
@@ -104,27 +97,10 @@ public:
 
     virtual void set_delete_rows() = 0;
 
-    // Replicates master's GenericReader::get_next_block().
-    // Handles table-level count pushdown by returning FE-provided _table_level_row_count
-    // directly (without reading any files). For all other cases, resets push_down_agg_type
-    // to NONE and delegates to the base reader — because in master, ParquetReader/OrcReader
-    // never had _push_down_agg_type == COUNT (it was absorbed by the GenericReader layer).
+    // Table-level COUNT(*) is handled by CountReader (created by FileScanner after
+    // init_reader). If _do_get_next_block is called, COUNT must have been resolved.
     Status _do_get_next_block(Block* block, size_t* read_rows, bool* eof) override {
-        if (this->_push_down_agg_type == TPushAggOp::type::COUNT && _table_level_row_count >= 0) {
-            auto rows = std::min(_table_level_row_count, (int64_t)this->get_batch_size());
-            _table_level_row_count -= rows;
-            auto mutate_columns = block->mutate_columns();
-            for (auto& col : mutate_columns) {
-                col->resize(rows);
-            }
-            block->set_columns(std::move(mutate_columns));
-            *read_rows = rows;
-            if (_table_level_row_count == 0) {
-                *eof = true;
-            }
-            return Status::OK();
-        }
-        this->set_push_down_agg_type(TPushAggOp::NONE);
+        DCHECK(this->_push_down_agg_type != TPushAggOp::type::COUNT);
         return BaseReader::_do_get_next_block(block, read_rows, eof);
     }
 
@@ -297,7 +273,6 @@ protected:
     std::string _partition_data_json;
 
     ShardedKVCache* _kv_cache;
-    int64_t _table_level_row_count = -1;
     IcebergProfile _iceberg_profile;
     const std::vector<int64_t>* _iceberg_delete_rows = nullptr;
     std::vector<std::string> _expand_col_names;
