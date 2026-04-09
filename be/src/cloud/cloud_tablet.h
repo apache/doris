@@ -159,6 +159,13 @@ public:
     void delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete,
                         std::unique_lock<std::shared_mutex>& meta_lock);
 
+    // Like delete_rowsets, but also removes edges from the version graph.
+    // Used by schema change to prevent the greedy capture algorithm from
+    // preferring stale compaction rowsets over individual SC output rowsets.
+    // MUST hold EXCLUSIVE `_meta_lock`.
+    void delete_rowsets_for_schema_change(const std::vector<RowsetSharedPtr>& to_delete,
+                                          std::unique_lock<std::shared_mutex>& meta_lock);
+
     // When the tablet is dropped, we need to recycle cached data:
     // 1. The data in file cache
     // 2. The memory in tablet cache
