@@ -5436,15 +5436,16 @@ void MetaServiceImpl::get_delete_bitmap_tablet_lock(
         KVStats& stats) {
     auto table_id = request->table_id();
     std::string lock_key;
-    LOG(INFO) << "get_delete_bitmap_tablet_lock table_id=" << table_id
-              << " lock_id=" << request->lock_id() << " initiator=" << request->initiator()
-              << " tablet_count=" << request->lock_tablet_ids_size();
 
     if (request->lock_tablet_ids_size() == 0) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "lock_tablet_ids is empty for tablet_level_lock";
         return;
     }
+    LOG(INFO) << "get_delete_bitmap_tablet_lock table_id=" << table_id
+              << " tablet_id=" << request->lock_tablet_ids(0)
+              << " lock_id=" << request->lock_id() << " initiator=" << request->initiator()
+              << " tablet_count=" << request->lock_tablet_ids_size();
 
     for (int retry = 0; retry <= 1; retry++) {
         std::unique_ptr<Transaction> txn;

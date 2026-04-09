@@ -158,9 +158,15 @@ void begin_rpc(std::string_view func_name, brpc::Controller* ctrl, const Request
                   << " original_client_ip=" << req->request_ip()
                   << " tablet_id=" << req->tablet_id() << " rowset_size=" << req->rowset_ids_size();
     } else if constexpr (std::is_same_v<Request, GetDeleteBitmapUpdateLockRequest>) {
+        std::string tablet_debug_info;
+        if (req->tablet_level_lock()) {
+            DORIS_CHECK(req->lock_tablet_ids_size() > 0);
+            tablet_debug_info = fmt::format(" tablet_id={}", req->lock_tablet_ids(0));
+        }
         LOG(INFO) << "begin " << func_name << " remote_caller=" << ctrl->remote_side()
                   << " original_client_ip=" << req->request_ip() << " table_id=" << req->table_id()
-                  << " lock_id=" << req->lock_id() << " initiator=" << req->initiator()
+                  << tablet_debug_info << " lock_id=" << req->lock_id()
+                  << " initiator=" << req->initiator()
                   << " expiration=" << req->expiration()
                   << " require_compaction_stats=" << req->require_compaction_stats();
     } else if constexpr (std::is_same_v<Request, CreateInstanceRequest> ||

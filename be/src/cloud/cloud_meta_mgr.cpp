@@ -348,6 +348,11 @@ static std::string debug_info(const Request& req) {
     } else if constexpr (is_any_v<Request, UpdateDeleteBitmapRequest>) {
         return fmt::format(" tablet_id={}, lock_id={}", req.tablet_id(), req.lock_id());
     } else if constexpr (is_any_v<Request, GetDeleteBitmapUpdateLockRequest>) {
+        if (req.tablet_level_lock()) {
+            DORIS_CHECK(req.lock_tablet_ids_size() > 0);
+            return fmt::format(" table_id={}, tablet_id={}, lock_id={}", req.table_id(),
+                               req.lock_tablet_ids(0), req.lock_id());
+        }
         return fmt::format(" table_id={}, lock_id={}", req.table_id(), req.lock_id());
     } else if constexpr (is_any_v<Request, GetTabletRequest>) {
         return fmt::format(" tablet_id={}", req.tablet_id());
