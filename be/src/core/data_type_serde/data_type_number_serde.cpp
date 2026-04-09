@@ -269,7 +269,8 @@ Status DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
                     if constexpr (T == TYPE_DATETIMEV2 || T == TYPE_TIMESTAMPTZ) {
                         StringRef str_ref(raw_data, raw_data_len);
                         UInt64 val = 0;
-                        if (!try_read_int_text(val, str_ref)) {
+                        CastParameters params;
+                        if (!CastToInt::from_string<false>(str_ref, val, params)) {
                             return Status::Error(ErrorCode::INVALID_ARGUMENT,
                                                  "parse number fail, string: '{}'",
                                                  std::string(str_ref.data, str_ref.size).c_str());
@@ -290,7 +291,8 @@ Status DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
                     } else if constexpr (T == TYPE_DATEV2) {
                         StringRef str_ref(raw_data, raw_data_len);
                         UInt32 val = 0;
-                        if (!try_read_int_text(val, str_ref)) {
+                        CastParameters params;
+                        if (!CastToInt::from_string<false>(str_ref, val, params)) {
                             return Status::Error(ErrorCode::INVALID_ARGUMENT,
                                                  "parse number fail, string: '{}'",
                                                  std::string(str_ref.data, str_ref.size).c_str());

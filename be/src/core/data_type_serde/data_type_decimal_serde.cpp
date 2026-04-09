@@ -138,7 +138,7 @@ Status DataTypeDecimalSerDe<T>::from_olap_string(const std::string& str, Field& 
     // DecimalV2: zonemap stores "integer.fraction" with 9 zero-padded fractional digits.
     //   E.g., DecimalV2 value 123.456 → to_olap_string() → "123.456000000".
     //   Caller sets ignore_scale=false → parse with scale=9 → correctly restores the value.
-    //   Note: read_decimal_text_impl() currently hardcodes DecimalV2Value::SCALE=9 for
+    //   Note: CastToDecimal::from_string() currently hardcodes DecimalV2Value::SCALE=9 for
     //   DecimalV2, so the passed-in scale is effectively ignored. But callers should still
     //   set ignore_scale=false for semantic correctness.
     if (!CastToDecimal::from_string(StringRef(str), to, static_cast<UInt32>(precision),

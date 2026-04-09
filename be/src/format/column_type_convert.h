@@ -444,7 +444,8 @@ struct SafeCastString<TYPE_LARGEINT> {
     static bool safe_cast_string(
             const StringRef& str_ref,
             PrimitiveTypeTraits<TYPE_LARGEINT>::ColumnType::value_type* value) {
-        return try_read_int_text<Int128>(*value, str_ref);
+        CastParameters params;
+        return CastToInt::from_string<false>(str_ref, *value, params);
     }
 };
 

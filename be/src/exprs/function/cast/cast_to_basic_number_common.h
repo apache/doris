@@ -175,6 +175,12 @@ struct CastToInt {
         return try_read_int_text<ToCppT, is_strict_mode>(to, from);
     }
 
+    template <bool is_strict_mode, typename ToCppT>
+        requires(std::is_unsigned_v<ToCppT>)
+    static inline bool from_string(const StringRef& from, ToCppT& to, CastParameters& params) {
+        return try_read_int_text<ToCppT, is_strict_mode>(to, from);
+    }
+
     template <typename FromCppT, typename ToCppT>
         requires(IsCppTypeInt<ToCppT> &&
                  (std::is_same_v<FromCppT, PrimitiveTypeTraits<TYPE_BOOLEAN>::CppType> ||
