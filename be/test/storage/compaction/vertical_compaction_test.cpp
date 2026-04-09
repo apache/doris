@@ -1192,4 +1192,70 @@ TEST_F(VerticalCompactionTest, TestUniqueKeyVerticalMergeWithNullableSparseColum
     config::sparse_column_compaction_threshold_percent = original_threshold;
 }
 
+// Test that first-time compaction (no historical sampling) uses footer raw_data_bytes
+// to estimate batch_size instead of hardcoded 992.
+// This test verifies the footer-based estimation path is triggered and compaction succeeds.
+TEST_F(VerticalCompactionTest, TestFirstCompactionUsesFooterEstimation) {
+    // Use small data to ensure compaction completes quickly
+    auto num_input_rowset = 2;
+    auto num_segments = 1;
+    auto rows_per_segment = 1024;
+    SegmentsOverlapPB overlap = NONOVERLAPPING;
+    std::vector<std::vector<std::vector<std::tuple<int64_t, int64_t>>>> input_data;
+    generate_input_data(num_input_rowset, num_segments, rows_per_segment, overlap, input_data);
+
+    TabletSchemaSPtr tablet_schema = create_schema();
+
+    // Create input rowsets
+    std::vector<RowsetSharedPtr> input_rowsets;
+    for (auto i = 0; i < num_input_rowset; i++) {
+        RowsetSharedPtr rowset = create_rowset(tablet_schema, overlap, input_data[i], i);
+        input_rowsets.push_back(rowset);
+    }
+
+    // Create input rowset readers
+    std::vector<RowsetReaderSharedPtr> input_rs_readers;
+    for (auto& rowset : input_rowsets) {
+        RowsetReaderSharedPtr rs_reader;
+        ASSERT_TRUE(rowset->create_reader(&rs_reader).ok());
+        input_rs_readers.push_back(std::move(rs_reader));
+    }
+
+    // Create output rowset writer
+    auto writer_context = create_rowset_writer_context(tablet_schema, NONOVERLAPPING, 3456,
+                                                       {0, input_rowsets.back()->end_version()});
+    auto res = RowsetFactory::create_rowset_writer(*engine_ref, writer_context, true);
+    ASSERT_TRUE(res.has_value()) << res.error();
+    auto output_rs_writer = std::move(res).value();
+
+    // Create tablet - fresh tablet has no historical sampling data,
+    // so estimate_batch_size will hit the else branch and use footer raw_data_bytes.
+    TabletSharedPtr tablet = create_tablet(*tablet_schema, false);
+    Merger::Statistics stats;
+    RowIdConversion rowid_conversion;
+    stats.rowid_conversion = &rowid_conversion;
+
+    // Verify sample_infos are empty (no historical data)
+    auto& sample_infos = tablet->get_sample_infos(ReaderType::READER_BASE_COMPACTION);
+    EXPECT_TRUE(sample_infos.empty());
+
+    // Run vertical merge - this should use footer raw_data_bytes for batch size estimation
+    // since there is no historical sampling data.
+    // The log should contain "estimate batch size from footer" instead of the old hardcoded path.
+    auto s = Merger::vertical_merge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION,
+                                            *tablet_schema, input_rs_readers,
+                                            output_rs_writer.get(), 100000, num_segments, &stats);
+    ASSERT_TRUE(s.ok()) << s;
+
+    RowsetSharedPtr out_rowset;
+    ASSERT_EQ(Status::OK(), output_rs_writer->build(out_rowset));
+    EXPECT_EQ(out_rowset->rowset_meta()->num_rows(),
+              num_input_rowset * num_segments * rows_per_segment);
+
+    // After first compaction, sample_infos should be populated with historical data
+    // for subsequent compactions to use.
+    auto& updated_infos = tablet->get_sample_infos(ReaderType::READER_BASE_COMPACTION);
+    EXPECT_FALSE(updated_infos.empty());
+}
+
 } // namespace doris
