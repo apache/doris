@@ -1164,11 +1164,6 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     @Override
     public void gsonPostProcess() throws IOException {
-        // When downgrading from a newer version that has RETRYING status,
-        // Gson may deserialize the unknown enum value as null. Fall back to PAUSED.
-        if (getJobStatus() == null) {
-            setJobStatus(JobStatus.PAUSED);
-        }
         if (offsetProvider == null) {
             if (tvfType != null) {
                 offsetProvider = SourceOffsetProviderFactory.createSourceOffsetProvider(tvfType);
