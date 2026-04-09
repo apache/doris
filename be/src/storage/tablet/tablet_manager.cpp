@@ -593,7 +593,15 @@ Status TabletManager::_drop_tablet(TTabletId tablet_id, TReplicaId replica_id, b
 Result<TabletSharedPtr> TabletManager::get_tablet(TTabletId tablet_id, bool include_deleted,
                                                   string* err) {
     std::shared_lock rdlock(_get_tablets_shard_lock(tablet_id));
-    return _get_tablet_unlocked(tablet_id, include_deleted, err);
+    TabletSharedPtr tablet = _get_tablet_unlocked(tablet_id, include_deleted, err);
+    if (tablet == nullptr) {
+        if (err) {
+            return ResultError(Status::NotFound("failed to get tablet {}, {}", tablet_id, *err));
+        } else {
+            return ResultError(Status::NotFound("failed to get tablet {}", tablet_id));
+        }
+    }
+    return tablet;
 }
 
 std::vector<TabletSharedPtr> TabletManager::get_all_tablet(std::function<bool(Tablet*)>&& filter) {
