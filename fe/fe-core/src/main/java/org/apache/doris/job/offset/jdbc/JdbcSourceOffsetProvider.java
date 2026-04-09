@@ -280,7 +280,8 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                     // snapshot to binlog phase
                     return true;
                 }
-                return compareOffset(endBinlogOffset, new HashMap<>(binlogSplit.getStartingOffset()));
+                hasMoreData = compareOffset(endBinlogOffset, new HashMap<>(binlogSplit.getStartingOffset()));
+                return hasMoreData;
             } else {
                 // snapshot means has data to consume
                 return true;
