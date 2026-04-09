@@ -25,11 +25,13 @@
 #include <algorithm>
 #include <memory>
 #include <ostream>
+#include <random>
 #include <vector>
 
 #include "common/logging.h"
 #include "common/status.h"
 #include "core/block/block.h"
+#include "core/column/column_const.h"
 #include "exec/operator/exchange_source_operator.h"
 #include "exec/operator/operator.h"
 #include "exec/operator/rec_cte_source_operator.h"
@@ -720,7 +722,39 @@ Status PipelineTask::execute(bool* done) {
                 }
             });
             RETURN_IF_ERROR(block->check_type_and_column());
+#ifndef NDEBUG
+            // Randomly split the block into single-row ColumnConst blocks (1% probability).
+            // Each row becomes a separate 1-row block where every column is ColumnConst.
+            // This preserves all data while testing sink operators' const handling.
+            {
+                static thread_local std::mt19937 rng(std::random_device {}());
+                static thread_local std::uniform_int_distribution<int> dist(0, 99);
+                if (block->rows() > 0 && dist(rng) == 0) {
+                    const auto num_rows = block->rows();
+                    for (size_t row = 0; row < num_rows; ++row) {
+                        Block const_block;
+                        for (size_t col = 0; col < block->columns(); ++col) {
+                            auto& col_data = block->get_by_position(col);
+                            auto one_row = col_data.column->cut(row, 1);
+                            auto const_col = ColumnConst::create(std::move(one_row), 1);
+                            const_block.insert(
+                                    {std::move(const_col), col_data.type, col_data.name});
+                        }
+                        // Only the last row carries eos if original was eos.
+                        bool row_eos = (row == num_rows - 1) && _eos;
+                        status = _sink->sink(_state, &const_block, row_eos);
+                        if (!status.ok()) {
+                            break;
+                        }
+                    }
+                    // Clear the original block so it won't be processed again.
+                    block->clear_column_data();
+                    goto after_sink;
+                }
+            }
+#endif
             status = _sink->sink(_state, block, _eos);
+        after_sink:
 
             if (_eos) {
                 if (_sink->reset_to_rerun(_state, _root)) {
