@@ -17,6 +17,7 @@
 
 package org.apache.doris.job.extensions.insert.streaming;
 
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.InsertTask;
 import org.apache.doris.qe.ConnectContext;
@@ -28,6 +29,83 @@ import org.junit.Test;
 import java.util.HashMap;
 
 public class StreamingJobPropertiesTest {
+
+    /**
+     * Simulate FE restart: constructor is called without validate().
+     * Before the fix, maxIntervalSecond would be 0 when properties is non-empty,
+     * causing streaming tasks to timeout immediately after FE restart.
+     */
+    @Test
+    public void testConstructorParsesPropertiesWithoutValidate() {
+        // Case 1: empty properties -> should use defaults
+        StreamingJobProperties emptyProps = new StreamingJobProperties(new HashMap<>());
+        Assert.assertEquals(StreamingJobProperties.DEFAULT_MAX_INTERVAL_SECOND,
+                emptyProps.getMaxIntervalSecond());
+        Assert.assertEquals(StreamingJobProperties.DEFAULT_MAX_S3_BATCH_FILES,
+                emptyProps.getS3BatchFiles());
+        Assert.assertEquals(StreamingJobProperties.DEFAULT_MAX_S3_BATCH_BYTES,
+                emptyProps.getS3BatchBytes());
+
+        // Case 2: explicit max_interval=1 (the bug scenario)
+        // Before fix: maxIntervalSecond would be 0 because isEmpty()=false skipped defaults
+        HashMap<String, String> props = new HashMap<>();
+        props.put("max_interval", "1");
+        StreamingJobProperties customProps = new StreamingJobProperties(props);
+        Assert.assertEquals(1L, customProps.getMaxIntervalSecond());
+
+        // Case 3: explicit max_interval=5
+        HashMap<String, String> props2 = new HashMap<>();
+        props2.put("max_interval", "5");
+        StreamingJobProperties customProps2 = new StreamingJobProperties(props2);
+        Assert.assertEquals(5L, customProps2.getMaxIntervalSecond());
+        // s3 properties not set -> should use defaults
+        Assert.assertEquals(StreamingJobProperties.DEFAULT_MAX_S3_BATCH_FILES,
+                customProps2.getS3BatchFiles());
+    }
+
+    /**
+     * Constructor should be resilient to bad data (e.g. corrupted metadata),
+     * falling back to defaults instead of throwing exceptions.
+     */
+    @Test
+    public void testConstructorHandlesBadValues() {
+        // non-numeric value -> fallback to default
+        HashMap<String, String> props = new HashMap<>();
+        props.put("max_interval", "abc");
+        StreamingJobProperties p = new StreamingJobProperties(props);
+        Assert.assertEquals(StreamingJobProperties.DEFAULT_MAX_INTERVAL_SECOND,
+                p.getMaxIntervalSecond());
+
+        // zero value -> fallback to default (must be >= 1)
+        HashMap<String, String> props2 = new HashMap<>();
+        props2.put("max_interval", "0");
+        StreamingJobProperties p2 = new StreamingJobProperties(props2);
+        Assert.assertEquals(StreamingJobProperties.DEFAULT_MAX_INTERVAL_SECOND,
+                p2.getMaxIntervalSecond());
+
+        // negative value -> fallback to default
+        HashMap<String, String> props3 = new HashMap<>();
+        props3.put("max_interval", "-1");
+        StreamingJobProperties p3 = new StreamingJobProperties(props3);
+        Assert.assertEquals(StreamingJobProperties.DEFAULT_MAX_INTERVAL_SECOND,
+                p3.getMaxIntervalSecond());
+    }
+
+    /**
+     * validate() should still reject bad values with AnalysisException,
+     * keeping the strict check for job creation.
+     */
+    @Test
+    public void testValidateStillRejectsBadValues() {
+        HashMap<String, String> props = new HashMap<>();
+        props.put("max_interval", "0");
+        StreamingJobProperties p = new StreamingJobProperties(props);
+        // constructor fallback is fine
+        Assert.assertEquals(StreamingJobProperties.DEFAULT_MAX_INTERVAL_SECOND,
+                p.getMaxIntervalSecond());
+        // but validate() should throw
+        Assert.assertThrows(AnalysisException.class, p::validate);
+    }
 
     @Test
     public void testSessionVariables() throws JobException {
