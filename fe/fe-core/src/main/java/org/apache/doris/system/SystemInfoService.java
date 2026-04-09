@@ -57,16 +57,22 @@ import org.jetbrains.annotations.NotNull;
 
 import java.io.DataInputStream;
 import java.io.IOException;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.security.SecureRandom;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.ToIntFunction;
 import java.util.stream.Collectors;
 
 public class SystemInfoService {
@@ -95,6 +101,10 @@ public class SystemInfoService {
     protected volatile ImmutableMap<Long, AtomicLong> idToReportVersionRef = ImmutableMap.of();
 
     private volatile ImmutableMap<Long, DiskInfo> pathHashToDiskInfoRef = ImmutableMap.of();
+
+    // Tracks host mismatch pairs that have already been warned about, to avoid log flooding.
+    // Key format: "backendId:reportedHost"
+    private final Set<String> warnedHostMismatches = ConcurrentHashMap.newKeySet();
 
     public static class HostInfo implements Comparable<HostInfo> {
         public String host;
@@ -359,33 +369,99 @@ public class SystemInfoService {
     }
 
     public Backend getBackendWithHeartbeatPort(String host, int heartPort) {
+        return findBackendByHostAndPort(host, heartPort, Backend::getHeartbeatPort, "heartbeat");
+    }
+
+    public Backend getBackendWithBePort(String host, int bePort) {
+        return findBackendByHostAndPort(host, bePort, Backend::getBePort, "be");
+    }
+
+    public Backend getBackendWithHttpPort(String host, int httpPort) {
+        return findBackendByHostAndPort(host, httpPort, Backend::getHttpPort, "http");
+    }
+
+    /**
+     * Find a backend by host and port, with fallback to resolved IP matching.
+     * First tries exact host string match; if that fails, resolves the reported host to IPs
+     * and compares against each backend's registered host to handle multi-homed hosts or
+     * hostname/IP mismatches that could cause the same BE to appear as different nodes.
+     *
+     * @param host the reported host string
+     * @param port the port to match
+     * @param portAccessor function to extract the relevant port from a Backend
+     * @param portLabel label for log messages (e.g., "heartbeat", "be", "http")
+     */
+    private Backend findBackendByHostAndPort(String host, int port,
+            ToIntFunction<Backend> portAccessor, String portLabel) {
         ImmutableMap<Long, Backend> idToBackend = getAllClusterBackendsNoException();
         for (Backend backend : idToBackend.values()) {
-            if (backend.getHost().equals(host) && backend.getHeartbeatPort() == heartPort) {
+            if (backend.getHost().equals(host) && portAccessor.applyAsInt(backend) == port) {
+                return backend;
+            }
+        }
+        // Fallback: resolve the reported host once and compare against each backend
+        Set<InetAddress> reportedAddrs = resolveHost(host);
+        if (reportedAddrs.isEmpty()) {
+            return null;
+        }
+        for (Backend backend : idToBackend.values()) {
+            if (portAccessor.applyAsInt(backend) == port
+                    && isSameHost(reportedAddrs, backend.getHost())) {
+                String warnKey = backend.getId() + ":" + host;
+                if (warnedHostMismatches.add(warnKey)) {
+                    LOG.warn("Backend [id={}, {}Port={}] matched by resolved IP."
+                            + " Reported host: {}, registered host: {}."
+                            + " Consider using a consistent IP/hostname.",
+                            backend.getId(), portLabel, port, host, backend.getHost());
+                }
                 return backend;
             }
         }
         return null;
     }
 
-    public Backend getBackendWithBePort(String ip, int bePort) {
-        ImmutableMap<Long, Backend> idToBackend = getAllClusterBackendsNoException();
-        for (Backend backend : idToBackend.values()) {
-            if (backend.getHost().equals(ip) && backend.getBePort() == bePort) {
-                return backend;
-            }
+    /**
+     * Resolve a host string to a set of InetAddresses.
+     * Returns an empty set if the host cannot be resolved.
+     */
+    private static Set<InetAddress> resolveHost(String host) {
+        try {
+            return new HashSet<>(Arrays.asList(InetAddress.getAllByName(host)));
+        } catch (UnknownHostException e) {
+            LOG.warn("Failed to resolve host: {}", host, e);
+            return Collections.emptySet();
         }
-        return null;
     }
 
-    public Backend getBackendWithHttpPort(String ip, int httpPort) {
-        ImmutableMap<Long, Backend> idToBackend = getAllClusterBackendsNoException();
-        for (Backend backend : idToBackend.values()) {
-            if (backend.getHost().equals(ip) && backend.getHttpPort() == httpPort) {
-                return backend;
-            }
+    /**
+     * Check if two host strings refer to the same machine by resolving them to IP addresses.
+     * This handles cases where the same BE reports with different IPs (e.g., multi-homed hosts,
+     * hostname vs IP mismatch) to prevent incorrect replica dropping.
+     *
+     * @return true if the two hosts resolve to at least one common IP address
+     */
+    public static boolean isSameHost(String host1, String host2) {
+        if (host1.equals(host2)) {
+            return true;
         }
-        return null;
+        Set<InetAddress> addrs1 = resolveHost(host1);
+        return !addrs1.isEmpty() && isSameHost(addrs1, host2);
+    }
+
+    /**
+     * Check if any of the pre-resolved addresses match the resolved addresses of the given host.
+     */
+    private static boolean isSameHost(Set<InetAddress> resolvedAddrs, String host2) {
+        try {
+            for (InetAddress addr : InetAddress.getAllByName(host2)) {
+                if (resolvedAddrs.contains(addr)) {
+                    return true;
+                }
+            }
+        } catch (UnknownHostException e) {
+            LOG.warn("Failed to resolve host for comparison: {}", host2, e);
+        }
+        return false;
     }
 
     public List<Long> getAllBackendIds() {

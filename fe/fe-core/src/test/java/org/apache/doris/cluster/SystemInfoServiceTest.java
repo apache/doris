@@ -291,6 +291,44 @@ public class SystemInfoServiceTest {
     }
 
     @Test
+    public void testIsSameHost() throws Exception {
+        // Same string should match
+        Assert.assertTrue(SystemInfoService.isSameHost("127.0.0.1", "127.0.0.1"));
+
+        // Different IPs should not match
+        Assert.assertFalse(SystemInfoService.isSameHost("192.168.0.1", "192.168.0.2"));
+
+        // localhost should match its own resolved address (avoids assuming 127.0.0.1 on all platforms)
+        String localhostAddr = java.net.InetAddress.getByName("localhost").getHostAddress();
+        Assert.assertTrue(SystemInfoService.isSameHost("localhost", localhostAddr));
+
+        // RFC 6761 reserved ".invalid" domain — guaranteed non-resolvable, unlike example.com
+        Assert.assertFalse(SystemInfoService.isSameHost("nonexistent.invalid", "127.0.0.1"));
+    }
+
+    @Test
+    public void testGetBackendWithBePortFallback() throws UserException {
+        clearAllBackend();
+        AddBackendOp op = new AddBackendOp(Lists.newArrayList("127.0.0.1:1234"), Maps.newHashMap());
+        op.validate(new ConnectContext());
+        Env.getCurrentSystemInfo().addBackends(op.getHostInfos(), true);
+
+        // Set bePort on the backend
+        Backend backend = Env.getCurrentSystemInfo().getBackendWithHeartbeatPort("127.0.0.1", 1234);
+        Assert.assertNotNull(backend);
+        backend.updateOnce(9060, 8040, 9070);
+
+        // Direct match should work
+        Assert.assertNotNull(Env.getCurrentSystemInfo().getBackendWithBePort("127.0.0.1", 9060));
+
+        // Fallback via hostname resolution should also match ("localhost" resolves to "127.0.0.1")
+        Assert.assertNotNull(Env.getCurrentSystemInfo().getBackendWithBePort("localhost", 9060));
+
+        // Non-matching port should still return null
+        Assert.assertNull(Env.getCurrentSystemInfo().getBackendWithBePort("localhost", 9999));
+    }
+
+    @Test
     public void testSaveLoadBackend() throws Exception {
         clearAllBackend();
         String dir = "testLoadBackend";
