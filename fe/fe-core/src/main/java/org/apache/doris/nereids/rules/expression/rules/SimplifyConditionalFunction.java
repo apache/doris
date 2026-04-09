@@ -114,7 +114,7 @@ public class SimplifyConditionalFunction implements ExpressionPatternRuleFactory
     private static Expression rewriteNullIf(ExpressionMatchingContext<NullIf> ctx) {
         NullIf nullIf = ctx.expr;
         if (nullIf.child(0) instanceof NullLiteral && nullIf.child(1) instanceof NullLiteral) {
-            return nullIf.child(0);
+            return TypeCoercionUtils.ensureSameResultType(nullIf, nullIf.child(0), ctx.rewriteContext);
         } else if (nullIf.child(0) instanceof NullLiteral || nullIf.child(1) instanceof NullLiteral) {
             return TypeCoercionUtils.ensureSameResultType(
                     nullIf, new Nullable(nullIf.child(0)), ctx.rewriteContext

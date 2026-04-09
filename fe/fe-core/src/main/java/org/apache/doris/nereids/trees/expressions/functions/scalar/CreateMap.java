@@ -137,6 +137,8 @@ public class CreateMap extends ScalarFunction
             if (!commonKeyType.isPresent()) {
                 SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
             } else {
+                // Consider all string-like literals when widening the common key type.
+                // Stopping at the first widening makes inference depend on literal order.
                 for (Expression stringLiteral : keyPartitioned.get(true)) {
                     Optional<Expression> optLiteral = TypeCoercionUtils.characterLiteralTypeCoercion(
                             ((Literal) stringLiteral).getStringValue(), commonKeyType.get());
@@ -147,10 +149,7 @@ public class CreateMap extends ScalarFunction
                         if (!widened.isPresent()) {
                             SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
                         }
-                        if (!widened.get().equals(commonKeyType.get())) {
-                            commonKeyType = widened;
-                            break;
-                        }
+                        commonKeyType = widened;
                     } else {
                         Optional<DataType> widened = TypeCoercionUtils.findWiderTypeForTwo(
                                 commonKeyType.get(), stringLiteral.getDataType(), false, true);
@@ -158,7 +157,6 @@ public class CreateMap extends ScalarFunction
                             SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
                         }
                         commonKeyType = widened;
-                        break;
                     }
                 }
             }
@@ -174,6 +172,7 @@ public class CreateMap extends ScalarFunction
             if (!commonValueType.isPresent()) {
                 SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
             } else {
+                // Consider all string-like literals when widening the common value type.
                 for (Expression stringLiteral : valuePartitioned.get(true)) {
                     Optional<Expression> optLiteral = TypeCoercionUtils.characterLiteralTypeCoercion(
                             ((Literal) stringLiteral).getStringValue(), commonValueType.get());
@@ -184,10 +183,7 @@ public class CreateMap extends ScalarFunction
                         if (!widened.isPresent()) {
                             SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
                         }
-                        if (!widened.get().equals(commonValueType.get())) {
-                            commonValueType = widened;
-                            break;
-                        }
+                        commonValueType = widened;
                     } else {
                         Optional<DataType> widened = TypeCoercionUtils.findWiderTypeForTwo(
                                 commonValueType.get(), stringLiteral.getDataType(), false, true);
@@ -195,7 +191,6 @@ public class CreateMap extends ScalarFunction
                             SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
                         }
                         commonValueType = widened;
-                        break;
                     }
                 }
             }
