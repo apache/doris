@@ -204,10 +204,10 @@ struct CastToDecimal {
                       Decimal128V3,
                       std::conditional_t<(sizeof(FromCppT) > sizeof(ToCppT)), FromCppT, ToCppT>>>
         requires(IsDecimalNumber<ToCppT> && IsDecimalNumber<FromCppT>)
-    static inline bool from_decimalv2(const FromCppT& from, const UInt32 from_precision,
-                                      const UInt32 from_scale, UInt32 from_original_precision,
-                                      UInt32 from_original_scale, ToCppT& to, UInt32 to_precision,
-                                      UInt32 to_scale, CastParameters& params) {
+    static inline bool from_decimal(const FromCppT& from, const UInt32 from_precision,
+                                    const UInt32 from_scale, UInt32 from_original_precision,
+                                    UInt32 from_original_scale, ToCppT& to, UInt32 to_precision,
+                                    UInt32 to_scale, CastParameters& params) {
         using MaxNativeType = typename MaxFieldType::NativeType;
 
         auto from_max_int_digit_count = from_original_precision - from_original_scale;
@@ -263,9 +263,9 @@ struct CastToDecimal {
                       Decimal128V3,
                       std::conditional_t<(sizeof(FromCppT) > sizeof(ToCppT)), FromCppT, ToCppT>>>
         requires(IsDecimalNumber<ToCppT> && IsDecimalNumber<FromCppT>)
-    static inline bool from_decimalv3(const FromCppT& from, const UInt32 from_precision,
-                                      const UInt32 from_scale, ToCppT& to, UInt32 to_precision,
-                                      UInt32 to_scale, CastParameters& params) {
+    static inline bool from_decimal(const FromCppT& from, const UInt32 from_precision,
+                                    const UInt32 from_scale, ToCppT& to, UInt32 to_precision,
+                                    UInt32 to_scale, CastParameters& params) {
         using MaxNativeType = typename MaxFieldType::NativeType;
 
         auto from_max_int_digit_count = from_precision - from_scale;

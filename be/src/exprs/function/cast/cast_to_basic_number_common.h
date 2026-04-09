@@ -271,15 +271,6 @@ struct CastToInt {
         return true;
     }
 
-    // cast from date and datetime to int
-    template <typename FromCppT, typename ToCppT>
-        requires((IsCppTypeDate<FromCppT> && IntAllowCastFromDate<ToCppT>) ||
-                 (IsCppTypeDateTime<FromCppT> && IntAllowCastFromDatetime<ToCppT>))
-    static inline bool from_datetime(FromCppT from, ToCppT& to, CastParameters& params) {
-        CastUtil::static_cast_set(to, from.to_int64());
-        return true;
-    }
-
     // from time to bigint and largeint, will not overflow
     template <typename FromCppT, typename ToCppT>
         requires(std::is_same_v<ToCppT, PrimitiveTypeTraits<TYPE_BIGINT>::CppType> ||
@@ -369,21 +360,6 @@ struct CastToFloat {
                                  static_cast<double>(scale_multiplier));
         return true;
     }
-    // cast from date and datetime to float/double, will not overflow
-    template <typename FromCppT, typename ToCppT>
-        requires(IsCppTypeFloat<ToCppT> && (IsCppTypeDate<FromCppT> || IsCppTypeDateTime<FromCppT>))
-    static inline bool from_datetime(FromCppT from, ToCppT& to, CastParameters& params) {
-        CastUtil::static_cast_set(to, from.to_int64());
-        return true;
-    }
-
-    // from time to float/double, will not overflow
-    template <typename FromCppT, typename ToCppT>
-        requires(IsCppTypeFloat<ToCppT>)
-    static inline bool from_time(FromCppT from, ToCppT& to, CastParameters& params) {
-        CastUtil::static_cast_set(to, from);
-        return true;
-    }
 };
 
 template <typename FromDataType, typename ToDataType>
@@ -409,16 +385,19 @@ Status static_cast_no_overflow(FunctionContext* context, Block& block,
             } else if constexpr (IsDataTypeInt<FromDataType>) {
                 CastToInt::from_int(vec_from[i], vec_to[i], params);
             } else if constexpr (IsDatelikeV1Types<FromDataType>) {
-                CastToInt::from_datetime(reinterpret_cast<const VecDateTimeValue&>(vec_from[i]),
-                                         vec_to[i], params);
+                CastUtil::static_cast_set(
+                        vec_to[i],
+                        reinterpret_cast<const VecDateTimeValue&>(vec_from[i]).to_int64());
             } else if constexpr (IsDateTimeV2Type<FromDataType>) {
-                CastToInt::from_datetime(
-                        reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(vec_from[i]),
-                        vec_to[i], params);
+                CastUtil::static_cast_set(
+                        vec_to[i],
+                        reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(vec_from[i])
+                                .to_int64());
             } else if constexpr (IsDateV2Type<FromDataType>) {
-                CastToInt::from_datetime(
-                        reinterpret_cast<const DateV2Value<DateV2ValueType>&>(vec_from[i]),
-                        vec_to[i], params);
+                CastUtil::static_cast_set(
+                        vec_to[i],
+                        reinterpret_cast<const DateV2Value<DateV2ValueType>&>(vec_from[i])
+                                .to_int64());
             } else if constexpr (std::is_same_v<FromDataType, DataTypeTimeV2>) {
                 CastToInt::from_time(vec_from[i], vec_to[i], params);
             } else {
@@ -434,18 +413,21 @@ Status static_cast_no_overflow(FunctionContext* context, Block& block,
             } else if constexpr (IsDataTypeFloat<FromDataType>) {
                 CastToFloat::from_float(vec_from[i], vec_to[i], params);
             } else if constexpr (IsDatelikeV1Types<FromDataType>) {
-                CastToFloat::from_datetime(reinterpret_cast<const VecDateTimeValue&>(vec_from[i]),
-                                           vec_to[i], params);
+                CastUtil::static_cast_set(
+                        vec_to[i],
+                        reinterpret_cast<const VecDateTimeValue&>(vec_from[i]).to_int64());
             } else if constexpr (IsDateTimeV2Type<FromDataType>) {
-                CastToFloat::from_datetime(
-                        reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(vec_from[i]),
-                        vec_to[i], params);
+                CastUtil::static_cast_set(
+                        vec_to[i],
+                        reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(vec_from[i])
+                                .to_int64());
             } else if constexpr (IsDateV2Type<FromDataType>) {
-                CastToFloat::from_datetime(
-                        reinterpret_cast<const DateV2Value<DateV2ValueType>&>(vec_from[i]),
-                        vec_to[i], params);
+                CastUtil::static_cast_set(
+                        vec_to[i],
+                        reinterpret_cast<const DateV2Value<DateV2ValueType>&>(vec_from[i])
+                                .to_int64());
             } else if constexpr (std::is_same_v<FromDataType, DataTypeTimeV2>) {
-                CastToFloat::from_time(vec_from[i], vec_to[i], params);
+                CastUtil::static_cast_set(vec_to[i], vec_from[i]);
             } else {
                 return Status::InternalError(fmt::format("Unsupported cast from {} to {}",
                                                          type_to_string(FromDataType::PType),
