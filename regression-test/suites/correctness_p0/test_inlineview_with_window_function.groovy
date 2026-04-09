@@ -104,11 +104,10 @@ suite("test_inlineview_with_window_function") {
             "replication_allocation" = "tag.location.default: 1"
             ); """
 
-    sql """DROP MATERIALIZED VIEW IF EXISTS ods_zn_dnt_max1 ON test_table_aaa;"""
-    sql """create materialized view ods_zn_dnt_max1 as
+    create_sync_mv(context.dbName, "test_table_aaa", "ods_zn_dnt_max1", """
             select ordernum as a1,max(dnt) as a2 from test_table_aaa
             group by ordernum
-            ORDER BY ordernum;"""
+            ORDER BY ordernum;""")
 
     sql "set enable_insert_strict=false;"
     sql """insert into test_table_aaa values('cib2205045_1_1s','2023/6/10 3:55:33','{"DB1":168939,"DNT":"2023-06-10 03:55:33"}');"""

@@ -60,7 +60,7 @@ public class ShowCreateViewCommand extends ShowCommand {
     }
 
     private void validate(ConnectContext ctx) throws AnalysisException {
-        tblNameInfo.analyze(ctx);
+        tblNameInfo.analyze(ctx.getNameSpaceContext());
 
         TableIf tableIf = Env.getCurrentEnv().getCatalogMgr()
                 .getCatalogOrAnalysisException(tblNameInfo.getCtl())

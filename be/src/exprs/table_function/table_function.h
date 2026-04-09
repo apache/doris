@@ -40,6 +40,7 @@ public:
         const IColumn::Offsets64* offsets_ptr = nullptr;
         ColumnPtr nested_col = nullptr;
         const UInt8* nested_nullmap_data = nullptr;
+        bool generate_row_index = false;
     };
 
     virtual Status prepare() { return Status::OK(); }

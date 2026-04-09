@@ -101,7 +101,7 @@ public class ShowColumnsCommand extends ShowCommand {
         if (!Strings.isNullOrEmpty(databaseName)) {
             tableNameInfo.setDb(databaseName);
         }
-        tableNameInfo.analyze(ctx);
+        tableNameInfo.analyze(ctx.getNameSpaceContext());
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), tableNameInfo.getCtl(), tableNameInfo.getDb(),
                         tableNameInfo.getTbl(), PrivPredicate.SHOW)) {

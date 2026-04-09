@@ -129,7 +129,7 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
                             PrivPredicate.GRANT.getPrivs().toString());
                 }
-                tableNameInfo.analyze(ctx);
+                tableNameInfo.analyze(ctx.getNameSpaceContext());
                 if (user != null) {
                     user.analyze();
                     if (user.isRootUser() || user.isAdminUser()) {

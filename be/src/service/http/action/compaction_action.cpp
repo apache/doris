@@ -42,6 +42,7 @@
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
 #include "storage/compaction/full_compaction.h"
 #include "storage/compaction/single_replica_compaction.h"
+#include "storage/compaction_task_tracker.h"
 #include "storage/olap_define.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_manager.h"
@@ -154,8 +155,8 @@ Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* j
                 [table_id](Tablet* tablet) -> bool { return tablet->get_table_id() == table_id; });
         for (const auto& tablet : tablet_vec) {
             tablet->set_last_full_compaction_schedule_time(UnixMillis());
-            RETURN_IF_ERROR(
-                    _engine.submit_compaction_task(tablet, CompactionType::FULL_COMPACTION, false));
+            RETURN_IF_ERROR(_engine.submit_compaction_task(tablet, CompactionType::FULL_COMPACTION,
+                                                           false, true, 1));
         }
     } else {
         // 2. fetch the tablet by tablet_id
@@ -303,13 +304,47 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
         tablet->set_cumulative_compaction_policy(cumulative_compaction_policy);
     }
     Status res = Status::OK();
-    auto do_compact = [](Compaction& compaction) {
+    auto* tracker = CompactionTaskTracker::instance();
+    auto do_compact = [&](Compaction& compaction, CompactionProfileType profile_type) {
         RETURN_IF_ERROR(compaction.prepare_compact());
-        return compaction.execute_compact();
+        // Register task as RUNNING with tracker (manual trigger, direct execution path)
+        // Use compaction.compaction_id() which was allocated in constructor.
+        int64_t compaction_id = compaction.compaction_id();
+        {
+            CompactionTaskInfo info;
+            info.compaction_id = compaction_id;
+            info.tablet_id = tablet->tablet_id();
+            info.table_id = tablet->get_table_id();
+            info.partition_id = tablet->partition_id();
+            info.compaction_type = profile_type;
+            info.status = CompactionTaskStatus::RUNNING;
+            info.trigger_method = TriggerMethod::MANUAL;
+            auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                  std::chrono::system_clock::now().time_since_epoch())
+                                  .count();
+            info.scheduled_time_ms = now_ms;
+            info.start_time_ms = now_ms;
+            info.compaction_score = tablet->get_real_compaction_score();
+            info.input_rowsets_count = compaction.input_rowsets_count();
+            info.input_row_num = compaction.input_row_num_value();
+            info.input_data_size = compaction.input_rowsets_data_size();
+            info.input_index_size = compaction.input_rowsets_index_size();
+            info.input_total_size = compaction.input_rowsets_total_size();
+            info.input_segments_num = compaction.input_segments_num_value();
+            info.input_version_range = compaction.input_version_range_str();
+            info.is_vertical = compaction.is_vertical();
+            info.backend_id = BackendOptions::get_backend_id();
+            tracker->register_task(std::move(info));
+        }
+        auto st = compaction.execute_compact();
+        // Idempotent cleanup: if execute returned early (e.g. TRY_LOCK_FAILED)
+        // before submit_profile_record was called, task remains in active_tasks.
+        tracker->remove_task(compaction_id);
+        return st;
     };
     if (compaction_type == PARAM_COMPACTION_BASE) {
         BaseCompaction base_compaction(_engine, tablet);
-        res = do_compact(base_compaction);
+        res = do_compact(base_compaction, CompactionProfileType::BASE);
         if (!res) {
             if (!res.is<BE_NO_SUITABLE_VERSION>()) {
                 DorisMetrics::instance()->base_compaction_request_failed->increment(1);
@@ -319,14 +354,14 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
         if (fetch_from_remote) {
             SingleReplicaCompaction single_compaction(_engine, tablet,
                                                       CompactionType::CUMULATIVE_COMPACTION);
-            res = do_compact(single_compaction);
+            res = do_compact(single_compaction, CompactionProfileType::CUMULATIVE);
             if (!res) {
                 LOG(WARNING) << "failed to do single compaction. res=" << res
                              << ", table=" << tablet->tablet_id();
             }
         } else {
             CumulativeCompaction cumulative_compaction(_engine, tablet);
-            res = do_compact(cumulative_compaction);
+            res = do_compact(cumulative_compaction, CompactionProfileType::CUMULATIVE);
             if (!res) {
                 if (res.is<CUMULATIVE_NO_SUITABLE_VERSION>()) {
                     // Ignore this error code.
@@ -342,7 +377,7 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
         }
     } else if (compaction_type == PARAM_COMPACTION_FULL) {
         FullCompaction full_compaction(_engine, tablet);
-        res = do_compact(full_compaction);
+        res = do_compact(full_compaction, CompactionProfileType::FULL);
         if (!res) {
             if (res.is<FULL_NO_SUITABLE_VERSION>()) {
                 // Ignore this error code.

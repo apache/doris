@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.stats;
 
 import org.apache.doris.analysis.DateLiteral;
+import org.apache.doris.analysis.DateLiteralUtils;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.nereids.stats.FilterEstimation.EstimationContext;
@@ -605,7 +606,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
 
         DateLiteral dt = null;
         try {
-            dt = new DateLiteral(literal.getStringValue());
+            dt = DateLiteralUtils.createDateLiteral(literal.getStringValue(), null);
             dt.checkValueValid();
         } catch (Exception e) {
             // ignore

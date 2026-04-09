@@ -31,6 +31,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ColumnToThrift;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.HashDistributionInfo;
@@ -1095,7 +1096,7 @@ public class OlapScanNode extends ScanNode {
                     .map(Column::getName).collect(Collectors.toSet());
             olapTable.getColumnDesc(selectedIndexId, columnsDesc, keyColumnNames, keyColumnTypes,
                     materializedColumnNames);
-            columnsDesc.add(globalRowIdColumn.toThrift());
+            columnsDesc.add(ColumnToThrift.toThrift(globalRowIdColumn));
         } else {
             olapTable.getColumnDesc(selectedIndexId, columnsDesc, keyColumnNames, keyColumnTypes);
 
@@ -1120,7 +1121,7 @@ public class OlapScanNode extends ScanNode {
         // get correct table_schema.
         for (SlotDescriptor slot : desc.getSlots()) {
             if (slot.getVirtualColumn() != null) {
-                TColumn tColumn = slot.getColumn().toThrift();
+                TColumn tColumn = ColumnToThrift.toThrift(slot.getColumn());
                 columnsDesc.add(tColumn);
             }
         }

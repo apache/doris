@@ -64,7 +64,7 @@ int ResourceManager::init() {
     std::vector<std::tuple<std::string, InstanceInfoPB>> instances;
     int limit = 10000;
     TEST_SYNC_POINT_CALLBACK("ResourceManager:init:limit", &limit);
-    do {
+    while (it == nullptr /* may be not init */ || it->more()) {
         TxnErrorCode err = txn->get(key0, key1, &it, false, limit);
         TEST_SYNC_POINT_CALLBACK("ResourceManager:init:get_err", &err);
         if (err == TxnErrorCode::TXN_TOO_OLD) {
@@ -105,7 +105,7 @@ int ResourceManager::init() {
             ++num_instances;
         }
         key0.push_back('\x00'); // Update to next smallest key for iteration
-    } while (it->more());
+    }
 
     std::unique_lock l(mtx_);
     for (auto& [inst_id, inst] : instances) {

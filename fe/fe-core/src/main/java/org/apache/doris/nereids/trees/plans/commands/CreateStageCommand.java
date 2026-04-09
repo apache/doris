@@ -29,8 +29,8 @@ import org.apache.doris.cloud.proto.Cloud.StagePB;
 import org.apache.doris.cloud.proto.Cloud.StagePB.StageAccessType;
 import org.apache.doris.cloud.proto.Cloud.StagePB.StageType;
 import org.apache.doris.cloud.security.SecurityChecker;
-import org.apache.doris.cloud.storage.RemoteBase;
-import org.apache.doris.cloud.storage.RemoteBase.ObjectInfo;
+import org.apache.doris.cloud.storage.ObjectInfo;
+import org.apache.doris.cloud.storage.ObjectInfoAdapter;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -38,6 +38,9 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.filesystem.spi.ObjFileSystem;
+import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.StageProperties;
@@ -98,7 +101,6 @@ public class CreateStageCommand extends Command implements ForwardWithSync, Need
     }
 
     private void checkObjectStorageInfo() throws UserException {
-        RemoteBase remote = null;
         try {
             tryConnect(stageProperties.getEndpoint());
             StagePB stagePB = toStageProto();
@@ -119,12 +121,13 @@ public class CreateStageCommand extends Command implements ForwardWithSync, Need
                 stagePB = StagePB.newBuilder(stagePB).setExternalId(user.getExternalId()).setObjInfo(objInfoPB).build();
             }
 
-            ObjectInfo objectInfo = RemoteBase.analyzeStageObjectStoreInfo(stagePB);
-            remote = RemoteBase.newInstance(objectInfo);
+            ObjectInfo objectInfo = ObjectInfoAdapter.analyzeStageObjectStoreInfo(stagePB);
+            StorageProperties storageProps = ObjectInfoAdapter.toStorageProperties(objectInfo);
+            ObjFileSystem fs = (ObjFileSystem) FileSystemFactory.getFileSystem(storageProps);
 
-            // RemoteBase#headObject does not throw exception if key does not exist.
-            remote.headObject("1");
-            remote.listObjects(null);
+            // headObjectWithMeta does not throw exception if key does not exist.
+            fs.headObjectWithMeta(objectInfo.getPrefix(), "1");
+            fs.listObjectsWithPrefix(objectInfo.getPrefix(), "", null);
         } catch (Exception e) {
             LOG.warn("Failed to access object storage, proto={}, err={}",
                     stageProperties.getObjectStoreInfoPB(), e.toString());
@@ -136,10 +139,6 @@ public class CreateStageCommand extends Command implements ForwardWithSync, Need
             }
             throw new UserException(InternalErrorCode.GET_REMOTE_DATA_ERROR,
                     "Failed to access object storage, message=" + msg, e);
-        } finally {
-            if (remote != null) {
-                remote.close();
-            }
         }
     }
 

@@ -18,7 +18,7 @@
 # generate files with python
 
 BUILD_DIR = ${CURDIR}/../build/
-FE_TARGET_DIR = ${CURDIR}/../../fe/fe-core/target/generated-sources/build
+FE_TARGET_DIR = ${CURDIR}/../../fe/fe-common/target/generated-sources/build
 
 # Prerequisites on the right side of '|' is only order
 all: gen_version

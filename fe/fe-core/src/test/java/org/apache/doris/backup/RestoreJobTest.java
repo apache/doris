@@ -41,7 +41,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.property.storage.BrokerProperties;
-import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.SystemInfoService;
@@ -126,7 +125,7 @@ public class RestoreJobTest {
 
     @Injectable
     private Repository repo = new Repository(repoId, "repo", false, "bos://my_repo",
-            FileSystemFactory.get(BrokerProperties.of("broker", Maps.newHashMap())));
+            BrokerProperties.of("broker", Maps.newHashMap()));
 
     private BackupMeta backupMeta;
 

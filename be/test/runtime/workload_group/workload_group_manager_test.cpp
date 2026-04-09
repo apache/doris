@@ -22,10 +22,13 @@
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
 #include <gtest/gtest.h>
+#include <unistd.h>
 
+#include <chrono>
 #include <cmath>
-#include <cstdlib>
+#include <filesystem>
 #include <memory>
+#include <sstream>
 
 #include "common/config.h"
 #include "common/status.h"
@@ -44,10 +47,22 @@ public:
 protected:
     void SetUp() override {
         _wg_manager = std::make_unique<WorkloadGroupMgr>();
-        EXPECT_EQ(system("rm -rf ./wg_test_run && mkdir -p ./wg_test_run"), 0);
+        // generate a unique test directory to avoid conflicts between parallel runs
+        std::ostringstream _oss;
+        _oss << "./wg_test_run_" << std::chrono::system_clock::now().time_since_epoch().count()
+             << "_" << getpid();
+        _test_dir = _oss.str();
+
+        std::error_code ec;
+        std::filesystem::remove_all(_test_dir, ec);
+        if (ec) {
+            FAIL() << "Failed to remove " << _test_dir << ": " << ec.message();
+        }
+        std::filesystem::create_directories(_test_dir, ec);
+        ASSERT_FALSE(ec) << "Failed to create " << _test_dir << ": " << ec.message();
 
         std::vector<doris::StorePath> paths;
-        std::string path = std::filesystem::absolute("./wg_test_run").string();
+        std::string path = std::filesystem::absolute(_test_dir).string();
         auto olap_res = doris::parse_conf_store_paths(path, &paths);
         EXPECT_TRUE(olap_res.ok()) << olap_res.to_string();
 
@@ -76,7 +91,9 @@ protected:
         ExecEnv::GetInstance()->_runtime_query_statistics_mgr->stop_report_thread();
         SAFE_DELETE(ExecEnv::GetInstance()->_runtime_query_statistics_mgr);
 
-        EXPECT_EQ(system("rm -rf ./wg_test_run"), 0);
+        std::error_code ec;
+        std::filesystem::remove_all(_test_dir, ec);
+        EXPECT_FALSE(ec) << "Failed to remove " << _test_dir << ": " << ec.message();
         config::spill_in_paused_queue_timeout_ms = _spill_in_paused_queue_timeout_ms;
         doris::ExecEnv::GetInstance()->set_memtable_memory_limiter(nullptr);
     }
@@ -115,6 +132,7 @@ private:
     }
 
     std::unique_ptr<WorkloadGroupMgr> _wg_manager;
+    std::string _test_dir;
     const int64_t _spill_in_paused_queue_timeout_ms = config::spill_in_paused_queue_timeout_ms;
 };
 

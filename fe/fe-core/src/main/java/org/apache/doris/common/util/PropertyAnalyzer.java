@@ -19,6 +19,7 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.analysis.DateLiteral;
+import org.apache.doris.analysis.DateLiteralUtils;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
@@ -168,6 +169,8 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED = "deprecated_variant_enable_flatten_nested";
 
     public static final String PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION = "enable_single_replica_compaction";
+
+    public static final String PROPERTIES_ENABLE_TSO = "enable_tso";
 
     public static final String PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP =
             "vertical_compaction_num_columns_per_group";
@@ -408,7 +411,8 @@ public class PropertyAnalyzer {
                 }
             } else if (key.equalsIgnoreCase(PROPERTIES_STORAGE_COOLDOWN_TIME)) {
                 try {
-                    DateLiteral dateLiteral = new DateLiteral(value, ScalarType.getDefaultDateType(Type.DATETIME));
+                    DateLiteral dateLiteral = DateLiteralUtils.createDateLiteral(value,
+                            ScalarType.getDefaultDateType(Type.DATETIME));
                     cooldownTimestamp = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
                 } catch (AnalysisException e) {
                     LOG.warn("dateLiteral failed, use max cool down time", e);
@@ -866,6 +870,27 @@ public class PropertyAnalyzer {
         }
         throw new AnalysisException(PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION
                 + " must be `true` or `false`");
+    }
+
+    public static Boolean analyzeEnableTso(Map<String, String> properties) throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return false;
+        }
+        String value = properties.get(PROPERTIES_ENABLE_TSO);
+        if (null == value) {
+            return false;
+        }
+        properties.remove(PROPERTIES_ENABLE_TSO);
+        if (value.equalsIgnoreCase("true")) {
+            if (!Config.enable_tso_feature) {
+                throw new AnalysisException(PROPERTIES_ENABLE_TSO
+                        + " can not be enabled when experimental_enable_tso_feature is disabled");
+            }
+            return true;
+        } else if (value.equalsIgnoreCase("false")) {
+            return false;
+        }
+        throw new AnalysisException(PROPERTIES_ENABLE_TSO + " must be `true` or `false`");
     }
 
     public static Boolean analyzeEnableDuplicateWithoutKeysByDefault(Map<String, String> properties)

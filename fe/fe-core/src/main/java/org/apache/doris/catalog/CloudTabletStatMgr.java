@@ -328,8 +328,6 @@ public class CloudTabletStatMgr extends MasterDaemon {
                 long tableReplicaCount = 0L;
 
                 long tableRowCount = 0L;
-                long tableRowsetCount = 0L;
-                long tableSegmentCount = 0L;
 
                 if (!table.readLockIfExist()) {
                     continue;
@@ -364,8 +362,6 @@ public class CloudTabletStatMgr extends MasterDaemon {
                             for (Tablet tablet : tablets) {
                                 long tabletDataSize = 0L;
 
-                                long tabletRowsetCount = 0L;
-                                long tabletSegmentCount = 0L;
                                 long tabletRowCount = 0L;
                                 long tabletIndexSize = 0L;
                                 long tabletSegmentSize = 0L;
@@ -378,14 +374,6 @@ public class CloudTabletStatMgr extends MasterDaemon {
 
                                     if (replica.getRowCount() > tabletRowCount) {
                                         tabletRowCount = replica.getRowCount();
-                                    }
-
-                                    if (replica.getRowsetCount() > tabletRowsetCount) {
-                                        tabletRowsetCount = replica.getRowsetCount();
-                                    }
-
-                                    if (replica.getSegmentCount() > tabletSegmentCount) {
-                                        tabletSegmentCount = replica.getSegmentCount();
                                     }
 
                                     if (replica.getLocalInvertedIndexSize() > tabletIndexSize) {
@@ -410,8 +398,6 @@ public class CloudTabletStatMgr extends MasterDaemon {
                                 tableRowCount += tabletRowCount;
                                 indexRowCount += tabletRowCount;
 
-                                tableRowsetCount += tabletRowsetCount;
-                                tableSegmentCount += tabletSegmentCount;
                                 tableTotalLocalIndexSize += tabletIndexSize;
                                 tableTotalLocalSegmentSize += tabletSegmentSize;
                             } // end for tablets
@@ -435,7 +421,7 @@ public class CloudTabletStatMgr extends MasterDaemon {
                     //  this is only one thread to update table statistics, readLock is enough
                     tableStats = new OlapTable.Statistics(db.getName(),
                             table.getName(), tableDataSize, tableTotalReplicaDataSize, 0L,
-                            tableReplicaCount, tableRowCount, tableRowsetCount, tableSegmentCount,
+                            tableReplicaCount, tableRowCount, 0L, 0L,
                             tableTotalLocalIndexSize, tableTotalLocalSegmentSize, 0L, 0L);
                     olapTable.setStatistics(tableStats);
                     LOG.debug("finished to set row num for table: {} in database: {}",
@@ -503,14 +489,10 @@ public class CloudTabletStatMgr extends MasterDaemon {
             }
             Replica replica = replicas.get(0);
             boolean statsChanged = replica.getDataSize() != stat.getDataSize()
-                    || replica.getRowsetCount() != stat.getNumRowsets()
-                    || replica.getSegmentCount() != stat.getNumSegments()
                     || replica.getRowCount() != stat.getNumRows()
                     || replica.getLocalInvertedIndexSize() != stat.getIndexSize()
                     || replica.getLocalSegmentSize() != stat.getSegmentSize();
             replica.setDataSize(stat.getDataSize());
-            replica.setRowsetCount(stat.getNumRowsets());
-            replica.setSegmentCount(stat.getNumSegments());
             replica.setRowCount(stat.getNumRows());
             replica.setLocalInvertedIndexSize(stat.getIndexSize());
             replica.setLocalSegmentSize(stat.getSegmentSize());

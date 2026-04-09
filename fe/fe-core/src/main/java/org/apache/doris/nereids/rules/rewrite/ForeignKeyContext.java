@@ -23,6 +23,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.ForeignKeyConstraint;
 import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
 import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -102,7 +103,7 @@ public class ForeignKeyContext {
     }
 
     void putAllForeignKeys(TableIf table) {
-        TableNameInfo tableNameInfo = TableNameInfo.createOrNull(table);
+        TableNameInfo tableNameInfo = TableNameInfoUtils.fromTableOrNull(table);
         if (tableNameInfo == null) {
             return;
         }
@@ -115,7 +116,7 @@ public class ForeignKeyContext {
     }
 
     void putAllPrimaryKeys(TableIf table) {
-        TableNameInfo tableNameInfo = TableNameInfo.createOrNull(table);
+        TableNameInfo tableNameInfo = TableNameInfoUtils.fromTableOrNull(table);
         if (tableNameInfo == null) {
             return;
         }

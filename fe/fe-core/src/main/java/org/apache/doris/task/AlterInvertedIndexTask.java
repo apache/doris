@@ -18,6 +18,7 @@
 package org.apache.doris.task;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ColumnToThrift;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.thrift.TAlterInvertedIndexReq;
 import org.apache.doris.thrift.TColumn;
@@ -123,7 +124,7 @@ public class AlterInvertedIndexTask extends AgentTask {
         if (schemaColumns != null) {
             List<TColumn> columns = new ArrayList<TColumn>();
             for (Column column : schemaColumns) {
-                columns.add(column.toThrift());
+                columns.add(ColumnToThrift.toThrift(column));
             }
             req.setColumns(columns);
         }

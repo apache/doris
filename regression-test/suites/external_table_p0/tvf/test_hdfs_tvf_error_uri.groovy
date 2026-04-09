@@ -30,14 +30,22 @@ suite("test_hdfs_tvf_error_uri", "p0,external") {
         // test csv format
         uri = "${defaultFS}" + "/user/doris/preinstalled_data/csv_format_test/no_exist_file.csv"
         format = "csv"
-        order_qt_select1 """ select * from HDFS(
+        // After SPI refactoring, querying or describing a non-existent HDFS file
+        // propagates the FileNotFoundException as an error to the client instead of
+        // silently returning an empty result.
+        test {
+            sql """ select * from HDFS(
                     "uri" = "${uri}",
                     "hadoop.username" = "${hdfsUserName}",
                     "format" = "${format}"); """
-
-        order_qt_desc1 """ desc function HDFS(
+            exception "does not exist"
+        }
+        test {
+            sql """ desc function HDFS(
                     "uri" = "${uri}",
                     "hadoop.username" = "${hdfsUserName}",
                     "format" = "${format}"); """
+            exception "does not exist"
+        }
     }
 }

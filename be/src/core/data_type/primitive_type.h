@@ -115,7 +115,6 @@ using ColumnFloat32 = ColumnVector<TYPE_FLOAT>;
 using ColumnFloat64 = ColumnVector<TYPE_DOUBLE>;
 using ColumnIPv4 = ColumnVector<TYPE_IPV4>;
 using ColumnIPv6 = ColumnVector<TYPE_IPV6>;
-using ColumnTime = ColumnVector<TYPE_TIME>;
 using ColumnTimeV2 = ColumnVector<TYPE_TIMEV2>;
 using ColumnOffset32 = ColumnVector<TYPE_UINT32>;
 using ColumnOffset64 = ColumnVector<TYPE_UINT64>;
@@ -179,7 +178,7 @@ constexpr bool is_date_type(PrimitiveType type) {
 }
 
 constexpr bool is_time_type(PrimitiveType type) {
-    return type == TYPE_TIME || type == TYPE_TIMEV2;
+    return type == TYPE_TIMEV2;
 }
 
 constexpr bool is_timestamptz_type(PrimitiveType type) {
@@ -342,13 +341,6 @@ struct PrimitiveTypeTraits<TYPE_TIMEV2> {
     using StorageFieldType = CppType;
     using DataType = DataTypeTimeV2;
     using ColumnType = ColumnTimeV2;
-};
-template <>
-struct PrimitiveTypeTraits<TYPE_TIME> {
-    using CppType = Float64;
-    using StorageFieldType = CppType;
-    using DataType = DataTypeTimeV2;
-    using ColumnType = ColumnTime;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DATE> {

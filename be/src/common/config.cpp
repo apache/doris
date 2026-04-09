@@ -556,6 +556,9 @@ DEFINE_mInt32(base_compaction_trace_threshold, "60");
 DEFINE_mInt32(cumulative_compaction_trace_threshold, "10");
 DEFINE_mBool(disable_compaction_trace_log, "true");
 
+DEFINE_mBool(enable_compaction_task_tracker, "true");
+DEFINE_mInt32(compaction_task_tracker_max_records, "10000");
+
 // Interval to picking rowset to compact, in seconds
 DEFINE_mInt64(pick_rowset_to_compact_interval_sec, "86400");
 

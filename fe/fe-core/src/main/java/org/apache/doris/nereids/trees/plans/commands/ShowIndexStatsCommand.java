@@ -71,7 +71,7 @@ public class ShowIndexStatsCommand extends ShowCommand {
      * validate
      */
     public void validate(ConnectContext ctx) throws AnalysisException {
-        tableNameInfo.analyze(ctx);
+        tableNameInfo.analyze(ctx.getNameSpaceContext());
 
         CatalogIf<DatabaseIf> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(tableNameInfo.getCtl());
         if (catalog == null) {
