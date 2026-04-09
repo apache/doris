@@ -126,8 +126,10 @@ public:
     void remove_pipeline_context(std::pair<TUniqueId, int> key);
     void remove_query_context(const TUniqueId& key);
 
+    // `is_prepare_success` is used by invoker to ensure callback can be handle correctly (eg. stream_load_executor)
     Status exec_plan_fragment(const TPipelineFragmentParams& params, const QuerySource query_type,
-                              const FinishCallback& cb, const TPipelineFragmentParamsList& parent);
+                              const FinishCallback& cb, const TPipelineFragmentParamsList& parent,
+                              std::shared_ptr<bool> is_prepare_success = nullptr);
 
     Status start_query_execution(const PExecPlanFragmentStartRequest* request);
 

@@ -29,9 +29,11 @@
 #include <sys/time.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdlib>
 #include <ctime>
+#include <functional>
 #include <future>
 #include <sstream>
 #include <stdexcept>
@@ -106,17 +108,85 @@ void StreamLoadAction::handle(HttpRequest* req) {
         return;
     }
 
+    {
+        std::unique_lock<std::mutex> lock1(ctx->_send_reply_lock);
+        ctx->_can_send_reply = true;
+        ctx->_can_send_reply_cv.notify_all();
+    }
+
     // status already set to fail
     if (ctx->status.ok()) {
-        ctx->status = _handle(ctx);
+        ctx->status = _handle(ctx, req);
         if (!ctx->status.ok() && !ctx->status.is<PUBLISH_TIMEOUT>()) {
-            LOG(WARNING) << "handle streaming load failed, id=" << ctx->id
-                         << ", errmsg=" << ctx->status;
+            _send_reply(ctx, req);
         }
     }
+}
+
+Status StreamLoadAction::_handle(std::shared_ptr<StreamLoadContext> ctx, HttpRequest* req) {
+    if (ctx->body_bytes > 0 && ctx->receive_bytes != ctx->body_bytes) {
+        LOG(WARNING) << "recevie body don't equal with body bytes, body_bytes=" << ctx->body_bytes
+                     << ", receive_bytes=" << ctx->receive_bytes << ", id=" << ctx->id;
+        return Status::Error<ErrorCode::NETWORK_ERROR>("receive body don't equal with body bytes");
+    }
+
+    // if we use non-streaming, MessageBodyFileSink.finish will close the file
+    RETURN_IF_ERROR(ctx->body_sink->finish());
+    if (!ctx->use_streaming) {
+        // we need to close file first, then execute_plan_fragment here
+        ctx->body_sink.reset();
+        TPipelineFragmentParamsList mocked;
+        RETURN_IF_ERROR(_exec_env->stream_load_executor()->execute_plan_fragment(
+                ctx, mocked,
+                [req, this](std::shared_ptr<StreamLoadContext> ctx) { _on_finish(ctx, req); }));
+    }
+
+    return Status::OK();
+}
+
+void StreamLoadAction::_on_finish(std::shared_ptr<StreamLoadContext> ctx, HttpRequest* req) {
+    ctx->status = ctx->load_status_future.get();
+    if (ctx->status.ok()) {
+        if (ctx->group_commit) {
+            LOG(INFO) << "skip commit because this is group commit, pipe_id="
+                      << ctx->id.to_string();
+        } else if (ctx->two_phase_commit) {
+            int64_t pre_commit_start_time = MonotonicNanos();
+            ctx->status = _exec_env->stream_load_executor()->pre_commit_txn(ctx.get());
+            ctx->pre_commit_txn_cost_nanos = MonotonicNanos() - pre_commit_start_time;
+        } else {
+            // If put file success we need commit this load
+            int64_t commit_and_publish_start_time = MonotonicNanos();
+            ctx->status = _exec_env->stream_load_executor()->commit_txn(ctx.get());
+            ctx->commit_and_publish_txn_cost_nanos =
+                    MonotonicNanos() - commit_and_publish_start_time;
+            g_stream_load_commit_and_publish_latency_ms
+                    << ctx->commit_and_publish_txn_cost_nanos / 1000000;
+        }
+    }
+    _send_reply(ctx, req);
+}
+
+void StreamLoadAction::_send_reply(std::shared_ptr<StreamLoadContext> ctx, HttpRequest* req) {
+    std::unique_lock<std::mutex> lock1(ctx->_send_reply_lock);
+    // 1. _can_send_reply: ensure `send_reply` is invoked only after on_header/handle complete,
+    //    avoid client errors (e.g., broken pipe).
+    // 2. _finish_send_reply: Prevent duplicate reply sending; skip reply if HTTP request is canceled
+    //    due to long import execution time.
+    while (!ctx->_finish_send_reply && !ctx->_can_send_reply) {
+        ctx->_can_send_reply_cv.wait(lock1);
+    }
+    if (ctx->_finish_send_reply) {
+        return;
+    }
+    DCHECK(ctx->_can_send_reply);
+    ctx->_finish_send_reply = true;
+    ctx->_can_send_reply_cv.notify_all();
     ctx->load_cost_millis = UnixMillis() - ctx->start_millis;
 
     if (!ctx->status.ok() && !ctx->status.is<PUBLISH_TIMEOUT>()) {
+        LOG(WARNING) << "handle streaming load failed, id=" << ctx->id
+                     << ", errmsg=" << ctx->status;
         if (ctx->need_rollback) {
             _exec_env->stream_load_executor()->rollback_txn(ctx.get());
             ctx->need_rollback = false;
@@ -129,7 +199,7 @@ void StreamLoadAction::handle(HttpRequest* req) {
     auto str = ctx->to_json();
     // add new line at end
     str = str + '\n';
-    HttpChannel::send_reply(req, str);
+
 #ifndef BE_TEST
     if (config::enable_stream_load_record || config::enable_stream_load_record_to_audit_log_table) {
         if (req->header(HTTP_SKIP_RECORD_TO_AUDIT_LOG_TABLE).empty()) {
@@ -138,6 +208,8 @@ void StreamLoadAction::handle(HttpRequest* req) {
         }
     }
 #endif
+
+    HttpChannel::send_reply(req, str);
 
     LOG(INFO) << "finished to execute stream load. label=" << ctx->label
               << ", txn_id=" << ctx->txn_id << ", query_id=" << ctx->id
@@ -160,46 +232,9 @@ void StreamLoadAction::handle(HttpRequest* req) {
     }
 }
 
-Status StreamLoadAction::_handle(std::shared_ptr<StreamLoadContext> ctx) {
-    if (ctx->body_bytes > 0 && ctx->receive_bytes != ctx->body_bytes) {
-        LOG(WARNING) << "recevie body don't equal with body bytes, body_bytes=" << ctx->body_bytes
-                     << ", receive_bytes=" << ctx->receive_bytes << ", id=" << ctx->id;
-        return Status::Error<ErrorCode::NETWORK_ERROR>("receive body don't equal with body bytes");
-    }
-
-    // if we use non-streaming, MessageBodyFileSink.finish will close the file
-    RETURN_IF_ERROR(ctx->body_sink->finish());
-    if (!ctx->use_streaming) {
-        // we need to close file first, then execute_plan_fragment here
-        ctx->body_sink.reset();
-        TPipelineFragmentParamsList mocked;
-        RETURN_IF_ERROR(_exec_env->stream_load_executor()->execute_plan_fragment(ctx, mocked));
-    }
-
-    // wait stream load finish
-    RETURN_IF_ERROR(ctx->future.get());
-
-    if (ctx->group_commit) {
-        LOG(INFO) << "skip commit because this is group commit, pipe_id=" << ctx->id.to_string();
-        return Status::OK();
-    }
-
-    if (ctx->two_phase_commit) {
-        int64_t pre_commit_start_time = MonotonicNanos();
-        RETURN_IF_ERROR(_exec_env->stream_load_executor()->pre_commit_txn(ctx.get()));
-        ctx->pre_commit_txn_cost_nanos = MonotonicNanos() - pre_commit_start_time;
-    } else {
-        // If put file success we need commit this load
-        int64_t commit_and_publish_start_time = MonotonicNanos();
-        RETURN_IF_ERROR(_exec_env->stream_load_executor()->commit_txn(ctx.get()));
-        ctx->commit_and_publish_txn_cost_nanos = MonotonicNanos() - commit_and_publish_start_time;
-        g_stream_load_commit_and_publish_latency_ms
-                << ctx->commit_and_publish_txn_cost_nanos / 1000000;
-    }
-    return Status::OK();
-}
-
 int StreamLoadAction::on_header(HttpRequest* req) {
+    req->mark_send_reply();
+
     streaming_load_current_processing->increment(1);
 
     std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(_exec_env);
@@ -228,26 +263,12 @@ int StreamLoadAction::on_header(HttpRequest* req) {
     }
     if (!st.ok()) {
         ctx->status = std::move(st);
-        if (ctx->need_rollback) {
-            _exec_env->stream_load_executor()->rollback_txn(ctx.get());
-            ctx->need_rollback = false;
+        {
+            std::unique_lock<std::mutex> lock1(ctx->_send_reply_lock);
+            ctx->_can_send_reply = true;
+            ctx->_can_send_reply_cv.notify_all();
         }
-        if (ctx->body_sink != nullptr) {
-            ctx->body_sink->cancel(ctx->status.to_string());
-        }
-        auto str = ctx->to_json();
-        // add new line at end
-        str = str + '\n';
-        HttpChannel::send_reply(req, str);
-#ifndef BE_TEST
-        if (config::enable_stream_load_record ||
-            config::enable_stream_load_record_to_audit_log_table) {
-            if (req->header(HTTP_SKIP_RECORD_TO_AUDIT_LOG_TABLE).empty()) {
-                str = ctx->prepare_stream_load_record(str);
-                _save_stream_load_record(ctx, str);
-            }
-        }
-#endif
+        _send_reply(ctx, req);
         return -1;
     }
     return 0;
@@ -821,8 +842,12 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
     if (!ctx->use_streaming) {
         return Status::OK();
     }
+
     TPipelineFragmentParamsList mocked;
-    return _exec_env->stream_load_executor()->execute_plan_fragment(ctx, mocked);
+    return _exec_env->stream_load_executor()->execute_plan_fragment(
+            ctx, mocked, [http_req, this](std::shared_ptr<StreamLoadContext> ctx) {
+                _on_finish(ctx, http_req);
+            });
 }
 
 Status StreamLoadAction::_data_saved_path(HttpRequest* req, std::string* file_path,
