@@ -126,7 +126,7 @@ public class AnalyticEvalNode extends PlanNode {
             strings.clear();
 
             for (OrderByElement element : orderByElements) {
-                strings.add(element.toSql());
+                strings.add(orderByElementToSql(element));
             }
 
             output.append(Joiner.on(", ").join(strings));
@@ -144,6 +144,29 @@ public class AnalyticEvalNode extends PlanNode {
         }
 
         return output.toString();
+    }
+
+
+    private String orderByElementToSql(OrderByElement orderByElement) {
+        StringBuilder strBuilder = new StringBuilder();
+        strBuilder.append(orderByElement.getExpr().accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
+        strBuilder.append(orderByElement.getIsAsc() ? " ASC" : " DESC");
+
+        // When ASC and NULLS LAST or DESC and NULLS FIRST, we do not print NULLS FIRST/LAST
+        // because it is the default behavior and we want to avoid printing NULLS FIRST/LAST
+        // whenever possible as it is incompatible with Hive (SQL compatibility with Hive is
+        // important for views).
+        if (orderByElement.getNullsFirstParam() != null) {
+            if (orderByElement.getIsAsc() && orderByElement.getNullsFirstParam()) {
+                // If ascending, nulls are last by default, so only add if nulls first.
+                strBuilder.append(" NULLS FIRST");
+            } else if (!orderByElement.getIsAsc() && !orderByElement.getNullsFirstParam()) {
+                // If descending, nulls are first by default, so only add if nulls last.
+                strBuilder.append(" NULLS LAST");
+            }
+        }
+
+        return strBuilder.toString();
     }
 
     /**

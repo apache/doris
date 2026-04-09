@@ -26,6 +26,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TAggregateExpr;
 import org.apache.doris.thrift.TBoolLiteral;
 import org.apache.doris.thrift.TCaseExpr;
 import org.apache.doris.thrift.TColumnRef;
@@ -493,7 +494,7 @@ public class ExprToThriftVisitor extends ExprVisitor<Void, TExprNode> {
             if (aggParams == null) {
                 aggParams = expr.getFnParams();
             }
-            msg.setAggExpr(aggParams.createTAggregateExpr(expr.isMergeAggFn()));
+            msg.setAggExpr(createTAggregateExprFromFunctionParams(aggParams, expr.isMergeAggFn()));
         } else {
             msg.node_type = TExprNodeType.FUNCTION_CALL;
         }
@@ -502,6 +503,20 @@ public class ExprToThriftVisitor extends ExprVisitor<Void, TExprNode> {
             msg.setShortCircuitEvaluation(ConnectContext.get().getSessionVariable().isShortCircuitEvaluation());
         }
         return null;
+    }
+
+    public TAggregateExpr createTAggregateExprFromFunctionParams(FunctionParams functionParams, boolean isMergeAggFn) {
+        List<TTypeDesc> paramTypes = new ArrayList<>();
+        if (functionParams.exprs() != null) {
+            for (Expr expr : functionParams.exprs()) {
+                TTypeDesc desc = expr.getType().toThrift();
+                desc.setIsNullable(expr.isNullable());
+                paramTypes.add(desc);
+            }
+        }
+        TAggregateExpr aggExpr = new TAggregateExpr(isMergeAggFn);
+        aggExpr.setParamTypes(paramTypes);
+        return aggExpr;
     }
 
     @Override
