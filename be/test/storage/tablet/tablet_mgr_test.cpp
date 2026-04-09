@@ -230,15 +230,15 @@ TEST_F(TabletMgrTest, DropTablet) {
     Status drop_st = _tablet_mgr->drop_tablet(1121, create_tablet_req.replica_id, false);
     EXPECT_TRUE(drop_st == Status::OK());
     tablet = _tablet_mgr->get_tablet(111);
-    EXPECT_TRUE(tablet != nullptr);
+    EXPECT_TRUE(tablet.has_value());
 
     // drop exist tablet will be success
     drop_st = _tablet_mgr->drop_tablet(111, create_tablet_req.replica_id, false);
     EXPECT_TRUE(drop_st == Status::OK());
     tablet = _tablet_mgr->get_tablet(111);
-    EXPECT_TRUE(tablet == nullptr);
+    EXPECT_FALSE(tablet.has_value());
     tablet = _tablet_mgr->get_tablet(111, true);
-    EXPECT_TRUE(tablet != nullptr);
+    EXPECT_TRUE(tablet.has_value());
 
     // check dir exist
     std::string tablet_path = tablet.value()->tablet_path();
@@ -251,7 +251,7 @@ TEST_F(TabletMgrTest, DropTablet) {
     Status trash_st = _tablet_mgr->start_trash_sweep();
     EXPECT_TRUE(trash_st == Status::OK());
     tablet = _tablet_mgr->get_tablet(111, true);
-    EXPECT_TRUE(tablet != nullptr);
+    EXPECT_TRUE(tablet.has_value());
     EXPECT_TRUE(io::global_local_filesystem()->exists(tablet_path, &dir_exist).ok());
     EXPECT_TRUE(dir_exist);
 
@@ -260,7 +260,7 @@ TEST_F(TabletMgrTest, DropTablet) {
     trash_st = _tablet_mgr->start_trash_sweep();
     EXPECT_TRUE(trash_st == Status::OK());
     tablet = _tablet_mgr->get_tablet(111, true);
-    EXPECT_TRUE(tablet == nullptr);
+    EXPECT_FALSE(tablet.has_value());
     EXPECT_TRUE(io::global_local_filesystem()->exists(tablet_path, &dir_exist).ok());
     EXPECT_FALSE(dir_exist);
 }
