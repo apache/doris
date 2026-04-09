@@ -237,6 +237,10 @@ suite('test_balance_warm_up_with_compaction_use_peer_cache', 'docker') {
                 }
                 assertTrue(total > 0)
                 assertEquals(0, remoteTotal)
+
+                def nodesMatcher = (profileString =~ /PeerCacheNodes:\s*(.+)/)
+                assertTrue(nodesMatcher.find(), "Profile must contain PeerCacheNodes info")
+                logger.info("PeerCacheNodes found: {}", nodesMatcher.group(1))
             } 
         }
         subDirs.clear()

@@ -239,6 +239,18 @@ suite('test_balance_warm_up_use_peer_cache', 'docker') {
                 }
                 assertTrue(total > 0)
                 assertEquals(0, remoteTotal)
+
+                def sameCgMatcher = (profileString =~ /SameCGPeerIOTotal:\s+(\d+)/)
+                def sameCgTotal = 0
+                while (sameCgMatcher.find()) {
+                    sameCgTotal += sameCgMatcher.group(1).toInteger()
+                    logger.info("SameCGPeerIOTotal: {}", sameCgMatcher.group(1))
+                }
+                assertTrue(sameCgTotal > 0, "SameCGPeerIOTotal must be > 0 in profile")
+
+                def nodesMatcher = (profileString =~ /PeerCacheNodes:\s*(.+)/)
+                assertTrue(nodesMatcher.find(), "Profile must contain PeerCacheNodes info")
+                logger.info("PeerCacheNodes found: {}", nodesMatcher.group(1))
             } 
         }
 

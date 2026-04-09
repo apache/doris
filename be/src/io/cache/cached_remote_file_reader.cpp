@@ -327,6 +327,9 @@ struct RaceState {
     std::unique_ptr<char[]> s3_buf;
     PeerFetchResult peer_res;
     std::string peer_winner_cg_id; // compute_group_id of the winning peer candidate
+    std::string peer_winner_host;  // host of the winning peer candidate
+    int64_t peer_elapsed_ns = 0;   // wall-clock time of the entire peer path (including retries)
+    int64_t peer_winner_io_ns = 0; // I/O time of the winning candidate only
 };
 
 // Peer race logic: try candidates sequentially until one succeeds or all fail.
@@ -341,6 +344,8 @@ void run_peer_race(std::shared_ptr<RaceState> race, std::vector<FileBlockSPtr> e
 
     auto& manager = get_warm_up_manager();
     bool all_tried = true;
+    MonotonicStopWatch peer_sw;
+    peer_sw.start();
 
     for (size_t i = 0; i < candidates.size(); ++i) {
         // Before issuing the next RPC, check if S3 already won.
@@ -360,6 +365,8 @@ void run_peer_race(std::shared_ptr<RaceState> race, std::vector<FileBlockSPtr> e
         PeerFetchResult local_peer_res;
         const bool request_fill = !config::peer_cache_fill_compute_group_id.empty() &&
                                   cand.compute_group_id == config::peer_cache_fill_compute_group_id;
+        MonotonicStopWatch cand_sw;
+        cand_sw.start();
         auto st = peer_reader.fetch_blocks(empty_blocks, &local_peer_res, file_sz, io_ctx,
                                            request_fill, tablet_id);
         if (st.ok()) {
@@ -369,6 +376,9 @@ void run_peer_race(std::shared_ptr<RaceState> race, std::vector<FileBlockSPtr> e
                 race->winner = 0;
                 race->peer_res = std::move(local_peer_res);
                 race->peer_winner_cg_id = cand.compute_group_id;
+                race->peer_winner_host = cand.host;
+                race->peer_elapsed_ns = peer_sw.elapsed_time();
+                race->peer_winner_io_ns = cand_sw.elapsed_time();
             }
             race->peer_done = true;
             race->peer_status = Status::OK();
@@ -491,6 +501,7 @@ Status collect_race_result(std::shared_ptr<RaceState> race, size_t span_size,
             *peer_result = std::move(race->peer_res);
         }
         stats.from_peer_cache = true;
+        stats.peer_read_timer += race->peer_elapsed_ns;
         g_peer_race_peer_win << 1;
         const bool is_cross_cg =
                 !race->peer_winner_cg_id.empty() && race->peer_winner_cg_id != self_cg_id;
@@ -501,9 +512,15 @@ Status collect_race_result(std::shared_ptr<RaceState> race, size_t span_size,
         }
         if (io_ctx != nullptr && io_ctx->file_cache_stats != nullptr) {
             io_ctx->file_cache_stats->num_peer_race_peer_win++;
+            io_ctx->file_cache_stats->peer_hosts.insert(race->peer_winner_host);
             if (is_cross_cg) {
                 io_ctx->file_cache_stats->num_cross_cg_peer_io_total++;
                 io_ctx->file_cache_stats->bytes_read_from_cross_cg_peer += span_size;
+                io_ctx->file_cache_stats->cross_cg_peer_io_timer += race->peer_winner_io_ns;
+            } else {
+                io_ctx->file_cache_stats->num_same_cg_peer_io_total++;
+                io_ctx->file_cache_stats->bytes_read_from_same_cg_peer += span_size;
+                io_ctx->file_cache_stats->same_cg_peer_io_timer += race->peer_winner_io_ns;
             }
         }
         return Status::OK();
@@ -549,6 +566,7 @@ Status CachedRemoteFileReader::_execute_sequential_peer_read(
 
     auto& manager = get_warm_up_manager();
     PeerFetchResult serial_res;
+    const int64_t timer_before = stats.peer_read_timer;
     auto st = execute_peer_read(empty_blocks, &serial_res, path().native(), this->size(),
                                 _is_doris_table, stats, io_ctx, candidates[0].host,
                                 candidates[0].brpc_port);
@@ -556,6 +574,33 @@ Status CachedRemoteFileReader::_execute_sequential_peer_read(
         manager.update_peer_candidate_on_success(tablet_id, candidates[0].compute_group_id);
         if (peer_result != nullptr) {
             *peer_result = std::move(serial_res);
+        }
+        // Update profile counters consistent with the race path.
+        g_peer_race_peer_win << 1;
+        const std::string self_cg_id =
+                static_cast<CloudClusterInfo*>(ExecEnv::GetInstance()->cluster_info())
+                        ->cloud_compute_group_id();
+        const bool is_cross_cg = !candidates[0].compute_group_id.empty() &&
+                                 candidates[0].compute_group_id != self_cg_id;
+        if (is_cross_cg) {
+            g_peer_cross_compute_group_read << 1;
+        } else {
+            g_peer_same_compute_group_read << 1;
+        }
+        if (io_ctx != nullptr && io_ctx->file_cache_stats != nullptr) {
+            io_ctx->file_cache_stats->num_peer_race_peer_win++;
+            io_ctx->file_cache_stats->peer_hosts.insert(candidates[0].host);
+            if (is_cross_cg) {
+                io_ctx->file_cache_stats->num_cross_cg_peer_io_total++;
+                io_ctx->file_cache_stats->bytes_read_from_cross_cg_peer += span_size;
+                io_ctx->file_cache_stats->cross_cg_peer_io_timer +=
+                        stats.peer_read_timer - timer_before;
+            } else {
+                io_ctx->file_cache_stats->num_same_cg_peer_io_total++;
+                io_ctx->file_cache_stats->bytes_read_from_same_cg_peer += span_size;
+                io_ctx->file_cache_stats->same_cg_peer_io_timer +=
+                        stats.peer_read_timer - timer_before;
+            }
         }
         return st;
     }

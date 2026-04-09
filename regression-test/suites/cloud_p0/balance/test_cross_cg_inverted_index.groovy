@@ -184,6 +184,10 @@ suite('test_cross_cg_inverted_index', 'docker') {
                 }
                 assertTrue(total > 0,
                     "CrossCGPeerIOTotal must be > 0 in profile for inverted-index query")
+
+                def nodesMatcher = (profileString =~ /PeerCacheNodes:\s*(.+)/)
+                assertTrue(nodesMatcher.find(), "Profile must contain PeerCacheNodes info")
+                logger.info("PeerCacheNodes found: {}", nodesMatcher.group(1))
             }
         }
         logger.info("PASS")

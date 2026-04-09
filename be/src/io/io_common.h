@@ -17,6 +17,9 @@
 
 #pragma once
 
+#include <set>
+#include <string>
+
 #include <gen_cpp/Types_types.h>
 
 namespace doris {
@@ -84,15 +87,20 @@ struct FileCacheStatistics {
     int64_t segment_footer_index_local_io_timer = 0;
     int64_t segment_footer_index_remote_io_timer = 0;
     int64_t segment_footer_index_peer_io_timer = 0;
-    
-    // Cross-CG peer read statistics
+
+    // Cross-CG / Same-CG peer read statistics
     int64_t num_cross_cg_peer_io_total = 0;
     int64_t bytes_read_from_cross_cg_peer = 0;
     int64_t cross_cg_peer_io_timer = 0; // nanoseconds
+    int64_t num_same_cg_peer_io_total = 0;
+    int64_t bytes_read_from_same_cg_peer = 0;
+    int64_t same_cg_peer_io_timer = 0; // nanoseconds
     int64_t num_peer_race_peer_win = 0;
     int64_t num_peer_race_s3_win = 0;
     int64_t num_peer_lazy_fetch = 0;
     int64_t peer_lazy_fetch_timer = 0; // nanoseconds
+
+    std::set<std::string> peer_hosts;
 
     void merge_from(const FileCacheStatistics& other) {
         num_local_io_total += other.num_local_io_total;
@@ -125,13 +133,31 @@ struct FileCacheStatistics {
         inverted_index_peer_io_timer += other.inverted_index_peer_io_timer;
         inverted_index_io_timer += other.inverted_index_io_timer;
 
+        segment_footer_index_num_local_io_total += other.segment_footer_index_num_local_io_total;
+        segment_footer_index_num_remote_io_total += other.segment_footer_index_num_remote_io_total;
+        segment_footer_index_num_peer_io_total += other.segment_footer_index_num_peer_io_total;
+        segment_footer_index_bytes_read_from_local +=
+                other.segment_footer_index_bytes_read_from_local;
+        segment_footer_index_bytes_read_from_remote +=
+                other.segment_footer_index_bytes_read_from_remote;
+        segment_footer_index_bytes_read_from_peer +=
+                other.segment_footer_index_bytes_read_from_peer;
+        segment_footer_index_local_io_timer += other.segment_footer_index_local_io_timer;
+        segment_footer_index_remote_io_timer += other.segment_footer_index_remote_io_timer;
+        segment_footer_index_peer_io_timer += other.segment_footer_index_peer_io_timer;
+
         num_cross_cg_peer_io_total += other.num_cross_cg_peer_io_total;
         bytes_read_from_cross_cg_peer += other.bytes_read_from_cross_cg_peer;
         cross_cg_peer_io_timer += other.cross_cg_peer_io_timer;
+        num_same_cg_peer_io_total += other.num_same_cg_peer_io_total;
+        bytes_read_from_same_cg_peer += other.bytes_read_from_same_cg_peer;
+        same_cg_peer_io_timer += other.same_cg_peer_io_timer;
         num_peer_race_peer_win += other.num_peer_race_peer_win;
         num_peer_race_s3_win += other.num_peer_race_s3_win;
         num_peer_lazy_fetch += other.num_peer_lazy_fetch;
         peer_lazy_fetch_timer += other.peer_lazy_fetch_timer;
+
+        peer_hosts.insert(other.peer_hosts.begin(), other.peer_hosts.end());
     }
 };
 

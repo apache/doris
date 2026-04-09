@@ -1369,6 +1369,10 @@ void CloudWarmUpManager::rotate_peer_candidate_on_cache_miss(int64_t tablet_id,
             it->second.last_successful_compute_group_id.clear();
         }
         std::rotate(cit, std::next(cit), cands.end());
+    }
+    // Always count the metric when the candidate is found, even if it is the
+    // last (or only) element where rotation is a no-op.
+    if (cit != cands.end()) {
         g_peer_candidate_rotate << 1;
     }
 }

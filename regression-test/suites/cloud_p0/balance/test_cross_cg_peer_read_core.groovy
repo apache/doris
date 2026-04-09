@@ -231,6 +231,10 @@ suite('test_cross_cg_peer_read_core', 'docker') {
                     raceWin += raceWinMatcher.group(1).toInteger()
                 }
                 assertTrue(raceWin > 0, "PeerRaceWin must be > 0 in profile")
+
+                def nodesMatcher = (profileString =~ /PeerCacheNodes:\s*(.+)/)
+                assertTrue(nodesMatcher.find(), "Profile must contain PeerCacheNodes info")
+                logger.info("PeerCacheNodes found: {}", nodesMatcher.group(1))
             }
         }
 
