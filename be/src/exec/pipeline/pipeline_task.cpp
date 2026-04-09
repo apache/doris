@@ -1049,8 +1049,6 @@ void PipelineTask::wake_up(Dependency* dep, std::unique_lock<std::mutex>& /* dep
         if (!st.ok()) {
             if (auto frag = fragment_context().lock()) {
                 frag->cancel(st);
-            } else {
-                // do nothing and waitting for FragmentMgr::cancel_worker
             }
         }
     };
