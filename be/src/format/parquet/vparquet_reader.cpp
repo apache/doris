@@ -26,6 +26,7 @@
 #include <functional>
 #include <utility>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
@@ -719,6 +720,19 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
         return Status::OK();
     }
 
+    // Limit memory per batch for load paths.
+    // _load_bytes_per_row is updated after each batch so the *next* call pre-shrinks _batch_size
+    // before reading, ensuring the current batch is already within the limit (from call 2 onward).
+    const int64_t max_block_bytes =
+            (_state != nullptr && _state->query_type() == TQueryType::LOAD &&
+             config::load_reader_max_block_bytes > 0)
+                    ? config::load_reader_max_block_bytes
+                    : 0;
+    if (max_block_bytes > 0 && _load_bytes_per_row > 0) {
+        _batch_size = std::max((size_t)1,
+                               (size_t)((int64_t)max_block_bytes / (int64_t)_load_bytes_per_row));
+    }
+
     SCOPED_RAW_TIMER(&_reader_statistics.column_read_time);
     Status batch_st =
             _current_group_reader->next_batch(block, _batch_size, read_rows, &_row_group_eof);
@@ -733,6 +747,10 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
     if (!batch_st.ok()) {
         return Status::InternalError("Read parquet file {} failed, reason = {}", _scan_range.path,
                                      batch_st.to_string());
+    }
+
+    if (max_block_bytes > 0 && *read_rows > 0) {
+        _load_bytes_per_row = block->bytes() / *read_rows;
     }
 
     if (_row_group_eof) {

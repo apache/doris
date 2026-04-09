@@ -204,8 +204,13 @@ Status NewJsonReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
     }
 
     const int batch_size = std::max(_state->batch_size(), (int)_MIN_BATCH_SIZE);
+    const int64_t max_block_bytes =
+            (_state->query_type() == TQueryType::LOAD && config::load_reader_max_block_bytes > 0)
+                    ? config::load_reader_max_block_bytes
+                    : 0;
 
-    while (block->rows() < batch_size && !_reader_eof) {
+    while (block->rows() < batch_size && !_reader_eof &&
+           (max_block_bytes <= 0 || (int64_t)block->bytes() < max_block_bytes)) {
         if (UNLIKELY(_read_json_by_line && _skip_first_line)) {
             size_t size = 0;
             const uint8_t* line_ptr = nullptr;

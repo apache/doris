@@ -341,6 +341,10 @@ private:
 
     // parquet file reader object
     size_t _batch_size;
+    // Bytes-per-row estimate from the previous batch, used to pre-shrink _batch_size
+    // before reading so that oversized blocks are prevented from the current call onward.
+    // Zero means no prior data (first batch).
+    size_t _load_bytes_per_row = 0;
     int64_t _range_start_offset;
     int64_t _range_size;
     const cctz::time_zone* _ctz = nullptr;

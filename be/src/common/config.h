@@ -1785,6 +1785,10 @@ DECLARE_String(fuzzy_test_type);
 // The maximum csv line reader output buffer size
 DECLARE_mInt64(max_csv_line_reader_output_buffer_size);
 
+// The maximum bytes of a single block returned by load file readers (CsvReader, NewJsonReader,
+// ParquetReader, OrcReader). Default is 200MB. Set to 0 to disable the limit.
+DECLARE_mInt64(load_reader_max_block_bytes);
+
 // Maximum number of OpenMP threads available for concurrent index builds.
 // -1 means auto: use 80% of detected CPU cores.
 DECLARE_Int32(omp_threads_limit);
