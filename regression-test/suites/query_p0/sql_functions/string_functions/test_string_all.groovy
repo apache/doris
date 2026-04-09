@@ -760,6 +760,8 @@ suite("string_functions_all") {
     testFoldConst("SELECT levenshtein('abc', 'abc'), levenshtein('abc', ''), levenshtein('', 'abc'), levenshtein(NULL, 'abc'), levenshtein('abc', NULL);")
     qt_levenshtein_333 "SELECT levenshtein('abcd', 'abdc'), levenshtein('你好呀', '你好'), levenshtein('a你b', 'a们b');"
     testFoldConst("SELECT levenshtein('abcd', 'abdc'), levenshtein('你好呀', '你好'), levenshtein('a你b', 'a们b');")
+    qt_levenshtein_334 "SELECT levenshtein(NULL, NULL), levenshtein('', '你好'), levenshtein('你好世界', '你好世间');"
+    testFoldConst("SELECT levenshtein(NULL, NULL), levenshtein('', '你好'), levenshtein('你好世界', '你好世间');")
     sql """DROP TABLE IF EXISTS string_distance_lv_test"""
     sql """
         CREATE TABLE IF NOT EXISTS string_distance_lv_test (
@@ -789,6 +791,27 @@ suite("string_functions_all") {
     testFoldConst("SELECT hamming_distance('abc', 'abc'), hamming_distance(NULL, 'abc'), hamming_distance('abc', NULL);")
     qt_hamming_distance_335 "SELECT hamming_distance('abcd', 'wxyz'), hamming_distance('你好吗', '你们吗'), hamming_distance('数据库', '数库据');"
     testFoldConst("SELECT hamming_distance('abcd', 'wxyz'), hamming_distance('你好吗', '你们吗'), hamming_distance('数据库', '数库据');")
+    qt_hamming_distance_336 "SELECT hamming_distance(NULL, NULL), hamming_distance(NULL, 'addd'), hamming_distance('addd', NULL);"
+    testFoldConst("SELECT hamming_distance(NULL, NULL), hamming_distance(NULL, 'addd'), hamming_distance('addd', NULL);")
+    sql """ set debug_skip_fold_constant = false; """
+    test {
+        sql "SELECT hamming_distance('abc', 'ab');"
+        exception "hamming_distance requires strings of the same length"
+    }
+    test {
+        sql "SELECT hamming_distance('你好', '你');"
+        exception "hamming_distance requires strings of the same length"
+    }
+    sql """ set debug_skip_fold_constant = true; """
+    test {
+        sql "SELECT hamming_distance('abc', 'ab');"
+        exception "hamming_distance requires strings of the same length"
+    }
+    test {
+        sql "SELECT hamming_distance('你好', '你');"
+        exception "hamming_distance requires strings of the same length"
+    }
+    sql """ set debug_skip_fold_constant = false; """
     sql """DROP TABLE IF EXISTS string_distance_hd_test"""
     sql """
         CREATE TABLE IF NOT EXISTS string_distance_hd_test (
@@ -810,6 +833,17 @@ suite("string_functions_all") {
         (7, '数据库', '数库据')
     """
     qt_hamming_distance_tbl "SELECT id, hamming_distance(s1, s2) FROM string_distance_hd_test ORDER BY id"
+
+    sql """ set enable_nereids_planner=true, enable_fallback_to_original_planner=false; """
+    qt_nereids_levenshtein_337 "SELECT levenshtein('kitten', 'sitting'), levenshtein(NULL, 'abc'), levenshtein('你好世界', '你好世间');"
+    testFoldConst("SELECT levenshtein('kitten', 'sitting'), levenshtein(NULL, 'abc'), levenshtein('你好世界', '你好世间');")
+    qt_nereids_hamming_distance_338 "SELECT hamming_distance('abcd', 'abcf'), hamming_distance(NULL, 'addd'), hamming_distance('你好', '你们');"
+    testFoldConst("SELECT hamming_distance('abcd', 'abcf'), hamming_distance(NULL, 'addd'), hamming_distance('你好', '你们');")
+    test {
+        sql "SELECT hamming_distance('abc', 'ab');"
+        exception "hamming_distance requires strings of the same length"
+    }
+    sql """ set enable_nereids_planner=false, enable_fallback_to_original_planner=true; """
 
     // SPACE tests
     qt_space_333 "SELECT space(5);"

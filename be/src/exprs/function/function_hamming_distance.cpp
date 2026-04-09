@@ -102,22 +102,56 @@ public:
 
         auto null_col = ColumnUInt8::create(input_rows_count, 0);
         auto& null_map = null_col->get_data();
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            const size_t left_idx = left_const ? 0 : i;
-            const size_t right_idx = right_const ? 0 : i;
-
-            const bool left_is_null = left_null_map && (*left_null_map)[left_idx];
-            const bool right_is_null = right_null_map && (*right_null_map)[right_idx];
-            if (left_is_null || right_is_null) {
-                null_map[i] = 1;
-                res_data[i] = 0;
-                continue;
+        if (left_const) {
+            if (left_null_map && (*left_null_map)[0]) {
+                std::fill(null_map.begin(), null_map.end(), 1);
+                block.replace_by_position(
+                        result, ColumnNullable::create(std::move(res_col), std::move(null_col)));
+                return Status::OK();
             }
 
-            RETURN_IF_ERROR(
-                    hamming_distance(left_str_col->get_data_at(left_idx).trim_tail_padding_zero(),
-                                     right_str_col->get_data_at(right_idx).trim_tail_padding_zero(),
-                                     res_data[i], i));
+            const auto left = left_str_col->get_data_at(0).trim_tail_padding_zero();
+            if (right_const) {
+                if (right_null_map && (*right_null_map)[0]) {
+                    std::fill(null_map.begin(), null_map.end(), 1);
+                    block.replace_by_position(result, ColumnNullable::create(std::move(res_col),
+                                                                             std::move(null_col)));
+                    return Status::OK();
+                }
+
+                Int64 value = 0;
+                RETURN_IF_ERROR(hamming_distance(
+                        left, right_str_col->get_data_at(0).trim_tail_padding_zero(), value, 0));
+                std::fill(res_data.begin(), res_data.end(), value);
+            } else {
+                RETURN_IF_ERROR(scalar_vector_nullable(left, *right_str_col, right_null_map,
+                                                       res_data, null_map));
+            }
+        } else if (right_const) {
+            if (right_null_map && (*right_null_map)[0]) {
+                std::fill(null_map.begin(), null_map.end(), 1);
+                block.replace_by_position(
+                        result, ColumnNullable::create(std::move(res_col), std::move(null_col)));
+                return Status::OK();
+            }
+
+            RETURN_IF_ERROR(vector_scalar_nullable(
+                    *left_str_col, right_str_col->get_data_at(0).trim_tail_padding_zero(),
+                    left_null_map, res_data, null_map));
+        } else {
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                const bool left_is_null = left_null_map && (*left_null_map)[i];
+                const bool right_is_null = right_null_map && (*right_null_map)[i];
+                if (left_is_null || right_is_null) {
+                    null_map[i] = 1;
+                    res_data[i] = 0;
+                    continue;
+                }
+
+                RETURN_IF_ERROR(hamming_distance(
+                        left_str_col->get_data_at(i).trim_tail_padding_zero(),
+                        right_str_col->get_data_at(i).trim_tail_padding_zero(), res_data[i], i));
+            }
         }
 
         block.replace_by_position(result,
@@ -168,6 +202,54 @@ private:
         utf8_char_offsets(ldata, left_offsets);
         std::vector<size_t> right_offsets;
         for (size_t i = 0; i < size; ++i) {
+            const auto right = rcol.get_data_at(i).trim_tail_padding_zero();
+            RETURN_IF_ERROR(hamming_distance_with_offsets(
+                    ldata, left_offsets, true, left_ascii, right, right_offsets, false,
+                    simd::VStringFunctions::is_ascii(right), res[i], i));
+        }
+        return Status::OK();
+    }
+
+    static Status vector_scalar_nullable(const ColumnString& lcol, const StringRef& rdata,
+                                         const NullMap* left_null_map, ResultPaddedPODArray& res,
+                                         NullMap& null_map) {
+        const size_t size = lcol.size();
+        res.resize(size);
+        const bool right_ascii = simd::VStringFunctions::is_ascii(rdata);
+        std::vector<size_t> right_offsets;
+        utf8_char_offsets(rdata, right_offsets);
+        std::vector<size_t> left_offsets;
+        for (size_t i = 0; i < size; ++i) {
+            if (left_null_map && (*left_null_map)[i]) {
+                null_map[i] = 1;
+                res[i] = 0;
+                continue;
+            }
+
+            const auto left = lcol.get_data_at(i).trim_tail_padding_zero();
+            RETURN_IF_ERROR(hamming_distance_with_offsets(
+                    left, left_offsets, false, simd::VStringFunctions::is_ascii(left), rdata,
+                    right_offsets, true, right_ascii, res[i], i));
+        }
+        return Status::OK();
+    }
+
+    static Status scalar_vector_nullable(const StringRef& ldata, const ColumnString& rcol,
+                                         const NullMap* right_null_map, ResultPaddedPODArray& res,
+                                         NullMap& null_map) {
+        const size_t size = rcol.size();
+        res.resize(size);
+        const bool left_ascii = simd::VStringFunctions::is_ascii(ldata);
+        std::vector<size_t> left_offsets;
+        utf8_char_offsets(ldata, left_offsets);
+        std::vector<size_t> right_offsets;
+        for (size_t i = 0; i < size; ++i) {
+            if (right_null_map && (*right_null_map)[i]) {
+                null_map[i] = 1;
+                res[i] = 0;
+                continue;
+            }
+
             const auto right = rcol.get_data_at(i).trim_tail_padding_zero();
             RETURN_IF_ERROR(hamming_distance_with_offsets(
                     ldata, left_offsets, true, left_ascii, right, right_offsets, false,
