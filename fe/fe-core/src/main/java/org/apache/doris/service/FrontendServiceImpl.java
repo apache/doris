@@ -3125,6 +3125,19 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return addr == null ? "unknown" : addr.hostname;
     }
 
+    private List<Backend> getAllCloudPrimaryBackends(CloudReplica cloudReplica) {
+        CloudSystemInfoService cloudSystemInfoService = (CloudSystemInfoService) Env.getCurrentSystemInfo();
+        List<Backend> backends = Lists.newArrayList();
+        Set<Long> backendIds = new HashSet<>();
+        for (String cloudClusterId : cloudSystemInfoService.getCloudClusterIds()) {
+            Backend primaryBackend = cloudReplica.getPrimaryBackend(cloudClusterId, true);
+            if (primaryBackend != null && backendIds.add(primaryBackend.getId())) {
+                backends.add(primaryBackend);
+            }
+        }
+        return backends;
+    }
+
     @Override
     public TWaitingTxnStatusResult waitingTxnStatus(TWaitingTxnStatusRequest request) throws TException {
         TWaitingTxnStatusResult result = new TWaitingTxnStatusResult();
@@ -3518,7 +3531,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 if (Config.isCloudMode()) {
                     CloudReplica cloudReplica = (CloudReplica) replica;
                     if (!request.isSetWarmUpJobId()) {
-                        backends = cloudReplica.getAllPrimaryBes();
+                        backends = getAllCloudPrimaryBackends(cloudReplica);
                     } else {
                         // On the cloud, the PrimaryBackend of a tablet
                         // indicates the BE where the tablet is stably located,
@@ -3541,7 +3554,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         replicaInfo.setBePort(backend.getBePort());
                         replicaInfo.setHttpPort(backend.getHttpPort());
                         replicaInfo.setBrpcPort(backend.getBrpcPort());
-                        replicaInfo.setReplicaId(replica.getId());
+                        if (Config.isCloudMode() && backend.getHost().equals(clientAddr)) {
+                            replicaInfo.setReplicaId(replica.getId());
+                        } else if (Config.isCloudMode()) {
+                            replicaInfo.setReplicaId(backend.getId());
+                        } else {
+                            replicaInfo.setReplicaId(replica.getId());
+                        }
                         replicaInfos.add(replicaInfo);
                     }
                 }
