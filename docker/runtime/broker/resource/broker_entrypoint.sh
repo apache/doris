@@ -19,11 +19,11 @@
 # the fe query port for mysql.
 FE_QUERY_PORT=${FE_QUERY_PORT:-9030}
 # timeout for probe fe master.
-PROBE_TIMEOUT=60
+PROBE_TIMEOUT=${PROBE_TIMEOUT:-60}
 # interval time to probe fe.
-PROBE_INTERVAL=2
+PROBE_INTERVAL=${PROBE_INTERVAL:-2}
 # ipc port for fe/be communicate with broker.
-IPC_PORT=8000
+IPC_PORT=${IPC_PORT:-8000}
 # fqdn or ip
 MY_SELF=
 MY_IP=`hostname -i`

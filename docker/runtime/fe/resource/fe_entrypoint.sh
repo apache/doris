@@ -28,7 +28,7 @@ DORIS_HOME=${DORIS_ROOT}/fe
 ELECT_NUMBER=${ELECT_NUMBER:=3}
 # query port for mysql connection.
 QUERY_PORT=${FE_QUERY_PORT:-9030}
-EDIT_LOG_PORT=9010
+EDIT_LOG_PORT=${EDIT_LOG_PORT:-9010}
 # location of fe config store.
 FE_CONFFILE=$DORIS_HOME/conf/fe.conf
 # represents the type for fe communication: domain or IP.
@@ -38,11 +38,11 @@ FE_MASTER=
 # pod ordinal of statefulset deployed pod.
 POD_INDEX=
 # probe interval: 2 seconds
-PROBE_INTERVAL=2
+PROBE_INTERVAL=${PROBE_INTERVAL:-2}
 # timeout for probe master: 60 seconds
-PROBE_MASTER_POD0_TIMEOUT=60 # at most 30 attempts, no less than the times needed for an election
+PROBE_MASTER_POD0_TIMEOUT=${PROBE_MASTER_POD0_TIMEOUT:-60} # at most 30 attempts, no less than the times needed for an election
 # no-0 ordinal pod timeout for probe master: 90 times
-PROBE_MASTER_PODX_TIMEOUT=180 # at most 90 attempts
+PROBE_MASTER_PODX_TIMEOUT=${PROBE_MASTER_PODX_TIMEOUT:-180} # at most 90 attempts
 # administrator for administrate the cluster.
 DB_ADMIN_USER=${USER:-"root"}
 
