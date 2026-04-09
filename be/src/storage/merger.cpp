@@ -450,9 +450,9 @@ int64_t estimate_batch_size(int group_index, BaseTabletSPtr tablet, int64_t way_
             int64_t batch_size = block_mem_limit / group_per_row_from_footer;
             int64_t res = std::max(std::min(batch_size, int64_t(4096 - 32)), int64_t(32L));
             LOG(INFO) << "estimate batch size from footer for vertical compaction, tablet id: "
-                      << tablet->tablet_id() << " group_per_row_from_footer: "
-                      << group_per_row_from_footer << " way cnt: " << way_cnt
-                      << " batch size: " << res;
+                      << tablet->tablet_id()
+                      << " group_per_row_from_footer: " << group_per_row_from_footer
+                      << " way cnt: " << way_cnt << " batch size: " << res;
             return res;
         }
         LOG(INFO) << "estimate batch size for vertical compaction, tablet id: "
@@ -595,8 +595,7 @@ Status Merger::vertical_merge_rowsets(BaseTabletSPtr tablet, ReaderType reader_t
             if (!st.ok()) {
                 LOG(WARNING) << "Failed to load segments for footer raw_data_bytes collection"
                              << ", tablet_id: " << tablet->tablet_id()
-                             << ", rowset_id: " << beta_rowset->rowset_id()
-                             << ", status: " << st;
+                             << ", rowset_id: " << beta_rowset->rowset_id() << ", status: " << st;
                 continue;
             }
             for (const auto& segment : segments) {
