@@ -108,8 +108,6 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
     @SerializedName(value = "ctc")
     protected AtomicLong canceledTaskCount = new AtomicLong(0);
 
-    @Getter
-    @Setter
     @SerializedName(value = "ltst")
     protected long lastTaskSuccessTime;
 
