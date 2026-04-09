@@ -193,9 +193,9 @@ FileCacheProfileReporter::FileCacheProfileReporter(RuntimeProfile* profile) : _p
     cross_cg_peer_io_timer =
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "CrossCGPeerIOTime", cache_profile, 1);
     num_same_cg_peer_io_total = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "SameCGPeerIOTotal",
-                                                              TUnit::UNIT, cache_profile, 1);
-    bytes_scanned_from_same_cg_peer = ADD_CHILD_COUNTER_WITH_LEVEL(
-            profile, "SameCGPeerBytesRead", TUnit::BYTES, cache_profile, 1);
+                                                             TUnit::UNIT, cache_profile, 1);
+    bytes_scanned_from_same_cg_peer = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "SameCGPeerBytesRead",
+                                                                   TUnit::BYTES, cache_profile, 1);
     same_cg_peer_io_timer =
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "SameCGPeerIOTime", cache_profile, 1);
     num_peer_race_peer_win =

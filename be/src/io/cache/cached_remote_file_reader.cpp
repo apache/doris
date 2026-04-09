@@ -575,8 +575,7 @@ Status CachedRemoteFileReader::_execute_sequential_peer_read(
         if (peer_result != nullptr) {
             *peer_result = std::move(serial_res);
         }
-        // Update profile counters consistent with the race path.
-        g_peer_race_peer_win << 1;
+        // Update profile counters for cross/same CG stats.
         const std::string self_cg_id =
                 static_cast<CloudClusterInfo*>(ExecEnv::GetInstance()->cluster_info())
                         ->cloud_compute_group_id();
@@ -588,7 +587,6 @@ Status CachedRemoteFileReader::_execute_sequential_peer_read(
             g_peer_same_compute_group_read << 1;
         }
         if (io_ctx != nullptr && io_ctx->file_cache_stats != nullptr) {
-            io_ctx->file_cache_stats->num_peer_race_peer_win++;
             io_ctx->file_cache_stats->peer_hosts.insert(candidates[0].host);
             if (is_cross_cg) {
                 io_ctx->file_cache_stats->num_cross_cg_peer_io_total++;
