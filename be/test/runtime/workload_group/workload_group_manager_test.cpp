@@ -42,6 +42,7 @@
 #include "runtime/workload_group/workload_group.h"
 #include "storage/olap_define.h"
 #include "testutil/mock/mock_query_task_controller.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
@@ -133,7 +134,8 @@ private:
 
     void _run_checking_loop(const std::shared_ptr<WorkloadGroup>& wg, size_t check_times = 300) {
         CountDownLatch latch(1);
-        while (check_times-- > 0) {
+        while (check_times > 0) {
+            --check_times;
             _wg_manager->handle_paused_queries();
             if (!_wg_manager->_paused_queries_list.contains(wg) ||
                 _wg_manager->_paused_queries_list[wg].empty()) {
@@ -243,59 +245,62 @@ TEST_F(WorkloadGroupManagerTest, wg_reserve_failed_before_query_limit_and_high_w
                                .slot_mem_policy = TWgSlotMemoryPolicy::NONE};
     auto wg = _wg_manager->get_or_create_workload_group(wg_info);
     auto query_context = _generate_on_query(wg, 4096);
-    ThreadContext thread_context;
-    thread_context.attach_task(query_context->resource_ctx());
-
-    auto st = thread_context.thread_mem_tracker_mgr->try_reserve(2048);
-    ASSERT_TRUE(st.ok()) << st.to_string();
-    ASSERT_EQ(query_context->resource_ctx()->memory_context()->current_memory_bytes(), 2048);
-    ASSERT_EQ(query_context->resource_ctx()->memory_context()->reserved_consumption(), 2048);
-    ASSERT_LT(query_context->resource_ctx()->memory_context()->current_memory_bytes(),
-              query_context->resource_ctx()->memory_context()->mem_limit());
-    ASSERT_LT(query_context->resource_ctx()->memory_context()->current_memory_bytes() + 1024,
-              query_context->resource_ctx()->memory_context()->mem_limit());
-
-    bool exceed_low_watermark = false;
-    bool exceed_high_watermark = false;
-    wg->check_mem_used(&exceed_low_watermark, &exceed_high_watermark);
-    ASSERT_FALSE(exceed_low_watermark);
-    ASSERT_FALSE(exceed_high_watermark);
-
-    st = thread_context.thread_mem_tracker_mgr->try_reserve(1024);
-    ASSERT_TRUE(st.is<ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED>()) << st.to_string();
-    ASSERT_FALSE(st.is<ErrorCode::QUERY_MEMORY_EXCEEDED>()) << st.to_string();
-    ASSERT_EQ(query_context->resource_ctx()->memory_context()->current_memory_bytes(), 2048);
-    ASSERT_EQ(query_context->resource_ctx()->memory_context()->reserved_consumption(), 2048);
-
-    _wg_manager->add_paused_query(query_context->resource_ctx(), 1024, st);
-    ASSERT_FALSE(query_context->get_memory_sufficient_dependency()->ready());
     {
-        std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
-        ASSERT_EQ(_wg_manager->_paused_queries_list[wg].size(), 1)
-                << "paused queue should not be empty";
-    }
+        ThreadContext thread_context;
+        thread_context.attach_task(query_context->resource_ctx());
+        Defer cleanup {[&]() {
+            {
+                std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
+                _wg_manager->_paused_queries_list.erase(wg);
+            }
+            query_context->set_memory_sufficient(true);
+            thread_context.thread_mem_tracker_mgr->shrink_reserved();
+            thread_context.detach_task();
+        }};
 
-    _run_checking_loop(wg, 3);
+        auto st = thread_context.thread_mem_tracker_mgr->try_reserve(2048);
+        ASSERT_TRUE(st.ok()) << st.to_string();
+        ASSERT_EQ(query_context->resource_ctx()->memory_context()->current_memory_bytes(), 2048);
+        ASSERT_EQ(query_context->resource_ctx()->memory_context()->reserved_consumption(), 2048);
+        ASSERT_LT(query_context->resource_ctx()->memory_context()->current_memory_bytes(),
+                  query_context->resource_ctx()->memory_context()->mem_limit());
+        ASSERT_LT(query_context->resource_ctx()->memory_context()->current_memory_bytes() + 1024,
+                  query_context->resource_ctx()->memory_context()->mem_limit());
 
-    ASSERT_FALSE(query_context->get_memory_sufficient_dependency()->ready());
-    ASSERT_TRUE(query_context->resource_ctx()
-                        ->task_controller()
-                        ->paused_reason()
-                        .is<ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED>());
-    ASSERT_FALSE(query_context->is_cancelled());
-    {
-        std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
-        ASSERT_EQ(_wg_manager->_paused_queries_list[wg].size(), 1)
-                << "paused queue should keep the query";
-    }
+        bool exceed_low_watermark = false;
+        bool exceed_high_watermark = false;
+        wg->check_mem_used(&exceed_low_watermark, &exceed_high_watermark);
+        ASSERT_FALSE(exceed_low_watermark);
+        ASSERT_FALSE(exceed_high_watermark);
 
-    {
-        std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
-        _wg_manager->_paused_queries_list.erase(wg);
+        st = thread_context.thread_mem_tracker_mgr->try_reserve(1024);
+        ASSERT_TRUE(st.is<ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED>()) << st.to_string();
+        ASSERT_FALSE(st.is<ErrorCode::QUERY_MEMORY_EXCEEDED>()) << st.to_string();
+        ASSERT_EQ(query_context->resource_ctx()->memory_context()->current_memory_bytes(), 2048);
+        ASSERT_EQ(query_context->resource_ctx()->memory_context()->reserved_consumption(), 2048);
+
+        _wg_manager->add_paused_query(query_context->resource_ctx(), 1024, st);
+        ASSERT_FALSE(query_context->get_memory_sufficient_dependency()->ready());
+        {
+            std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
+            ASSERT_EQ(_wg_manager->_paused_queries_list[wg].size(), 1)
+                    << "paused queue should not be empty";
+        }
+
+        _run_checking_loop(wg, 3);
+
+        ASSERT_FALSE(query_context->get_memory_sufficient_dependency()->ready());
+        ASSERT_TRUE(query_context->resource_ctx()
+                            ->task_controller()
+                            ->paused_reason()
+                            .is<ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED>());
+        ASSERT_FALSE(query_context->is_cancelled());
+        {
+            std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
+            ASSERT_EQ(_wg_manager->_paused_queries_list[wg].size(), 1)
+                    << "paused queue should keep the query";
+        }
     }
-    query_context->set_memory_sufficient(true);
-    thread_context.thread_mem_tracker_mgr->shrink_reserved();
-    thread_context.detach_task();
     ASSERT_EQ(query_context->resource_ctx()->memory_context()->current_memory_bytes(), 0);
     ASSERT_EQ(query_context->resource_ctx()->memory_context()->reserved_consumption(), 0);
 }

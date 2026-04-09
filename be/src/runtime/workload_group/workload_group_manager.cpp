@@ -779,8 +779,8 @@ bool WorkloadGroupMgr::handle_single_query_(const std::shared_ptr<ResourceContex
             return false;
         } else {
             Status error_status = Status::MemoryLimitExceeded(
-                    "Query {} workload group memory is exceeded"
-                    ", and there is no cache now. And could not find task to spill, "
+                    "Query {} memory limit is exceeded while handling workload group memory "
+                    "pressure, and there is no cache now. And could not find task to spill, "
                     "try to cancel query. "
                     "Query memory usage: {}, limit: {}, reserved "
                     "size: {}, try to reserve: {}, wg info: {}."
