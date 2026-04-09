@@ -536,6 +536,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Time;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TimeDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TimeFormat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Timestamp;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.TimestampSpark;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBase64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBase64Binary;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBinary;
@@ -2551,6 +2552,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitTimestamp(Timestamp timestamp, C context) {
         return visitScalarFunction(timestamp, context);
+    }
+
+    default R visitTimestampSpark(TimestampSpark timestampSpark, C context) {
+        return visitScalarFunction(timestampSpark, context);
     }
 
     default R visitToBase64(ToBase64 toBase64, C context) {

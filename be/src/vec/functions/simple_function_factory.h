@@ -81,6 +81,7 @@ void register_function_like(SimpleFunctionFactory& factory);
 void register_function_regexp(SimpleFunctionFactory& factory);
 void register_function_random(SimpleFunctionFactory& factory);
 void register_function_rand_spark(SimpleFunctionFactory& factory);
+void register_function_timestamp_spark(SimpleFunctionFactory& factory);
 void register_function_uniform(SimpleFunctionFactory& factory);
 void register_function_uuid(SimpleFunctionFactory& factory);
 void register_function_uuid_numeric(SimpleFunctionFactory& factory);
@@ -317,6 +318,7 @@ public:
             register_function_regexp(instance);
             register_function_random(instance);
             register_function_rand_spark(instance);
+            register_function_timestamp_spark(instance);
             register_function_uniform(instance);
             register_function_uuid(instance);
             register_function_uuid_numeric(instance);

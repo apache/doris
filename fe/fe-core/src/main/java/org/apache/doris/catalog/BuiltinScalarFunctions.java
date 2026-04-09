@@ -517,6 +517,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.TimeDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TimeFormat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TimeToSec;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Timestamp;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.TimestampSpark;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBase64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBase64Binary;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBinary;
@@ -1101,6 +1102,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(TimeFormat.class, "time_format"),
             scalar(TimeToSec.class, "time_to_sec"),
             scalar(Timestamp.class, "timestamp"),
+            scalar(TimestampSpark.class, "timestamp_spark"),
             scalar(ToBase64.class, "to_base64"),
             scalar(ToBase64Binary.class, "to_base64_binary"),
             scalar(ToBinary.class, "to_binary", "to_hex"),
