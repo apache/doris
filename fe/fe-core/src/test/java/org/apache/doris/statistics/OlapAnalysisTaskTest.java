@@ -40,6 +40,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.util.StatisticsUtil;
@@ -753,5 +754,151 @@ public class OlapAnalysisTaskTest {
                 + "FROM internal.__internal_schema.partition_statistics "
                 + "WHERE `catalog_id` = 0  AND `db_id` = 1  AND `tbl_id` = 2  AND `idx_id` = 3  AND `col_id` = 'col1'",
                 sql);
+    }
+
+    @Test
+    public void testFullAnalyzeTemplateSql() {
+        Map<String, String> params = new HashMap<>();
+        params.put("catalogId", "0");
+        params.put("dbId", "1");
+        params.put("tblId", "2");
+        params.put("idxId", "3");
+        params.put("colId", "col1");
+        params.put("colName", "col1");
+        params.put("dataSizeFunction", "SUM(LENGTH(`col1`))");
+        params.put("catalogName", "internal");
+        params.put("dbName", "db1");
+        params.put("tblName", "tbl1");
+        params.put("index", "");
+        params.put("hotValueCollectCount", "10");
+        params.put("subStringColName", "`col1`");
+        params.put("rowCount2", "(SELECT COUNT(1) FROM cte1 WHERE `col1` IS NOT NULL)");
+        StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
+        String sql = stringSubstitutor.replace(BaseAnalysisTask.FULL_ANALYZE_TEMPLATE);
+        Assertions.assertTrue(sql.startsWith("WITH cte1 AS ("));
+        Assertions.assertTrue(sql.contains("cte3 AS (SELECT GROUP_CONCAT"));
+        Assertions.assertTrue(sql.contains("as `hot_value`"));
+        Assertions.assertTrue(sql.contains("CROSS JOIN cte3"));
+        Assertions.assertTrue(sql.contains("LIMIT 10"));
+        Assertions.assertTrue(sql.contains("GROUP BY `hash_value` ORDER BY `count` DESC"));
+        Assertions.assertFalse(sql.contains("null as `hot_value`"));
+    }
+
+    @Test
+    public void testDoFullHotValue(@Mocked CatalogIf catalogIf, @Mocked DatabaseIf databaseIf,
+            @Mocked OlapTable tableIf) throws Exception {
+
+        new Expectations() {
+            {
+                tableIf.getId();
+                result = 30001;
+                tableIf.getName();
+                result = "testTbl";
+                catalogIf.getId();
+                result = 10001;
+                catalogIf.getName();
+                result = "catalogName";
+                databaseIf.getId();
+                result = 20001;
+                databaseIf.getFullName();
+                result = "testDb";
+            }
+        };
+
+        new MockUp<StatisticsUtil>() {
+            @Mock
+            public boolean enablePartitionAnalyze() {
+                return false;
+            }
+        };
+
+        new MockUp<SessionVariable>() {
+            @Mock
+            public int getHotValueCollectCount() {
+                return 10;
+            }
+        };
+
+        new MockUp<OlapAnalysisTask>() {
+            @Mock
+            public void runQuery(String sql) {
+                Assertions.assertTrue(sql.startsWith("WITH cte1 AS (SELECT `testCol` "
+                        + "FROM `catalogName`.`testDb`.`testTbl` "), sql);
+                Assertions.assertTrue(sql.contains("cte3 AS (SELECT GROUP_CONCAT"), sql);
+                Assertions.assertTrue(sql.contains("`testCol` as `hash_value`"), sql);
+                Assertions.assertTrue(sql.contains("LIMIT 10"), sql);
+                Assertions.assertTrue(sql.contains("CROSS JOIN cte3"), sql);
+                Assertions.assertFalse(sql.contains("null as `hot_value`"), sql);
+            }
+        };
+
+        OlapAnalysisTask task = new OlapAnalysisTask();
+        task.col = new Column("testCol", Type.fromPrimitiveType(PrimitiveType.INT),
+            true, null, null, null);
+        task.tbl = tableIf;
+        AnalysisInfoBuilder builder = new AnalysisInfoBuilder();
+        builder.setJobType(AnalysisInfo.JobType.MANUAL);
+        builder.setColName("testCol");
+        task.info = builder.build();
+        task.catalog = catalogIf;
+        task.db = databaseIf;
+        task.doFull();
+    }
+
+    @Test
+    public void testDoFullHotValueStringColumn(@Mocked CatalogIf catalogIf, @Mocked DatabaseIf databaseIf,
+            @Mocked OlapTable tableIf) throws Exception {
+
+        new Expectations() {
+            {
+                tableIf.getId();
+                result = 30001;
+                tableIf.getName();
+                result = "testTbl";
+                catalogIf.getId();
+                result = 10001;
+                catalogIf.getName();
+                result = "catalogName";
+                databaseIf.getId();
+                result = 20001;
+                databaseIf.getFullName();
+                result = "testDb";
+            }
+        };
+
+        new MockUp<StatisticsUtil>() {
+            @Mock
+            public boolean enablePartitionAnalyze() {
+                return false;
+            }
+        };
+
+        new MockUp<SessionVariable>() {
+            @Mock
+            public int getHotValueCollectCount() {
+                return 10;
+            }
+        };
+
+        new MockUp<OlapAnalysisTask>() {
+            @Mock
+            public void runQuery(String sql) {
+                Assertions.assertTrue(sql.contains(
+                        "xxhash_64(SUBSTRING(CAST(`strCol` AS STRING), 1, 1024)) as `hash_value`"), sql);
+                Assertions.assertTrue(sql.contains("MAX(`strCol`) as `column_key`"), sql);
+            }
+        };
+
+        OlapAnalysisTask task = new OlapAnalysisTask();
+        task.col = new Column("strCol", Type.fromPrimitiveType(PrimitiveType.STRING),
+            true, null, null, null);
+        task.tbl = tableIf;
+        AnalysisInfoBuilder builder = new AnalysisInfoBuilder();
+        builder.setJobType(AnalysisInfo.JobType.MANUAL);
+        builder.setColName("strCol");
+        task.info = builder.build();
+        task.catalog = catalogIf;
+        task.db = databaseIf;
+        task.doFull();
     }
 }

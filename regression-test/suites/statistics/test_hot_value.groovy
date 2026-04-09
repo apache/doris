@@ -81,28 +81,31 @@ suite("test_hot_value") {
     wait_row_count_reported("test_hot_value", "test1", 0, 4, "10000")
     wait_row_count_reported("test_hot_value", "test2", 0, 4, "10000")
     sql """analyze table test1 with sync"""
-    logger.info("1. memo plan ")
-    explain {
-        sql("memo plan select * from test1")
-        contains "hotValues=(null)"
-    }
     def result = sql """show column stats test1(key1)"""
     assertEquals(1, result.size())
     assertEquals("10000.0", result[0][2])
-    assertEquals("null", result[0][17])
+    assertTrue(result[0][17] != "null")
     result = sql """show column stats test1(value1)"""
     logger.info("0. result " + result)
     assertEquals(1, result.size())
     assertEquals("10000.0", result[0][2])
-    assertEquals("null", result[0][17])
+    String[] fullHotValues = result[0][17].split(";")
+    logger.info("0.1 fullHotValues " + result[0][17])
+    assertEquals(2, fullHotValues.length)
+    assertTrue(fullHotValues[0].trim() == "'1':0.5" || fullHotValues[0].trim() == "'0':0.5")
+    assertTrue(fullHotValues[1].trim() == "'1':0.5" || fullHotValues[1].trim() == "'0':0.5")
     result = sql """show column cached stats test1(key1)"""
     assertEquals(1, result.size())
     assertEquals("10000.0", result[0][2])
+    // cached stats filter hot values by threshold; key1 with 10000 unique values has ratio~0, so cached hot_value is null
     assertEquals("null", result[0][17])
     result = sql """show column cached stats test1(value1)"""
     assertEquals(1, result.size())
     assertEquals("10000.0", result[0][2])
-    assertEquals("null", result[0][17])
+    fullHotValues = result[0][17].split(";")
+    assertEquals(2, fullHotValues.length)
+    assertTrue(fullHotValues[0].trim() == "'1':0.5" || fullHotValues[0].trim() == "'0':0.5")
+    assertTrue(fullHotValues[1].trim() == "'1':0.5" || fullHotValues[1].trim() == "'0':0.5")
     sql """drop stats test1"""
     sql """analyze table test1 with sample rows 400 with sync"""
     result = sql """show column stats test1(key1)"""

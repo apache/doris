@@ -65,8 +65,11 @@ public abstract class BaseAnalysisTask {
     public static final long LIMIT_SIZE = 1024 * 1024 * 1024; // 1GB
     public static final double LIMIT_FACTOR = 1.2;
 
-    protected static final String FULL_ANALYZE_TEMPLATE =
-            "SELECT CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}') AS `id`, "
+    protected static final String FULL_ANALYZE_TEMPLATE = "WITH cte1 AS ("
+            +     "SELECT `${colName}` "
+            +     "FROM `${catalogName}`.`${dbName}`.`${tblName}` ${index}), "
+            + "cte2 AS ("
+            +     "SELECT CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}') AS `id`, "
             +     "${catalogId} AS `catalog_id`, "
             +     "${dbId} AS `db_id`, "
             +     "${tblId} AS `tbl_id`, "
@@ -79,9 +82,20 @@ public abstract class BaseAnalysisTask {
             +     "SUBSTRING(CAST(MIN(`${colName}`) AS STRING), 1, 1024) AS `min`, "
             +     "SUBSTRING(CAST(MAX(`${colName}`) AS STRING), 1, 1024) AS `max`, "
             +     "${dataSizeFunction} AS `data_size`, "
-            +     "NOW() AS `update_time`, "
-            +     "null as `hot_value` "
-            + "FROM `${catalogName}`.`${dbName}`.`${tblName}` ${index}";
+            +     "NOW() "
+            + "FROM cte1), "
+            + "cte3 AS ("
+            +     "SELECT GROUP_CONCAT(CONCAT("
+            +         "REPLACE(REPLACE(t.`column_key`, \":\", \"\\\\:\"), \";\", \"\\\\;\"), "
+            +         "\" :\", ROUND(t.`count` / ${rowCount2}, 2)), \" ;\") "
+            +         "as `hot_value` "
+            +     "FROM ("
+            +         "SELECT ${subStringColName} as `hash_value`, "
+            +         "MAX(`${colName}`) as `column_key`, "
+            +         "COUNT(1) AS `count` "
+            +         "FROM cte1 WHERE `${colName}` IS NOT NULL "
+            +         "GROUP BY `hash_value` ORDER BY `count` DESC LIMIT ${hotValueCollectCount}) t) "
+            + "SELECT * FROM cte2 CROSS JOIN cte3";
 
     protected static final String LINEAR_ANALYZE_TEMPLATE = "WITH cte1 AS ("
             +     "SELECT `${colName}` "

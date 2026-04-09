@@ -24,6 +24,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.ImmutableList;
@@ -198,18 +199,35 @@ public class HMSAnalysisTaskTest {
             }
         };
 
+        new MockUp<SessionVariable>() {
+            @Mock
+            public int getHotValueCollectCount() {
+                return 10;
+            }
+        };
+
         new MockUp<HMSAnalysisTask>() {
             @Mock
             public void runQuery(String sql) {
-                Assertions.assertEquals("SELECT CONCAT(30001, '-', -1, '-', 'hour') AS `id`, "
+                Assertions.assertEquals("WITH cte1 AS (SELECT `hour` "
+                        + "FROM `hms`.`default`.`test` ), "
+                        + "cte2 AS (SELECT CONCAT(30001, '-', -1, '-', 'hour') AS `id`, "
                         + "10001 AS `catalog_id`, 20001 AS `db_id`, 30001 AS `tbl_id`, "
                         + "-1 AS `idx_id`, 'hour' AS `col_id`, NULL AS `part_id`, "
                         + "COUNT(1) AS `row_count`, NDV(`hour`) AS `ndv`, "
                         + "COUNT(1) - COUNT(`hour`) AS `null_count`, "
                         + "SUBSTRING(CAST(MIN(`hour`) AS STRING), 1, 1024) AS `min`, "
                         + "SUBSTRING(CAST(MAX(`hour`) AS STRING), 1, 1024) AS `max`, "
-                        + "COUNT(1) * 4 AS `data_size`, NOW() AS `update_time`, "
-                        + "null as `hot_value` FROM `hms`.`default`.`test` ", sql);
+                        + "COUNT(1) * 4 AS `data_size`, NOW() FROM cte1), "
+                        + "cte3 AS (SELECT GROUP_CONCAT(CONCAT("
+                        + "REPLACE(REPLACE(t.`column_key`, \":\", \"\\\\:\"), \";\", \"\\\\;\"), "
+                        + "\" :\", ROUND(t.`count` / "
+                        + "(SELECT COUNT(1) FROM cte1 WHERE `hour` IS NOT NULL), 2)), \" ;\") "
+                        + "as `hot_value` FROM (SELECT `hour` as `hash_value`, "
+                        + "MAX(`hour`) as `column_key`, COUNT(1) AS `count` "
+                        + "FROM cte1 WHERE `hour` IS NOT NULL "
+                        + "GROUP BY `hash_value` ORDER BY `count` DESC LIMIT 10) t) "
+                        + "SELECT * FROM cte2 CROSS JOIN cte3", sql);
             }
         };
 
