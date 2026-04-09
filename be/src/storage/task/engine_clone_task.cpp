@@ -201,11 +201,11 @@ Status EngineCloneTask::_do_clone() {
                                                               tablet.value()->replica_id(), false));
         tablet->reset();
     }
-    _is_new_tablet = tablet == nullptr;
+    _is_new_tablet = !tablet.has_value();
     // try to incremental clone
     Versions missed_versions;
     // try to repair a tablet with missing version
-    if (tablet != nullptr) {
+    if (tablet.has_value()) {
         std::shared_lock migration_rlock(tablet.value()->get_migration_lock(), std::try_to_lock);
         if (!migration_rlock.owns_lock()) {
             return Status::Error<TRY_LOCK_FAILED>(

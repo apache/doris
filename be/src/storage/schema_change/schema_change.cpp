@@ -810,11 +810,11 @@ Status SchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& request) {
                 "desc_tbl is not set. Maybe the FE version is not equal to the BE "
                 "version.");
     }
-    if (_base_tablet == nullptr) {
+    if (!_base_tablet.has_value()) {
         return Status::Error<TABLE_NOT_FOUND>("fail to find base tablet. base_tablet={}",
                                               request.base_tablet_id);
     }
-    if (_new_tablet == nullptr) {
+    if (!_new_tablet.has_value()) {
         return Status::Error<TABLE_NOT_FOUND>("fail to find new tablet. new_tablet={}",
                                               request.new_tablet_id);
     }
