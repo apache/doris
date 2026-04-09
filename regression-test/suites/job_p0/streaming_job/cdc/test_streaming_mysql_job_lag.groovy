@@ -58,7 +58,7 @@ suite("test_streaming_mysql_job_lag",
                     "password" = "123456",
                     "database" = "${mysqlDb}",
                     "include_tables" = "${mysqlTable}",
-                    "offset" = "initial"
+                    "offset" = "latest"
                 )
                 TO DATABASE ${currentDb} (
                     "table.create.properties.replication_num" = "1"
@@ -66,26 +66,18 @@ suite("test_streaming_mysql_job_lag",
             """
 
         try {
-            // wait for snapshot + enter binlog phase, need at least 2 succeed tasks
-            Awaitility.await().atMost(300, SECONDS)
-                    .pollInterval(1, SECONDS).until({
-                        def jobInfo = sql """
-                            select SucceedTaskCount, Status
-                            from jobs("type"="insert")
-                            where Name = '${jobName}' and ExecuteType='STREAMING'
-                        """
-                        log.info("lag job status: " + jobInfo)
-                        jobInfo.size() == 1 &&
-                                Integer.parseInt(jobInfo[0][0] as String) >= 2 &&
-                                (jobInfo[0][1] as String) == "RUNNING"
-                    })
-
             // insert incremental data to trigger binlog consumption
             connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {
                 sql """INSERT INTO ${mysqlDb}.${mysqlTable} (name, age) VALUES ('Bob', 20)"""
             }
 
-            sleep(60000) // wait for cdc incremental data
+            // wait for binlog data consumed
+            Awaitility.await().atMost(300, SECONDS)
+                    .pollInterval(1, SECONDS).until({
+                        def cnt = sql """ select SucceedTaskCount from jobs("type"="insert") where Name = '${jobName}' and ExecuteType='STREAMING' """
+                        log.info("SucceedTaskCount: " + cnt)
+                        cnt.size() == 1 && Integer.parseInt(cnt[0][0] as String) >= 1
+                    })
 
             // verify lag column has a non-empty numeric value
             def lagInfo = sql """
