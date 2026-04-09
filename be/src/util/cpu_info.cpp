@@ -73,6 +73,8 @@ DEFINE_int32(num_cores, 0,
              " Impala. Setting it to 0 means Impala will use all available cores on the machine"
              " according to /proc/cpuinfo.");
 
+#include "common/compile_check_avoid_end.h"
+
 namespace doris {
 // Helper function to warn if a given file does not contain an expected string as its
 // first line. If the file cannot be opened, no error is reported.
@@ -420,5 +422,4 @@ std::string CpuInfo::debug_string() {
     stream << std::endl;
     return stream.str();
 }
-#include "common/compile_check_avoid_end.h"
 } // namespace doris
