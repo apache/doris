@@ -27,6 +27,7 @@
 
 #include "cloud/config.h"
 #include "common/status.h"
+#include "io/cache/file_cache_expiration.h"
 #include "io/fs/encrypted_fs_factory.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
@@ -249,9 +250,8 @@ struct RowsetWriterContext {
         return io::FileWriterOptions {
                 .write_file_cache = should_write_cache,
                 .is_cold_data = is_hot_data,
-                .file_cache_expiration = file_cache_ttl_sec > 0 && newest_write_timestamp > 0
-                                                 ? newest_write_timestamp + file_cache_ttl_sec
-                                                 : 0,
+                .file_cache_expiration = io::calc_file_cache_expiration_time(
+                        newest_write_timestamp, static_cast<int64_t>(file_cache_ttl_sec)),
                 .approximate_bytes_to_write = approximate_bytes_to_write};
     }
 };

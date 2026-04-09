@@ -47,6 +47,7 @@
 #include "cpp/sync_point.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
+#include "io/cache/file_cache_expiration.h"
 #include "olap/base_tablet.h"
 #include "olap/compaction.h"
 #include "olap/cumulative_compaction_time_series_policy.h"
@@ -445,12 +446,8 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                         continue;
                     }
 
-                    int64_t expiration_time =
-                            _tablet_meta->ttl_seconds() == 0 ||
-                                            rowset_meta->newest_write_timestamp() <= 0
-                                    ? 0
-                                    : rowset_meta->newest_write_timestamp() +
-                                              _tablet_meta->ttl_seconds();
+                    int64_t expiration_time = io::calc_file_cache_expiration_time(
+                            rowset_meta->newest_write_timestamp(), _tablet_meta->ttl_seconds());
                     g_file_cache_cloud_tablet_submitted_segment_num << 1;
                     if (rs->rowset_meta()->segment_file_size(seg_id) > 0) {
                         g_file_cache_cloud_tablet_submitted_segment_size

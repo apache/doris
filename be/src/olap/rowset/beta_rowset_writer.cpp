@@ -315,6 +315,9 @@ Status BaseBetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_conte
         _is_pending = true;
         _rowset_meta->set_txn_id(_context.txn_id);
         _rowset_meta->set_load_id(_context.load_id);
+        if (_context.newest_write_timestamp > 0) {
+            _rowset_meta->set_newest_write_timestamp(_context.newest_write_timestamp);
+        }
     } else {
         _rowset_meta->set_version(_context.version);
         _rowset_meta->set_newest_write_timestamp(_context.newest_write_timestamp);

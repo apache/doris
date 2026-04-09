@@ -33,6 +33,7 @@
 #include "common/cast_set.h"
 #include "common/logging.h"
 #include "io/cache/block_file_cache_downloader.h"
+#include "io/cache/file_cache_expiration.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/tablet.h"
@@ -237,13 +238,8 @@ void CloudWarmUpManager::handle_jobs() {
                     continue;
                 }
 
-                int64_t expiration_time =
-                        tablet_meta->ttl_seconds() == 0 || rs->newest_write_timestamp() <= 0
-                                ? 0
-                                : rs->newest_write_timestamp() + tablet_meta->ttl_seconds();
-                if (expiration_time <= UnixSeconds()) {
-                    expiration_time = 0;
-                }
+                int64_t expiration_time = io::calc_file_cache_expiration_time(
+                        rs->newest_write_timestamp(), tablet_meta->ttl_seconds());
                 if (!tablet->add_rowset_warmup_state(*rs, WarmUpTriggerSource::JOB)) {
                     LOG(INFO) << "found duplicate warmup task for rowset " << rs->rowset_id()
                               << ", skip it";
