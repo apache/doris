@@ -19,33 +19,35 @@ import org.awaitility.Awaitility
 
 import static java.util.concurrent.TimeUnit.SECONDS
 
-suite("test_streaming_mysql_job_lag",
-      "p0,external,mysql,external_docker,external_docker_mysql,nondatalake") {
+suite("test_streaming_postgres_job_lag",
+      "p0,external,pg,external_docker,external_docker_pg,nondatalake") {
 
-    def jobName = "test_streaming_mysql_job_lag"
+    def jobName = "test_streaming_postgres_job_lag"
     def currentDb = (sql "select database()")[0][0]
-    def mysqlDb = "test_cdc_db"
-    def mysqlTable = "user_info_lag"
+    def pgDB = "postgres"
+    def pgSchema = "cdc_test"
+    def pgUser = "postgres"
+    def pgPassword = "123456"
+    def pgTable = "user_info_pg_lag"
 
     sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
 
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String mysql_port = context.config.otherConfigs.get("mysql_57_port")
+        String pg_port = context.config.otherConfigs.get("pg_14_port")
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
         String s3_endpoint = getS3Endpoint()
         String bucket = getS3BucketName()
-        String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.4.0.jar"
+        String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/postgresql-42.5.0.jar"
 
-        connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {
-            sql """CREATE DATABASE IF NOT EXISTS ${mysqlDb}"""
-            sql """DROP TABLE IF EXISTS ${mysqlDb}.${mysqlTable}"""
-            sql """CREATE TABLE ${mysqlDb}.${mysqlTable} (
-                      `name` varchar(200) NOT NULL,
-                      `age` int DEFAULT NULL,
-                      PRIMARY KEY (`name`)
-                   ) ENGINE=InnoDB"""
-            sql """INSERT INTO ${mysqlDb}.${mysqlTable} (name, age) VALUES ('Alice', 10)"""
+        connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
+            sql """DROP TABLE IF EXISTS ${pgDB}.${pgSchema}.${pgTable}"""
+            sql """CREATE TABLE ${pgDB}.${pgSchema}.${pgTable} (
+                      "name" varchar(200),
+                      "age" int2,
+                      PRIMARY KEY ("name")
+                   )"""
+            sql """INSERT INTO ${pgDB}.${pgSchema}.${pgTable} (name, age) VALUES ('Alice', 10)"""
         }
 
         sql """CREATE JOB ${jobName}
@@ -53,14 +55,15 @@ suite("test_streaming_mysql_job_lag",
                     "max_interval" = "1"
                 )
                 ON STREAMING
-                FROM MYSQL (
-                    "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
+                FROM POSTGRES (
+                    "jdbc_url" = "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}",
                     "driver_url" = "${driver_url}",
-                    "driver_class" = "com.mysql.cj.jdbc.Driver",
-                    "user" = "root",
-                    "password" = "123456",
-                    "database" = "${mysqlDb}",
-                    "include_tables" = "${mysqlTable}",
+                    "driver_class" = "org.postgresql.Driver",
+                    "user" = "${pgUser}",
+                    "password" = "${pgPassword}",
+                    "database" = "${pgDB}",
+                    "schema" = "${pgSchema}",
+                    "include_tables" = "${pgTable}",
                     "offset" = "latest"
                 )
                 TO DATABASE ${currentDb} (
@@ -69,9 +72,9 @@ suite("test_streaming_mysql_job_lag",
             """
 
         try {
-            // insert incremental data to trigger binlog consumption
-            connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {
-                sql """INSERT INTO ${mysqlDb}.${mysqlTable} (name, age) VALUES ('Bob', 20)"""
+            // insert incremental data to trigger WAL consumption
+            connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
+                sql """INSERT INTO ${pgDB}.${pgSchema}.${pgTable} (name, age) VALUES ('Bob', 20)"""
             }
 
             // wait for binlog data consumed and lag is available
