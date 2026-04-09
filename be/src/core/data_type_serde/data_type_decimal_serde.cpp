@@ -25,6 +25,7 @@
 #include <type_traits>
 
 #include "arrow/type.h"
+#include "common/cast_set.h"
 #include "common/consts.h"
 #include "core/column/column.h"
 #include "core/column/column_decimal.h"
@@ -39,6 +40,7 @@
 #include "util/jsonb_document.h"
 #include "util/jsonb_document_cast.h"
 #include "util/jsonb_writer.h"
+#include "util/string_parser.hpp"
 
 namespace doris {
 
@@ -205,8 +207,16 @@ Status DataTypeDecimalSerDe<T>::deserialize_one_cell_from_json(IColumn& column, 
     auto& column_data = assert_cast<ColumnDecimal<T>&>(column).get_data();
     FieldType val = {};
     StringRef str_ref(slice.data, slice.size);
-    CastParameters params;
-    if (CastToDecimal::from_string(str_ref, val, precision, scale, params)) {
+    StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
+    if constexpr (T == TYPE_DECIMALV2) {
+        val = DecimalV2Value(StringParser::string_to_decimal<TYPE_DECIMALV2>(
+                str_ref.data, cast_set<Int32>(str_ref.size), DecimalV2Value::PRECISION,
+                DecimalV2Value::SCALE, &result));
+    } else {
+        val.value = StringParser::string_to_decimal<T>(str_ref.data, cast_set<Int32>(str_ref.size),
+                                                       precision, scale, &result);
+    }
+    if (result == StringParser::PARSE_SUCCESS || result == StringParser::PARSE_UNDERFLOW) {
         column_data.emplace_back(val);
         return Status::OK();
     }
