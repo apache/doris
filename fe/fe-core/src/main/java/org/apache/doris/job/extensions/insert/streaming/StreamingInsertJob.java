@@ -1190,10 +1190,6 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     @Override
     public void gsonPostProcess() throws IOException {
-        // Defensive: unknown enum values (e.g. from newer FE version) deserialize as null
-        if (getJobStatus() == null) {
-            setJobStatus(JobStatus.PENDING);
-        }
         if (offsetProvider == null) {
             if (tvfType != null) {
                 offsetProvider = SourceOffsetProviderFactory.createSourceOffsetProvider(tvfType);
