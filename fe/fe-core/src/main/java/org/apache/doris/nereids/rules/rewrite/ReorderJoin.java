@@ -125,6 +125,10 @@ public class ReorderJoin extends OneRewriteRuleFactory {
             join = (LogicalJoin<?, ?>) plan;
         }
 
+        if (join.isMarkJoin()) {
+            return plan;
+        }
+
         if (join.getJoinType().isInnerOrCrossJoin()) {
             joinFilter.addAll(join.getHashJoinConjuncts());
             joinFilter.addAll(join.getOtherJoinConjuncts());
