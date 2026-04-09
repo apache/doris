@@ -3009,8 +3009,12 @@ public class SchemaChangeHandler extends AlterHandler {
         }
 
         if (indexDef.isAnnIndex()) {
-            if (olapTable.getKeysType() != KeysType.DUP_KEYS && olapTable.getKeysType() != KeysType.UNIQUE_KEYS) {
-                throw new AnalysisException("ANN index can only be built on table with DUP_KEYS or UNIQUE_KEYS");
+            if (olapTable.getKeysType() != KeysType.DUP_KEYS
+                    && !(olapTable.getKeysType() == KeysType.UNIQUE_KEYS
+                    && olapTable.getEnableUniqueKeyMergeOnWrite())) {
+                throw new AnalysisException(
+                        "ANN index can only be built on table with DUP_KEYS or UNIQUE_KEYS"
+                                + " with merge-on-write enabled");
             }
             AnnIndexPropertiesChecker.checkProperties(indexDef.getProperties());
         }
