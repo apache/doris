@@ -183,8 +183,8 @@ public:
         typename FromFieldType::NativeType scale_multiplier =
                 DataTypeDecimal<FromDataType::PType>::get_scale_multiplier(from_scale);
         for (size_t i = 0; i < size; i++) {
-            if (!CastToInt::_from_decimal<typename FromDataType::FieldType,
-                                          typename ToDataType::FieldType>(
+            if (!CastToInt::from_decimal<typename FromDataType::FieldType,
+                                         typename ToDataType::FieldType>(
                         vec_from_data[i], from_precision, from_scale, vec_to_data[i],
                         scale_multiplier, narrow_integral, params)) {
                 if (set_nullable) {
@@ -216,10 +216,10 @@ constexpr static bool int_allow_cast_from_datetime =
 
 // cast from date and datetime to int
 template <CastModeType CastMode, typename FromDataType, typename ToDataType>
-    requires(((IsDateType<FromDataType> ||
-               IsDateV2Type<FromDataType>)&&int_allow_cast_from_date<ToDataType>) ||
-             ((IsDateTimeType<FromDataType> ||
-               IsDateTimeV2Type<FromDataType>)&&int_allow_cast_from_datetime<ToDataType>))
+    requires(((IsDateType<FromDataType> || IsDateV2Type<FromDataType>) &&
+              int_allow_cast_from_date<ToDataType>) ||
+             ((IsDateTimeType<FromDataType> || IsDateTimeV2Type<FromDataType>) &&
+              int_allow_cast_from_datetime<ToDataType>))
 class CastToImpl<CastMode, FromDataType, ToDataType> : public CastToBase {
 public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
