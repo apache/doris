@@ -1872,6 +1872,11 @@ public class Config extends ConfigBase {
                     + "old records will be discarded."})
     public static int max_streaming_task_show_count = 100;
 
+    @ConfField(masterOnly = true, mutable = true, description = {
+            "Max auto resume retry count for streaming jobs. "
+                    + "After exceeding, transitions to PAUSED and requires manual intervention."})
+    public static int streaming_job_max_auto_resume_count = 10;
+
     /* job test config */
     /**
      * If set to true, we will allow the interval unit to be set to second, when creating a recurring job.

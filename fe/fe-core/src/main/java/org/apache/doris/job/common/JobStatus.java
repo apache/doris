@@ -35,6 +35,13 @@ public enum JobStatus {
      */
     PAUSED,
     /**
+     * When the task execution encounters a resumable exception,
+     * the retrying state will be triggered.
+     * The system will auto-resume with exponential backoff.
+     * After exceeding max retry count, transitions to PAUSED.
+     */
+    RETRYING,
+    /**
      * When the task is manually stopped, the stop state will be triggered.
      * The stop state cannot be resumed
      */
@@ -46,6 +53,6 @@ public enum JobStatus {
 
 
     public static boolean isRunning(JobStatus status) {
-        return PENDING.equals(status) || RUNNING.equals(status);
+        return PENDING.equals(status) || RUNNING.equals(status) || RETRYING.equals(status);
     }
 }

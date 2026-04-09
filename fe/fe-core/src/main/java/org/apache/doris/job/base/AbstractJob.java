@@ -108,6 +108,11 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
     @SerializedName(value = "ctc")
     protected AtomicLong canceledTaskCount = new AtomicLong(0);
 
+    @Getter
+    @Setter
+    @SerializedName(value = "ltst")
+    protected long lastTaskSuccessTime;
+
     public AbstractJob() {
     }
 
@@ -313,8 +318,15 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         if (newJobStatus.equals(JobStatus.PENDING) && jobStatus.equals(JobStatus.STOPPED)) {
             throw new IllegalArgumentException(errorMsg);
         }
+        // RETRYING can only come from RUNNING (task failed with resumable error)
+        if (newJobStatus.equals(JobStatus.RETRYING) && !jobStatus.equals(JobStatus.RUNNING)) {
+            throw new IllegalArgumentException(errorMsg);
+        }
+        // RUNNING can come from PAUSED, PENDING, or RETRYING
         if (newJobStatus.equals(JobStatus.RUNNING)
-                && (!jobStatus.equals(JobStatus.PAUSED) && !jobStatus.equals(JobStatus.PENDING))) {
+                && (!jobStatus.equals(JobStatus.PAUSED)
+                    && !jobStatus.equals(JobStatus.PENDING)
+                    && !jobStatus.equals(JobStatus.RETRYING))) {
             throw new IllegalArgumentException(errorMsg);
         }
         if (newJobStatus.equals(JobStatus.PAUSED) && jobStatus.equals(JobStatus.STOPPED)) {
@@ -363,6 +375,7 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
     @Override
     public void onTaskSuccess(T task) throws JobException {
         succeedTaskCount.incrementAndGet();
+        lastTaskSuccessTime = System.currentTimeMillis();
         updateJobStatusIfEnd(true, task.getTaskType());
         runningTasks.remove(task);
         logUpdateOperation();

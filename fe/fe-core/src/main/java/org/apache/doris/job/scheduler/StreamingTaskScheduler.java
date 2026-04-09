@@ -94,9 +94,13 @@ public class StreamingTaskScheduler extends MasterDaemon {
                             (StreamingInsertJob) Env.getCurrentEnv().getJobManager().getJob(task.getJobId());
                     job.setFailureReason(new FailureReason(e.getMessage()));
                     try {
-                        job.updateJobStatus(JobStatus.PAUSED);
+                        if (job.isResumableFailure(job.getFailureReason())) {
+                            job.updateJobStatus(JobStatus.RETRYING);
+                        } else {
+                            job.updateJobStatus(JobStatus.PAUSED);
+                        }
                     } catch (JobException ex) {
-                        log.warn("Failed to pause job {} after task {} scheduling failed",
+                        log.warn("Failed to update job {} status after task {} scheduling failed",
                                 task.getJobId(), task.getTaskId(), ex);
                     }
                 }

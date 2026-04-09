@@ -29,7 +29,7 @@ import lombok.extern.log4j.Log4j2;
 
 @Log4j2
 public class StreamingJobSchedulerTask extends AbstractTask {
-    private static final long BACK_OFF_BASIC_TIME_SEC = 10L;
+    private static final long BACK_OFF_BASIC_TIME_SEC = 30L;
     private static final long MAX_BACK_OFF_TIME_SEC = 60 * 5;
     private StreamingInsertJob streamingInsertJob;
 
@@ -43,11 +43,14 @@ public class StreamingJobSchedulerTask extends AbstractTask {
             case PENDING:
                 handlePendingState();
                 break;
+            case RETRYING:
+                handleRetryingState();
+                break;
             case RUNNING:
                 handleRunningState();
                 break;
             case PAUSED:
-                autoResumeHandler();
+                // PAUSED means "needs manual intervention", no auto-resume
                 break;
             default:
                 break;
@@ -74,8 +77,12 @@ public class StreamingJobSchedulerTask extends AbstractTask {
         }
         streamingInsertJob.createStreamingTask();
         streamingInsertJob.setSampleStartTime(System.currentTimeMillis());
+        // Only reset autoResumeCount on user-initiated start (PENDING),
+        // not on system auto-resume (RETRYING)
+        if (JobStatus.PENDING.equals(streamingInsertJob.getJobStatus())) {
+            streamingInsertJob.setAutoResumeCount(0);
+        }
         streamingInsertJob.updateJobStatus(JobStatus.RUNNING);
-        streamingInsertJob.setAutoResumeCount(0);
     }
 
     private void handleRunningState() throws JobException {
@@ -83,27 +90,31 @@ public class StreamingJobSchedulerTask extends AbstractTask {
         streamingInsertJob.fetchMeta();
     }
 
-    private void autoResumeHandler() throws JobException {
-        final FailureReason failureReason = streamingInsertJob.getFailureReason();
+    private void handleRetryingState() throws JobException {
         final long latestAutoResumeTimestamp = streamingInsertJob.getLatestAutoResumeTimestamp();
         final long autoResumeCount = streamingInsertJob.getAutoResumeCount();
+        final long maxAutoResumeCount = streamingInsertJob.getMaxAutoResumeCount();
         final long current = System.currentTimeMillis();
 
-        if (failureReason != null
-                && failureReason.getCode() != InternalErrorCode.MANUAL_PAUSE_ERR
-                && failureReason.getCode() != InternalErrorCode.TOO_MANY_FAILURE_ROWS_ERR
-                && failureReason.getCode() != InternalErrorCode.CANNOT_RESUME_ERR) {
-            long autoResumeIntervalTimeSec = autoResumeCount < 5
-                        ? Math.min((long) Math.pow(2, autoResumeCount) * BACK_OFF_BASIC_TIME_SEC,
-                                MAX_BACK_OFF_TIME_SEC) : MAX_BACK_OFF_TIME_SEC;
-            if (current - latestAutoResumeTimestamp > autoResumeIntervalTimeSec * 1000L) {
-                streamingInsertJob.setLatestAutoResumeTimestamp(current);
-                if (autoResumeCount < Long.MAX_VALUE) {
-                    streamingInsertJob.setAutoResumeCount(autoResumeCount + 1);
-                }
-                streamingInsertJob.updateJobStatus(JobStatus.PENDING);
-                return;
-            }
+        // Exceeded max retry count, give up and transition to PAUSED
+        if (autoResumeCount >= maxAutoResumeCount) {
+            String lastError = streamingInsertJob.getFailureReason() != null
+                    ? streamingInsertJob.getFailureReason().getMsg() : "unknown";
+            streamingInsertJob.setFailureReason(new FailureReason(
+                    InternalErrorCode.CANNOT_RESUME_ERR,
+                    "Auto resume failed after " + autoResumeCount
+                            + " attempts. Last error: " + lastError));
+            streamingInsertJob.updateJobStatus(JobStatus.PAUSED);
+            return;
+        }
+
+        long autoResumeIntervalTimeSec = Math.min(
+                (long) Math.pow(2, autoResumeCount) * BACK_OFF_BASIC_TIME_SEC,
+                MAX_BACK_OFF_TIME_SEC);
+        if (current - latestAutoResumeTimestamp > autoResumeIntervalTimeSec * 1000L) {
+            streamingInsertJob.setLatestAutoResumeTimestamp(current);
+            streamingInsertJob.setAutoResumeCount(autoResumeCount + 1);
+            handlePendingState();
         }
     }
 

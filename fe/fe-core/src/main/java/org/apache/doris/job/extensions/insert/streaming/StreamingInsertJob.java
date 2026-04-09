@@ -122,10 +122,15 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     protected volatile FailureReason failureReason;
     @Getter
     @Setter
+    @SerializedName("lart")
     protected long latestAutoResumeTimestamp;
     @Getter
     @Setter
+    @SerializedName("arc")
     protected long autoResumeCount;
+    public long getMaxAutoResumeCount() {
+        return Config.streaming_job_max_auto_resume_count;
+    }
     @Getter
     @SerializedName("props")
     private Map<String, String> properties;
@@ -414,13 +419,18 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         lock.writeLock().lock();
         try {
             super.updateJobStatus(status);
-            if (JobStatus.PAUSED.equals(getJobStatus())) {
+            if (JobStatus.PAUSED.equals(getJobStatus()) || JobStatus.RETRYING.equals(getJobStatus())) {
                 clearRunningStreamTask(status);
             }
             if (isFinalStatus()) {
                 Env.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(getJobId());
             }
             log.info("Streaming insert job {} update status to {}", getJobId(), getJobStatus());
+            // RUNNING and RETRYING are transient runtime states, do not persist to editlog.
+            // On FE restart, job must go through PENDING to re-initialize (fetch meta, create task).
+            if (!JobStatus.RUNNING.equals(status) && !JobStatus.RETRYING.equals(status)) {
+                logUpdateOperation();
+            }
         } finally {
             lock.writeLock().unlock();
         }
@@ -430,6 +440,15 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         this.setFailureReason(reason);
         // Currently, only delayMsg is present here, which needs to be cleared when the status changes.
         this.setJobRuntimeMsg("");
+    }
+
+    public boolean isResumableFailure(FailureReason reason) {
+        if (reason == null) {
+            return true;
+        }
+        return reason.getCode() != InternalErrorCode.MANUAL_PAUSE_ERR
+                && reason.getCode() != InternalErrorCode.TOO_MANY_FAILURE_ROWS_ERR
+                && reason.getCode() != InternalErrorCode.CANNOT_RESUME_ERR;
     }
 
     @Override
@@ -565,9 +584,13 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 this.setFailureReason(
                         new FailureReason(InternalErrorCode.GET_REMOTE_DATA_ERROR,
                                 "Failed to fetch meta, " + ex.getMessage()));
-                // If fetching meta fails, the job is paused
+                // If fetching meta fails with a resumable error, the job enters RETRYING
                 // and auto resume will automatically wake it up.
-                this.updateJobStatus(JobStatus.PAUSED);
+                if (isResumableFailure(this.getFailureReason())) {
+                    this.updateJobStatus(JobStatus.RETRYING);
+                } else {
+                    this.updateJobStatus(JobStatus.PAUSED);
+                }
 
                 if (MetricRepo.isInit) {
                     MetricRepo.COUNTER_STREAMING_JOB_GET_META_FAIL_COUNT.increase(1L);
@@ -586,7 +609,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         readLock();
         try {
             return (getJobStatus().equals(JobStatus.RUNNING)
-                    || getJobStatus().equals(JobStatus.PENDING));
+                    || getJobStatus().equals(JobStatus.PENDING)
+                    || getJobStatus().equals(JobStatus.RETRYING));
         } finally {
             readUnlock();
         }
@@ -631,13 +655,18 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         } finally {
             writeUnlock();
         }
-        updateJobStatus(JobStatus.PAUSED);
+        if (isResumableFailure(failureReason)) {
+            updateJobStatus(JobStatus.RETRYING);
+        } else {
+            updateJobStatus(JobStatus.PAUSED);
+        }
     }
 
     public void onStreamTaskSuccess(AbstractStreamingTask task) throws JobException {
         try {
             resetFailureInfo(null);
             succeedTaskCount.incrementAndGet();
+            lastTaskSuccessTime = System.currentTimeMillis();
             //update metric
             if (MetricRepo.isInit) {
                 MetricRepo.COUNTER_STREAMING_JOB_TASK_EXECUTE_COUNT.increase(1L);
@@ -747,8 +776,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
      * @param replayJob
      */
     public void replayOnUpdated(StreamingInsertJob replayJob) {
-        if (!JobStatus.RUNNING.equals(replayJob.getJobStatus())) {
-            // No need to restore in the running state, as scheduling relies on pending states.
+        if (!JobStatus.RUNNING.equals(replayJob.getJobStatus())
+                && !JobStatus.RETRYING.equals(replayJob.getJobStatus())) {
+            // No need to restore in the running/retrying state, as scheduling relies on pending states.
             // insert TVF does not persist the running state.
             // streaming multi task persists the running state when commitOffset() is called.
             setJobStatus(replayJob.getJobStatus());
@@ -868,6 +898,15 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 ? "" : failureReason.getMsg()));
         trow.addToColumnValue(new TCell().setStringVal(jobRuntimeMsg == null
                 ? "" : jobRuntimeMsg));
+        trow.addToColumnValue(new TCell().setStringVal(lastTaskSuccessTime > 0
+                ? TimeUtils.longToTimeString(lastTaskSuccessTime) : ""));
+        if (autoResumeCount > 0) {
+            Map<String, Object> retryInfo = new HashMap<>();
+            retryInfo.put("retryCount", autoResumeCount);
+            trow.addToColumnValue(new TCell().setStringVal(GsonUtils.GSON.toJson(retryInfo)));
+        } else {
+            trow.addToColumnValue(new TCell().setStringVal(""));
+        }
         return trow;
     }
 
@@ -1149,6 +1188,10 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     @Override
     public void gsonPostProcess() throws IOException {
+        // Defensive: unknown enum values (e.g. from newer FE version) deserialize as null
+        if (getJobStatus() == null) {
+            setJobStatus(JobStatus.PENDING);
+        }
         if (offsetProvider == null) {
             if (tvfType != null) {
                 offsetProvider = SourceOffsetProviderFactory.createSourceOffsetProvider(tvfType);

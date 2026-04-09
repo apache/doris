@@ -20,11 +20,11 @@ import org.awaitility.Awaitility
 
 import static java.util.concurrent.TimeUnit.SECONDS
 
-// Verify that when fetchRemoteMeta receives a failed GlobListResult (e.g. S3 auth error),
-// the streaming job is correctly RETRYING rather than hanging indefinitely.
-suite("test_streaming_insert_job_fetch_meta_error", "nonConcurrent") {
-    def tableName = "test_streaming_insert_job_fetch_meta_error_tbl"
-    def jobName = "test_streaming_insert_job_fetch_meta_error_job"
+// Verify that after exceeding max auto resume count, the streaming job
+// transitions from RETRYING to PAUSED with CANNOT_RESUME_ERR.
+suite("test_streaming_job_max_retry", "nonConcurrent") {
+    def tableName = "test_streaming_job_max_retry_tbl"
+    def jobName = "test_streaming_job_max_retry_job"
 
     sql """drop table if exists `${tableName}` force"""
     sql """
@@ -43,7 +43,10 @@ suite("test_streaming_insert_job_fetch_meta_error", "nonConcurrent") {
         PROPERTIES ("replication_allocation" = "tag.location.default: 1");
     """
 
-    GetDebugPoint().enableDebugPointForAllFEs("S3SourceOffsetProvider.fetchRemoteMeta.error")
+    // Set max retry count to 2 for faster testing
+    sql "ADMIN SET FRONTEND CONFIG ('streaming_job_max_auto_resume_count' = '2')"
+
+    GetDebugPoint().enableDebugPointForAllFEs('StreamingJob.scheduleTask.exception')
     try {
         sql """
            CREATE JOB ${jobName}
@@ -61,6 +64,7 @@ suite("test_streaming_insert_job_fetch_meta_error", "nonConcurrent") {
             );
         """
 
+        // First, job should enter RETRYING state
         try {
             Awaitility.await().atMost(120, SECONDS)
                     .pollInterval(2, SECONDS).until(
@@ -72,25 +76,34 @@ suite("test_streaming_insert_job_fetch_meta_error", "nonConcurrent") {
             )
         } catch (Exception ex) {
             def showjob = sql """select * from jobs("type"="insert") where Name='${jobName}'"""
-            def showtask = sql """select * from tasks("type"="insert") where JobName='${jobName}'"""
             log.info("show job: " + showjob)
-            log.info("show task: " + showtask)
             throw ex
         }
 
+        // Then, after exceeding max retry count, job should transition to PAUSED
+        try {
+            Awaitility.await().atMost(300, SECONDS)
+                    .pollInterval(2, SECONDS).until(
+                    {
+                        def jobRes = sql """ select Status from jobs("type"="insert") where Name = '${jobName}' and ExecuteType='STREAMING' """
+                        log.info("jobRes waiting for PAUSED: " + jobRes)
+                        jobRes.size() == 1 && 'PAUSED'.equals(jobRes.get(0).get(0))
+                    }
+            )
+        } catch (Exception ex) {
+            def showjob = sql """select * from jobs("type"="insert") where Name='${jobName}'"""
+            log.info("show job: " + showjob)
+            throw ex
+        }
+
+        // Verify error message indicates max retry exceeded
         def jobStatus = sql """select Status, ErrorMsg from jobs("type"="insert") where Name='${jobName}'"""
-        assert jobStatus.get(0).get(0) == "RETRYING"
-        assert jobStatus.get(0).get(1).contains("Failed to list S3 files")
-
-        sql """
-            DROP JOB IF EXISTS where jobname = '${jobName}'
-        """
-
-        def jobCountRsp = sql """select count(1) from jobs("type"="insert") where Name='${jobName}'"""
-        assert jobCountRsp.get(0).get(0) == 0
+        assert jobStatus.get(0).get(0) == "PAUSED"
+        assert jobStatus.get(0).get(1).contains("Auto resume failed after")
 
     } finally {
-        GetDebugPoint().disableDebugPointForAllFEs("S3SourceOffsetProvider.fetchRemoteMeta.error")
+        GetDebugPoint().disableDebugPointForAllFEs('StreamingJob.scheduleTask.exception')
+        sql "ADMIN SET FRONTEND CONFIG ('streaming_job_max_auto_resume_count' = '10')"
         sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
     }
 }

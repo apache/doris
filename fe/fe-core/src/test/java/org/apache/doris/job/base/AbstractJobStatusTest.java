@@ -209,6 +209,74 @@ class AbstractJobStatusTest {
         Assertions.assertEquals(JobStatus.STOPPED, job.getJobStatus());
     }
 
+    /**
+     * Test retrying status
+     */
+    @Test
+    void testRetryingFromRunning() throws Exception {
+        DummyJob job = new DummyJob(JobStatus.PENDING);
+        job.updateJobStatus(JobStatus.RUNNING);
+        job.updateJobStatus(JobStatus.RETRYING);
+        Assertions.assertEquals(JobStatus.RETRYING, job.getJobStatus());
+    }
+
+    @Test
+    void testRetryingFromPausedIsInvalid() {
+        DummyJob job = new DummyJob(JobStatus.PAUSED);
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> job.updateJobStatus(JobStatus.RETRYING));
+    }
+
+    @Test
+    void testRetryingFromStoppedIsInvalid() {
+        DummyJob job = new DummyJob(JobStatus.STOPPED);
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> job.updateJobStatus(JobStatus.RETRYING));
+    }
+
+    @Test
+    void testRetryingFromPendingIsInvalid() {
+        DummyJob job = new DummyJob(JobStatus.PENDING);
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> job.updateJobStatus(JobStatus.RETRYING));
+    }
+
+    @Test
+    void testRunningFromRetrying() throws Exception {
+        DummyJob job = new DummyJob(JobStatus.PENDING);
+        job.updateJobStatus(JobStatus.RUNNING);
+        job.updateJobStatus(JobStatus.RETRYING);
+        job.updateJobStatus(JobStatus.RUNNING);
+        Assertions.assertEquals(JobStatus.RUNNING, job.getJobStatus());
+    }
+
+    @Test
+    void testPausedFromRetrying() throws Exception {
+        DummyJob job = new DummyJob(JobStatus.PENDING);
+        job.updateJobStatus(JobStatus.RUNNING);
+        job.updateJobStatus(JobStatus.RETRYING);
+        job.updateJobStatus(JobStatus.PAUSED);
+        Assertions.assertEquals(JobStatus.PAUSED, job.getJobStatus());
+    }
+
+    @Test
+    void testStopFromRetrying() throws Exception {
+        DummyJob job = new DummyJob(JobStatus.PENDING);
+        job.updateJobStatus(JobStatus.RUNNING);
+        job.updateJobStatus(JobStatus.RETRYING);
+        job.updateJobStatus(JobStatus.STOPPED);
+        Assertions.assertEquals(JobStatus.STOPPED, job.getJobStatus());
+    }
+
+    @Test
+    void testFinishedFromRetrying() throws Exception {
+        DummyJob job = new DummyJob(JobStatus.PENDING);
+        job.updateJobStatus(JobStatus.RUNNING);
+        job.updateJobStatus(JobStatus.RETRYING);
+        job.updateJobStatus(JobStatus.FINISHED);
+        Assertions.assertEquals(JobStatus.FINISHED, job.getJobStatus());
+    }
+
     @Test
     void testFinishSetsFinishTime() throws Exception {
         DummyJob job = new DummyJob(JobStatus.RUNNING);
