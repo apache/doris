@@ -122,11 +122,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     protected volatile FailureReason failureReason;
     @Getter
     @Setter
-    @SerializedName("lart")
     protected long latestAutoResumeTimestamp;
     @Getter
     @Setter
-    @SerializedName("arc")
     protected long autoResumeCount;
     public long getMaxAutoResumeCount() {
         return Config.streaming_job_max_auto_resume_count;

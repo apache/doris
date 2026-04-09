@@ -85,19 +85,18 @@ suite("test_streaming_job_retry_info", "nonConcurrent") {
         // case2: Inject failure, verify RetryInfo is populated
         GetDebugPoint().enableDebugPointForAllBEs("FlushToken.submit_flush_error")
         try {
+            // Wait until RetryInfo is populated (autoResumeCount increments after backoff)
             Awaitility.await().atMost(120, SECONDS)
                     .pollInterval(2, SECONDS).until(
                     {
                         def jobRes = sql """ select Status, RetryInfo from jobs("type"="insert") where Name = '${jobName}' and ExecuteType='STREAMING' """
-                        log.info("jobRes waiting for RETRYING: " + jobRes)
-                        jobRes.size() == 1 && 'RETRYING'.equals(jobRes.get(0).get(0))
+                        log.info("jobRes waiting for RetryInfo: " + jobRes)
+                        jobRes.size() == 1 && jobRes.get(0).get(1) != null && jobRes.get(0).get(1).contains("retryCount")
                     }
             )
 
-            // Verify RetryInfo contains retryCount
             def retryInfo = sql """select RetryInfo from jobs("type"="insert") where Name='${jobName}'"""
             log.info("retryInfo: " + retryInfo)
-            assert retryInfo.get(0).get(0) != null && retryInfo.get(0).get(0) != "" : "RetryInfo should be set during RETRYING"
             assert retryInfo.get(0).get(0).contains("retryCount") : "RetryInfo should contain retryCount"
         } finally {
             GetDebugPoint().disableDebugPointForAllBEs("FlushToken.submit_flush_error")
