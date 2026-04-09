@@ -498,14 +498,8 @@ void CloudTablet::delete_rowsets_for_schema_change(const std::vector<RowsetShare
     }
     std::vector<RowsetMetaSharedPtr> rs_metas;
     rs_metas.reserve(to_delete.size());
-    int64_t now = ::time(nullptr);
     for (auto&& rs : to_delete) {
-        rs->rowset_meta()->set_stale_at(now);
         rs_metas.push_back(rs->rowset_meta());
-        _stale_rs_version_map[rs->version()] = rs;
-    }
-    _timestamped_version_tracker.add_stale_path_version(rs_metas);
-    for (auto&& rs : to_delete) {
         _rs_version_map.erase(rs->version());
         // Remove edge from version graph so that the greedy capture algorithm
         // won't prefer the wider stale compaction rowset over individual SC
@@ -513,7 +507,16 @@ void CloudTablet::delete_rowsets_for_schema_change(const std::vector<RowsetShare
         _timestamped_version_tracker.delete_version(rs->version());
     }
 
-    _tablet_meta->modify_rs_metas({}, rs_metas, false);
+    // Use same_version=true to skip adding to _stale_rs_metas. Do NOT use the
+    // stale tracking mechanism (_stale_rs_version_map / _stale_version_path_map)
+    // because SC output will create new rowsets with identical version ranges;
+    // a later compaction could put those into stale as well, causing two stale
+    // paths to reference the same version key -- when one path is cleaned first,
+    // the other hits a DCHECK(false) in delete_expired_stale_rowsets().
+    _tablet_meta->modify_rs_metas({}, rs_metas, true);
+
+    // Schedule for direct cache cleanup. MS has already recycled these rowsets.
+    add_unused_rowsets(to_delete);
 }
 
 uint64_t CloudTablet::delete_expired_stale_rowsets() {

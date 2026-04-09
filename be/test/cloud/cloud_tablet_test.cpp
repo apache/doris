@@ -1441,8 +1441,9 @@ TEST_F(CloudTabletDeleteRowsetsForSchemaChangeTest, TestSchemaChangeDeletesCompa
 
         // [2-6] should be removed from rs_version_map
         ASSERT_FALSE(_tablet->rowset_map().count(Version(2, 6)));
-        // but moved to stale
-        ASSERT_TRUE(_tablet->has_stale_rowsets());
+        // Should NOT go to stale (to avoid stale path conflicts), but to unused
+        ASSERT_FALSE(_tablet->has_stale_rowsets());
+        ASSERT_TRUE(_tablet->need_remove_unused_rowsets());
 
         _tablet->add_rowsets(std::move(sc_output), false, wlock, false);
     }
@@ -1543,6 +1544,69 @@ TEST_F(CloudTabletDeleteRowsetsForSchemaChangeTest, TestMultipleCompactionRowset
         ASSERT_EQ(versions[i + 1], Version(2 + i, 2 + i));
     }
     ASSERT_EQ(versions[10], Version(11, 11));
+}
+
+// Reproduce the CI crash scenario: SC delete puts rowsets to stale, then
+// compaction creates a new stale path with overlapping version keys. When
+// one stale path is cleaned, the other hits DCHECK(false) because the
+// version is already removed from _stale_rs_version_map.
+// With the fix (bypassing stale tracking), this should not happen.
+TEST_F(CloudTabletDeleteRowsetsForSchemaChangeTest, TestNoStalePathConflictWithCompaction) {
+    // Setup: [0-1] placeholder, [2-6] compaction product during SC
+    auto rs_placeholder = create_rowset(Version(0, 1));
+    auto rs_compacted = create_rowset(Version(2, 6));
+    ASSERT_NE(rs_placeholder, nullptr);
+    ASSERT_NE(rs_compacted, nullptr);
+
+    {
+        std::unique_lock wlock(_tablet->get_header_lock());
+        _tablet->add_rowsets({rs_placeholder, rs_compacted}, false, wlock, false);
+    }
+
+    // SC output: individual rowsets [2],[3],[4],[5],[6]
+    std::vector<RowsetSharedPtr> sc_output;
+    for (int v = 2; v <= 6; v++) {
+        sc_output.push_back(create_rowset(Version(v, v)));
+    }
+
+    // Step 1: delete_rowsets_for_schema_change + add SC output
+    {
+        std::unique_lock wlock(_tablet->get_header_lock());
+        _tablet->delete_rowsets_for_schema_change({rs_compacted}, wlock);
+        _tablet->add_rowsets(std::move(sc_output), false, wlock, false);
+    }
+    // Stale should be empty — SC delete bypasses stale tracking
+    ASSERT_FALSE(_tablet->has_stale_rowsets());
+
+    // Step 2: compaction merges SC output [2],[3],[4],[5],[6] -> [2-6]
+    auto rs_new_compacted = create_rowset(Version(2, 6));
+    std::vector<RowsetSharedPtr> compaction_input;
+    {
+        std::unique_lock wlock(_tablet->get_header_lock());
+        for (auto& [v, rs] : _tablet->rowset_map()) {
+            if (v.first >= 2 && v.second <= 6) {
+                compaction_input.push_back(rs);
+            }
+        }
+        ASSERT_EQ(compaction_input.size(), 5);
+        // Normal compaction delete_rowsets — this WILL use stale tracking
+        _tablet->delete_rowsets(compaction_input, wlock);
+        _tablet->add_rowsets({rs_new_compacted}, false, wlock, false);
+    }
+    // Now stale has the compaction inputs
+    ASSERT_TRUE(_tablet->has_stale_rowsets());
+
+    // Step 3: delete_expired_stale_rowsets — this is where CI crashed
+    // With old code: stale path from SC and compaction both reference [2-6] key,
+    // causing DCHECK(false). With fix: only compaction stale path exists, no conflict.
+    config::tablet_rowset_stale_sweep_time_sec = 0; // expire immediately
+    ASSERT_NO_FATAL_FAILURE(_tablet->delete_expired_stale_rowsets());
+
+    // Verify final state: [0-1] and [2-6] active, no stale left
+    ASSERT_EQ(_tablet->rowset_map().size(), 2);
+    ASSERT_TRUE(_tablet->rowset_map().count(Version(0, 1)));
+    ASSERT_TRUE(_tablet->rowset_map().count(Version(2, 6)));
+    ASSERT_FALSE(_tablet->has_stale_rowsets());
 }
 
 } // namespace doris
