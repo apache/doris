@@ -29,7 +29,7 @@ import lombok.extern.log4j.Log4j2;
 
 @Log4j2
 public class StreamingJobSchedulerTask extends AbstractTask {
-    private static final long BACK_OFF_BASIC_TIME_SEC = 30L;
+    private static final long BACK_OFF_BASIC_TIME_SEC = 15L;
     private static final long MAX_BACK_OFF_TIME_SEC = 60 * 5;
     private StreamingInsertJob streamingInsertJob;
 
