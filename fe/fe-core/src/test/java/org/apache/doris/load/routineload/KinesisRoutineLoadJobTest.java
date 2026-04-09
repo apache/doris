@@ -24,6 +24,7 @@ import org.apache.doris.load.routineload.kinesis.KinesisConfiguration;
 import org.apache.doris.load.routineload.kinesis.KinesisDataSourceProperties;
 import org.apache.doris.load.routineload.kinesis.KinesisProgress;
 import org.apache.doris.load.routineload.kinesis.KinesisRoutineLoadJob;
+import org.apache.doris.load.routineload.kinesis.KinesisTaskInfo;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;

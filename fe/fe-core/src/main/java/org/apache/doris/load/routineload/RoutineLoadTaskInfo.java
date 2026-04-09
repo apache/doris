@@ -195,7 +195,7 @@ public abstract class RoutineLoadTaskInfo {
         }
     }
 
-    abstract TRoutineLoadTask createRoutineLoadTask() throws UserException;
+    protected abstract TRoutineLoadTask createRoutineLoadTask() throws UserException;
 
     public void updateAdaptiveTimeout(RoutineLoadJob routineLoadJob) {
     }
@@ -259,9 +259,9 @@ public abstract class RoutineLoadTaskInfo {
         return row;
     }
 
-    abstract String getTaskDataSourceProperties();
+    protected abstract String getTaskDataSourceProperties();
 
-    abstract boolean hasMoreDataToConsume() throws UserException;
+    protected abstract boolean hasMoreDataToConsume() throws UserException;
 
     @Override
     public boolean equals(Object obj) {

@@ -44,6 +44,7 @@ import org.apache.doris.load.routineload.ErrorReason;
 import org.apache.doris.load.routineload.LoadDataSourceType;
 import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
 import org.apache.doris.load.routineload.RoutineLoadJob;
+import org.apache.doris.load.routineload.ScheduleRule;
 import org.apache.doris.load.routineload.RoutineLoadStatistic;
 import org.apache.doris.load.routineload.RoutineLoadTaskInfo;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;

@@ -833,9 +833,9 @@ public abstract class RoutineLoadJob
         }
     }
 
-    abstract void updateCloudProgress() throws UserException;
+    protected abstract void updateCloudProgress() throws UserException;
 
-    abstract void divideRoutineLoadJob(int currentConcurrentTaskNum) throws UserException;
+    protected abstract void divideRoutineLoadJob(int currentConcurrentTaskNum) throws UserException;
 
     public int calculateCurrentConcurrentTaskNum() throws MetaNotFoundException {
         return 0;
@@ -1004,7 +1004,8 @@ public abstract class RoutineLoadJob
         return 0L;
     }
 
-    abstract RoutineLoadTaskInfo unprotectRenewTask(RoutineLoadTaskInfo routineLoadTaskInfo, boolean delaySchedule);
+    protected abstract RoutineLoadTaskInfo unprotectRenewTask(
+            RoutineLoadTaskInfo routineLoadTaskInfo, boolean delaySchedule);
 
     // call before first scheduling
     // derived class can override this.

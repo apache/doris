@@ -20,6 +20,8 @@ package org.apache.doris.load.routineload.kinesis;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.load.routineload.LoadDataSourceType;
+import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
 import org.apache.doris.load.routineload.RoutineLoadProgress;
 import org.apache.doris.thrift.TKinesisRLTaskProgress;
 
