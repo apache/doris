@@ -49,9 +49,6 @@ public class StreamingJobSchedulerTask extends AbstractTask {
             case RETRYING:
                 handleRetryingState();
                 break;
-            case PAUSED:
-                // PAUSED jobs do nothing here, they wait for user to manually RESUME.
-                break;
             default:
                 break;
         }
@@ -104,20 +101,6 @@ public class StreamingJobSchedulerTask extends AbstractTask {
             streamingInsertJob.setAutoResumeCount(autoResumeCount + 1);
         }
 
-        if (Config.isCloudMode()) {
-            try {
-                streamingInsertJob.replayOnCloudMode();
-            } catch (JobException e) {
-                streamingInsertJob.setFailureReason(
-                    new FailureReason(InternalErrorCode.INTERNAL_ERR, e.getMessage()));
-                // stay in RETRYING, will retry next round
-                return;
-            }
-        }
-        if (streamingInsertJob.hasReachedEnd()) {
-            streamingInsertJob.updateJobStatus(JobStatus.FINISHED);
-            return;
-        }
         streamingInsertJob.createStreamingTask();
         streamingInsertJob.setSampleStartTime(System.currentTimeMillis());
         // stay in RETRYING, transition to RUNNING happens in onStreamTaskSuccess()

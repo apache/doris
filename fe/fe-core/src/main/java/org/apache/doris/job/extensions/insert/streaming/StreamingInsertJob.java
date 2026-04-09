@@ -631,7 +631,17 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         } finally {
             writeUnlock();
         }
-        updateJobStatus(JobStatus.RETRYING);
+        pauseOrRetry();
+    }
+
+    private void pauseOrRetry() throws JobException {
+        if (failureReason != null
+                && (failureReason.getCode() == InternalErrorCode.TOO_MANY_FAILURE_ROWS_ERR
+                    || failureReason.getCode() == InternalErrorCode.CANNOT_RESUME_ERR)) {
+            updateJobStatus(JobStatus.PAUSED);
+        } else {
+            updateJobStatus(JobStatus.RETRYING);
+        }
     }
 
     public void onStreamTaskSuccess(AbstractStreamingTask task) throws JobException {
