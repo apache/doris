@@ -272,7 +272,7 @@ class AbstractJobStatusTest {
     @Test
     void testRetryingCancelsTasks() throws Exception {
         DummyJob job = new DummyJob(JobStatus.RUNNING);
-        job.createTasks(TaskType.ONE_TIME, null);
+        job.createTasks(TaskType.STREAMING, null);
         job.updateJobStatus(JobStatus.RETRYING);
         Assertions.assertEquals(JobStatus.RETRYING, job.getJobStatus());
     }
