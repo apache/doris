@@ -327,7 +327,6 @@ public class CloudRestoreJob extends RestoreJob {
     public Partition resetTabletForRestore(OlapTable localTbl, OlapTable remoteTbl, Partition remotePart,
                                               ReplicaAllocation replicaAlloc) {
         // tablets
-        long partitionId = remotePart.getId();
         long visibleVersion = remotePart.getVisibleVersion();
         for (MaterializedIndex remoteIdx : remotePart.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE)) {
             int schemaHash = remoteTbl.getSchemaHashByIndexId(remoteIdx.getId());

@@ -870,20 +870,14 @@ public class CloudInternalCatalog extends InternalCatalog {
             return;
         }
 
-        long tableId = -1;
+        CloudPartition partition0 = (CloudPartition) partitions.get(0);
+        long tableId = partition0.getTableId();
         List<Long> partitionIds = Lists.newArrayList();
         Set<Long> indexIds = new HashSet<>();
         boolean needUpdateTableVersion = false;
         for (Partition partition : partitions) {
             for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                 indexIds.add(index.getId());
-                if (tableId == -1) {
-                    long firstTabletId = index.getTablets().get(0).getId();
-                    TabletMeta meta = Env.getCurrentInvertedIndex().getTabletMeta(firstTabletId);
-                    if (meta != null) {
-                        tableId = meta.getTableId();
-                    }
-                }
             }
             partitionIds.add(partition.getId());
             if (partition.hasData()) {
@@ -891,8 +885,6 @@ public class CloudInternalCatalog extends InternalCatalog {
                 needUpdateTableVersion = true;
             }
         }
-
-        CloudPartition partition0 = (CloudPartition) partitions.get(0);
 
         int tryCnt = 0;
         while (true) {

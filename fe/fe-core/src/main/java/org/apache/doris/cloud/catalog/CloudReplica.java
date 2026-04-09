@@ -62,7 +62,7 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
     private ConcurrentHashMap<String, Long> primaryClusterToBackend = new ConcurrentHashMap<>();
     @SerializedName(value = "dbId")
     private long dbId = -1;
-    private transient long tabletId = -1;
+    private transient volatile long tabletId = -1;
     @SerializedName(value = "indexId")
     private long indexId = -1;
     @SerializedName(value = "idx")
