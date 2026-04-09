@@ -249,6 +249,7 @@ Status DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
     if (arrow_array->type_id() == arrow::Type::STRING) {
         const auto* concrete_array = dynamic_cast<const arrow::StringArray*>(arrow_array);
         std::shared_ptr<arrow::Buffer> buffer = concrete_array->value_data();
+        CastParameters params;
 
         const auto* offsets_data = concrete_array->value_offsets()->data();
         const size_t offset_size = sizeof(int32_t);
@@ -269,7 +270,6 @@ Status DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
                     if constexpr (T == TYPE_DATETIMEV2 || T == TYPE_TIMESTAMPTZ) {
                         StringRef str_ref(raw_data, raw_data_len);
                         UInt64 val = 0;
-                        CastParameters params;
                         if (!CastToInt::from_string<false>(str_ref, val, params)) {
                             return Status::Error(ErrorCode::INVALID_ARGUMENT,
                                                  "parse number fail, string: '{}'",
@@ -280,7 +280,6 @@ Status DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
                     } else if constexpr (T == TYPE_DATE || T == TYPE_DATETIME) {
                         StringRef str_ref(raw_data, raw_data_len);
                         Int64 val = 0;
-                        CastParameters params;
                         if (!CastToInt::from_string<false>(str_ref, val, params)) {
                             return Status::Error(ErrorCode::INVALID_ARGUMENT,
                                                  "parse number fail, string: '{}'",
@@ -291,7 +290,6 @@ Status DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
                     } else if constexpr (T == TYPE_DATEV2) {
                         StringRef str_ref(raw_data, raw_data_len);
                         UInt32 val = 0;
-                        CastParameters params;
                         if (!CastToInt::from_string<false>(str_ref, val, params)) {
                             return Status::Error(ErrorCode::INVALID_ARGUMENT,
                                                  "parse number fail, string: '{}'",
@@ -302,7 +300,6 @@ Status DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
                     } else {
                         Int128 val = 0;
                         StringRef str_ref(raw_data, raw_data_len);
-                        CastParameters params;
                         if (!CastToInt::from_string<false>(str_ref, val, params)) {
                             return Status::Error(ErrorCode::INVALID_ARGUMENT,
                                                  "parse number fail, string: '{}'",

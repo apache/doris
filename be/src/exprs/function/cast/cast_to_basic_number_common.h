@@ -33,43 +33,6 @@
 
 namespace doris {
 
-template <typename T>
-bool try_read_float_text(T& x, const StringRef& in) {
-    static_assert(std::is_same_v<T, double> || std::is_same_v<T, float>,
-                  "Argument for readFloatTextImpl must be float or double");
-    static_assert('a' > '.' && 'A' > '.' && '\n' < '.' && '\t' < '.' && '\'' < '.' && '"' < '.',
-                  "Layout of char is not like ASCII");
-
-    StringParser::ParseResult result;
-    x = StringParser::string_to_float<T>(in.data, in.size, &result);
-    return result == StringParser::PARSE_SUCCESS;
-}
-
-template <typename T, bool enable_strict_mode = false>
-bool try_read_int_text(T& x, const StringRef& buf) {
-    StringParser::ParseResult result;
-    x = StringParser::string_to_int<T, enable_strict_mode>(buf.data, buf.size, &result);
-    return result == StringParser::PARSE_SUCCESS;
-}
-
-template <typename T>
-const char* try_read_first_int_text(T& x, const char* pos, const char* end) {
-    const int64_t len = end - pos;
-    int64_t i = 0;
-    while (i < len) {
-        if (pos[i] >= '0' && pos[i] <= '9') {
-            i++;
-        } else {
-            break;
-        }
-    }
-    const char* int_end = pos + i;
-    StringRef in((char*)pos, int_end - pos);
-    const size_t count = in.size;
-    try_read_int_text(x, in);
-    return pos + count;
-}
-
 template <typename CppT>
 static inline constexpr const char* int_type_name = std::is_same_v<CppT, UInt8>        ? "bool"
                                                     : std::is_same_v<CppT, int8_t>     ? "tinyint"
@@ -172,13 +135,17 @@ struct CastToInt {
     template <bool is_strict_mode, typename ToCppT>
         requires(IsCppTypeInt<ToCppT>)
     static inline bool from_string(const StringRef& from, ToCppT& to, CastParameters& params) {
-        return try_read_int_text<ToCppT, is_strict_mode>(to, from);
+        StringParser::ParseResult result;
+        to = StringParser::string_to_int<ToCppT, is_strict_mode>(from.data, from.size, &result);
+        return result == StringParser::PARSE_SUCCESS;
     }
 
     template <bool is_strict_mode, typename ToCppT>
         requires(std::is_unsigned_v<ToCppT>)
     static inline bool from_string(const StringRef& from, ToCppT& to, CastParameters& params) {
-        return try_read_int_text<ToCppT, is_strict_mode>(to, from);
+        StringParser::ParseResult result;
+        to = StringParser::string_to_int<ToCppT, is_strict_mode>(from.data, from.size, &result);
+        return result == StringParser::PARSE_SUCCESS;
     }
 
     template <typename FromCppT, typename ToCppT>
@@ -347,7 +314,9 @@ struct CastToFloat {
     template <typename ToCppT>
         requires(IsCppTypeFloat<ToCppT>)
     static inline bool from_string(const StringRef& from, ToCppT& to, CastParameters& params) {
-        return try_read_float_text(to, from);
+        StringParser::ParseResult result;
+        to = StringParser::string_to_float<ToCppT>(from.data, from.size, &result);
+        return result == StringParser::PARSE_SUCCESS;
     }
     template <typename FromCppT, typename ToCppT>
         requires(IsCppTypeFloat<ToCppT> &&

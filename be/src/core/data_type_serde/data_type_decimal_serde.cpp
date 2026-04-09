@@ -205,9 +205,8 @@ Status DataTypeDecimalSerDe<T>::deserialize_one_cell_from_json(IColumn& column, 
     auto& column_data = assert_cast<ColumnDecimal<T>&>(column).get_data();
     FieldType val = {};
     StringRef str_ref(slice.data, slice.size);
-    StringParser::ParseResult res = CastToDecimal::read_text<get_primitive_type(), FieldType>(
-            val, str_ref, precision, scale);
-    if (res == StringParser::PARSE_SUCCESS || res == StringParser::PARSE_UNDERFLOW) {
+    CastParameters params;
+    if (CastToDecimal::from_string(str_ref, val, precision, scale, params)) {
         column_data.emplace_back(val);
         return Status::OK();
     }

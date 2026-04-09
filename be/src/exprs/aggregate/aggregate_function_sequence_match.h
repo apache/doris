@@ -45,7 +45,7 @@
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"
-#include "exprs/function/cast/cast_to_basic_number_common.h"
+#include "util/string_parser.hpp"
 
 namespace doris {
 class Arena;
@@ -255,7 +255,12 @@ private:
 
                     NativeType duration = 0;
                     const auto* prev_pos = pos;
-                    pos = try_read_first_int_text(duration, pos, end);
+                    StringParser::ParseResult result;
+                    duration =
+                            StringParser::string_to_int<NativeType, false>(pos, end - pos, &result);
+                    while (pos < end && *pos >= '0' && *pos <= '9') {
+                        ++pos;
+                    }
                     if (pos == prev_pos) {
                         throw_exception("Could not parse number");
                         return;
@@ -274,7 +279,12 @@ private:
                 } else {
                     UInt64 event_number = 0;
                     const auto* prev_pos = pos;
-                    pos = try_read_first_int_text(event_number, pos, end);
+                    StringParser::ParseResult result;
+                    event_number =
+                            StringParser::string_to_int<UInt64, false>(pos, end - pos, &result);
+                    while (pos < end && *pos >= '0' && *pos <= '9') {
+                        ++pos;
+                    }
                     if (pos == prev_pos) throw_exception("Could not parse number");
 
                     if (event_number > arg_count - 1) {

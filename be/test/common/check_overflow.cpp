@@ -37,7 +37,8 @@ struct CheckOverFlowTest : public testing::Test {
     Int128 to_i128(std::string str) {
         StringRef str_ref(str.data(), str.size());
         Int128 val;
-        EXPECT_TRUE(try_read_int_text(val, str_ref));
+        CastParameters params;
+        EXPECT_TRUE(CastToInt::from_string<false>(str_ref, val, params));
         return val;
     };
 
