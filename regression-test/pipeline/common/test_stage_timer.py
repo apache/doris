@@ -86,7 +86,14 @@ false
 
     def test_external_pipeline_auto_hooks_print_summary(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            for name in ("deploy_cluster.sh", "run-thirdparties-docker.sh", "run-regression-test.sh"):
+            for name in (
+                "deploy_cluster.sh",
+                "run-thirdparties-docker.sh",
+                "run-regression-test.sh",
+                "stop_be.sh",
+                "start_cluster.sh",
+                "stop_cluster_grace.sh",
+            ):
                 script_path = os.path.join(tmpdir, name)
                 with open(script_path, "w") as script:
                     script.write("#!/usr/bin/env bash\n")
@@ -96,22 +103,6 @@ false
             result = self._run_raw(
                 """
 export teamcity_build_checkoutDir="{root}"
-
-stop_doris_grace() {{
-    return 0
-}}
-
-archive_doris_coredump() {{
-    return 0
-}}
-
-archive_doris_logs() {{
-    return 0
-}}
-
-upload_doris_log_to_oss() {{
-    return 0
-}}
 
 collect_docker_logs() {{
     return 0
@@ -125,12 +116,15 @@ main() {{
     cd "{tmpdir}" && bash run-thirdparties-docker.sh --start
     echo "RUN EXTERNAL CASE"
     cd "{tmpdir}" && ./run-regression-test.sh --teamcity --clean --run
-    stop_doris_grace
-    archive_doris_coredump fake.tar.gz
-    archive_doris_logs fake.tar.gz
-    upload_doris_log_to_oss fake.tar.gz
     echo "COLLECT DOCKER LOGS"
     collect_docker_logs external
+    echo "[check] after check core, exit_flag is 0"
+    cd "{tmpdir}" && bash stop_be.sh --grace
+    echo "start restart, $(date)"
+    cd "{tmpdir}" && bash start_cluster.sh Cluster0
+    echo "NEW FE IMAGE CREATED AFTER FE RESTART, PASS"
+    cd "{tmpdir}" && bash stop_cluster_grace.sh Cluster0
+    echo "日志备份标记 true"
 }}
 
 main
@@ -147,11 +141,11 @@ main
         self.assertIn("启动 Doris", result.stdout)
         self.assertIn("启动依赖", result.stdout)
         self.assertIn("执行 Case", result.stdout)
-        self.assertIn("停止 Doris", result.stdout)
-        self.assertIn("归档 Coredump", result.stdout)
-        self.assertIn("归档日志", result.stdout)
-        self.assertIn("上传日志", result.stdout)
         self.assertIn("收集 Docker 日志", result.stdout)
+        self.assertIn("检查 Core", result.stdout)
+        self.assertIn("停止集群", result.stdout)
+        self.assertIn("重启并检查 FE 元数据", result.stdout)
+        self.assertIn("备份日志", result.stdout)
 
     def test_non_external_pipeline_does_not_enable_auto_hooks(self):
         result = self._run_raw(
