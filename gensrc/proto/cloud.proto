@@ -129,7 +129,7 @@ message InstanceInfoPB {
     // For snapshot
     optional MultiVersionStatus multi_version_status = 110;
     optional SnapshotSwitchStatus snapshot_switch_status = 111;
-    optional string source_instance_id = 112;   // The instance cloned from.
+    optional string source_instance_id = 112;   // The instance cloned from (the snapshot instance id).
     optional string source_snapshot_id = 113;   // The snapshot cloned from.
 
     // Inherited from which instance (only used during rollback, the earliest instance id).
@@ -147,6 +147,11 @@ message InstanceInfoPB {
     optional int64 snapshot_retained_data_size = 121;
     optional int64 snapshot_billable_data_size = 122;
     optional SnapshotCompactStatus snapshot_compact_status = 123;
+
+    // The instance that is being rolled back, only used during rollback.
+    // It is not always same as source_instance_id, because the source instance may inherit from another
+    // instance during rollback, and the predecessor instance is the real instance which to execute the rollback.
+    optional string predecessor_instance_id = 124;
 }
 
 message StagePB {
