@@ -54,6 +54,7 @@
 #include <fmt/format.h>
 
 #include <cstdint>
+#include <limits>
 #include <string_view>
 
 #include "util/simd/vstring_function.h"
@@ -276,6 +277,208 @@ private:
             size_t fixed_len = std::min(str_size - fixed_pos, len_value);
             StringOP::push_value_string_reserved_and_allow_overflow(
                     {str_data + fixed_pos, fixed_len}, i, res_chars, res_offsets);
+        }
+    }
+};
+
+/**
+ * Spark-compatible `substr` / `substring` semantics (Spark 3.5+), matching
+ * `org.apache.spark.unsafe.types.UTF8String#substringSQL`.
+ */
+struct SubstrSparkUtil {
+    static constexpr auto name = "substr_spark";
+
+    static void substr_spark_execute(Block& block, const ColumnNumbers& arguments, uint32_t result,
+                                     size_t input_rows_count) {
+        DCHECK_EQ(arguments.size(), 3);
+        auto res = ColumnString::create();
+
+        bool col_const[3];
+        ColumnPtr argument_columns[3];
+        for (int i = 0; i < 3; ++i) {
+            std::tie(argument_columns[i], col_const[i]) =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
+        }
+
+        const auto* specific_str_column =
+                assert_cast<const ColumnString*>(argument_columns[0].get());
+        const auto* specific_start_column =
+                assert_cast<const ColumnInt32*>(argument_columns[1].get());
+        const auto* specific_len_column =
+                assert_cast<const ColumnInt32*>(argument_columns[2].get());
+
+        bool is_ascii = specific_str_column->is_ascii();
+
+        std::visit(
+                [&](auto is_ascii, auto str_const, auto start_const, auto len_const) {
+                    vectors_spark<is_ascii, str_const, start_const, len_const>(
+                            specific_str_column->get_chars(), specific_str_column->get_offsets(),
+                            specific_start_column->get_data(), specific_len_column->get_data(),
+                            res->get_chars(), res->get_offsets(), input_rows_count);
+                },
+                vectorized::make_bool_variant(is_ascii),
+                vectorized::make_bool_variant(col_const[0]),
+                vectorized::make_bool_variant(col_const[1]),
+                vectorized::make_bool_variant(col_const[2]));
+        block.get_by_position(result).column = std::move(res);
+    }
+
+private:
+    template <bool is_ascii, bool str_const, bool start_const, bool len_const>
+    static void vectors_spark(const ColumnString::Chars& chars, const ColumnString::Offsets& offsets,
+                              const PaddedPODArray<Int32>& start, const PaddedPODArray<Int32>& len,
+                              ColumnString::Chars& res_chars, ColumnString::Offsets& res_offsets,
+                              size_t size) {
+        res_offsets.resize(size);
+
+        if constexpr (start_const && len_const) {
+            if (len[0] <= 0) {
+                for (size_t i = 0; i < size; ++i) {
+                    StringOP::push_empty_string(i, res_chars, res_offsets);
+                }
+                return;
+            }
+        }
+
+        if constexpr (str_const) {
+            res_chars.reserve(size * chars.size());
+        } else {
+            res_chars.reserve(chars.size());
+        }
+
+        if constexpr (is_ascii) {
+            vectors_ascii_spark<str_const, start_const, len_const>(chars, offsets, start, len,
+                                                                   res_chars, res_offsets, size);
+        } else {
+            vectors_utf8_spark<str_const, start_const, len_const>(chars, offsets, start, len,
+                                                                  res_chars, res_offsets, size);
+        }
+    }
+
+    template <bool str_const, bool start_const, bool len_const>
+    NO_SANITIZE_UNDEFINED static void vectors_utf8_spark(
+            const ColumnString::Chars& chars, const ColumnString::Offsets& offsets,
+            const PaddedPODArray<Int32>& start, const PaddedPODArray<Int32>& len,
+            ColumnString::Chars& res_chars, ColumnString::Offsets& res_offsets, size_t size) {
+        for (size_t i = 0; i < size; ++i) {
+            int str_size = offsets[index_check_const<str_const>(i)] -
+                           offsets[index_check_const<str_const>(i) - 1];
+            const char* str_data =
+                    (char*)chars.data() + offsets[index_check_const<str_const>(i) - 1];
+            int start_value = start[index_check_const<start_const>(i)];
+            int len_value = len[index_check_const<len_const>(i)];
+
+            if (str_size == 0 || len_value <= 0) {
+                StringOP::push_empty_string(i, res_chars, res_offsets);
+                continue;
+            }
+
+            int char_len = simd::VStringFunctions::get_char_len(str_data, str_size);
+            int64_t start_cp = 0;
+            if (start_value > 0) {
+                start_cp = (int64_t)start_value - 1;
+            } else if (start_value < 0) {
+                start_cp = (int64_t)char_len + start_value;
+            } else {
+                start_cp = 0;
+            }
+
+            int64_t end_cp = start_cp + (int64_t)len_value;
+            if (end_cp > std::numeric_limits<int32_t>::max()) {
+                end_cp = std::numeric_limits<int32_t>::max();
+            } else if (end_cp < std::numeric_limits<int32_t>::min()) {
+                end_cp = std::numeric_limits<int32_t>::min();
+            }
+
+            // UTF8String#substring compares `start` against byte length; for UTF-8 columns we use
+            // character length so 1-based `pos` out of range matches logical substring bounds.
+            if (end_cp <= start_cp || start_cp >= char_len) {
+                StringOP::push_empty_string(i, res_chars, res_offsets);
+                continue;
+            }
+
+            int c = 0;
+            int byte_i = 0;
+            while (byte_i < str_size && c < start_cp) {
+                byte_i += get_utf8_byte_length((uint8_t)str_data[byte_i]);
+                c++;
+            }
+
+            int byte_j = byte_i;
+            while (byte_i < str_size && c < end_cp) {
+                byte_i += get_utf8_byte_length((uint8_t)str_data[byte_i]);
+                c++;
+            }
+
+            if (byte_i > byte_j) {
+                StringOP::push_value_string_reserved_and_allow_overflow(
+                        {str_data + byte_j, (size_t)(byte_i - byte_j)}, i, res_chars, res_offsets);
+            } else {
+                StringOP::push_empty_string(i, res_chars, res_offsets);
+            }
+        }
+    }
+
+    template <bool str_const, bool start_const, bool len_const>
+    static void vectors_ascii_spark(const ColumnString::Chars& chars,
+                                    const ColumnString::Offsets& offsets,
+                                    const PaddedPODArray<Int32>& start,
+                                    const PaddedPODArray<Int32>& len, ColumnString::Chars& res_chars,
+                                    ColumnString::Offsets& res_offsets, size_t size) {
+        for (size_t i = 0; i < size; ++i) {
+            int str_size = offsets[index_check_const<str_const>(i)] -
+                           offsets[index_check_const<str_const>(i) - 1];
+            const char* str_data =
+                    (char*)chars.data() + offsets[index_check_const<str_const>(i) - 1];
+            int start_value = start[index_check_const<start_const>(i)];
+            int len_value = len[index_check_const<len_const>(i)];
+
+            if (str_size == 0 || len_value <= 0) {
+                StringOP::push_empty_string(i, res_chars, res_offsets);
+                continue;
+            }
+
+            int64_t start_cp = 0;
+            if (start_value > 0) {
+                start_cp = (int64_t)start_value - 1;
+            } else if (start_value < 0) {
+                start_cp = (int64_t)str_size + start_value;
+            } else {
+                start_cp = 0;
+            }
+
+            int64_t end_cp = start_cp + (int64_t)len_value;
+            if (end_cp > std::numeric_limits<int32_t>::max()) {
+                end_cp = std::numeric_limits<int32_t>::max();
+            } else if (end_cp < std::numeric_limits<int32_t>::min()) {
+                end_cp = std::numeric_limits<int32_t>::min();
+            }
+
+            // Match UTF8String#substring: `until <= start` or `start >= numBytes` (bytes == chars).
+            if (end_cp <= start_cp || start_cp >= str_size) {
+                StringOP::push_empty_string(i, res_chars, res_offsets);
+                continue;
+            }
+
+            int c = 0;
+            int byte_i = 0;
+            while (byte_i < str_size && c < start_cp) {
+                byte_i++;
+                c++;
+            }
+
+            int byte_j = byte_i;
+            while (byte_i < str_size && c < end_cp) {
+                byte_i++;
+                c++;
+            }
+
+            if (byte_i > byte_j) {
+                StringOP::push_value_string_reserved_and_allow_overflow(
+                        {str_data + byte_j, (size_t)(byte_i - byte_j)}, i, res_chars, res_offsets);
+            } else {
+                StringOP::push_empty_string(i, res_chars, res_offsets);
+            }
         }
     }
 };

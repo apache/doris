@@ -506,6 +506,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.SubBinary;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubBitmap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubReplace;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubTime;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SubstrSpark;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubstringIndex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SysDate;
@@ -1089,6 +1090,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(SubBinary.class, "sub_binary"),
             scalar(SubBitmap.class, "sub_bitmap"),
             scalar(SubReplace.class, "sub_replace"),
+            scalar(SubstrSpark.class, "substr_spark"),
             scalar(Substring.class, "substr", "substring", "mid"),
             scalar(SubTime.class, "sub_time"),
             scalar(SubstringIndex.class, "substring_index"),

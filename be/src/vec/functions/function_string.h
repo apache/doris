@@ -479,6 +479,76 @@ struct Substr2Impl {
     }
 };
 
+template <typename Impl>
+class FunctionSubstrSpark : public IFunction {
+public:
+    static constexpr auto name = SubstrSparkUtil::name;
+    String get_name() const override { return name; }
+    static FunctionPtr create() { return std::make_shared<FunctionSubstrSpark<Impl>>(); }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeString>();
+    }
+    DataTypes get_variadic_argument_types_impl() const override {
+        return Impl::get_variadic_argument_types();
+    }
+    size_t get_number_of_arguments() const override {
+        return get_variadic_argument_types_impl().size();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        return Impl::execute_impl(context, block, arguments, result, input_rows_count);
+    }
+};
+
+struct SubstrSpark3Impl {
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeInt32>(),
+                std::make_shared<DataTypeInt32>()};
+    }
+
+    static Status execute_impl(FunctionContext* context, Block& block,
+                               const ColumnNumbers& arguments, uint32_t result,
+                               size_t input_rows_count) {
+        SubstrSparkUtil::substr_spark_execute(block, arguments, result, input_rows_count);
+        return Status::OK();
+    }
+};
+
+struct SubstrSpark2Impl {
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeInt32>()};
+    }
+
+    static Status execute_impl(FunctionContext* context, Block& block,
+                               const ColumnNumbers& arguments, uint32_t result,
+                               size_t input_rows_count) {
+        auto col_len = ColumnInt32::create(input_rows_count);
+        auto& strlen_data = col_len->get_data();
+
+        ColumnPtr str_col;
+        bool str_const;
+        std::tie(str_col, str_const) = unpack_if_const(block.get_by_position(arguments[0]).column);
+
+        const auto& str_offset = assert_cast<const ColumnString*>(str_col.get())->get_offsets();
+
+        if (str_const) {
+            std::fill(strlen_data.begin(), strlen_data.end(), str_offset[0] - str_offset[-1]);
+        } else {
+            for (int i = 0; i < input_rows_count; ++i) {
+                strlen_data[i] = str_offset[i] - str_offset[i - 1];
+            }
+        }
+
+        block.insert({std::move(col_len), std::make_shared<DataTypeInt32>(), "strlen"});
+        ColumnNumbers temp_arguments = {arguments[0], arguments[1], block.columns() - 1};
+
+        SubstrSparkUtil::substr_spark_execute(block, temp_arguments, result, input_rows_count);
+        return Status::OK();
+    }
+};
+
 template <bool Reverse>
 class FunctionMaskPartial;
 

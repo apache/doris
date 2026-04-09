@@ -526,6 +526,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.SubBinary;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubBitmap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubReplace;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubTime;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SubstrSpark;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubstringIndex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SysDate;
@@ -2502,6 +2503,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitSubTime(SubTime subTime, C context) {
         return visitScalarFunction(subTime, context);
+    }
+
+    default R visitSubstrSpark(SubstrSpark substrSpark, C context) {
+        return visitScalarFunction(substrSpark, context);
     }
 
     default R visitSubstring(Substring substring, C context) {
