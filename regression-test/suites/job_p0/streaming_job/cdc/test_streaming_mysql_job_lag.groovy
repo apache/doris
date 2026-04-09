@@ -49,9 +49,6 @@ suite("test_streaming_mysql_job_lag",
         }
 
         sql """CREATE JOB ${jobName}
-                PROPERTIES(
-                    "max_interval" = "1"
-                )
                 ON STREAMING
                 FROM MYSQL (
                     "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}",

@@ -51,9 +51,6 @@ suite("test_streaming_postgres_job_lag",
         }
 
         sql """CREATE JOB ${jobName}
-                PROPERTIES(
-                    "max_interval" = "1"
-                )
                 ON STREAMING
                 FROM POSTGRES (
                     "jdbc_url" = "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}",
