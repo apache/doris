@@ -50,7 +50,6 @@ class FunctionContext;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 static constexpr int COMPRESS_STR_LENGTH = 4;
 
 class FunctionCompress : public IFunction {
@@ -207,5 +206,4 @@ void register_function_compress(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionCompress>();
     factory.register_function<FunctionUncompress>();
 }
-#include "common/compile_check_end.h"
 } // namespace doris

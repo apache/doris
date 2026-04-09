@@ -61,7 +61,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
 
 class PointQueryResultBlockBuffer final : public MySQLResultBlockBuffer {
 public:
@@ -628,6 +627,5 @@ Status PointQueryExecutor::_output_data() {
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 
 } // namespace doris

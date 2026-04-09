@@ -32,7 +32,6 @@
 #include "exprs/aggregate/aggregate_function.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class Arena;
 class BufferReadable;
 class BufferWritable;
@@ -157,4 +156,3 @@ AggregateFunctionPtr create_aggregate_function_quantile_state_union(
 
 } // namespace doris
 
-#include "common/compile_check_end.h"

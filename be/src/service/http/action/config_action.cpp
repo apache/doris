@@ -41,7 +41,6 @@
 #include "service/http/http_status.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 const static std::string HEADER_JSON = "application/json";
 const static std::string PERSIST_PARAM = "persist";
@@ -144,5 +143,4 @@ void ConfigAction::handle_update_config(HttpRequest* req) {
     HttpChannel::send_reply(req, HttpStatus::OK, strbuf.GetString());
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

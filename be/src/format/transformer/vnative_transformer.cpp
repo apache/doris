@@ -30,7 +30,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
 
 namespace {
 
@@ -128,6 +127,5 @@ int64_t VNativeTransformer::written_len() {
     return _written_len;
 }
 
-#include "common/compile_check_end.h"
 
 } // namespace doris

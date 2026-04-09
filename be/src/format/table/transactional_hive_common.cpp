@@ -20,7 +20,6 @@
 #include <unordered_map>
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 const std::string TransactionalHive::OPERATION = "operation";
 const std::string TransactionalHive::ORIGINAL_TRANSACTION = "originalTransaction";
@@ -77,5 +76,4 @@ const std::unordered_map<std::string, uint32_t> TransactionalHive::DELETE_COL_NA
         {DELETE_ROW_PARAMS[1].column_lower_case, 1},
         {DELETE_ROW_PARAMS[2].column_lower_case, 2}};
 
-#include "common/compile_check_end.h"
 } // namespace doris

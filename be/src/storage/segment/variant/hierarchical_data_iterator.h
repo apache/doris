@@ -53,7 +53,6 @@ namespace doris::segment_v2 {
 
 class ColumnReaderCache;
 
-#include "common/compile_check_begin.h"
 
 struct PathWithColumnAndType {
     PathInData path;
@@ -187,6 +186,5 @@ private:
     }
 };
 
-#include "common/compile_check_end.h"
 
 } // namespace doris::segment_v2

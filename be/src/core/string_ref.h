@@ -43,7 +43,6 @@ namespace doris {
 
 /// unnamed namespace packaging simd-style equality compare functions.
 namespace {
-#include "common/compile_check_begin.h"
 #if defined(__SSE2__) || defined(__aarch64__)
 
 /** Compare strings for equality.
@@ -404,7 +403,6 @@ inline bool check(const doris::StringRef& x) {
 inline void set(doris::StringRef& x) {
     x.size = 0;
 }
-#include "common/compile_check_end.h"
 } // namespace ZeroTraits
 
 template <>

@@ -30,7 +30,6 @@
 #include "util/io_helper.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 template <PrimitiveType T>
 Status DataTypeDateSerDe<T>::serialize_column_to_json(

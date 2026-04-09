@@ -24,7 +24,6 @@
 
 namespace doris {
 namespace segment_v2 {
-#include "common/compile_check_begin.h"
 
 // Encode page use frame-of-reference coding
 template <FieldType Type>
@@ -182,6 +181,5 @@ private:
     std::unique_ptr<ForDecoder<CppType>> _decoder;
 };
 
-#include "common/compile_check_end.h"
 } // namespace segment_v2
 } // namespace doris

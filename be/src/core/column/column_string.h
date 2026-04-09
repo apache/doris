@@ -47,7 +47,6 @@
 #include "util/hash_util.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class Arena;
 class ColumnSorter;
 
@@ -575,4 +574,3 @@ public:
 using ColumnString = ColumnStr<UInt32>;
 using ColumnString64 = ColumnStr<UInt64>;
 } // namespace doris
-#include "common/compile_check_end.h"

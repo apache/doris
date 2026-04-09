@@ -36,7 +36,6 @@ class Block;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 /**
  * The demo usage of JniReader, showing how to read data from java scanner.
  * The java side is also a mock reader that provide values for each type.
@@ -57,5 +56,4 @@ public:
     Status init_reader();
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

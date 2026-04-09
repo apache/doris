@@ -26,7 +26,6 @@
 #include "exec/operator/operator.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeState;
 } // namespace doris
 
@@ -259,5 +258,4 @@ Status RepeatOperatorX::pull(doris::RuntimeState* state, Block* output_block, bo
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -31,7 +31,6 @@
 #include "exprs/aggregate/aggregate_function.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 template <PrimitiveType T, template <PrimitiveType> typename Moments>
 struct StatFunc {
@@ -98,4 +97,3 @@ struct AggregateFunctionBinary
 
 } // namespace doris
 
-#include "common/compile_check_end.h"

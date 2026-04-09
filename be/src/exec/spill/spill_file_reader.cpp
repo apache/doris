@@ -34,7 +34,6 @@
 #include "util/debug_points.h"
 #include "util/slice.h"
 namespace doris {
-#include "common/compile_check_begin.h"
 namespace io {
 class FileSystem;
 } // namespace io

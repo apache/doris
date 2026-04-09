@@ -33,7 +33,6 @@
 #include "runtime/runtime_profile.h"
 
 namespace google {
-#include "common/compile_check_begin.h"
 namespace protobuf {
 class Closure;
 }
@@ -95,4 +94,3 @@ private:
 };
 } // namespace doris
 
-#include "common/compile_check_end.h"

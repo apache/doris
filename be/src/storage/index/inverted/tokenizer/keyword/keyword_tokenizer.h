@@ -20,7 +20,6 @@
 #include "storage/index/inverted/tokenizer/tokenizer.h"
 
 namespace doris::segment_v2::inverted_index {
-#include "common/compile_check_begin.h"
 
 class KeywordTokenizer : public DorisTokenizer {
 public:
@@ -69,5 +68,4 @@ private:
     int32_t _char_length = 0;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

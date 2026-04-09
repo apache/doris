@@ -21,7 +21,6 @@
 #include "util/mem_info.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class GlobalMemoryArbitrator {
 public:
@@ -184,5 +183,4 @@ private:
     static std::atomic<int64_t> _process_reserved_memory;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

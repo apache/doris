@@ -38,7 +38,6 @@
 #include "util/bitmap_intersect.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class Arena;
 class BufferReadable;
 class BufferWritable;
@@ -421,4 +420,3 @@ private:
 };
 } // namespace doris
 
-#include "common/compile_check_end.h"

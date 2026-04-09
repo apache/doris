@@ -46,7 +46,6 @@
 namespace doris {
 class Block;
 
-#include "common/compile_check_begin.h"
 
 std::vector<SchemaScanner::ColumnDesc> SchemaRowsetsScanner::_s_tbls_columns = {
         //   name,       type,          size,     is_null

@@ -26,7 +26,6 @@
 #include "storage/utils.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 // For unique key merge on write table, we should update delete bitmap
 // of destination rowset when compaction finished.
@@ -174,5 +173,4 @@ private:
     std::uint32_t _cur_dst_segment_rowid = 0;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

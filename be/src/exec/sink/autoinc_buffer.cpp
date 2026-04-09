@@ -31,7 +31,6 @@
 #include "util/thrift_rpc_helper.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 AutoIncIDBuffer::AutoIncIDBuffer(int64_t db_id, int64_t table_id, int64_t column_id)
         : _db_id(db_id),

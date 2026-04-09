@@ -24,7 +24,6 @@
 #include "exprs/aggregate/helpers.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 void register_aggregate_function_sum(AggregateFunctionSimpleFactory& factory) {
     AggregateFunctionCreator creator = [&](const std::string& name, const DataTypes& types,

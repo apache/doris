@@ -30,7 +30,6 @@
 #include "util/time.h"
 namespace doris::io {
 
-#include "common/compile_check_begin.h"
 
 HdfsFileHandle::~HdfsFileHandle() {
     if (_hdfs_file != nullptr && _fs != nullptr) {
@@ -204,6 +203,5 @@ void FileHandleCache::_evict_handles_loop() {
     }
 }
 
-#include "common/compile_check_end.h"
 
 } // namespace doris::io

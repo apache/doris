@@ -50,7 +50,6 @@
 #include "storage/index/index_reader_helper.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class FunctionIPv4NumToString : public IFunction {
 private:
@@ -1378,4 +1377,3 @@ public:
 
 } // namespace doris
 
-#include "common/compile_check_end.h"

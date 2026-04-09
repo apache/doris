@@ -26,7 +26,6 @@
 #include "storage/index/inverted/inverted_index_fs_directory.h"
 
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 static std::string get_or_default(const std::map<std::string, std::string>& properties,
                                   const std::string& key, const std::string& default_value) {
     auto it = properties.find(key);
@@ -202,5 +201,4 @@ Status AnnIndexColumnWriter::finish() {
         }
     }
 }
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

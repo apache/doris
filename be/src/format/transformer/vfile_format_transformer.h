@@ -28,7 +28,6 @@
 #include "exprs/vexpr_fwd.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class VFileFormatTransformer {
 public:
@@ -63,4 +62,3 @@ protected:
 };
 } // namespace doris
 
-#include "common/compile_check_end.h"

@@ -30,7 +30,6 @@
 #include "core/string_view.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class ColumnVarbinary final : public COWHelper<IColumn, ColumnVarbinary> {
 private:
     using Self = ColumnVarbinary;
@@ -192,5 +191,4 @@ private:
     Container _data;
     Arena _arena;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

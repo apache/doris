@@ -30,7 +30,6 @@
 #include "exprs/aggregate/aggregate_function_bit.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 struct AggregateFunctionBoolXorData {
     static constexpr auto name = "bool_xor";
@@ -108,4 +107,3 @@ public:
 };
 } // namespace doris
 
-#include "common/compile_check_end.h"

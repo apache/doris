@@ -27,7 +27,6 @@
 #include "core/block/block.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class Dependency;
 
@@ -116,5 +115,4 @@ private:
     std::mutex _source_lock;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

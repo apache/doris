@@ -28,7 +28,6 @@
 #include "util/faststring.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 inline uint8_t leading_zeroes(const uint64_t v) {
     if (v == 0) {
@@ -211,5 +210,4 @@ private:
     uint32_t _current_decoded_frame = -1;
     std::vector<T> _out_buffer; // store values of decoded frame
 };
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -37,7 +37,6 @@
 #include "runtime/runtime_state.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class Arena;
 class BufferReadable;
 class BufferWritable;
@@ -214,4 +213,3 @@ AggregateFunctionPtr transform_to_sort_agg_function(const AggregateFunctionPtr& 
                                                     RuntimeState* state);
 } // namespace doris
 
-#include "common/compile_check_end.h"

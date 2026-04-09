@@ -48,7 +48,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
 
 RowsetMeta::~RowsetMeta() {
     if (_handle) {
@@ -406,6 +405,5 @@ bool operator==(const RowsetMeta& a, const RowsetMeta& b) {
     return true;
 }
 
-#include "common/compile_check_end.h"
 
 } // namespace doris

@@ -29,7 +29,6 @@
 #include "util/sse_util.hpp"
 
 namespace doris::simd {
-#include "common/compile_check_begin.h"
 consteval auto bits_mask_length() {
 #if defined(__ARM_NEON) && defined(__aarch64__)
     return 16;
@@ -327,4 +326,3 @@ inline bool contain_zero(const uint8_t* __restrict data, size_t size) {
 }
 
 } // namespace doris::simd
-#include "common/compile_check_end.h"

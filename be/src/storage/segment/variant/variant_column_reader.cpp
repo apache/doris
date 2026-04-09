@@ -58,7 +58,6 @@
 
 namespace doris::segment_v2 {
 
-#include "common/compile_check_begin.h"
 
 namespace {
 
@@ -1561,6 +1560,5 @@ VariantColumnReader::collect_nested_group_chain(const std::string& path) const {
     return {res.found, std::move(res.chain), std::move(res.child_path)};
 }
 
-#include "common/compile_check_end.h"
 
 } // namespace doris::segment_v2

@@ -32,7 +32,6 @@ class OlapBlockDataConvertor;
 
 namespace segment_v2 {
 
-#include "common/compile_check_begin.h"
 
 namespace variant_writer_helpers {
 
@@ -53,7 +52,6 @@ Status prepare_subcolumn_writer_target(
 
 } // namespace variant_writer_helpers
 
-#include "common/compile_check_end.h"
 
 } // namespace segment_v2
 } // namespace doris

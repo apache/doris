@@ -46,7 +46,6 @@
 class SipHash;
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class Arena;
 class Block;
@@ -339,4 +338,3 @@ const Type* check_and_get_column_with_const(const IColumn& column) {
 }
 
 } // namespace doris
-#include "common/compile_check_end.h"

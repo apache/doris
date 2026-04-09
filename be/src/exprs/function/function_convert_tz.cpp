@@ -55,7 +55,6 @@
 #include "util/timezone_utils.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 struct ConvertTzState {
     bool use_state = false;
@@ -315,4 +314,3 @@ void register_function_convert_tz(SimpleFunctionFactory& factory) {
 
 } // namespace doris
 
-#include "common/compile_check_end.h"

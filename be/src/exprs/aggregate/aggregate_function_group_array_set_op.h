@@ -34,7 +34,6 @@
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/hybrid_set.h"
 namespace doris {
-#include "common/compile_check_begin.h"
 class Arena;
 class BufferReadable;
 class BufferWritable;
@@ -476,4 +475,3 @@ public:
 
 } // namespace doris
 
-#include "common/compile_check_end.h"

@@ -42,7 +42,6 @@
 #include "util/slice.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 template <typename T>
 class ColumnStr;
 using ColumnString = ColumnStr<UInt32>;
@@ -158,6 +157,5 @@ protected:
     std::unique_ptr<RleBatchDecoder<uint32_t>> _index_batch_decoder;
     std::vector<uint32_t> _indexes;
 };
-#include "common/compile_check_end.h"
 
 } // namespace doris

@@ -55,7 +55,6 @@ class TabletSchema;
 
 namespace segment_v2 {
 
-#include "common/compile_check_begin.h"
 
 class ColumnIterator;
 class InvertedIndexIterator;
@@ -518,7 +517,6 @@ private:
     ordinal_t _current_rowid = 0;
 };
 
-#include "common/compile_check_end.h"
 
 } // namespace segment_v2
 } // namespace doris

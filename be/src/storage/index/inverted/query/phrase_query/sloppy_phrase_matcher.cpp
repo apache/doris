@@ -18,7 +18,6 @@
 #include "storage/index/inverted/query/phrase_query/sloppy_phrase_matcher.h"
 
 namespace doris::segment_v2::inverted_index {
-#include "common/compile_check_begin.h"
 
 SloppyPhraseMatcher::SloppyPhraseMatcher(const std::vector<PostingsAndFreq>& postings, int32_t slop)
         : _slop(slop), _num_postings(static_cast<int32_t>(postings.size())) {
@@ -328,5 +327,4 @@ float SloppyPhraseMatcher::phrase_freq(int32_t doc) {
     return freq;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

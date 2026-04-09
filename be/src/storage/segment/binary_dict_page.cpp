@@ -37,7 +37,6 @@
 #include "util/slice.h" // for Slice
 
 namespace doris {
-#include "common/compile_check_begin.h"
 struct StringRef;
 
 namespace segment_v2 {
@@ -405,6 +404,5 @@ Status BinaryDictPageDecoder::read_by_rowids(const rowid_t* rowids, ordinal_t pa
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace segment_v2
 } // namespace doris

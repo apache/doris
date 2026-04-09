@@ -35,7 +35,6 @@
 #include "util/var_int.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class Arena;
 class BufferReadable;
 class BufferWritable;
@@ -676,4 +675,3 @@ protected:
 
 } // namespace doris
 
-#include "common/compile_check_end.h"

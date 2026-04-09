@@ -20,7 +20,6 @@
 #include "common/status.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 Status IcebergMergeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
@@ -31,5 +30,4 @@ Status IcebergMergeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo&
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

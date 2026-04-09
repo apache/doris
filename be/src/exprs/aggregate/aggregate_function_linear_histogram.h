@@ -34,7 +34,6 @@
 // TODO: support foreach
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 template <PrimitiveType T>
 struct AggregateFunctionLinearHistogramData {
@@ -259,4 +258,3 @@ private:
 
 } // namespace doris
 
-#include "common/compile_check_end.h"

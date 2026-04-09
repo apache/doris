@@ -21,7 +21,6 @@
 #include <regex>
 
 namespace doris::iceberg {
-#include "common/compile_check_begin.h"
 
 std::unique_ptr<MapType> MapType::of_optional(int key_id, int value_id,
                                               std::unique_ptr<Type> key_type,
@@ -192,5 +191,4 @@ std::unique_ptr<PrimitiveType> Types::from_primitive_string(const std::string& t
     }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris::iceberg

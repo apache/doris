@@ -45,7 +45,6 @@ class Block;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 /* array_with_constant(num, T) / array_repeat(T, num)  - return array of constants with length num.
  * array_with_constant(2, 'xxx') = ['xxx', 'xxx']
@@ -131,5 +130,4 @@ void register_function_array_with_constant(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayWithConstant<NameArrayWithConstant>>();
     factory.register_function<FunctionArrayWithConstant<NameArrayRepeat>>();
 }
-#include "common/compile_check_end.h"
 } // namespace doris

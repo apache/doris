@@ -41,7 +41,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
 
 bool DiskInfo::_s_initialized;
 std::vector<DiskInfo::Disk> DiskInfo::_s_disks;
@@ -235,6 +234,5 @@ Status DiskInfo::get_disk_devices(const std::vector<std::string>& paths,
     return status;
 }
 
-#include "common/compile_check_end.h"
 
 } // namespace doris

@@ -38,7 +38,6 @@
 #include "util/hash_util.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 constexpr uint64_t emtpy_value = 0xe28dbde7fe22e41c;
 
 template <PrimitiveType ReturnType, bool is_mmh64_v2 = false>

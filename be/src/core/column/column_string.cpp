@@ -37,7 +37,6 @@
 #include "util/simd/vstring_function.h"
 #include "util/unaligned.h"
 namespace doris {
-#include "common/compile_check_begin.h"
 
 template <typename T>
 void ColumnStr<T>::sanity_check() const {

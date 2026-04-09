@@ -36,7 +36,6 @@
 #include "util/simd/bits.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 constexpr auto BITSIZE = 8;
 
 template <typename Base>
@@ -1172,5 +1171,4 @@ struct MethodSingleNullableColumn : public SingleColumnMethod {
         }
     }
 };
-#include "common/compile_check_end.h"
 } // namespace doris

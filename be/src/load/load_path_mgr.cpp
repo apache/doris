@@ -45,7 +45,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
 
 using namespace ErrorCode;
 
@@ -331,6 +330,5 @@ void LoadPathMgr::clean_error_log() {
     }
 }
 
-#include "common/compile_check_end.h"
 
 } // namespace doris

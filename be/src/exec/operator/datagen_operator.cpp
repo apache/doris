@@ -30,7 +30,6 @@ class RuntimeState;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 DataGenSourceOperatorX::DataGenSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
                                                int operator_id, const DescriptorTbl& descs)
         : OperatorX<DataGenLocalState>(pool, tnode, operator_id, descs),

@@ -113,7 +113,6 @@ namespace doris {
 using namespace ErrorCode;
 namespace segment_v2 {
 
-#include "common/compile_check_begin.h"
 
 SegmentIterator::~SegmentIterator() = default;
 

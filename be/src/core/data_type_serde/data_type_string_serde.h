@@ -35,7 +35,6 @@ struct JsonbValue;
 
 class IColumn;
 class Arena;
-#include "common/compile_check_begin.h"
 
 inline void escape_string(char* src, size_t* len, char escape_char) {
     const char* start = src;
@@ -274,5 +273,4 @@ private:
 
 using DataTypeStringSerDe = DataTypeStringSerDeBase<ColumnString>;
 using DataTypeFixedLengthObjectSerDe = DataTypeStringSerDeBase<ColumnFixedLengthObject>;
-#include "common/compile_check_end.h"
 } // namespace doris

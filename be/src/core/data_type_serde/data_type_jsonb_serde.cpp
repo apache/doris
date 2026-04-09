@@ -32,7 +32,6 @@
 #include "exprs/json_functions.h"
 #include "util/jsonb_parser_simd.h"
 namespace doris {
-#include "common/compile_check_begin.h"
 
 Status DataTypeJsonbSerDe::write_column_to_mysql_binary(const IColumn& column,
                                                         MysqlRowBinaryBuffer& result,

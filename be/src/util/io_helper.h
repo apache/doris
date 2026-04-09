@@ -39,7 +39,6 @@
 #include "util/var_int.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 inline std::string int128_to_string(int128_t value) {
     return fmt::format(FMT_COMPILE("{}"), value);
 }
@@ -232,6 +231,5 @@ bool inline try_read_bool_text(UInt8& x, const StringRef& buf) {
     return result == StringParser::PARSE_SUCCESS;
 }
 
-#include "common/compile_check_end.h"
 
 } // namespace doris

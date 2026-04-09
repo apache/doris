@@ -24,7 +24,6 @@
 #include "util/debug_points.h"
 
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 
 FileMetadata::FileMetadata(int64_t id, std::string suffix, std::string file, int64_t off,
                            int64_t len, lucene::store::Directory* dir)
@@ -239,4 +238,3 @@ void IndexStorageFormatV2::copy_files_data(lucene::store::IndexOutput* output,
 }
 
 } // namespace doris::segment_v2
-#include "common/compile_check_end.h"

@@ -26,7 +26,6 @@
 #include "exec/operator/scan_operator.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class OlapScanner;
 } // namespace doris
@@ -64,5 +63,4 @@ private:
     TUserIdentity _user_identity;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

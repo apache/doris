@@ -19,7 +19,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
 
 Status FixLengthPlainDecoder::skip_values(size_t num_values) {
     _offset += _type_length * num_values;
@@ -39,6 +38,5 @@ Status FixLengthPlainDecoder::decode_values(MutableColumnPtr& doris_column, Data
     }
 }
 
-#include "common/compile_check_end.h"
 
 } // namespace doris

@@ -36,7 +36,6 @@ class FunctionContext;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class Score : public IFunction {
 public:
@@ -70,5 +69,4 @@ void register_function_score(SimpleFunctionFactory& factory) {
     factory.register_function<Score>();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -46,7 +46,6 @@
 #include "util/brpc_closure.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 RuntimeFilterMgr::RuntimeFilterMgr(const bool is_global)
         : _is_global(is_global),
           _tracker(std::make_unique<MemTracker>(

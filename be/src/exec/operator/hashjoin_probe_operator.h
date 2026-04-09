@@ -26,7 +26,6 @@
 namespace doris {
 class RuntimeState;
 
-#include "common/compile_check_begin.h"
 class HashJoinProbeLocalState;
 
 using HashTableCtxVariants =
@@ -219,4 +218,3 @@ private:
 };
 
 } // namespace doris
-#include "common/compile_check_end.h"

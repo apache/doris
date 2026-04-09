@@ -38,7 +38,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
 
 // The class is used to represent row's format in memory.  Each row contains
 // multiple columns, some of which are key-columns (the rest are value-columns).
@@ -175,6 +174,5 @@ private:
     int64_t _mem_size = 0;
 };
 
-#include "common/compile_check_end.h"
 
 } // namespace doris

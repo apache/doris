@@ -47,7 +47,6 @@
 #include "util/io_helper.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 } // namespace doris
 
 namespace doris {
@@ -382,4 +381,3 @@ private:
 
 } // namespace doris
 
-#include "common/compile_check_end.h"

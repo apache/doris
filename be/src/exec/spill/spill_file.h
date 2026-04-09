@@ -22,7 +22,6 @@
 #include "common/status.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeProfile;
 class RuntimeState;
 
@@ -111,4 +110,3 @@ private:
 };
 using SpillFileSPtr = std::shared_ptr<SpillFile>;
 } // namespace doris
-#include "common/compile_check_end.h"

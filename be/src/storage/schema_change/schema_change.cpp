@@ -88,7 +88,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
 
 class CollectionValue;
 
@@ -1640,6 +1639,5 @@ Status SchemaChangeJob::_calc_delete_bitmap_for_mow_table(int64_t alter_version)
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 
 } // namespace doris

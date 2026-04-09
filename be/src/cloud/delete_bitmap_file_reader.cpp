@@ -24,7 +24,6 @@
 #include "util/coding.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 DeleteBitmapFileReader::DeleteBitmapFileReader(int64_t tablet_id, const std::string& rowset_id,
                                                std::optional<StorageResource>& storage_resource)
@@ -159,5 +158,4 @@ Status DeleteBitmapFileReader::read(DeleteBitmapPB& delete_bitmap) {
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

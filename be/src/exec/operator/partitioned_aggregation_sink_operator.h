@@ -29,7 +29,6 @@
 #include "exprs/vexpr.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class PartitionedAggSinkOperatorX;
 class PartitionedAggSinkLocalState
         : public PipelineXSpillSinkLocalState<PartitionedAggSharedState> {
@@ -150,5 +149,4 @@ private:
     // each operator tracks its own partition count for spilling
     size_t _partition_count = 32;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

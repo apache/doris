@@ -68,7 +68,6 @@
 #include "util/uid_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 namespace {
@@ -1096,5 +1095,4 @@ void DataDir::perform_remote_tablet_gc() {
         static_cast<void>(_meta->remove(META_COLUMN_FAMILY_INDEX, key));
     }
 }
-#include "common/compile_check_end.h"
 } // namespace doris

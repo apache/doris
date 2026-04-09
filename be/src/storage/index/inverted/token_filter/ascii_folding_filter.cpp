@@ -21,7 +21,6 @@
 #include <string_view>
 
 namespace doris::segment_v2::inverted_index {
-#include "common/compile_check_begin.h"
 
 ASCIIFoldingFilter::ASCIIFoldingFilter(const TokenStreamPtr& in, bool preserve_original)
         : DorisTokenFilter(in), _preserve_original(preserve_original), _output(512, 0) {}
@@ -2018,5 +2017,4 @@ int32_t ASCIIFoldingFilter::fold_to_ascii(const char* in, int32_t input_pos, cha
     return output_pos;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

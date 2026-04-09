@@ -25,7 +25,6 @@
 #include "runtime/runtime_state.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 std::vector<SchemaScanner::ColumnDesc> SchemaBackendKerberosTicketCacheScanner::_s_tbls_columns = {
         //   name,       type,          size

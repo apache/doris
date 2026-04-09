@@ -38,7 +38,6 @@
 #include "util/stack_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 constexpr size_t SYNC_PROC_RESERVED_INTERVAL_BYTES = (1ULL << 20); // 1M
 static std::string MEMORY_ORPHAN_CHECK_MSG =
@@ -387,5 +386,4 @@ inline void ThreadMemTrackerMgr::shrink_reserved() {
     }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

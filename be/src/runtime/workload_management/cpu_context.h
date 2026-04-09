@@ -22,7 +22,6 @@
 #include "runtime/workload_group/workload_group.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class ResourceContext;
 
@@ -72,5 +71,4 @@ protected:
     ResourceContext* resource_ctx_ {nullptr};
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

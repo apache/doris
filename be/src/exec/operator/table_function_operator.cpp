@@ -36,7 +36,6 @@
 #include "util/simd/bits.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeState;
 } // namespace doris
 
@@ -890,5 +889,4 @@ Status TableFunctionOperatorX::prepare(doris::RuntimeState* state) {
     return VExpr::open(_vfn_ctxs, state);
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

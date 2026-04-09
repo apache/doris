@@ -23,7 +23,6 @@
 #include "runtime/result_queue_mgr.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class MemoryScratchSinkOperatorX;
 class MemoryScratchSinkLocalState final : public PipelineXSinkLocalState<FakeSharedState> {
@@ -68,5 +67,4 @@ private:
     VExprContextSPtrs _output_vexpr_ctxs;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

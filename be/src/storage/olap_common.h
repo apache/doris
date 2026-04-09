@@ -47,7 +47,6 @@
 #include "util/uid_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 static constexpr int64_t MAX_ROWSET_ID = 1L << 56;
 static constexpr int64_t LOW_56_BITS = 0x00ffffffffffffff;
 
@@ -608,7 +607,6 @@ struct VersionWithTime {
         }
     }
 };
-#include "common/compile_check_end.h"
 } // namespace doris
 
 // This intended to be a "good" hash function.  It may change from time to time.

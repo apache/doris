@@ -30,7 +30,6 @@
 #include "exprs/aggregate/aggregate_function.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 template <PrimitiveType T,
           // requires Sx and Sy
@@ -389,4 +388,3 @@ private:
 };
 } // namespace doris
 
-#include "common/compile_check_end.h"

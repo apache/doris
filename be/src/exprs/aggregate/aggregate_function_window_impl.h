@@ -27,7 +27,6 @@
 #include "exprs/aggregate/helpers.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 // All window-path Data types (LeadLagData, FirstLastData, NthValueData) no longer have
 // ColVecType template parameter. Direct instantiation with only (result_is_nullable, arg_is_nullable).
@@ -55,5 +54,4 @@ namespace doris {
         return res;                                                                           \
     }
 
-#include "common/compile_check_end.h"
 } // namespace doris

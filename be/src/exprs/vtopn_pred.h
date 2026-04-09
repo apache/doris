@@ -33,7 +33,6 @@
 #include "runtime/runtime_state.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 // only used for dynamic topn filter
 class VTopNPred : public VExpr {
@@ -237,5 +236,4 @@ private:
     VExprContextSPtr _target_ctx;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

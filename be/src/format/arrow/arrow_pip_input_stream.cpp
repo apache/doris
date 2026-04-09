@@ -24,7 +24,6 @@
 #include "arrow/result.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 ArrowPipInputStream::ArrowPipInputStream(io::FileReaderSPtr file_reader)
         : _file_reader(std::move(file_reader)), _pos(0), _begin(true) {
@@ -92,5 +91,4 @@ arrow::Result<std::shared_ptr<arrow::Buffer>> ArrowPipInputStream::Read(int64_t 
     return buffer;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -29,7 +29,6 @@
 #include "format/table/iceberg/unbound_partition_spec.h"
 
 namespace doris::iceberg {
-#include "common/compile_check_begin.h"
 
 class PartitionSpec;
 class Schema;
@@ -52,5 +51,4 @@ private:
                                         const rapidjson::Value& value);
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris::iceberg

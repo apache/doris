@@ -25,7 +25,6 @@
 #include "runtime/runtime_profile.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 template <bool is_intersect>
 Status SetSourceLocalState<is_intersect>::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));

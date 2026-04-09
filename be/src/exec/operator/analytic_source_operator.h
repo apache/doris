@@ -25,7 +25,6 @@
 namespace doris {
 class RuntimeState;
 
-#include "common/compile_check_begin.h"
 
 class AnalyticSourceOperatorX;
 class AnalyticLocalState final : public PipelineXLocalState<AnalyticSharedState> {
@@ -59,4 +58,3 @@ private:
 };
 
 } // namespace doris
-#include "common/compile_check_end.h"

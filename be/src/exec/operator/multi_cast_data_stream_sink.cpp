@@ -22,7 +22,6 @@
 #include "exec/pipeline/dependency.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 std::string MultiCastDataStreamSinkLocalState::name_suffix() {
     auto* parent = static_cast<MultiCastDataStreamSinkOperatorX*>(_parent);

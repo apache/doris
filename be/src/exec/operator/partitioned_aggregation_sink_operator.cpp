@@ -34,7 +34,6 @@
 #include "util/pretty_printer.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 PartitionedAggSinkLocalState::PartitionedAggSinkLocalState(DataSinkOperatorXBase* parent,
                                                            RuntimeState* state)
         : Base(parent, state) {}
@@ -547,5 +546,4 @@ bool PartitionedAggSinkLocalState::is_blockable() const {
     return _shared_state->_is_spilled;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -18,7 +18,6 @@
 #include "storage/index/inverted/analyzer/ik/core/CN_QuantifierSegmenter.h"
 
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 
 const std::u32string CN_QuantifierSegmenter::CHINESE_NUMBERS =
         U"一二两三四五六七八九十零壹贰叁肆伍陆柒捌玖拾百千万亿拾佰仟萬億兆卅廿";
@@ -177,5 +176,4 @@ void CN_QuantifierSegmenter::outputNumLexeme(AnalyzeContext& context) {
     }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

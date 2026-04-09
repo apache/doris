@@ -40,7 +40,6 @@
 
 namespace doris::segment_v2 {
 
-#include "common/compile_check_begin.h"
 
 Status HierarchicalDataIterator::create(ColumnIteratorUPtr* reader, int32_t col_uid,
                                         PathInData path, const SubcolumnColumnMetaInfo::Node* node,
@@ -613,6 +612,5 @@ Status HierarchicalDataIterator::_init_null_map_and_clear_columns(MutableColumnP
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 
 } // namespace doris::segment_v2

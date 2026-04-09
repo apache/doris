@@ -37,7 +37,6 @@
 #include "util/sse_util.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 namespace detail {
 // Slicing-by-4 table: t[0] is the standard byte-at-a-time table,
 // t[1..3] are extended tables for parallel 4-byte processing.
@@ -511,4 +510,3 @@ struct std::hash<std::pair<First, Second>> {
     }
 };
 
-#include "common/compile_check_end.h"

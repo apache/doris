@@ -31,7 +31,6 @@
 #include "exec/sink/tablet_sink_hash_partitioner.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 ExchangeWriterBase::ExchangeWriterBase(ExchangeSinkLocalState& local_state)
         : _local_state(local_state), _partitioner(local_state.partitioner()) {}

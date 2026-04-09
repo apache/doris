@@ -30,7 +30,6 @@ struct JsonbValue;
 
 class IColumn;
 class Arena;
-#include "common/compile_check_begin.h"
 
 class DataTypeStructSerDe : public DataTypeSerDe {
 public:
@@ -127,5 +126,4 @@ private:
     DataTypeSerDeSPtrs elem_serdes_ptrs;
     Strings elem_names;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

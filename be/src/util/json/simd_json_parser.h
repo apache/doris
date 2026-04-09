@@ -27,7 +27,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
 
 /// This class can be used as an argument for the template class FunctionJSON.
 /// It provides ability to parse JSONs using simdjson library.
@@ -179,6 +178,5 @@ inline ALWAYS_INLINE SimdJSONParser::Object SimdJSONParser::Element::getObject()
     return element.get_object().value_unsafe();
 }
 
-#include "common/compile_check_end.h"
 
 } // namespace doris

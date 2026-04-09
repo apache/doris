@@ -26,7 +26,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
 
 namespace {
 
@@ -169,7 +168,6 @@ void ShowHotspotAction::handle(HttpRequest* req) {
 
     HttpChannel::send_reply(req, HttpStatus::OK, res);
 
-#include "common/compile_check_end.h"
 }
 
 } // namespace doris

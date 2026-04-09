@@ -30,7 +30,6 @@
 
 namespace doris::segment_v2 {
 
-#include "common/compile_check_begin.h"
 
 VariantStreamingCompactionWriter::VariantStreamingCompactionWriter(
         const ColumnWriterOptions& opts, const TabletColumn* column,
@@ -308,6 +307,5 @@ Status VariantStreamingCompactionWriter::write_bloom_filter_index() {
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 
 } // namespace doris::segment_v2

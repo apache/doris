@@ -55,7 +55,6 @@ class VSlotRef;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class Dependency;
 class PipelineTask;
 struct BasicSharedState;
@@ -760,5 +759,4 @@ public:
     }
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

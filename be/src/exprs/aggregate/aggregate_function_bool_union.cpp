@@ -24,7 +24,6 @@
 #include "exprs/aggregate/helpers.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 void register_aggregate_function_bool_union(AggregateFunctionSimpleFactory& factory) {
     factory.register_function_both(
@@ -41,4 +40,3 @@ void register_aggregate_function_bool_union(AggregateFunctionSimpleFactory& fact
     factory.register_alias("bool_xor", "boolxor_agg");
 }
 } // namespace doris
-#include "common/compile_check_end.h"

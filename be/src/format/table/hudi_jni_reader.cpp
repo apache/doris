@@ -30,7 +30,6 @@ class Block;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 const std::string HudiJniReader::HOODIE_CONF_PREFIX = "hoodie.";
 const std::string HudiJniReader::HADOOP_CONF_PREFIX = "hadoop_conf.";
 
@@ -78,5 +77,4 @@ HudiJniReader::HudiJniReader(const TFileScanRangeParams& scan_params,
 Status HudiJniReader::init_reader() {
     return open(_state, _profile);
 }
-#include "common/compile_check_end.h"
 } // namespace doris

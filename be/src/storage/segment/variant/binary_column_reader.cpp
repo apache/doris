@@ -31,7 +31,6 @@
 
 namespace doris::segment_v2 {
 
-#include "common/compile_check_begin.h"
 
 Status DummyBinaryColumnReader::new_binary_column_iterator(ColumnIteratorUPtr* iter) const {
     static const TabletColumn binary_column = []() {
@@ -277,5 +276,4 @@ void CombineMultipleBinaryColumnIterator::_collect_sparse_data_from_buckets(
     }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

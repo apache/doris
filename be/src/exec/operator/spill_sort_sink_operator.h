@@ -25,7 +25,6 @@
 #include "exec/spill/spill_file_writer.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class SpillSortSinkLocalState;
 class SpillSortSinkOperatorX;
 
@@ -115,5 +114,4 @@ private:
     std::unique_ptr<SortSinkOperatorX> _sort_sink_operator;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

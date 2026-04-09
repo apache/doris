@@ -58,7 +58,6 @@
 #include "util/thread.h"
 #include "util/time.h"
 namespace doris::io {
-#include "common/compile_check_begin.h"
 
 // Insert a block pointer into one shard while swallowing allocation failures.
 bool NeedUpdateLRUBlocks::insert(FileBlockSPtr block) {
@@ -2463,7 +2462,6 @@ template void BlockFileCache::remove(FileBlockSPtr file_block,
                                      std::lock_guard<std::mutex>& cache_lock,
                                      std::lock_guard<std::mutex>& block_lock, bool sync);
 
-#include "common/compile_check_end.h"
 
 Status BlockFileCache::report_file_cache_inconsistency(std::vector<std::string>& results) {
     InconsistencyContext inconsistency_context;

@@ -40,7 +40,6 @@ class RuntimeProfile;
 
 using namespace ErrorCode;
 
-#include "common/compile_check_begin.h"
 
 Status VStatisticsIterator::init(const StorageReadOptions& opts) {
     if (!_init) {
@@ -481,6 +480,5 @@ RowwiseIteratorUPtr new_auto_increment_iterator(const Schema& schema, size_t num
     return std::make_unique<VAutoIncrementIterator>(schema, num_rows);
 }
 
-#include "common/compile_check_end.h"
 
 } // namespace doris

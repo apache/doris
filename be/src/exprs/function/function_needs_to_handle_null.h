@@ -20,7 +20,6 @@
 #include "exprs/function/function.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 // Helper struct to store information about const+nullable columns
 struct ColumnWithConstAndNullMap {
@@ -156,5 +155,4 @@ private:
         return has_nullable;
     }
 };
-#include "common/compile_check_end.h"
 } // namespace doris

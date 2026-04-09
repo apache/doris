@@ -36,7 +36,6 @@ class SlotDescriptor;
 class TupleDescriptor;
 class Block;
 
-#include "common/compile_check_begin.h"
 
 /**
  * JdbcJniReader reads data from JDBC data sources via the unified JniReader
@@ -97,5 +96,4 @@ private:
                                         int column_index, int num_rows);
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

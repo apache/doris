@@ -73,7 +73,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
 
 Status RowIDFetcher::init() {
     DorisNodesInfo nodes_info;
@@ -1113,6 +1112,5 @@ Status RowIdStorageReader::read_doris_format_row(
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 
 } // namespace doris

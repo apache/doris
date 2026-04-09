@@ -39,7 +39,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
 
 PartitionedHashJoinProbeLocalState::PartitionedHashJoinProbeLocalState(RuntimeState* state,
                                                                        OperatorXBase* parent)
@@ -1054,5 +1053,4 @@ Status PartitionedHashJoinProbeOperatorX::get_block(RuntimeState* state, Block* 
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

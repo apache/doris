@@ -51,7 +51,6 @@ class FunctionContext;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 template <typename Impl>
 class FunctionArrayRange : public IFunction {

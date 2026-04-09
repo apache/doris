@@ -30,7 +30,6 @@
 #include "util/hash_util.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class SlotDescriptor;
 
 // Useful utility functions for runtime values (which are passed around as void*).
@@ -118,5 +117,4 @@ inline uint32_t RawValue::zlib_crc32(const void* v, size_t len, const PrimitiveT
         return 0;
     }
 }
-#include "common/compile_check_end.h"
 } // namespace doris

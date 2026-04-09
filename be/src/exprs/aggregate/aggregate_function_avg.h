@@ -41,7 +41,6 @@
 #include "exprs/aggregate/aggregate_function.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class Arena;
 class BufferReadable;
 class BufferWritable;
@@ -363,4 +362,3 @@ private:
 
 } // namespace doris
 
-#include "common/compile_check_end.h"

@@ -39,7 +39,6 @@
 #include "core/types.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class BufferWritable;
 class IColumn;
@@ -150,5 +149,4 @@ protected:
 private:
     bool _is_null_literal = false;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

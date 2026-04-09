@@ -32,7 +32,6 @@
 #include "util/mysql_row_buffer.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeState;
 
 class Block;
@@ -105,4 +104,3 @@ private:
 };
 } // namespace doris
 
-#include "common/compile_check_end.h"

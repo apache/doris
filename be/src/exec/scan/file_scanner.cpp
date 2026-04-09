@@ -92,7 +92,6 @@ class ShardedKVCache;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 const std::string FileScanner::FileReadBytesProfile = "FileReadBytes";

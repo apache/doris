@@ -20,7 +20,6 @@
 #include <cmath>
 
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 
 using namespace inverted_index;
 
@@ -147,5 +146,4 @@ int32_t BM25Similarity::byte4_to_int(uint8_t b) {
     }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

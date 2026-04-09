@@ -129,7 +129,6 @@
 #include "util/work_thread_pool.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class TupleDescriptor;
 
 class Block;
@@ -2926,5 +2925,4 @@ Status Tablet::prepare_txn(TPartitionId partition_id, TTransactionId transaction
                                               tablet_uid(), load_id, ingest);
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

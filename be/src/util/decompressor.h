@@ -34,7 +34,6 @@
 #include "common/status.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 enum CompressType {
     UNCOMPRESSED,
@@ -306,5 +305,4 @@ private:
     const static uint64_t F_ADLER32_D;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

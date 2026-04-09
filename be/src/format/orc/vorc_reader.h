@@ -82,7 +82,6 @@ class DataBuffer;
 } // namespace orc
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class ORCFileInputStream;
 
 struct LazyReadContext {
@@ -936,5 +935,4 @@ private:
     const io::IOContext* _io_ctx = nullptr;
     RuntimeProfile* _profile = nullptr;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

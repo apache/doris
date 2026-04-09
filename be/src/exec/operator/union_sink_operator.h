@@ -27,7 +27,6 @@
 #include "exec/operator/operator.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeState;
 
 inline Status materialize_block(const VExprContextSPtrs& exprs, Block* src_block, Block* res_block,
@@ -174,5 +173,4 @@ private:
     }
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

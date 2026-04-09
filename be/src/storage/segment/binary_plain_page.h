@@ -40,7 +40,6 @@
 
 namespace doris {
 namespace segment_v2 {
-#include "common/compile_check_begin.h"
 
 template <FieldType Type>
 class BinaryPlainPageBuilder : public PageBuilderHelper<BinaryPlainPageBuilder<Type>> {
@@ -416,6 +415,5 @@ private:
     friend class FileColumnIterator;
 };
 
-#include "common/compile_check_end.h"
 } // namespace segment_v2
 } // namespace doris

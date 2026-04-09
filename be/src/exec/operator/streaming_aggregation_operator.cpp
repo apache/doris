@@ -33,7 +33,6 @@
 #include "exprs/vslot_ref.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeState;
 } // namespace doris
 
@@ -1127,5 +1126,4 @@ bool StreamingAggOperatorX::need_more_input_data(RuntimeState* state) const {
     return local_state._pre_aggregated_block->empty() && !local_state._child_eos;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

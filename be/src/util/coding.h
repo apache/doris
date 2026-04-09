@@ -21,7 +21,6 @@
 #include "util/slice.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 // TODO(zc): add encode big endian later when we need it
 // use big endian when we have order requirement.
 // little endian is more efficient when we use X86 CPU, so
@@ -213,5 +212,4 @@ inline bool get_length_prefixed_slice(Slice* input, Slice* val) {
         return false;
     }
 }
-#include "common/compile_check_end.h"
 } // namespace doris

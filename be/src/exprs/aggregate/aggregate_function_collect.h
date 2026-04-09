@@ -45,7 +45,6 @@
 #include "util/var_int.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 template <PrimitiveType T, bool HasLimit>
 struct AggregateFunctionCollectSetData {
     static constexpr PrimitiveType PType = T;
@@ -476,4 +475,3 @@ private:
 
 } // namespace doris
 
-#include "common/compile_check_end.h"

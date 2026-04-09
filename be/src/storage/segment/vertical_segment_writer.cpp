@@ -81,7 +81,6 @@
 #include "util/jsonb/serialize.h"
 namespace doris::segment_v2 {
 
-#include "common/compile_check_begin.h"
 
 using namespace ErrorCode;
 using namespace KeyConsts;
@@ -1473,6 +1472,5 @@ inline bool VerticalSegmentWriter::_is_mow_with_cluster_key() {
     return _is_mow() && !_tablet_schema->cluster_key_uids().empty();
 }
 
-#include "common/compile_check_end.h"
 
 } // namespace doris::segment_v2

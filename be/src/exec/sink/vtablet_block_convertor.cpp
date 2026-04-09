@@ -65,7 +65,6 @@
 #include "util/thread.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 // !FIXME: Here we should consider using MutableBlock, due to potential data reorganization
 Status OlapTableBlockConvertor::validate_and_convert_block(RuntimeState* state, Block* input_block,

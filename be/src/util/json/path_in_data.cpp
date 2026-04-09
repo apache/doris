@@ -30,7 +30,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
 
 PathInData::PathInData(std::string_view path_, bool is_typed_) : path(path_), is_typed(is_typed_) {
     const char* begin = path.data();
@@ -304,6 +303,5 @@ void PathInDataBuilder::pop_back(size_t n) {
     parts.resize(parts.size() - n);
 }
 
-#include "common/compile_check_end.h"
 
 } // namespace doris

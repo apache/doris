@@ -31,7 +31,6 @@
 
 namespace doris::segment_v2 {
 
-#include "common/compile_check_begin.h"
 
 Status VariantExternalMetaReader::_find_key_meta(const SegmentFooterPB& footer, int32_t root_uid,
                                                  const MetadataPairPB** keys_meta_pair) const {
@@ -232,6 +231,5 @@ Status VariantExternalMetaReader::load_all_once(SubcolumnColumnMetaInfo* out_met
     });
 }
 
-#include "common/compile_check_end.h"
 
 } // namespace doris::segment_v2

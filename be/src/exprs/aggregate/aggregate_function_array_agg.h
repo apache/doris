@@ -33,7 +33,6 @@
 #include "util/io_helper.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class Arena;
 
 template <PrimitiveType T>
@@ -407,4 +406,3 @@ private:
 
 } // namespace doris
 
-#include "common/compile_check_end.h"

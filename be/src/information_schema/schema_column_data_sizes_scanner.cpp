@@ -50,7 +50,6 @@
 namespace doris {
 class Block;
 
-#include "common/compile_check_begin.h"
 
 std::vector<SchemaScanner::ColumnDesc> SchemaColumnDataSizesScanner::_s_tbls_columns = {
         //   name,                type,          size,             is_null

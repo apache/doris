@@ -36,7 +36,6 @@ namespace doris {
 class ColumnVariant;
 namespace segment_v2 {
 
-#include "common/compile_check_begin.h"
 
 class VariantStreamingCompactionWriter {
 public:
@@ -99,7 +98,6 @@ private:
     std::vector<StreamingRegularSubcolumnWriter> _streaming_regular_subcolumn_writers;
 };
 
-#include "common/compile_check_end.h"
 
 } // namespace segment_v2
 } // namespace doris

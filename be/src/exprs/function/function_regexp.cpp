@@ -51,7 +51,6 @@
 #include "exprs/string_functions.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 // Helper structure to hold either RE2 or Boost.Regex
 struct RegexpExtractEngine {

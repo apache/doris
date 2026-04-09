@@ -22,7 +22,6 @@
 #include "exprs/aggregate/helpers.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 void register_aggregate_function_avg_weighted(AggregateFunctionSimpleFactory& factory) {
     factory.register_function_both(
             "avg_weighted", creator_without_type::creator<AggregateFunctionAvgWeight<TYPE_DOUBLE>>);

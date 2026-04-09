@@ -31,7 +31,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
 
 Rowset::Rowset(const TabletSchemaSPtr& schema, RowsetMetaSharedPtr rowset_meta,
                std::string tablet_path)
@@ -239,6 +238,5 @@ std::chrono::time_point<std::chrono::system_clock> Rowset::visible_timestamp() c
     return _rowset_meta->visible_timestamp();
 }
 
-#include "common/compile_check_end.h"
 
 } // namespace doris

@@ -24,7 +24,6 @@
 #include "storage/index/inverted/token_filter/word_delimiter_filter.h"
 
 namespace doris::segment_v2::inverted_index {
-#include "common/compile_check_begin.h"
 
 class WordDelimiterFilterFactory : public TokenFilterFactory {
     friend class WordDelimiterFilterFactoryTest;
@@ -201,5 +200,4 @@ private:
     std::unordered_set<std::string> _protected_words;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

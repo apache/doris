@@ -23,7 +23,6 @@
 #include "exprs/function/cast/cast_to_date_or_datetime_impl.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 RuntimeFilterWrapper::RuntimeFilterWrapper(const RuntimeFilterParams* params)
         : RuntimeFilterWrapper(params->column_return_type, params->filter_type, params->filter_id,
                                State::UNINITED, params->max_in_num) {

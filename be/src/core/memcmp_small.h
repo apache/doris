@@ -24,7 +24,6 @@
 #include <cstdint>
 
 namespace doris::detail {
-#include "common/compile_check_begin.h"
 inline int cmp(uint8_t a, uint8_t b) {
     if (a < b) return -1;
     if (a > b) return 1;
@@ -221,4 +220,3 @@ inline bool memory_is_zero_small_allow_overflow15(const void* data, size_t size)
 
 #endif
 
-#include "common/compile_check_end.h"

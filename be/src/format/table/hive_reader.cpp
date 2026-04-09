@@ -26,7 +26,6 @@
 #include "runtime/runtime_state.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 Status HiveReader::get_next_block_inner(Block* block, size_t* read_rows, bool* eof) {
     RETURN_IF_ERROR(_file_format_reader->get_next_block(block, read_rows, eof));
@@ -414,5 +413,4 @@ ColumnIdResult HiveParquetReader::_create_column_ids_by_top_level_col_index(
     return ColumnIdResult(std::move(column_ids), std::move(filter_column_ids));
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

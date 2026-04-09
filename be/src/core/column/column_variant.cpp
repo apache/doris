@@ -78,7 +78,6 @@
 namespace doris {
 namespace {
 
-#include "common/compile_check_begin.h"
 
 DataTypePtr create_array_of_type(PrimitiveType type, size_t num_dimensions, bool is_nullable,
                                  int precision = -1, int scale = -1) {
@@ -2714,6 +2713,5 @@ bool ColumnVariant::is_doc_mode() const {
     return subcolumns.size() == 1 && offset[num_rows - 1] != 0;
 }
 
-#include "common/compile_check_end.h"
 
 } // namespace doris

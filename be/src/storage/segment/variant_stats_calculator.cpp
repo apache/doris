@@ -26,7 +26,6 @@
 
 namespace doris::segment_v2 {
 
-#include "common/compile_check_begin.h"
 
 VariantStatsCaculator::VariantStatsCaculator(SegmentFooterPB* footer,
                                              TabletSchemaSPtr tablet_schema,
@@ -117,6 +116,5 @@ void VariantStatsCaculator::_calculate_sub_column_stats(const IColumn& column,
                << " (added " << current_non_null_count << " from current block)";
 }
 
-#include "common/compile_check_end.h"
 
 } // namespace doris::segment_v2

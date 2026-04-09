@@ -18,7 +18,6 @@
 #pragma once
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class AggregateFunctionSimpleFactory;
 } // namespace doris
 
@@ -33,4 +32,3 @@ void register_aggregate_function_replace_reader_load(AggregateFunctionSimpleFact
 
 } // namespace doris
 
-#include "common/compile_check_end.h"

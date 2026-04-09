@@ -37,7 +37,6 @@
 #include "util/to_string.h"
 
 namespace doris::converter {
-#include "common/compile_check_begin.h"
 
 enum FileFormat { COMMON, ORC, PARQUET };
 
@@ -977,5 +976,4 @@ public:
     }
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris::converter

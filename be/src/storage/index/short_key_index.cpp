@@ -27,7 +27,6 @@
 #include "util/coding.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 static bvar::Adder<size_t> g_short_key_index_memory_bytes("doris_short_key_index_memory_bytes");
 
@@ -103,5 +102,4 @@ ShortKeyIndexDecoder::~ShortKeyIndexDecoder() {
     }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

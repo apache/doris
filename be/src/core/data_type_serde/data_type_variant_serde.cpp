@@ -37,7 +37,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
 
 Status DataTypeVariantSerDe::write_column_to_mysql_binary(const IColumn& column,
                                                           MysqlRowBinaryBuffer& row_buffer,

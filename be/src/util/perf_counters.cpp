@@ -39,7 +39,6 @@
 #include "util/string_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 #define COUNTER_SIZE (sizeof(void*))
 #define PRETTY_PRINT_WIDTH 13
 

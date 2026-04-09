@@ -38,7 +38,6 @@ struct FieldSchema;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 bool PageIndex::check_and_get_page_index_ranges(const std::vector<tparquet::ColumnChunk>& columns) {
     int64_t ci_start = std::numeric_limits<int64_t>::max();
@@ -86,6 +85,5 @@ Status PageIndex::parse_offset_index(const tparquet::ColumnChunk& chunk, const u
     RETURN_IF_ERROR(deserialize_thrift_msg(buff + buffer_offset, &length, true, offset_index));
     return Status::OK();
 }
-#include "common/compile_check_end.h"
 
 } // namespace doris

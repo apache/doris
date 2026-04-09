@@ -33,7 +33,6 @@
 #include "format/parquet/schema_desc.h"
 
 namespace doris::parquet {
-#include "common/compile_check_begin.h"
 struct ConvertParams {
     // schema.logicalType.TIMESTAMP.isAdjustedToUTC == false
     static const cctz::time_zone utc0;
@@ -739,6 +738,5 @@ struct Int96toTimestampTz : public PhysicalToLogicalConverter {
         return Status::OK();
     }
 };
-#include "common/compile_check_end.h"
 
 } // namespace doris::parquet

@@ -28,7 +28,6 @@
 #include "runtime/record_batch_queue.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 Status MemoryScratchSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());

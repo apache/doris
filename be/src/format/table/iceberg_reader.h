@@ -38,7 +38,6 @@ class KeyValue;
 } // namespace tparquet
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RowDescriptor;
 class RuntimeState;
 class SlotDescriptor;
@@ -257,5 +256,4 @@ private:
     const orc::Type* _data_file_type_desc = nullptr;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

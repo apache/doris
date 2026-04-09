@@ -27,7 +27,6 @@
 #include "util/uid_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeState;
 
 class Block;
@@ -327,5 +326,4 @@ private:
     bool _is_used_by_other_rec_cte = false;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -42,7 +42,6 @@
 using boost::algorithm::to_lower_copy;
 
 namespace fs = std::filesystem;
-#include "common/compile_check_begin.h"
 
 namespace doris {
 
@@ -189,5 +188,4 @@ bool TimezoneUtils::parse_tz_offset_string(const std::string& timezone, cctz::ti
     return false;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

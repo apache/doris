@@ -45,7 +45,6 @@
 #include "util/url_coding.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 struct NameStringASCII {
     static constexpr auto name = "ascii";
 };

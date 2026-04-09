@@ -27,7 +27,6 @@
 #include "runtime/memory/mem_tracker_limiter.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 FileMetaData::FileMetaData(tparquet::FileMetaData& metadata, size_t mem_size)
         : _metadata(metadata), _mem_size(mem_size) {
@@ -59,6 +58,5 @@ std::string FileMetaData::debug_string() const {
     out << ")";
     return out.str();
 }
-#include "common/compile_check_end.h"
 
 } // namespace doris

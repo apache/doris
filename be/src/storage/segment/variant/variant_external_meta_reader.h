@@ -31,7 +31,6 @@
 
 namespace doris::segment_v2 {
 
-#include "common/compile_check_begin.h"
 
 // Encapsulates reading of externalized Variant subcolumn metas.
 // It discovers key/value indexed-columns from SegmentFooterPB, supports:
@@ -90,6 +89,5 @@ private:
     bool _loaded = false;
 };
 
-#include "common/compile_check_end.h"
 
 } // namespace doris::segment_v2

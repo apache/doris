@@ -28,7 +28,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
 
 bool CgroupCpuCtl::is_a_valid_cgroup_path(std::string cg_path) {
     if (!cg_path.empty()) {
@@ -445,6 +444,5 @@ Status CgroupV2CpuCtl::add_thread_to_cgroup() {
     return CgroupCpuCtl::add_thread_to_cgroup(_cgroup_v2_query_wg_thread_file);
 }
 
-#include "common/compile_check_end.h"
 
 } // namespace doris
