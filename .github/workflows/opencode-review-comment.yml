@@ -1,0 +1,114 @@
+name: Code Review Comment Dispatch
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  statuses: write
+  pull-requests: write
+  contents: read
+  issues: write
+
+jobs:
+  resolve-pr:
+    runs-on: ubuntu-latest
+    if: >-
+      github.event.issue.pull_request &&
+      contains(github.event.comment.body, '/review')
+    outputs:
+      pr_number: ${{ steps.pr.outputs.pr_number }}
+      head_sha: ${{ steps.pr.outputs.head_sha }}
+      base_sha: ${{ steps.pr.outputs.base_sha }}
+    steps:
+      - name: Get PR info
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_JSON=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.issue.number }})
+          HEAD_SHA=$(echo "$PR_JSON" | jq -r '.head.sha')
+          BASE_SHA=$(echo "$PR_JSON" | jq -r '.base.sha')
+          echo "pr_number=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          echo "base_sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
+
+  code-review:
+    needs:
+      - resolve-pr
+      - mark-review-pending
+    if: >-
+      github.event.issue.pull_request &&
+      contains(github.event.comment.body, '/review')
+    uses: ./.github/workflows/opencode-review-runner.yml
+    secrets: inherit
+    with:
+      pr_number: ${{ needs.resolve-pr.outputs.pr_number }}
+      head_sha: ${{ needs.resolve-pr.outputs.head_sha }}
+      base_sha: ${{ needs.resolve-pr.outputs.base_sha }}
+
+  mark-review-pending:
+    needs: resolve-pr
+    runs-on: ubuntu-latest
+    if: >-
+      github.event.issue.pull_request &&
+      contains(github.event.comment.body, '/review')
+    steps:
+      - name: Mark Code Review status as pending
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ needs.resolve-pr.outputs.head_sha }}
+        run: |
+          gh api repos/${REPO}/statuses/${HEAD_SHA} \
+            -X POST \
+            -f state='pending' \
+            -f context='code-review' \
+            -f description="Automated review is running for ${HEAD_SHA}." \
+            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+  refresh-required-check:
+    needs:
+      - resolve-pr
+      - code-review
+    runs-on: ubuntu-latest
+    if: ${{ always() && needs.resolve-pr.result == 'success' && needs.code-review.result != 'skipped' }}
+    steps:
+      - name: Sync Code Review check for current head
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ needs.resolve-pr.outputs.pr_number }}
+          HEAD_SHA: ${{ needs.resolve-pr.outputs.head_sha }}
+        run: |
+          REVIEWS=$(gh api --paginate repos/${REPO}/pulls/${PR_NUMBER}/reviews)
+          review_state=$(printf '%s' "$REVIEWS" | jq -r --arg head_sha "$HEAD_SHA" '
+            ([ .[]
+              | select(.user.login == "github-actions[bot]" or .user.login == "github-actions")
+              | select(.commit_id == $head_sha)
+              | select(.state == "APPROVED" or .state == "CHANGES_REQUESTED")
+            ]
+            | sort_by(.submitted_at)
+            | last
+            | .state) // ""
+          ')
+
+          conclusion="failure"
+          summary="No automated approve/request-changes review exists for ${HEAD_SHA}."
+
+          if [ "$review_state" = "APPROVED" ]; then
+            conclusion="success"
+            summary="Automated review approved the PR for ${HEAD_SHA}."
+          elif [ "$review_state" = "CHANGES_REQUESTED" ]; then
+            summary="Automated review requested changes for ${HEAD_SHA}."
+          fi
+
+          state="failure"
+          [ "$conclusion" = "success" ] && state="success"
+
+          gh api repos/${REPO}/statuses/${HEAD_SHA} \
+            -X POST \
+            -f state="${state}" \
+            -f context='code-review' \
+            -f description="${summary}" \
+            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
