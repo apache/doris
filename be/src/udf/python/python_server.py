@@ -628,11 +628,9 @@ class AdaptivePythonUDF:
                     converted_args,
                     traceback.format_exc(),
                 )
-                # Return None for failed rows if always_nullable is True
-                if self.python_udf_meta.always_nullable:
-                    result.append(None)
-                else:
-                    raise
+                raise RuntimeError(
+                    f"Error in scalar UDF execution at row {i}: {e}"
+                ) from e
 
         return pa.array(result, type=self._get_output_type())
 
@@ -1731,7 +1729,9 @@ class FlightServer(flight.FlightServerBase):
                 place_id,
                 e,
             )
-            success = False
+            raise RuntimeError(
+                f"CREATE operation failed for place_id={place_id}: {e}"
+            ) from e
 
         return pa.RecordBatch.from_arrays(
             [pa.array([success], type=pa.bool_())], ["success"]
@@ -1879,7 +1879,9 @@ class FlightServer(flight.FlightServerBase):
                 place_id,
                 e,
             )
-            serialized = b""
+            raise RuntimeError(
+                f"SERIALIZE operation failed for place_id={place_id}: {e}"
+            ) from e
 
         return pa.RecordBatch.from_arrays(
             [pa.array([serialized], type=pa.binary())], ["serialized_state"]
@@ -1908,7 +1910,9 @@ class FlightServer(flight.FlightServerBase):
                 place_id,
                 e,
             )
-            success = False
+            raise RuntimeError(
+                f"MERGE operation failed for place_id={place_id}: {e}"
+            ) from e
 
         return pa.RecordBatch.from_arrays(
             [pa.array([success], type=pa.bool_())], ["success"]
@@ -1932,7 +1936,9 @@ class FlightServer(flight.FlightServerBase):
                 place_id,
                 e,
             )
-            result = None
+            raise RuntimeError(
+                f"FINALIZE operation failed for place_id={place_id}: {e}"
+            ) from e
 
         return pa.RecordBatch.from_arrays(
             [pa.array([result], type=output_type)], ["result"]
@@ -1954,7 +1960,9 @@ class FlightServer(flight.FlightServerBase):
                 place_id,
                 e,
             )
-            success = False
+            raise RuntimeError(
+                f"RESET operation failed for place_id={place_id}: {e}"
+            ) from e
 
         return pa.RecordBatch.from_arrays(
             [pa.array([success], type=pa.bool_())], ["success"]
@@ -2262,9 +2270,7 @@ class FlightServer(flight.FlightServerBase):
                     e,
                     traceback.format_exc(),
                 )
-                result_batch = self._create_unified_response(
-                    success=False, rows_processed=0, data=b""
-                )
+                raise
 
             # Begin stream with unified schema on first call
             if not started:

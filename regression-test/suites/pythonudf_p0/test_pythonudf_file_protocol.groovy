@@ -55,19 +55,20 @@ suite("test_pythonudf_file_protocol") {
         qt_select_file_string """ SELECT py_file_string_mask('1234567890', 3, 3) AS result; """
         
         // Test 3: Load float_test.py from zip package using file:// protocol
-        sql """ DROP FUNCTION IF EXISTS py_file_float_process(FLOAT); """
+        sql """ DROP FUNCTION IF EXISTS py_file_float_process(FLOAT, FLOAT); """
         sql """
-        CREATE FUNCTION py_file_float_process(FLOAT) 
+        CREATE FUNCTION py_file_float_process(FLOAT, FLOAT) 
         RETURNS FLOAT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "file" = "file://${zipPath}",
             "symbol" = "float_test.evaluate",
-            "runtime_version" = "${runtime_version}"
+            "runtime_version" = "${runtime_version}",
+            "always_nullable" = "true"
         );
         """
         
-        qt_select_file_float """ SELECT py_file_float_process(3.14) AS result; """
+        qt_select_file_float """ SELECT py_file_float_process(3.14, null) AS result; """
         
         // Test 4: Load boolean_test.py from zip package using file:// protocol
         sql """ DROP FUNCTION IF EXISTS py_file_bool_not(BOOLEAN); """
@@ -120,7 +121,7 @@ suite("test_pythonudf_file_protocol") {
     } finally {
         try_sql("DROP FUNCTION IF EXISTS py_file_int_add(INT);")
         try_sql("DROP FUNCTION IF EXISTS py_file_string_mask(STRING, INT, INT);")
-        try_sql("DROP FUNCTION IF EXISTS py_file_float_process(FLOAT);")
+        try_sql("DROP FUNCTION IF EXISTS py_file_float_process(FLOAT, FLOAT);")
         try_sql("DROP FUNCTION IF EXISTS py_file_bool_not(BOOLEAN);")
         try_sql("DROP TABLE IF EXISTS file_protocol_test_table;")
     }
