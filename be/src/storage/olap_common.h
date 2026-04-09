@@ -361,6 +361,13 @@ struct OlapReaderStatistics {
 
     int64_t rows_inverted_index_filtered = 0;
     int64_t inverted_index_filter_timer = 0;
+    // Sub-parts of inverted_index_filter_timer, used to diagnose the gap between
+    // inverted_index_filter_timer and the inner InvertedIndexQueryTime.
+    //   inverted_index_filter_timer ≈ apply_col_pred + apply_expr + post_filter_bitmap_op
+    //   apply_expr ≈ inverted_index_query_timer + small VSearchExpr / VExpr overhead
+    int64_t inverted_index_apply_col_pred_timer = 0;
+    int64_t inverted_index_apply_expr_timer = 0;
+    int64_t inverted_index_post_filter_timer = 0;
     int64_t inverted_index_query_timer = 0;
     int64_t inverted_index_query_cache_hit = 0;
     int64_t inverted_index_query_cache_miss = 0;

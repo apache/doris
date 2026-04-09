@@ -217,6 +217,12 @@ private:
     RuntimeProfile::Counter* _statistics_collect_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_filter_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_filter_timer = nullptr;
+    // Sub-parts of _inverted_index_filter_timer for diagnosing where the
+    // inverted-index filter-block wall time is spent (apply_col_pred +
+    // apply_expr + post_filter should sum to the parent FilterTime).
+    RuntimeProfile::Counter* _inverted_index_apply_col_pred_timer = nullptr;
+    RuntimeProfile::Counter* _inverted_index_apply_expr_timer = nullptr;
+    RuntimeProfile::Counter* _inverted_index_post_filter_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_query_null_bitmap_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_query_cache_hit_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_query_cache_miss_counter = nullptr;

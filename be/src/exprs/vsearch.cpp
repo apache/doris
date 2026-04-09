@@ -233,13 +233,19 @@ Status VSearchExpr::execute_column(VExprContext* context, const Block* block, Se
 }
 
 Status VSearchExpr::evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
+    // NOTE: this function runs once per segment. Keep the hot path quiet —
+    // LOG(INFO) / LOG(WARNING) at this level can add tens of seconds of
+    // cumulative wall-clock inside InvertedIndexFilterTime on busy scans with
+    // many segments, making the filter-time dwarf the inner
+    // InvertedIndexQueryTime. Prefer VLOG_DEBUG except for real failures
+    // returned up the stack.
     if (_search_param.original_dsl.empty()) {
         return Status::InvalidArgument("search DSL is empty");
     }
 
     auto index_context = context->get_index_context();
     if (!index_context) {
-        LOG(WARNING) << "VSearchExpr: No inverted index context available";
+        VLOG_DEBUG << "VSearchExpr: No inverted index context available";
         return Status::OK();
     }
 
@@ -250,8 +256,8 @@ Status VSearchExpr::evaluate_inverted_index(VExprContext* context, uint32_t segm
 
     const bool is_nested_query = _search_param.root.clause_type == "NESTED";
     if (bundle.iterators.empty() && !is_nested_query) {
-        LOG(WARNING) << "VSearchExpr: No indexed columns available for evaluation, DSL: "
-                     << _original_dsl;
+        VLOG_DEBUG << "VSearchExpr: No indexed columns available for evaluation, DSL: "
+                   << _original_dsl;
         auto empty_bitmap = InvertedIndexResultBitmap(std::make_shared<roaring::Roaring>(),
                                                       std::make_shared<roaring::Roaring>());
         index_context->set_index_result_for_expr(this, std::move(empty_bitmap));
@@ -272,7 +278,10 @@ Status VSearchExpr::evaluate_inverted_index(VExprContext* context, uint32_t segm
         return status;
     }
 
-    index_context->set_index_result_for_expr(this, result_bitmap);
+    // Move (not copy) the bitmap into the expr context to avoid a deep copy of
+    // the underlying roaring bitmap per segment. `result_bitmap` is not used
+    // after this call.
+    index_context->set_index_result_for_expr(this, std::move(result_bitmap));
     for (int column_id : bundle.column_ids) {
         index_context->set_true_for_index_status(this, column_id);
     }

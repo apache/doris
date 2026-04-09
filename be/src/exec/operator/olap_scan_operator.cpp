@@ -241,6 +241,15 @@ Status OlapScanLocalState::_init_profile() {
             ADD_COUNTER_WITH_LEVEL(_segment_profile, "RowsInvertedIndexFiltered", TUnit::UNIT, 1);
     _inverted_index_filter_timer =
             ADD_TIMER_WITH_LEVEL(_segment_profile, "InvertedIndexFilterTime", 1);
+    // Sub-parts of InvertedIndexFilterTime (sum should ≈ parent). These diagnose
+    // where the filter-block wall time is actually spent when InvertedIndexFilterTime
+    // and InvertedIndexQueryTime do not match.
+    _inverted_index_apply_col_pred_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+            _segment_profile, "InvertedIndexApplyColPredTime", "InvertedIndexFilterTime", 1);
+    _inverted_index_apply_expr_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+            _segment_profile, "InvertedIndexApplyExprTime", "InvertedIndexFilterTime", 1);
+    _inverted_index_post_filter_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+            _segment_profile, "InvertedIndexPostFilterTime", "InvertedIndexFilterTime", 1);
     _inverted_index_query_cache_hit_counter =
             ADD_COUNTER_WITH_LEVEL(_segment_profile, "InvertedIndexQueryCacheHit", TUnit::UNIT, 1);
     _inverted_index_query_cache_miss_counter =

@@ -606,19 +606,24 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
         minimum_should_match = search_param.minimum_should_match;
     }
 
-    auto* stats = context->stats;
-    int64_t dummy_timer = 0;
-    SCOPED_RAW_TIMER(stats ? &stats->inverted_index_searcher_search_timer : &dummy_timer);
-
+    // ---- Phase A: Build the query tree (OUTSIDE search_timer scope). --------
+    // `build_query_recursive` walks the DSL and, at every leaf, calls
+    // `FieldReaderResolver::resolve(...)` which in turn opens the CLucene
+    // directory / builds the IndexSearcher. That opening cost is already
+    // tracked by `inverted_index_searcher_open_timer` inside the resolver.
+    //
+    // Keep this OUTSIDE `inverted_index_searcher_search_timer` so that
+    // OpenTime becomes a SIBLING of SearchTime under QueryTime, mirroring the
+    // MATCH path where `handle_searcher_cache` (OpenTime) and
+    // `match_index_search` (SearchTime) are both direct children of QueryTime
+    // in `FullTextIndexReader::query`. Previously OpenTime was nested inside
+    // SearchInitTime → SearchTime, which broke the invariant
+    //   QueryTime ≈ OpenTime + SearchTime.
     query_v2::QueryPtr root_query;
     std::string root_binding_key;
-    {
-        int64_t init_dummy = 0;
-        SCOPED_RAW_TIMER(stats ? &stats->inverted_index_searcher_search_init_timer : &init_dummy);
-        RETURN_IF_ERROR(build_query_recursive(search_param.root, context, resolver, &root_query,
-                                              &root_binding_key, default_operator,
-                                              minimum_should_match));
-    }
+    RETURN_IF_ERROR(build_query_recursive(search_param.root, context, resolver, &root_query,
+                                          &root_binding_key, default_operator,
+                                          minimum_should_match));
     if (root_query == nullptr) {
         LOG(INFO) << "search: Query tree resolved to empty query, dsl:"
                   << search_param.original_dsl;
@@ -640,55 +645,93 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
         top_k = index_query_context->query_limit;
     }
 
-    auto weight = root_query->weight(enable_scoring);
-    if (!weight) {
-        LOG(WARNING) << "search: Failed to build query weight";
-        bitmap_result = InvertedIndexResultBitmap(std::make_shared<roaring::Roaring>(),
-                                                  std::make_shared<roaring::Roaring>());
-        return Status::OK();
-    }
-
+    // ---- Phase B: Execute query (INSIDE search_timer scope). ----------------
+    // SearchTime is the analog of MATCH path's `match_index_search`:
+    //   SearchInitTime  – prepare the executable query structure
+    //                     (`query->add(query_info)` in MATCH;
+    //                      `Query::weight(...)` here — creating the Weight
+    //                      from the query tree)
+    //   SearchExecTime  – iterate the scorer and extract the null bitmap. The
+    //                     actual `weight->scorer(...)` call that opens the
+    //                     per-term posting-list iterators lives inside
+    //                     `collect_multi_segment_*`, which is inside this
+    //                     scope.
+    // Together they should cover nearly all of SearchTime, restoring the
+    // invariant `SearchTime ≈ SearchInitTime + SearchExecTime`. Result-bitmap
+    // construction and DSL cache insertion happen OUTSIDE SearchTime (still
+    // inside QueryTime), mirroring the MATCH path where `match_index_search`
+    // returns first and only then the caller does `cache->insert(...)`.
     std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
-    {
-        int64_t exec_dummy = 0;
-        SCOPED_RAW_TIMER(stats ? &stats->inverted_index_searcher_search_exec_timer : &exec_dummy);
-        if (enable_scoring && !is_asc && top_k > 0) {
-            bool use_wand = index_query_context->runtime_state != nullptr &&
-                            index_query_context->runtime_state->query_options()
-                                    .enable_inverted_index_wand_query;
-            query_v2::collect_multi_segment_top_k(
-                    weight, exec_ctx, root_binding_key, top_k, roaring,
-                    index_query_context->collection_similarity, use_wand);
-        } else {
-            query_v2::collect_multi_segment_doc_set(
-                    weight, exec_ctx, root_binding_key, roaring,
-                    index_query_context ? index_query_context->collection_similarity : nullptr,
-                    enable_scoring);
-        }
-    }
-
-    VLOG_DEBUG << "search: Query completed, matched " << roaring->cardinality() << " documents";
-
-    // Extract NULL bitmap from three-valued logic scorer
-    // The scorer correctly computes which documents evaluate to NULL based on query logic
-    // For example: TRUE OR NULL = TRUE (not NULL), FALSE OR NULL = NULL
     std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
-    if (exec_ctx.null_resolver) {
-        auto scorer = weight->scorer(exec_ctx, root_binding_key);
-        if (scorer && scorer->has_null_bitmap(exec_ctx.null_resolver)) {
-            const auto* bitmap = scorer->get_null_bitmap(exec_ctx.null_resolver);
-            if (bitmap != nullptr) {
-                *null_bitmap = *bitmap;
-                VLOG_TRACE << "search: Extracted NULL bitmap with " << null_bitmap->cardinality()
-                           << " NULL documents";
+    {
+        auto* stats = context->stats;
+        int64_t dummy_timer = 0;
+        SCOPED_RAW_TIMER(stats ? &stats->inverted_index_searcher_search_timer : &dummy_timer);
+
+        query_v2::WeightPtr weight;
+        {
+            int64_t init_dummy = 0;
+            SCOPED_RAW_TIMER(stats ? &stats->inverted_index_searcher_search_init_timer
+                                   : &init_dummy);
+            weight = root_query->weight(enable_scoring);
+            if (!weight) {
+                LOG(WARNING) << "search: Failed to build query weight";
+                bitmap_result = InvertedIndexResultBitmap(std::make_shared<roaring::Roaring>(),
+                                                          std::make_shared<roaring::Roaring>());
+                return Status::OK();
             }
         }
-    }
+
+        {
+            int64_t exec_dummy = 0;
+            SCOPED_RAW_TIMER(stats ? &stats->inverted_index_searcher_search_exec_timer
+                                   : &exec_dummy);
+            if (enable_scoring && !is_asc && top_k > 0) {
+                bool use_wand = index_query_context->runtime_state != nullptr &&
+                                index_query_context->runtime_state->query_options()
+                                        .enable_inverted_index_wand_query;
+                query_v2::collect_multi_segment_top_k(
+                        weight, exec_ctx, root_binding_key, top_k, roaring,
+                        index_query_context->collection_similarity, use_wand);
+            } else {
+                query_v2::collect_multi_segment_doc_set(
+                        weight, exec_ctx, root_binding_key, roaring,
+                        index_query_context ? index_query_context->collection_similarity : nullptr,
+                        enable_scoring);
+            }
+
+            VLOG_DEBUG << "search: Query completed, matched " << roaring->cardinality()
+                       << " documents";
+
+            // Extract NULL bitmap from three-valued logic scorer. Keep inside
+            // SearchExecTime so the invariant
+            //   SearchTime ≈ SearchInitTime + SearchExecTime
+            // holds. `inverted_index_query_null_bitmap_timer` still reports its
+            // own slice as a separate sibling of QueryTime; the small overlap
+            // between those two timers is intentional and mirrors the MATCH
+            // path (where null-bitmap read happens inside handle_searcher_cache
+            // which is already covered by OpenTime).
+            if (exec_ctx.null_resolver) {
+                auto scorer = weight->scorer(exec_ctx, root_binding_key);
+                if (scorer && scorer->has_null_bitmap(exec_ctx.null_resolver)) {
+                    const auto* bitmap = scorer->get_null_bitmap(exec_ctx.null_resolver);
+                    if (bitmap != nullptr) {
+                        *null_bitmap = *bitmap;
+                        VLOG_TRACE << "search: Extracted NULL bitmap with "
+                                   << null_bitmap->cardinality() << " NULL documents";
+                    }
+                }
+            }
+        }
+    } // SearchTime scope ends here.
 
     VLOG_TRACE << "search: Before mask - true_bitmap=" << roaring->cardinality()
                << ", null_bitmap=" << null_bitmap->cardinality();
 
-    // Create result and mask out NULLs (SQL WHERE clause semantics: only TRUE rows)
+    // Create result and mask out NULLs (SQL WHERE clause semantics: only TRUE
+    // rows). Done AFTER SearchTime so SearchTime measures only the work that
+    // MATCH-path `match_index_search` performs; result-object construction
+    // happens in the caller slot, still inside QueryTime.
     bitmap_result = InvertedIndexResultBitmap(std::move(roaring), std::move(null_bitmap));
     bitmap_result.mask_out_null();
 

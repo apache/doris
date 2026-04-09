@@ -757,38 +757,53 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
             size_t input_rows = _row_bitmap.cardinality();
             // Only apply column-level inverted index if we have iterators
             if (has_index_in_iterators()) {
+                SCOPED_RAW_TIMER(&_opts.stats->inverted_index_apply_col_pred_timer);
                 RETURN_IF_ERROR(_apply_inverted_index());
             }
             // Always apply expr-level index (e.g., search expressions) if we have common_expr_pushdown
             // This allows search expressions with variant subcolumns to be evaluated even when
             // the segment doesn't have all subcolumns
-            RETURN_IF_ERROR(_apply_index_expr());
-            for (auto it = _common_expr_ctxs_push_down.begin();
-                 it != _common_expr_ctxs_push_down.end();) {
-                if ((*it)->all_expr_inverted_index_evaluated()) {
-                    const auto* result = (*it)->get_index_context()->get_index_result_for_expr(
-                            (*it)->root().get());
-                    if (result != nullptr) {
-                        _row_bitmap &= *result->get_data_bitmap();
-                        auto root = (*it)->root();
-                        auto iter_find = std::find(_remaining_conjunct_roots.begin(),
-                                                   _remaining_conjunct_roots.end(), root);
-                        if (iter_find != _remaining_conjunct_roots.end()) {
-                            _remaining_conjunct_roots.erase(iter_find);
-                        }
-                        it = _common_expr_ctxs_push_down.erase(it);
-                    }
-                } else {
-                    ++it;
-                }
+            {
+                SCOPED_RAW_TIMER(&_opts.stats->inverted_index_apply_expr_timer);
+                RETURN_IF_ERROR(_apply_index_expr());
             }
-            _opts.condition_cache_digest =
-                    _common_expr_ctxs_push_down.empty() ? 0 : _opts.condition_cache_digest;
-            _opts.stats->rows_inverted_index_filtered += (input_rows - _row_bitmap.cardinality());
-            for (auto cid : _schema->column_ids()) {
-                bool result_true = _check_all_conditions_passed_inverted_index_for_column(cid);
-                if (result_true) {
-                    _need_read_data_indices[cid] = false;
+            {
+                // Post-filter bitmap operations: intersect the row bitmap with each
+                // resolved inverted-index result bitmap and decide which columns no
+                // longer need to read data. For queries over large segments this can
+                // dominate the gap between InvertedIndexFilterTime and
+                // InvertedIndexQueryTime (roaring bitmap `&=`, move of
+                // InvertedIndexResultBitmap out of the expr context, per-column
+                // condition check).
+                SCOPED_RAW_TIMER(&_opts.stats->inverted_index_post_filter_timer);
+                for (auto it = _common_expr_ctxs_push_down.begin();
+                     it != _common_expr_ctxs_push_down.end();) {
+                    if ((*it)->all_expr_inverted_index_evaluated()) {
+                        const auto* result = (*it)->get_index_context()->get_index_result_for_expr(
+                                (*it)->root().get());
+                        if (result != nullptr) {
+                            _row_bitmap &= *result->get_data_bitmap();
+                            auto root = (*it)->root();
+                            auto iter_find = std::find(_remaining_conjunct_roots.begin(),
+                                                       _remaining_conjunct_roots.end(), root);
+                            if (iter_find != _remaining_conjunct_roots.end()) {
+                                _remaining_conjunct_roots.erase(iter_find);
+                            }
+                            it = _common_expr_ctxs_push_down.erase(it);
+                        }
+                    } else {
+                        ++it;
+                    }
+                }
+                _opts.condition_cache_digest =
+                        _common_expr_ctxs_push_down.empty() ? 0 : _opts.condition_cache_digest;
+                _opts.stats->rows_inverted_index_filtered +=
+                        (input_rows - _row_bitmap.cardinality());
+                for (auto cid : _schema->column_ids()) {
+                    bool result_true = _check_all_conditions_passed_inverted_index_for_column(cid);
+                    if (result_true) {
+                        _need_read_data_indices[cid] = false;
+                    }
                 }
             }
         }
