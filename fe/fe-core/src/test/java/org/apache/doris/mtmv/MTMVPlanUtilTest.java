@@ -545,6 +545,32 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         Assertions.assertTrue(exception.getMessage().contains("changed"));
     }
 
+    // Background:
+    // IVM (INCREMENTAL) materialized views are internally stored as UNIQUE_KEYS + Merge-On-Write (MOW)
+    // tables, while normal (COMPLETE) MVs use DUP_KEYS. The original validateColumns() hardcoded
+    // KeysType.DUP_KEYS for all MVs, which caused ColumnDefinition.validate() to set incorrect
+    // aggTypeImplicit values for IVM MV columns.
+    //
+    // What is aggTypeImplicit?
+    //   aggTypeImplicit is a boolean field on Column that indicates whether the column's aggregation
+    //   type (e.g. NONE, REPLACE) was implicitly assigned by the system rather than explicitly
+    //   specified by the user. When aggTypeImplicit=true, the aggregation type is considered an
+    //   internal implementation detail and is hidden from user-facing outputs.
+    //
+    // How aggTypeImplicit is set (in ColumnDefinition.validate()):
+    //   - DUP_KEYS value columns           -> aggTypeImplicit = true  (agg type is system-assigned)
+    //   - UNIQUE_KEYS + MOW value columns  -> aggTypeImplicit = false (agg type is meaningful)
+    //   - UNIQUE_KEYS non-MOW value columns -> aggTypeImplicit = true
+    //
+    // Where aggTypeImplicit is used downstream:
+    //   - Column.toSql() (SHOW CREATE TABLE): when true, the aggregation type is hidden from DDL output
+    //   - Column.equals() / equalsForDistribution(): schema comparison includes this field, so a
+    //     mismatch causes schema inequality even if the actual aggregation type is the same
+    //
+    // The fix: derive KeysType from finalEnableMergeOnWrite (true -> UNIQUE_KEYS, false -> DUP_KEYS)
+    // so validate() produces the correct aggTypeImplicit for each MV type.
+
+    // IVM MV must be created as UNIQUE_KEYS + MOW internally, regardless of user input
     @Test
     public void testIncrementalMvIsUniqueKeyWithMow() throws Exception {
         createMvByNereids("create materialized view mv_ivm_unique_key "
@@ -560,6 +586,7 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         Assertions.assertTrue(mtmv.getEnableUniqueKeyMergeOnWrite());
     }
 
+    // Non-IVM (COMPLETE) MV must use DUP_KEYS — the original default behavior
     @Test
     public void testNonIncrementalMvIsDuplicateKey() throws Exception {
         createMvByNereids("create materialized view mv_non_ivm_dup_key "
@@ -574,6 +601,7 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         Assertions.assertEquals(org.apache.doris.catalog.KeysType.DUP_KEYS, mtmv.getKeysType());
     }
 
+    // User explicitly specifying UNIQUE KEY on IVM MV must fail — the system auto-assigns UNIQUE_KEYS
     @Test
     public void testIncrementalMvWithUserSpecifiedUniqueKeyFails() {
         Assertions.assertThrows(Exception.class, () ->
@@ -585,6 +613,7 @@ public class MTMVPlanUtilTest extends SqlTestBase {
                         + "        as select * from test.T4;"));
     }
 
+    // User explicitly specifying DUPLICATE KEY on IVM MV must fail — same reason as above
     @Test
     public void testIncrementalMvWithUserSpecifiedDupKeyFails() {
         Assertions.assertThrows(Exception.class, () ->
@@ -594,6 +623,77 @@ public class MTMVPlanUtilTest extends SqlTestBase {
                         + "        DISTRIBUTED BY HASH(id) BUCKETS 1\n"
                         + "        PROPERTIES ('replication_num' = '1') \n"
                         + "        as select * from test.T4;"));
+    }
+
+    // IVM value columns must have aggTypeImplicit=false (UNIQUE_KEYS+MOW behavior)
+    // Before the fix, validateColumns() used DUP_KEYS which incorrectly set aggTypeImplicit=true
+    @Test
+    public void testIncrementalMvColumnAggTypeNotImplicit() throws Exception {
+        createMvByNereids("create materialized view mv_ivm_agg_type "
+                + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                + "        PROPERTIES ('replication_num' = '1') \n"
+                + "        as select * from test.T4;");
+
+        Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test");
+        MTMV mtmv = (MTMV) db.getTableOrAnalysisException("mv_ivm_agg_type");
+
+        // UNIQUE_KEYS + MOW columns should have aggTypeImplicit = false
+        for (Column col : mtmv.getBaseSchema()) {
+            if (!col.isKey() && !col.getName().startsWith("__")) {
+                Assertions.assertFalse(col.isAggregationTypeImplicit(),
+                        "IVM non-key column '" + col.getName() + "' should have aggTypeImplicit=false");
+            }
+        }
+    }
+
+    // Counterpart: non-IVM MV value columns must have aggTypeImplicit=true (DUP_KEYS behavior)
+    @Test
+    public void testNonIncrementalMvColumnAggTypeImplicit() throws Exception {
+        createMvByNereids("create materialized view mv_non_ivm_agg_type "
+                + "BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+                + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                + "        PROPERTIES ('replication_num' = '1') \n"
+                + "        as select * from test.T4;");
+
+        Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test");
+        MTMV mtmv = (MTMV) db.getTableOrAnalysisException("mv_non_ivm_agg_type");
+
+        // DUP_KEYS columns should have aggTypeImplicit = true
+        for (Column col : mtmv.getBaseSchema()) {
+            if (!col.isKey()) {
+                Assertions.assertTrue(col.isAggregationTypeImplicit(),
+                        "Non-IVM non-key column '" + col.getName() + "' should have aggTypeImplicit=true");
+            }
+        }
+    }
+
+    // IVM adds a hidden __ivm_row_id column for row-level tracking. Verify it exists in full schema
+    // but is invisible to users via getBaseSchema(false)
+    @Test
+    public void testIncrementalMvRowIdHiddenFromUserSchema() throws Exception {
+        createMvByNereids("create materialized view mv_ivm_rowid_check "
+                + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                + "        PROPERTIES ('replication_num' = '1') \n"
+                + "        as select * from test.T4;");
+
+        Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test");
+        MTMV mtmv = (MTMV) db.getTableOrAnalysisException("mv_ivm_rowid_check");
+
+        // Full schema (including hidden columns) should contain the IVM row-id column
+        List<Column> fullSchema = mtmv.getBaseSchema(true);
+        boolean hasRowId = fullSchema.stream()
+                .anyMatch(c -> Column.IVM_ROW_ID_COL.equals(c.getName()));
+        Assertions.assertTrue(hasRowId,
+                "Full schema should contain hidden IVM row-id column");
+
+        // Visible (user) schema should NOT contain the IVM row-id column
+        List<Column> visibleSchema = mtmv.getBaseSchema(false);
+        boolean visibleHasRowId = visibleSchema.stream()
+                .anyMatch(c -> Column.IVM_ROW_ID_COL.equals(c.getName()));
+        Assertions.assertFalse(visibleHasRowId,
+                "Visible schema should not expose IVM row-id column to user");
     }
 
     private static class CountingSessionVariable extends SessionVariable {

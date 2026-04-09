@@ -589,6 +589,7 @@ public class MTMVPlanUtil {
      */
     private static void validateColumns(List<ColumnDefinition> columns, Set<String> keysSet,
             boolean finalEnableMergeOnWrite) throws UserException {
+        KeysType keysType = finalEnableMergeOnWrite ? KeysType.UNIQUE_KEYS : KeysType.DUP_KEYS;
         Set<String> colSets = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         for (ColumnDefinition col : columns) {
             if (!colSets.add(col.getName())) {
@@ -597,7 +598,7 @@ public class MTMVPlanUtil {
             if (col.getType().isVarBinaryType()) {
                 throw new AnalysisException("MTMV do not support varbinary type : " + col.getName());
             }
-            col.validate(true, keysSet, Sets.newHashSet(), finalEnableMergeOnWrite, KeysType.DUP_KEYS);
+            col.validate(true, keysSet, Sets.newHashSet(), finalEnableMergeOnWrite, keysType);
         }
     }
 
