@@ -16,18 +16,27 @@
 // under the License.
 
 suite("test_file_type_with_s3", "p0,external") {
+    logger.info("start test_file_type_with_s3 test")
+    String enabled = context.config.otherConfigs.get("enablePaimonTest")
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("disabled paimon test")
+        return
+    }
+    String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
+    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    String endpoint = "http://${externalEnvIp}:${minio_port}"
     qt_select_file_type_with_s3 """ select to_file("s3://warehouse/wh/test_partition_legacy.db/test_partition_legacy_true/dt=20514/bucket-0/data-e4bec578-6455-46f8-9b29-4ca3ebf3187e-0.parquet","us-east-1",
-                                        "http://127.0.0.1:19001","admin","password"); """
+                                        "${endpoint}","admin","password"); """
 
     test {
-        sql """select to_file("s3","us-east-1","http://127.0.0.1:19001","admin","password"); """;
+        sql """select to_file("s3","us-east-1","${endpoint}","admin","password"); """;
         exception "INVALID_ARGUMENT"
     }
 
     test {
         sql """
                 select to_file("s3://warehouse/wh/test_partition_legacy.db/test_partition_legacy_true/dt=20514/bucket-0/data-e4bec578-6455-46f8-9b29-4ca3ebf3187e-0.parquet","us-east-1",
-                                        "http://127.0.0.1:19001","admin","sksksk");
+                                        "${endpoint}","admin","sksksk");
             """
         exception "INVALID_ARGUMENT"
     }
@@ -40,7 +49,7 @@ suite("test_file_type_with_s3", "p0,external") {
             ENGINE = fileset
             PROPERTIES (
                 "s3.region" = "us-east-1",
-                "s3.endpoint" = "http://127.0.0.1:19001",
+                "s3.endpoint" = "${endpoint}",
                 "s3.access_key" = "admin",
                 "s3.secret_key" = "password",
                 "location" = "s3://warehouse/wh/test_partition_legacy.db/test_partition_legacy_true/dt=20514/bucket-0/*"
@@ -53,7 +62,7 @@ suite("test_file_type_with_s3", "p0,external") {
         sql """
                 insert into test_file values(
                 to_file("s3://warehouse/wh/test_partition_legacy.db/test_partition_legacy_true/dt=20514/bucket-0/data-e4bec578-6455-46f8-9b29-4ca3ebf3187e-0.parquet","us-east-1",
-                                                        "http://127.0.0.1:19001","admin","password")
+                                                        "${endpoint}","admin","password")
                 );
         """
         exception "not an OLAP table"
@@ -76,7 +85,7 @@ suite("test_file_type_with_s3", "p0,external") {
     test {
         sql """
             select file from test_file where file = to_file("s3://warehouse/wh/test_partition_legacy.db/test_partition_legacy_true/dt=20514/bucket-0/data-e4bec578-6455-46f8-9b29-4ca3ebf3187e-0.parquet","us-east-1",
-                                                        "http://127.0.0.1:19001","admin","password");
+                                                        "${endpoint}","admin","password");
         """
         exception "FILE type does not support filter condition"
     }
