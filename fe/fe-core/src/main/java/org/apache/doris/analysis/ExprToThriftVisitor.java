@@ -290,7 +290,7 @@ public class ExprToThriftVisitor extends ExprVisitor<Void, TExprNode> {
     @Override
     public Void visitSlotRef(SlotRef expr, TExprNode msg) {
         msg.node_type = TExprNodeType.SLOT_REF;
-        msg.slot_ref = new TSlotRef(expr.getDesc().getId().asInt(), expr.getDesc().getParent().getId().asInt());
+        msg.slot_ref = new TSlotRef(expr.getDesc().getId().asInt(), expr.getDesc().getParentId().asInt());
         msg.slot_ref.setColUniqueId(expr.getDesc().getUniqueId());
         msg.slot_ref.setIsVirtualSlot(expr.getDesc().getVirtualColumn() != null);
         msg.setLabel(expr.getLabel());

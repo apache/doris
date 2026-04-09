@@ -51,7 +51,7 @@ public class DescriptorTable {
     }
 
     public SlotDescriptor addSlotDescriptor(TupleDescriptor d) {
-        SlotDescriptor result = new SlotDescriptor(slotIdGenerator.getNextId(), d);
+        SlotDescriptor result = new SlotDescriptor(slotIdGenerator.getNextId(), d.getId());
         d.addSlot(result);
         slotDescs.put(result.getId(), result);
         return result;
