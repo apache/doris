@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <bit>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
@@ -52,6 +53,103 @@ struct WindowSample {
 struct ProcessResourceSample {
     int64_t cpu_usage_percent {kInvalidPercent};
     int64_t memory_usage_percent {kInvalidPercent};
+};
+
+class LatestDecisionStorage {
+public:
+    void store(const MsStressDecision& decision) {
+        version_.fetch_add(1, std::memory_order_acq_rel);
+
+        fdb_cluster_under_pressure_.store(decision.fdb_cluster_under_pressure,
+                                          std::memory_order_relaxed);
+        fdb_client_thread_under_pressure_.store(decision.fdb_client_thread_under_pressure,
+                                                std::memory_order_relaxed);
+        ms_resource_under_pressure_.store(decision.ms_resource_under_pressure,
+                                          std::memory_order_relaxed);
+        rate_limit_injected_for_test_.store(decision.rate_limit_injected_for_test,
+                                            std::memory_order_relaxed);
+        fdb_commit_latency_ns_.store(decision.fdb_commit_latency_ns, std::memory_order_relaxed);
+        fdb_read_latency_ns_.store(decision.fdb_read_latency_ns, std::memory_order_relaxed);
+        fdb_performance_limited_by_name_.store(decision.fdb_performance_limited_by_name,
+                                               std::memory_order_relaxed);
+        fdb_client_thread_busyness_percent_.store(decision.fdb_client_thread_busyness_percent,
+                                                  std::memory_order_relaxed);
+        fdb_client_thread_busyness_avg_percent_bits_.store(
+                encode_double(decision.fdb_client_thread_busyness_avg_percent),
+                std::memory_order_relaxed);
+        ms_cpu_usage_percent_.store(decision.ms_cpu_usage_percent, std::memory_order_relaxed);
+        ms_cpu_usage_avg_percent_bits_.store(encode_double(decision.ms_cpu_usage_avg_percent),
+                                             std::memory_order_relaxed);
+        ms_memory_usage_percent_.store(decision.ms_memory_usage_percent, std::memory_order_relaxed);
+        ms_memory_usage_avg_percent_bits_.store(encode_double(decision.ms_memory_usage_avg_percent),
+                                                std::memory_order_relaxed);
+        rate_limit_injected_random_value_.store(decision.rate_limit_injected_random_value,
+                                                std::memory_order_relaxed);
+
+        version_.fetch_add(1, std::memory_order_release);
+    }
+
+    MsStressDecision load() const {
+        MsStressDecision decision;
+        while (true) {
+            const uint64_t version_before = version_.load(std::memory_order_acquire);
+            if ((version_before & 1) != 0) {
+                continue;
+            }
+
+            decision.fdb_cluster_under_pressure =
+                    fdb_cluster_under_pressure_.load(std::memory_order_relaxed);
+            decision.fdb_client_thread_under_pressure =
+                    fdb_client_thread_under_pressure_.load(std::memory_order_relaxed);
+            decision.ms_resource_under_pressure =
+                    ms_resource_under_pressure_.load(std::memory_order_relaxed);
+            decision.rate_limit_injected_for_test =
+                    rate_limit_injected_for_test_.load(std::memory_order_relaxed);
+            decision.fdb_commit_latency_ns = fdb_commit_latency_ns_.load(std::memory_order_relaxed);
+            decision.fdb_read_latency_ns = fdb_read_latency_ns_.load(std::memory_order_relaxed);
+            decision.fdb_performance_limited_by_name =
+                    fdb_performance_limited_by_name_.load(std::memory_order_relaxed);
+            decision.fdb_client_thread_busyness_percent =
+                    fdb_client_thread_busyness_percent_.load(std::memory_order_relaxed);
+            decision.fdb_client_thread_busyness_avg_percent = decode_double(
+                    fdb_client_thread_busyness_avg_percent_bits_.load(std::memory_order_relaxed));
+            decision.ms_cpu_usage_percent = ms_cpu_usage_percent_.load(std::memory_order_relaxed);
+            decision.ms_cpu_usage_avg_percent =
+                    decode_double(ms_cpu_usage_avg_percent_bits_.load(std::memory_order_relaxed));
+            decision.ms_memory_usage_percent =
+                    ms_memory_usage_percent_.load(std::memory_order_relaxed);
+            decision.ms_memory_usage_avg_percent = decode_double(
+                    ms_memory_usage_avg_percent_bits_.load(std::memory_order_relaxed));
+            decision.rate_limit_injected_random_value =
+                    rate_limit_injected_random_value_.load(std::memory_order_relaxed);
+
+            const uint64_t version_after = version_.load(std::memory_order_acquire);
+            if (version_before == version_after) {
+                return decision;
+            }
+        }
+    }
+
+private:
+    static constexpr uint64_t encode_double(double value) { return std::bit_cast<uint64_t>(value); }
+
+    static constexpr double decode_double(uint64_t bits) { return std::bit_cast<double>(bits); }
+
+    std::atomic<uint64_t> version_ {0};
+    std::atomic<bool> fdb_cluster_under_pressure_ {false};
+    std::atomic<bool> fdb_client_thread_under_pressure_ {false};
+    std::atomic<bool> ms_resource_under_pressure_ {false};
+    std::atomic<bool> rate_limit_injected_for_test_ {false};
+    std::atomic<int64_t> fdb_commit_latency_ns_ {BVAR_FDB_INVALID_VALUE};
+    std::atomic<int64_t> fdb_read_latency_ns_ {BVAR_FDB_INVALID_VALUE};
+    std::atomic<int64_t> fdb_performance_limited_by_name_ {BVAR_FDB_INVALID_VALUE};
+    std::atomic<int64_t> fdb_client_thread_busyness_percent_ {BVAR_FDB_INVALID_VALUE};
+    std::atomic<uint64_t> fdb_client_thread_busyness_avg_percent_bits_ {encode_double(-1)};
+    std::atomic<int64_t> ms_cpu_usage_percent_ {-1};
+    std::atomic<uint64_t> ms_cpu_usage_avg_percent_bits_ {encode_double(-1)};
+    std::atomic<int64_t> ms_memory_usage_percent_ {-1};
+    std::atomic<uint64_t> ms_memory_usage_avg_percent_bits_ {encode_double(-1)};
+    std::atomic<int32_t> rate_limit_injected_random_value_ {-1};
 };
 
 class ProcessResourceSampler {
@@ -151,13 +249,13 @@ public:
     // Compute decision from metrics and store it in latest_decision_.
     // Called by the background thread or synchronously in tests.
     void update(int64_t now_ms, const MsStressMetrics& metrics) {
-        auto decision = std::make_shared<MsStressDecision>();
-        decision->fdb_commit_latency_ns = metrics.fdb_commit_latency_ns;
-        decision->fdb_read_latency_ns = metrics.fdb_read_latency_ns;
-        decision->fdb_performance_limited_by_name = metrics.fdb_performance_limited_by_name;
-        decision->fdb_client_thread_busyness_percent = metrics.fdb_client_thread_busyness_percent;
-        decision->ms_cpu_usage_percent = metrics.ms_cpu_usage_percent;
-        decision->ms_memory_usage_percent = metrics.ms_memory_usage_percent;
+        MsStressDecision decision;
+        decision.fdb_commit_latency_ns = metrics.fdb_commit_latency_ns;
+        decision.fdb_read_latency_ns = metrics.fdb_read_latency_ns;
+        decision.fdb_performance_limited_by_name = metrics.fdb_performance_limited_by_name;
+        decision.fdb_client_thread_busyness_percent = metrics.fdb_client_thread_busyness_percent;
+        decision.ms_cpu_usage_percent = metrics.ms_cpu_usage_percent;
+        decision.ms_memory_usage_percent = metrics.ms_memory_usage_percent;
         const bool commit_latency_high =
                 metrics.fdb_commit_latency_ns != BVAR_FDB_INVALID_VALUE &&
                 metrics.fdb_commit_latency_ns >
@@ -166,7 +264,7 @@ public:
                 metrics.fdb_read_latency_ns != BVAR_FDB_INVALID_VALUE &&
                 metrics.fdb_read_latency_ns >
                         config::ms_rate_limit_fdb_read_latency_ms * kNanosecondsPerMillisecond;
-        decision->fdb_cluster_under_pressure =
+        decision.fdb_cluster_under_pressure =
                 (commit_latency_high || read_latency_high) &&
                 metrics.fdb_performance_limited_by_name != BVAR_FDB_INVALID_VALUE &&
                 metrics.fdb_performance_limited_by_name != 0;
@@ -179,10 +277,10 @@ public:
         const double avg_busyness =
                 get_window_avg(current_second, &WindowSample::fdb_client_thread_busyness_percent,
                                BVAR_FDB_INVALID_VALUE);
-        decision->fdb_client_thread_busyness_avg_percent = avg_busyness;
+        decision.fdb_client_thread_busyness_avg_percent = avg_busyness;
         if (avg_busyness >= 0 &&
             metrics.fdb_client_thread_busyness_percent != BVAR_FDB_INVALID_VALUE) {
-            decision->fdb_client_thread_under_pressure =
+            decision.fdb_client_thread_under_pressure =
                     avg_busyness > config::ms_rate_limit_fdb_client_thread_busyness_avg_percent &&
                     metrics.fdb_client_thread_busyness_percent >
                             config::ms_rate_limit_fdb_client_thread_busyness_instant_percent;
@@ -192,31 +290,35 @@ public:
                                               kInvalidPercent);
         const double avg_memory = get_window_avg(
                 current_second, &WindowSample::ms_memory_usage_percent, kInvalidPercent);
-        decision->ms_cpu_usage_avg_percent = avg_cpu;
-        decision->ms_memory_usage_avg_percent = avg_memory;
+        decision.ms_cpu_usage_avg_percent = avg_cpu;
+        decision.ms_memory_usage_avg_percent = avg_memory;
         if (avg_cpu >= 0 && metrics.ms_cpu_usage_percent != kInvalidPercent) {
-            decision->ms_resource_under_pressure =
+            decision.ms_resource_under_pressure =
                     metrics.ms_cpu_usage_percent > config::ms_rate_limit_cpu_usage_percent &&
                     avg_cpu > config::ms_rate_limit_cpu_usage_percent;
         }
         if (avg_memory >= 0 && metrics.ms_memory_usage_percent != kInvalidPercent) {
-            decision->ms_resource_under_pressure =
-                    decision->ms_resource_under_pressure ||
+            decision.ms_resource_under_pressure =
+                    decision.ms_resource_under_pressure ||
                     (metrics.ms_memory_usage_percent > config::ms_rate_limit_memory_usage_percent &&
                      avg_memory > config::ms_rate_limit_memory_usage_percent);
         }
-        latest_decision_.store(std::move(decision));
+        latest_decision_.store(decision);
     }
 
-    // Lock-free read of the latest decision. Returns nullptr before first update.
-    std::shared_ptr<const MsStressDecision> get_latest_decision() const {
-        return latest_decision_.load();
-    }
+    MsStressDecision get_latest_decision() const { return latest_decision_.load(); }
 
-    void reset() { samples_.clear(); }
+    void reset() {
+        samples_.clear();
+        latest_decision_.store(MsStressDecision {});
+    }
 
     // Start the background thread that periodically collects metrics and updates.
     void start() {
+        if (running_.load() != 0) {
+            return;
+        }
+
         std::unique_lock lock(mtx_);
         if (running_.load() != 0) {
             return;
@@ -302,7 +404,7 @@ private:
         return sum / valid_count;
     }
 
-    std::atomic<std::shared_ptr<const MsStressDecision>> latest_decision_;
+    LatestDecisionStorage latest_decision_;
     std::deque<WindowSample> samples_;
 
     // Background thread lifecycle
@@ -377,11 +479,7 @@ std::string MsStressDecision::debug_string() const {
 }
 
 MsStressDecision get_ms_stress_decision() {
-    auto decision_ptr = global_ms_stress_detector().get_latest_decision();
-    MsStressDecision decision;
-    if (decision_ptr) {
-        decision = *decision_ptr;
-    }
+    MsStressDecision decision = global_ms_stress_detector().get_latest_decision();
     // Rate limit injection is per-request (random), so apply it here, not in the background thread.
     maybe_apply_ms_rate_limit_injection(&decision, get_ms_rate_limit_injection_random_value());
     return decision;
@@ -396,11 +494,7 @@ MsStressDecision update_ms_stress_detector_for_test(int64_t now_ms, const MsStre
         detector.reset();
     }
     detector.update(now_ms, metrics);
-    auto decision_ptr = detector.get_latest_decision();
-    MsStressDecision decision;
-    if (decision_ptr) {
-        decision = *decision_ptr;
-    }
+    MsStressDecision decision = detector.get_latest_decision();
     maybe_apply_ms_rate_limit_injection(&decision, rate_limit_injected_random_value);
     return decision;
 }
