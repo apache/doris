@@ -38,6 +38,7 @@
 #include "io/fs/obj_storage_client.h"
 #include "io/fs/s3_common.h"
 #include "runtime/runtime_profile.h"
+#include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_management/io_throttle.h"
 #include "util/bvar_helper.h"
@@ -107,7 +108,7 @@ Status S3FileReader::close() {
 }
 
 Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
-                                  const IOContext* /*io_ctx*/) {
+                                  const IOContext* io_ctx) {
     DCHECK(!closed());
     if (offset > _file_size) {
         return Status::InternalError(
@@ -160,6 +161,11 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
 
     int total_sleep_time = 0;
     while (retry_count <= max_retries) {
+        // Bail out early if the query has been cancelled, so that cancelled
+        // scanners do not keep retrying against S3 with exponential backoff.
+        if (io_ctx && io_ctx->runtime_state && io_ctx->runtime_state->is_cancelled()) {
+            return Status::Cancelled("S3 read cancelled due to query cancellation");
+        }
         *bytes_read = 0;
         s3_file_reader_read_counter << 1;
         // clang-format off

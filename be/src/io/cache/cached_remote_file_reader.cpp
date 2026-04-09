@@ -52,6 +52,7 @@
 #include "io/io_common.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_profile.h"
+#include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_management/io_throttle.h"
 #include "service/backend_options.h"
@@ -504,6 +505,11 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
             SCOPED_CONCURRENCY_COUNT(
                     ConcurrencyStatsManager::instance().cached_remote_reader_blocking);
             do {
+                // Bail out early if the query has been cancelled, so that cancelled
+                // scanners do not keep waiting for cache block download.
+                if (io_ctx && io_ctx->runtime_state && io_ctx->runtime_state->is_cancelled()) {
+                    return Status::Cancelled("cache wait cancelled due to query cancellation");
+                }
                 SCOPED_RAW_TIMER(&stats.remote_wait_timer);
                 SCOPED_RAW_TIMER(&stats.remote_read_timer);
                 TEST_SYNC_POINT_CALLBACK("CachedRemoteFileReader::DOWNLOADING");
@@ -561,7 +567,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
                     RETURN_IF_ERROR(_remote_file_reader->read_at(
                             current_offset,
                             Slice(result.data + (current_offset - offset), read_size),
-                            &nest_bytes_read));
+                            &nest_bytes_read, io_ctx));
                     indirect_read_bytes += read_size;
                     DCHECK(nest_bytes_read == read_size);
                 }
@@ -650,9 +656,12 @@ void CachedRemoteFileReader::prefetch_range(size_t offset, size_t size, const IO
         dryrun_ctx = *io_ctx;
     }
     dryrun_ctx.is_dryrun = true;
+    // Clear per-query pointers: prefetch tasks may outlive the query lifecycle,
+    // so we must not hold dangling references to query-scoped objects.
     dryrun_ctx.query_id = nullptr;
     dryrun_ctx.file_cache_stats = nullptr;
     dryrun_ctx.file_reader_stats = nullptr;
+    dryrun_ctx.runtime_state = nullptr;
 
     LOG_IF(INFO, config::enable_segment_prefetch_verbose_log)
             << fmt::format("[verbose] Submitting prefetch task for offset={} size={}, file={}",

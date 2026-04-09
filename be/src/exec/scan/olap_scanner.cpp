@@ -299,6 +299,7 @@ Status OlapScanner::prepare() {
                 .query_id = &_state->query_id(),
                 .file_cache_stats = &_tablet_reader->mutable_stats()->file_cache_stats,
                 .is_inverted_index = true,
+                .runtime_state = _state,
         };
 
         RETURN_IF_ERROR(_tablet_reader_params.collection_statistics->collect(

@@ -21,6 +21,8 @@
 
 namespace doris {
 
+class RuntimeState;
+
 enum class ReaderType : uint8_t {
     READER_QUERY = 0,
     READER_ALTER_TABLE = 1,
@@ -95,6 +97,10 @@ struct IOContext {
     // if `is_warmup` == true, this I/O request is from a warm up task
     bool is_warmup {false};
     int64_t condition_cache_filtered_rows = 0;
+    // Non-owning pointer to the query's RuntimeState for cancellation checks at
+    // I/O blocking boundaries (S3 retry loop, cache wait loop). Must be nullptr
+    // for contexts that may outlive the query (e.g. async prefetch tasks).
+    RuntimeState* runtime_state = nullptr;
 };
 
 } // namespace io
