@@ -56,38 +56,6 @@ class ScannerScheduler;
 class TaskExecutor;
 class TaskHandle;
 
-// Adaptive processor for dynamic scanner concurrency adjustment
-struct ScannerAdaptiveProcessor {
-    ENABLE_FACTORY_CREATOR(ScannerAdaptiveProcessor)
-    ScannerAdaptiveProcessor() = default;
-    ~ScannerAdaptiveProcessor() = default;
-    // Expected scanners in this cycle
-
-    int expected_scanners = 0;
-    // Timing metrics
-    // int64_t context_start_time = 0;
-    // int64_t scanner_total_halt_time = 0;
-    // int64_t scanner_gen_blocks_time = 0;
-    // std::atomic_int64_t scanner_total_io_time = 0;
-    // std::atomic_int64_t scanner_total_running_time = 0;
-    // std::atomic_int64_t scanner_total_scan_bytes = 0;
-
-    // Timestamps
-    // std::atomic_int64_t last_scanner_finish_timestamp = 0;
-    // int64_t check_all_scanners_last_timestamp = 0;
-    // int64_t last_driver_output_full_timestamp = 0;
-    int64_t adjust_scanners_last_timestamp = 0;
-
-    // Adjustment strategy fields
-    // bool try_add_scanners = false;
-    // double expected_speedup_ratio = 0;
-    // double last_scanner_scan_speed = 0;
-    // int64_t last_scanner_total_scan_bytes = 0;
-    // int try_add_scanners_fail_count = 0;
-    // int check_slow_io = 0;
-    // int32_t slow_io_latency_ms = 100; // Default from config
-};
-
 class ScanTask {
 public:
     enum class State : int {
@@ -179,8 +147,7 @@ public:
                    const RowDescriptor* output_row_descriptor,
                    const std::list<std::shared_ptr<ScannerDelegate>>& scanners, int64_t limit_,
                    std::shared_ptr<Dependency> dependency, std::atomic<int64_t>* shared_scan_limit,
-                   std::shared_ptr<MemShareArbitrator> arb, std::shared_ptr<MemLimiter> limiter,
-                   int ins_idx, bool enable_adaptive_scan
+                   std::shared_ptr<MemLimiter> limiter, int ins_idx, bool enable_adaptive_scan
 #ifdef BE_TEST
                    ,
                    int num_parallel_instances
@@ -351,7 +318,7 @@ protected:
     // Each scan operator can submit _max_scan_concurrency scanner to scheduelr if scheduler has enough resource.
     // So that for a single query, we can make sure it could make full utilization of the resource.
     int32_t _max_scan_concurrency = 0;
-    MOCK_REMOVE(const) int32_t _min_scan_concurrency = 1;
+    int32_t _min_scan_concurrency = 1;
 
     std::shared_ptr<ScanTask> _pull_next_scan_task(std::shared_ptr<ScanTask> current_scan_task,
                                                    int32_t current_concurrency);
@@ -361,16 +328,9 @@ protected:
 
     // Memory-aware adaptive scheduling
     std::shared_ptr<MemLimiter> _scanner_mem_limiter = nullptr;
-    std::shared_ptr<MemShareArbitrator> _mem_share_arb = nullptr;
-    std::shared_ptr<ScannerAdaptiveProcessor> _adaptive_processor = nullptr;
+    std::shared_ptr<AdaptiveTaskProcessor> _adaptive_processor = nullptr;
     const int _ins_idx;
     const bool _enable_adaptive_scanners = false;
-
-    // Adjust scan memory limit based on arbitrator feedback
-    void _adjust_scan_mem_limit(int64_t old_scanner_mem_bytes, int64_t new_scanner_mem_bytes);
-
-    // Calculate available scanner count for adaptive scheduling
-    int _available_pickup_scanner_count();
 
     // TODO: Add implementation of runtime_info_feed_back
     // adaptive scan concurrency related end

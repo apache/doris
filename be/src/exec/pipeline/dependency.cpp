@@ -54,6 +54,15 @@ Dependency* BasicSharedState::create_sink_dependency(int dest_id, int node_id,
     return sink_deps.back().get();
 }
 
+void BasicSharedState::create_sink_dependencies(int num_sink, int dest_id, int node_id,
+                                                const std::string& name) {
+    sink_deps.resize(num_sink, nullptr);
+    for (auto& sink_dep : sink_deps) {
+        sink_dep = std::make_shared<Dependency>(dest_id, node_id, name + "_DEPENDENCY", true);
+        sink_dep->set_shared_state(this);
+    }
+}
+
 void Dependency::_add_block_task(std::shared_ptr<PipelineTask> task) {
     DCHECK(_blocked_task.empty() || _blocked_task[_blocked_task.size() - 1].lock() == nullptr ||
            _blocked_task[_blocked_task.size() - 1].lock().get() != task.get())
@@ -177,10 +186,15 @@ void RuntimeFilterTimerQueue::start() {
     _shutdown = true;
 }
 
-void LocalExchangeSharedState::sub_running_sink_operators() {
+void LocalExchangeSharedState::sub_running_sink_operators(int ins_idx) {
     std::unique_lock<std::mutex> lc(le_lock);
     if (exchanger->_running_sink_operators.fetch_sub(1) == 1) {
         _set_always_ready();
+    } else if (adaptive_processor) {
+        auto slots = adaptive_processor->available_task_slots(ins_idx);
+        DCHECK_GT(slots, 0);
+        adaptive_processor->adjust_parallelism(exchanger->_running_sink_operators.load(), slots,
+                                               nullptr, lc);
     }
 }
 
@@ -189,6 +203,26 @@ void LocalExchangeSharedState::sub_running_source_operators() {
     if (exchanger->_running_source_operators.fetch_sub(1) == 1) {
         _set_always_ready();
         exchanger->finalize();
+    }
+}
+
+void LocalExchangeSharedState::update_total_mem_usage(int64_t delta, int sink_ins_idx) {
+    if (adaptive_processor) {
+        DCHECK_LT(sink_ins_idx, sink_deps.size());
+        std::unique_lock<std::mutex> lc(le_lock);
+        auto slots = adaptive_processor->available_task_slots(sink_ins_idx);
+        DCHECK_GT(slots, 0);
+        adaptive_processor->adjust_parallelism(exchanger->_running_sink_operators.load(), slots,
+                                               delta > 0 ? sink_deps[sink_ins_idx] : nullptr, lc);
+    } else {
+        DCHECK_EQ(sink_deps.size(), 1);
+        auto prev_usage = mem_usage.fetch_add(delta);
+        DCHECK_GE(prev_usage + delta, 0) << "prev_usage: " << prev_usage << " delta: " << delta;
+        if (delta > 0 && prev_usage + delta > buffer_mem_limit) {
+            sink_deps.front()->block();
+        } else if (delta <= 0 && cast_set<int64_t>(prev_usage + delta) <= buffer_mem_limit) {
+            sink_deps.front()->set_ready();
+        }
     }
 }
 

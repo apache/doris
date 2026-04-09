@@ -886,7 +886,12 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
     }
     shared_state->create_source_dependencies(_num_instances, local_exchange_id, local_exchange_id,
                                              "LOCAL_EXCHANGE_OPERATOR");
-    shared_state->create_sink_dependency(sink_id, local_exchange_id, "LOCAL_EXCHANGE_SINK");
+    if (_runtime_state->enable_adaptive_execution()) {
+        shared_state->create_sink_dependencies(shared_state->exchanger->num_senders(), sink_id,
+                                               local_exchange_id, "LOCAL_EXCHANGE_SINK");
+    } else {
+        shared_state->create_sink_dependency(sink_id, local_exchange_id, "LOCAL_EXCHANGE_SINK");
+    }
     _op_id_to_shared_state.insert({local_exchange_id, {shared_state, shared_state->sink_deps}});
 
     // 3. Set two pipelines' operator list. For example, split pipeline [Scan - AggSink] to

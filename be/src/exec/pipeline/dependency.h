@@ -93,6 +93,7 @@ struct BasicSharedState {
                                     const std::string& name);
     Dependency* create_source_dependency(int operator_id, int node_id, const std::string& name);
 
+    void create_sink_dependencies(int num_sink, int dest_id, int node_id, const std::string& name);
     Dependency* create_sink_dependency(int dest_id, int node_id, const std::string& name);
     std::vector<DependencySPtr> get_dep_by_channel_id(int channel_id) {
         DCHECK_LT(channel_id, source_deps.size());
@@ -875,12 +876,18 @@ public:
     LocalExchangeSharedState(int num_instances);
     ~LocalExchangeSharedState() override;
     std::unique_ptr<ExchangerBase> exchanger {};
-    std::vector<RuntimeProfile::Counter*> mem_counters;
+    // The mem counters for each SourceLocalState. We maintain the mem usage when a block is produced/consumed to track the mem usage in profile.
+    std::vector<RuntimeProfile::HighWaterMarkCounter*> mem_counters;
+    // If adaptive_processor is disabled, `mem_usage` is used as the total mem usage of all buffers in this local exchange. We use it to decide whether to block sink operators when mem usage exceeds the limit.
     std::atomic<int64_t> mem_usage = 0;
-    std::atomic<size_t> _buffer_mem_limit = config::local_exchange_buffer_mem_limit;
+    // If adaptive_processor is disabled, `buffer_mem_limit` is the mem usage limit for this local exchange. We will block sink operators when mem usage exceeds this limit.
+    std::atomic<size_t> buffer_mem_limit = config::local_exchange_buffer_mem_limit;
+    // If adaptive_processor is enabled, `adaptive_processor` is used to decide whether to block sink operators based on mem usage and other runtime info.
+    std::shared_ptr<AdaptiveTaskProcessor> adaptive_processor = nullptr;
     // We need to make sure to add mem_usage first and then enqueue, otherwise sub mem_usage may cause negative mem_usage during concurrent dequeue.
     std::mutex le_lock;
-    void sub_running_sink_operators();
+    std::atomic<int> blocking_sink_operators = 0;
+    void sub_running_sink_operators(int ins_idx);
     void sub_running_source_operators();
     void _set_always_ready() {
         for (auto& dep : source_deps) {
@@ -893,37 +900,25 @@ public:
         }
     }
 
-    Dependency* get_sink_dep_by_channel_id(int channel_id) { return nullptr; }
-
     void set_ready_to_read(int channel_id) {
         auto& dep = source_deps[channel_id];
         DCHECK(dep) << channel_id;
         dep->set_ready();
     }
 
-    void add_mem_usage(int channel_id, size_t delta) { mem_counters[channel_id]->update(delta); }
-
+    // Update mem usage in profile
+    void add_mem_usage(int channel_id, size_t delta) {
+        mem_counters[channel_id]->update(cast_set<int64_t>(delta));
+    }
     void sub_mem_usage(int channel_id, size_t delta) {
-        mem_counters[channel_id]->update(-(int64_t)delta);
+        mem_counters[channel_id]->update(-cast_set<int64_t>(delta));
     }
 
-    void add_total_mem_usage(size_t delta) {
-        if (cast_set<int64_t>(mem_usage.fetch_add(delta) + delta) > _buffer_mem_limit) {
-            sink_deps.front()->block();
-        }
-    }
-
-    void sub_total_mem_usage(size_t delta) {
-        auto prev_usage = mem_usage.fetch_sub(delta);
-        DCHECK_GE(prev_usage - delta, 0) << "prev_usage: " << prev_usage << " delta: " << delta;
-        if (cast_set<int64_t>(prev_usage - delta) <= _buffer_mem_limit) {
-            sink_deps.front()->set_ready();
-        }
-    }
+    void update_total_mem_usage(int64_t delta, int sink_ins_idx);
 
     void set_low_memory_mode(RuntimeState* state) {
-        _buffer_mem_limit = std::min<int64_t>(config::local_exchange_buffer_mem_limit,
-                                              state->low_memory_mode_buffer_limit());
+        buffer_mem_limit = std::min<int64_t>(config::local_exchange_buffer_mem_limit,
+                                             state->low_memory_mode_buffer_limit());
     }
 };
 

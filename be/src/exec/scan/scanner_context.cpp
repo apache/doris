@@ -59,7 +59,6 @@ ScannerContext::ScannerContext(RuntimeState* state, ScanLocalStateBase* local_st
                                const std::list<std::shared_ptr<ScannerDelegate>>& scanners,
                                int64_t limit_, std::shared_ptr<Dependency> dependency,
                                std::atomic<int64_t>* shared_scan_limit,
-                               std::shared_ptr<MemShareArbitrator> arb,
                                std::shared_ptr<MemLimiter> limiter, int ins_idx,
                                bool enable_adaptive_scan
 #ifdef BE_TEST
@@ -91,7 +90,6 @@ ScannerContext::ScannerContext(RuntimeState* state, ScanLocalStateBase* local_st
 #endif
           _min_scan_concurrency(local_state->min_scanners_concurrency(state)),
           _scanner_mem_limiter(limiter),
-          _mem_share_arb(arb),
           _ins_idx(ins_idx),
           _enable_adaptive_scanners(enable_adaptive_scan) {
     DCHECK(_state != nullptr);
@@ -107,8 +105,6 @@ ScannerContext::ScannerContext(RuntimeState* state, ScanLocalStateBase* local_st
         limit = -1;
     }
     _dependency = dependency;
-    // Initialize adaptive processor
-    _adaptive_processor = ScannerAdaptiveProcessor::create_shared();
     DorisMetrics::instance()->scanner_ctx_cnt->increment(1);
 }
 
@@ -131,57 +127,6 @@ int64_t ScannerContext::acquire_limit_quota(int64_t desired) {
         }
         // CAS failed, `remaining` is updated to current value, retry.
     }
-}
-
-void ScannerContext::_adjust_scan_mem_limit(int64_t old_value, int64_t new_value) {
-    if (!_enable_adaptive_scanners) {
-        return;
-    }
-
-    int64_t new_scan_mem_limit = _mem_share_arb->update_mem_bytes(old_value, new_value);
-    _scanner_mem_limiter->update_mem_limit(new_scan_mem_limit);
-    _scanner_mem_limiter->update_arb_mem_bytes(new_value);
-
-    VLOG_DEBUG << fmt::format(
-            "adjust_scan_mem_limit. context = {}, new mem scan limit = {}, scanner mem bytes = {} "
-            "-> {}",
-            debug_string(), new_scan_mem_limit, old_value, new_value);
-}
-
-int ScannerContext::_available_pickup_scanner_count() {
-    if (!_enable_adaptive_scanners) {
-        return _max_scan_concurrency;
-    }
-
-    int min_scanners = std::max(1, _min_scan_concurrency);
-    int max_scanners = _scanner_mem_limiter->available_scanner_count(_ins_idx);
-    max_scanners = std::min(max_scanners, _max_scan_concurrency);
-    min_scanners = std::min(min_scanners, max_scanners);
-    if (_ins_idx == 0) {
-        // Adjust memory limit via memory share arbitrator
-        _adjust_scan_mem_limit(_scanner_mem_limiter->get_arb_scanner_mem_bytes(),
-                               _scanner_mem_limiter->get_estimated_block_mem_bytes());
-    }
-
-    ScannerAdaptiveProcessor& P = *_adaptive_processor;
-    int& scanners = P.expected_scanners;
-    int64_t now = UnixMillis();
-    // Avoid frequent adjustment - only adjust every 100ms
-    if (now - P.adjust_scanners_last_timestamp <= config::doris_scanner_dynamic_interval_ms) {
-        return scanners;
-    }
-    P.adjust_scanners_last_timestamp = now;
-    auto old_scanners = P.expected_scanners;
-
-    scanners = std::max(min_scanners, scanners);
-    scanners = std::min(max_scanners, scanners);
-    VLOG_DEBUG << fmt::format(
-            "_available_pickup_scanner_count. context = {}, old_scanners = {}, scanners = {} "
-            ", min_scanners: {}, max_scanners: {}",
-            debug_string(), old_scanners, scanners, min_scanners, max_scanners);
-
-    // TODO(gabriel): Scanners are scheduled adaptively based on the memory usage now.
-    return scanners;
 }
 
 // After init function call, should not access _parent
@@ -229,20 +174,6 @@ Status ScannerContext::init() {
         _set_scanner_done();
     }
 
-    // Initialize memory limiter if memory-aware scheduling is enabled
-    if (_enable_adaptive_scanners) {
-        DCHECK(_scanner_mem_limiter && _mem_share_arb);
-        int64_t c = _scanner_mem_limiter->update_open_tasks_count(1);
-        // TODO(gabriel): set estimated block size
-        _scanner_mem_limiter->reestimated_block_mem_bytes(DEFAULT_SCANNER_MEM_BYTES);
-        _scanner_mem_limiter->update_arb_mem_bytes(DEFAULT_SCANNER_MEM_BYTES);
-        if (c == 0) {
-            // First scanner context to open, adjust scan memory limit
-            _adjust_scan_mem_limit(DEFAULT_SCANNER_MEM_BYTES,
-                                   _scanner_mem_limiter->get_arb_scanner_mem_bytes());
-        }
-    }
-
     // when user not specify scan_thread_num, so we can try downgrade _max_thread_num.
     // becaue we found in a table with 5k columns, column reader may ocuppy too much memory.
     // you can refer https://github.com/apache/doris/issues/35340 for details.
@@ -265,9 +196,18 @@ Status ScannerContext::init() {
         }
     }
 
+    _min_scan_concurrency = std::min(_min_scan_concurrency, _max_scan_concurrency);
     COUNTER_SET(_local_state->_max_scan_concurrency, (int64_t)_max_scan_concurrency);
     COUNTER_SET(_local_state->_min_scan_concurrency, (int64_t)_min_scan_concurrency);
 
+    // Initialize memory limiter if memory-aware scheduling is enabled
+    if (_enable_adaptive_scanners) {
+        DCHECK(_scanner_mem_limiter);
+        _scanner_mem_limiter->reestimated_block_mem_bytes(DEFAULT_BLOCK_MEM_BYTES);
+        _scanner_mem_limiter->init();
+        _adaptive_processor = AdaptiveTaskProcessor::create_shared(
+                _max_scan_concurrency, _min_scan_concurrency, _scanner_mem_limiter);
+    }
     std::unique_lock<std::mutex> l(_transfer_lock);
     RETURN_IF_ERROR(_scanner_scheduler->schedule_scan_task(shared_from_this(), nullptr, l));
 
@@ -286,10 +226,7 @@ ScannerContext::~ScannerContext() {
 
     // Cleanup memory limiter if last context closing
     if (_enable_adaptive_scanners) {
-        if (_scanner_mem_limiter->update_open_tasks_count(-1) == 1) {
-            // Last scanner context to close, reset scan memory limit
-            _adjust_scan_mem_limit(_scanner_mem_limiter->get_arb_scanner_mem_bytes(), 0);
-        }
+        _scanner_mem_limiter->close();
     }
 
     if (_task_handle) {
@@ -538,13 +475,12 @@ std::string ScannerContext::debug_string() {
             " limit: {}, _in_flight_tasks_num: {}, remaining_limit: {}, _num_running_scanners: {}, "
             "_max_thread_num: {},"
             " _max_bytes_in_queue: {}, _ins_idx: {}, _enable_adaptive_scanners: {}, "
-            "_mem_share_arb: {}, _scanner_mem_limiter: {}",
+            "_scanner_mem_limiter: {}",
             print_id(_query_id), ctx_id, _all_scanners.size(), _pending_tasks.size(),
             _completed_tasks.size(), _should_stop, _is_finished, _free_blocks.size_approx(), limit,
             _shared_scan_limit->load(std::memory_order_relaxed), _in_flight_tasks_num,
             _num_finished_scanners, _max_scan_concurrency, _max_bytes_in_queue, _ins_idx,
             _enable_adaptive_scanners,
-            _enable_adaptive_scanners ? _mem_share_arb->debug_string() : "NULL",
             _enable_adaptive_scanners ? _scanner_mem_limiter->debug_string() : "NULL");
 }
 
@@ -570,8 +506,12 @@ void ScannerContext::reestimated_block_mem_bytes(int64_t num) {
 int32_t ScannerContext::_get_margin(std::unique_lock<std::mutex>& transfer_lock,
                                     std::unique_lock<std::shared_mutex>& scheduler_lock) {
     // Get effective max concurrency considering adaptive scheduling
-    int32_t effective_max_concurrency = _available_pickup_scanner_count();
-    DCHECK_LE(effective_max_concurrency, _max_scan_concurrency);
+    int32_t effective_max_concurrency =
+            _enable_adaptive_scanners ? _adaptive_processor->available_task_slots(_ins_idx)
+                                      : _max_scan_concurrency;
+    DCHECK_LE(effective_max_concurrency, _max_scan_concurrency)
+            << (_enable_adaptive_scanners ? _adaptive_processor->debug_string()
+                                          : "adaptive scheduling disabled");
 
     // margin_1 is used to ensure each scan operator could have at least _min_scan_concurrency scan tasks.
     int32_t margin_1 = _min_scan_concurrency -
@@ -720,8 +660,8 @@ std::shared_ptr<ScanTask> ScannerContext::_pull_next_scan_task(
         std::shared_ptr<ScanTask> current_scan_task, int32_t current_concurrency) {
     int32_t effective_max_concurrency = _max_scan_concurrency;
     if (_enable_adaptive_scanners) {
-        effective_max_concurrency = _adaptive_processor->expected_scanners > 0
-                                            ? _adaptive_processor->expected_scanners
+        effective_max_concurrency = _adaptive_processor->expected_tasks > 0
+                                            ? _adaptive_processor->expected_tasks
                                             : _max_scan_concurrency;
     }
 

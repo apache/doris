@@ -216,7 +216,8 @@ public:
     }
 
     bool is_nereids() const { return _is_nereids; }
-    std::shared_ptr<MemShareArbitrator> mem_arb() const { return _mem_arb; }
+    std::shared_ptr<MemShareArbitrator> scan_mem_arb() const { return _scan_mem_arb; }
+    std::shared_ptr<MemShareArbitrator> exec_mem_arb() const { return _exec_mem_arb; }
 
     WorkloadGroupPtr workload_group() const { return _resource_ctx->workload_group(); }
     std::shared_ptr<MemTrackerLimiter> query_mem_tracker() const {
@@ -391,7 +392,8 @@ private:
     // instance id + node id -> cte scan
     std::map<std::pair<TUniqueId, int>, RecCTEScanLocalState*> _cte_scan;
     std::mutex _cte_scan_lock;
-    std::shared_ptr<MemShareArbitrator> _mem_arb = nullptr;
+    std::shared_ptr<MemShareArbitrator> _scan_mem_arb = nullptr;
+    std::shared_ptr<MemShareArbitrator> _exec_mem_arb = nullptr;
 
 public:
     // when fragment of pipeline is closed, it will register its profile to this map by using add_fragment_profile

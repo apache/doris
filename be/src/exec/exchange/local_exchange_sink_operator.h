@@ -43,7 +43,6 @@ public:
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
     std::string debug_string(int indentation_level) const override;
-    std::vector<Dependency*> dependencies() const override;
     Status close(RuntimeState* state, Status exec_status) override;
 
 private:
@@ -66,6 +65,7 @@ private:
 
     // Used by random passthrough exchanger
     int _channel_id = 0;
+    int _ins_idx = 0;
 };
 
 class LocalExchangeSinkOperatorX final : public DataSinkOperatorX<LocalExchangeSinkLocalState> {
@@ -122,6 +122,9 @@ private:
     std::unique_ptr<PartitionerBase> _partitioner;
     std::map<int, int> _shuffle_idx_to_instance_idx;
     bool _use_global_shuffle = false;
+    std::shared_ptr<MemLimiter> _mem_limiter = nullptr;
+    bool _enable_adaptive_execution = false;
+    std::shared_ptr<AdaptiveTaskProcessor> _adaptive_processor = nullptr;
 };
 
 } // namespace doris

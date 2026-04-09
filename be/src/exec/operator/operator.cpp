@@ -652,11 +652,9 @@ Status PipelineXSinkLocalState<SharedState>::init(RuntimeState* state, LocalSink
     if constexpr (!is_fake_shared) {
         if (info.shared_state_map.find(_parent->dests_id().front()) !=
             info.shared_state_map.end()) {
-            if constexpr (std::is_same_v<LocalExchangeSharedState, SharedState>) {
-                DCHECK(info.shared_state_map.at(_parent->dests_id().front()).second.size() == 1);
-            }
             _dependency = info.shared_state_map.at(_parent->dests_id().front())
-                                  .second[std::is_same_v<LocalExchangeSharedState, SharedState>
+                                  .second[std::is_same_v<LocalExchangeSharedState, SharedState> &&
+                                                          !state->enable_adaptive_execution()
                                                   ? 0
                                                   : info.task_idx]
                                   .get();

@@ -40,6 +40,7 @@ struct SinkInfo {
     PartitionerBase* partitioner;
     LocalExchangeSinkLocalState* local_state;
     std::map<int, int>* shuffle_idx_to_instance_idx;
+    int ins_idx; // Sink instance index for per-instance memory tracking
 };
 
 struct SourceInfo {
@@ -62,24 +63,31 @@ struct SourceInfo {
 class ExchangerBase {
 public:
     /**
-     * `BlockWrapper` is used to wrap a data block with a reference count.
+     * `BlockWrapper` is used to wrap a data block with memory tracking and lifecycle management.
      *
-     * In function `unref()`, if `ref_count` decremented to 0, which means this block is not needed by
-     * operators, so we put it into `_free_blocks` to reuse its memory if needed and refresh memory usage
-     * in current queue.
+     * Memory tracking:
+     *   - On construction: Reports memory allocation to LocalExchangeSharedState
+     *   - On destruction: Reports memory release and optionally recycles the block
+     *   - `_sink_ins_idx` tracks which sink instance created this block for per-instance accounting
      *
-     * Note: `ref_count` will be larger than 1 only if this block is shared between multiple queues in
-     * shuffle exchanger.
+     * Block recycling:
+     *   - When ref_count reaches 0, the block may be recycled to `_free_blocks` for reuse
+     *   - Recycling is skipped if the free block limit is reached or in low memory mode
+     *
+     * Note: `ref_count` will be larger than 1 only if this block is shared between multiple queues
+     * in shuffle exchanger (broadcast pattern).
      */
     class BlockWrapper {
     public:
         ENABLE_FACTORY_CREATOR(BlockWrapper);
-        BlockWrapper(Block&& data_block, LocalExchangeSharedState* shared_state, int channel_id)
+        BlockWrapper(Block&& data_block, LocalExchangeSharedState* shared_state, int sink_ins_idx)
                 : _data_block(std::move(data_block)),
                   _shared_state(shared_state),
-                  _allocated_bytes(_data_block.allocated_bytes()) {
+                  _allocated_bytes(_data_block.allocated_bytes()),
+                  _sink_ins_idx(sink_ins_idx) {
             if (_shared_state) {
-                _shared_state->add_total_mem_usage(_allocated_bytes);
+                _shared_state->update_total_mem_usage(cast_set<int64_t>(_allocated_bytes),
+                                                      sink_ins_idx);
             }
         }
         ~BlockWrapper() {
@@ -87,7 +95,8 @@ public:
                 DCHECK_GT(_allocated_bytes, 0);
                 // `_channel_ids` may be empty if exchanger is shuffled exchanger and channel id is
                 // not used by `sub_total_mem_usage`. So we just pass -1 here.
-                _shared_state->sub_total_mem_usage(_allocated_bytes);
+                _shared_state->update_total_mem_usage(-cast_set<int64_t>(_allocated_bytes),
+                                                      _sink_ins_idx);
                 if (_shared_state->exchanger->_free_block_limit == 0 ||
                     _shared_state->exchanger->_free_blocks.size_approx() <
                             _shared_state->exchanger->_free_block_limit *
@@ -100,7 +109,6 @@ public:
             };
         }
         void record_channel_id(int channel_id) {
-            _channel_ids.push_back(channel_id);
             if (_shared_state) {
                 _shared_state->add_mem_usage(channel_id, _allocated_bytes);
             }
@@ -118,8 +126,8 @@ public:
 
         Block _data_block;
         LocalExchangeSharedState* _shared_state;
-        std::vector<int> _channel_ids;
         const size_t _allocated_bytes;
+        const int _sink_ins_idx;
     };
     ExchangerBase(int running_sink_operators, int num_partitions, int free_block_limit)
             : _running_sink_operators(running_sink_operators),
@@ -154,6 +162,7 @@ public:
         _free_block_limit = 0;
         clear_blocks(_free_blocks);
     }
+    int num_senders() const { return _num_senders; }
 
 protected:
     friend struct LocalExchangeSharedState;
@@ -286,8 +295,7 @@ public:
 
 protected:
     Status _split_rows(RuntimeState* state, const std::vector<uint32_t>& channel_ids, Block* block,
-                       int channel_id, LocalExchangeSinkLocalState* local_state,
-                       std::map<int, int>* shuffle_idx_to_instance_idx);
+                       SinkInfo& sink_info);
     Status _split_rows(RuntimeState* state, const std::vector<uint32_t>& channel_ids, Block* block,
                        int channel_id);
     std::vector<std::vector<uint32_t>> _partition_rows_histogram;
@@ -351,12 +359,12 @@ public:
 
 //The code in AdaptivePassthroughExchanger is essentially
 // a copy of ShuffleExchanger and PassthroughExchanger.
-class AdaptivePassthroughExchanger : public Exchanger<BlockWrapperSPtr> {
+class AdaptivePassthroughExchanger : public Exchanger<PartitionedBlock> {
 public:
     ENABLE_FACTORY_CREATOR(AdaptivePassthroughExchanger);
     AdaptivePassthroughExchanger(int running_sink_operators, int num_partitions,
                                  int free_block_limit)
-            : Exchanger<BlockWrapperSPtr>(running_sink_operators, num_partitions,
+            : Exchanger<PartitionedBlock>(running_sink_operators, num_partitions,
                                           free_block_limit) {
         _partition_rows_histogram.resize(running_sink_operators);
     }

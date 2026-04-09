@@ -531,6 +531,7 @@ public:
     }
 
     QueryContext* get_query_ctx() const { return _query_ctx; }
+    bool enable_adaptive_execution() const;
 
     [[nodiscard]] bool low_memory_mode() const;
 

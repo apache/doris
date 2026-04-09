@@ -91,7 +91,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final List<Field> affectQueryResultInPlanFields;
     public static final String EXEC_MEM_LIMIT = "exec_mem_limit";
     public static final String MAX_SCAN_MEM_RATIO = "max_scan_mem_ratio";
+    public static final String MAX_EXEC_BUFFER_MEM_RATIO = "max_exec_buffer_mem_ratio";
     public static final String ENABLE_ADAPTIVE_SCAN = "enable_adaptive_scan";
+    public static final String ENABLE_ADAPTIVE_EXECUTION = "enable_adaptive_execution";
     public static final String LOCAL_EXCHANGE_FREE_BLOCKS_LIMIT = "local_exchange_free_blocks_limit";
     public static final String SCAN_QUEUE_MEM_LIMIT = "scan_queue_mem_limit";
     public static final String MAX_SCANNERS_CONCURRENCY = "max_scanners_concurrency";
@@ -1073,8 +1075,12 @@ public class SessionVariable implements Serializable, Writable {
     public long maxExecMemByte = 100147483648L;
     @VarAttrDef.VarAttr(name = MAX_SCAN_MEM_RATIO, needForward = true)
     public double maxScanMemRatio = 0.3;
+    @VarAttrDef.VarAttr(name = MAX_EXEC_BUFFER_MEM_RATIO, needForward = true)
+    public double maxExecBufferMemRatio = 0.5;
     @VarAttrDef.VarAttr(name = ENABLE_ADAPTIVE_SCAN, needForward = true)
     public boolean enableAdaptiveScan = true;
+    @VarAttrDef.VarAttr(name = ENABLE_ADAPTIVE_EXECUTION, needForward = true)
+    public boolean enableAdaptiveExecution = true;
 
     @VarAttrDef.VarAttr(name = SCAN_QUEUE_MEM_LIMIT, needForward = true,
             description = {"每个 Scan Instance 的 block queue 能够保存多少字节的 block",
@@ -5401,7 +5407,9 @@ public class SessionVariable implements Serializable, Writable {
         TQueryOptions tResult = new TQueryOptions();
         tResult.setMemLimit(maxExecMemByte);
         tResult.setMaxScanMemRatio(maxScanMemRatio);
+        tResult.setMaxExecBufferMemRatio(maxExecBufferMemRatio);
         tResult.setEnableAdaptiveScan(enableAdaptiveScan);
+        tResult.setEnableAdaptiveExecution(enableAdaptiveExecution);
         tResult.setLocalExchangeFreeBlocksLimit(localExchangeFreeBlocksLimit);
         tResult.setScanQueueMemLimit(maxScanQueueMemByte);
         tResult.setMaxScannersConcurrency(maxScannersConcurrency);

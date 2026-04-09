@@ -562,6 +562,11 @@ bool RuntimeState::low_memory_mode() const {
     return _query_ctx->low_memory_mode();
 }
 
+bool RuntimeState::enable_adaptive_execution() const {
+    return _query_ctx->get_query_options().__isset.enable_adaptive_execution &&
+           _query_ctx->get_query_options().enable_adaptive_execution;
+}
+
 void RuntimeState::set_id_file_map() {
     _id_file_map = _exec_env->get_id_manager()->add_id_file_map(_query_id, execution_timeout());
 }
