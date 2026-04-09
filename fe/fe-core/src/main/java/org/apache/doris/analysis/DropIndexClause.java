@@ -20,9 +20,12 @@ package org.apache.doris.analysis;
 import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.info.PartitionNamesInfo;
 
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 
 public class DropIndexClause extends AlterTableClause {
@@ -32,12 +35,20 @@ public class DropIndexClause extends AlterTableClause {
 
     private boolean alter;
 
+    private final PartitionNamesInfo partitionNamesInfo;
+
     public DropIndexClause(String indexName, boolean ifExists, TableName tableName, boolean alter) {
+        this(indexName, ifExists, tableName, alter, null);
+    }
+
+    public DropIndexClause(String indexName, boolean ifExists, TableName tableName, boolean alter,
+            PartitionNamesInfo partitionNamesInfo) {
         super(AlterOpType.SCHEMA_CHANGE);
         this.indexName = indexName;
         this.ifExists = ifExists;
         this.tableName = tableName;
         this.alter = alter;
+        this.partitionNamesInfo = partitionNamesInfo;
     }
 
     public String getIndexName() {
@@ -56,6 +67,16 @@ public class DropIndexClause extends AlterTableClause {
         return alter;
     }
 
+    public boolean hasPartitionSpec() {
+        return partitionNamesInfo != null;
+    }
+
+    public List<String> getPartitionNames() {
+        return partitionNamesInfo == null
+                ? Collections.emptyList()
+                : partitionNamesInfo.getPartitionNames();
+    }
+
     @Override
     public Map<String, String> getProperties() {
         return null;
@@ -65,6 +86,18 @@ public class DropIndexClause extends AlterTableClause {
     public void analyze() throws UserException {
         if (StringUtils.isEmpty(indexName)) {
             throw new AnalysisException("index name is excepted");
+        }
+        if (partitionNamesInfo != null) {
+            if (partitionNamesInfo.isTemp()) {
+                throw new AnalysisException(
+                        "DROP INDEX ON PARTITION does not support temporary partitions");
+            }
+            if (partitionNamesInfo.getPartitionNames() == null
+                    || partitionNamesInfo.getPartitionNames().isEmpty()) {
+                throw new AnalysisException(
+                        "DROP INDEX ON PARTITION requires explicit partition names, "
+                                + "PARTITIONS (*) is not supported");
+            }
         }
     }
 
@@ -88,6 +121,9 @@ public class DropIndexClause extends AlterTableClause {
         stringBuilder.append("DROP INDEX ").append("`" + indexName + "`");
         if (!alter) {
             stringBuilder.append(" ON ").append(tableName.toSql());
+        }
+        if (partitionNamesInfo != null) {
+            stringBuilder.append(" ").append(partitionNamesInfo.toSql());
         }
         return stringBuilder.toString();
     }
