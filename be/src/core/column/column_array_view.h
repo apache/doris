@@ -36,6 +36,11 @@ struct ArrayDataView {
 
     size_t size() const { return length; }
 
+    const ElementType* get_data() const {
+        const ElementType* raw_data = data.get_data();
+        return raw_data + offset;
+    }
+
     // ColumnArray's data column is always Nullable, no need to check nullptr
     bool is_null_at(size_t idx) const { return nested_null_map[offset + idx]; }
 

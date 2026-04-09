@@ -140,6 +140,29 @@ TEST(ColumnArrayViewTest, IndexAccess_basic) {
     EXPECT_EQ(arr2.value_at(1), 60);
 }
 
+TEST(ColumnArrayViewTest, IndexAccess_get_data) {
+    auto col = build_int32_array_column({{10, 20, 30}, {40}, {50, 60}}, {0, 0, 0, 0, 0, 0});
+    auto view = ColumnArrayView<TYPE_INT>::create(col);
+
+    auto arr0 = view[0];
+    const auto* data0 = arr0.get_data();
+    ASSERT_NE(data0, nullptr);
+    EXPECT_EQ(data0[0], 10);
+    EXPECT_EQ(data0[1], 20);
+    EXPECT_EQ(data0[2], 30);
+
+    auto arr1 = view[1];
+    const auto* data1 = arr1.get_data();
+    ASSERT_NE(data1, nullptr);
+    EXPECT_EQ(data1[0], 40);
+
+    auto arr2 = view[2];
+    const auto* data2 = arr2.get_data();
+    ASSERT_NE(data2, nullptr);
+    EXPECT_EQ(data2[0], 50);
+    EXPECT_EQ(data2[1], 60);
+}
+
 // Test with null elements inside arrays
 // Row 0: [1, NULL, 3], Row 1: [NULL]
 TEST(ColumnArrayViewTest, IndexAccess_with_null_elements) {
