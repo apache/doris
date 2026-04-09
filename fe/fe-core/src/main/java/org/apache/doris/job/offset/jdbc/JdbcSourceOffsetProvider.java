@@ -569,6 +569,40 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     }
 
     @Override
+    public String getLag() {
+        if (currentOffset == null || currentOffset.snapshotSplit()) {
+            return "";
+        }
+        BinlogSplit binlogSplit = (BinlogSplit) currentOffset.getSplits().get(0);
+        Map<String, String> offsetMap = binlogSplit.getStartingOffset();
+        if (MapUtils.isEmpty(offsetMap)) {
+            return "";
+        }
+        long eventTimeMs = extractEventTimeMs(offsetMap);
+        if (eventTimeMs <= 0) {
+            return "";
+        }
+        long lagSec = (System.currentTimeMillis() - eventTimeMs) / 1000;
+        return String.valueOf(Math.max(lagSec, 0));
+    }
+
+    /**
+     * Extract event timestamp in milliseconds from binlog offset map.
+     * MySQL: ts_sec (seconds), PostgreSQL: ts_usec (microseconds).
+     */
+    protected long extractEventTimeMs(Map<String, String> offsetMap) {
+        String tsSec = offsetMap.get("ts_sec");
+        if (tsSec != null) {
+            return Long.parseLong(tsSec) * 1000;
+        }
+        String tsUsec = offsetMap.get("ts_usec");
+        if (tsUsec != null) {
+            return Long.parseLong(tsUsec) / 1000;
+        }
+        return -1;
+    }
+
+    @Override
     public void onTaskCommitted(long scannedRows, long loadBytes) {
         if (scannedRows == 0 && loadBytes == 0) {
             hasMoreData = false;

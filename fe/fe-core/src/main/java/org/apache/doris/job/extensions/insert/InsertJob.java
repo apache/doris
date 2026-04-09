@@ -102,6 +102,7 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
             .add(new Column("Properties", ScalarType.createStringType()))
             .add(new Column("CurrentOffset", ScalarType.createStringType()))
             .add(new Column("EndOffset", ScalarType.createStringType()))
+            .add(new Column("Lag", ScalarType.createStringType()))
             .add(new Column("LoadStatistic", ScalarType.createStringType()))
             .add(new Column("ErrorMsg", ScalarType.createStringType()))
             .add(new Column("JobRuntimeMsg", ScalarType.createStringType()))

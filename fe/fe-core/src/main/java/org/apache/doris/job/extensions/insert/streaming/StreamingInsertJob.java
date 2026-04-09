@@ -857,6 +857,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         } else {
             trow.addToColumnValue(new TCell().setStringVal(""));
         }
+        trow.addToColumnValue(new TCell().setStringVal(
+                offsetProvider != null ? offsetProvider.getLag() : ""));
         if (tvfType != null) {
             trow.addToColumnValue(new TCell().setStringVal(
                     jobStatistic == null ? "" : jobStatistic.toJson()));
