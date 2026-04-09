@@ -1036,10 +1036,10 @@ TEST(FunctionJsonbTEST, JsonExtractStringFromVarcharAliasTest) {
             {{STRING(R"({"k1":null})"), STRING("$.k1")}, STRING("null")},
     };
 
-    static_cast<void>(check_function<DataTypeString, true>(
-            "jsonb_extract_string", input_types, data_set));
-    static_cast<void>(check_function<DataTypeString, true>(
-            "get_json_string", input_types, data_set));
+    static_cast<void>(
+            check_function<DataTypeString, true>("jsonb_extract_string", input_types, data_set));
+    static_cast<void>(
+            check_function<DataTypeString, true>("get_json_string", input_types, data_set));
 }
 
 } // namespace doris::vectorized
