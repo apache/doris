@@ -573,6 +573,10 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         if (currentOffset == null || currentOffset.snapshotSplit()) {
             return "";
         }
+        // Source is idle (last task consumed no data), report zero lag
+        if (!hasMoreData) {
+            return "0";
+        }
         BinlogSplit binlogSplit = (BinlogSplit) currentOffset.getSplits().get(0);
         Map<String, String> offsetMap = binlogSplit.getStartingOffset();
         if (MapUtils.isEmpty(offsetMap)) {
@@ -580,7 +584,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         }
         long eventTimeMs = extractEventTimeMs(offsetMap);
         if (eventTimeMs <= 0) {
-            return "";
+            return "0";
         }
         long lagSec = (System.currentTimeMillis() - eventTimeMs) / 1000;
         return String.valueOf(Math.max(lagSec, 0));
