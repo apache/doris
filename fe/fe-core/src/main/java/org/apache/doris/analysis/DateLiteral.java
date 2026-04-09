@@ -25,7 +25,6 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.InvalidFormatException;
-import org.apache.doris.nereids.util.DateUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -45,7 +44,6 @@ import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
-import java.time.format.DateTimeParseException;
 import java.time.format.ResolverStyle;
 import java.time.format.SignStyle;
 import java.time.format.TextStyle;
@@ -53,14 +51,11 @@ import java.time.temporal.ChronoField;
 import java.time.temporal.IsoFields;
 import java.time.temporal.TemporalAccessor;
 import java.time.temporal.WeekFields;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TimeZone;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-import javax.annotation.Nullable;
 
 public class DateLiteral extends LiteralExpr {
     private static final Logger LOG = LogManager.getLogger(DateLiteral.class);
@@ -88,7 +83,7 @@ public class DateLiteral extends LiteralExpr {
             = new DateLiteral(9999, 12, 31, 23, 59, 59, 999999L, Type.TIMESTAMP_TZ_WITH_MAX_SCALAR);
     private static final int MAX_MICROSECOND = 999999;
 
-    private static List<DateTimeFormatter> formatterList = null;
+    static List<DateTimeFormatter> formatterList = null;
 
     private static final Map<String, Integer> MONTH_NAME_DICT = Maps.newHashMap();
     private static final Map<String, Integer> MONTH_ABBR_NAME_DICT = Maps.newHashMap();
@@ -173,8 +168,6 @@ public class DateLiteral extends LiteralExpr {
         MONTH_ABBR_NAME_DICT.put("sun", 6);
     }
 
-    private static final Pattern HAS_OFFSET_PART = Pattern.compile("[\\+\\-]\\d{2}:\\d{2}");
-
     @Override
     public boolean equals(Object o) {
         if (o instanceof DateLiteral) {
@@ -216,18 +209,6 @@ public class DateLiteral extends LiteralExpr {
             }
         }
         this.type = type;
-        this.nullable = false;
-    }
-
-    public DateLiteral(String s, Type type) throws AnalysisException {
-        super();
-        init(s, type);
-        this.nullable = false;
-    }
-
-    public DateLiteral(String s) throws AnalysisException {
-        super();
-        init(s, null);
         this.nullable = false;
     }
 
@@ -319,174 +300,6 @@ public class DateLiteral extends LiteralExpr {
 
     public static DateLiteral createMinValue(Type type) throws AnalysisException {
         return new DateLiteral(type, false);
-    }
-
-    private void init(String s, @Nullable Type type) throws AnalysisException {
-        try {
-            if (type != null) {
-                Preconditions.checkArgument(type.isDateType());
-            }
-            TemporalAccessor dateTime = null;
-            boolean parsed = false;
-            int offset = 0;
-
-            // parse timezone
-            if (haveTimeZoneOffset(s) || haveTimeZoneName(s)) {
-                String tzString = new String();
-                if (haveTimeZoneName(s)) { // GMT, UTC+8, Z[, CN, Asia/Shanghai]
-                    int split = getTimeZoneSplitPos(s);
-                    Preconditions.checkArgument(split > 0);
-                    tzString = s.substring(split);
-                    s = s.substring(0, split);
-                } else { // +04:30
-                    Preconditions.checkArgument(s.charAt(s.length() - 6) == '-' || s.charAt(s.length() - 6) == '+');
-                    tzString = s.substring(s.length() - 6);
-                    s = s.substring(0, s.length() - 6);
-                }
-                ZoneId zone = ZoneId.of(tzString);
-                ZoneId dorisZone = DateUtils.getTimeZone();
-                if (type != null && type.isTimeStampTz()) {
-                    dorisZone = ZoneId.of("UTC");
-                }
-                offset = dorisZone.getRules().getOffset(java.time.Instant.now()).getTotalSeconds()
-                    - zone.getRules().getOffset(java.time.Instant.now()).getTotalSeconds();
-            }
-
-            if (!s.contains("-")) {
-                // handle format like 20210106, but should not handle 2021-1-6
-                for (DateTimeFormatter formatter : formatterList) {
-                    try {
-                        dateTime = formatter.parse(s);
-                        parsed = true;
-                        break;
-                    } catch (DateTimeParseException ex) {
-                        // ignore
-                    }
-                }
-                if (!parsed) {
-                    throw new AnalysisException("Invalid date value: " + s);
-                }
-            } else {
-                String[] datePart = s.contains(" ") ? s.split(" ")[0].split("-") : s.split("-");
-                DateTimeFormatterBuilder builder = new DateTimeFormatterBuilder();
-                if (datePart.length != 3) {
-                    throw new AnalysisException("Invalid date value: " + s);
-                }
-                for (int i = 0; i < datePart.length; i++) {
-                    switch (i) {
-                        case 0:
-                            if (datePart[i].length() == 2) {
-                                // If year is represented by two digits, number bigger than 70 will be prefixed
-                                // with 19 otherwise 20. e.g. 69 -> 2069, 70 -> 1970.
-                                builder.appendValueReduced(ChronoField.YEAR, 2, 2, 1970);
-                            } else {
-                                builder.appendPattern(String.join("", Collections.nCopies(datePart[i].length(), "u")));
-                            }
-                            break;
-                        case 1:
-                            builder.appendPattern(String.join("", Collections.nCopies(datePart[i].length(), "M")));
-                            break;
-                        case 2:
-                            builder.appendPattern(String.join("", Collections.nCopies(datePart[i].length(), "d")));
-                            break;
-                        default:
-                            throw new AnalysisException("Two many parts in date format " + s);
-                    }
-                    if (i < datePart.length - 1) {
-                        builder.appendLiteral("-");
-                    }
-                }
-                if (s.contains(" ")) {
-                    builder.appendLiteral(" ");
-                }
-                String[] timePart = s.contains(" ") ? s.split(" ")[1].split(":") : new String[]{};
-                if (timePart.length > 0 && type != null && (type.equals(Type.DATE) || type.equals(Type.DATEV2))) {
-                    throw new AnalysisException("Invalid date value: " + s);
-                }
-                if (timePart.length == 0 && type != null && (type.equals(Type.DATETIME) || type.equals(
-                        Type.DATETIMEV2))) {
-                    throw new AnalysisException("Invalid datetime value: " + s);
-                }
-                for (int i = 0; i < timePart.length; i++) {
-                    switch (i) {
-                        case 0:
-                            builder.appendPattern(String.join("", Collections.nCopies(timePart[i].length(), "H")));
-                            break;
-                        case 1:
-                            builder.appendPattern(String.join("", Collections.nCopies(timePart[i].length(), "m")));
-                            break;
-                        case 2:
-                            builder.appendPattern(String.join("", Collections.nCopies(timePart[i].contains(".")
-                                    ? timePart[i].split("\\.")[0].length() : timePart[i].length(), "s")));
-                            if (timePart[i].contains(".")) {
-                                builder.appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true);
-                            }
-                            break;
-                        default:
-                            throw new AnalysisException("Two many parts in time format " + s);
-                    }
-                    if (i < timePart.length - 1) {
-                        builder.appendLiteral(":");
-                    }
-                }
-                // The default resolver style is 'SMART', which parses "2022-06-31" as "2022-06-30"
-                // and does not throw an exception. 'STRICT' is used here.
-                DateTimeFormatter formatter = builder.toFormatter().withResolverStyle(ResolverStyle.STRICT);
-                dateTime = formatter.parse(s);
-                parsed = true;
-            }
-
-            Preconditions.checkArgument(parsed);
-            year = getOrDefault(dateTime, ChronoField.YEAR, 0);
-            month = getOrDefault(dateTime, ChronoField.MONTH_OF_YEAR, 0);
-            day = getOrDefault(dateTime, ChronoField.DAY_OF_MONTH, 0);
-            hour = getOrDefault(dateTime, ChronoField.HOUR_OF_DAY, 0);
-            minute = getOrDefault(dateTime, ChronoField.MINUTE_OF_HOUR, 0);
-            second = getOrDefault(dateTime, ChronoField.SECOND_OF_MINUTE, 0);
-            microsecond = getOrDefault(dateTime, ChronoField.MICRO_OF_SECOND, 0);
-
-            if (type != null) {
-                if (microsecond != 0 && type.isDatetime()) {
-                    int dotIndex = s.lastIndexOf(".");
-                    int scale = s.length() - dotIndex - 1;
-                    type = ScalarType.createDatetimeV2Type(scale);
-                }
-            } else {
-                if (hour == 0 && minute == 0 && second == 0 && microsecond == 0) {
-                    type = ScalarType.getDefaultDateType(Type.DATE);
-                } else {
-                    type = ScalarType.getDefaultDateType(Type.DATETIME);
-                    if (type.isDatetimeV2() && microsecond != 0) {
-                        int scale = 6;
-                        for (int i = 0; i < 6; i++) {
-                            if (microsecond % Math.pow(10.0, i + 1) > 0) {
-                                break;
-                            } else {
-                                scale -= 1;
-                            }
-                        }
-                        type = ScalarType.createDatetimeV2Type(scale);
-                    }
-                }
-            }
-            this.type = type;
-
-            if (offset != 0) {
-                DateLiteral result = this.plusSeconds(offset);
-                this.second = result.second;
-                this.minute = result.minute;
-                this.hour = result.hour;
-                this.day = result.day;
-                this.month = result.month;
-                this.year = result.year;
-            }
-
-            if (checkRange() || checkDate()) {
-                throw new AnalysisException("Datetime value is out of range");
-            }
-        } catch (Exception ex) {
-            throw new AnalysisException("date literal [" + s + "] is invalid: " + ex.getMessage());
-        }
     }
 
     private void copy(DateLiteral other) {
@@ -1442,13 +1255,15 @@ public class DateLiteral extends LiteralExpr {
         }
     }
 
-    private boolean checkRange() {
+    // Package-private so DateLiteralUtils can use it for validation
+    boolean checkRange() {
         return year > MAX_DATETIME.year || month > MAX_DATETIME.month || day > MAX_DATETIME.day
             || hour > MAX_DATETIME.hour || minute > MAX_DATETIME.minute || second > MAX_DATETIME.second
             || microsecond > MAX_MICROSECOND;
     }
 
-    private boolean checkDate() {
+    // Package-private so DateLiteralUtils can use it for validation
+    boolean checkDate() {
         if (month != 0 && day > DAYS_IN_MONTH[((int) month)]) {
             if (month == 2 && day == 29 && Year.isLeap(year)) {
                 return false;
@@ -1575,28 +1390,5 @@ public class DateLiteral extends LiteralExpr {
         minute = 0;
         second = 0;
         microsecond = 0;
-    }
-
-    private static boolean haveTimeZoneOffset(String arg) {
-        Preconditions.checkArgument(arg.length() > 6);
-        return HAS_OFFSET_PART.matcher(arg.substring(arg.length() - 6)).matches();
-    }
-
-    private static boolean haveTimeZoneName(String arg) {
-        for (char ch : arg.toCharArray()) {
-            if (Character.isUpperCase(ch) && ch != 'T') {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static int getTimeZoneSplitPos(String arg) {
-        int split = arg.length() - 1;
-        for (; !Character.isAlphabetic(arg.charAt(split)); split--) {
-        } // skip +8 of UTC+8
-        for (; split >= 0 && (Character.isUpperCase(arg.charAt(split)) || arg.charAt(split) == '/'); split--) {
-        }
-        return split + 1;
     }
 }

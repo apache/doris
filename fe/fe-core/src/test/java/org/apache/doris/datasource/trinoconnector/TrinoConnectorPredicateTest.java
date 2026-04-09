@@ -701,11 +701,11 @@ public class TrinoConnectorPredicateTest {
                 .add(new StringLiteral("trino connector varchar test"))
                 .add(new StringLiteral("trino connector varbinary test"))
 
-                .add(new DateLiteral("1969-12-31", Type.DATEV2))
-                .add(new DateLiteral("1970-01-01 00:00:01.000001", Type.DATETIMEV2))
-                // .add(new DateLiteral("1970-01-01 00:00:00.000000", Type.DATETIMEV2))
-                .add(new DateLiteral("1970-01-01 00:00:01.000001", Type.DATETIMEV2))
-                .add(new DateLiteral("1970-01-01 08:00:01.000001", Type.DATETIMEV2))
+                .add(new DateLiteral(1969, 12, 31, Type.DATEV2))
+                .add(new DateLiteral(1970, 1, 1, 0, 0, 1, 1, Type.DATETIMEV2))
+                // .add(new DateLiteral(1970, 1, 1, 0, 0, 0, 0, Type.DATETIMEV2))
+                .add(new DateLiteral(1970, 1, 1, 0, 0, 1, 1, Type.DATETIMEV2))
+                .add(new DateLiteral(1970, 1, 1, 8, 0, 1, 1, Type.DATETIMEV2))
                 .build();
     }
 

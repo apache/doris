@@ -174,7 +174,7 @@ public class JdbcScanNodeTest {
                 };
             }};
 
-        DateLiteral dateLiteral = new DateLiteral("2023-01-01 12:34:56", Type.DATETIME);
+        DateLiteral dateLiteral = new DateLiteral(2023, 1, 1, 12, 34, 56, Type.DATETIME);
 
         SlotRef dateSlot = new SlotRef(null, "CREATE_TIME");
         BinaryPredicate datePred = new BinaryPredicate(Operator.GE, dateSlot, dateLiteral);
@@ -195,7 +195,7 @@ public class JdbcScanNodeTest {
                 };
             }};
 
-        DateLiteral dateLiteral = new DateLiteral("2023-01-01 12:34:56", Type.DATETIME);
+        DateLiteral dateLiteral = new DateLiteral(2023, 1, 1, 12, 34, 56, Type.DATETIME);
 
         SlotRef dateSlot = new SlotRef(null, "CREATE_TIME");
         BinaryPredicate datePred = new BinaryPredicate(Operator.GE, dateSlot, dateLiteral);
@@ -221,7 +221,7 @@ public class JdbcScanNodeTest {
         IntLiteral intLiteral = new IntLiteral(1);
         BinaryPredicate idPred = new BinaryPredicate(Operator.EQ, idSlot, intLiteral);
 
-        DateLiteral dateLiteral = new DateLiteral("2023-01-01 12:34:56", Type.DATETIME);
+        DateLiteral dateLiteral = new DateLiteral(2023, 1, 1, 12, 34, 56, Type.DATETIME);
 
         SlotRef dateSlot = new SlotRef(null, "CREATE_TIME");
         BinaryPredicate datePred = new BinaryPredicate(Operator.GE, dateSlot, dateLiteral);
@@ -263,8 +263,8 @@ public class JdbcScanNodeTest {
         StringLiteral nameLiteral = new StringLiteral("test");
         BinaryPredicate namePred = new BinaryPredicate(Operator.EQ, nameSlot, nameLiteral);
 
-        DateLiteral startDateLiteral = new DateLiteral("2023-01-01 00:00:00", Type.DATETIME);
-        DateLiteral endDateLiteral = new DateLiteral("2023-12-31 23:59:59", Type.DATETIME);
+        DateLiteral startDateLiteral = new DateLiteral(2023, 1, 1, 0, 0, 0, Type.DATETIME);
+        DateLiteral endDateLiteral = new DateLiteral(2023, 12, 31, 23, 59, 59, Type.DATETIME);
 
         SlotRef createTimeSlot = new SlotRef(null, "CREATE_TIME");
         BinaryPredicate createTimePred = new BinaryPredicate(Operator.GE, createTimeSlot, startDateLiteral);
@@ -517,7 +517,7 @@ public class JdbcScanNodeTest {
             }};
 
         // Test DATETIME type with SQL Server
-        DateLiteral dateLiteral = new DateLiteral("2026-02-28 12:30:12", Type.DATETIME);
+        DateLiteral dateLiteral = new DateLiteral(2026, 2, 28, 12, 30, 12, Type.DATETIME);
 
         SlotRef dateSlot = new SlotRef(null, "data_time");
         BinaryPredicate datePred = new BinaryPredicate(Operator.GT, dateSlot, dateLiteral);
@@ -539,7 +539,7 @@ public class JdbcScanNodeTest {
             }};
 
         // Test DATE type with SQL Server
-        DateLiteral dateLiteral = new DateLiteral("2026-02-28", Type.DATEV2);
+        DateLiteral dateLiteral = new DateLiteral(2026, 2, 28, Type.DATEV2);
 
         SlotRef dateSlot = new SlotRef(null, "create_date");
         BinaryPredicate datePred = new BinaryPredicate(Operator.GE, dateSlot, dateLiteral);
@@ -561,7 +561,7 @@ public class JdbcScanNodeTest {
             }};
 
         // Test DATETIMEV2 type with fractional seconds (as SQL Server datetime maps to DATETIMEV2)
-        DateLiteral dateLiteral = new DateLiteral("2026-02-28 12:30:12.123",
+        DateLiteral dateLiteral = new DateLiteral(2026, 2, 28, 12, 30, 12, 123000,
                 ScalarType.createDatetimeV2Type(3));
 
         SlotRef dateSlot = new SlotRef(null, "data_time");
@@ -585,9 +585,9 @@ public class JdbcScanNodeTest {
 
         // Test IN predicate with datetime literals for SQL Server
         SlotRef dateSlot = new SlotRef(null, "data_time");
-        DateLiteral date1 = new DateLiteral("2026-01-01 00:00:00", Type.DATETIME);
-        DateLiteral date2 = new DateLiteral("2026-06-15 12:00:00", Type.DATETIME);
-        DateLiteral date3 = new DateLiteral("2026-12-31 23:59:59", Type.DATETIME);
+        DateLiteral date1 = new DateLiteral(2026, 1, 1, 0, 0, 0, Type.DATETIME);
+        DateLiteral date2 = new DateLiteral(2026, 6, 15, 12, 0, 0, Type.DATETIME);
+        DateLiteral date3 = new DateLiteral(2026, 12, 31, 23, 59, 59, Type.DATETIME);
 
         List<Expr> inList = Arrays.asList(date1, date2, date3);
         InPredicate inPred = new InPredicate(dateSlot, inList, false);
@@ -615,7 +615,7 @@ public class JdbcScanNodeTest {
         IntLiteral intLiteral = new IntLiteral(1);
         BinaryPredicate idPred = new BinaryPredicate(Operator.EQ, idSlot, intLiteral);
 
-        DateLiteral dateLiteral = new DateLiteral("2026-02-28 12:30:12", Type.DATETIME);
+        DateLiteral dateLiteral = new DateLiteral(2026, 2, 28, 12, 30, 12, Type.DATETIME);
         SlotRef dateSlot = new SlotRef(null, "data_time");
         BinaryPredicate datePred = new BinaryPredicate(Operator.GT, dateSlot, dateLiteral);
 

@@ -718,15 +718,19 @@ int64_t MemTable::_adaptive_write_buffer_size() const {
     if (!config::enable_adaptive_write_buffer_size) [[unlikely]] {
         return config::write_buffer_size;
     }
-    const int64_t current_load_mem_value = MemoryProfile::load_current_usage();
+    auto* memtable_limiter = ExecEnv::GetInstance()->memtable_memory_limiter();
+    int64_t memtable_mem =
+            (memtable_limiter != nullptr && memtable_limiter->mem_tracker() != nullptr)
+                    ? memtable_limiter->mem_tracker()->consumption()
+                    : 0;
     int64_t factor = 4;
     // Memory usage intervals:
     // (80 %, 100 %] → 1× buffer
     // (50 %, 80 %]  → 2× buffer
     // [0 %, 50 %]   → 4× buffer
-    if (current_load_mem_value > (_load_mem_limit * 4) / 5) { // > 80 %
+    if (memtable_mem > (_load_mem_limit * 4) / 5) { // > 80 %
         factor = 1;
-    } else if (current_load_mem_value > _load_mem_limit / 2) { // > 50 %
+    } else if (memtable_mem > _load_mem_limit / 2) { // > 50 %
         factor = 2;
     }
     return config::write_buffer_size * factor;
