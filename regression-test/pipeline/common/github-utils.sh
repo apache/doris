@@ -460,22 +460,74 @@ github_utils__maybe_optimize_external_collect_docker_logs() {
     eval "${original_definition/collect_docker_logs/github_utils__original_collect_docker_logs}"
     collect_docker_logs() {
         local collect_on_success="${COLLECT_DOCKER_LOGS_ON_SUCCESS:-false}"
-        local should_collect=false
+        local skip_reason=""
 
-        if [[ "${collect_on_success,,}" == "true" ]] ||
-            [[ "${need_collect_log:-false}" == "true" ]] ||
-            [[ "${exit_flag:-0}" != "0" ]]; then
-            should_collect=true
-        fi
-
-        if ! ${should_collect}; then
-            echo "Skip collecting docker logs on success. Set COLLECT_DOCKER_LOGS_ON_SUCCESS=true to enable."
-            return 0
+        if [[ "${collect_on_success,,}" != "true" ]]; then
+            if skip_reason="$(github_utils__external_collect_docker_logs_skip_reason)"; then
+                echo "Skip collecting docker logs on ${skip_reason}. Set COLLECT_DOCKER_LOGS_ON_SUCCESS=true to enable."
+                return 0
+            fi
         fi
 
         github_utils__original_collect_docker_logs "$@"
     }
     GITHUB_UTILS_EXTERNAL_COLLECT_DOCKER_LOGS_WRAPPED=true
+}
+
+github_utils__external_collect_docker_logs_skip_reason() {
+    local summary=""
+    local test_suites=0
+    local failed_suites=0
+    local fatal_scripts=0
+    local threshold="${failed_suites_threshold:-20}"
+
+    if [[ "${exit_flag:-0}" == "0" ]]; then
+        printf 'success'
+        return 0
+    fi
+
+    summary="$(github_utils__external_regression_summary_line)" || return 1
+    test_suites="$(echo "${summary}" | cut -d ' ' -f 2)"
+    failed_suites="$(echo "${summary}" | cut -d ' ' -f 5)"
+    fatal_scripts="$(echo "${summary}" | cut -d ' ' -f 8)"
+    if [[ ${test_suites} -gt 0 && ${failed_suites} -le ${threshold} && ${fatal_scripts} -eq 0 ]]; then
+        printf 'tolerated success'
+        return 0
+    fi
+    return 1
+}
+
+github_utils__external_regression_summary_line() {
+    local summary_log
+
+    summary_log="$(github_utils__external_regression_summary_log)" || return 1
+    grep -aoE 'Test ([0-9]+) suites, failed ([0-9]+) suites, fatal ([0-9]+) scripts, skipped ([0-9]+) scripts' \
+        "${summary_log}" | tail -n 1
+}
+
+github_utils__external_regression_summary_log() {
+    local log_dir=""
+    local candidate=""
+
+    if [[ -n "${DORIS_HOME:-}" ]]; then
+        log_dir="${DORIS_HOME}/regression-test/log"
+        candidate="$(find "${log_dir}" -maxdepth 1 -type f -name 'doris-regression-test.*.log' | head -n 1)"
+        if [[ -n "${candidate}" ]]; then
+            printf '%s' "${candidate}"
+            return 0
+        fi
+    fi
+
+    if [[ -n "${case_center:-}" && -n "${cluster_name:-}" ]]; then
+        log_dir="${case_center}/${cluster_name}/output/regression-test/log"
+        candidate="$(find "${log_dir}" -maxdepth 1 -type f -name 'doris-regression-test.*.log' | head -n 1)"
+        if [[ -n "${candidate}" ]]; then
+            printf '%s' "${candidate}"
+            return 0
+        fi
+    fi
+
+    return 1
 }
 
 github_utils__maybe_optimize_external_collect_docker_logs

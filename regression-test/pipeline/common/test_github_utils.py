@@ -45,14 +45,29 @@ class GithubUtilsTest(unittest.TestCase):
         finally:
             os.unlink(script_path)
 
-    def _run_external_collect_logs_case(self, exit_flag, need_collect_log, collect_on_success):
+    def _run_external_collect_logs_case(
+        self,
+        exit_flag,
+        need_backup_log,
+        collect_on_success,
+        summary=None,
+        failed_suites_threshold="20",
+    ):
         with tempfile.NamedTemporaryFile("w", delete=False) as trace:
             trace_path = trace.name
         try:
-            result = self._run_raw(
-                """
+            with tempfile.TemporaryDirectory() as tmpdir:
+                if summary is not None:
+                    log_dir = os.path.join(tmpdir, "output", "regression-test", "log")
+                    os.makedirs(log_dir)
+                    with open(os.path.join(log_dir, "doris-regression-test.fake.log"), "w") as log_file:
+                        log_file.write(summary + "\n")
+                result = self._run_raw(
+                    """
 export teamcity_build_checkoutDir="{root}"
 export COLLECT_DOCKER_LOGS_ON_SUCCESS="{collect_on_success}"
+export DORIS_HOME="{doris_home}"
+export failed_suites_threshold="{failed_suites_threshold}"
 
 main() {{
     if false; then
@@ -67,21 +82,23 @@ main() {{
     }}
 
     exit_flag="{exit_flag}"
-    need_collect_log="{need_collect_log}"
+    need_backup_log="{need_backup_log}"
     source "{github_helper}"
     collect_docker_logs docker-log-dir
 }}
 
 main
 """.format(
-                    root=ROOT,
-                    collect_on_success=collect_on_success,
-                    trace_path=trace_path,
-                    exit_flag=exit_flag,
-                    need_collect_log=need_collect_log,
-                    github_helper=GITHUB_HELPER,
+                        root=ROOT,
+                        collect_on_success=collect_on_success,
+                        doris_home=os.path.join(tmpdir, "output"),
+                        failed_suites_threshold=failed_suites_threshold,
+                        trace_path=trace_path,
+                        exit_flag=exit_flag,
+                        need_backup_log=need_backup_log,
+                        github_helper=GITHUB_HELPER,
+                    )
                 )
-            )
             with open(trace_path) as trace_file:
                 trace_output = trace_file.read()
             return result, trace_output
@@ -91,7 +108,29 @@ main
     def test_skip_collect_docker_logs_on_success_by_default(self):
         result, trace_output = self._run_external_collect_logs_case(
             exit_flag="0",
-            need_collect_log="false",
+            need_backup_log="false",
+            collect_on_success="false",
+        )
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("Skip collecting docker logs on success", result.stdout)
+        self.assertEqual("", trace_output)
+
+    def test_skip_collect_docker_logs_when_summary_meets_tolerated_success_rule(self):
+        result, trace_output = self._run_external_collect_logs_case(
+            exit_flag="1",
+            need_backup_log="false",
+            collect_on_success="false",
+            summary="Test 496 suites, failed 4 suites, fatal 0 scripts, skipped 0 scripts",
+            failed_suites_threshold="20",
+        )
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("Skip collecting docker logs on tolerated success", result.stdout)
+        self.assertEqual("", trace_output)
+
+    def test_skip_collect_docker_logs_on_success_even_if_backup_requested(self):
+        result, trace_output = self._run_external_collect_logs_case(
+            exit_flag="0",
+            need_backup_log="true",
             collect_on_success="false",
         )
         self.assertEqual(result.returncode, 0, result.stdout)
@@ -101,8 +140,9 @@ main
     def test_collect_docker_logs_on_failure(self):
         result, trace_output = self._run_external_collect_logs_case(
             exit_flag="2",
-            need_collect_log="false",
+            need_backup_log="false",
             collect_on_success="false",
+            summary="Test 496 suites, failed 40 suites, fatal 1 scripts, skipped 0 scripts",
         )
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertIn("original:docker-log-dir", trace_output)
@@ -110,7 +150,7 @@ main
     def test_collect_docker_logs_when_success_collection_enabled(self):
         result, trace_output = self._run_external_collect_logs_case(
             exit_flag="0",
-            need_collect_log="false",
+            need_backup_log="false",
             collect_on_success="true",
         )
         self.assertEqual(result.returncode, 0, result.stdout)
