@@ -1508,8 +1508,6 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         DCHECK_GE(arguments.size(), 3);
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
-        // we create a zero column to simply implement
-        auto const_null_map = ColumnUInt8::create(input_rows_count, 0);
         auto res = ColumnString::create();
 
         ColumnPtr col[3];
@@ -1533,11 +1531,23 @@ public:
         const auto* padcol = assert_cast<const ColumnString*>(col[2].get());
         const auto& padcol_offsets = padcol->get_offsets();
         const auto& padcol_chars = padcol->get_chars();
+
+        // All-ASCII fast path: char count == byte count, skip UTF-8 scanning
+        const bool use_ascii = strcol->is_ascii() && padcol->is_ascii();
+
         std::visit(
                 [&](auto str_const, auto len_const, auto pad_const) {
-                    execute_utf8<str_const, len_const, pad_const>(
-                            strcol_offsets, strcol_chars, col_len_data, padcol_offsets,
-                            padcol_chars, res_offsets, res_chars, null_map_data, input_rows_count);
+                    if (use_ascii) {
+                        execute_ascii<str_const, len_const, pad_const>(
+                                strcol_offsets, strcol_chars, col_len_data, padcol_offsets,
+                                padcol_chars, res_offsets, res_chars, null_map_data,
+                                input_rows_count);
+                    } else {
+                        execute_utf8<str_const, len_const, pad_const>(
+                                strcol_offsets, strcol_chars, col_len_data, padcol_offsets,
+                                padcol_chars, res_offsets, res_chars, null_map_data,
+                                input_rows_count);
+                    }
                 },
                 make_bool_variant(col_const[0]), make_bool_variant(col_const[1]),
                 make_bool_variant(col_const[2]));
@@ -1547,6 +1557,145 @@ public:
         return Status::OK();
     }
 
+    // Pre-build an expanded pad buffer of at least `min_size` bytes into `out`.
+    // Reduces small-memcpy overhead for short pad strings with many rows.
+    static void build_expanded_pad(ColumnString::Chars& out, const uint8_t* pad_data,
+                                   uint32_t pad_len, uint32_t min_size) {
+        if (pad_len == 0 || min_size == 0) {
+            return;
+        }
+        const int32_t times = (min_size + pad_len - 1) / pad_len;
+        out.resize(times * pad_len);
+        StringOP::fast_repeat(out.data(), pad_data, pad_len, times);
+    }
+
+    // ASCII fast path: character length equals byte length, no UTF-8 scanning needed.
+    template <bool str_const, bool len_const, bool pad_const>
+    void execute_ascii(const ColumnString::Offsets& strcol_offsets,
+                       const ColumnString::Chars& strcol_chars,
+                       const ColumnInt32::Container& col_len_data,
+                       const ColumnString::Offsets& padcol_offsets,
+                       const ColumnString::Chars& padcol_chars, ColumnString::Offsets& res_offsets,
+                       ColumnString::Chars& res_chars, ColumnUInt8::Container& null_map_data,
+                       size_t input_rows_count) const {
+        // Pre-reserve output capacity
+        if constexpr (len_const) {
+            const auto len = col_len_data[0];
+            if (len > 0) {
+                res_chars.reserve(static_cast<size_t>(len) * input_rows_count);
+            }
+        } else {
+            res_chars.reserve(strcol_chars.size());
+        }
+
+        // Pre-compute constant pad info and build expanded pad for short pads
+        uint32_t const_pad_len = 0;
+        const uint8_t* const_pad_data = nullptr;
+        ColumnString::Chars expanded_pad;
+        if constexpr (pad_const) {
+            const_pad_len = padcol_offsets[0];
+            const_pad_data = padcol_chars.data();
+            // Pre-expand short pads to at least 512 bytes for fewer memcpy calls per row
+            if (const_pad_len > 0 && const_pad_len < 512) {
+                build_expanded_pad(expanded_pad, const_pad_data, const_pad_len, 512);
+            }
+        }
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            const auto len = col_len_data[index_check_const<len_const>(i)];
+            if (len < 0) {
+                // return NULL when input length is invalid number
+                null_map_data[i] = true;
+                res_offsets[i] = res_chars.size();
+                continue;
+            }
+
+            const auto str_idx = index_check_const<str_const>(i);
+            const uint32_t str_byte_len = strcol_offsets[str_idx] - strcol_offsets[str_idx - 1];
+            const auto* str_data = strcol_chars.data() + strcol_offsets[str_idx - 1];
+
+            // ASCII: char count equals byte count
+            if (str_byte_len >= static_cast<uint32_t>(len)) {
+                // Input is longer than or equal to target: truncate to len bytes
+                const uint32_t copy_len = static_cast<uint32_t>(len);
+                ColumnString::check_chars_length(res_chars.size() + copy_len, i);
+                const size_t prev_sz = res_chars.size();
+                res_chars.reserve(prev_sz + copy_len);
+                res_chars.resize_assume_reserved(prev_sz + copy_len);
+                memcpy(res_chars.data() + prev_sz, str_data, copy_len);
+                res_offsets[i] = res_chars.size();
+                continue;
+            }
+
+            const auto pad_idx = index_check_const<pad_const>(i);
+            uint32_t pad_byte_len;
+            const uint8_t* pad_data;
+            if constexpr (pad_const) {
+                pad_byte_len = const_pad_len;
+                pad_data = const_pad_data;
+            } else {
+                pad_byte_len = padcol_offsets[pad_idx] - padcol_offsets[pad_idx - 1];
+                pad_data = padcol_chars.data() + padcol_offsets[pad_idx - 1];
+            }
+
+            // make compatible with mysql: return str unchanged if pad is empty
+            if (pad_byte_len == 0) {
+                res_offsets[i] = res_chars.size();
+                continue;
+            }
+
+            const uint32_t need_pad = static_cast<uint32_t>(len) - str_byte_len;
+            const int32_t pad_times = need_pad / pad_byte_len;
+            const uint32_t pad_remainder = need_pad % pad_byte_len;
+            const uint32_t output_size =
+                    str_byte_len + static_cast<uint32_t>(pad_times) * pad_byte_len + pad_remainder;
+
+            ColumnString::check_chars_length(res_chars.size() + output_size, i);
+            const size_t write_pos = res_chars.size();
+            res_chars.reserve(write_pos + output_size);
+            res_chars.resize_assume_reserved(write_pos + output_size);
+            uint8_t* dst = res_chars.data() + write_pos;
+
+            if constexpr (!Impl::is_lpad) {
+                memcpy(dst, str_data, str_byte_len);
+                dst += str_byte_len;
+            }
+
+            // Copy full pad repetitions
+            const uint32_t total_pad_bytes = static_cast<uint32_t>(pad_times) * pad_byte_len;
+            if constexpr (pad_const) {
+                if (!expanded_pad.empty() && total_pad_bytes > 0) {
+                    // Use pre-expanded pad: fewer memcpy calls for short pads
+                    const size_t ext_size = expanded_pad.size();
+                    size_t offset = 0;
+                    while (offset < total_pad_bytes) {
+                        const size_t chunk = std::min(ext_size, total_pad_bytes - offset);
+                        memcpy(dst + offset, expanded_pad.data(), chunk);
+                        offset += chunk;
+                    }
+                    dst += total_pad_bytes;
+                } else {
+                    StringOP::fast_repeat(dst, pad_data, pad_byte_len, pad_times);
+                    dst += total_pad_bytes;
+                }
+            } else {
+                StringOP::fast_repeat(dst, pad_data, pad_byte_len, pad_times);
+                dst += total_pad_bytes;
+            }
+
+            // Copy remainder of pad
+            memcpy(dst, pad_data, pad_remainder);
+
+            if constexpr (Impl::is_lpad) {
+                dst += pad_remainder;
+                memcpy(dst, str_data, str_byte_len);
+            }
+
+            res_offsets[i] = res_chars.size();
+        }
+    }
+
+    // UTF-8 path: handles multi-byte characters; writes directly to res_chars.
     template <bool str_const, bool len_const, bool pad_const>
     void execute_utf8(const ColumnString::Offsets& strcol_offsets,
                       const ColumnString::Chars& strcol_chars,
@@ -1558,15 +1707,21 @@ public:
         std::vector<size_t> pad_index;
         size_t const_pad_char_size = 0;
         // If pad_const = true, initialize pad_index only once.
-        // The same logic applies to the if constexpr (!pad_const) condition below.
         if constexpr (pad_const) {
             const_pad_char_size = simd::VStringFunctions::get_char_len(
                     (const char*)padcol_chars.data(), padcol_offsets[0], pad_index);
         }
 
-        fmt::memory_buffer buffer;
-        buffer.resize(strcol_chars.size());
-        size_t buffer_len = 0;
+        // Pre-reserve output capacity to reduce reallocations
+        if constexpr (len_const) {
+            const auto len = col_len_data[0];
+            if (len > 0) {
+                // UTF-8 chars are at most 4 bytes; use 3x as a conservative estimate
+                res_chars.reserve(static_cast<size_t>(len) * 3 * input_rows_count);
+            }
+        } else {
+            res_chars.reserve(strcol_chars.size());
+        }
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             if constexpr (!pad_const) {
@@ -1576,65 +1731,78 @@ public:
             if (len < 0) {
                 // return NULL when input length is invalid number
                 null_map_data[i] = true;
-                res_offsets[i] = buffer_len;
-            } else {
-                const auto str_idx = index_check_const<str_const>(i);
-                const int str_len = strcol_offsets[str_idx] - strcol_offsets[str_idx - 1];
-                const auto* str_data = &strcol_chars[strcol_offsets[str_idx - 1]];
-                const auto pad_idx = index_check_const<pad_const>(i);
-                const int pad_len = padcol_offsets[pad_idx] - padcol_offsets[pad_idx - 1];
-                const auto* pad_data = &padcol_chars[padcol_offsets[pad_idx - 1]];
-
-                auto [iterate_byte_len, iterate_char_len] =
-                        simd::VStringFunctions::iterate_utf8_with_limit_length(
-                                (const char*)str_data, (const char*)str_data + str_len, len);
-                // If iterate_char_len equals len, it indicates that the str length is greater than or equal to len
-                if (iterate_char_len == len) {
-                    buffer.resize(buffer_len + iterate_byte_len);
-                    memcpy(buffer.data() + buffer_len, str_data, iterate_byte_len);
-                    buffer_len += iterate_byte_len;
-                    res_offsets[i] = buffer_len;
-                    continue;
-                }
-                size_t pad_char_size;
-                if constexpr (!pad_const) {
-                    pad_char_size = simd::VStringFunctions::get_char_len((const char*)pad_data,
-                                                                         pad_len, pad_index);
-                } else {
-                    pad_char_size = const_pad_char_size;
-                }
-
-                // make compatible with mysql. return empty string if pad is empty
-                if (pad_char_size == 0) {
-                    res_offsets[i] = buffer_len;
-                    continue;
-                }
-                const size_t str_char_size = iterate_char_len;
-                const size_t pad_times = (len - str_char_size) / pad_char_size;
-                const size_t pad_remainder_len = pad_index[(len - str_char_size) % pad_char_size];
-                const size_t new_capacity = str_len + size_t(pad_times + 1) * pad_len;
-                ColumnString::check_chars_length(buffer_len + new_capacity, i);
-                buffer.resize(buffer_len + new_capacity);
-                if constexpr (!Impl::is_lpad) {
-                    memcpy(buffer.data() + buffer_len, str_data, str_len);
-                    buffer_len += str_len;
-                }
-                // Prepend chars of pad.
-                StringOP::fast_repeat((uint8_t*)buffer.data() + buffer_len, pad_data, pad_len,
-                                      pad_times);
-                buffer_len += pad_times * pad_len;
-
-                memcpy(buffer.data() + buffer_len, pad_data, pad_remainder_len);
-                buffer_len += pad_remainder_len;
-
-                if constexpr (Impl::is_lpad) {
-                    memcpy(buffer.data() + buffer_len, str_data, str_len);
-                    buffer_len += str_len;
-                }
-                res_offsets[i] = buffer_len;
+                res_offsets[i] = res_chars.size();
+                continue;
             }
+
+            const auto str_idx = index_check_const<str_const>(i);
+            const int32_t str_len = strcol_offsets[str_idx] - strcol_offsets[str_idx - 1];
+            const auto* str_data = &strcol_chars[strcol_offsets[str_idx - 1]];
+            const auto pad_idx = index_check_const<pad_const>(i);
+            const int32_t pad_len = padcol_offsets[pad_idx] - padcol_offsets[pad_idx - 1];
+            const auto* pad_data = &padcol_chars[padcol_offsets[pad_idx - 1]];
+
+            auto [iterate_byte_len, iterate_char_len] =
+                    simd::VStringFunctions::iterate_utf8_with_limit_length(
+                            (const char*)str_data, (const char*)str_data + str_len, len);
+            // If iterate_char_len equals len, str length >= len: truncate
+            if (iterate_char_len == static_cast<size_t>(len)) {
+                ColumnString::check_chars_length(res_chars.size() + iterate_byte_len, i);
+                const size_t prev_sz = res_chars.size();
+                res_chars.reserve(prev_sz + iterate_byte_len);
+                res_chars.resize_assume_reserved(prev_sz + iterate_byte_len);
+                memcpy(res_chars.data() + prev_sz, str_data, iterate_byte_len);
+                res_offsets[i] = res_chars.size();
+                continue;
+            }
+
+            size_t pad_char_size;
+            if constexpr (!pad_const) {
+                pad_char_size = simd::VStringFunctions::get_char_len((const char*)pad_data, pad_len,
+                                                                     pad_index);
+            } else {
+                pad_char_size = const_pad_char_size;
+            }
+
+            // make compatible with mysql: return empty string if pad is empty
+            if (pad_char_size == 0) {
+                res_offsets[i] = res_chars.size();
+                continue;
+            }
+
+            const size_t str_char_size = iterate_char_len;
+            const int32_t pad_times = static_cast<int32_t>((len - str_char_size) / pad_char_size);
+            const size_t pad_remainder_len = pad_index[(len - str_char_size) % pad_char_size];
+            // actual_size: exact bytes to write (pad_remainder_len <= pad_len)
+            const size_t actual_size =
+                    str_len + static_cast<size_t>(pad_times) * pad_len + pad_remainder_len;
+            // reserve_size: conservative upper bound (pad_times+1) * pad_len for safe reserve
+            const size_t reserve_size = str_len + static_cast<size_t>(pad_times + 1) * pad_len;
+            ColumnString::check_chars_length(res_chars.size() + reserve_size, i);
+
+            const size_t write_pos = res_chars.size();
+            res_chars.reserve(write_pos + reserve_size);
+            // advance size by exact bytes so res_offsets records the right position
+            res_chars.resize_assume_reserved(write_pos + actual_size);
+            uint8_t* dst = res_chars.data() + write_pos;
+
+            if constexpr (!Impl::is_lpad) {
+                memcpy(dst, str_data, str_len);
+                dst += str_len;
+            }
+
+            StringOP::fast_repeat(dst, pad_data, pad_len, pad_times);
+            dst += static_cast<size_t>(pad_times) * pad_len;
+
+            memcpy(dst, pad_data, pad_remainder_len);
+
+            if constexpr (Impl::is_lpad) {
+                dst += pad_remainder_len;
+                memcpy(dst, str_data, str_len);
+            }
+
+            res_offsets[i] = res_chars.size(); // = write_pos + actual_size
         }
-        res_chars.insert(buffer.data(), buffer.data() + buffer_len);
     }
 };
 
