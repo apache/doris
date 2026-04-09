@@ -23,7 +23,7 @@ import org.apache.doris.common.CustomThreadFactory;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.job.common.FailureReason;
-import org.apache.doris.job.common.JobStatus;
+
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.streaming.AbstractStreamingTask;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
@@ -94,11 +94,7 @@ public class StreamingTaskScheduler extends MasterDaemon {
                             (StreamingInsertJob) Env.getCurrentEnv().getJobManager().getJob(task.getJobId());
                     job.setFailureReason(new FailureReason(e.getMessage()));
                     try {
-                        if (job.isResumableFailure(job.getFailureReason())) {
-                            job.updateJobStatus(JobStatus.RETRYING);
-                        } else {
-                            job.updateJobStatus(JobStatus.PAUSED);
-                        }
+                        job.updateStatusOnFailure();
                     } catch (JobException ex) {
                         log.warn("Failed to update job {} status after task {} scheduling failed",
                                 task.getJobId(), task.getTaskId(), ex);

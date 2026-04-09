@@ -440,13 +440,24 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         this.setJobRuntimeMsg("");
     }
 
-    public boolean isResumableFailure(FailureReason reason) {
+    private boolean isResumableFailure(FailureReason reason) {
         if (reason == null) {
             return true;
         }
         return reason.getCode() != InternalErrorCode.MANUAL_PAUSE_ERR
                 && reason.getCode() != InternalErrorCode.TOO_MANY_FAILURE_ROWS_ERR
                 && reason.getCode() != InternalErrorCode.CANNOT_RESUME_ERR;
+    }
+
+    /**
+     * Transition to RETRYING for resumable errors, or PAUSED for non-resumable errors.
+     */
+    public void updateStatusOnFailure() throws JobException {
+        if (isResumableFailure(failureReason)) {
+            updateJobStatus(JobStatus.RETRYING);
+        } else {
+            updateJobStatus(JobStatus.PAUSED);
+        }
     }
 
     @Override
@@ -584,11 +595,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                                 "Failed to fetch meta, " + ex.getMessage()));
                 // If fetching meta fails with a resumable error, the job enters RETRYING
                 // and auto resume will automatically wake it up.
-                if (isResumableFailure(this.getFailureReason())) {
-                    this.updateJobStatus(JobStatus.RETRYING);
-                } else {
-                    this.updateJobStatus(JobStatus.PAUSED);
-                }
+                this.updateStatusOnFailure();
 
                 if (MetricRepo.isInit) {
                     MetricRepo.COUNTER_STREAMING_JOB_GET_META_FAIL_COUNT.increase(1L);
@@ -653,11 +660,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         } finally {
             writeUnlock();
         }
-        if (isResumableFailure(failureReason)) {
-            updateJobStatus(JobStatus.RETRYING);
-        } else {
-            updateJobStatus(JobStatus.PAUSED);
-        }
+        updateStatusOnFailure();
     }
 
     public void onStreamTaskSuccess(AbstractStreamingTask task) throws JobException {
