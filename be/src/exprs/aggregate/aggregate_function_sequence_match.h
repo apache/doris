@@ -214,15 +214,24 @@ private:
         dfa_states.emplace_back(true);
 
         pattern_has_time = false;
+        conditions_in_pattern.reset();
 
         const char* pos = pattern.data();
         const char* begin = pos;
         const char* end = pos + pattern.size();
 
         // Pattern is checked in fe, so pattern should be valid here, we check it and if pattern is invalid, we return.
+        auto fail_parse = [&]() {
+            actions.clear();
+            dfa_states.clear();
+            conditions_in_pattern.reset();
+            pattern_has_time = false;
+        };
+
         auto throw_exception = [&](const std::string& msg) {
             LOG(WARNING) << msg + " '" + std::string(pos, end) + "' at position " +
                                     std::to_string(pos - begin);
+            fail_parse();
         };
 
         auto match = [&pos, end](const char* str) mutable {
