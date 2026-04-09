@@ -63,6 +63,7 @@
 #include "storage/rowset/rowset_writer.h"
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/schema.h"
+#include "storage/segment/segment.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_meta.h"
@@ -1256,6 +1257,102 @@ TEST_F(VerticalCompactionTest, TestFirstCompactionUsesFooterEstimation) {
     // for subsequent compactions to use.
     auto& updated_infos = tablet->get_sample_infos(ReaderType::READER_BASE_COMPACTION);
     EXPECT_FALSE(updated_infos.empty());
+}
+
+// Test that raw_data_bytes in segment footer accurately reflects the original data size
+// for different column types, which is the foundation of footer-based batch size estimation.
+TEST_F(VerticalCompactionTest, TestFooterRawDataBytesAccuracy) {
+    // Create a schema with INT key + VARCHAR value to test both fixed and variable-length types
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    TabletSchemaPB tablet_schema_pb;
+    tablet_schema_pb.set_keys_type(DUP_KEYS);
+    tablet_schema_pb.set_num_short_key_columns(1);
+    tablet_schema_pb.set_num_rows_per_row_block(1024);
+    tablet_schema_pb.set_compress_kind(COMPRESS_NONE);
+    tablet_schema_pb.set_next_column_unique_id(3);
+
+    ColumnPB* col_int = tablet_schema_pb.add_column();
+    col_int->set_unique_id(1);
+    col_int->set_name("c_int");
+    col_int->set_type("INT");
+    col_int->set_is_key(true);
+    col_int->set_length(4);
+    col_int->set_index_length(4);
+    col_int->set_is_nullable(false);
+    col_int->set_is_bf_column(false);
+
+    ColumnPB* col_varchar = tablet_schema_pb.add_column();
+    col_varchar->set_unique_id(2);
+    col_varchar->set_name("c_varchar");
+    col_varchar->set_type("VARCHAR");
+    col_varchar->set_is_key(false);
+    col_varchar->set_length(128);
+    col_varchar->set_index_length(20);
+    col_varchar->set_is_nullable(false);
+    col_varchar->set_is_bf_column(false);
+
+    tablet_schema->init_from_pb(tablet_schema_pb);
+
+    // Write 1000 rows: INT values + VARCHAR strings of exactly 20 bytes each
+    constexpr int kNumRows = 1000;
+    constexpr int kStringLen = 20;
+    std::string fixed_string(kStringLen, 'x');
+
+    auto writer_context =
+            create_rowset_writer_context(tablet_schema, NONOVERLAPPING, UINT32_MAX, {0, 0});
+    auto res = RowsetFactory::create_rowset_writer(*engine_ref, writer_context, true);
+    ASSERT_TRUE(res.has_value()) << res.error();
+    auto rowset_writer = std::move(res).value();
+
+    Block block = tablet_schema->create_block();
+    auto columns = block.mutate_columns();
+    for (int i = 0; i < kNumRows; i++) {
+        int32_t int_val = i;
+        columns[0]->insert_data(reinterpret_cast<const char*>(&int_val), sizeof(int_val));
+        columns[1]->insert_data(fixed_string.data(), fixed_string.size());
+    }
+    ASSERT_TRUE(rowset_writer->add_block(&block).ok());
+    ASSERT_TRUE(rowset_writer->flush().ok());
+
+    RowsetSharedPtr rowset;
+    ASSERT_EQ(Status::OK(), rowset_writer->build(rowset));
+    ASSERT_EQ(1, rowset->rowset_meta()->num_segments());
+    ASSERT_EQ(kNumRows, rowset->rowset_meta()->num_rows());
+
+    // Load segments and read footer's raw_data_bytes
+    auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(rowset);
+    ASSERT_NE(beta_rowset, nullptr);
+    std::vector<segment_v2::SegmentSharedPtr> segments;
+    ASSERT_TRUE(beta_rowset->load_segments(&segments).ok());
+    ASSERT_EQ(1, segments.size());
+    ASSERT_EQ(kNumRows, segments[0]->num_rows());
+
+    // Collect raw_data_bytes per column from footer
+    std::unordered_map<int32_t, uint64_t> raw_bytes_by_uid;
+    auto st = segments[0]->traverse_column_meta_pbs(
+            [&](const segment_v2::ColumnMetaPB& meta) {
+                if (meta.unique_id() >= 0 && meta.has_raw_data_bytes()) {
+                    raw_bytes_by_uid[meta.unique_id()] = meta.raw_data_bytes();
+                }
+            });
+    ASSERT_TRUE(st.ok()) << st;
+
+    // Verify INT column (uid=1): raw_data_bytes should be exactly kNumRows * sizeof(int32_t).
+    // PageBuilder::get_raw_data_size() accumulates raw data bytes added via add(),
+    // for fixed-width types this is exactly N * sizeof(T).
+    ASSERT_TRUE(raw_bytes_by_uid.count(1) > 0) << "INT column raw_data_bytes not found in footer";
+    EXPECT_EQ(raw_bytes_by_uid[1], kNumRows * sizeof(int32_t))
+            << "INT column: expected " << kNumRows * sizeof(int32_t)
+            << " total raw_data_bytes, got " << raw_bytes_by_uid[1];
+
+    // Verify VARCHAR column (uid=2): raw_data_bytes should be exactly kNumRows * kStringLen.
+    // BinaryPlainPageBuilder/BinaryDictPageBuilder only accumulate src->size (the raw string
+    // payload), not offsets, varint length prefixes, or dictionary overhead.
+    ASSERT_TRUE(raw_bytes_by_uid.count(2) > 0)
+            << "VARCHAR column raw_data_bytes not found in footer";
+    EXPECT_EQ(raw_bytes_by_uid[2], kNumRows * kStringLen)
+            << "VARCHAR column: expected " << kNumRows * kStringLen
+            << " total raw_data_bytes, got " << raw_bytes_by_uid[2];
 }
 
 } // namespace doris
