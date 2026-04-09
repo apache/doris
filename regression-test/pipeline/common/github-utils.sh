@@ -408,25 +408,12 @@ file_changed_meta() {
 
 github_utils__maybe_enable_external_stage_timer() {
     local timer_script
-    local main_definition
 
-    if [[ -z "${teamcity_build_checkoutDir:-}" ]]; then
+    if ! github_utils__is_external_inline_shell; then
         return 0
     fi
     timer_script="${teamcity_build_checkoutDir}/regression-test/pipeline/external/external-stage-timer.sh"
     if [[ ! -f "${timer_script}" ]]; then
-        return 0
-    fi
-    if ! declare -F main >/dev/null; then
-        return 0
-    fi
-
-    main_definition="$(declare -f main)"
-    if [[ "${main_definition}" != *"START EXTERNAL DOCKER"* ]] ||
-        [[ "${main_definition}" != *"RUN EXTERNAL CASE"* ]] ||
-        ([[ "${main_definition}" != *"collect_docker_logs"* ]] &&
-            [[ "${main_definition}" != *"COLLECT DOCKER LOGS"* ]]) ||
-        [[ "${main_definition}" != *"deploy_cluster.sh"* ]]; then
         return 0
     fi
 
@@ -435,4 +422,61 @@ github_utils__maybe_enable_external_stage_timer() {
     external_regression_stage_timer_enable_auto_hooks
 }
 
+github_utils__is_external_inline_shell() {
+    local main_definition
+
+    if [[ -z "${teamcity_build_checkoutDir:-}" ]]; then
+        return 1
+    fi
+    if ! declare -F main >/dev/null; then
+        return 1
+    fi
+
+    main_definition="$(declare -f main)"
+    if [[ "${main_definition}" != *"START EXTERNAL DOCKER"* ]] ||
+        [[ "${main_definition}" != *"RUN EXTERNAL CASE"* ]] ||
+        ([[ "${main_definition}" != *"collect_docker_logs"* ]] &&
+            [[ "${main_definition}" != *"COLLECT DOCKER LOGS"* ]]) ||
+        [[ "${main_definition}" != *"deploy_cluster.sh"* ]]; then
+        return 1
+    fi
+    return 0
+}
+
+github_utils__maybe_optimize_external_collect_docker_logs() {
+    local original_definition
+
+    if ! github_utils__is_external_inline_shell; then
+        return 0
+    fi
+    if ! declare -F collect_docker_logs >/dev/null; then
+        return 0
+    fi
+    if [[ "${GITHUB_UTILS_EXTERNAL_COLLECT_DOCKER_LOGS_WRAPPED:-false}" == "true" ]]; then
+        return 0
+    fi
+
+    original_definition="$(declare -f collect_docker_logs)"
+    eval "${original_definition/collect_docker_logs/github_utils__original_collect_docker_logs}"
+    collect_docker_logs() {
+        local collect_on_success="${COLLECT_DOCKER_LOGS_ON_SUCCESS:-false}"
+        local should_collect=false
+
+        if [[ "${collect_on_success,,}" == "true" ]] ||
+            [[ "${need_collect_log:-false}" == "true" ]] ||
+            [[ "${exit_flag:-0}" != "0" ]]; then
+            should_collect=true
+        fi
+
+        if ! ${should_collect}; then
+            echo "Skip collecting docker logs on success. Set COLLECT_DOCKER_LOGS_ON_SUCCESS=true to enable."
+            return 0
+        fi
+
+        github_utils__original_collect_docker_logs "$@"
+    }
+    GITHUB_UTILS_EXTERNAL_COLLECT_DOCKER_LOGS_WRAPPED=true
+}
+
+github_utils__maybe_optimize_external_collect_docker_logs
 github_utils__maybe_enable_external_stage_timer
