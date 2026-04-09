@@ -30,6 +30,7 @@ import org.apache.doris.common.proc.ProcService;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.ha.FrontendNodeType;
+import org.apache.doris.httpv2.controller.BaseController.ActionAuthorizationInfo;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.rest.RestBaseController;
 import org.apache.doris.httpv2.rest.SetConfigAction;
@@ -317,8 +318,8 @@ public class NodeAction extends RestBaseController {
     public Object configurationInfo(HttpServletRequest request, HttpServletResponse response,
             @RequestParam(value = "type") String type,
             @RequestBody(required = false) ConfigInfoRequestBody requestBody) {
-        executeCheckPassword(request, response);
-        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN_OR_NODE);
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkAdminAuth(authInfo.userIdentity);
 
         initHttpExecutor();
 
@@ -490,8 +491,8 @@ public class NodeAction extends RestBaseController {
     @RequestMapping(path = "/set_config/fe", method = RequestMethod.POST)
     public Object setConfigFe(HttpServletRequest request, HttpServletResponse response,
             @RequestBody Map<String, SetConfigRequestBody> requestBody) {
-        executeCheckPassword(request, response);
-        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkAdminAuth(authInfo.userIdentity);
 
         List<Map<String, String>> failedTotal = Lists.newArrayList();
         List<NodeConfigs> nodeConfigList = parseSetConfigNodes(requestBody, failedTotal);
@@ -591,8 +592,8 @@ public class NodeAction extends RestBaseController {
     @RequestMapping(path = "/set_config/be", method = RequestMethod.POST)
     public Object setConfigBe(HttpServletRequest request, HttpServletResponse response,
             @RequestBody Map<String, SetConfigRequestBody> requestBody) {
-        executeCheckPassword(request, response);
-        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkAdminAuth(authInfo.userIdentity);
 
         List<Map<String, String>> failedTotal = Lists.newArrayList();
         List<NodeConfigs> nodeConfigList = parseSetConfigNodes(requestBody, failedTotal);

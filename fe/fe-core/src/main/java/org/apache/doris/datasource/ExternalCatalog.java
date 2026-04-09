@@ -55,7 +55,6 @@ import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalDatabase;
-import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.persist.CreateDbInfo;
@@ -79,6 +78,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
@@ -223,7 +223,10 @@ public abstract class ExternalCatalog
     }
 
     private Configuration buildConf() {
-        Configuration conf = DFSFileSystem.getHdfsConf(ifNotSetFallbackToSimpleAuth());
+        Configuration conf = new HdfsConfiguration();
+        if (ifNotSetFallbackToSimpleAuth()) {
+            conf.set("ipc.client.fallback-to-simple-auth-allowed", "true");
+        }
         Map<String, String> catalogProperties = catalogProperty.getHadoopProperties();
         for (Map.Entry<String, String> entry : catalogProperties.entrySet()) {
             conf.set(entry.getKey(), entry.getValue());
@@ -273,7 +276,7 @@ public abstract class ExternalCatalog
 
     // we need check auth fallback for kerberos or simple
     public boolean ifNotSetFallbackToSimpleAuth() {
-        return catalogProperty.getOrDefault(DFSFileSystem.PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH, "").isEmpty();
+        return catalogProperty.getOrDefault("ipc.client.fallback-to-simple-auth-allowed", "").isEmpty();
     }
 
     // Will be called when creating catalog(not replaying).
@@ -1069,8 +1072,8 @@ public abstract class ExternalCatalog
     }
 
     @Override
-    public void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv, boolean ifExists,
-            boolean mustTemporary, boolean force) throws DdlException {
+    public void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv, boolean isStream,
+                          boolean ifExists, boolean mustTemporary, boolean force) throws DdlException {
         makeSureInitialized();
         if (metadataOps == null) {
             throw new DdlException("Drop table is not supported for catalog: " + getName());
@@ -1334,6 +1337,7 @@ public abstract class ExternalCatalog
     @Override
     public void notifyPropertiesUpdated(Map<String, String> updatedProps) {
         CatalogIf.super.notifyPropertiesUpdated(updatedProps);
+        resetToUninitialized(false);
         String schemaCacheTtl = updatedProps.getOrDefault(SCHEMA_CACHE_TTL_SECOND, null);
         if (java.util.Objects.nonNull(schemaCacheTtl)) {
             ExternalMetaCacheMgr extMetaCacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();

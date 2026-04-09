@@ -474,7 +474,8 @@ Status Merger::vertical_merge_rowsets(BaseTabletSPtr tablet, ReaderType reader_t
                                       const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
                                       RowsetWriter* dst_rowset_writer,
                                       uint32_t max_rows_per_segment, int64_t merge_way_num,
-                                      Statistics* stats_output) {
+                                      Statistics* stats_output,
+                                      VerticalCompactionProgressCallback progress_cb) {
     LOG(INFO) << "Start to do vertical compaction, tablet_id: " << tablet->tablet_id();
     std::vector<std::vector<uint32_t>> column_groups;
     std::vector<uint32_t> key_group_cluster_key_idxes;
@@ -505,6 +506,10 @@ Status Merger::vertical_merge_rowsets(BaseTabletSPtr tablet, ReaderType reader_t
 
     vertical_split_columns(tablet_schema, &column_groups, &key_group_cluster_key_idxes,
                            num_columns_per_group);
+
+    if (progress_cb) {
+        progress_cb(column_groups.size(), 0);
+    }
 
     // Calculate total rows for density calculation after compaction
     int64_t total_rows = 0;
@@ -575,6 +580,9 @@ Status Merger::vertical_merge_rowsets(BaseTabletSPtr tablet, ReaderType reader_t
                 total_stats.filtered_rows = group_stats.filtered_rows;
                 total_stats.rowid_conversion = group_stats.rowid_conversion;
             }
+        }
+        if (progress_cb) {
+            progress_cb(column_groups.size(), i + 1);
         }
         if (is_key) {
             RETURN_IF_ERROR(row_sources_buf.flush());

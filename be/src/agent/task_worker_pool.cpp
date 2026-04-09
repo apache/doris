@@ -2040,8 +2040,8 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
 
     std::set<TTabletId> error_tablet_ids;
     std::map<TTabletId, TVersion> succ_tablets;
-    // partition_id, tablet_id, publish_version
-    std::vector<std::tuple<int64_t, int64_t, int64_t>> discontinuous_version_tablets;
+    // partition_id, tablet_id, publish_version, commit_tso
+    std::vector<DiscontinuousVersionTablet> discontinuous_version_tablets;
     std::map<TTableId, std::map<TTabletId, int64_t>> table_id_to_tablet_id_to_num_delta_rows;
     uint32_t retry_time = 0;
     Status status;
@@ -2098,8 +2098,8 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
     }
 
     for (auto& item : discontinuous_version_tablets) {
-        _engine.add_async_publish_task(std::get<0>(item), std::get<1>(item), std::get<2>(item),
-                                       publish_version_req.transaction_id, false);
+        _engine.add_async_publish_task(item.partition_id, item.tablet_id, item.publish_version,
+                                       publish_version_req.transaction_id, false, item.commit_tso);
     }
     TFinishTaskRequest finish_task_request;
     if (!status.ok()) [[unlikely]] {

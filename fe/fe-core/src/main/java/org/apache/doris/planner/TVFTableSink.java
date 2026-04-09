@@ -18,6 +18,7 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ColumnToThrift;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
@@ -132,7 +133,7 @@ public class TVFTableSink extends DataSink {
         // Set columns
         List<TColumn> tColumns = new ArrayList<>();
         for (Column col : cols) {
-            tColumns.add(col.toThrift());
+            tColumns.add(ColumnToThrift.toThrift(col));
         }
         tSink.setColumns(tColumns);
 

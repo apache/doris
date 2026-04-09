@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
+import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.StatementContext;
@@ -350,7 +351,10 @@ public class BindExpression implements AnalysisRuleFactory {
         if (IcebergMergeOperation.OPERATION_COLUMN.equalsIgnoreCase(name)) {
             return true;
         }
-        return Column.ICEBERG_ROWID_COL.equalsIgnoreCase(name);
+        if (Column.ICEBERG_ROWID_COL.equalsIgnoreCase(name)) {
+            return true;
+        }
+        return IcebergUtils.isIcebergRowLineageColumn(name);
     }
 
     private static boolean hasUnboundPlan(Plan plan) {

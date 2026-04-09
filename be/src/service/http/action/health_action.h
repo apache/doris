@@ -27,7 +27,9 @@ class ExecEnv;
 // Get BE health state from http API.
 class HealthAction : public HttpHandlerWithAuth {
 public:
-    HealthAction(ExecEnv* exec_env) : HttpHandlerWithAuth(exec_env) {}
+    HealthAction(ExecEnv* exec_env)
+            : HttpHandlerWithAuth(exec_env, TPrivilegeHier::GLOBAL, TPrivilegeType::NONE) {}
+    // Use NONE type: public API, no auth required
 
     ~HealthAction() override = default;
 

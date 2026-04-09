@@ -208,8 +208,6 @@ suite("test_case_function_null", "query,p0,arrow_flight_sql") {
         FROM case_null2;
     """
 
-    sql "SET experimental_enable_nereids_planner=true"
-    sql "SET enable_fallback_to_original_planner=false"
 
     // There is a behavior change. The 0.4cast boolean used to be 0 in the past, but now it has changed to 1.
     // Therefore, we need to update the case accordingly.

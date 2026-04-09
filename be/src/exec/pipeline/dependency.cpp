@@ -79,7 +79,7 @@ void Dependency::set_ready() {
     for (auto task : local_block_task) {
         if (auto t = task.lock()) {
             std::unique_lock<std::mutex> lc(_task_lock);
-            THROW_IF_ERROR(t->wake_up(this, lc));
+            t->wake_up(this, lc);
         }
     }
 }

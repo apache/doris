@@ -18,11 +18,10 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.ExprToSqlVisitor;
-import org.apache.doris.analysis.ToSqlParams;
 
 import com.google.gson.annotations.SerializedName;
-import jline.internal.Nullable;
+
+import java.util.Objects;
 
 /**GeneratedColumnInfo*/
 public class GeneratedColumnInfo {
@@ -39,26 +38,11 @@ public class GeneratedColumnInfo {
     @SerializedName(value = "e")
     private final Expr expr;
 
-    /* e.g. a,b,c=a+b,d=c+1 -> a,b,c=a+b,d=a+b+1
-     e.g. this is column d generated column info
-     expr is c+1, expandExprForLoad is a+b+1
-     expandExprForLoad is used in streamload, routineload, mysqlload, etc */
-    @SerializedName(value = "efl")
-    private Expr expandExprForLoad;
-
     /** constructor */
-    public GeneratedColumnInfo(@Nullable String exprSql, Expr expr) {
-        this(exprSql, expr, null);
-    }
-
-    public GeneratedColumnInfo(@Nullable String exprSql, Expr expr, Expr expandExprForLoad) {
-        if (exprSql != null) {
-            this.exprSql = exprSql;
-        } else {
-            this.exprSql = expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE);
-        }
+    public GeneratedColumnInfo(String exprSql, Expr expr) {
+        Objects.requireNonNull(exprSql, "exprSql is null");
+        this.exprSql = exprSql;
         this.expr = expr;
-        this.expandExprForLoad = expandExprForLoad;
         this.type = GeneratedColumnType.STORED;
     }
 
@@ -68,13 +52,5 @@ public class GeneratedColumnInfo {
 
     public Expr getExpr() {
         return expr;
-    }
-
-    public Expr getExpandExprForLoad() {
-        return expandExprForLoad;
-    }
-
-    public void setExpandExprForLoad(Expr expandExprForLoad) {
-        this.expandExprForLoad = expandExprForLoad;
     }
 }

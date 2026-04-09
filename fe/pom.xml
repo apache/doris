@@ -251,6 +251,7 @@ under the License.
         <module>fe-foundation</module>
         <module>fe-common</module>
         <module>fe-catalog</module>
+        <module>fe-filesystem</module>
         <module>fe-extension-spi</module>
         <module>fe-extension-loader</module>
         <module>fe-core</module>
@@ -259,6 +260,7 @@ under the License.
         <module>fe-authentication</module>
         <module>fe-thrift</module>
         <module>fe-type</module>
+        <module>fe-grpc</module>
     </modules>
     <properties>
         <doris.hive.catalog.shade.version>3.1.1</doris.hive.catalog.shade.version>
@@ -333,6 +335,7 @@ under the License.
         <!--Need to ensure that the version is the same as in arrow/java/pom.xml or compatible with it.-->
         <grpc.version>1.65.1</grpc.version>
         <check.freamework.version>3.53.0</check.freamework.version>
+        <cel.version>0.9.1-proto3</cel.version>
         <protobuf.version>3.25.8</protobuf.version>
         <!-- we use protoc-jar-maven-plugin to generate protobuf generated code -->
         <!-- see https://repo.maven.apache.org/maven2/com/google/protobuf/protoc/ to get correct version -->
@@ -416,7 +419,7 @@ under the License.
         <ini4j.version>0.5.4</ini4j.version>
         <!--todo waiting release-->
         <quartz.version>2.3.2</quartz.version>
-        <aircompressor.version>0.27</aircompressor.version>
+        <aircompressor.version>2.0.3</aircompressor.version>
         <!-- paimon -->
         <paimon.version>1.3.1</paimon.version>
         <disruptor.version>3.4.4</disruptor.version>
@@ -893,6 +896,11 @@ under the License.
                 <artifactId>guava-testlib</artifactId>
                 <version>${guava.version}</version>
             </dependency>
+            <dependency>
+                <groupId>dev.cel</groupId>
+                <artifactId>cel</artifactId>
+                <version>${cel.version}</version>
+            </dependency>
             <!-- https://mvnrepository.com/artifact/org.javassist/javassist -->
             <dependency>
                 <groupId>org.javassist</groupId>
@@ -1350,6 +1358,36 @@ under the License.
                 <groupId>org.apache.iceberg</groupId>
                 <artifactId>iceberg-aws</artifactId>
                 <version>${iceberg.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.paimon</groupId>
+                <artifactId>paimon-core</artifactId>
+                <version>${paimon.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.paimon</groupId>
+                <artifactId>paimon-common</artifactId>
+                <version>${paimon.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.paimon</groupId>
+                <artifactId>paimon-hive-connector-3.1</artifactId>
+                <version>${paimon.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.paimon</groupId>
+                <artifactId>paimon-format</artifactId>
+                <version>${paimon.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.paimon</groupId>
+                <artifactId>paimon-s3</artifactId>
+                <version>${paimon.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.paimon</groupId>
+                <artifactId>paimon-jindo</artifactId>
+                <version>${paimon.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.aliyun.odps</groupId>
@@ -1863,7 +1901,6 @@ under the License.
                 <artifactId>mockito-inline</artifactId>
                 <version>${mockito.version}</version>
             </dependency>
-            <!-- fastutil for memory-efficient primitive collections -->
             <dependency>
                 <groupId>it.unimi.dsi</groupId>
                 <artifactId>fastutil-core</artifactId>

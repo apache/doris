@@ -37,7 +37,6 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/types.h"
-#include "format/table/iceberg_sys_table_jni_reader.h"
 #include "format/table/parquet_metadata_reader.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
@@ -65,15 +64,7 @@ MetaScanner::MetaScanner(RuntimeState* state, ScanLocalStateBase* local_state, T
 Status MetaScanner::_open_impl(RuntimeState* state) {
     VLOG_CRITICAL << "MetaScanner::open";
     RETURN_IF_ERROR(Scanner::_open_impl(state));
-    if (_scan_range.meta_scan_range.metadata_type == TMetadataType::ICEBERG) {
-        // TODO: refactor this code
-        auto reader = IcebergSysTableJniReader::create_unique(_tuple_desc->slots(), state, _profile,
-                                                              _scan_range.meta_scan_range);
-        RETURN_IF_ERROR(reader->init_reader());
-        static_cast<IcebergSysTableJniReader*>(reader.get())
-                ->set_col_name_to_block_idx(&_src_block_name_to_idx);
-        _reader = std::move(reader);
-    } else if (_scan_range.meta_scan_range.metadata_type == TMetadataType::PARQUET) {
+    if (_scan_range.meta_scan_range.metadata_type == TMetadataType::PARQUET) {
         auto reader = ParquetMetadataReader::create_unique(_tuple_desc->slots(), state, _profile,
                                                            _scan_range.meta_scan_range);
         RETURN_IF_ERROR(reader->init_reader());

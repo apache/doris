@@ -18,17 +18,14 @@
 package org.apache.doris.datasource.hive;
 
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.backup.Status;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.TestHMSCachedClient;
-import org.apache.doris.fs.FileSystem;
-import org.apache.doris.fs.FileSystemProvider;
-import org.apache.doris.fs.LocalDfsFileSystem;
-import org.apache.doris.fs.remote.SwitchingFileSystem;
+import org.apache.doris.filesystem.local.LocalFileSystem;
+import org.apache.doris.fs.SpiSwitchingFileSystem;
 import org.apache.doris.nereids.trees.plans.commands.insert.HiveInsertCommandContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.THiveLocationParams;
@@ -71,12 +68,11 @@ public class HmsCommitTest {
     private static HiveMetadataOps hmsOps;
     private static HMSCachedClient hmsClient;
 
-    private static FileSystemProvider fileSystemProvider;
+    private static SpiSwitchingFileSystem fileSystemProvider;
     private static final String dbName = "test_db";
     private static final String tbWithPartition = "test_tb_with_partition";
     private static final String tbWithoutPartition = "test_tb_without_partition";
-    private static FileSystem fs;
-    private static LocalDfsFileSystem localDFSFileSystem;
+    private static SpiSwitchingFileSystem fs;
     private static Executor fileSystemExecutor;
     static String dbLocation;
     static String writeLocation;
@@ -100,14 +96,8 @@ public class HmsCommitTest {
     }
 
     public static void createTestHiveCatalog() throws IOException {
-        localDFSFileSystem = new LocalDfsFileSystem();
-        new MockUp<SwitchingFileSystem>(SwitchingFileSystem.class) {
-            @Mock
-            public FileSystem fileSystem(String location) {
-                return localDFSFileSystem;
-            }
-        };
-        fs = new SwitchingFileSystem(null, null);
+        fs = new SpiSwitchingFileSystem(new LocalFileSystem(java.util.Collections.emptyMap()));
+        fileSystemProvider = fs;
 
         if (hasRealHmsService) {
             // If you have a real HMS service, then you can use this client to create real connections for testing
@@ -119,7 +109,6 @@ public class HmsCommitTest {
             hmsClient = new TestHMSCachedClient();
         }
         hmsOps = new HiveMetadataOps(null, hmsClient);
-        fileSystemProvider = ctx -> fs;
         fileSystemExecutor = Executors.newFixedThreadPool(16);
     }
 
@@ -186,7 +175,7 @@ public class HmsCommitTest {
         new MockUp<HMSTransaction.HmsCommitter>(HMSTransaction.HmsCommitter.class) {
             @Mock
             private void doNothing() {
-                Assert.assertEquals(Status.ErrCode.NOT_FOUND, fs.exists(getWritePath()).getErrCode());
+                Assert.assertFalse(fsExists(getWritePath()));
             }
         };
         commit(dbName, tbWithoutPartition, pus);
@@ -223,7 +212,7 @@ public class HmsCommitTest {
         new MockUp<HMSTransaction.HmsCommitter>(HMSTransaction.HmsCommitter.class) {
             @Mock
             private void doNothing() {
-                Assert.assertEquals(Status.ErrCode.NOT_FOUND, fs.exists(getWritePath()).getErrCode());
+                Assert.assertFalse(fsExists(getWritePath()));
             }
         };
         genQueryID();
@@ -375,12 +364,15 @@ public class HmsCommitTest {
         });
 
         if (mode != TUpdateMode.NEW) {
-            fs.makeDir(targetPath);
+            fs.mkdirs(org.apache.doris.filesystem.Location.of(targetPath));
         }
 
-        localDFSFileSystem.createFile(writePath + "/" + f1);
-        localDFSFileSystem.createFile(writePath + "/" + f2);
-        localDFSFileSystem.createFile(writePath + "/" + f3);
+        java.nio.file.Path writeDir = java.nio.file.Paths.get(
+                java.net.URI.create(writePath));
+        java.nio.file.Files.createDirectories(writeDir);
+        java.nio.file.Files.createFile(writeDir.resolve(f1));
+        java.nio.file.Files.createFile(writeDir.resolve(f2));
+        java.nio.file.Files.createFile(writeDir.resolve(f3));
         return pu;
     }
 
@@ -402,6 +394,14 @@ public class HmsCommitTest {
     private String getWritePath() {
         String queryId = DebugUtil.printId(ConnectContext.get().queryId());
         return writeLocation + queryId + "/";
+    }
+
+    private boolean fsExists(String path) {
+        try {
+            return fs.exists(org.apache.doris.filesystem.Location.of(path));
+        } catch (java.io.IOException e) {
+            return false;
+        }
     }
 
     public void commit(String dbName,
@@ -476,15 +476,15 @@ public class HmsCommitTest {
         THiveLocationParams location = pus.get(0).getLocation();
 
         // For new partition, there should be no target path
-        Assert.assertFalse(fs.exists(location.getTargetPath()).ok());
-        Assert.assertTrue(fs.exists(location.getWritePath()).ok());
+        Assert.assertFalse(fsExists(location.getTargetPath()));
+        Assert.assertTrue(fsExists(location.getWritePath()));
 
         mockAsyncRenameDir(() -> {
             // commit will be failed, and it will remain some files in write path
             String writePath = location.getWritePath();
-            Assert.assertTrue(fs.exists(writePath).ok());
+            Assert.assertTrue(fsExists(writePath));
             for (String file : pus.get(0).getFileNames()) {
-                Assert.assertTrue(fs.exists(writePath + "/" + file).ok());
+                Assert.assertTrue(fsExists(writePath + "/" + file));
             }
         });
 
@@ -497,9 +497,9 @@ public class HmsCommitTest {
 
         // After rollback, these files in write path will be deleted
         String writePath = location.getWritePath();
-        Assert.assertFalse(fs.exists(writePath).ok());
+        Assert.assertFalse(fsExists(writePath));
         for (String file : pus.get(0).getFileNames()) {
-            Assert.assertFalse(fs.exists(writePath + "/" + file).ok());
+            Assert.assertFalse(fsExists(writePath + "/" + file));
         }
     }
 
@@ -512,15 +512,15 @@ public class HmsCommitTest {
         THiveLocationParams location = pus.get(0).getLocation();
 
         // For new partition, there should be no target path
-        Assert.assertFalse(fs.exists(location.getTargetPath()).ok());
-        Assert.assertTrue(fs.exists(location.getWritePath()).ok());
+        Assert.assertFalse(fsExists(location.getTargetPath()));
+        Assert.assertTrue(fsExists(location.getWritePath()));
 
         mockAddPartitionTaskException(() -> {
             // When the commit is completed, these files should be renamed successfully
             String targetPath = location.getTargetPath();
-            Assert.assertTrue(fs.exists(targetPath).ok());
+            Assert.assertTrue(fsExists(targetPath));
             for (String file : pus.get(0).getFileNames()) {
-                Assert.assertTrue(fs.exists(targetPath + "/" + file).ok());
+                Assert.assertTrue(fsExists(targetPath + "/" + file));
             }
         });
 
@@ -533,9 +533,9 @@ public class HmsCommitTest {
 
         // After rollback, these files will be deleted
         String targetPath = location.getTargetPath();
-        Assert.assertFalse(fs.exists(targetPath).ok());
+        Assert.assertFalse(fsExists(targetPath));
         for (String file : pus.get(0).getFileNames()) {
-            Assert.assertFalse(fs.exists(targetPath + "/" + file).ok());
+            Assert.assertFalse(fsExists(targetPath + "/" + file));
         }
     }
 
@@ -559,15 +559,15 @@ public class HmsCommitTest {
         THiveLocationParams locationForA = pus.get(0).getLocation();
 
         // For new partition, there should be no target path
-        Assert.assertFalse(fs.exists(locationForX.getTargetPath()).ok());
-        Assert.assertTrue(fs.exists(locationForX.getWritePath()).ok());
+        Assert.assertFalse(fsExists(locationForX.getTargetPath()));
+        Assert.assertTrue(fsExists(locationForX.getWritePath()));
 
         mockUpdateStatisticsTaskException(() -> {
             // When the commit is completed, these files should be renamed successfully
             String targetPath = locationForX.getTargetPath();
-            Assert.assertTrue(fs.exists(targetPath).ok());
+            Assert.assertTrue(fsExists(targetPath));
             for (String file : pus.get(0).getFileNames()) {
-                Assert.assertTrue(fs.exists(targetPath + "/" + file).ok());
+                Assert.assertTrue(fsExists(targetPath + "/" + file));
             }
             // new partition will be executed before append partition,
             // so, we can get the new partition
@@ -584,12 +584,12 @@ public class HmsCommitTest {
 
         // After rollback, these files will be deleted
         String targetPath = locationForX.getTargetPath();
-        Assert.assertFalse(fs.exists(targetPath).ok());
+        Assert.assertFalse(fsExists(targetPath));
         for (String file : pus.get(0).getFileNames()) {
-            Assert.assertFalse(fs.exists(targetPath + "/" + file).ok());
+            Assert.assertFalse(fsExists(targetPath + "/" + file));
         }
-        Assert.assertFalse(fs.exists(locationForX.getWritePath()).ok());
-        Assert.assertFalse(fs.exists(locationForA.getWritePath()).ok());
+        Assert.assertFalse(fsExists(locationForX.getWritePath()));
+        Assert.assertFalse(fsExists(locationForA.getWritePath()));
         // x partition will be deleted
         Assert.assertThrows(
                 "the 'x' partition should be deleted",
@@ -620,22 +620,22 @@ public class HmsCommitTest {
         THiveLocationParams locationForParA = pus.get(1).getLocation();
 
         // For new partition, there should be no target path
-        Assert.assertFalse(fs.exists(locationForParX.getTargetPath()).ok());
-        Assert.assertTrue(fs.exists(locationForParX.getWritePath()).ok());
+        Assert.assertFalse(fsExists(locationForParX.getTargetPath()));
+        Assert.assertTrue(fsExists(locationForParX.getWritePath()));
 
         // For exist partition
-        Assert.assertTrue(fs.exists(locationForParA.getTargetPath()).ok());
+        Assert.assertTrue(fsExists(locationForParA.getTargetPath()));
 
         mockDoOther(() -> {
             // When the commit is completed, these files should be renamed successfully
             String targetPathForX = locationForParX.getTargetPath();
-            Assert.assertTrue(fs.exists(targetPathForX).ok());
+            Assert.assertTrue(fsExists(targetPathForX));
             for (String file : pus.get(0).getFileNames()) {
-                Assert.assertTrue(fs.exists(targetPathForX + "/" + file).ok());
+                Assert.assertTrue(fsExists(targetPathForX + "/" + file));
             }
             String targetPathForA = locationForParA.getTargetPath();
             for (String file : pus.get(1).getFileNames()) {
-                Assert.assertTrue(fs.exists(targetPathForA + "/" + file).ok());
+                Assert.assertTrue(fsExists(targetPathForA + "/" + file));
             }
             // new partition will be executed,
             // so, we can get the new partition
@@ -656,17 +656,17 @@ public class HmsCommitTest {
 
         // After rollback, these files will be deleted
         String targetPathForX = locationForParX.getTargetPath();
-        Assert.assertFalse(fs.exists(targetPathForX).ok());
+        Assert.assertFalse(fsExists(targetPathForX));
         for (String file : pus.get(0).getFileNames()) {
-            Assert.assertFalse(fs.exists(targetPathForX + "/" + file).ok());
+            Assert.assertFalse(fsExists(targetPathForX + "/" + file));
         }
-        Assert.assertFalse(fs.exists(locationForParX.getWritePath()).ok());
+        Assert.assertFalse(fsExists(locationForParX.getWritePath()));
         String targetPathForA = locationForParA.getTargetPath();
         for (String file : pus.get(1).getFileNames()) {
-            Assert.assertFalse(fs.exists(targetPathForA + "/" + file).ok());
+            Assert.assertFalse(fsExists(targetPathForA + "/" + file));
         }
-        Assert.assertTrue(fs.exists(targetPathForA).ok());
-        Assert.assertFalse(fs.exists(locationForParA.getWritePath()).ok());
+        Assert.assertTrue(fsExists(targetPathForA));
+        Assert.assertFalse(fsExists(locationForParA.getWritePath()));
         // x partition will be deleted
         Assert.assertThrows(
                 "the 'x' partition should be deleted",

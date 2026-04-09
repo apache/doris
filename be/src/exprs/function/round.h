@@ -450,7 +450,7 @@ struct Dispatcher {
     using FunctionRoundingImpl = std::conditional_t<
             is_decimal(T), DecimalRoundingImpl<T, rounding_mode, tie_breaking_mode>,
             std::conditional_t<
-                    is_float_or_double(T) || T == TYPE_TIME || T == TYPE_TIMEV2,
+                    is_float_or_double(T) || T == TYPE_TIMEV2,
                     FloatRoundingImpl<T, rounding_mode, scale_mode, tie_breaking_mode>,
                     IntegerRoundingImpl<T, rounding_mode, scale_mode, tie_breaking_mode>>>;
 
@@ -459,7 +459,7 @@ struct Dispatcher {
     static ColumnPtr apply_vec_const(const IColumn* col_general, const Int16 scale_arg,
                                      [[maybe_unused]] Int16 result_scale) {
         if constexpr (is_int_or_bool(T) || is_ip(T) || is_date_type(T) || is_float_or_double(T) ||
-                      T == TYPE_TIME || T == TYPE_TIMEV2 || T == TYPE_UINT32 || T == TYPE_UINT64) {
+                      T == TYPE_TIMEV2 || T == TYPE_UINT32 || T == TYPE_UINT64) {
             const auto* const col = check_and_get_column<ColumnVector<T>>(col_general);
             auto col_res = ColumnVector<T>::create();
 
@@ -574,7 +574,7 @@ struct Dispatcher {
         }
 
         if constexpr (is_int_or_bool(T) || is_date_type(T) || is_ip(T) || is_float_or_double(T) ||
-                      T == TYPE_TIMEV2 || T == TYPE_TIME) {
+                      T == TYPE_TIMEV2) {
             const auto* col = assert_cast<const ColumnVector<T>*>(col_general);
             auto col_res = ColumnVector<T>::create();
             typename ColumnVector<T>::Container& vec_res = col_res->get_data();
@@ -764,7 +764,7 @@ struct Dispatcher {
 
             return col_res;
         } else if constexpr (is_int_or_bool(T) || is_date_type(T) || is_ip(T) ||
-                             is_float_or_double(T) || T == TYPE_TIMEV2 || T == TYPE_TIME) {
+                             is_float_or_double(T) || T == TYPE_TIMEV2) {
             const ColumnVector<T>& data_col_general =
                     assert_cast<const ColumnVector<T>&>(const_col_general->get_data_column());
             const auto& general_val = data_col_general.get_data()[0];

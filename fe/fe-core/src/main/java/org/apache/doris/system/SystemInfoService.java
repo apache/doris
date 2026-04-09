@@ -21,6 +21,9 @@ import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.cloud.qe.ComputeGroupException;
+import org.apache.doris.cluster.ClusterGuard;
+import org.apache.doris.cluster.ClusterGuardException;
+import org.apache.doris.cluster.ClusterGuardFactory;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -192,6 +195,16 @@ public class SystemInfoService {
             }
         }
 
+        // check cluster guard policy: time validity and node limit
+        ClusterGuard clusterGuard = ClusterGuardFactory.getGuard();
+        try {
+            clusterGuard.checkTimeValidity();
+            int currentCount = getAllClusterBackendsNoException().size();
+            clusterGuard.checkNodeLimit(currentCount + hostInfos.size());
+        } catch (ClusterGuardException e) {
+            throw new DdlException("Cluster guard restriction: " + e.getMessage());
+        }
+
         for (HostInfo hostInfo : hostInfos) {
             addBackend(hostInfo.getHost(), hostInfo.getPort(), tagMap);
         }
@@ -232,6 +245,13 @@ public class SystemInfoService {
     }
 
     public void dropBackends(List<HostInfo> hostInfos) throws DdlException {
+        // check cluster guard time validity
+        try {
+            ClusterGuardFactory.getGuard().checkTimeValidity();
+        } catch (ClusterGuardException e) {
+            throw new DdlException("Cluster guard restriction: " + e.getMessage());
+        }
+
         for (HostInfo hostInfo : hostInfos) {
             // check is already exist
             if (getBackendWithHeartbeatPort(hostInfo.getHost(), hostInfo.getPort()) == null) {

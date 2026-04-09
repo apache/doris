@@ -20,6 +20,7 @@ package org.apache.doris.common.proc;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.DateLiteral;
+import org.apache.doris.analysis.DateLiteralUtils;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.LimitElement;
 import org.apache.doris.analysis.StringLiteral;
@@ -103,7 +104,7 @@ public class BuildIndexProcDir implements ProcDirInterface {
                 default:
                     throw new AnalysisException("Invalid date type: " + subExpr.getChild(1).getType());
             }
-            Long leftVal = (new DateLiteral((String) element, type)).getLongValue();
+            Long leftVal = (DateLiteralUtils.createDateLiteral((String) element, type)).getLongValue();
             Long rightVal = ((DateLiteral) subExpr.getChild(1)).getLongValue();
             switch (binaryPredicate.getOp()) {
                 case EQ:

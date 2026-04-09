@@ -128,6 +128,7 @@ Status VIcebergDeleteFileWriter::close(TIcebergCommitData& commit_data) {
     // Fill commit data (use __set_ to mark optional fields as present)
     commit_data.__set_file_path(_output_path);
     commit_data.__set_row_count(_written_rows);
+    commit_data.__set_affected_rows(_written_rows);
     commit_data.__set_file_size(_file_size);
     commit_data.__set_file_content(_delete_type);
 

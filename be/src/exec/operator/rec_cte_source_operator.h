@@ -58,6 +58,119 @@ private:
     std::shared_ptr<Dependency> _anchor_dependency = nullptr;
 };
 
+// RecCTESourceOperatorX drives the recursive CTE fragment rerun lifecycle.
+//
+// It orchestrates child fragment destruction and recreation for each recursion round
+// via the rerun_fragment RPC (defined in internal_service.proto). The 4 opcodes are:
+//
+//   wait_for_destroy (=1) : notify old PFC to close, async wait for tasks to finish
+//   rebuild          (=2) : increment stage, deregister old runtime filters, create new PFC
+//   submit           (=3) : submit new PFC pipeline tasks for execution
+//   final_close      (=4) : last round cleanup, send final report, destroy fragment
+//
+// State Transition Diagram
+// ========================
+//
+//   ┌────────────────────────────────────┐
+//   │          Query Start (FE)          │
+//   │  FE sets need_notify_close = true  │
+//   │  on recursive-side child fragments │
+//   └──────────────┬─────────────────────┘
+//                  │
+//                  ▼
+//   ┌────────────────────────────────────┐
+//   │      Initial Registration (BE)     │
+//   │  FragmentMgr saves params in       │
+//   │  _rerunnable_params_map            │
+//   │  PFC created, prepared & submitted │
+//   └──────────────┬─────────────────────┘
+//                  │
+//                  ▼
+//   ┌────────────────────────────────────┐
+//   │        Fragment Running            │
+//   │  PFC executing pipeline tasks      │◄─────────────────────────────┐
+//   │  _need_notify_close = true         │                              │
+//   └──────────────┬─────────────────────┘                              │
+//                  │                                                    │
+//                  │ tasks complete, but PFC does NOT                   │
+//                  │ self-remove (blocked by _need_notify_close)        │
+//                  ▼                                                    │
+//   ┌────────────────────────────────────┐                              │
+//   │  RecCTESourceOperatorX::get_block()│                              │
+//   │  ready_to_return? round < max?     │                              │
+//   └───────┬─────────────────┬──────────┘                              │
+//           │                 │                                         │
+//   more rounds remain   no more rounds                                │
+//           │                 │                                         │
+//           ▼                 │                                         │
+//   ┌──────────────────┐     │                                         │
+//   │_recursive_process│     │                                         │
+//   └───────┬──────────┘     │                                         │
+//           │                │                                         │
+//           ▼                │                                         │
+//   ┌────────────────────────────────────┐                              │
+//   │ Step 1: wait_for_destroy (=1)      │                              │
+//   │  • collect deregister RF IDs       │                              │
+//   │  • store brpc closure guard        │                              │
+//   │  • notify_close() on old PFC       │                              │
+//   │    → _need_notify_close = false    │                              │
+//   │    → old PFC begins shutdown       │                              │
+//   └──────────────┬─────────────────────┘                              │
+//                  │                                                    │
+//                  ▼                                                    │
+//   ┌────────────────────────────────────┐                              │
+//   │ Step 1.5: reset_global_rf          │                              │
+//   │  • reset global runtime filters    │                              │
+//   │    on merge coordinator            │                              │
+//   └──────────────┬─────────────────────┘                              │
+//                  │                                                    │
+//                  ▼                                                    │
+//   ┌────────────────────────────────────┐                              │
+//   │ Step 2: rebuild (=2)               │                              │
+//   │  • increment recursion stage       │                              │
+//   │  • deregister old runtime filters  │                              │
+//   │  • create NEW PFC from saved params│                              │
+//   │  • prepare() new PFC              │                              │
+//   │  • insert into _pipeline_map       │                              │
+//   └──────────────┬─────────────────────┘                              │
+//                  │                                                    │
+//                  ▼                                                    │
+//   ┌────────────────────────────────────┐                              │
+//   │ Step 3: submit (=3)                │                              │
+//   │  • find new PFC in pipeline_map    │                              │
+//   │  • call fragment_ctx->submit()     │                              │
+//   │  • pipeline tasks start running    │                              │
+//   └──────────────┬─────────────────────┘                              │
+//                  │                                                    │
+//                  ▼                                                    │
+//   ┌────────────────────────────────────┐                              │
+//   │ Step 4: send_data_to_targets       │                              │
+//   │  • transmit_rec_cte_block() to     │                              │
+//   │    RecursiveCteScanNode targets    │                              │
+//   │  • new recursion round begins      │                              │
+//   └──────────────┬─────────────────────┘                              │
+//                  │                                                    │
+//                  └──── loop back to Fragment Running ─────────────────┘
+//
+//           (when no more rounds remain)
+//                  │
+//                  ▼
+//   ┌────────────────────────────────────┐
+//   │ final_close (=4)                   │
+//   │  • listen_wait_close(guard,        │
+//   │    need_send_report = true)        │
+//   │  • notify_close() on PFC           │
+//   │  • send final status report        │
+//   │  • clean up completely             │
+//   └──────────────┬─────────────────────┘
+//                  │
+//                  ▼
+//   ┌────────────────────────────────────┐
+//   │       Fragment Destroyed           │
+//   │  rerunnable_params removed on      │
+//   │  query end                         │
+//   └────────────────────────────────────┘
+//
 class RecCTESourceOperatorX : public OperatorX<RecCTESourceLocalState> {
 public:
     using Base = OperatorX<RecCTESourceLocalState>;
@@ -135,17 +248,16 @@ private:
                                               "RecursiveRound", TUnit::UNIT);
             round_counter->set(int64_t(get_local_state(state)._shared_state->current_round));
 
-            RETURN_IF_ERROR(_send_rerun_fragments(state, PRerunFragmentParams::close));
+            RETURN_IF_ERROR(_send_rerun_fragments(state, PRerunFragmentParams::FINAL_CLOSE));
         }
         return Status::OK();
     }
 
     Status _recursive_process(RuntimeState* state, size_t last_round_offset) const {
-        RETURN_IF_ERROR(_send_rerun_fragments(state, PRerunFragmentParams::wait));
+        RETURN_IF_ERROR(_send_rerun_fragments(state, PRerunFragmentParams::WAIT_FOR_DESTROY));
         RETURN_IF_ERROR(_send_reset_global_rf(state));
-        RETURN_IF_ERROR(_send_rerun_fragments(state, PRerunFragmentParams::release));
-        RETURN_IF_ERROR(_send_rerun_fragments(state, PRerunFragmentParams::rebuild));
-        RETURN_IF_ERROR(_send_rerun_fragments(state, PRerunFragmentParams::submit));
+        RETURN_IF_ERROR(_send_rerun_fragments(state, PRerunFragmentParams::REBUILD));
+        RETURN_IF_ERROR(_send_rerun_fragments(state, PRerunFragmentParams::SUBMIT));
         RETURN_IF_ERROR(get_local_state(state)._shared_state->send_data_to_targets(
                 state, last_round_offset));
         return Status::OK();

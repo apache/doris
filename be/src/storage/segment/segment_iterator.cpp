@@ -957,6 +957,10 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
     _opts.stats->rows_ann_index_topn_filtered += rows_filterd;
     _opts.stats->ann_index_load_ns += ann_index_stats.load_index_costs_ns.value();
     _opts.stats->ann_topn_search_ns += ann_index_stats.search_costs_ns.value();
+    _opts.stats->ann_ivf_on_disk_load_ns += ann_index_stats.ivf_on_disk_load_costs_ns.value();
+    _opts.stats->ann_ivf_on_disk_cache_hit_cnt += ann_index_stats.ivf_on_disk_cache_hit_cnt.value();
+    _opts.stats->ann_ivf_on_disk_cache_miss_cnt +=
+            ann_index_stats.ivf_on_disk_cache_miss_cnt.value();
     _opts.stats->ann_index_topn_engine_search_ns += ann_index_stats.engine_search_ns.value();
     _opts.stats->ann_index_topn_result_process_ns +=
             ann_index_stats.result_process_costs_ns.value();
@@ -1211,6 +1215,11 @@ Status SegmentIterator::_apply_index_expr() {
         _opts.stats->rows_ann_index_range_filtered += (origin_rows - _row_bitmap.cardinality());
         _opts.stats->ann_index_load_ns += ann_index_stats.load_index_costs_ns.value();
         _opts.stats->ann_index_range_search_ns += ann_index_stats.search_costs_ns.value();
+        _opts.stats->ann_ivf_on_disk_load_ns += ann_index_stats.ivf_on_disk_load_costs_ns.value();
+        _opts.stats->ann_ivf_on_disk_cache_hit_cnt +=
+                ann_index_stats.ivf_on_disk_cache_hit_cnt.value();
+        _opts.stats->ann_ivf_on_disk_cache_miss_cnt +=
+                ann_index_stats.ivf_on_disk_cache_miss_cnt.value();
         _opts.stats->ann_range_engine_search_ns += ann_index_stats.engine_search_ns.value();
         _opts.stats->ann_range_result_convert_ns += ann_index_stats.result_process_costs_ns.value();
         _opts.stats->ann_range_engine_convert_ns += ann_index_stats.engine_convert_ns.value();
@@ -3206,7 +3215,6 @@ void SegmentIterator::_init_virtual_columns(Block* block) {
 }
 
 Status SegmentIterator::_materialization_of_virtual_column(Block* block) {
-    size_t prev_block_columns = block->columns();
     // Some expr can not process empty block, such as function `element_at`.
     // So materialize virtual column in advance to avoid errors.
     if (block->rows() == 0) {
@@ -3240,21 +3248,16 @@ Status SegmentIterator::_materialization_of_virtual_column(Block* block) {
                     block->get_by_position(idx_in_block).column.get())) {
             VLOG_DEBUG << fmt::format("Virtual column is doing materialization, cid {}, col idx {}",
                                       cid, idx_in_block);
-            int result_cid = -1;
-            RETURN_IF_ERROR(column_expr->execute(block, &result_cid));
+            ColumnPtr result_column;
+            RETURN_IF_ERROR(column_expr->execute(block, result_column));
 
-            block->replace_by_position(idx_in_block,
-                                       std::move(block->get_by_position(result_cid).column));
+            block->replace_by_position(idx_in_block, std::move(result_column));
             if (block->get_by_position(idx_in_block).column->size() == 0) {
-                LOG_WARNING(
-                        "Result of expr column {} is empty. cid {}, idx_in_block {}, result_cid",
-                        column_expr->root()->debug_string(), cid, idx_in_block, result_cid);
+                LOG_WARNING("Result of expr column {} is empty. cid {}, idx_in_block {}",
+                            column_expr->root()->debug_string(), cid, idx_in_block);
             }
         }
     }
-    // During execution of expr, some columns may be added to the end of the block.
-    // Remove them to keep consistent with current block.
-    block->erase_tail(prev_block_columns);
     return Status::OK();
 }
 

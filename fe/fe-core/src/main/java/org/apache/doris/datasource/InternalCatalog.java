@@ -81,6 +81,8 @@ import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
+import org.apache.doris.catalog.stream.BaseTableStream;
+import org.apache.doris.catalog.stream.TableStreamBuildFactory;
 import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.transaction.CloudGlobalTransactionMgr;
@@ -107,16 +109,18 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.event.DropPartitionEvent;
 import org.apache.doris.foundation.type.ResultOr;
-import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.plans.commands.CreateStreamCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionLikeOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddRollupOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMultiPartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterOp;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateStreamInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionOp;
 import org.apache.doris.persist.AlterDatabasePropertyInfo;
@@ -189,7 +193,9 @@ import java.util.stream.Collectors;
  * There is only one internal catalog in a cluster. And its id is always 0.
  */
 public class InternalCatalog implements CatalogIf<Database> {
-    public static final String INTERNAL_CATALOG_NAME = "internal";
+    /** @deprecated Use {@link org.apache.doris.catalog.NameSpaceContext#INTERNAL_CATALOG_NAME} instead. */
+    @Deprecated
+    public static final String INTERNAL_CATALOG_NAME = org.apache.doris.catalog.NameSpaceContext.INTERNAL_CATALOG_NAME;
     public static final long INTERNAL_CATALOG_ID = 0L;
 
     private static final Logger LOG = LogManager.getLogger(InternalCatalog.class);
@@ -847,7 +853,7 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     @Override
-    public void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv,
+    public void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv, boolean isStream,
             boolean ifExists, boolean mustTemporary, boolean force) throws DdlException {
         Map<String, Long> costTimes = new TreeMap<String, Long>();
         StopWatch watch = StopWatch.createStarted();
@@ -890,6 +896,15 @@ public class InternalCatalog implements CatalogIf<Database> {
                         genDropHint(dbName, table));
             } else if (isMtmv && !(table instanceof MTMV)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "MTMV",
+                        genDropHint(dbName, table));
+            }
+
+            // Check if a stream
+            if (!isStream && table instanceof BaseTableStream) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "TABLE",
+                        genDropHint(dbName, table));
+            } else if (isStream && !(table instanceof BaseTableStream)) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "TABLE STREAM",
                         genDropHint(dbName, table));
             }
 
@@ -987,6 +1002,9 @@ public class InternalCatalog implements CatalogIf<Database> {
         if (table instanceof OlapTable) {
             Env.getCurrentEnv().getMtmvService().dropTable(table);
         }
+        if (table instanceof BaseTableStream) {
+            Env.getCurrentEnv().getTableStreamManager().removeTableStream((BaseTableStream) table);
+        }
         if (Config.isCloudMode()) {
             ((CloudGlobalTransactionMgr) Env.getCurrentGlobalTransactionMgr()).afterDropTable(db.getId(),
                     table.getId());
@@ -1001,6 +1019,8 @@ public class InternalCatalog implements CatalogIf<Database> {
             type = "MATERIALIZED VIEW";
         } else if (table instanceof OlapTable) {
             type = "TABLE";
+        } else if (table instanceof BaseTableStream) {
+            type = "STREAM";
         }
         return String.format("Use 'DROP %s %s.%s'", type, dbName, table.getName());
     }
@@ -1013,11 +1033,15 @@ public class InternalCatalog implements CatalogIf<Database> {
         if (table instanceof View) {
             Env.getCurrentEnv().getMtmvService().dropView(new BaseTableInfo(table));
         }
+        if (table instanceof BaseTableStream) {
+            Env.getCurrentEnv().getTableStreamManager().removeTableStream((BaseTableStream) table);
+        }
         Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
         Env.getCurrentEnv().getDictionaryManager().dropTableDictionaries(db.getName(), table.getName());
         Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentInternalCatalog().getId(), db.getId(), table.getId());
         Env.getCurrentEnv().getConstraintManager().checkAndDropTableConstraints(
-                new TableNameInfo(table), !isForceDrop && !isReplay);
+                TableNameInfoUtils.fromDb(db, table.getName()),
+                !isForceDrop && !isReplay);
         db.unregisterTable(table.getId());
         StopWatch watch = StopWatch.createStarted();
         Env.getCurrentRecycleBin().recycleTable(db.getId(), table, isReplay, isForceDrop, recycleTime);
@@ -1533,6 +1557,10 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION,
                         olapTable.enableSingleReplicaCompaction().toString());
+            }
+            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_TSO)) {
+                properties.put(PropertyAnalyzer.PROPERTIES_ENABLE_TSO,
+                        olapTable.enableTso().toString());
             }
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN,
@@ -2643,6 +2671,14 @@ public class InternalCatalog implements CatalogIf<Database> {
                 + " property is not supported for merge-on-write table");
         }
         olapTable.setEnableSingleReplicaCompaction(enableSingleReplicaCompaction);
+
+        boolean enableTso = false;
+        try {
+            enableTso = PropertyAnalyzer.analyzeEnableTso(properties);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+        olapTable.setEnableTso(enableTso);
 
         if (Config.isCloudMode() && ((CloudEnv) env).getEnableStorageVault()) {
             // <storageVaultName, storageVaultId>
@@ -3854,5 +3890,73 @@ public class InternalCatalog implements CatalogIf<Database> {
     @Override
     public void onClose() {
         Env.getCurrentEnv().getRefreshManager().removeFromRefreshMap(getId());
+    }
+
+    public void createTableStream(CreateStreamCommand command) throws DdlException {
+        if (!Config.enable_table_stream) {
+            throw new DdlException("Table Stream is experimental."
+                    + " Please set enable_table_stream=true to enable it.");
+        }
+        CreateStreamInfo createStreamInfo = command.getCreateStreamInfo();
+        String dbName = createStreamInfo.getStreamName().getDb();
+        String streamName = createStreamInfo.getStreamName().getTbl();
+        // check if db exists
+        Database db = getDbOrDdlException(dbName);
+        // check if table exists in db
+        boolean replace = false;
+        if (db.getTable(streamName).isPresent()) {
+            if (createStreamInfo.isIfNotExists()) {
+                LOG.info("create stream[{}] which already exists", streamName);
+                return;
+            } else if (createStreamInfo.isOrReplace()) {
+                replace = true;
+                LOG.info("stream[{}] already exists, need to replace it", streamName);
+            } else {
+                ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, streamName);
+            }
+        }
+        if (replace) {
+            throw new DdlException("do not support replace currently");
+        } else {
+            // get base table
+            CatalogIf baseCatalog;
+            if (Strings.isNullOrEmpty(createStreamInfo.getBaseTableName().getCtl())) {
+                baseCatalog = this;
+            } else {
+                baseCatalog = Env.getCurrentEnv().getCatalogMgr()
+                        .getCatalogOrDdlException(createStreamInfo.getBaseTableName().getCtl());
+            }
+            BaseTableStream newStream;
+            TableIf baseTable = baseCatalog.getDbOrDdlException(createStreamInfo.getBaseTableName().getDb())
+                    .getTableOrDdlException(createStreamInfo.getBaseTableName().getTbl());
+            // lock base table for stream init
+            baseTable.readLock();
+            try {
+                Map<String, String> properties = createStreamInfo.getProperties();
+                // build new stream
+                newStream = new TableStreamBuildFactory()
+                        .withName(streamName)
+                        .withBaseTable(baseTable)
+                        .build();
+                newStream.setComment(createStreamInfo.getComment());
+                try {
+                    newStream.setProperties(properties);
+                } catch (AnalysisException e) {
+                    throw new DdlException(e.getMessage(), e);
+                }
+                if (properties != null && !properties.isEmpty()) {
+                    // before here, all properties should be checked
+                    throw new DdlException("Unknown properties: " + properties);
+                }
+                newStream.setId((Env.getCurrentEnv().getNextId()));
+            } finally {
+                baseTable.readUnlock();
+            }
+            if (!db.createTableWithLock(newStream, false, createStreamInfo.isIfNotExists()).first) {
+                throw new DdlException("Failed to create stream[" + streamName + "].");
+            }
+            Env.getCurrentEnv().getTableStreamManager().addTableStream(newStream);
+            LOG.info("successfully create stream[{}]", streamName);
+        }
     }
 }

@@ -19,6 +19,9 @@ package org.apache.doris.authentication;
 
 import org.apache.doris.authentication.handler.AuthenticationOutcome;
 import org.apache.doris.authentication.handler.AuthenticationPluginManager;
+import org.apache.doris.authentication.rolemapping.DefinitionBackedRoleMappingEvaluator;
+import org.apache.doris.authentication.rolemapping.RoleMappingDefinition;
+import org.apache.doris.authentication.rolemapping.RoleMappingEvaluator;
 import org.apache.doris.authentication.spi.AuthenticationPlugin;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
@@ -32,6 +35,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -90,16 +94,23 @@ public class AuthenticationIntegrationRuntime {
     }
 
     private final AuthenticationPluginManager pluginManager;
+    private final RoleMappingEvaluator roleMappingEvaluator;
     private final Map<String, RuntimeState> runtimeStates = new ConcurrentHashMap<>();
     private final Map<String, String> brokenReasons = new ConcurrentHashMap<>();
     private final Set<String> dirtyIntegrations = ConcurrentHashMap.newKeySet();
 
     public AuthenticationIntegrationRuntime() {
-        this(new AuthenticationPluginManager());
+        this(new AuthenticationPluginManager(), createDefaultRoleMappingEvaluator());
     }
 
     public AuthenticationIntegrationRuntime(AuthenticationPluginManager pluginManager) {
+        this(pluginManager, createDefaultRoleMappingEvaluator());
+    }
+
+    AuthenticationIntegrationRuntime(AuthenticationPluginManager pluginManager,
+            RoleMappingEvaluator roleMappingEvaluator) {
         this.pluginManager = Objects.requireNonNull(pluginManager, "pluginManager");
+        this.roleMappingEvaluator = Objects.requireNonNull(roleMappingEvaluator, "roleMappingEvaluator");
     }
 
     public PreparedAuthenticationIntegration prepareAuthenticationIntegration(AuthenticationIntegrationMeta meta)
@@ -190,19 +201,17 @@ public class AuthenticationIntegrationRuntime {
             }
             anySupported = true;
 
-            AuthenticationResult result;
+            AuthenticationOutcome outcome;
             try {
-                result = plugin.authenticate(request, integration);
+                outcome = toOutcome(integration, plugin.authenticate(request, integration));
             } catch (AuthenticationException e) {
-                result = AuthenticationResult.failure(e);
+                outcome = AuthenticationOutcome.of(integration, AuthenticationResult.failure(e));
             }
-
-            AuthenticationOutcome outcome = AuthenticationOutcome.of(integration, result);
             if (!outcome.isFailure()) {
                 return outcome;
             }
             lastFailure = outcome;
-            if (!shouldContinueInChain(result)) {
+            if (!shouldContinueInChain(outcome.getAuthResult())) {
                 return outcome;
             }
         }
@@ -226,6 +235,25 @@ public class AuthenticationIntegrationRuntime {
 
     public String getBrokenReason(String integrationName) {
         return brokenReasons.get(integrationName);
+    }
+
+    private AuthenticationOutcome toOutcome(AuthenticationIntegration integration, AuthenticationResult result)
+            throws AuthenticationException {
+        Objects.requireNonNull(integration, "integration");
+        Objects.requireNonNull(result, "result");
+        if (!result.isSuccess()) {
+            return AuthenticationOutcome.of(integration, result);
+        }
+
+        Principal principal = Objects.requireNonNull(result.getPrincipal(), "principal is required for success");
+        Set<String> mappedRoles = roleMappingEvaluator.evaluate(integration, principal);
+        if (mappedRoles.isEmpty()) {
+            return AuthenticationOutcome.of(integration, result);
+        }
+
+        LinkedHashSet<String> grantedRoles = new LinkedHashSet<>(result.getGrantedRoles());
+        grantedRoles.addAll(mappedRoles);
+        return AuthenticationOutcome.of(integration, AuthenticationResult.success(principal, grantedRoles));
     }
 
     private ResolvedAuthenticationPlugin resolvePluginForAuthentication(AuthenticationIntegrationMeta requestedMeta)
@@ -293,6 +321,19 @@ public class AuthenticationIntegrationRuntime {
         }
         AuthenticationException exception = result.getException();
         return exception != null && exception.getFailureType().shouldContinueInChain();
+    }
+
+    private static RoleMappingEvaluator createDefaultRoleMappingEvaluator() {
+        return new DefinitionBackedRoleMappingEvaluator(AuthenticationIntegrationRuntime::resolveRoleMappingDefinition);
+    }
+
+    private static RoleMappingDefinition resolveRoleMappingDefinition(String integrationName) {
+        Env env = Env.getCurrentEnv();
+        if (env == null || env.getRoleMappingMgr() == null) {
+            return null;
+        }
+        RoleMappingMeta meta = env.getRoleMappingMgr().getRoleMappingByIntegration(integrationName);
+        return meta == null ? null : meta.toDefinition();
     }
 
     private static AuthenticationIntegration toIntegration(AuthenticationIntegrationMeta meta) {

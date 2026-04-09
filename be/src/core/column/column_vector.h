@@ -70,7 +70,7 @@ namespace doris {
 template <PrimitiveType T>
 class ColumnVector final : public COWHelper<IColumn, ColumnVector<T>> {
     static_assert(is_int_or_bool(T) || is_ip(T) || is_date_type(T) || is_float_or_double(T) ||
-                  T == TYPE_TIME || T == TYPE_TIMEV2 || T == TYPE_UINT32 || T == TYPE_UINT64 ||
+                  T == TYPE_TIMEV2 || T == TYPE_UINT32 || T == TYPE_UINT64 ||
                   T == TYPE_TIMESTAMPTZ);
 
 private:
@@ -120,8 +120,8 @@ public:
     void insert_many_from(const IColumn& src, size_t position, size_t length) override;
 
     void insert_range_of_integer(value_type begin, value_type end) {
-        if constexpr (!is_float_or_double(T) && T != TYPE_TIME && T != TYPE_TIMEV2 &&
-                      T != TYPE_TIMESTAMPTZ && !is_date_type(T)) {
+        if constexpr (!is_float_or_double(T) && T != TYPE_TIMEV2 && T != TYPE_TIMESTAMPTZ &&
+                      !is_date_type(T)) {
             auto old_size = data.size();
             auto new_size = old_size + static_cast<size_t>(end - begin);
             data.resize(new_size);
@@ -425,7 +425,6 @@ using ColumnFloat32 = ColumnVector<TYPE_FLOAT>;
 using ColumnFloat64 = ColumnVector<TYPE_DOUBLE>;
 using ColumnIPv4 = ColumnVector<TYPE_IPV4>;
 using ColumnIPv6 = ColumnVector<TYPE_IPV6>;
-using ColumnTime = ColumnVector<TYPE_TIME>;
 using ColumnTimeV2 = ColumnVector<TYPE_TIMEV2>;
 using ColumnTimeStampTz = ColumnVector<TYPE_TIMESTAMPTZ>;
 using ColumnOffset32 = ColumnVector<TYPE_UINT32>;

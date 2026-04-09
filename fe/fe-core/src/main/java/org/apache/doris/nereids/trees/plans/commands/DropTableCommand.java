@@ -78,7 +78,7 @@ public class DropTableCommand extends Command implements ForwardWithSync {
         if (Strings.isNullOrEmpty(tableName.getDb())) {
             tableName.setDb(ctx.getDatabase());
         }
-        tableName.analyze(ctx);
+        tableName.analyze(ctx.getNameSpaceContext());
         InternalDatabaseUtil.checkDatabase(tableName.getDb(), ctx);
         // check access
         if (!Env.getCurrentEnv().getAccessManager()
@@ -87,7 +87,7 @@ public class DropTableCommand extends Command implements ForwardWithSync {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "DROP");
         }
         Env.getCurrentEnv().dropTable(tableName.getCtl(), tableName.getDb(), tableName.getTbl(), isView,
-                isMaterializedView, ifExists, mustTemporary, forceDrop);
+                isMaterializedView, false, ifExists, mustTemporary, forceDrop);
     }
 
     public void setMaterializedView(boolean materializedView) {

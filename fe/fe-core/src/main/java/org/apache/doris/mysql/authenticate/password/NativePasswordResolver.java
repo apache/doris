@@ -38,6 +38,7 @@ public class NativePasswordResolver implements PasswordResolver {
     public Optional<Password> resolvePassword(ConnectContext context, MysqlChannel channel, MysqlSerializer serializer,
             MysqlAuthPacket authPacket,
             MysqlHandshakePacket handshakePacket) throws IOException {
+        byte[] authResponse = authPacket.getAuthResponse();
         // Starting with MySQL 8.0.4, MySQL changed the default authentication plugin for MySQL client
         // from mysql_native_password to caching_sha2_password.
         // ref: https://mysqlserverteam.com/mysql-8-0-4-new-default-authentication-plugin-caching_sha2_password/
@@ -62,7 +63,7 @@ public class NativePasswordResolver implements PasswordResolver {
             }
             // 3. the client use default password plugin of Doris to dispose
             // password
-            authPacket.setAuthResponse(MysqlProto.readEofString(authSwitchResponse));
+            authResponse = MysqlProto.readEofString(authSwitchResponse);
         }
 
         // NOTE: when we behind proxy, we need random string sent by proxy.
@@ -70,7 +71,7 @@ public class NativePasswordResolver implements PasswordResolver {
         if (Config.proxy_auth_enable && authPacket.getRandomString() != null) {
             randomString = authPacket.getRandomString();
         }
-        return Optional.of(new NativePassword(authPacket.getAuthResponse(), randomString));
+        return Optional.of(new NativePassword(authResponse, randomString));
     }
 
     @Override

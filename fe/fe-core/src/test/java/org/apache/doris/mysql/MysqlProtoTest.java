@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
@@ -321,6 +322,123 @@ public class MysqlProtoTest {
         mockAccess();
         ConnectContext context = new ConnectContext(streamConnection);
         Assert.assertFalse(MysqlProto.negotiate(context));
+    }
+
+    @Test
+    public void testNegotiateClientClosedConnectionDuringHandshake() throws Exception {
+        new Expectations() {
+            {
+                channel.sendAndFlush((ByteBuffer) any);
+                minTimes = 0;
+
+                channel.fetchOnePacket();
+                minTimes = 0;
+                result = null;
+            }
+        };
+
+        ConnectContext context = new ConnectContext(streamConnection);
+        Assert.assertFalse(MysqlProto.negotiate(context));
+        Assert.assertEquals(ErrorCode.ERR_UNKNOWN_ERROR, context.getState().getErrorCode());
+        Assert.assertEquals("Client closed connection during handshake", context.getState().getErrorMessage());
+    }
+
+    @Test
+    public void testNegotiateRejectsSslRequestWhenServerSslDisabled() throws Exception {
+        MysqlSerializer serializer = MysqlSerializer.newInstance();
+        serializer.writeInt4(MysqlCapability.SSL_CAPABILITY.getFlags());
+
+        new Expectations() {
+            {
+                channel.sendAndFlush((ByteBuffer) any);
+                minTimes = 0;
+
+                channel.fetchOnePacket();
+                minTimes = 0;
+                result = serializer.toByteBuffer();
+            }
+        };
+
+        ConnectContext context = new ConnectContext(streamConnection);
+        Assert.assertFalse(MysqlProto.negotiate(context));
+        Assert.assertEquals(ErrorCode.ERR_UNKNOWN_ERROR, context.getState().getErrorCode());
+        Assert.assertEquals("Client requested TLS/SSL, but Doris FE MySQL SSL is disabled",
+                context.getState().getErrorMessage());
+    }
+
+    @Test
+    public void testNegotiateSendsAuthenticatorErrorWhenResponseNotSent() throws Exception {
+        mockChannel("user", true);
+        mockPassword(true);
+        mockAccess();
+
+        new Expectations() {
+            {
+                authenticatorManager.authenticate((ConnectContext) any, anyString, (MysqlChannel) any,
+                        (MysqlSerializer) any, (MysqlAuthPacket) any, (MysqlHandshakePacket) any);
+                minTimes = 0;
+                result = new Delegate() {
+                    boolean authenticate(ConnectContext context, String qualifiedUser, MysqlChannel mysqlChannel,
+                            MysqlSerializer mysqlSerializer, MysqlAuthPacket mysqlAuthPacket,
+                            MysqlHandshakePacket mysqlHandshakePacket) {
+                        context.getState().setError(ErrorCode.ERR_ACCESS_DENIED_ERROR, "Authentication failed.");
+                        return false;
+                    }
+                };
+
+                channel.isSend();
+                minTimes = 0;
+                result = false;
+            }
+        };
+
+        ConnectContext context = new ConnectContext(streamConnection);
+        Assert.assertFalse(MysqlProto.negotiate(context));
+        Assert.assertEquals(ErrorCode.ERR_ACCESS_DENIED_ERROR, context.getState().getErrorCode());
+
+        new Verifications() {
+            {
+                channel.sendAndFlush((ByteBuffer) any);
+                times = 2;
+            }
+        };
+    }
+
+    @Test
+    public void testNegotiateDoesNotResendAuthenticatorErrorWhenResponseAlreadySent() throws Exception {
+        mockChannel("user", true);
+        mockPassword(true);
+        mockAccess();
+
+        new Expectations() {
+            {
+                authenticatorManager.authenticate((ConnectContext) any, anyString, (MysqlChannel) any,
+                        (MysqlSerializer) any, (MysqlAuthPacket) any, (MysqlHandshakePacket) any);
+                minTimes = 0;
+                result = new Delegate() {
+                    boolean authenticate(ConnectContext context, String qualifiedUser, MysqlChannel mysqlChannel,
+                            MysqlSerializer mysqlSerializer, MysqlAuthPacket mysqlAuthPacket,
+                            MysqlHandshakePacket mysqlHandshakePacket) {
+                        context.getState().setError(ErrorCode.ERR_ACCESS_DENIED_ERROR, "Authentication failed.");
+                        return false;
+                    }
+                };
+
+                channel.isSend();
+                minTimes = 0;
+                result = true;
+            }
+        };
+
+        ConnectContext context = new ConnectContext(streamConnection);
+        Assert.assertFalse(MysqlProto.negotiate(context));
+
+        new Verifications() {
+            {
+                channel.sendAndFlush((ByteBuffer) any);
+                times = 1;
+            }
+        };
     }
 
     @Test

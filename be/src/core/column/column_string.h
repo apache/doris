@@ -276,6 +276,29 @@ public:
         sanity_check_simple();
     }
 
+    // Insert `num` string entries with real length information but no actual
+    // character data. The `lengths` array provides the byte length of each
+    // string. Offsets are built with correct cumulative sizes so that
+    // size_at(i) returns the true string length. The chars buffer is extended
+    // with zero-filled padding to maintain the invariant chars.size() == offsets.back().
+    // Used by OFFSET_ONLY reading mode where actual string content is not needed
+    // but length information must be preserved (e.g., for length() function).
+    void insert_offsets_from_lengths(const uint32_t* lengths, size_t num) override {
+        if (UNLIKELY(num == 0)) {
+            return;
+        }
+        const auto old_rows = offsets.size();
+        // Build cumulative offsets from lengths
+        offsets.resize(old_rows + num);
+        auto* offsets_ptr = &offsets[old_rows];
+        size_t running_offset = offsets[old_rows - 1];
+        for (size_t i = 0; i < num; ++i) {
+            running_offset += lengths[i];
+            offsets_ptr[i] = static_cast<T>(running_offset);
+        }
+        chars.resize(offsets[old_rows + num - 1]);
+    }
+
     void insert_many_strings(const StringRef* strings, size_t num) override {
         size_t new_size = 0;
         for (size_t i = 0; i < num; i++) {

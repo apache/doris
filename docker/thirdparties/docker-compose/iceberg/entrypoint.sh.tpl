@@ -25,9 +25,16 @@ done
 
 set -ex
 
-# remove /opt/spark/jars/iceberg-aws-bundle-1.5.0.jar\:/opt/spark/jars/iceberg-spark-runtime-3.5_2.12-1.5.0.jar
-rm /opt/spark/jars/iceberg-aws-bundle-1.5.0.jar
-rm /opt/spark/jars/iceberg-spark-runtime-3.5_2.12-1.5.0.jar
+mkdir -p /opt/spark/events
+
+for f in /opt/spark/sbin/*; do
+  ln -s $f /usr/local/bin/$(basename $f)
+done
+
+for f in /opt/spark/bin/*; do
+  ln -s $f /usr/local/bin/$(basename $f)
+done
+
 
 start-master.sh -p 7077
 start-worker.sh spark://doris--spark-iceberg:7077
@@ -53,7 +60,6 @@ spark-sql  --master  spark://doris--spark-iceberg:7077 --conf spark.sql.extensio
 END_TIME2=$(date +%s)
 EXECUTION_TIME2=$((END_TIME2 - START_TIME2))
 echo "Script paimon total: {} executed in $EXECUTION_TIME2 seconds"
-
 
 START_TIME3=$(date +%s)
 find /mnt/scripts/create_preinstalled_scripts/iceberg_load -name '*.sql' | sed 's|^|source |' | sed 's|$|;|'> iceberg_load_total.sql

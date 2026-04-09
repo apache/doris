@@ -21,10 +21,9 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.httpv2.controller.BaseController.ActionAuthorizationInfo;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.rest.RestBaseController;
-import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Frontend;
 
 import com.google.common.collect.Maps;
@@ -60,8 +59,8 @@ public class ClusterAction extends RestBaseController {
     // }
     @RequestMapping(path = {"/cluster_info/conn_info", "/compute_group_info/conn_info"}, method = RequestMethod.GET)
     public Object clusterInfo(HttpServletRequest request, HttpServletResponse response) {
-        executeCheckPassword(request, response);
-        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkAdminAuth(authInfo.userIdentity);
 
         Map<String, List<String>> result = Maps.newHashMap();
         List<String> frontends = Env.getCurrentEnv().getFrontends(null)
@@ -110,8 +109,8 @@ public class ClusterAction extends RestBaseController {
             if (!Env.getCurrentEnv().isMaster()) {
                 ret = ResponseEntityBuilder.badRequest("this api just use in cloud master fe");
             } else {
-                executeCheckPassword(request, response);
-                checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+                ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+                checkAdminAuth(authInfo.userIdentity);
 
                 // Key: cluster_name Value: be status
                 Map<String, List<BeClusterInfo>> result = Maps.newHashMap();

@@ -277,11 +277,13 @@ public class OSSPropertiesTest {
         Map<String, String> props = Maps.newHashMap();
         props.put("oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
         props.put("oss.region", "cn-hangzhou");
+        props.put("oss.session_token", "testSessionToken");
         OSSProperties ossProperties = (OSSProperties) StorageProperties.createPrimary(props);
         Assertions.assertEquals(OSSProperties.JINDO_OSS_FILE_SYSTEM_IMPL,
                 ossProperties.hadoopStorageConfig.get("fs.oss.impl"));
         Assertions.assertEquals(OSSProperties.JINDO_OSS_ABSTRACT_FILE_SYSTEM_IMPL,
                 ossProperties.hadoopStorageConfig.get("fs.AbstractFileSystem.oss.impl"));
+        Assertions.assertEquals("testSessionToken", ossProperties.hadoopStorageConfig.get("fs.oss.securityToken"));
         Assertions.assertEquals("cn-hangzhou", ossProperties.hadoopStorageConfig.get("fs.oss.region"));
     }
 

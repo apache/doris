@@ -165,7 +165,7 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset, int3
             rowset_meta->fs(),
             std::string {InvertedIndexDescriptor::get_index_file_path_prefix(seg_path)},
             tablet_schema->get_inverted_index_storage_format(),
-            rowset_meta->inverted_index_file_info(seg_id));
+            rowset_meta->inverted_index_file_info(seg_id), rowset_meta->tablet_id());
     RETURN_IF_ERROR(idx_file_reader->init(config::inverted_index_read_buffer_size, io_ctx));
 
     int32_t total_seg_num_docs = 0;

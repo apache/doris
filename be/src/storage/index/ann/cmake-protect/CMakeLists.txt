@@ -42,13 +42,13 @@ else()
         set(DYNAMIC_ARCH ON CACHE BOOL "Enable runtime CPU detection in OpenBLAS")
     endif ()
 endif ()
-
+# Set FAISS_ENABLE_GPU OFF before including FAISS to prevent CUDA language detection
+set(FAISS_ENABLE_GPU OFF CACHE BOOL "Enable GPU support in FAISS")
 # EXCLUDE_FROM_ALL so that binary in openblas is not installed.
 add_subdirectory(${PROJECT_SOURCE_DIR}/../contrib/openblas ${PROJECT_BINARY_DIR}/openblas EXCLUDE_FROM_ALL)
 
 set(OPENBLAS_LIBRARY "${PROJECT_BINARY_DIR}/openblas/lib/libopenblas.a" CACHE PATH "Path to OpenBLAS build directory")
 set(FAISS_ENABLE_MKL OFF CACHE BOOL "Disable MKL support in FAISS")
-set(FAISS_ENABLE_GPU OFF CACHE BOOL "Disable GPU support in FAISS")
 set(FAISS_ENABLE_PYTHON OFF CACHE BOOL "Disable Python support in FAISS")
 set(FAISS_ENABLE_EXTRAS OFF CACHE BOOL "Disable FAISS extras")
 set(BUILD_TESTING OFF CACHE BOOL "Disable FAISS testing")
