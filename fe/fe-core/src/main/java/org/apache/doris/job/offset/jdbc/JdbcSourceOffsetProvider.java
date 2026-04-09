@@ -591,13 +591,17 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
      * MySQL: ts_sec (seconds), PostgreSQL: ts_usec (microseconds).
      */
     protected long extractEventTimeMs(Map<String, String> offsetMap) {
-        String tsSec = offsetMap.get("ts_sec");
-        if (tsSec != null) {
-            return Long.parseLong(tsSec) * 1000;
-        }
-        String tsUsec = offsetMap.get("ts_usec");
-        if (tsUsec != null) {
-            return Long.parseLong(tsUsec) / 1000;
+        try {
+            String tsSec = offsetMap.get("ts_sec");
+            if (tsSec != null) {
+                return Long.parseLong(tsSec) * 1000;
+            }
+            String tsUsec = offsetMap.get("ts_usec");
+            if (tsUsec != null) {
+                return Long.parseLong(tsUsec) / 1000;
+            }
+        } catch (NumberFormatException e) {
+            log.warn("Failed to parse event timestamp from offset: {}", offsetMap, e);
         }
         return -1;
     }
