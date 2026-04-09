@@ -208,7 +208,7 @@ Status DataTypeNumberSerDe<T>::serialize_one_cell_to_json(const IColumn& column,
     row_num = result.second;
     auto data = assert_cast<const ColumnType&>(*ptr).get_element(row_num);
     if constexpr (T == TYPE_IPV6) {
-        std::string hex = CastToString::from_int128(data);
+        std::string hex = CastToString::from_uint128(data);
         bw.write(hex.data(), hex.size());
     } else if constexpr (T == TYPE_FLOAT || T == TYPE_DOUBLE) {
         auto str = CastToString::from_number(data);

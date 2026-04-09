@@ -131,17 +131,10 @@ template <typename CppT>
 constexpr bool IsCppTypeDateTime =
         std::is_same_v<CppT, PrimitiveTypeTraits<TYPE_DATETIME>::CppType> ||
         std::is_same_v<CppT, PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType>;
+
 struct CastToInt {
     template <bool is_strict_mode, typename ToCppT>
-        requires(IsCppTypeInt<ToCppT>)
-    static inline bool from_string(const StringRef& from, ToCppT& to, CastParameters& params) {
-        StringParser::ParseResult result;
-        to = StringParser::string_to_int<ToCppT, is_strict_mode>(from.data, from.size, &result);
-        return result == StringParser::PARSE_SUCCESS;
-    }
-
-    template <bool is_strict_mode, typename ToCppT>
-        requires(std::is_unsigned_v<ToCppT>)
+        requires(IsCppTypeInt<ToCppT> || std::is_unsigned_v<ToCppT>)
     static inline bool from_string(const StringRef& from, ToCppT& to, CastParameters& params) {
         StringParser::ParseResult result;
         to = StringParser::string_to_int<ToCppT, is_strict_mode>(from.data, from.size, &result);
@@ -215,43 +208,63 @@ struct CastToInt {
         requires(IsCppTypeInt<ToCppT> && IsDecimalNumber<FromCppT>)
     static inline bool from_decimal(FromCppT from, UInt32 from_precision, UInt32 from_scale,
                                     ToCppT& to, CastParameters& params) {
-        constexpr UInt32 to_max_digits = NumberTraits::max_ascii_len<ToCppT>();
-        bool narrow_integral = (from_precision - from_scale) >= to_max_digits;
         typename FromCppT::NativeType scale_multiplier =
                 DataTypeDecimal<FromCppT::PType>::get_scale_multiplier(from_scale);
-        return from_decimal(from, from_precision, from_scale, to, scale_multiplier, narrow_integral,
-                            params);
+        constexpr UInt32 to_max_digits = NumberTraits::max_ascii_len<ToCppT>();
+        bool narrow_integral = (from_precision - from_scale) >= to_max_digits;
+        return _from_decimal(from, from_precision, from_scale, to, scale_multiplier,
+                             narrow_integral, params);
     }
 
     template <typename FromCppT, typename ToCppT>
-        requires(IsCppTypeInt<ToCppT> && IsDecimalNumber<FromCppT>)
-    static inline bool from_decimal(FromCppT from, UInt32 from_precision, UInt32 from_scale,
-                                    ToCppT& to,
-                                    const typename FromCppT::NativeType& scale_multiplier,
-                                    bool narrow_integral, CastParameters& params) {
-        using NativeType = typename FromCppT::NativeType;
-        auto raw_value = [&]() -> NativeType {
-            if constexpr (IsDecimalV2<FromCppT>) {
-                return from.value();
-            } else {
-                return from.value;
-            }
-        }();
-        auto tmp = raw_value / scale_multiplier;
+        requires(IsCppTypeInt<ToCppT> && IsDecimalV2<FromCppT>)
+    static inline bool _from_decimal(FromCppT from, UInt32 from_precision, UInt32 from_scale,
+                                     ToCppT& to,
+                                     const typename FromCppT::NativeType& scale_multiplier,
+                                     bool narrow_integral, CastParameters& params) {
         constexpr auto min_result = std::numeric_limits<ToCppT>::lowest();
         constexpr auto max_result = std::numeric_limits<ToCppT>::max();
-        if (narrow_integral) {
-            if (tmp < min_result || tmp > max_result) {
-                params.status = Status::Error(
-                        ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
-                        fmt::format("Arithmetic overflow when converting "
-                                    "value {} from type {} to type {}",
-                                    decimal_to_string(raw_value, from_scale),
-                                    type_to_string(FromCppT::PType), int_type_name<ToCppT>));
-                return false;
-            }
+        auto tmp = from.value() / scale_multiplier;
+        if (narrow_integral && (tmp < min_result || tmp > max_result)) {
+            params.status = Status::Error(
+                    ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
+                    fmt::format("Arithmetic overflow when converting "
+                                "value {} from type {} to type {}",
+                                decimal_to_string(from.value(), from_scale),
+                                type_to_string(FromCppT::PType), int_type_name<ToCppT>));
+            return false;
         }
         to = static_cast<ToCppT>(tmp);
+        return true;
+    }
+
+    template <typename FromCppT, typename ToCppT>
+        requires(IsCppTypeInt<ToCppT> && IsDecimalNumber<FromCppT> && !IsDecimal128V2<FromCppT>)
+    static inline bool _from_decimal(FromCppT from, UInt32 from_precision, UInt32 from_scale,
+                                     ToCppT& to,
+                                     const typename FromCppT::NativeType& scale_multiplier,
+                                     bool narrow_integral, CastParameters& params) {
+        constexpr auto min_result = std::numeric_limits<ToCppT>::lowest();
+        constexpr auto max_result = std::numeric_limits<ToCppT>::max();
+        auto tmp = from.value / scale_multiplier;
+        if (narrow_integral && (tmp < min_result || tmp > max_result)) {
+            params.status = Status::Error(
+                    ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
+                    fmt::format("Arithmetic overflow when converting "
+                                "value {} from type {} to type {}",
+                                decimal_to_string(from.value, from_scale),
+                                type_to_string(FromCppT::PType), int_type_name<ToCppT>));
+            return false;
+        }
+        to = static_cast<ToCppT>(tmp);
+        return true;
+    }
+
+    template <typename FromCppT, typename ToCppT>
+        requires((IsCppTypeDate<FromCppT> && IntAllowCastFromDate<ToCppT>) ||
+                 (IsCppTypeDateTime<FromCppT> && IntAllowCastFromDatetime<ToCppT>))
+    static inline bool from_datetime(FromCppT from, ToCppT& to, CastParameters& params) {
+        CastUtil::static_cast_set(to, from.to_int64());
         return true;
     }
 
@@ -319,15 +332,39 @@ struct CastToFloat {
                                     CastParameters& params) {
         typename FromCppT::NativeType scale_multiplier =
                 DataTypeDecimal<FromCppT::PType>::get_scale_multiplier(from_scale);
-        if constexpr (IsDecimalV2<FromCppT>) {
-            to = static_cast<ToCppT>(static_cast<double>(from.value()) /
-                                     static_cast<double>(scale_multiplier));
-            return true;
-        } else {
-            to = static_cast<ToCppT>(static_cast<double>(from.value) /
-                                     static_cast<double>(scale_multiplier));
-            return true;
-        }
+        return _from_decimalv3(from, from_scale, to, scale_multiplier, params);
+    }
+    template <typename FromCppT, typename ToCppT>
+        requires(IsCppTypeFloat<ToCppT> && IsDecimalNumber<FromCppT> && !IsDecimalV2<FromCppT>)
+    static inline bool _from_decimalv3(const FromCppT& from, UInt32 from_scale, ToCppT& to,
+                                       const typename FromCppT::NativeType& scale_multiplier,
+                                       CastParameters& params) {
+        to = static_cast<ToCppT>(static_cast<double>(from.value) /
+                                 static_cast<double>(scale_multiplier));
+        return true;
+    }
+    template <typename FromCppT, typename ToCppT>
+        requires(IsCppTypeFloat<ToCppT> && IsDecimalV2<FromCppT>)
+    static inline bool _from_decimalv3(const FromCppT& from, UInt32 from_scale, ToCppT& to,
+                                       const typename FromCppT::NativeType& scale_multiplier,
+                                       CastParameters& params) {
+        to = static_cast<ToCppT>(static_cast<double>(from.value()) /
+                                 static_cast<double>(scale_multiplier));
+        return true;
+    }
+
+    template <typename FromCppT, typename ToCppT>
+        requires(IsCppTypeFloat<ToCppT> && (IsCppTypeDate<FromCppT> || IsCppTypeDateTime<FromCppT>))
+    static inline bool from_datetime(FromCppT from, ToCppT& to, CastParameters& params) {
+        CastUtil::static_cast_set(to, from.to_int64());
+        return true;
+    }
+
+    template <typename FromCppT, typename ToCppT>
+        requires(IsCppTypeFloat<ToCppT>)
+    static inline bool from_time(FromCppT from, ToCppT& to, CastParameters& params) {
+        CastUtil::static_cast_set(to, from);
+        return true;
     }
 };
 
@@ -354,19 +391,16 @@ Status static_cast_no_overflow(FunctionContext* context, Block& block,
             } else if constexpr (IsDataTypeInt<FromDataType>) {
                 CastToInt::from_int(vec_from[i], vec_to[i], params);
             } else if constexpr (IsDatelikeV1Types<FromDataType>) {
-                CastUtil::static_cast_set(
-                        vec_to[i],
-                        reinterpret_cast<const VecDateTimeValue&>(vec_from[i]).to_int64());
+                CastToInt::from_datetime(reinterpret_cast<const VecDateTimeValue&>(vec_from[i]),
+                                         vec_to[i], params);
             } else if constexpr (IsDateTimeV2Type<FromDataType>) {
-                CastUtil::static_cast_set(
-                        vec_to[i],
-                        reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(vec_from[i])
-                                .to_int64());
+                CastToInt::from_datetime(
+                        reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(vec_from[i]),
+                        vec_to[i], params);
             } else if constexpr (IsDateV2Type<FromDataType>) {
-                CastUtil::static_cast_set(
-                        vec_to[i],
-                        reinterpret_cast<const DateV2Value<DateV2ValueType>&>(vec_from[i])
-                                .to_int64());
+                CastToInt::from_datetime(
+                        reinterpret_cast<const DateV2Value<DateV2ValueType>&>(vec_from[i]),
+                        vec_to[i], params);
             } else if constexpr (std::is_same_v<FromDataType, DataTypeTimeV2>) {
                 CastToInt::from_time(vec_from[i], vec_to[i], params);
             } else {
@@ -382,21 +416,18 @@ Status static_cast_no_overflow(FunctionContext* context, Block& block,
             } else if constexpr (IsDataTypeFloat<FromDataType>) {
                 CastToFloat::from_float(vec_from[i], vec_to[i], params);
             } else if constexpr (IsDatelikeV1Types<FromDataType>) {
-                CastUtil::static_cast_set(
-                        vec_to[i],
-                        reinterpret_cast<const VecDateTimeValue&>(vec_from[i]).to_int64());
+                CastToFloat::from_datetime(reinterpret_cast<const VecDateTimeValue&>(vec_from[i]),
+                                           vec_to[i], params);
             } else if constexpr (IsDateTimeV2Type<FromDataType>) {
-                CastUtil::static_cast_set(
-                        vec_to[i],
-                        reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(vec_from[i])
-                                .to_int64());
+                CastToFloat::from_datetime(
+                        reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(vec_from[i]),
+                        vec_to[i], params);
             } else if constexpr (IsDateV2Type<FromDataType>) {
-                CastUtil::static_cast_set(
-                        vec_to[i],
-                        reinterpret_cast<const DateV2Value<DateV2ValueType>&>(vec_from[i])
-                                .to_int64());
+                CastToFloat::from_datetime(
+                        reinterpret_cast<const DateV2Value<DateV2ValueType>&>(vec_from[i]),
+                        vec_to[i], params);
             } else if constexpr (std::is_same_v<FromDataType, DataTypeTimeV2>) {
-                CastUtil::static_cast_set(vec_to[i], vec_from[i]);
+                CastToFloat::from_time(vec_from[i], vec_to[i], params);
             } else {
                 return Status::InternalError(fmt::format("Unsupported cast from {} to {}",
                                                          type_to_string(FromDataType::PType),

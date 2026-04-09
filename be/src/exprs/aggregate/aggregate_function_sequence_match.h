@@ -26,6 +26,7 @@
 #include <algorithm>
 #include <bitset>
 #include <boost/iterator/iterator_facade.hpp>
+#include <cctype>
 #include <cstdint>
 #include <functional>
 #include <iterator>
@@ -233,6 +234,22 @@ private:
             return false;
         };
 
+        auto parse_uint = [&pos, end](auto& value) {
+            const auto* start = pos;
+            while (pos < end && std::isdigit(static_cast<unsigned char>(*pos))) {
+                ++pos;
+            }
+
+            if (pos == start) {
+                return false;
+            }
+
+            StringParser::ParseResult result;
+            value = StringParser::string_to_int<std::decay_t<decltype(value)>, false>(
+                    start, pos - start, &result);
+            return result == StringParser::PARSE_SUCCESS;
+        };
+
         while (pos < end) {
             if (match("(?")) {
                 if (match("t")) {
@@ -254,14 +271,7 @@ private:
                     }
 
                     NativeType duration = 0;
-                    const auto* prev_pos = pos;
-                    StringParser::ParseResult result;
-                    duration =
-                            StringParser::string_to_int<NativeType, false>(pos, end - pos, &result);
-                    while (pos < end && *pos >= '0' && *pos <= '9') {
-                        ++pos;
-                    }
-                    if (pos == prev_pos) {
+                    if (!parse_uint(duration)) {
                         throw_exception("Could not parse number");
                         return;
                     }
@@ -278,14 +288,10 @@ private:
                     actions.emplace_back(type, duration);
                 } else {
                     UInt64 event_number = 0;
-                    const auto* prev_pos = pos;
-                    StringParser::ParseResult result;
-                    event_number =
-                            StringParser::string_to_int<UInt64, false>(pos, end - pos, &result);
-                    while (pos < end && *pos >= '0' && *pos <= '9') {
-                        ++pos;
+                    if (!parse_uint(event_number)) {
+                        throw_exception("Could not parse number");
+                        return;
                     }
-                    if (pos == prev_pos) throw_exception("Could not parse number");
 
                     if (event_number > arg_count - 1) {
                         throw_exception("Event number " + std::to_string(event_number) +

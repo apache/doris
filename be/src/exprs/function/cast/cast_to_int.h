@@ -183,8 +183,8 @@ public:
         typename FromFieldType::NativeType scale_multiplier =
                 DataTypeDecimal<FromDataType::PType>::get_scale_multiplier(from_scale);
         for (size_t i = 0; i < size; i++) {
-            if (!CastToInt::from_decimal<typename FromDataType::FieldType,
-                                         typename ToDataType::FieldType>(
+            if (!CastToInt::_from_decimal<typename FromDataType::FieldType,
+                                          typename ToDataType::FieldType>(
                         vec_from_data[i], from_precision, from_scale, vec_to_data[i],
                         scale_multiplier, narrow_integral, params)) {
                 if (set_nullable) {

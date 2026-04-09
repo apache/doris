@@ -26,8 +26,8 @@
 namespace doris {
 struct CastToString {
     static inline std::string from_int128(int128_t value);
-    static inline std::string from_int128(uint128_t value);
-    static inline std::string from_int128(UInt128 value);
+    static inline std::string from_uint128(uint128_t value);
+    static inline std::string from_uint128(UInt128 value);
 
     template <class SRC>
     static inline std::string from_number(const SRC& from);
@@ -272,13 +272,13 @@ inline std::string CastToString::from_int128(int128_t value) {
     return std::string(buffer.data(), buffer.size());
 }
 
-inline std::string CastToString::from_int128(uint128_t value) {
+inline std::string CastToString::from_uint128(uint128_t value) {
     fmt::memory_buffer buffer;
     fmt::format_to(buffer, "{}", value);
     return std::string(buffer.data(), buffer.size());
 }
 
-inline std::string CastToString::from_int128(UInt128 value) {
+inline std::string CastToString::from_uint128(UInt128 value) {
     return value.to_hex_string();
 }
 

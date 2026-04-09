@@ -66,9 +66,12 @@ public:
         CastParameters params;
         params.is_strict = (CastMode == CastModeType::StrictMode);
         size_t size = vec_from.size();
+        typename FromDataType::FieldType::NativeType scale_multiplier =
+                DataTypeDecimal<FromDataType::PType>::get_scale_multiplier(from_scale);
 
         for (size_t i = 0; i < size; ++i) {
-            CastToFloat::from_decimal(vec_from_data[i], from_scale, vec_to_data[i], params);
+            CastToFloat::_from_decimalv3(vec_from_data[i], from_scale, vec_to_data[i],
+                                         scale_multiplier, params);
         }
 
         block.get_by_position(result).column = std::move(col_to);

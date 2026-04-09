@@ -1284,7 +1284,7 @@ TEST_F(ColumnTypeConverterTest, TestStringToIntegerTypes) {
 
         ASSERT_EQ(4, nested_col.size());
         EXPECT_EQ("123456789012345678901234567890",
-                  CastToString::from_int128(nested_col.get_data()[0]));
+                  CastToString::from_uint128(nested_col.get_data()[0]));
 
         EXPECT_EQ("-123456789012345678901234567890",
                   CastToString::from_int128(nested_col.get_data()[1]));

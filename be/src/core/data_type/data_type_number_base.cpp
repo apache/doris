@@ -53,7 +53,11 @@ std::string DataTypeNumberBase<T>::to_string(
     if constexpr (std::is_same<typename PrimitiveTypeTraits<T>::CppType, int128_t>::value ||
                   std::is_same<typename PrimitiveTypeTraits<T>::CppType, uint128_t>::value ||
                   std::is_same<typename PrimitiveTypeTraits<T>::CppType, UInt128>::value) {
-        return CastToString::from_int128(value);
+        if constexpr (std::is_same<typename PrimitiveTypeTraits<T>::CppType, int128_t>::value) {
+            return CastToString::from_int128(value);
+        } else {
+            return CastToString::from_uint128(value);
+        }
     } else if constexpr (std::is_integral<typename PrimitiveTypeTraits<T>::CppType>::value) {
         return std::to_string(value);
     } else if constexpr (T == TYPE_DATETIME || T == TYPE_DATE) {

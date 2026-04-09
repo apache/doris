@@ -357,18 +357,13 @@ public:
 template <PrimitiveType DstPrimitiveType, FileFormat = COMMON>
 struct SafeCastString {};
 
-template <PrimitiveType DstPrimitiveType>
-struct SafeCastContext {
-    CastParameters params;
-};
-
-template <>
-struct SafeCastString<TYPE_BOOLEAN> {
+template <FileFormat fileFormat>
+struct SafeCastString<TYPE_BOOLEAN, fileFormat> {
     // Ref: https://github.com/apache/hive/blob/4df4d75bf1e16fe0af75aad0b4179c34c07fc975/serde/src/java/org/apache/hadoop/hive/serde2/objectinspector/primitive/PrimitiveObjectInspectorUtils.java#L559
     static inline const std::set<std::string> FALSE_VALUES = {"false", "off", "no", "0", ""};
     static bool safe_cast_string(const StringRef& str_ref,
                                  PrimitiveTypeTraits<TYPE_BOOLEAN>::ColumnType::value_type* value,
-                                 SafeCastContext<TYPE_BOOLEAN>&) {
+                                 CastParameters& params) {
         std::string str_value = str_ref.to_string();
         std::transform(str_value.begin(), str_value.end(), str_value.begin(), ::tolower);
         bool is_false = (FALSE_VALUES.contains(str_value));
@@ -383,7 +378,7 @@ template <>
 struct SafeCastString<TYPE_BOOLEAN, ORC> {
     static bool safe_cast_string(const StringRef& str_ref,
                                  PrimitiveTypeTraits<TYPE_BOOLEAN>::ColumnType::value_type* value,
-                                 SafeCastContext<TYPE_BOOLEAN>&) {
+                                 CastParameters& params) {
         int64_t cast_to_long = 0;
         bool can_cast = absl::SimpleAtoi({str_ref.data, str_ref.size}, &cast_to_long);
         *value = cast_to_long == 0 ? 0 : 1;
@@ -391,11 +386,11 @@ struct SafeCastString<TYPE_BOOLEAN, ORC> {
     }
 };
 
-template <>
-struct SafeCastString<TYPE_TINYINT> {
+template <FileFormat fileFormat>
+struct SafeCastString<TYPE_TINYINT, fileFormat> {
     static bool safe_cast_string(const StringRef& str_ref,
                                  PrimitiveTypeTraits<TYPE_TINYINT>::ColumnType::value_type* value,
-                                 SafeCastContext<TYPE_TINYINT>&) {
+                                 CastParameters& params) {
         int32_t cast_to_int = 0;
         bool can_cast = absl::SimpleAtoi({str_ref.data, str_ref.size}, &cast_to_int);
         if (can_cast && cast_to_int <= std::numeric_limits<int8_t>::max() &&
@@ -408,11 +403,11 @@ struct SafeCastString<TYPE_TINYINT> {
     }
 };
 
-template <>
-struct SafeCastString<TYPE_SMALLINT> {
+template <FileFormat fileFormat>
+struct SafeCastString<TYPE_SMALLINT, fileFormat> {
     static bool safe_cast_string(const StringRef& str_ref,
                                  PrimitiveTypeTraits<TYPE_SMALLINT>::ColumnType::value_type* value,
-                                 SafeCastContext<TYPE_SMALLINT>&) {
+                                 CastParameters& params) {
         int32_t cast_to_int = 0;
         bool can_cast = absl::SimpleAtoi({str_ref.data, str_ref.size}, &cast_to_int);
         if (can_cast && cast_to_int <= std::numeric_limits<int16_t>::max() &&
@@ -425,11 +420,11 @@ struct SafeCastString<TYPE_SMALLINT> {
     }
 };
 
-template <>
-struct SafeCastString<TYPE_INT> {
+template <FileFormat fileFormat>
+struct SafeCastString<TYPE_INT, fileFormat> {
     static bool safe_cast_string(const StringRef& str_ref,
                                  PrimitiveTypeTraits<TYPE_INT>::ColumnType::value_type* value,
-                                 SafeCastContext<TYPE_INT>&) {
+                                 CastParameters& params) {
         int32_t cast_to_int = 0;
         bool can_cast = absl::SimpleAtoi({str_ref.data, str_ref.size}, &cast_to_int);
         *value = cast_to_int;
@@ -437,11 +432,11 @@ struct SafeCastString<TYPE_INT> {
     }
 };
 
-template <>
-struct SafeCastString<TYPE_BIGINT> {
+template <FileFormat fileFormat>
+struct SafeCastString<TYPE_BIGINT, fileFormat> {
     static bool safe_cast_string(const StringRef& str_ref,
                                  PrimitiveTypeTraits<TYPE_BIGINT>::ColumnType::value_type* value,
-                                 SafeCastContext<TYPE_BIGINT>&) {
+                                 CastParameters& params) {
         int64_t cast_to_int = 0;
         bool can_cast = absl::SimpleAtoi({str_ref.data, str_ref.size}, &cast_to_int);
         *value = cast_to_int;
@@ -449,12 +444,12 @@ struct SafeCastString<TYPE_BIGINT> {
     }
 };
 
-template <>
-struct SafeCastString<TYPE_LARGEINT> {
+template <FileFormat fileFormat>
+struct SafeCastString<TYPE_LARGEINT, fileFormat> {
     static bool safe_cast_string(const StringRef& str_ref,
                                  PrimitiveTypeTraits<TYPE_LARGEINT>::ColumnType::value_type* value,
-                                 SafeCastContext<TYPE_LARGEINT>& context) {
-        return CastToInt::from_string<false>(str_ref, *value, context.params);
+                                 CastParameters& params) {
+        return CastToInt::from_string<false>(str_ref, *value, params);
     }
 };
 
@@ -462,7 +457,7 @@ template <FileFormat fileFormat>
 struct SafeCastString<TYPE_FLOAT, fileFormat> {
     static bool safe_cast_string(const StringRef& str_ref,
                                  PrimitiveTypeTraits<TYPE_FLOAT>::ColumnType::value_type* value,
-                                 SafeCastContext<TYPE_FLOAT>&) {
+                                 CastParameters& params) {
         float cast_to_float = 0;
         bool can_cast = absl::SimpleAtof({str_ref.data, str_ref.size}, &cast_to_float);
         if (can_cast && fileFormat == ORC) {
@@ -480,7 +475,7 @@ template <FileFormat fileFormat>
 struct SafeCastString<TYPE_DOUBLE, fileFormat> {
     static bool safe_cast_string(const StringRef& str_ref,
                                  PrimitiveTypeTraits<TYPE_DOUBLE>::ColumnType::value_type* value,
-                                 SafeCastContext<TYPE_DOUBLE>&) {
+                                 CastParameters& params) {
         double cast_to_double = 0;
         bool can_cast = absl::SimpleAtod({str_ref.data, str_ref.size}, &cast_to_double);
         if (can_cast && fileFormat == ORC) {
@@ -493,13 +488,13 @@ struct SafeCastString<TYPE_DOUBLE, fileFormat> {
     }
 };
 
-template <>
-struct SafeCastString<TYPE_DATETIME> {
+template <FileFormat fileFormat>
+struct SafeCastString<TYPE_DATETIME, fileFormat> {
     static bool safe_cast_string(const StringRef& str_ref,
                                  PrimitiveTypeTraits<TYPE_DATETIME>::ColumnType::value_type* value,
-                                 SafeCastContext<TYPE_DATETIME>& context) {
+                                 CastParameters& params) {
         if (!CastToDateOrDatetime::from_string_non_strict_mode<DatelikeTargetType::DATE_TIME>(
-                    str_ref, *value, nullptr, context.params)) {
+                    str_ref, *value, nullptr, params)) {
             return false;
         }
         value->to_datetime();
@@ -507,24 +502,24 @@ struct SafeCastString<TYPE_DATETIME> {
     }
 };
 
-template <>
-struct SafeCastString<TYPE_DATETIMEV2> {
+template <FileFormat fileFormat>
+struct SafeCastString<TYPE_DATETIMEV2, fileFormat> {
     static bool safe_cast_string(
             const StringRef& str_ref,
             PrimitiveTypeTraits<TYPE_DATETIMEV2>::ColumnType::value_type* value, int scale,
-            SafeCastContext<TYPE_DATETIMEV2>& context) {
+            CastParameters& params) {
         return CastToDatetimeV2::from_string_non_strict_mode(str_ref, *value, nullptr, scale,
-                                                             context.params);
+                                                             params);
     }
 };
 
-template <>
-struct SafeCastString<TYPE_DATE> {
+template <FileFormat fileFormat>
+struct SafeCastString<TYPE_DATE, fileFormat> {
     static bool safe_cast_string(const StringRef& str_ref,
                                  PrimitiveTypeTraits<TYPE_DATE>::ColumnType::value_type* value,
-                                 SafeCastContext<TYPE_DATE>& context) {
+                                 CastParameters& params) {
         if (!CastToDateOrDatetime::from_string_non_strict_mode<DatelikeTargetType::DATE>(
-                    str_ref, *value, nullptr, context.params)) {
+                    str_ref, *value, nullptr, params)) {
             return false;
         }
         value->cast_to_date();
@@ -532,12 +527,12 @@ struct SafeCastString<TYPE_DATE> {
     }
 };
 
-template <>
-struct SafeCastString<TYPE_DATEV2> {
+template <FileFormat fileFormat>
+struct SafeCastString<TYPE_DATEV2, fileFormat> {
     static bool safe_cast_string(const StringRef& str_ref,
                                  PrimitiveTypeTraits<TYPE_DATEV2>::ColumnType::value_type* value,
-                                 SafeCastContext<TYPE_DATEV2>& context) {
-        return CastToDateV2::from_string_non_strict_mode(str_ref, *value, nullptr, context.params);
+                                 CastParameters& params) {
+        return CastToDateV2::from_string_non_strict_mode(str_ref, *value, nullptr, params);
     }
 };
 
@@ -546,8 +541,8 @@ struct SafeCastDecimalString {
     using CppType = typename PrimitiveTypeTraits<DstPrimitiveType>::ColumnType::value_type;
 
     static bool safe_cast_string(const StringRef& str_ref, CppType* value, int precision, int scale,
-                                 SafeCastContext<DstPrimitiveType>& context) {
-        return CastToDecimal::from_string(str_ref, *value, precision, scale, context.params);
+                                 CastParameters& params) {
+        return CastToDecimal::from_string(str_ref, *value, precision, scale, params);
     }
 };
 
@@ -589,23 +584,23 @@ public:
         size_t start_idx = to_col->size();
         to_col->resize(start_idx + rows);
         auto& data = assert_cast<DstColumnType*>(to_col.get())->get_data();
-        SafeCastContext<DstPrimitiveType> context;
+        CastParameters params;
         for (int i = 0; i < rows; ++i) {
             bool can_cast = false;
             if constexpr (is_decimal_type<DstPrimitiveType>()) {
                 can_cast = SafeCastDecimalString<DstPrimitiveType>::safe_cast_string(
                         string_col->get_data_at(i), &data[start_idx + i],
-                        _dst_type_desc->get_precision(), _dst_type_desc->get_scale(), context);
+                        _dst_type_desc->get_precision(), _dst_type_desc->get_scale(), params);
             } else if constexpr (DstPrimitiveType == TYPE_DATETIMEV2) {
                 can_cast = SafeCastString<TYPE_DATETIMEV2>::safe_cast_string(
                         string_col->get_data_at(i), &data[start_idx + i],
-                        _dst_type_desc->get_scale(), context);
+                        _dst_type_desc->get_scale(), params);
             } else if constexpr (DstPrimitiveType == TYPE_BOOLEAN && fileFormat == ORC) {
                 can_cast = SafeCastString<TYPE_BOOLEAN, ORC>::safe_cast_string(
-                        string_col->get_data_at(i), &data[start_idx + i], context);
+                        string_col->get_data_at(i), &data[start_idx + i], params);
             } else {
                 can_cast = SafeCastString<DstPrimitiveType>::safe_cast_string(
-                        string_col->get_data_at(i), &data[start_idx + i], context);
+                        string_col->get_data_at(i), &data[start_idx + i], params);
             }
 
             if (!can_cast) {
