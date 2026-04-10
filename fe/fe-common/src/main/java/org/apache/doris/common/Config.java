@@ -2833,6 +2833,18 @@ public class Config extends ConfigBase {
     })
     public static int autobucket_max_buckets = 128;
 
+    @ConfField(description = {"限制创建表或添加分区时的最大分桶数。默认值为 768。"
+            + "1. 对于用户指定的分桶数（CREATE TABLE / ALTER TABLE ADD PARTITION）：如果分桶数超过此限制，操作将被拒绝并显示错误消息。"
+            + "2. 对于自动分桶功能（动态分区）：分桶数将自动限制在 autobucket_max_buckets。"
+            + "设置为 0 或负值可禁用用户指定分桶数的限制。",
+            "Maximum number of buckets when creating a table or adding a partition. Defaults to 768."
+            + "1. For user-specified buckets (CREATE TABLE / ALTER TABLE ADD PARTITION): "
+            + "if bucket number exceeds this limit, the operation will be rejected with an error message. "
+            + "2. For auto-bucket feature (Dynamic Partition): "
+            + "bucket number will be capped at autobucket_max_buckets automatically. "
+            + "Set to 0 or negative value to disable this limit for user-specified buckets."})
+    public static int max_bucket_num_per_partition = 768;
+
     @ConfField(description = {"单个 FE 的 Arrow Flight Server 的最大连接数。",
             "Maximal number of connections of Arrow Flight Server per FE."})
     public static int arrow_flight_max_connections = 4096;
