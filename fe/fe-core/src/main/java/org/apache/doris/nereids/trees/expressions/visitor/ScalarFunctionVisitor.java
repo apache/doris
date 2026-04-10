@@ -148,6 +148,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.CharacterLeng
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Compress;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Concat;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ConcatSpark;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConcatWs;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConnectionId;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Conv;
@@ -1063,6 +1064,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitConcat(Concat concat, C context) {
         return visitScalarFunction(concat, context);
+    }
+
+    default R visitConcatSpark(ConcatSpark concatSpark, C context) {
+        return visitScalarFunction(concatSpark, context);
     }
 
     default R visitChar(Char charFunc, C context) {

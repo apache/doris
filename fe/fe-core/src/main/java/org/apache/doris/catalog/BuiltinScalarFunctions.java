@@ -138,6 +138,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.CharacterLeng
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Compress;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Concat;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ConcatSpark;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConcatWs;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConnectionId;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Conv;
@@ -713,6 +714,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Coalesce.class, "coalesce"),
             scalar(Compress.class, "compress"),
             scalar(Concat.class, "concat"),
+            scalar(ConcatSpark.class, "concat_spark"),
             scalar(ConcatWs.class, "concat_ws"),
             scalar(ConnectionId.class, "connection_id"),
             scalar(Conv.class, "conv"),

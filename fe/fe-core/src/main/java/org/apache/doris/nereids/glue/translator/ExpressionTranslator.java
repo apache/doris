@@ -96,6 +96,7 @@ import org.apache.doris.nereids.trees.expressions.functions.combinator.UnionComb
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySort;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ConcatSpark;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DictGet;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DictGetMany;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
@@ -761,6 +762,30 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         // create catalog FunctionCallExpr without analyze again
         functionCallExpr = new FunctionCallExpr(catalogFunction, new FunctionParams(false, arguments));
         functionCallExpr.setNullableFromNereids(function.nullable());
+        return functionCallExpr;
+    }
+
+    @Override
+    public Expr visitConcatSpark(ConcatSpark concatSpark, PlanTranslatorContext context) {
+        String beName = concatSpark.child(0).getDataType() instanceof org.apache.doris.nereids.types.ArrayType
+                ? "array_concat" : "concat";
+        List<Expr> arguments = concatSpark.getArguments().stream()
+                .map(arg -> arg.accept(this, context))
+                .collect(Collectors.toList());
+        List<Type> argTypes = concatSpark.getArguments().stream()
+                .map(Expression::getDataType)
+                .map(DataType::toCatalogDataType)
+                .collect(Collectors.toList());
+        NullableMode nullableMode = concatSpark.nullable()
+                ? NullableMode.ALWAYS_NULLABLE
+                : NullableMode.ALWAYS_NOT_NULLABLE;
+        org.apache.doris.catalog.ScalarFunction catalogFunction = new org.apache.doris.catalog.ScalarFunction(
+                new FunctionName(beName), argTypes,
+                concatSpark.getDataType().toCatalogDataType(), concatSpark.hasVarArguments(),
+                "", TFunctionBinaryType.BUILTIN, true, true, nullableMode);
+        FunctionCallExpr functionCallExpr =
+                new FunctionCallExpr(catalogFunction, new FunctionParams(false, arguments));
+        functionCallExpr.setNullableFromNereids(concatSpark.nullable());
         return functionCallExpr;
     }
 
