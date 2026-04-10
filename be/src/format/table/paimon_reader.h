@@ -25,7 +25,6 @@
 #include "format/table/table_schema_change_helper.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class ShardedKVCache;
 
 // PaimonOrcReader: directly inherits OrcReader (no composition wrapping).
@@ -100,5 +99,4 @@ private:
     PaimonProfile _paimon_profile;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

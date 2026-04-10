@@ -23,7 +23,6 @@
 #include "format/parquet/vparquet_reader.h"
 #include "format/table/table_schema_change_helper.h"
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class HiveOrcReader final : public OrcReader, public TableSchemaChangeHelper {
 public:
@@ -77,5 +76,4 @@ private:
 
     const std::set<TSlotId>* _is_file_slot = nullptr;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

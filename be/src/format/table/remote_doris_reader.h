@@ -38,7 +38,6 @@ class Block;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RemoteDorisReader : public TableFormatReader {
     ENABLE_FACTORY_CREATOR(RemoteDorisReader);
 
@@ -77,5 +76,4 @@ private:
     // Column name to block index map, passed from FileScanner to avoid repeated map creation
     std::unordered_map<std::string, uint32_t>* _col_name_to_block_idx = nullptr;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -25,7 +25,6 @@
 #include "transactional_hive_common.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 namespace io {
 struct IOContext;
@@ -284,5 +283,4 @@ Status TransactionalHiveReader::on_after_read_block(Block* block, size_t* /*read
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

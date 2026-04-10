@@ -27,7 +27,6 @@
 #include "exec/common/hash_table/phmap_fwd_decl.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 struct TransactionalHive {
     static const std::string OPERATION;
     static const std::string ORIGINAL_TRANSACTION;
@@ -101,5 +100,4 @@ inline bool operator<(const AcidRowID& lhs, const AcidRowID& rhs) {
     }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -68,7 +68,6 @@ struct RowLineageColumns;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 /// Parquet-specific initialization context.
 /// Extends ReaderInitContext with predicate pushdown fields.
@@ -443,6 +442,5 @@ private:
     std::vector<std::unique_ptr<MutilColumnBlockPredicate>> _push_down_predicates;
     Arena _arena;
 };
-#include "common/compile_check_end.h"
 
 } // namespace doris

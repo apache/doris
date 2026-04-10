@@ -37,7 +37,6 @@ class SlotDescriptor;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 /// Intermediate base class for "table readers" used by FileScanner.
 ///
@@ -286,5 +285,4 @@ protected:
     std::unordered_map<std::string, ColumnOptimizationTypes::Type> _column_optimizations;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

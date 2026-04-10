@@ -24,7 +24,6 @@
 #include "runtime/runtime_state.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 // ============================================================================
 // PaimonOrcReader
@@ -292,5 +291,4 @@ Status PaimonParquetReader::_init_deletion_vector() {
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

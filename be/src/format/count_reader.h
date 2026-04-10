@@ -26,7 +26,6 @@
 #include "format/generic_reader.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 /// A lightweight reader that emits row counts without reading any actual data.
 /// Used as a decorator to replace the real reader when COUNT(*) push down is active.
@@ -102,5 +101,4 @@ private:
     std::unique_ptr<GenericReader> _inner_reader;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

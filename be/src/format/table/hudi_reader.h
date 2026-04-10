@@ -22,7 +22,6 @@
 #include "format/parquet/vparquet_reader.h"
 #include "format/table/table_schema_change_helper.h"
 namespace doris {
-#include "common/compile_check_begin.h"
 
 // HudiParquetReader: directly inherits ParquetReader (no composition wrapping).
 // Schema mapping is done in on_before_init_reader hook via field_id matching.
@@ -57,5 +56,4 @@ protected:
     Status on_before_init_reader(ReaderInitContext* ctx) override;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

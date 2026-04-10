@@ -45,7 +45,6 @@ class TIcebergDeleteFileDesc;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class ShardedKVCache;
 
@@ -947,5 +946,4 @@ Status IcebergReaderMixin<BaseReader>::read_deletion_vector(
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris
