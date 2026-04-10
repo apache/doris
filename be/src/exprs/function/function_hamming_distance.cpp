@@ -111,22 +111,8 @@ public:
             }
 
             const auto left = left_str_col->get_data_at(0).trim_tail_padding_zero();
-            if (right_const) {
-                if (right_null_map && (*right_null_map)[0]) {
-                    std::fill(null_map.begin(), null_map.end(), 1);
-                    block.replace_by_position(result, ColumnNullable::create(std::move(res_col),
-                                                                             std::move(null_col)));
-                    return Status::OK();
-                }
-
-                Int64 value = 0;
-                RETURN_IF_ERROR(hamming_distance(
-                        left, right_str_col->get_data_at(0).trim_tail_padding_zero(), value, 0));
-                std::fill(res_data.begin(), res_data.end(), value);
-            } else {
-                RETURN_IF_ERROR(scalar_vector_nullable(left, *right_str_col, right_null_map,
-                                                       res_data, null_map));
-            }
+            RETURN_IF_ERROR(scalar_vector_nullable(left, *right_str_col, right_null_map, res_data,
+                                                   null_map));
         } else if (right_const) {
             if (right_null_map && (*right_null_map)[0]) {
                 std::fill(null_map.begin(), null_map.end(), 1);
