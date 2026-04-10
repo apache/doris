@@ -3855,12 +3855,15 @@ public class Env {
                     "get table read lock timeout, database=" + mtmv.getDBName() + ",table=" + mtmv.getName());
         }
         try {
+            boolean isIvm = mtmv.isIvm();
             StringBuilder sb = new StringBuilder("CREATE MATERIALIZED VIEW ");
             sb.append(mtmv.getName());
-            addColNameAndComment(mtmv, sb);
+            addColNameAndComment(mtmv, sb, isIvm);
             sb.append("\n");
             sb.append(mtmv.getRefreshInfo());
-            addMTMVKeyInfo(mtmv, sb);
+            if (!isIvm) {
+                addMTMVKeyInfo(mtmv, sb);
+            }
             addTableComment(mtmv, sb);
             addMTMVPartitionInfo(mtmv, sb);
             DistributionInfo distributionInfo = mtmv.getDefaultDistributionInfo();
@@ -3907,13 +3910,22 @@ public class Env {
     }
 
     private static void addColNameAndComment(TableIf tableIf, StringBuilder sb) {
+        addColNameAndComment(tableIf, sb, false);
+    }
+
+    private static void addColNameAndComment(TableIf tableIf, StringBuilder sb, boolean filterIvmHiddenCols) {
         sb.append("\n(");
         List<Column> columns = tableIf.getBaseSchema();
+        boolean first = true;
         for (int i = 0; i < columns.size(); i++) {
-            if (i != 0) {
+            Column column = columns.get(i);
+            if (filterIvmHiddenCols && column.getName().startsWith("__DORIS_IVM_")) {
+                continue;
+            }
+            if (!first) {
                 sb.append(",");
             }
-            Column column = columns.get(i);
+            first = false;
             // quote the column name to keep the generated DDL re-executable when the column name
             // contains special characters (e.g. created via string literal alias like select 1 as '(第一列)')
             sb.append(SqlUtils.getIdentSql(column.getName()));
@@ -4036,14 +4048,16 @@ public class Env {
         }
 
         // unique key table with merge on write, always print this property for unique table
-        if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS) {
+        // but hide it for IVM materialized views (internal physical detail)
+        boolean isIvmMtmv = olapTable instanceof MTMV && ((MTMV) olapTable).isIvm();
+        if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && !isIvmMtmv) {
             sb.append(",\n\"").append(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE).append("\" = \"");
             sb.append(olapTable.getEnableUniqueKeyMergeOnWrite()).append("\"");
         }
 
         // enable_unique_key_skip_bitmap, always print this property for merge-on-write unique table
         if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()
-                && olapTable.getEnableUniqueKeySkipBitmap()) {
+                && olapTable.getEnableUniqueKeySkipBitmap() && !isIvmMtmv) {
             sb.append(",\n\"").append(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN).append("\" = \"");
             sb.append(olapTable.getEnableUniqueKeySkipBitmap()).append("\"");
         }
