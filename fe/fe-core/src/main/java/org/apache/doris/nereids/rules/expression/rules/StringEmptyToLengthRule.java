@@ -23,7 +23,6 @@ import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Not;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Length;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -41,13 +40,15 @@ import java.util.List;
  *   <li>{@code str_col = ''}   → {@code length(str_col) = 0}</li>
  *   <li>{@code str_col <> ''}  → {@code length(str_col) != 0}
  *       (represented as {@code NOT(length(str_col) = 0)})</li>
+ *   <li>{@code element_at(struct_col, 'f3') = ''} → {@code length(element_at(struct_col, 'f3')) = 0}</li>
  * </ul>
  *
  * This is a semantics-preserving rewrite: for any non-NULL string, {@code s = ''} is equivalent
  * to {@code length(s) = 0}; for NULL, both sides evaluate to NULL.
  *
- * Only applies when the compared expression is a direct {@link SlotReference} of string-like type,
- * so that the resulting {@code length(slot)} call can benefit from OFFSET-only column reading.
+ * Applies when the compared expression is a non-literal expression of string-like type (e.g. a
+ * {@code SlotReference}, a {@code StructElement} field access, etc.), so that the resulting
+ * {@code length(expr)} call can benefit from OFFSET-only column reading.
  */
 public class StringEmptyToLengthRule implements ExpressionPatternRuleFactory {
     public static final StringEmptyToLengthRule INSTANCE = new StringEmptyToLengthRule();
@@ -78,8 +79,8 @@ public class StringEmptyToLengthRule implements ExpressionPatternRuleFactory {
     }
 
     /**
-     * If {@code equalTo} compares a string-typed SlotReference against an empty-string literal,
-     * rewrites it to {@code length(slot) = 0}.  Returns the original expression unchanged otherwise.
+     * If {@code equalTo} compares a string-typed expression against an empty-string literal,
+     * rewrites it to {@code length(expr) = 0}.  Returns the original expression unchanged otherwise.
      */
     private static Expression rewriteEqualToEmpty(EqualTo equalTo) {
         if (ConnectContext.get().getStatementContext().isDelete()) {
@@ -88,21 +89,21 @@ public class StringEmptyToLengthRule implements ExpressionPatternRuleFactory {
         Expression left = equalTo.left();
         Expression right = equalTo.right();
 
-        SlotReference slot = null;
-        if (isStringSlot(left) && isEmptyStringLiteral(right)) {
-            slot = (SlotReference) left;
-        } else if (isStringSlot(right) && isEmptyStringLiteral(left)) {
-            slot = (SlotReference) right;
+        Expression stringExpr = null;
+        if (isStringExpression(left) && isEmptyStringLiteral(right)) {
+            stringExpr = left;
+        } else if (isStringExpression(right) && isEmptyStringLiteral(left)) {
+            stringExpr = right;
         }
 
-        if (slot == null) {
+        if (stringExpr == null) {
             return equalTo;
         }
-        return new EqualTo(new Length(slot), new IntegerLiteral(0));
+        return new EqualTo(new Length(stringExpr), new IntegerLiteral(0));
     }
 
-    private static boolean isStringSlot(Expression expr) {
-        return expr instanceof SlotReference && expr.getDataType().isStringLikeType();
+    private static boolean isStringExpression(Expression expr) {
+        return !(expr instanceof Literal) && expr.getDataType().isStringLikeType();
     }
 
     private static boolean isEmptyStringLiteral(Expression expr) {

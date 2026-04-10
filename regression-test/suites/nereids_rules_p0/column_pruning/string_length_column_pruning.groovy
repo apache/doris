@@ -299,6 +299,27 @@ suite("string_length_column_pruning") {
         notContains "type=bigint"
     }
 
+    // ─── Struct field empty-string rewrite cases ────────────────────────────────
+
+    // element_at(struct_col, 'f3') = '' rewrites to length(element_at(struct_col, 'f3')) = 0
+    // → OFFSET optimization applies to the struct string field
+    explain {
+        sql "select 1 from slcp_str_tbl where element_at(struct_col, 'f3') = ''"
+        contains "length"
+        contains "nested columns"
+        contains "OFFSET"
+        notContains "type=bigint"
+    }
+
+    // element_at(struct_col, 'f3') <> '' rewrites to length(element_at(struct_col, 'f3')) != 0
+    explain {
+        sql "select 1 from slcp_str_tbl where element_at(struct_col, 'f3') <> ''"
+        contains "length"
+        contains "nested columns"
+        contains "OFFSET"
+        notContains "type=bigint"
+    }
+
     // Struct field also projected directly → field access is full, not OFFSET-only
     // The struct's nested-columns entry still appears (partial struct pruning),
     // but the pruned field type must remain text (not bigint).
