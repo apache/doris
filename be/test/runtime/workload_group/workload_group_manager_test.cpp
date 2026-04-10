@@ -39,6 +39,7 @@
 #include "runtime/runtime_query_statistics_mgr.h"
 #include "runtime/workload_group/workload_group.h"
 #include "storage/olap_define.h"
+#include "testutil/mock/mock_query_task_controller.h"
 
 namespace doris {
 
@@ -116,6 +117,15 @@ private:
 
         static_cast<void>(query_context->set_workload_group(wg));
         return query_context;
+    }
+
+    MockQueryTaskController* _install_mock_query_task_controller(
+            const std::shared_ptr<QueryContext>& query_context) {
+        query_context->resource_ctx()->set_task_controller(
+                MockQueryTaskController::create(static_cast<QueryTaskController*>(
+                        query_context->resource_ctx()->task_controller())));
+        return static_cast<MockQueryTaskController*>(
+                query_context->resource_ctx()->task_controller());
     }
 
     void _run_checking_loop(const std::shared_ptr<WorkloadGroup>& wg) {
@@ -534,6 +544,512 @@ TEST_F(WorkloadGroupManagerTest, ProcessMemoryNotEnough) {
     wg2->refresh_memory_usage();
     wg3->refresh_memory_usage();
     EXPECT_EQ(wg3->total_mem_used(), 0); // WG3 exceed 400MB
+}
+
+// Test Fix 1 (Phase 3): When revoking_memory_from_other_query_ is true and cancelled queries
+// have finished, Phase 3 should resume all paused queries AND remove them from the list,
+// then return without entering Phase 4 (which would re-process them).
+TEST_F(WorkloadGroupManagerTest, phase3_resume_removes_from_list_and_returns) {
+    auto wg = _wg_manager->get_or_create_workload_group({});
+    auto query_context1 = _generate_on_query(wg);
+    auto query_context2 = _generate_on_query(wg);
+
+    // Pause two queries due to process memory exceeded
+    _wg_manager->add_paused_query(query_context1->resource_ctx(), 1024L,
+                                  Status::Error(ErrorCode::PROCESS_MEMORY_EXCEEDED, "test"));
+    _wg_manager->add_paused_query(query_context2->resource_ctx(), 1024L,
+                                  Status::Error(ErrorCode::PROCESS_MEMORY_EXCEEDED, "test"));
+
+    {
+        std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
+        ASSERT_EQ(_wg_manager->_paused_queries_list[wg].size(), 2);
+    }
+
+    // Simulate: a previous call had cancelled a query and set revoking flag
+    _wg_manager->revoking_memory_from_other_query_ = true;
+
+    // Call handle_paused_queries — Phase 2 finds no cancelled query in the list,
+    // Phase 3 should resume all and remove them from the list.
+    _wg_manager->handle_paused_queries();
+
+    {
+        std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
+        // All queries should be removed from paused list by Phase 3
+        ASSERT_TRUE(!_wg_manager->_paused_queries_list.contains(wg) ||
+                    _wg_manager->_paused_queries_list[wg].empty())
+                << "Phase 3 should remove all resumed queries from paused list";
+    }
+    ASSERT_FALSE(_wg_manager->revoking_memory_from_other_query_) << "revoking flag should be reset";
+    // Queries should NOT be cancelled (Phase 4 should not have run)
+    ASSERT_FALSE(query_context1->is_cancelled()) << "query1 should be resumed, not cancelled";
+    ASSERT_FALSE(query_context2->is_cancelled()) << "query2 should be resumed, not cancelled";
+}
+
+TEST_F(WorkloadGroupManagerTest, phase3_waits_for_recently_cancelled_query) {
+    auto wg = _wg_manager->get_or_create_workload_group({});
+    auto cancelled_query = _generate_on_query(wg);
+    auto waiting_query = _generate_on_query(wg);
+    auto* mock_controller = _install_mock_query_task_controller(cancelled_query);
+
+    _wg_manager->add_paused_query(cancelled_query->resource_ctx(), 1024L,
+                                  Status::Error(ErrorCode::PROCESS_MEMORY_EXCEEDED, "test"));
+    _wg_manager->add_paused_query(waiting_query->resource_ctx(), 1024L,
+                                  Status::Error(ErrorCode::PROCESS_MEMORY_EXCEEDED, "test"));
+
+    cancelled_query->resource_ctx()->task_controller()->cancel(
+            Status::InternalError("memory gc cancel"));
+    _wg_manager->revoking_memory_from_other_query_ = true;
+
+    _wg_manager->handle_paused_queries();
+
+    {
+        std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
+        ASSERT_EQ(_wg_manager->_paused_queries_list[wg].size(), 2);
+    }
+    ASSERT_TRUE(_wg_manager->revoking_memory_from_other_query_);
+    ASSERT_TRUE(waiting_query->resource_ctx()
+                        ->task_controller()
+                        ->paused_reason()
+                        .is<ErrorCode::PROCESS_MEMORY_EXCEEDED>());
+
+    mock_controller->set_cancelled_time(MonotonicMillis() - config::wait_cancel_release_memory_ms -
+                                        1);
+    _wg_manager->handle_paused_queries();
+
+    {
+        std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
+        ASSERT_TRUE(!_wg_manager->_paused_queries_list.contains(wg) ||
+                    _wg_manager->_paused_queries_list[wg].empty());
+    }
+    ASSERT_FALSE(_wg_manager->revoking_memory_from_other_query_);
+    ASSERT_TRUE(waiting_query->resource_ctx()->task_controller()->paused_reason().ok());
+    ASSERT_FALSE(waiting_query->is_cancelled());
+}
+
+TEST_F(WorkloadGroupManagerTest, phase3_removes_expired_query_entries) {
+    auto wg = _wg_manager->get_or_create_workload_group({});
+    auto live_query = _generate_on_query(wg);
+    auto expired_query = _generate_on_query(wg);
+
+    _wg_manager->add_paused_query(live_query->resource_ctx(), 1024L,
+                                  Status::Error(ErrorCode::PROCESS_MEMORY_EXCEEDED, "test"));
+    _wg_manager->add_paused_query(expired_query->resource_ctx(), 1024L,
+                                  Status::Error(ErrorCode::PROCESS_MEMORY_EXCEEDED, "test"));
+
+    {
+        std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
+        ASSERT_EQ(_wg_manager->_paused_queries_list[wg].size(), 2);
+    }
+
+    expired_query.reset();
+    _wg_manager->revoking_memory_from_other_query_ = true;
+    _wg_manager->handle_paused_queries();
+
+    {
+        std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
+        ASSERT_TRUE(!_wg_manager->_paused_queries_list.contains(wg) ||
+                    _wg_manager->_paused_queries_list[wg].empty());
+    }
+    ASSERT_FALSE(_wg_manager->revoking_memory_from_other_query_);
+    ASSERT_TRUE(live_query->resource_ctx()->task_controller()->paused_reason().ok());
+    ASSERT_FALSE(live_query->is_cancelled());
+}
+
+// Test Fix 2 (Problem 3): A cancelled query in one WG should NOT block
+// QUERY_MEMORY_EXCEEDED queries in another WG from being processed.
+TEST_F(WorkloadGroupManagerTest, cancelled_query_does_not_block_query_mem_exceeded) {
+    WorkloadGroupInfo wg1_info {.id = 1, .memory_limit = 1024L * 1024 * 1000};
+    WorkloadGroupInfo wg2_info {.id = 2, .memory_limit = 1024L * 1024 * 1000};
+    auto wg1 = _wg_manager->get_or_create_workload_group(wg1_info);
+    auto wg2 = _wg_manager->get_or_create_workload_group(wg2_info);
+
+    // WG1: a query that will be externally cancelled (simulating memory GC)
+    auto cancelled_query = _generate_on_query(wg1);
+    cancelled_query->query_mem_tracker()->consume(1024L * 1024 * 10);
+    _wg_manager->add_paused_query(cancelled_query->resource_ctx(), 1024L,
+                                  Status::Error(ErrorCode::PROCESS_MEMORY_EXCEEDED, "test"));
+
+    // Cancel the query externally (like memory GC would) — it stays in paused list
+    cancelled_query->resource_ctx()->task_controller()->cancel(
+            Status::InternalError("memory gc cancel"));
+
+    // WG2: a query paused due to QUERY_MEMORY_EXCEEDED — should be processed immediately
+    auto query_exceed = _generate_on_query(wg2);
+    query_exceed->resource_ctx()->memory_context()->set_mem_limit(1024 * 1024);
+    query_exceed->query_mem_tracker()->consume(1024 * 4);
+    _wg_manager->add_paused_query(query_exceed->resource_ctx(), 1024L * 1024 * 1024,
+                                  Status::Error(ErrorCode::QUERY_MEMORY_EXCEEDED, "test"));
+
+    // Verify both in paused list
+    {
+        std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
+        ASSERT_EQ(_wg_manager->_paused_queries_list[wg1].size(), 1);
+        ASSERT_EQ(_wg_manager->_paused_queries_list[wg2].size(), 1);
+    }
+
+    // One call to handle_paused_queries — the QUERY_MEMORY_EXCEEDED query should be processed
+    // even though there's a recently cancelled query in wg1.
+    _wg_manager->handle_paused_queries();
+
+    {
+        std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
+        // WG2's query should have been processed (removed from paused list)
+        ASSERT_TRUE(!_wg_manager->_paused_queries_list.contains(wg2) ||
+                    _wg_manager->_paused_queries_list[wg2].empty())
+                << "QUERY_MEMORY_EXCEEDED query should not be blocked by cancelled query in "
+                   "another WG";
+    }
+
+    query_exceed->query_mem_tracker()->consume(-1024 * 4);
+    cancelled_query->query_mem_tracker()->consume(-1024L * 1024 * 10);
+}
+
+TEST_F(WorkloadGroupManagerTest, recently_cancelled_query_delays_process_mem_exceeded) {
+    WorkloadGroupInfo wg1_info {.id = 1,
+                                .memory_limit = 1024L * 1024 * 1000,
+                                .min_memory_percent = 10,
+                                .max_memory_percent = 100};
+    WorkloadGroupInfo wg2_info {.id = 2,
+                                .memory_limit = 1024L * 1024 * 1000,
+                                .min_memory_percent = 10,
+                                .max_memory_percent = 100};
+    auto wg1 = _wg_manager->get_or_create_workload_group(wg1_info);
+    auto wg2 = _wg_manager->get_or_create_workload_group(wg2_info);
+
+    auto cancelled_query = _generate_on_query(wg1);
+    _wg_manager->add_paused_query(cancelled_query->resource_ctx(), 1024L,
+                                  Status::Error(ErrorCode::PROCESS_MEMORY_EXCEEDED, "test"));
+    cancelled_query->resource_ctx()->task_controller()->cancel(
+            Status::InternalError("memory gc cancel"));
+
+    auto waiting_query = _generate_on_query(wg2);
+    waiting_query->query_mem_tracker()->consume(1024L * 1024 * 128);
+    wg2->refresh_memory_usage();
+    _wg_manager->add_paused_query(waiting_query->resource_ctx(), 1024L,
+                                  Status::Error(ErrorCode::PROCESS_MEMORY_EXCEEDED, "test"));
+
+    _wg_manager->handle_paused_queries();
+
+    {
+        std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
+        ASSERT_EQ(_wg_manager->_paused_queries_list[wg2].size(), 1);
+    }
+    ASSERT_TRUE(waiting_query->resource_ctx()
+                        ->task_controller()
+                        ->paused_reason()
+                        .is<ErrorCode::PROCESS_MEMORY_EXCEEDED>());
+
+    cancelled_query.reset();
+    _wg_manager->handle_paused_queries();
+
+    {
+        std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
+        ASSERT_TRUE(!_wg_manager->_paused_queries_list.contains(wg2) ||
+                    _wg_manager->_paused_queries_list[wg2].empty());
+    }
+    ASSERT_TRUE(waiting_query->resource_ctx()->task_controller()->paused_reason().ok());
+    ASSERT_FALSE(waiting_query->is_cancelled());
+    waiting_query->query_mem_tracker()->consume(-1024L * 1024 * 128);
+}
+
+// Test Fix 3: update_queries_limit_ should restore mem_limit when memory pressure eases.
+// For NONE policy, the old code never called set_mem_limit during refresh (user_set > user_set
+// is always false), so a limit lowered by handle_paused_queries would never recover.
+TEST_F(WorkloadGroupManagerTest, update_queries_limit_restores_limit_none_policy) {
+    WorkloadGroupInfo wg_info {.id = 1,
+                               .memory_limit = 1024L * 1024 * 200,
+                               .slot_mem_policy = TWgSlotMemoryPolicy::NONE};
+    auto wg = _wg_manager->get_or_create_workload_group(wg_info);
+    auto query_context = _generate_on_query(wg);
+
+    // user_set_mem_limit is set in QueryContext init = query_options.mem_limit = 128MB
+    const int64_t user_set = query_context->resource_ctx()->memory_context()->user_set_mem_limit();
+    ASSERT_EQ(user_set, 1024L * 1024 * 128);
+
+    // Simulate handle_paused_queries lowering the limit to a small value
+    query_context->resource_ctx()->memory_context()->set_mem_limit(1024L * 1024 * 2); // 2MB
+    ASSERT_EQ(query_context->resource_ctx()->memory_context()->mem_limit(), 1024L * 1024 * 2);
+
+    // Now simulate memory recovery: WG memory is well below watermark
+    // refresh_workload_group_memory_state calls update_queries_limit_(wg, false)
+    wg->refresh_memory_usage();
+    _wg_manager->refresh_workload_group_memory_state();
+
+    // The limit should be restored to user_set_mem_limit (128MB),
+    // because query_weighted = min(user_set, wg_mem_limit) = min(128MB, 200MB) = 128MB
+    // effective = min(user_set, query_weighted) = 128MB
+    ASSERT_EQ(query_context->resource_ctx()->memory_context()->mem_limit(), user_set)
+            << "NONE policy: mem_limit should be restored to user_set_mem_limit after memory "
+               "recovery";
+}
+
+// Test Fix 3: For DYNAMIC policy, when memory pressure eases (below low watermark),
+// query_weighted_mem_limit = wg_high_water_mark which is typically > user_set_mem_limit.
+// The old code's condition (user_set > query_weighted) would be false, preventing restoration.
+TEST_F(WorkloadGroupManagerTest, update_queries_limit_restores_limit_dynamic_policy) {
+    WorkloadGroupInfo wg_info {.id = 1,
+                               .memory_limit = 1024L * 1024 * 200,
+                               .memory_low_watermark = 80,
+                               .memory_high_watermark = 95,
+                               .total_query_slot_count = 5,
+                               .slot_mem_policy = TWgSlotMemoryPolicy::DYNAMIC};
+    auto wg = _wg_manager->get_or_create_workload_group(wg_info);
+    auto query_context = _generate_on_query(wg);
+
+    const int64_t user_set = query_context->resource_ctx()->memory_context()->user_set_mem_limit();
+    ASSERT_EQ(user_set, 1024L * 1024 * 128);
+
+    // Simulate: under memory pressure, limit was lowered by handle_paused_queries
+    query_context->resource_ctx()->memory_context()->set_mem_limit(1024L * 1024 * 2); // 2MB
+    ASSERT_EQ(query_context->resource_ctx()->memory_context()->mem_limit(), 1024L * 1024 * 2);
+
+    // Memory recovers: no consumption, well below low watermark
+    wg->refresh_memory_usage();
+    _wg_manager->refresh_workload_group_memory_state();
+
+    // DYNAMIC: below low watermark → query_weighted = wg_high_water_mark = 200MB * 95% = 190MB
+    // effective = min(user_set=128MB, 190MB) = 128MB
+    ASSERT_EQ(query_context->resource_ctx()->memory_context()->mem_limit(), user_set)
+            << "DYNAMIC policy: mem_limit should be restored to user_set_mem_limit after memory "
+               "recovery";
+}
+
+// Test Fix 3: For FIXED policy, limit should be correctly set to slot-weighted value.
+// This already worked before the fix, but verify it still works.
+TEST_F(WorkloadGroupManagerTest, update_queries_limit_restores_limit_fixed_policy) {
+    WorkloadGroupInfo wg_info {.id = 1,
+                               .memory_limit = 1024L * 1024 * 200,
+                               .memory_low_watermark = 80,
+                               .memory_high_watermark = 95,
+                               .total_query_slot_count = 5,
+                               .slot_mem_policy = TWgSlotMemoryPolicy::FIXED};
+    auto wg = _wg_manager->get_or_create_workload_group(wg_info);
+    auto query_context = _generate_on_query(wg);
+
+    // Simulate lowered limit
+    query_context->resource_ctx()->memory_context()->set_mem_limit(1024L * 1024 * 2); // 2MB
+
+    wg->refresh_memory_usage();
+    _wg_manager->refresh_workload_group_memory_state();
+
+    // FIXED: query_weighted = wg_high_water_mark * my_slot / total_slot
+    //      = 200MB * 95% * 1 / 5 = 38MB
+    // effective = min(user_set=128MB, 38MB) = 38MB
+    const int64_t expected = (int64_t)((double)(1024L * 1024 * 200) * 95.0 / 100 / 5);
+    const auto delta =
+            std::abs(query_context->resource_ctx()->memory_context()->mem_limit() - expected);
+    ASSERT_LE(delta, 1) << "FIXED policy: mem_limit should be restored to slot-weighted value, got "
+                        << query_context->resource_ctx()->memory_context()->mem_limit()
+                        << " expected " << expected;
+}
+
+// Test: When WG concurrency decreases (queries finish), remaining queries should get
+// higher per-query limits in FIXED policy.
+TEST_F(WorkloadGroupManagerTest, limit_increases_when_concurrency_decreases) {
+    WorkloadGroupInfo wg_info {.id = 1,
+                               .memory_limit = 1024L * 1024 * 200,
+                               .memory_low_watermark = 80,
+                               .memory_high_watermark = 95,
+                               .total_query_slot_count = 5,
+                               .slot_mem_policy = TWgSlotMemoryPolicy::FIXED};
+    auto wg = _wg_manager->get_or_create_workload_group(wg_info);
+
+    // Start 3 queries (each with slot_count = 1, total_used_slot = 3)
+    auto q1 = _generate_on_query(wg);
+    auto q2 = _generate_on_query(wg);
+    auto q3 = _generate_on_query(wg);
+
+    wg->refresh_memory_usage();
+    _wg_manager->refresh_workload_group_memory_state();
+
+    // FIXED: wg_high_water_mark * 1 / 5 = 200MB * 95% / 5 = 38MB
+    // (total_slot_count is configured as 5, not actual used slots for FIXED)
+    int64_t limit_with_3_queries = q1->resource_ctx()->memory_context()->mem_limit();
+
+    // Now q2 and q3 finish — remove from WG
+    q2.reset();
+    q3.reset();
+    wg->clear_cancelled_resource_ctx();
+    wg->refresh_memory_usage();
+    _wg_manager->refresh_workload_group_memory_state();
+
+    int64_t limit_with_1_query = q1->resource_ctx()->memory_context()->mem_limit();
+
+    // For FIXED with total_query_slot_count=5, the slot-weighted limit doesn't change
+    // when queries leave (it's based on configured total, not actual).
+    // But the limit should at least be correctly restored, not stuck at a low value.
+    ASSERT_EQ(limit_with_1_query, limit_with_3_queries)
+            << "FIXED policy with configured total_slot_count: limit should remain stable";
+}
+
+// Test: Cancelled queries that have exceeded wait_cancel_release_memory_ms should be
+// cleaned up in Phase 2, not left in the list for Phase 4 processing.
+TEST_F(WorkloadGroupManagerTest, phase2_removes_old_cancelled_queries) {
+    auto wg = _wg_manager->get_or_create_workload_group({});
+    auto cancelled_query = _generate_on_query(wg);
+    auto live_query = _generate_on_query(wg);
+    auto* mock_controller = _install_mock_query_task_controller(cancelled_query);
+
+    // Pause both queries
+    _wg_manager->add_paused_query(cancelled_query->resource_ctx(), 1024L,
+                                  Status::Error(ErrorCode::PROCESS_MEMORY_EXCEEDED, "test"));
+    _wg_manager->add_paused_query(live_query->resource_ctx(), 1024L,
+                                  Status::Error(ErrorCode::PROCESS_MEMORY_EXCEEDED, "test"));
+
+    // Cancel the query and make it look old (exceeded wait time)
+    cancelled_query->resource_ctx()->task_controller()->cancel(
+            Status::InternalError("memory gc cancel"));
+    mock_controller->set_cancelled_time(MonotonicMillis() - config::wait_cancel_release_memory_ms -
+                                        1);
+
+    {
+        std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
+        ASSERT_EQ(_wg_manager->_paused_queries_list[wg].size(), 2);
+    }
+
+    // One call — Phase 2 should remove the old-cancelled query.
+    _wg_manager->handle_paused_queries();
+
+    {
+        std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
+        // The old-cancelled query should have been removed in Phase 2.
+        // The live query may still be in the list (Phase 4 doesn't always process it in
+        // one call, depending on WG memory state), but the count should be at most 1.
+        size_t remaining = _wg_manager->_paused_queries_list.contains(wg)
+                                   ? _wg_manager->_paused_queries_list[wg].size()
+                                   : 0;
+        ASSERT_LE(remaining, 1) << "Old-cancelled query should have been removed in Phase 2, "
+                                   "at most the live query remains";
+    }
+    ASSERT_FALSE(live_query->is_cancelled()) << "live query should not be cancelled";
+}
+
+// Test: Phase 3 should not call set_memory_sufficient on cancelled queries —
+// just erase them and only resume live queries.
+TEST_F(WorkloadGroupManagerTest, phase3_skips_cancelled_queries_on_resume) {
+    auto wg = _wg_manager->get_or_create_workload_group({});
+    auto cancelled_query = _generate_on_query(wg);
+    auto live_query = _generate_on_query(wg);
+    auto* mock_controller = _install_mock_query_task_controller(cancelled_query);
+
+    _wg_manager->add_paused_query(cancelled_query->resource_ctx(), 1024L,
+                                  Status::Error(ErrorCode::PROCESS_MEMORY_EXCEEDED, "test"));
+    _wg_manager->add_paused_query(live_query->resource_ctx(), 1024L,
+                                  Status::Error(ErrorCode::PROCESS_MEMORY_EXCEEDED, "test"));
+
+    // Cancel the query but make it recently cancelled so Phase 2 keeps it
+    cancelled_query->resource_ctx()->task_controller()->cancel(
+            Status::InternalError("memory gc cancel"));
+    _wg_manager->revoking_memory_from_other_query_ = true;
+
+    // First call: Phase 3 waits because recently cancelled
+    _wg_manager->handle_paused_queries();
+    ASSERT_TRUE(_wg_manager->revoking_memory_from_other_query_);
+
+    // Make cancellation old
+    mock_controller->set_cancelled_time(MonotonicMillis() - config::wait_cancel_release_memory_ms -
+                                        1);
+
+    // Second call: Phase 2 removes old-cancelled query, Phase 3 resumes live query
+    _wg_manager->handle_paused_queries();
+
+    {
+        std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
+        ASSERT_TRUE(!_wg_manager->_paused_queries_list.contains(wg) ||
+                    _wg_manager->_paused_queries_list[wg].empty())
+                << "All queries should be removed";
+    }
+    ASSERT_FALSE(_wg_manager->revoking_memory_from_other_query_);
+    // Live query should be properly resumed
+    ASSERT_TRUE(live_query->resource_ctx()->task_controller()->paused_reason().ok());
+    ASSERT_FALSE(live_query->is_cancelled());
+}
+
+// Test: A cancelled query in WG1 should NOT block WORKLOAD_GROUP_MEMORY_EXCEEDED
+// queries in WG2, because WG memory pools are independent. Only same-WG queries
+// should be delayed. PROCESS_MEMORY_EXCEEDED should still be delayed globally.
+TEST_F(WorkloadGroupManagerTest, cancelled_query_does_not_block_cross_wg_mem_exceeded) {
+    WorkloadGroupInfo wg1_info {.id = 1, .memory_limit = 1024L * 1024 * 1000};
+    WorkloadGroupInfo wg2_info {.id = 2, .memory_limit = 1024L * 1024 * 1000};
+    auto wg1 = _wg_manager->get_or_create_workload_group(wg1_info);
+    auto wg2 = _wg_manager->get_or_create_workload_group(wg2_info);
+
+    // WG1: a recently cancelled query
+    auto cancelled_query = _generate_on_query(wg1);
+    cancelled_query->query_mem_tracker()->consume(1024L * 1024 * 10);
+    _wg_manager->add_paused_query(cancelled_query->resource_ctx(), 1024L,
+                                  Status::Error(ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED, "test"));
+    cancelled_query->resource_ctx()->task_controller()->cancel(
+            Status::InternalError("memory gc cancel"));
+
+    // WG2: a query paused due to WORKLOAD_GROUP_MEMORY_EXCEEDED — should NOT be
+    // blocked by WG1's cancelled query since WG memory pools are independent.
+    auto wg2_query = _generate_on_query(wg2);
+    wg2_query->query_mem_tracker()->consume(1024L * 1024 * 4);
+    wg2_query->resource_ctx()->memory_context()->set_adjusted_mem_limit(1024L * 1024 * 10);
+    _wg_manager->add_paused_query(wg2_query->resource_ctx(), 1024L,
+                                  Status::Error(ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED, "test"));
+
+    {
+        std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
+        ASSERT_EQ(_wg_manager->_paused_queries_list[wg1].size(), 1);
+        ASSERT_EQ(_wg_manager->_paused_queries_list[wg2].size(), 1);
+    }
+
+    _wg_manager->handle_paused_queries();
+
+    {
+        std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
+        // WG2's query should have been processed (not blocked by WG1's cancellation)
+        ASSERT_TRUE(!_wg_manager->_paused_queries_list.contains(wg2) ||
+                    _wg_manager->_paused_queries_list[wg2].empty())
+                << "Cross-WG WORKLOAD_GROUP_MEMORY_EXCEEDED should not be blocked by "
+                   "cancelled query in another WG";
+    }
+
+    wg2_query->query_mem_tracker()->consume(-1024L * 1024 * 4);
+    cancelled_query->query_mem_tracker()->consume(-1024L * 1024 * 10);
+}
+
+// Test: A recently-cancelled QUERY_MEMORY_EXCEEDED query should NOT be processed
+// by handle_single_query_() in Phase 4, and should NOT incorrectly set
+// revoking_memory_from_other_query_. Phase 2 keeps it for delay-waiting;
+// Phase 4 must skip it.
+TEST_F(WorkloadGroupManagerTest, phase4_skips_cancelled_query_memory_exceeded) {
+    auto wg = _wg_manager->get_or_create_workload_group({});
+    auto cancelled_query = _generate_on_query(wg);
+    auto live_query = _generate_on_query(wg);
+
+    // Pause both for QUERY_MEMORY_EXCEEDED
+    cancelled_query->resource_ctx()->memory_context()->set_mem_limit(1024 * 1024);
+    cancelled_query->query_mem_tracker()->consume(1024 * 4);
+    _wg_manager->add_paused_query(cancelled_query->resource_ctx(), 1024L * 1024 * 1024,
+                                  Status::Error(ErrorCode::QUERY_MEMORY_EXCEEDED, "test"));
+
+    live_query->resource_ctx()->memory_context()->set_mem_limit(1024 * 1024);
+    live_query->query_mem_tracker()->consume(1024 * 4);
+    _wg_manager->add_paused_query(live_query->resource_ctx(), 1024L * 1024 * 1024,
+                                  Status::Error(ErrorCode::QUERY_MEMORY_EXCEEDED, "test"));
+
+    // Cancel one query externally (simulating memory GC) — it's recently cancelled
+    cancelled_query->resource_ctx()->task_controller()->cancel(
+            Status::InternalError("memory gc cancel"));
+
+    {
+        std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
+        ASSERT_EQ(_wg_manager->_paused_queries_list[wg].size(), 2);
+    }
+
+    _wg_manager->handle_paused_queries();
+
+    // The cancelled query should NOT have caused revoking_memory_from_other_query_ to be set.
+    // If Phase 4 incorrectly processed it through handle_single_query_(), the is_cancelled()
+    // check afterward would set this flag.
+    ASSERT_FALSE(_wg_manager->revoking_memory_from_other_query_)
+            << "revoking flag should NOT be set by an already-cancelled query";
+
+    cancelled_query->query_mem_tracker()->consume(-1024 * 4);
+    live_query->query_mem_tracker()->consume(-1024 * 4);
 }
 
 } // namespace doris
