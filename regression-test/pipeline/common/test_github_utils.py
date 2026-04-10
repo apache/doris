@@ -219,9 +219,9 @@ main
         )
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertIn("Use shortened BE grace timeout 2m on tolerated success.", result.stdout)
-        self.assertIn("Use shortened FE image wait 60s on tolerated success.", result.stdout)
+        self.assertIn("Use shortened FE image wait 180s on tolerated success.", result.stdout)
         self.assertIn("timeout:-v 2m bash /tmp/fake/be/bin/stop_be.sh --grace", trace_output)
-        self.assertIn("sleep:60", trace_output)
+        self.assertIn("sleep:180", trace_output)
 
     def test_keep_shutdown_waits_on_failure(self):
         result, trace_output = self._run_external_shutdown_wait_case(

@@ -533,7 +533,7 @@ github_utils__maybe_optimize_external_shutdown_waits() {
 
     sleep() {
         local state=""
-        local shortened_sleep="${EXTERNAL_FE_IMAGE_WAIT_SECONDS_ON_SUCCESS:-60}"
+        local shortened_sleep="${EXTERNAL_FE_IMAGE_WAIT_SECONDS_ON_SUCCESS:-180}"
 
         if [[ "$#" -eq 1 && "$1" == "300" ]] && state="$(github_utils__external_success_state)"; then
             echo "Use shortened FE image wait ${shortened_sleep}s on ${state}."
