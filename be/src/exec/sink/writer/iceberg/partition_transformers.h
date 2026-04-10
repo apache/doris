@@ -21,7 +21,6 @@
 #include "exec/common/stringop_substring.h"
 #include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
 #include "exprs/function/cast/cast_to_datev2_impl.hpp"
-#include "exprs/function/function_string.h"
 #include "util/bit_util.h"
 
 namespace doris {

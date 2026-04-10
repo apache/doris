@@ -69,9 +69,6 @@ import org.apache.doris.datasource.trinoconnector.source.TrinoConnectorScanNode;
 import org.apache.doris.fs.DirectoryLister;
 import org.apache.doris.fs.FileSystemDirectoryLister;
 import org.apache.doris.fs.TransactionScopeCachingDirectoryListerFactory;
-import org.apache.doris.info.BaseTableRefInfo;
-import org.apache.doris.info.TableNameInfo;
-import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.processor.post.runtimefilterv2.RuntimeFilterV2;
 import org.apache.doris.nereids.properties.DistributionSpec;
@@ -770,7 +767,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             fileScan.getTableSnapshot().ifPresent(fileQueryScanNode::setQueryTableSnapshot);
             fileScan.getScanParams().ifPresent(fileQueryScanNode::setScanParams);
         }
-        return getPlanFragmentForPhysicalFileScan(fileScan, context, scanNode, table, tupleDescriptor);
+        return getPlanFragmentForPhysicalFileScan(fileScan, context, scanNode);
     }
 
     @Override
@@ -846,21 +843,16 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             hudiScanNode.setQueryTableSnapshot(hudiScan.getTableSnapshot().get());
         }
         hudiScanNode.setSelectedPartitions(hudiScan.getSelectedPartitions());
-        return getPlanFragmentForPhysicalFileScan(hudiScan, context, hudiScanNode, table, tupleDescriptor);
+        return getPlanFragmentForPhysicalFileScan(hudiScan, context, hudiScanNode);
     }
 
     @NotNull
     private PlanFragment getPlanFragmentForPhysicalFileScan(PhysicalFileScan fileScan, PlanTranslatorContext context,
-            ScanNode scanNode,
-            ExternalTable table, TupleDescriptor tupleDescriptor) {
+            ScanNode scanNode) {
         scanNode.setNereidsId(fileScan.getId());
         context.getNereidsIdToPlanNodeIdMap().put(fileScan.getId(), scanNode.getId());
         scanNode.setPushDownAggNoGrouping(context.getRelationPushAggOp(fileScan.getRelationId()));
 
-        TableNameInfo tableNameInfo = new TableNameInfo(null, "", "");
-        TableRefInfo ref = new TableRefInfo(tableNameInfo, null, null);
-        BaseTableRefInfo tableRefInfo = new BaseTableRefInfo(ref, tableNameInfo, table);
-        tupleDescriptor.setRef(tableRefInfo);
         if (fileScan.getStats() != null) {
             scanNode.setCardinality((long) fileScan.getStats().getRowCount());
         }
@@ -885,10 +877,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         jdbcScanNode.setNereidsId(jdbcScan.getId());
         context.getNereidsIdToPlanNodeIdMap().put(jdbcScan.getId(), jdbcScanNode.getId());
 
-        TableNameInfo tableNameInfo = new TableNameInfo(null, "", "");
-        TableRefInfo ref = new TableRefInfo(tableNameInfo, null, null);
-        BaseTableRefInfo tableRefInfo = new BaseTableRefInfo(ref, tableNameInfo, table);
-        tupleDescriptor.setRef(tableRefInfo);
         if (jdbcScan.getStats() != null) {
             jdbcScanNode.setCardinality((long) jdbcScan.getStats().getRowCount());
         }
@@ -981,10 +969,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
         }
         // TODO: Do we really need tableName here?
-        TableNameInfo tableName = new TableNameInfo(null, "", "");
-        TableRefInfo ref = new TableRefInfo(tableName, null, null);
-        BaseTableRefInfo tableRefInfo = new BaseTableRefInfo(ref, tableName, olapTable);
-        tupleDescriptor.setRef(tableRefInfo);
         olapScanNode.setSelectedPartitionIds(olapScan.getSelectedPartitionIds());
         olapScanNode.setNereidsPrunedTabletIds(new LinkedHashSet<>(olapScan.getSelectedTabletIds()));
         if (olapScan.getTableSample().isPresent()) {

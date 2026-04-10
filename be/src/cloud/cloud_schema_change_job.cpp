@@ -25,6 +25,7 @@
 #include <memory>
 #include <mutex>
 #include <random>
+#include <ranges>
 #include <thread>
 
 #include "cloud/cloud_meta_mgr.h"
@@ -524,6 +525,28 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
         // during double write phase by `CloudMetaMgr::sync_tablet_rowsets` in another thread
         std::unique_lock lock {_new_tablet->get_sync_meta_lock()};
         std::unique_lock wlock(_new_tablet->get_header_lock());
+        // Mirror MS behavior: delete rowsets in [2, alter_version] before adding
+        // SC output rowsets to avoid stale compaction rowsets remaining visible.
+        {
+            int64_t alter_ver = sc_job->alter_version();
+            std::vector<RowsetSharedPtr> to_delete;
+            for (auto& [v, rs] : _new_tablet->rowset_map()) {
+                if (v.first >= 2 && v.second <= alter_ver) {
+                    to_delete.push_back(rs);
+                }
+            }
+            if (!to_delete.empty()) {
+                LOG_INFO(
+                        "schema change: delete {} local rowsets in [2, {}] before adding SC "
+                        "output, tablet_id={}, versions=[{}]",
+                        to_delete.size(), alter_ver, _new_tablet->tablet_id(),
+                        fmt::join(to_delete | std::views::transform([](const auto& rs) {
+                                      return rs->version().to_string();
+                                  }),
+                                  ", "));
+                _new_tablet->delete_rowsets_for_schema_change(to_delete, wlock);
+            }
+        }
         _new_tablet->add_rowsets(std::move(_output_rowsets), true, wlock, false);
         _new_tablet->set_cumulative_layer_point(_output_cumulative_point);
         _new_tablet->reset_approximate_stats(stats.num_rowsets(), stats.num_segments(),

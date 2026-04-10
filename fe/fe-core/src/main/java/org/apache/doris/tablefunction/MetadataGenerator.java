@@ -19,6 +19,7 @@ package org.apache.doris.tablefunction;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.authentication.AuthenticationIntegrationMeta;
+import org.apache.doris.authentication.RoleMappingMeta;
 import org.apache.doris.blockrule.SqlBlockRule;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
@@ -44,6 +45,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.proc.FrontendsProcNode;
 import org.apache.doris.common.proc.PartitionsProcDir;
@@ -162,6 +164,8 @@ public class MetadataGenerator {
 
     private static final ImmutableMap<String, Integer> AUTHENTICATION_INTEGRATIONS_COLUMN_TO_INDEX;
 
+    private static final ImmutableMap<String, Integer> ROLE_MAPPINGS_COLUMN_TO_INDEX;
+
     private static final ImmutableMap<String, Integer> TABLE_STREAMS_COLUMN_TO_INDEX;
 
     private static final ImmutableMap<String, Integer> TABLE_STREAM_CONSUMPTION_COLUMN_TO_INDEX;
@@ -252,6 +256,13 @@ public class MetadataGenerator {
                     authenticationIntegrationsColList.get(i).getName().toLowerCase(), i);
         }
         AUTHENTICATION_INTEGRATIONS_COLUMN_TO_INDEX = authenticationIntegrationsBuilder.build();
+
+        ImmutableMap.Builder<String, Integer> roleMappingsBuilder = new ImmutableMap.Builder();
+        List<Column> roleMappingsColList = SchemaTable.TABLE_MAP.get("role_mappings").getFullSchema();
+        for (int i = 0; i < roleMappingsColList.size(); i++) {
+            roleMappingsBuilder.put(roleMappingsColList.get(i).getName().toLowerCase(), i);
+        }
+        ROLE_MAPPINGS_COLUMN_TO_INDEX = roleMappingsBuilder.build();
 
         ImmutableMap.Builder<String, Integer> tableStreamsBuilder = new ImmutableMap.Builder();
         List<Column> streamsBuilderColList = SchemaTable.TABLE_MAP.get("table_streams")
@@ -385,6 +396,10 @@ public class MetadataGenerator {
             case AUTHENTICATION_INTEGRATIONS:
                 result = authenticationIntegrationsMetadataResult(schemaTableParams);
                 columnIndex = AUTHENTICATION_INTEGRATIONS_COLUMN_TO_INDEX;
+                break;
+            case ROLE_MAPPINGS:
+                result = roleMappingsMetadataResult(schemaTableParams);
+                columnIndex = ROLE_MAPPINGS_COLUMN_TO_INDEX;
                 break;
             case TABLE_STREAMS:
                 result = streamMetadataResult(schemaTableParams);
@@ -775,6 +790,68 @@ public class MetadataGenerator {
             dataBatch.add(row);
         }
         return result;
+    }
+
+    private static TFetchSchemaTableDataResult roleMappingsMetadataResult(TSchemaTableRequestParams params) {
+        if (!params.isSetCurrentUserIdent()) {
+            return errorResult("current user ident is not set.");
+        }
+        UserIdentity currentUserIdentity = UserIdentity.fromThrift(params.getCurrentUserIdent());
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        List<TRow> dataBatch = Lists.newArrayList();
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(currentUserIdentity, PrivPredicate.ADMIN)) {
+            return errorResult(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR.formatErrorMsg("ADMIN"));
+        }
+
+        List<Expression> conjuncts = Collections.EMPTY_LIST;
+        if (params.isSetFrontendConjuncts()) {
+            conjuncts = FrontendConjunctsUtils.convertToExpression(params.getFrontendConjuncts());
+        }
+        List<Expression> nameConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "NAME");
+        List<Expression> integrationNameConjuncts =
+                FrontendConjunctsUtils.filterBySlotName(conjuncts, "INTEGRATION_NAME");
+
+        for (RoleMappingMeta meta : Env.getCurrentEnv().getRoleMappingMgr().getRoleMappings().values()) {
+            if (FrontendConjunctsUtils.isFiltered(nameConjuncts, "NAME", meta.getName())
+                    || FrontendConjunctsUtils.isFiltered(
+                    integrationNameConjuncts, "INTEGRATION_NAME", meta.getIntegrationName())) {
+                continue;
+            }
+            TRow row = new TRow();
+            row.addToColumnValue(new TCell().setStringVal(meta.getName()));
+            row.addToColumnValue(new TCell().setStringVal(meta.getIntegrationName()));
+            row.addToColumnValue(new TCell().setStringVal(formatRoleMappingRules(meta.getRules())));
+            if (meta.getComment() == null) {
+                row.addToColumnValue(new TCell());
+            } else {
+                row.addToColumnValue(new TCell().setStringVal(meta.getComment()));
+            }
+            row.addToColumnValue(new TCell().setStringVal(meta.getCreateUser()));
+            row.addToColumnValue(new TCell().setStringVal(meta.getCreateTimeString()));
+            row.addToColumnValue(new TCell().setStringVal(meta.getAlterUser()));
+            row.addToColumnValue(new TCell().setStringVal(meta.getModifyTimeString()));
+            dataBatch.add(row);
+        }
+        return result;
+    }
+
+    private static String formatRoleMappingRules(List<RoleMappingMeta.RuleMeta> rules) {
+        List<String> serializedRules = Lists.newArrayListWithCapacity(rules.size());
+        for (RoleMappingMeta.RuleMeta rule : rules) {
+            serializedRules.add(formatRoleMappingRule(rule));
+        }
+        return Joiner.on("; ").join(serializedRules);
+    }
+
+    private static String formatRoleMappingRule(RoleMappingMeta.RuleMeta rule) {
+        return "RULE (USING CEL '" + escapeRoleMappingCondition(rule.getCondition()) + "' GRANT ROLE "
+                + Joiner.on(", ").join(rule.getGrantedRoles()) + ")";
+    }
+
+    private static String escapeRoleMappingCondition(String condition) {
+        return condition.replace("'", "''");
     }
 
     private static String maskAuthenticationProperties(Map<String, String> properties) {

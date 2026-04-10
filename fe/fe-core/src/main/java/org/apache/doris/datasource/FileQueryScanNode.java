@@ -666,10 +666,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
     }
 
     public TableSnapshot getQueryTableSnapshot() {
-        TableSnapshot snapshot = desc.getRef().getTableSnapShot();
-        if (snapshot != null) {
-            return snapshot;
-        }
         return this.tableSnapshot;
     }
 
@@ -678,10 +674,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
     }
 
     public TableScanParams getScanParams() {
-        TableScanParams scan = desc.getRef().getScanParams();
-        if (scan != null) {
-            return scan;
-        }
         return this.scanParams;
     }
 

@@ -218,6 +218,7 @@ enum TSchemaTableType {
     SCH_TABLE_STREAMS = 68;
     SCH_TABLE_STREAM_CONSUMPTION = 69;
     SCH_BE_COMPACTION_TASKS = 70;
+    SCH_ROLE_MAPPINGS = 71;
 }
 
 enum THdfsCompression {

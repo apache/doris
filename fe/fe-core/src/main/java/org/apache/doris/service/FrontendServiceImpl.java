@@ -3916,13 +3916,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isSetTableRefs()) {
             for (TTableRef tTableRef : request.getTableRefs()) {
                 tableRefs.add(new TableRefInfo(new TableNameInfo(tTableRef.getTable()),
-                        null,
-                        null,
-                        null,
-                        new ArrayList<>(),
-                        tTableRef.getAliasName(),
-                        null,
-                        new ArrayList<>()));
+                        tTableRef.getAliasName()));
             }
         }
 

@@ -294,7 +294,7 @@ public class ExprToSqlTest {
         // isNereids=true, isQuery=false, sessionVariable set, desc set
         // → Nereids plan-printing path: label + "[#<slotId>]"
         TupleDescriptor tupleDesc = new TupleDescriptor(new TupleId(0));
-        SlotDescriptor slotDesc = new SlotDescriptor(new SlotId(3), tupleDesc);
+        SlotDescriptor slotDesc = new SlotDescriptor(new SlotId(3), tupleDesc.getId());
         slotDesc.setLabel("`col`");
         SlotRef expr = new SlotRef(null, "col");
         expr.setDesc(slotDesc);
@@ -307,7 +307,7 @@ public class ExprToSqlTest {
     public void testSlotRefLabelNereidsIsQuery() {
         // isNereids=true, isQuery=true → query execution path, slot-id suffix suppressed
         TupleDescriptor tupleDesc = new TupleDescriptor(new TupleId(0));
-        SlotDescriptor slotDesc = new SlotDescriptor(new SlotId(5), tupleDesc);
+        SlotDescriptor slotDesc = new SlotDescriptor(new SlotId(5), tupleDesc.getId());
         slotDesc.setLabel("`score`");
         SlotRef expr = new SlotRef(null, "score");
         expr.setDesc(slotDesc);
@@ -320,7 +320,7 @@ public class ExprToSqlTest {
     public void testSlotRefLabelNotNereids() {
         // isNereids=false → non-Nereids path, no slot-id suffix regardless of desc
         TupleDescriptor tupleDesc = new TupleDescriptor(new TupleId(0));
-        SlotDescriptor slotDesc = new SlotDescriptor(new SlotId(7), tupleDesc);
+        SlotDescriptor slotDesc = new SlotDescriptor(new SlotId(7), tupleDesc.getId());
         slotDesc.setLabel("`price`");
         SlotRef expr = new SlotRef(null, "price");
         expr.setDesc(slotDesc);
@@ -349,7 +349,7 @@ public class ExprToSqlTest {
     public void testSlotRefDescWithSourceExprs() {
         // label=null, desc has sourceExprs → "<slot N> expr visitor result"
         TupleDescriptor tupleDesc = new TupleDescriptor(new TupleId(0));
-        SlotDescriptor slotDesc = new SlotDescriptor(new SlotId(2), tupleDesc);
+        SlotDescriptor slotDesc = new SlotDescriptor(new SlotId(2), tupleDesc.getId());
         slotDesc.setSourceExpr(new IntLiteral(42L));
 
         SlotRef expr = new SlotRef(null, "x");
@@ -369,7 +369,7 @@ public class ExprToSqlTest {
     public void testSlotRefDescNoSourceExprs() {
         // label=null, desc has no sourceExprs → "<slot N>"
         TupleDescriptor tupleDesc = new TupleDescriptor(new TupleId(0));
-        SlotDescriptor slotDesc = new SlotDescriptor(new SlotId(4), tupleDesc);
+        SlotDescriptor slotDesc = new SlotDescriptor(new SlotId(4), tupleDesc.getId());
 
         SlotRef expr = new SlotRef(null, "x");
         try {

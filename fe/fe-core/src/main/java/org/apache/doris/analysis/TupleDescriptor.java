@@ -21,7 +21,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.thrift.TTupleDescriptor;
 
 import com.google.common.base.Joiner;
@@ -39,14 +38,10 @@ public class TupleDescriptor {
 
     // underlying table, if there is one
     private TableIf table;
-    // underlying table, if there is one
-    private TableRefInfo ref;
-
-    private int tableId = -1;
 
     public TupleDescriptor(TupleId id) {
         this.id = id;
-        this.slots = new ArrayList<SlotDescriptor>();
+        this.slots = new ArrayList<>();
         this.idToSlotDesc = new HashMap<>();
     }
 
@@ -57,14 +52,6 @@ public class TupleDescriptor {
 
     public TupleId getId() {
         return id;
-    }
-
-    public TableRefInfo getRef() {
-        return ref;
-    }
-
-    public void setRef(TableRefInfo tableRefInfo) {
-        ref = tableRefInfo;
     }
 
     public ArrayList<SlotDescriptor> getSlots() {
@@ -111,14 +98,11 @@ public class TupleDescriptor {
     }
 
     public TTupleDescriptor toThrift() {
-        TTupleDescriptor ttupleDesc = new TTupleDescriptor(id.asInt(), 0, 0);
+        TTupleDescriptor tTupleDesc = new TTupleDescriptor(id.asInt(), 0, 0);
         if (table != null && table.getId() >= 0) {
-            ttupleDesc.setTableId((int) table.getId());
+            tTupleDesc.setTableId((int) table.getId());
         }
-        if (tableId > 0) {
-            ttupleDesc.setTableId(tableId);
-        }
-        return ttupleDesc;
+        return tTupleDesc;
     }
 
     @Override

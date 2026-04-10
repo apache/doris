@@ -20,16 +20,22 @@ package org.apache.doris.mysql.authenticate.ldap;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.LdapConfig;
 import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.mysql.authenticate.TestLogAppender;
 
 import mockit.Expectations;
 import mockit.Tested;
+import org.apache.logging.log4j.Level;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.springframework.ldap.core.LdapTemplate;
 import org.springframework.ldap.query.LdapQuery;
 import org.springframework.ldap.support.LdapEncoder;
 
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.List;
 
@@ -101,6 +107,45 @@ public class LdapClientTest {
     }
 
     @Test
+    public void testGetGroupsLogsInfoWithoutThreshold() {
+        List<String> userDns = Arrays.asList("uid=zhangsan,dc=example,dc=com");
+        List<String> groupDns = Arrays.asList("cn=groupName,ou=groups,dc=example,dc=com");
+        new Expectations(ldapClient) {
+            {
+                ldapClient.getDn((LdapQuery) any);
+                result = userDns;
+                result = groupDns;
+            }
+        };
+
+        try (TestLogAppender appender = TestLogAppender.attach(LdapClient.class)) {
+            Assert.assertEquals(1, ldapClient.getGroups("zhangsan").size());
+            Assert.assertTrue(appender.contains(Level.DEBUG,
+                    "LdapClient.getGroups: user=zhangsan, groups=1, elapsed="));
+            Assert.assertFalse(appender.contains(Level.WARN,
+                    "LdapClient.getGroups slow: user=zhangsan"));
+        }
+    }
+
+    @Test
+    public void testGetSearchTemplateUsesNoPoolWhenDisabled() throws Exception {
+        LdapConfig.ldap_search_use_pool = false;
+
+        Object clientInfo = newClientInfo("secret");
+        Assert.assertSame(getFieldValue(clientInfo, "ldapTemplateNoPool"), getSearchTemplate(clientInfo));
+        Assert.assertNull(getFieldValue(clientInfo, "ldapTemplatePool"));
+    }
+
+    @Test
+    public void testGetSearchTemplateUsesPoolWhenEnabled() throws Exception {
+        LdapConfig.ldap_search_use_pool = true;
+
+        Object clientInfo = newClientInfo("secret");
+        Assert.assertNotNull(getFieldValue(clientInfo, "ldapTemplatePool"));
+        Assert.assertSame(getFieldValue(clientInfo, "ldapTemplatePool"), getSearchTemplate(clientInfo));
+    }
+
+    @Test
     public void testSecuredProtocolIsUsed() {
         //testing default case with not specified property ldap_use_ssl or it is specified as false
         String insecureUrl = LdapConfig.getConnectionURL(
@@ -151,5 +196,25 @@ public class LdapClientTest {
     @After
     public void tearDown() {
         LdapConfig.ldap_use_ssl = false; // restoring default value for other tests
+        LdapConfig.ldap_search_use_pool = true;
+    }
+
+    private Object newClientInfo(String ldapPassword) throws Exception {
+        Class<?> clientInfoClass = Class.forName("org.apache.doris.mysql.authenticate.ldap.LdapClient$ClientInfo");
+        Constructor<?> constructor = clientInfoClass.getDeclaredConstructor(String.class);
+        constructor.setAccessible(true);
+        return constructor.newInstance(ldapPassword);
+    }
+
+    private LdapTemplate getSearchTemplate(Object clientInfo) throws Exception {
+        Method method = clientInfo.getClass().getDeclaredMethod("getSearchTemplate");
+        method.setAccessible(true);
+        return (LdapTemplate) method.invoke(clientInfo);
+    }
+
+    private Object getFieldValue(Object clientInfo, String fieldName) throws Exception {
+        Field field = clientInfo.getClass().getDeclaredField(fieldName);
+        field.setAccessible(true);
+        return field.get(clientInfo);
     }
 }

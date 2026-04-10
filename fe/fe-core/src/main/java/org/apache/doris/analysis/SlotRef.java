@@ -80,7 +80,7 @@ public class SlotRef extends Expr {
         // tuple id and slot id is meaningless here, nereids just use type and nullable
         // to build the TAggregateExpr.param_types
         TupleDescriptor tupleDescriptor = new TupleDescriptor(new TupleId(-1));
-        desc = new SlotDescriptor(new SlotId(-1), tupleDescriptor);
+        desc = new SlotDescriptor(new SlotId(-1), tupleDescriptor.getId());
         tupleDescriptor.addSlot(desc);
         desc.setIsNullable(nullable);
         this.nullable = nullable;

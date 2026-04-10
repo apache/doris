@@ -271,6 +271,11 @@ public class UserPropertyMgr implements Writable {
      * If the authentication type is LDAP and the user exists in LDAP, return DEFAULT_USER_PROPERTY.
      * If the authentication type is not the default type, return DEFAULT_USER_PROPERTY.
      * Otherwise, return existProperty.
+     *
+     * Note: Previously this method called LdapManager.doesUserExist() to check LDAP,
+     * but that was redundant: when authentication_type=LDAP (non-default), the fallback
+     * condition already returns DEFAULT_USER_PROPERTY. The LDAP call caused runtime
+     * network queries that could hang under Auth read lock, blocking all new connections.
      */
     private UserProperty getPropertyIfNull(String qualifiedUser, UserProperty existProperty) {
         if (null != existProperty) {
