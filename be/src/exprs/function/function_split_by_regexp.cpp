@@ -26,7 +26,6 @@
 #include "core/data_type/data_type_string.h"
 #include "core/types.h"
 #include "exprs/function/function.h"
-#include "exprs/function/function_string.h"
 #include "exprs/function/simple_function_factory.h"
 
 namespace doris {

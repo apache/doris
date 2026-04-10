@@ -28,6 +28,7 @@
 #include "exec/sink/sink_common.h"
 #include "exec/sink/viceberg_delete_sink.h"
 #include "exec/sink/writer/iceberg/viceberg_table_writer.h"
+#include "exprs/vexpr_context.h"
 #include "format/table/iceberg/schema.h"
 #include "format/table/iceberg/schema_parser.h"
 #include "runtime/runtime_state.h"
