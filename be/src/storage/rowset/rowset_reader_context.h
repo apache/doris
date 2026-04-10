@@ -100,6 +100,13 @@ struct RowsetReaderContext {
     std::shared_ptr<segment_v2::AnnTopNRuntime> ann_topn_runtime;
 
     uint64_t condition_cache_digest = 0;
+
+    // When true, push down value predicates for MOR tables
+    bool enable_mor_value_predicate_pushdown = false;
+
+    // General limit pushdown for DUP_KEYS and UNIQUE_KEYS with MOW.
+    // Propagated from ReaderParams.general_read_limit.
+    int64_t general_read_limit = -1;
 };
 
 } // namespace doris

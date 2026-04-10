@@ -41,7 +41,6 @@
 #include "exprs/vslot_ref.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class VExprContext;
 
 // extend a block with all required parameters
@@ -383,5 +382,4 @@ void register_function_array_map(doris::LambdaFunctionFactory& factory) {
     factory.register_function<ArrayMapFunction>();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

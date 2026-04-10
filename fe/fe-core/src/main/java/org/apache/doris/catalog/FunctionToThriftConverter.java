@@ -32,6 +32,40 @@ import com.google.common.collect.Lists;
 public class FunctionToThriftConverter {
 
     /**
+     * Converts a {@link Function.BinaryType} to its Thrift representation.
+     */
+    public static TFunctionBinaryType toThriftBinaryType(Function.BinaryType binaryType) {
+        switch (binaryType) {
+            case BUILTIN:    return TFunctionBinaryType.BUILTIN;
+            case HIVE:       return TFunctionBinaryType.HIVE;
+            case NATIVE:     return TFunctionBinaryType.NATIVE;
+            case IR:         return TFunctionBinaryType.IR;
+            case RPC:        return TFunctionBinaryType.RPC;
+            case JAVA_UDF:   return TFunctionBinaryType.JAVA_UDF;
+            case AGG_STATE:  return TFunctionBinaryType.AGG_STATE;
+            case PYTHON_UDF: return TFunctionBinaryType.PYTHON_UDF;
+            default: throw new IllegalArgumentException("Unknown BinaryType: " + binaryType);
+        }
+    }
+
+    /**
+     * Converts a Thrift {@link TFunctionBinaryType} to {@link Function.BinaryType}.
+     */
+    public static Function.BinaryType fromThriftBinaryType(TFunctionBinaryType thriftType) {
+        switch (thriftType) {
+            case BUILTIN:    return Function.BinaryType.BUILTIN;
+            case HIVE:       return Function.BinaryType.HIVE;
+            case NATIVE:     return Function.BinaryType.NATIVE;
+            case IR:         return Function.BinaryType.IR;
+            case RPC:        return Function.BinaryType.RPC;
+            case JAVA_UDF:   return Function.BinaryType.JAVA_UDF;
+            case AGG_STATE:  return Function.BinaryType.AGG_STATE;
+            case PYTHON_UDF: return Function.BinaryType.PYTHON_UDF;
+            default: throw new IllegalArgumentException("Unknown TFunctionBinaryType: " + thriftType);
+        }
+    }
+
+    /**
      * Converts a {@link Function} (or subclass) to its Thrift representation.
      * Uses instanceof checks to dispatch to the appropriate subclass handler.
      */
@@ -52,13 +86,13 @@ public class FunctionToThriftConverter {
             Boolean[] realArgTypeNullables) {
         TFunction tfn = toThriftBase(fn, realReturnType, realArgTypes, realArgTypeNullables);
         tfn.setScalarFn(new TScalarFunction());
-        if (fn.getBinaryType() == TFunctionBinaryType.JAVA_UDF || fn.getBinaryType() == TFunctionBinaryType.RPC
-                || fn.getBinaryType() == TFunctionBinaryType.PYTHON_UDF) {
+        if (fn.getBinaryType() == Function.BinaryType.JAVA_UDF || fn.getBinaryType() == Function.BinaryType.RPC
+                || fn.getBinaryType() == Function.BinaryType.PYTHON_UDF) {
             tfn.getScalarFn().setSymbol(fn.getSymbolName());
         } else {
             tfn.getScalarFn().setSymbol("");
         }
-        if (fn.getBinaryType() == TFunctionBinaryType.PYTHON_UDF) {
+        if (fn.getBinaryType() == Function.BinaryType.PYTHON_UDF) {
             if (!Strings.isNullOrEmpty(fn.getFunctionCode())) {
                 tfn.setFunctionCode(fn.getFunctionCode());
             }
@@ -105,7 +139,7 @@ public class FunctionToThriftConverter {
         tfn.setAggregateFn(aggFn);
 
         // Set runtime_version and function_code for Python UDAF
-        if (fn.getBinaryType() == TFunctionBinaryType.PYTHON_UDF) {
+        if (fn.getBinaryType() == Function.BinaryType.PYTHON_UDF) {
             if (!Strings.isNullOrEmpty(fn.getFunctionCode())) {
                 tfn.setFunctionCode(fn.getFunctionCode());
             }
@@ -123,7 +157,7 @@ public class FunctionToThriftConverter {
         tName.setDbName(fn.getFunctionName().getDb());
         tName.setFunctionName(fn.getFunctionName().getFunction());
         tfn.setName(tName);
-        tfn.setBinaryType(fn.getBinaryType());
+        tfn.setBinaryType(toThriftBinaryType(fn.getBinaryType()));
         if (fn.getLocation() != null) {
             tfn.setHdfsLocation(fn.getLocation().getLocation());
         }

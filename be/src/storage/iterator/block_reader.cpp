@@ -52,7 +52,6 @@ class ColumnPredicate;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 BlockReader::~BlockReader() {
@@ -696,5 +695,4 @@ void BlockReader::_update_agg_value(MutableColumns& columns, int begin, int end,
     }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

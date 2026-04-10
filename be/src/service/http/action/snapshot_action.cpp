@@ -33,7 +33,6 @@
 #include "storage/storage_engine.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 const std::string TABLET_ID = "tablet_id";
 const std::string SCHEMA_HASH = "schema_hash";
@@ -115,5 +114,4 @@ int64_t SnapshotAction::_make_snapshot(int64_t tablet_id, int32_t schema_hash,
     return 0L;
 }
 
-#include "common/compile_check_end.h"
 } // end namespace doris

@@ -31,7 +31,6 @@
 #include "util/perf_counters.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(avail_cpu_num, MetricUnit::NOUNIT);
 
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(host_cpu_num, MetricUnit::NOUNIT);

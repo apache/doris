@@ -20,19 +20,27 @@
 #include <fmt/core.h>
 
 #include <cstddef>
+#include <cstdint>
 
 #include "common/status.h"
 #include "core/block/block.h"
 #include "exprs/vexpr_context.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 constexpr auto COMBINATOR_SUFFIX_OUTER = "_outer";
 
 class TableFunction {
 public:
     virtual ~TableFunction() = default;
+
+    struct BlockFastPathContext {
+        const UInt8* array_nullmap_data = nullptr;
+        const IColumn::Offsets64* offsets_ptr = nullptr;
+        ColumnPtr nested_col = nullptr;
+        const UInt8* nested_nullmap_data = nullptr;
+        bool generate_row_index = false;
+    };
 
     virtual Status prepare() { return Status::OK(); }
 
@@ -57,6 +65,12 @@ public:
 
     virtual void get_same_many_values(MutableColumnPtr& column, int length = 0) = 0;
     virtual int get_value(MutableColumnPtr& column, int max_step) = 0;
+
+    virtual bool support_block_fast_path() const { return false; }
+    virtual Status prepare_block_fast_path(Block* /*block*/, RuntimeState* /*state*/,
+                                           BlockFastPathContext* /*ctx*/) {
+        return Status::NotSupported("table function {} doesn't support block fast path", _fn_name);
+    }
 
     virtual Status close() { return Status::OK(); }
 
@@ -104,5 +118,4 @@ protected:
     bool _is_const = false;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

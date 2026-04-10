@@ -30,7 +30,6 @@
 #include "util/io_helper.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 template <PrimitiveType T>
 Status DataTypeDateSerDe<T>::serialize_column_to_json(
@@ -228,7 +227,9 @@ Status DataTypeDateSerDe<T>::_read_column_from_arrow(IColumn& column,
         for (auto value_i = start; value_i < end; ++value_i) {
             auto val_str = concrete_array->GetString(value_i);
             VecDateTimeValue v;
-            v.from_date_str(val_str.c_str(), val_str.length(), ctz);
+            CastParameters params;
+            CastToDateOrDatetime::from_string_non_strict_mode<DatelikeTargetType::DATE_TIME>(
+                    {val_str.c_str(), val_str.length()}, v, &ctz, params);
             if constexpr (is_date) {
                 v.cast_to_date();
             }
@@ -331,8 +332,10 @@ Status DataTypeDateSerDe<T>::from_string_batch(
         // then we rely on return value to check success.
         // return value only represent OK or InvalidArgument for other error(like InternalError) in parser, MUST throw
         // Exception!
-        if (!CastToDateOrDatetime::from_string_non_strict_mode<IsDatetime>(
-                    str, res, options.timezone, params)) [[unlikely]] {
+        if (!CastToDateOrDatetime::from_string_non_strict_mode < IsDatetime
+                    ? DatelikeTargetType::DATE_TIME
+                    : DatelikeTargetType::DATE > (str, res, options.timezone, params))
+                [[unlikely]] {
             col_nullmap.get_data()[i] = true;
             //TODO: we should set `for` functions who need it then skip to set default value for null rows.
             col_data.get_data()[i] = VecDateTimeValue::FIRST_DAY;
@@ -360,8 +363,10 @@ Status DataTypeDateSerDe<T>::from_string_strict_mode_batch(
         }
         auto str = col_str.get_data_at(i);
         CppType res;
-        CastToDateOrDatetime::from_string_strict_mode<true, IsDatetime>(str, res, options.timezone,
-                                                                        params);
+        CastToDateOrDatetime::from_string_strict_mode<DatelikeParseMode::STRICT,
+                                                      IsDatetime ? DatelikeTargetType::DATE_TIME
+                                                                 : DatelikeTargetType::DATE>(
+                str, res, options.timezone, params);
         // only after we called something with `IS_STRICT = true`, params.status will be set
         if (!params.status.ok()) [[unlikely]] {
             params.status.prepend(
@@ -386,8 +391,9 @@ Status DataTypeDateSerDe<T>::from_string(StringRef& str, IColumn& column,
     // then we rely on return value to check success.
     // return value only represent OK or InvalidArgument for other error(like InternalError) in parser, MUST throw
     // Exception!
-    if (!CastToDateOrDatetime::from_string_non_strict_mode<IsDatetime>(str, res, options.timezone,
-                                                                       params)) [[unlikely]] {
+    if (!CastToDateOrDatetime::from_string_non_strict_mode < IsDatetime
+                ? DatelikeTargetType::DATE_TIME
+                : DatelikeTargetType::DATE > (str, res, options.timezone, params)) [[unlikely]] {
         return Status::InvalidArgument("parse date or datetime fail, string: '{}'",
                                        str.to_string());
     }
@@ -395,6 +401,18 @@ Status DataTypeDateSerDe<T>::from_string(StringRef& str, IColumn& column,
     return Status::OK();
 }
 
+// Deserializes a DateV1 or DateTimeV1 value from its OLAP string representation
+// (e.g. from ZoneMap protobuf). This is the inverse of to_olap_string().
+//
+// Uses CastToDateOrDatetime::from_string_non_strict_mode which accepts flexible date/time formats.
+//
+// Note: DateTimeV1 (VecDateTimeValue) does NOT support microsecond precision.
+//   VecDateTimeValue::microsecond() always returns 0 — the _microsecond field was removed
+//   to reduce memory footprint. So the round-trip format is always second-level precision.
+//
+// Expected input formats:
+//   DateV1:     "YYYY-MM-DD"              e.g. "2023-10-15"
+//   DateTimeV1: "YYYY-MM-DD HH:MM:SS"    e.g. "2023-10-15 14:30:00"
 template <PrimitiveType T>
 Status DataTypeDateSerDe<T>::from_olap_string(const std::string& str, Field& field,
                                               const FormatOptions& options) const {
@@ -405,8 +423,10 @@ Status DataTypeDateSerDe<T>::from_olap_string(const std::string& str, Field& fie
     // then we rely on return value to check success.
     // return value only represent OK or InvalidArgument for other error(like InternalError) in parser, MUST throw
     // Exception!
-    if (!CastToDateOrDatetime::from_string_non_strict_mode<IsDatetime>(
-                StringRef(str), res, options.timezone, params)) [[unlikely]] {
+    if (!CastToDateOrDatetime::from_string_non_strict_mode < IsDatetime
+                ? DatelikeTargetType::DATE_TIME
+                : DatelikeTargetType::DATE > (StringRef(str), res, options.timezone, params))
+            [[unlikely]] {
         return Status::InvalidArgument("parse date or datetime fail, string: '{}'", str);
     }
     field = Field::create_field<T>(std::move(res));
@@ -421,8 +441,10 @@ Status DataTypeDateSerDe<T>::from_string_strict_mode(StringRef& str, IColumn& co
     CastParameters params {.status = Status::OK(), .is_strict = true};
 
     CppType res;
-    CastToDateOrDatetime::from_string_strict_mode<true, IsDatetime>(str, res, options.timezone,
-                                                                    params);
+    CastToDateOrDatetime::from_string_strict_mode<DatelikeParseMode::STRICT,
+                                                  IsDatetime ? DatelikeTargetType::DATE_TIME
+                                                             : DatelikeTargetType::DATE>(
+            str, res, options.timezone, params);
     // only after we called something with `IS_STRICT = true`, params.status will be set
     if (!params.status.ok()) [[unlikely]] {
         params.status.prepend(fmt::format("parse {} to {} failed: ", str.to_string_view(), name()));
@@ -445,8 +467,10 @@ Status DataTypeDateSerDe<T>::from_int_batch(const typename IntDataType::ColumnTy
     CastParameters params {.status = Status::OK(), .is_strict = false};
     for (size_t i = 0; i < int_col.size(); ++i) {
         CppType val;
-        if (CastToDateOrDatetime::from_integer<false, IsDatetime>(int_col.get_element(i), val,
-                                                                  params)) [[likely]] {
+        if (CastToDateOrDatetime::from_integer < DatelikeParseMode::NON_STRICT,
+            IsDatetime ? DatelikeTargetType::DATE_TIME
+                       : DatelikeTargetType::DATE > (int_col.get_element(i), val, params))
+                [[likely]] {
             // did cast_to_type in `from_integer`
             col_data.get_data()[i] = val;
             col_nullmap.get_data()[i] = false;
@@ -468,7 +492,10 @@ Status DataTypeDateSerDe<T>::from_int_strict_mode_batch(
     CastParameters params {.status = Status::OK(), .is_strict = true};
     for (size_t i = 0; i < int_col.size(); ++i) {
         CppType val;
-        CastToDateOrDatetime::from_integer<true, IsDatetime>(int_col.get_element(i), val, params);
+        CastToDateOrDatetime::from_integer<DatelikeParseMode::STRICT,
+                                           IsDatetime ? DatelikeTargetType::DATE_TIME
+                                                      : DatelikeTargetType::DATE>(
+                int_col.get_element(i), val, params);
         if (!params.status.ok()) [[unlikely]] {
             params.status.prepend(
                     fmt::format("parse {} to {} failed: ", int_col.get_element(i), name()));
@@ -492,8 +519,10 @@ Status DataTypeDateSerDe<T>::from_float_batch(const typename FloatDataType::Colu
     CastParameters params {.status = Status::OK(), .is_strict = false};
     for (size_t i = 0; i < float_col.size(); ++i) {
         CppType val;
-        if (CastToDateOrDatetime::from_float<false, IsDatetime>(float_col.get_data()[i], val,
-                                                                params)) [[likely]] {
+        if (CastToDateOrDatetime::from_float < DatelikeParseMode::NON_STRICT,
+            IsDatetime ? DatelikeTargetType::DATE_TIME
+                       : DatelikeTargetType::DATE > (float_col.get_data()[i], val, 0, params))
+                [[likely]] {
             col_data.get_data()[i] = val;
             col_nullmap.get_data()[i] = false;
         } else {
@@ -514,7 +543,10 @@ Status DataTypeDateSerDe<T>::from_float_strict_mode_batch(
     CastParameters params {.status = Status::OK(), .is_strict = true};
     for (size_t i = 0; i < float_col.size(); ++i) {
         CppType val;
-        CastToDateOrDatetime::from_float<true, IsDatetime>(float_col.get_data()[i], val, params);
+        CastToDateOrDatetime::from_float<DatelikeParseMode::STRICT,
+                                         IsDatetime ? DatelikeTargetType::DATE_TIME
+                                                    : DatelikeTargetType::DATE>(
+                float_col.get_data()[i], val, 0, params);
         if (!params.status.ok()) [[unlikely]] {
             params.status.prepend(
                     fmt::format("parse {} to {} failed: ", float_col.get_data()[i], name()));
@@ -538,9 +570,12 @@ Status DataTypeDateSerDe<T>::from_decimal_batch(
     CastParameters params {.status = Status::OK(), .is_strict = false};
     for (size_t i = 0; i < decimal_col.size(); ++i) {
         CppType val;
-        if (CastToDateOrDatetime::from_decimal<true, IsDatetime>(
-                    decimal_col.get_intergral_part(i), decimal_col.get_fractional_part(i),
-                    decimal_col.get_scale(), val, params)) [[likely]] {
+        if (CastToDateOrDatetime::from_decimal < DatelikeParseMode::NON_STRICT,
+            IsDatetime ? DatelikeTargetType::DATE_TIME
+                       : DatelikeTargetType::DATE > (decimal_col.get_intergral_part(i),
+                                                     decimal_col.get_fractional_part(i),
+                                                     decimal_col.get_scale(), val, params))
+                [[likely]] {
             col_data.get_data()[i] = val;
             col_nullmap.get_data()[i] = false;
         } else {
@@ -561,9 +596,11 @@ Status DataTypeDateSerDe<T>::from_decimal_strict_mode_batch(
     CastParameters params {.status = Status::OK(), .is_strict = true};
     for (size_t i = 0; i < decimal_col.size(); ++i) {
         CppType val;
-        CastToDateOrDatetime::from_decimal<true, IsDatetime>(decimal_col.get_intergral_part(i),
-                                                             decimal_col.get_fractional_part(i),
-                                                             decimal_col.get_scale(), val, params);
+        CastToDateOrDatetime::from_decimal<DatelikeParseMode::STRICT,
+                                           IsDatetime ? DatelikeTargetType::DATE_TIME
+                                                      : DatelikeTargetType::DATE>(
+                decimal_col.get_intergral_part(i), decimal_col.get_fractional_part(i),
+                decimal_col.get_scale(), val, params);
         if (!params.status.ok()) [[unlikely]] {
             params.status.prepend(
                     fmt::format("parse {}.{} to {} failed: ", decimal_col.get_intergral_part(i),
@@ -576,6 +613,14 @@ Status DataTypeDateSerDe<T>::from_decimal_strict_mode_batch(
     return Status::OK();
 }
 
+// Serializes a DateV1 or DateTimeV1 value to its OLAP string representation for ZoneMap storage.
+// This is the inverse of from_olap_string().
+//
+// Internally calls VecDateTimeValue::to_string(buf) which produces:
+//   DateV1:     "YYYY-MM-DD"              e.g. "2023-10-15"
+//   DateTimeV1: "YYYY-MM-DD HH:MM:SS"    e.g. "2023-10-15 14:30:00"
+//
+// Note: DateTimeV1 never includes microseconds (VecDateTimeValue::microsecond() always returns 0).
 template <PrimitiveType T>
 std::string DataTypeDateSerDe<T>::to_olap_string(const Field& field) const {
     char buf[64];

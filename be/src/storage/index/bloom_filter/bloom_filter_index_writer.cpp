@@ -37,7 +37,6 @@
 #include "util/slice.h"
 
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 namespace {
 
 template <typename CppType>
@@ -179,7 +178,13 @@ Status PrimaryKeyBloomFilterIndexWriterImpl::add_values(const void* values, size
     const auto* v = (const Slice*)values;
     for (int i = 0; i < count; ++i) {
         Slice new_value;
-        RETURN_IF_CATCH_EXCEPTION(_type_info->deep_copy(&new_value, v, _arena));
+        new_value.size = v->size;
+        if (v->size > 0) {
+            new_value.data = _arena.alloc(v->size);
+            memcpy(new_value.data, v->data, v->size);
+        } else {
+            new_value.data = nullptr;
+        }
         _values.push_back(new_value);
         ++v;
     }
@@ -374,7 +379,7 @@ Status PrimaryKeyBloomFilterIndexWriterImpl::create(const BloomFilterOptions& bf
     case FieldType::OLAP_FIELD_TYPE_CHAR:
     case FieldType::OLAP_FIELD_TYPE_VARCHAR:
     case FieldType::OLAP_FIELD_TYPE_STRING:
-        *res = std::make_unique<PrimaryKeyBloomFilterIndexWriterImpl>(bf_options, typeinfo);
+        *res = std::make_unique<PrimaryKeyBloomFilterIndexWriterImpl>(bf_options);
         break;
     default:
         return Status::NotSupported("unsupported type for primary key bloom filter index:{}",
@@ -384,4 +389,3 @@ Status PrimaryKeyBloomFilterIndexWriterImpl::create(const BloomFilterOptions& bf
 }
 
 } // namespace doris::segment_v2
-#include "common/compile_check_end.h"

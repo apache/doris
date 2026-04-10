@@ -25,7 +25,6 @@
 #include "storage/index/bloom_filter/bloom_filter.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 /// Interface for string parsers.
 struct ITokenExtractor {
@@ -96,5 +95,4 @@ private:
     size_t n;
 };
 } // namespace doris
-#include "common/compile_check_end.h"
 #endif //DORIS_ITOKEN_EXTRACTOR_H

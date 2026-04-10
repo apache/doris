@@ -32,7 +32,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
 class DataTypeVarbinarySerDe : public DataTypeSerDe {
 public:
     DataTypeVarbinarySerDe(int nesting_level = 1) : DataTypeSerDe(nesting_level) {};
@@ -95,5 +94,4 @@ public:
                    const FormatOptions& options) const override;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

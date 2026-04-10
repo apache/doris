@@ -33,7 +33,6 @@ import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.analysis.LikePredicate.Operator;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.catalog.EsResource;
 
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -123,7 +122,7 @@ public final class QueryBuilders {
 
     public static QueryBuilder toEsDsl(Expr expr, Map<String, String> column2typeMap) {
         return toEsDsl(expr, new ArrayList<>(), new HashMap<>(),
-                BuilderOptions.builder().likePushDown(Boolean.parseBoolean(EsResource.LIKE_PUSH_DOWN_DEFAULT_VALUE))
+                BuilderOptions.builder().likePushDown(Boolean.parseBoolean(EsProperties.LIKE_PUSH_DOWN_DEFAULT_VALUE))
                         .build(), column2typeMap);
     }
 

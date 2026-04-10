@@ -29,9 +29,7 @@
 
 #include "common/status.h"
 #include "core/block/block.h"
-#include "exec/connector/jni_connector.h"
 #include "format/arrow/arrow_block_convertor.h"
-#include "format/arrow/arrow_row_batch.h"
 #include "runtime/user_function_cache.h"
 #include "udf/python/python_server.h"
 #include "udf/python/python_udf_client.h"

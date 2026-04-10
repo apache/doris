@@ -35,7 +35,6 @@
 #include "util/bitmap.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class OlapTableBlockConvertor {
 public:
@@ -120,4 +119,3 @@ private:
 };
 
 } // namespace doris
-#include "common/compile_check_end.h"

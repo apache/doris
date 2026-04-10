@@ -24,7 +24,6 @@
 #include "common/metrics/metrics.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(brpc_endpoint_stub_count, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(brpc_stream_endpoint_stub_count, MetricUnit::NOUNIT);
 
@@ -64,5 +63,4 @@ template <>
 BrpcClientCache<PFunctionService_Stub>::~BrpcClientCache() {
     DEREGISTER_HOOK_METRIC(brpc_function_endpoint_stub_count);
 }
-#include "common/compile_check_end.h"
 } // namespace doris

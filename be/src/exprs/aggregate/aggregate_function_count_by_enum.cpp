@@ -26,7 +26,6 @@
 #include "exprs/aggregate/helpers.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 AggregateFunctionPtr create_aggregate_function_count_by_enum(const std::string& name,
                                                              const DataTypes& argument_types,

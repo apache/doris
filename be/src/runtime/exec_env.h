@@ -50,7 +50,7 @@ class MemoryPool;
 
 namespace doris {
 class VDataStreamMgr;
-class SpillStreamManager;
+class SpillFileManager;
 class DeltaWriterV2Pool;
 class DictionaryFactory;
 class TaskScheduler;
@@ -121,6 +121,7 @@ class TabletColumnObjectPool;
 class UserFunctionCache;
 class SchemaCache;
 class StoragePageCache;
+class AnnIndexIVFListCache;
 class SegmentLoader;
 class LookupConnectionCache;
 class RowCache;
@@ -285,7 +286,9 @@ public:
     LoadStreamMgr* load_stream_mgr() { return _load_stream_mgr.get(); }
     NewLoadStreamMgr* new_load_stream_mgr() { return _new_load_stream_mgr.get(); }
     SmallFileMgr* small_file_mgr() { return _small_file_mgr; }
-    doris::SpillStreamManager* spill_stream_mgr() { return _spill_stream_mgr; }
+
+    SpillFileManager* spill_file_mgr() { return _spill_file_mgr; }
+
     GroupCommitMgr* group_commit_mgr() { return _group_commit_mgr; }
     CdcClientMgr* cdc_client_mgr() { return _cdc_client_mgr; }
 
@@ -338,6 +341,9 @@ public:
         this->_tablet_column_object_pool = c;
     }
     void set_storage_page_cache(StoragePageCache* c) { this->_storage_page_cache = c; }
+    void set_ann_index_ivf_list_cache(AnnIndexIVFListCache* c) {
+        this->_ann_index_ivf_list_cache = c;
+    }
     void set_segment_loader(SegmentLoader* sl) { this->_segment_loader = sl; }
     void set_routine_load_task_executor(RoutineLoadTaskExecutor* r) {
         this->_routine_load_task_executor = r;
@@ -375,6 +381,7 @@ public:
     TabletColumnObjectPool* get_tablet_column_object_pool() { return _tablet_column_object_pool; }
     SchemaCache* schema_cache() { return _schema_cache; }
     StoragePageCache* get_storage_page_cache() { return _storage_page_cache; }
+    AnnIndexIVFListCache* get_ann_index_ivf_list_cache() { return _ann_index_ivf_list_cache; }
     SegmentLoader* segment_loader() { return _segment_loader; }
     LookupConnectionCache* get_lookup_connection_cache() { return _lookup_connection_cache; }
     RowCache* get_row_cache() { return _row_cache; }
@@ -534,6 +541,7 @@ private:
     std::unique_ptr<BaseStorageEngine> _storage_engine;
     SchemaCache* _schema_cache = nullptr;
     StoragePageCache* _storage_page_cache = nullptr;
+    AnnIndexIVFListCache* _ann_index_ivf_list_cache = nullptr;
     SegmentLoader* _segment_loader = nullptr;
     LookupConnectionCache* _lookup_connection_cache = nullptr;
     RowCache* _row_cache = nullptr;
@@ -559,7 +567,8 @@ private:
 
     std::unique_ptr<PipelineTracerContext> _pipeline_tracer_ctx;
     std::unique_ptr<segment_v2::TmpFileDirs> _tmp_file_dirs;
-    doris::SpillStreamManager* _spill_stream_mgr = nullptr;
+
+    SpillFileManager* _spill_file_mgr = nullptr;
 
     orc::MemoryPool* _orc_memory_pool = nullptr;
     arrow::MemoryPool* _arrow_memory_pool = nullptr;

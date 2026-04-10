@@ -33,7 +33,6 @@
 #include "util/hash_util.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 VDataStreamMgr::VDataStreamMgr() {
     // TODO: metric

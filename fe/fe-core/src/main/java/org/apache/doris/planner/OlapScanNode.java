@@ -31,6 +31,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ColumnToThrift;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.HashDistributionInfo;
@@ -45,7 +46,6 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Tablet;
-import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -152,7 +152,6 @@ public class OlapScanNode extends ScanNode {
      */
     private boolean isPreAggregation = false;
     private String reasonOfPreAggregation = null;
-    private boolean forceOpenPreAgg = false;
     private OlapTable olapTable = null;
     private long totalTabletsNum = 0;
     private long selectedIndexId = -1;
@@ -237,20 +236,12 @@ public class OlapScanNode extends ScanNode {
         this.tableSample = tSample;
     }
 
-    public Set<Long> getNereidsPrunedTabletIds() {
-        return nereidsPrunedTabletIds;
-    }
-
     public void setNereidsPrunedTabletIds(Set<Long> nereidsPrunedTabletIds) {
         this.nereidsPrunedTabletIds = nereidsPrunedTabletIds;
     }
 
     public long getTotalTabletsNum() {
         return totalTabletsNum;
-    }
-
-    public boolean getForceOpenPreAgg() {
-        return forceOpenPreAgg;
     }
 
     public ArrayList<Long> getScanTabletIds() {
@@ -342,22 +333,10 @@ public class OlapScanNode extends ScanNode {
     }
 
 
-    private Collection<Long> partitionPrune(PartitionInfo partitionInfo,
-            PartitionNamesInfo partitionNamesInfo) throws AnalysisException {
+    private Collection<Long> partitionPrune(PartitionInfo partitionInfo) throws AnalysisException {
         PartitionPruner partitionPruner = null;
         Map<Long, PartitionItem> keyItemMap;
-        if (partitionNamesInfo != null) {
-            keyItemMap = Maps.newHashMap();
-            for (String partName : partitionNamesInfo.getPartitionNames()) {
-                Partition partition = olapTable.getPartition(partName, partitionNamesInfo.isTemp());
-                if (partition == null) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_SUCH_PARTITION, partName);
-                }
-                keyItemMap.put(partition.getId(), partitionInfo.getItem(partition.getId()));
-            }
-        } else {
-            keyItemMap = partitionInfo.getIdToItem(false);
-        }
+        keyItemMap = partitionInfo.getIdToItem(false);
         if (partitionInfo.getType() == PartitionType.RANGE) {
             if (isPointQuery() && partitionInfo.getPartitionColumns().size() == 1) {
                 // short circuit, a quick path to find partition
@@ -706,10 +685,9 @@ public class OlapScanNode extends ScanNode {
     private void computePartitionInfo() throws AnalysisException {
         long start = System.currentTimeMillis();
         // Step1: compute partition ids
-        PartitionNamesInfo partitionNames = desc.getRef().getPartitionNamesInfo();
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
         if (partitionInfo.getType() == PartitionType.RANGE || partitionInfo.getType() == PartitionType.LIST) {
-            selectedPartitionIds = partitionPrune(partitionInfo, partitionNames);
+            selectedPartitionIds = partitionPrune(partitionInfo);
         } else {
             selectedPartitionIds = olapTable.getPartitionIds();
         }
@@ -1104,7 +1082,7 @@ public class OlapScanNode extends ScanNode {
                     .map(Column::getName).collect(Collectors.toSet());
             olapTable.getColumnDesc(selectedIndexId, columnsDesc, keyColumnNames, keyColumnTypes,
                     materializedColumnNames);
-            columnsDesc.add(globalRowIdColumn.toThrift());
+            columnsDesc.add(ColumnToThrift.toThrift(globalRowIdColumn));
         } else {
             olapTable.getColumnDesc(selectedIndexId, columnsDesc, keyColumnNames, keyColumnTypes);
 
@@ -1129,7 +1107,7 @@ public class OlapScanNode extends ScanNode {
         // get correct table_schema.
         for (SlotDescriptor slot : desc.getSlots()) {
             if (slot.getVirtualColumn() != null) {
-                TColumn tColumn = slot.getColumn().toThrift();
+                TColumn tColumn = ColumnToThrift.toThrift(slot.getColumn());
                 columnsDesc.add(tColumn);
             }
         }
@@ -1198,6 +1176,19 @@ public class OlapScanNode extends ScanNode {
         msg.olap_scan_node.setTableName(tableName);
         msg.olap_scan_node.setEnableUniqueKeyMergeOnWrite(olapTable.getEnableUniqueKeyMergeOnWrite());
 
+        // Set MOR value predicate pushdown flag based on session variable
+        if (olapTable.isMorTable() && ConnectContext.get() != null) {
+            String dbName = olapTable.getQualifiedDbName();
+            String tblName = olapTable.getName();
+            boolean enabled = ConnectContext.get().getSessionVariable()
+                    .isMorValuePredicatePushdownEnabled(dbName, tblName);
+            msg.olap_scan_node.setEnableMorValuePredicatePushdown(enabled);
+            if (ConnectContext.get().getSessionVariable()
+                    .isReadMorAsDupEnabled(dbName, tblName)) {
+                msg.olap_scan_node.setReadMorAsDup(true);
+            }
+        }
+
         msg.setPushDownAggTypeOpt(pushDownAggNoGroupingOp);
 
         msg.olap_scan_node.setPushDownAggTypeOpt(pushDownAggNoGroupingOp);
@@ -1236,7 +1227,16 @@ public class OlapScanNode extends ScanNode {
                 .flatMap(tupleId -> normalizer.getDescriptorTable().getTupleDesc(tupleId).getSlots().stream())
                 .collect(Collectors.toList());
         List<Pair<SlotId, String>> selectColumns = slots.stream()
-                .map(slot -> Pair.of(slot.getId(), slot.getColumn().getName()))
+                .map(slot -> {
+                    // For variant subcolumns, use the materialized column name (e.g. "data.int_1")
+                    // to distinguish different subcolumns of the same variant column in cache digest.
+                    List<String> subColPath = slot.getSubColLables();
+                    String colName = slot.getColumn().getName();
+                    if (subColPath != null && !subColPath.isEmpty()) {
+                        colName = colName + "." + String.join(".", subColPath);
+                    }
+                    return Pair.of(slot.getId(), colName);
+                })
                 .collect(Collectors.toList());
         for (Column partitionColumn : olapTable.getPartitionInfo().getPartitionColumns()) {
             boolean selectPartitionColumn = false;
@@ -1310,11 +1310,6 @@ public class OlapScanNode extends ScanNode {
     public TupleId getTupleId() {
         Preconditions.checkNotNull(desc);
         return desc.getId();
-    }
-
-    @VisibleForTesting
-    public String getReasonOfPreAggregation() {
-        return reasonOfPreAggregation;
     }
 
     @VisibleForTesting

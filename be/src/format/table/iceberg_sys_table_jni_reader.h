@@ -26,8 +26,8 @@
 #include <vector>
 
 #include "common/status.h"
-#include "format/jni_reader.h"
-#include "storage/olap_scan_common.h"
+#include "format/jni/jni_reader.h"
+#include "storage/olap_common.h"
 
 namespace doris {
 class RuntimeProfile;
@@ -37,7 +37,6 @@ class Block;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class IcebergSysTableJniReader : public JniReader {
     ENABLE_FACTORY_CREATOR(IcebergSysTableJniReader);
@@ -45,15 +44,16 @@ class IcebergSysTableJniReader : public JniReader {
 public:
     IcebergSysTableJniReader(const std::vector<SlotDescriptor*>& file_slot_descs,
                              RuntimeState* state, RuntimeProfile* profile,
-                             const TMetaScanRange& meta_scan_range);
+                             const TFileRangeDesc& range, const TFileScanRangeParams* range_params);
 
     ~IcebergSysTableJniReader() override = default;
+
+    static Status validate_scan_range(const TFileRangeDesc& range);
 
     Status init_reader();
 
 private:
-    const TMetaScanRange& _meta_scan_range;
+    Status _init_status;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

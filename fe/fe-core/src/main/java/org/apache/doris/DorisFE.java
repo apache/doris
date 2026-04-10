@@ -18,6 +18,7 @@
 package org.apache.doris;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cluster.ClusterGuardFactory;
 import org.apache.doris.common.CommandLineOptions;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -31,6 +32,7 @@ import org.apache.doris.common.lock.DeadlockMonitor;
 import org.apache.doris.common.util.JdkUtils;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.FileCacheAdmissionManager;
 import org.apache.doris.httpv2.HttpServer;
 import org.apache.doris.journal.bdbje.BDBDebugger;
 import org.apache.doris.journal.bdbje.BDBTool;
@@ -191,6 +193,7 @@ public class DorisFE {
             }
 
             fuzzyConfigs();
+            initClusterGuard(dorisHomeDir);
 
             LOG.info("Doris FE starting...");
 
@@ -224,6 +227,10 @@ public class DorisFE {
             // init catalog and wait it be ready
             Env.getCurrentEnv().initialize(args);
             Env.getCurrentEnv().waitForReady();
+
+            if (Config.enable_file_cache_admission_control) {
+                FileCacheAdmissionManager.getInstance().loadOnStartup();
+            }
 
             // init and start:
             // 1. HttpServer for HTTP Server
@@ -588,6 +595,11 @@ public class DorisFE {
                 LOG.warn("release process lock file failed", ignored);
             }
         }
+    }
+
+    private static void initClusterGuard(String dorisHomeDir) throws Exception {
+        ClusterGuardFactory.getGuard().onStartup(dorisHomeDir);
+        LOG.info("Cluster guard initialized successfully.");
     }
 
     public static void overwriteConfigs() {

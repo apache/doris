@@ -77,6 +77,7 @@ public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
         BACKEND_TABLE.add("backend_configuration");
 
         BACKEND_TABLE.add("column_data_sizes");
+        BACKEND_TABLE.add("be_compaction_tasks");
     }
 
     public static boolean isBackendPartitionedSchemaTable(String tableName) {

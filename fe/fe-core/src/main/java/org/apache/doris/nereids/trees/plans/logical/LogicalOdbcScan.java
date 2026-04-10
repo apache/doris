@@ -21,6 +21,7 @@ import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -70,24 +71,28 @@ public class LogicalOdbcScan extends LogicalCatalogRelation {
 
     @Override
     public LogicalOdbcScan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalOdbcScan(relationId, table, qualifier, groupExpression,
-                Optional.of(getLogicalProperties()), tableAlias);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalOdbcScan(relationId, table, qualifier, groupExpression,
+                Optional.of(getLogicalProperties()), tableAlias));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalOdbcScan(relationId, table, qualifier, groupExpression, logicalProperties, tableAlias);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalOdbcScan(relationId, table, qualifier, groupExpression, logicalProperties, tableAlias));
     }
 
     @Override
     public LogicalOdbcScan withRelationId(RelationId relationId) {
-        return new LogicalOdbcScan(relationId, table, qualifier, Optional.empty(), Optional.empty(), tableAlias);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalOdbcScan(relationId, table, qualifier, Optional.empty(), Optional.empty(), tableAlias));
     }
 
     public LogicalOdbcScan withTableAlias(String tableAlias) {
-        return new LogicalOdbcScan(relationId, table, qualifier, Optional.empty(),
-                Optional.of(getLogicalProperties()), tableAlias);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalOdbcScan(relationId, table, qualifier, Optional.empty(),
+                Optional.of(getLogicalProperties()), tableAlias));
     }
 
     @Override

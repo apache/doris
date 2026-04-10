@@ -24,7 +24,6 @@
 #include "exec/common/ipv6_to_binary.h"
 #include "util/sse_util.hpp"
 namespace doris {
-#include "common/compile_check_begin.h"
 
 static inline std::pair<UInt32, UInt32> apply_cidr_mask(UInt32 src, UInt8 bits_to_keep) {
     if (bits_to_keep >= 8 * sizeof(UInt32)) {
@@ -116,7 +115,7 @@ inline bool match_ipv6_subnet(const uint8_t* addr, const uint8_t* cidr_addr, uin
     uint16_t mask = (uint16_t)_mm_movemask_epi8(
             _mm_cmpeq_epi8(_mm_loadu_si128(reinterpret_cast<const __m128i*>(addr)),
                            _mm_loadu_si128(reinterpret_cast<const __m128i*>(cidr_addr))));
-    mask = ~mask;
+    mask = static_cast<uint16_t>(~mask);
 
     if (mask) {
         const auto offset = std::countl_zero(mask);
@@ -202,4 +201,3 @@ inline bool is_address_in_range(const IPAddressVariant& address, const IPAddress
 }
 
 } // namespace doris
-#include "common/compile_check_end.h"

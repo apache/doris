@@ -25,9 +25,9 @@
 #include "runtime/runtime_state.h"
 #include "storage/index/inverted/query/query_info.h"
 #include "storage/olap_common.h"
+#include "storage/predicate_collector.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 namespace io {
 class FileSystem;
@@ -43,18 +43,6 @@ using RowsetSharedPtr = std::shared_ptr<Rowset>;
 class TabletIndex;
 class TabletSchema;
 using TabletSchemaSPtr = std::shared_ptr<TabletSchema>;
-
-struct TermInfoComparer {
-    bool operator()(const segment_v2::TermInfo& lhs, const segment_v2::TermInfo& rhs) const {
-        return lhs.term < rhs.term;
-    }
-};
-
-class CollectInfo {
-public:
-    std::set<segment_v2::TermInfo, TermInfoComparer> term_infos;
-    const TabletIndex* index_meta = nullptr;
-};
 
 class CollectionStatistics {
 public:
@@ -73,10 +61,9 @@ private:
     Status extract_collect_info(RuntimeState* state,
                                 const VExprContextSPtrs& common_expr_ctxs_push_down,
                                 const TabletSchemaSPtr& tablet_schema,
-                                std::unordered_map<std::wstring, CollectInfo>* collect_infos);
+                                CollectInfoMap* collect_infos);
     Status process_segment(const RowsetSharedPtr& rowset, int32_t seg_id,
-                           const TabletSchema* tablet_schema,
-                           const std::unordered_map<std::wstring, CollectInfo>& collect_infos,
+                           const TabletSchema* tablet_schema, const CollectInfoMap& collect_infos,
                            io::IOContext* io_ctx);
 
     uint64_t get_term_doc_freq_by_col(const std::wstring& lucene_col_name,
@@ -94,8 +81,8 @@ private:
     MOCK_DEFINE(friend class BM25SimilarityTest;)
     MOCK_DEFINE(friend class CollectionStatisticsTest;)
     MOCK_DEFINE(friend class BooleanQueryTest;)
+    MOCK_DEFINE(friend class OccurBooleanQueryTest;)
 };
 using CollectionStatisticsPtr = std::shared_ptr<CollectionStatistics>;
 
-#include "common/compile_check_end.h"
 } // namespace doris

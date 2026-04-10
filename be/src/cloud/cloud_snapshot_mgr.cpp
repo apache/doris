@@ -51,7 +51,6 @@
 #include "util/uid_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 CloudSnapshotMgr::CloudSnapshotMgr(CloudStorageEngine& engine) : _engine(engine) {
@@ -306,5 +305,4 @@ Status CloudSnapshotMgr::_rename_index_ids(TabletSchemaPB& schema_pb,
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

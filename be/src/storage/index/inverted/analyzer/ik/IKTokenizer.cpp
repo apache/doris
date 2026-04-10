@@ -18,7 +18,6 @@
 #include "storage/index/inverted/analyzer/ik/IKTokenizer.h"
 
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 
 IKTokenizer::IKTokenizer(std::shared_ptr<Configuration> config, bool lower_case, bool own_reader) {
     this->lowercase = lower_case;
@@ -64,5 +63,4 @@ void IKTokenizer::reset(lucene::util::Reader* reader) {
     data_length_ = static_cast<int32_t>(tokens_text_.size());
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

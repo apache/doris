@@ -34,7 +34,6 @@
 #include "core/types.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class BufferWritable;
 class IColumn;
 
@@ -60,16 +59,7 @@ public:
     }
 #endif
     static void cast_to_date(VecDateTimeValue& x);
-    Field get_field(const TExprNode& node) const override {
-        VecDateTimeValue value;
-        if (value.from_date_str(node.date_literal.value.c_str(), node.date_literal.value.size())) {
-            value.cast_to_date();
-            return Field::create_field<TYPE_DATE>(std::move(value));
-        } else {
-            throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
-                                   "Invalid value: {} for type Date", node.date_literal.value);
-        }
-    }
+    Field get_field(const TExprNode& node) const override;
 
     MutableColumnPtr create_column() const override;
 
@@ -78,5 +68,4 @@ public:
         return std::make_shared<SerDeType>(nesting_level);
     }
 };
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -94,6 +94,14 @@ public:
     static bool parse_snapshot_versionstamp(std::string_view snapshot_id,
                                             Versionstamp* versionstamp);
 
+    // Get all snapshots of the specific instance.
+    //
+    // If the instance is created by rollback, also get the snapshots of all its predecessor instances.
+    // If the required_snapshot_id is not empty, only get the snapshot with the specific snapshot_id.
+    static std::pair<MetaServiceCode, std::string> get_all_snapshots(
+            Transaction* txn, std::string_view instance_id, std::string_view required_snapshot_id,
+            std::vector<std::pair<SnapshotPB, Versionstamp>>* snapshots);
+
     // Migrate the single version keys to multi-version keys for the instance.
     // Return 0 for success otherwise error.
     virtual int migrate_to_versioned_keys(InstanceDataMigrator* migrator);

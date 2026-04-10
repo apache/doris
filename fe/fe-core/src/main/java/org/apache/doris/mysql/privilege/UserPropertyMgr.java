@@ -28,6 +28,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.authenticate.AuthenticateType;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 
@@ -266,13 +267,22 @@ public class UserPropertyMgr implements Writable {
      * The method determines which user property to return based on the existProperty parameter
      * and system configuration:
      * If existProperty is not null, return it directly.
+     * If the current session is a temp external-auth session, return DEFAULT_USER_PROPERTY.
      * If the authentication type is LDAP and the user exists in LDAP, return DEFAULT_USER_PROPERTY.
      * If the authentication type is not the default type, return DEFAULT_USER_PROPERTY.
      * Otherwise, return existProperty.
+     *
+     * Note: Previously this method called LdapManager.doesUserExist() to check LDAP,
+     * but that was redundant: when authentication_type=LDAP (non-default), the fallback
+     * condition already returns DEFAULT_USER_PROPERTY. The LDAP call caused runtime
+     * network queries that could hang under Auth read lock, blocking all new connections.
      */
     private UserProperty getPropertyIfNull(String qualifiedUser, UserProperty existProperty) {
         if (null != existProperty) {
             return existProperty;
+        }
+        if (useDefaultPropertyForExternalTempUser(qualifiedUser)) {
+            return DEFAULT_USER_PROPERTY;
         }
         if (AuthenticateType.LDAP.name().equalsIgnoreCase(Config.authentication_type)
                 && Env.getCurrentEnv().getAuth().getLdapManager().doesUserExist(qualifiedUser)) {
@@ -282,6 +292,15 @@ public class UserPropertyMgr implements Writable {
             return DEFAULT_USER_PROPERTY;
         }
         return existProperty;
+    }
+
+    private boolean useDefaultPropertyForExternalTempUser(String qualifiedUser) {
+        ConnectContext ctx = ConnectContext.get();
+        return ctx != null
+                && ctx.getIsTempUser()
+                && ctx.getAuthenticatedPrincipal() != null
+                && qualifiedUser != null
+                && qualifiedUser.equals(ctx.getQualifiedUser());
     }
 
     public static UserPropertyMgr read(DataInput in) throws IOException {

@@ -34,7 +34,6 @@
 #include "util/uuid_generator.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 bvar::Adder<uint64_t> cumu_output_size("cumu_compaction", "output_size");
@@ -290,6 +289,22 @@ Status CloudCumulativeCompaction::modify_rowsets() {
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
         LOG(INFO) << "CloudCumulativeCompaction::modify_rowsets.enable_spin_wait, exit";
+    });
+
+    // Block only NOTREADY tablets (SC new tablets) before compaction commit.
+    // RUNNING tablets (system tables, base tablets) are not affected.
+    DBUG_EXECUTE_IF("CloudCumulativeCompaction::modify_rowsets.block_notready", {
+        if (_tablet->tablet_state() == TABLET_NOTREADY) {
+            LOG(INFO) << "block NOTREADY tablet compaction before commit"
+                      << ", tablet_id=" << _tablet->tablet_id() << ", output=["
+                      << _input_rowsets.front()->start_version() << "-"
+                      << _input_rowsets.back()->end_version() << "]";
+            while (DebugPoints::instance()->is_enable(
+                    "CloudCumulativeCompaction::modify_rowsets.block_notready")) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            }
+            LOG(INFO) << "release NOTREADY tablet compaction, tablet_id=" << _tablet->tablet_id();
+        }
     });
 
     DeleteBitmapPtr output_rowset_delete_bitmap = nullptr;
@@ -642,5 +657,4 @@ void CloudCumulativeCompaction::do_lease() {
     }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

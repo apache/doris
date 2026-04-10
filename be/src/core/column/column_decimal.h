@@ -43,7 +43,6 @@
 class SipHash;
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class Arena;
 class ColumnSorter;
 /// PaddedPODArray extended by Decimal scale
@@ -312,4 +311,3 @@ using ColumnDecimal128V3 = ColumnDecimal<TYPE_DECIMAL128I>;
 using ColumnDecimal256 = ColumnDecimal<TYPE_DECIMAL256>;
 
 } // namespace doris
-#include "common/compile_check_end.h"

@@ -38,7 +38,6 @@
 #include "util/time.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class SegmentCacheHandle;
 class BetaRowset;
@@ -198,5 +197,4 @@ private:
     DISALLOW_COPY_AND_ASSIGN(SegmentCacheHandle);
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

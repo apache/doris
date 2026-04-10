@@ -92,7 +92,7 @@ public class PruneOlapScanPartition implements RewriteRuleFactory {
                         } else {
                             return PartitionPruner.prunePredicate(
                                     ctx.connectContext.getSessionVariable().skipPrunePredicate
-                                            || ctx.statementContext.isSkipPrunePredicate(),
+                                            || ctx.statementContext.isDelete(),
                                     prunedRes.second, filter, rewrittenLogicalRelation);
                         }
                     }).toRule(RuleType.OLAP_SCAN_PARTITION_PRUNE)

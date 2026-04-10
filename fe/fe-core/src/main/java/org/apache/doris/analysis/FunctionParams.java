@@ -20,13 +20,9 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.thrift.TAggregateExpr;
-import org.apache.doris.thrift.TTypeDesc;
-
 import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
@@ -74,20 +70,6 @@ public class FunctionParams {
         return new FunctionParams(isDistinct(), children);
     }
 
-    public TAggregateExpr createTAggregateExpr(boolean isMergeAggFn) {
-        List<TTypeDesc> paramTypes = new ArrayList<>();
-        if (exprs != null) {
-            for (Expr expr : exprs) {
-                TTypeDesc desc = expr.getType().toThrift();
-                desc.setIsNullable(expr.isNullable());
-                paramTypes.add(desc);
-            }
-        }
-        TAggregateExpr aggExpr = new TAggregateExpr(isMergeAggFn);
-        aggExpr.setParamTypes(paramTypes);
-        return aggExpr;
-    }
-
     public boolean isStar() {
         return isStar;
     }
@@ -98,10 +80,6 @@ public class FunctionParams {
 
     public List<Expr> exprs() {
         return exprs;
-    }
-
-    public void setIsDistinct(boolean v) {
-        isDistinct = v;
     }
 
     @Override

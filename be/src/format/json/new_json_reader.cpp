@@ -73,7 +73,6 @@ enum class FileCachePolicy : uint8_t;
 } // namespace doris::io
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 NewJsonReader::NewJsonReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
@@ -171,6 +170,9 @@ void NewJsonReader::_init_file_description() {
     if (_range.__isset.fs_name) {
         _file_description.fs_name = _range.fs_name;
     }
+    if (_range.__isset.file_cache_admission) {
+        _file_description.file_cache_admission = _range.file_cache_admission;
+    }
 }
 
 Status NewJsonReader::init_reader(
@@ -201,8 +203,13 @@ Status NewJsonReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
     }
 
     const int batch_size = std::max(_state->batch_size(), (int)_MIN_BATCH_SIZE);
+    const int64_t max_block_bytes =
+            (_state->query_type() == TQueryType::LOAD && config::load_reader_max_block_bytes > 0)
+                    ? config::load_reader_max_block_bytes
+                    : 0;
 
-    while (block->rows() < batch_size && !_reader_eof) {
+    while (block->rows() < batch_size && !_reader_eof &&
+           (max_block_bytes <= 0 || (int64_t)block->bytes() < max_block_bytes)) {
         if (UNLIKELY(_read_json_by_line && _skip_first_line)) {
             size_t size = 0;
             const uint8_t* line_ptr = nullptr;
@@ -1583,5 +1590,4 @@ void NewJsonReader::_collect_profile_before_close() {
     }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

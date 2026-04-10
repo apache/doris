@@ -25,7 +25,6 @@
 #include "exprs/function/cast/cast_to_time_impl.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 Status DataTypeTimeV2SerDe::write_column_to_mysql_binary(const IColumn& column,
                                                          MysqlRowBinaryBuffer& result,
@@ -82,7 +81,8 @@ Status DataTypeTimeV2SerDe::from_string_strict_mode_batch(
         }
         auto str = col_str.get_data_at(i);
         TimeValue::TimeType res;
-        CastToTimeV2::from_string_strict_mode<true>(str, res, options.timezone, _scale, params);
+        CastToTimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(str, res, options.timezone,
+                                                                         _scale, params);
         // only after we called something with `IS_STRICT = true`, params.status will be set
         if (!params.status.ok()) [[unlikely]] {
             params.status.prepend(fmt::format("parse {} to time failed: ", str.to_string_view()));
@@ -133,7 +133,8 @@ Status DataTypeTimeV2SerDe::from_string_strict_mode(StringRef& str, IColumn& col
 
     CastParameters params {.status = Status::OK(), .is_strict = true};
     TimeValue::TimeType res;
-    CastToTimeV2::from_string_strict_mode<true>(str, res, options.timezone, _scale, params);
+    CastToTimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(str, res, options.timezone,
+                                                                     _scale, params);
     // only after we called something with `IS_STRICT = true`, params.status will be set
     if (!params.status.ok()) [[unlikely]] {
         params.status.prepend(fmt::format("parse {} to time failed: ", str.to_string_view()));
@@ -155,7 +156,8 @@ Status DataTypeTimeV2SerDe::from_int_batch(const typename IntDataType::ColumnTyp
     CastParameters params {.status = Status::OK(), .is_strict = false};
     for (size_t i = 0; i < int_col.size(); ++i) {
         TimeValue::TimeType val = 0;
-        if (CastToTimeV2::from_integer<false>(int_col.get_element(i), val, params)) [[likely]] {
+        if (CastToTimeV2::from_integer<DatelikeParseMode::NON_STRICT>(int_col.get_element(i), val,
+                                                                      params)) [[likely]] {
             col_data.get_data()[i] = val;
             col_nullmap.get_data()[i] = false;
         } else {
@@ -175,7 +177,7 @@ Status DataTypeTimeV2SerDe::from_int_strict_mode_batch(
     CastParameters params {.status = Status::OK(), .is_strict = true};
     for (size_t i = 0; i < int_col.size(); ++i) {
         TimeValue::TimeType val = 0;
-        CastToTimeV2::from_integer<true>(int_col.get_element(i), val, params);
+        CastToTimeV2::from_integer<DatelikeParseMode::STRICT>(int_col.get_element(i), val, params);
         if (!params.status.ok()) [[unlikely]] {
             params.status.prepend(fmt::format("parse {} to time failed: ", int_col.get_element(i)));
             return params.status;
@@ -197,8 +199,8 @@ Status DataTypeTimeV2SerDe::from_float_batch(const typename FloatDataType::Colum
     CastParameters params {.status = Status::OK(), .is_strict = false};
     for (size_t i = 0; i < float_col.size(); ++i) {
         TimeValue::TimeType val = 0;
-        if (CastToTimeV2::from_float<false>(float_col.get_data()[i], val, _scale, params))
-                [[likely]] {
+        if (CastToTimeV2::from_float<DatelikeParseMode::NON_STRICT>(float_col.get_data()[i], val,
+                                                                    _scale, params)) [[likely]] {
             col_data.get_data()[i] = val;
             col_nullmap.get_data()[i] = false;
         } else {
@@ -218,7 +220,8 @@ Status DataTypeTimeV2SerDe::from_float_strict_mode_batch(
     CastParameters params {.status = Status::OK(), .is_strict = true};
     for (size_t i = 0; i < float_col.size(); ++i) {
         TimeValue::TimeType val = 0;
-        CastToTimeV2::from_float<true>(float_col.get_data()[i], val, _scale, params);
+        CastToTimeV2::from_float<DatelikeParseMode::STRICT>(float_col.get_data()[i], val, _scale,
+                                                            params);
         if (!params.status.ok()) [[unlikely]] {
             params.status.prepend(
                     fmt::format("parse {} to time failed: ", float_col.get_data()[i]));
@@ -241,7 +244,7 @@ Status DataTypeTimeV2SerDe::from_decimal_batch(
     CastParameters params {.status = Status::OK(), .is_strict = false};
     for (size_t i = 0; i < decimal_col.size(); ++i) {
         TimeValue::TimeType val = 0;
-        if (CastToTimeV2::from_decimal<true>(
+        if (CastToTimeV2::from_decimal<DatelikeParseMode::NON_STRICT>(
                     decimal_col.get_intergral_part(i), decimal_col.get_fractional_part(i),
                     decimal_col.get_scale(), val, _scale, params)) [[likely]] {
             col_data.get_data()[i] = val;
@@ -263,9 +266,9 @@ Status DataTypeTimeV2SerDe::from_decimal_strict_mode_batch(
     CastParameters params {.status = Status::OK(), .is_strict = true};
     for (size_t i = 0; i < decimal_col.size(); ++i) {
         TimeValue::TimeType val = 0;
-        CastToTimeV2::from_decimal<true>(decimal_col.get_intergral_part(i),
-                                         decimal_col.get_fractional_part(i),
-                                         decimal_col.get_scale(), val, _scale, params);
+        CastToTimeV2::from_decimal<DatelikeParseMode::STRICT>(
+                decimal_col.get_intergral_part(i), decimal_col.get_fractional_part(i),
+                decimal_col.get_scale(), val, _scale, params);
         if (!params.status.ok()) [[unlikely]] {
             params.status.prepend(
                     fmt::format("parse {}.{} to time failed: ", decimal_col.get_intergral_part(i),

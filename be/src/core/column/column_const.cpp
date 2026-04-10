@@ -32,7 +32,6 @@
 #include "core/typeid_cast.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 ColumnPtr squash_const(const ColumnPtr& col) {
     ColumnPtr res = col;

@@ -72,7 +72,6 @@
 #include "storage/segment/column_reader.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class RowDescriptor;
 class RuntimeState;
@@ -1101,5 +1100,4 @@ Status VExpr::execute_filter(VExprContext* context, const Block* block,
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

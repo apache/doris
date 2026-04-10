@@ -27,7 +27,6 @@ class IColumn;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 struct ColumnArrayMutableData {
 public:
@@ -57,6 +56,8 @@ public:
     DataTypePtr nested_type = nullptr;
     // wrap the nested column as variant column
     bool output_as_variant = false;
+    // propagate enable_doc_mode when wrapping as variant
+    bool variant_enable_doc_mode = false;
 
     ColumnArrayMutableData to_mutable_data() const {
         ColumnArrayMutableData dst;
@@ -96,5 +97,4 @@ void slice_array(ColumnArrayMutableData& dst, ColumnArrayExecutionData& src,
                  const IColumn& offset_column, const IColumn* length_column);
 
 using ColumnArrayExecutionDatas = std::vector<ColumnArrayExecutionData>;
-#include "common/compile_check_end.h"
 } // namespace doris

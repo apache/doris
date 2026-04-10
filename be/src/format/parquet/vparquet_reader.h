@@ -64,10 +64,10 @@ class FileMetaData;
 class PageIndex;
 class ShardedKVCache;
 class VExprContext;
+struct RowLineageColumns;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class ParquetReader : public GenericReader {
     ENABLE_FACTORY_CREATOR(ParquetReader);
 
@@ -171,7 +171,22 @@ public:
         _row_id_column_iterator_pair = iterator_pair;
     }
 
+    void set_iceberg_rowid_params(const std::string& file_path, int32_t partition_spec_id,
+                                  const std::string& partition_data_json, int row_id_column_pos);
+
+    void set_row_lineage_columns(std::shared_ptr<RowLineageColumns> row_lineage_columns) {
+        _row_lineage_columns = std::move(row_lineage_columns);
+    }
+
     bool count_read_rows() override { return true; }
+
+    void set_condition_cache_context(std::shared_ptr<ConditionCacheContext> ctx) override;
+
+    int64_t get_total_rows() const override;
+
+    bool has_delete_operations() const override {
+        return _delete_rows != nullptr && !_delete_rows->empty();
+    }
 
 protected:
     void _collect_profile_before_close() override;
@@ -241,7 +256,7 @@ private:
             RowRanges* candidate_row_ranges);
 
     // check this range contain this row group.
-    bool _is_misaligned_range_group(const tparquet::RowGroup& row_group);
+    bool _is_misaligned_range_group(const tparquet::RowGroup& row_group) const;
 
     // Row Group min-max Filter
     Status _process_column_stat_filter(
@@ -262,7 +277,8 @@ private:
             const std::vector<std::unique_ptr<MutilColumnBlockPredicate>>& push_down_pred,
             RowRanges* row_ranges);
 
-    int64_t _get_column_start_offset(const tparquet::ColumnMetaData& column_init_column_readers);
+    int64_t _get_column_start_offset(
+            const tparquet::ColumnMetaData& column_init_column_readers) const;
     std::string _meta_cache_key(const std::string& path) { return "meta_" + path; }
     std::vector<io::PrefetchRange> _generate_random_access_ranges(
             const RowGroupReader::RowGroupIndex& group, size_t* avg_io_size);
@@ -304,6 +320,8 @@ private:
     bool _row_group_eof = true;
     size_t _total_groups; // num of groups(stripes) of a parquet(orc) file
 
+    std::shared_ptr<ConditionCacheContext> _condition_cache_ctx;
+
     // Through this node, you can find the file column based on the table column.
     std::shared_ptr<TableSchemaChangeHelper::Node> _table_info_node_ptr =
             TableSchemaChangeHelper::ConstNode::get_instance();
@@ -322,6 +340,10 @@ private:
 
     // parquet file reader object
     size_t _batch_size;
+    // Bytes-per-row estimate from the previous batch, used to pre-shrink _batch_size
+    // before reading so that oversized blocks are prevented from the current call onward.
+    // Zero means no prior data (first batch).
+    size_t _load_bytes_per_row = 0;
     int64_t _range_start_offset;
     int64_t _range_size;
     const cctz::time_zone* _ctz = nullptr;
@@ -351,7 +373,11 @@ private:
 
     std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> _row_id_column_iterator_pair = {nullptr,
                                                                                            -1};
+    std::shared_ptr<RowLineageColumns> _row_lineage_columns;
+
+protected:
     bool _filter_groups = true;
+    RowGroupReader::IcebergRowIdParams _iceberg_rowid_params;
 
     std::set<uint64_t> _column_ids;
     std::set<uint64_t> _filter_column_ids;
@@ -361,6 +387,5 @@ private:
     std::vector<std::unique_ptr<MutilColumnBlockPredicate>> _push_down_predicates;
     Arena _arena;
 };
-#include "common/compile_check_end.h"
 
 } // namespace doris

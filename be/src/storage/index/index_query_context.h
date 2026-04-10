@@ -21,7 +21,6 @@
 #include "storage/compaction/collection_statistics.h"
 
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 
 struct IndexQueryContext {
     io::IOContext* io_ctx = nullptr;
@@ -30,8 +29,10 @@ struct IndexQueryContext {
 
     CollectionStatisticsPtr collection_statistics;
     CollectionSimilarityPtr collection_similarity;
+
+    size_t query_limit = 0;
+    bool is_asc = false;
 };
 using IndexQueryContextPtr = std::shared_ptr<IndexQueryContext>;
 
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

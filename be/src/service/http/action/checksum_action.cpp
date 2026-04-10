@@ -31,7 +31,6 @@
 #include "storage/task/engine_checksum_task.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 const std::string TABLET_ID = "tablet_id";
 // do not use name "VERSION",
@@ -120,5 +119,4 @@ int64_t ChecksumAction::do_checksum(int64_t tablet_id, int64_t version, int32_t 
     return static_cast<int64_t>(checksum);
 }
 
-#include "common/compile_check_end.h"
 } // end namespace doris

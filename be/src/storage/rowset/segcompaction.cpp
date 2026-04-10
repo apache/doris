@@ -65,7 +65,6 @@
 #include "util/time.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 SegcompactionWorker::SegcompactionWorker(BetaRowsetWriter* writer) : _writer(writer) {}
@@ -472,5 +471,4 @@ bool SegcompactionWorker::cancel() {
     return _is_compacting_state_mutable.exchange(false);
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

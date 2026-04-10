@@ -59,6 +59,8 @@ public:
     Status copy_path(const Path& src, const Path& dest);
     // return true if parent path contain sub path
     static bool contain_path(const Path& parent, const Path& sub);
+    // return true if `parent` equals `child` or contains it as a descendant path.
+    static bool equal_or_sub_path(const Path& parent, const Path& child);
     // delete dir or file
     Status delete_directory_or_file(const Path& path);
     // change the file permission of the given path

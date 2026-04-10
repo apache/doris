@@ -20,17 +20,15 @@
 #include <string>
 
 namespace doris {
-#include "common/compile_check_begin.h"
 // Constructed from session variables.
 struct VectorSearchUserParams {
     int hnsw_ef_search = 32;
     bool hnsw_check_relative_distance = true;
     bool hnsw_bounded_queue = true;
-    int ivf_nprobe = 1;
+    int ivf_nprobe = 32;
 
     bool operator==(const VectorSearchUserParams& other) const;
 
     std::string to_string() const;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

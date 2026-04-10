@@ -35,7 +35,6 @@ struct JsonbValue;
 
 class IColumn;
 class Arena;
-#include "common/compile_check_begin.h"
 
 inline void escape_string(char* src, size_t* len, char escape_char) {
     const char* start = src;
@@ -101,8 +100,6 @@ public:
 
     Status from_string(StringRef& str, IColumn& column,
                        const FormatOptions& options) const override;
-    Status from_olap_string(const std::string& str, Field& field,
-                            const FormatOptions& options) const override;
 
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override;
@@ -265,6 +262,10 @@ public:
 
     std::string to_olap_string(const Field& field) const override;
 
+protected:
+    Status from_olap_string(const std::string& str, Field& field,
+                            const FormatOptions& options) const override;
+
 private:
     const PrimitiveType _type;
     const int _len = -1;
@@ -272,5 +273,4 @@ private:
 
 using DataTypeStringSerDe = DataTypeStringSerDeBase<ColumnString>;
 using DataTypeFixedLengthObjectSerDe = DataTypeStringSerDeBase<ColumnFixedLengthObject>;
-#include "common/compile_check_end.h"
 } // namespace doris

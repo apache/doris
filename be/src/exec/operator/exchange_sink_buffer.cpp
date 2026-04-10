@@ -48,7 +48,6 @@
 #include "util/time.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 BroadcastPBlockHolder::~BroadcastPBlockHolder() {
     // lock the parent queue, if the queue could lock success, then return the block
@@ -684,5 +683,4 @@ std::string ExchangeSinkBuffer::debug_each_instance_queue_size() {
     return fmt::to_string(debug_string_buffer);
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

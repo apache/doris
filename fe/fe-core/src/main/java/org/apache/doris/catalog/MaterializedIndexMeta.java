@@ -257,6 +257,9 @@ public class MaterializedIndexMeta implements GsonPostProcessable {
 
     @Override
     public void gsonPostProcess() throws IOException {
+        if (sessionVariables == null) {
+            sessionVariables = Maps.newHashMap();
+        }
         initColumnNameMap();
     }
 

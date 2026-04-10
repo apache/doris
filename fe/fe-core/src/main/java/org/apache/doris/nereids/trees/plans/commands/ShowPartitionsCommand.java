@@ -191,7 +191,7 @@ public class ShowPartitionsCommand extends ShowCommand {
         if (Strings.isNullOrEmpty(tableName.getDb())) {
             tableName.setDb(ctx.getDatabase());
         }
-        tableName.analyze(ctx);
+        tableName.analyze(ctx.getNameSpaceContext());
 
         catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(tableName.getCtl());
         if (catalog == null) {
@@ -200,7 +200,7 @@ public class ShowPartitionsCommand extends ShowCommand {
 
         // disallow unsupported catalog
         if (!(catalog.isInternalCatalog() || catalog instanceof HMSExternalCatalog
-                || catalog instanceof MaxComputeExternalCatalog || catalog instanceof IcebergExternalCatalog
+                || catalog instanceof MaxComputeExternalCatalog
                 || catalog instanceof PaimonExternalCatalog)) {
             throw new AnalysisException(String.format("Catalog of type '%s' is not allowed in ShowPartitionsCommand",
                     catalog.getType()));

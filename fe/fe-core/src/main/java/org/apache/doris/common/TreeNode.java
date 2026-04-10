@@ -59,10 +59,6 @@ public class TreeNode<NodeType extends TreeNode<NodeType>> {
         return children;
     }
 
-    public void clearChildren() {
-        children.clear();
-    }
-
     public void removeNode(int i) {
         if (children != null && i >= 0 && i < children.size()) {
             children.remove(i);

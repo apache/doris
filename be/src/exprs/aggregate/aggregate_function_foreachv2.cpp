@@ -29,7 +29,6 @@
 #include "exprs/aggregate/helpers.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 // The difference between AggregateFunctionForEachV2 and AggregateFunctionForEach is that its return value array is always an Array<Nullable<T>>.
 // For example, AggregateFunctionForEach's count_foreach([1,2,3]) returns Array<Int64>, which is not ideal

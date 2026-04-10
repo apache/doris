@@ -23,7 +23,6 @@
 #include <string>
 
 namespace doris::segment_v2::inverted_index {
-#include "common/compile_check_begin.h"
 
 ICUTokenizer::ICUTokenizer() {
     config_ = std::make_shared<DefaultICUTokenizerConfig>(true, true);
@@ -77,5 +76,4 @@ void ICUTokenizer::reset() {
     breaker_->set_text(buffer_.getBuffer(), 0, buffer_.length());
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

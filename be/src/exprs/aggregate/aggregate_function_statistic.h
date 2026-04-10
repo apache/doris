@@ -33,7 +33,6 @@
 #include "exprs/aggregate/moments.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 enum class STATISTICS_FUNCTION_KIND : uint8_t { SKEW_POP, KURT_POP };
 
@@ -164,4 +163,3 @@ private:
 };
 
 } // namespace doris
-#include "common/compile_check_end.h"

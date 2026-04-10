@@ -30,7 +30,6 @@ class Channel;
 class PartitionerBase;
 class TabletSinkHashPartitioner;
 
-#include "common/compile_check_begin.h"
 class ExchangeSinkLocalState;
 
 class ExchangeWriterBase {
@@ -87,5 +86,4 @@ private:
                              size_t channel_count, const std::vector<HashValType>& channel_ids,
                              size_t rows, Block* block, bool eos, HashValType invalid_val);
 };
-#include "common/compile_check_end.h"
 } // namespace doris

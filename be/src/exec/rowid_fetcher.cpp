@@ -73,8 +73,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
-
 Status RowIDFetcher::init() {
     DorisNodesInfo nodes_info;
     nodes_info.setNodes(_fetch_option.t_fetch_opt.nodes_info);
@@ -535,6 +533,7 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
         // if id_file_map is null, means the BE not have scan range, just return ok
         if (!id_file_map) {
             // padding empty block to response
+            LOG(INFO) << "id_file_map not found for query_id: " << print_id(request.query_id());
             for (int i = 0; i < request.request_block_descs_size(); ++i) {
                 response->add_blocks();
             }
@@ -627,10 +626,6 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
                              acquire_rowsets_ms, acquire_segments_ms, lookup_row_data_ms,
                              file_type_stats, external_init_reader_avg_ms,
                              external_get_block_avg_ms, external_scan_range_cnt);
-    }
-
-    if (request.has_gc_id_map() && request.gc_id_map()) {
-        ExecEnv::GetInstance()->get_id_manager()->remove_id_file_map(request.query_id());
     }
 
     return Status::OK();
@@ -1115,7 +1110,5 @@ Status RowIdStorageReader::read_doris_format_row(
     }
     return Status::OK();
 }
-
-#include "common/compile_check_end.h"
 
 } // namespace doris

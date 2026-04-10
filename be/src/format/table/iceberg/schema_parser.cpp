@@ -28,7 +28,6 @@
 #include "format/table/iceberg/types.h"
 
 namespace doris::iceberg {
-#include "common/compile_check_begin.h"
 
 const char* SchemaParser::SCHEMA_ID = "schema-id";
 const char* SchemaParser::IDENTIFIER_FIELD_IDS = "identifier-field-ids";
@@ -160,5 +159,4 @@ std::unordered_set<int> SchemaParser::_get_integer_set(const char* key,
     return integer_set;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris::iceberg

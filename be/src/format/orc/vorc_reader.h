@@ -68,6 +68,7 @@ class FileSystem;
 struct IOContext;
 } // namespace io
 class Block;
+struct RowLineageColumns;
 template <PrimitiveType T>
 class ColumnVector;
 template <PrimitiveType T>
@@ -81,7 +82,6 @@ class DataBuffer;
 } // namespace orc
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class ORCFileInputStream;
 
 struct LazyReadContext {
@@ -217,6 +217,11 @@ public:
                     iterator_pair) {
         _row_id_column_iterator_pair = iterator_pair;
     }
+    void set_iceberg_rowid_params(const std::string& file_path, int32_t partition_spec_id,
+                                  const std::string& partition_data_json, int row_id_column_pos);
+    void set_row_lineage_columns(std::shared_ptr<RowLineageColumns> row_lineage_columns) {
+        _row_lineage_columns = std::move(row_lineage_columns);
+    }
 
     static bool inline is_hive1_col_name(const orc::Type* orc_type_ptr) {
         for (uint64_t idx = 0; idx < orc_type_ptr->getSubtypeCount(); idx++) {
@@ -230,10 +235,33 @@ public:
 
     bool count_read_rows() override { return true; }
 
+    void set_condition_cache_context(std::shared_ptr<ConditionCacheContext> ctx) override {
+        _condition_cache_ctx = std::move(ctx);
+    }
+
+    int64_t get_total_rows() const override {
+        return _row_reader ? _row_reader->getNumberOfRows() : 0;
+    }
+
+    bool has_delete_operations() const override {
+        return (_position_delete_ordered_rowids != nullptr &&
+                !_position_delete_ordered_rowids->empty()) ||
+               (_delete_rows != nullptr && !_delete_rows->empty());
+    }
+
 protected:
     void _collect_profile_before_close() override;
+    void _filter_rows_by_condition_cache(size_t* read_rows, bool* eof);
 
 private:
+    struct IcebergRowIdParams {
+        bool enabled = false;
+        std::string file_path;
+        int32_t partition_spec_id = 0;
+        std::string partition_data_json;
+        int row_id_column_pos = -1;
+    };
+
     struct OrcProfile {
         RuntimeProfile::Counter* read_time = nullptr;
         RuntimeProfile::Counter* read_calls = nullptr;
@@ -325,7 +353,7 @@ private:
                                 std::unique_ptr<orc::SearchArgumentBuilder>& builder);
     bool _init_search_argument(const VExprSPtrs& exprs);
 
-    void _execute_filter_position_delete_rowids(IColumn::Filter& filter);
+    void _execute_filter_position_delete_rowids(IColumn::Filter& filter, int64_t start_row);
     void _fill_batch_vec(std::vector<orc::ColumnVectorBatch*>& result,
                          orc::ColumnVectorBatch* batch, int idx);
 
@@ -524,8 +552,8 @@ private:
                     }
                 }
 
-                // because the date api argument is int32_t, we should cast to int32_t.
-                int32_t date_value = cast_set<int32_t>(data->data[i]) + _offset_days;
+                // ORC DATE stores a logical day count without time zone semantics.
+                int32_t date_value = cast_set<int32_t>(data->data[i]);
                 if constexpr (std::is_same_v<CppType, VecDateTimeValue>) {
                     v.create_from_date_v2(date_dict[date_value], TIME_DATE);
                     // we should cast to date if using date v1.
@@ -634,7 +662,8 @@ private:
         return true;
     }
 
-    Status _fill_row_id_columns(Block* block);
+    Status _fill_row_id_columns(Block* block, int64_t start_row);
+    Status _append_iceberg_rowid_column(Block* block, size_t rows, int64_t start_row);
 
     bool _seek_to_read_one_line() {
         if (_read_by_rows) {
@@ -662,11 +691,14 @@ private:
     io::FileSystemProperties _system_properties;
     io::FileDescription _file_description;
     size_t _batch_size;
+    // Bytes-per-row estimate from the previous batch, used to pre-shrink _batch_size
+    // before reading so that oversized blocks are prevented from the current call onward.
+    // Zero means no prior data (first batch).
+    size_t _load_bytes_per_row = 0;
     int64_t _range_start_offset;
     int64_t _range_size;
     std::string _ctz;
 
-    int32_t _offset_days = 0;
     cctz::time_zone _time_zone;
 
     // The columns of the table to be read (contain columns that do not exist)
@@ -698,6 +730,17 @@ private:
     std::unique_ptr<orc::ColumnVectorBatch> _batch;
     std::unique_ptr<orc::Reader> _reader = nullptr;
     std::unique_ptr<orc::RowReader> _row_reader;
+
+    // The absolute row number where the most recent batch started (set after nextBatch).
+    // Used by the condition-cache code to map in-batch indices to granules.
+    uint64_t _last_read_row_number = 0;
+    // The absolute row number where the *next* nextBatch call will start reading.
+    // Used by _filter_rows_by_condition_cache to decide which granule to seek to.
+    uint64_t _current_read_position = 0;
+    // The absolute row number of the first row in this scan range.
+    // Used to convert absolute granule indices to cache-relative indices.
+    uint64_t _first_row_in_range = 0;
+    std::shared_ptr<ConditionCacheContext> _condition_cache_ctx;
     std::unique_ptr<ORCFilterImpl> _orc_filter;
     orc::RowReaderOptions _row_reader_options;
 
@@ -747,6 +790,8 @@ private:
 
     std::pair<std::shared_ptr<segment_v2::RowIdColumnIteratorV2>, int>
             _row_id_column_iterator_pair = {nullptr, -1};
+    IcebergRowIdParams _iceberg_rowid_params;
+    std::shared_ptr<RowLineageColumns> _row_lineage_columns;
 
     // Through this node, you can find the file column based on the table column.
     std::shared_ptr<TableSchemaChangeHelper::Node> _table_info_node_ptr =
@@ -890,5 +935,4 @@ private:
     const io::IOContext* _io_ctx = nullptr;
     RuntimeProfile* _profile = nullptr;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

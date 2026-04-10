@@ -100,6 +100,7 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
             throws UserException {
         final Set<String> allowedProps = new HashSet<String>() {
             {
+                add(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_MODE);
                 add(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS);
                 add(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES);
                 add(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS);
@@ -111,6 +112,7 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
                 add(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD);
                 add(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION);
                 add(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE);
+                add(PropertyAnalyzer.PROPERTIES_ENABLE_TSO);
                 add(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY);
                 add(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT);
                 add(PropertyAnalyzer.PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP);
@@ -152,6 +154,21 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
             }
             param.ttlSeconds = ttlSeconds;
             param.type = UpdatePartitionMetaParam.TabletMetaType.TTL_SECONDS;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_MODE)) {
+            String groupCommitMode = PropertyAnalyzer.analyzeGroupCommitMode(properties, false);
+            olapTable.readLock();
+            try {
+                if (groupCommitMode.equalsIgnoreCase(olapTable.getGroupCommitMode())) {
+                    LOG.info("groupCommitMode:{} is equal with olapTable.groupCommitMode():{}",
+                            groupCommitMode, olapTable.getGroupCommitMode());
+                    return;
+                }
+                partitions.addAll(olapTable.getPartitions());
+            } finally {
+                olapTable.readUnlock();
+            }
+            param.groupCommitMode = groupCommitMode;
+            param.type = UpdatePartitionMetaParam.TabletMetaType.GROUP_COMMIT_MODE;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS)) {
             int groupCommitIntervalMs = PropertyAnalyzer.analyzeGroupCommitIntervalMs(properties, false);
             olapTable.readLock();
@@ -345,6 +362,8 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
             }
             param.enableMowLightDelete = enableMowLightDelete;
             param.type = UpdatePartitionMetaParam.TabletMetaType.ENABLE_MOW_LIGHT_DELETE;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_TSO)) {
+            // Do nothing.
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY)) {
             // Do nothing.
         } else if (properties.containsKey(
@@ -384,6 +403,7 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
             INMEMORY,
             PERSISTENT,
             TTL_SECONDS,
+            GROUP_COMMIT_MODE,
             GROUP_COMMIT_INTERVAL_MS,
             GROUP_COMMIT_DATA_BYTES,
             COMPACTION_POLICY,
@@ -401,6 +421,7 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
         boolean isPersistent = false;
         boolean isInMemory = false;
         long ttlSeconds = 0;
+        String groupCommitMode;
         long groupCommitIntervalMs = 0;
         long groupCommitDataBytes = 0;
         String compactionPolicy;
@@ -459,6 +480,9 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
                         break;
                     case GROUP_COMMIT_DATA_BYTES:
                         infoBuilder.setGroupCommitDataBytes(param.groupCommitDataBytes);
+                        break;
+                    case GROUP_COMMIT_MODE:
+                        infoBuilder.setGroupCommitMode(param.groupCommitMode);
                         break;
                     case COMPACTION_POLICY:
                         infoBuilder.setCompactionPolicy(param.compactionPolicy);

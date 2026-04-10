@@ -47,7 +47,6 @@
 #include "util/raw_value.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class MemTracker;
 class SlotDescriptor;
 class TExprNode;
@@ -167,6 +166,8 @@ struct VOlapTablePartition {
     int64_t load_tablet_idx = -1;
     int total_replica_num = 0;
     int load_required_replica_num = 0;
+    // tablet_id -> set of backend_ids that have version gaps
+    std::unordered_map<int64_t, std::unordered_set<int64_t>> tablet_version_gap_backends;
 
     VOlapTablePartition(Block* partition_block)
             // the default value of partition bound is -1.
@@ -443,5 +444,4 @@ private:
     std::unordered_map<int64_t, NodeInfo> _nodes;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -32,7 +32,6 @@
 #include "exprs/function/simple_function_factory.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 template <PrimitiveType Type>
 struct MultiplyIntegralImpl {
     static constexpr bool result_is_decimal = false;
@@ -902,5 +901,4 @@ void register_function_multiply(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMultiply<MultiplyIntegralImpl<TYPE_FLOAT>>>();
     factory.register_function<FunctionMultiply<MultiplyIntegralImpl<TYPE_DOUBLE>>>();
 }
-#include "common/compile_check_end.h"
 } // namespace doris

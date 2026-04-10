@@ -31,7 +31,6 @@
 #include "storage/olap_scan_common.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeState;
 class SlotDescriptor;
 class TFileRangeDesc;
@@ -88,6 +87,10 @@ public:
 
     Status get_next_block_inner(Block* block, size_t* read_rows, bool* eof) final;
 
+    bool has_delete_operations() const override {
+        return !_delete_rows.empty() || TableFormatReader::has_delete_operations();
+    }
+
     Status init_reader(
             const std::vector<std::string>& column_names,
             std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
@@ -124,5 +127,4 @@ inline bool operator<(const TransactionalHiveReader::AcidRowID& lhs,
     }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

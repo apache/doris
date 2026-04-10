@@ -24,7 +24,6 @@
 #include "exec/pipeline/dependency.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class AnalyticSinkOperatorX;
 
 struct BoundaryPose {
@@ -267,4 +266,3 @@ private:
 };
 
 } // namespace doris
-#include "common/compile_check_end.h"

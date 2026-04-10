@@ -129,7 +129,6 @@ suite("select_random_distributed_tbl") {
     sql """ insert into random_distributed_tbl_test_2 values(1, 999999999999999.99); """
     sql """ insert into random_distributed_tbl_test_2 values(3, 999999999999999.99); """
 
-    sql "set enable_nereids_planner = true;"
     qt_sql_20 "select k1 from random_distributed_tbl_test_2 order by k1;"
     qt_sql_21 "select distinct k1 from random_distributed_tbl_test_2 order by k1;"
     qt_sql_22 "select k2 from random_distributed_tbl_test_2 order by k2;"

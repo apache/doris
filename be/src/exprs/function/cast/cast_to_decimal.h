@@ -28,7 +28,6 @@
 #include "util/io_helper.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 #define DECIMAL_CONVERT_OVERFLOW_ERROR(value, from_type_name, precision, scale)                    \
     Status(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,                                                  \
@@ -1078,45 +1077,4 @@ public:
     }
 };
 
-template <typename T>
-constexpr static bool type_allow_cast_to_decimal =
-        std::is_same_v<T, DataTypeString> || IsDataTypeNumber<T> || IsDataTypeDecimal<T>;
-
-namespace CastWrapper {
-
-template <typename ToDataType>
-WrapperType create_decimal_wrapper(FunctionContext* context, const DataTypePtr& from_type) {
-    std::shared_ptr<CastToBase> cast_impl;
-
-    auto make_cast_wrapper = [&](const auto& types) -> bool {
-        using Types = std::decay_t<decltype(types)>;
-        using FromDataType = typename Types::LeftType;
-        if constexpr (type_allow_cast_to_decimal<FromDataType>) {
-            if (context->enable_strict_mode()) {
-                cast_impl = std::make_shared<
-                        CastToImpl<CastModeType::StrictMode, FromDataType, ToDataType>>();
-            } else {
-                cast_impl = std::make_shared<
-                        CastToImpl<CastModeType::NonStrictMode, FromDataType, ToDataType>>();
-            }
-            return true;
-        } else {
-            return false;
-        }
-    };
-
-    if (!call_on_index_and_data_type<void>(from_type->get_primitive_type(), make_cast_wrapper)) {
-        return create_unsupport_wrapper(
-                fmt::format("CAST AS decimal not supported {}", from_type->get_name()));
-    }
-
-    return [cast_impl](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                       uint32_t result, size_t input_rows_count,
-                       const NullMap::value_type* null_map = nullptr) {
-        return cast_impl->execute_impl(context, block, arguments, result, input_rows_count,
-                                       null_map);
-    };
-}
-} // namespace CastWrapper
-#include "common/compile_check_end.h"
 } // namespace doris

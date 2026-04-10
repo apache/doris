@@ -116,13 +116,13 @@ if [[ "${RUN}" -eq 1 ]]; then
     if [[ "${COVERAGE}" -eq 1 ]]; then
         "${MVN_CMD}" test jacoco:report -DfailIfNoTests=false -Dtest="$1"
     else
-        "${MVN_CMD}" test -Dcheckstyle.skip=true -DfailIfNoTests=false -Dtest="$1"
+        "${MVN_CMD}" test -Dcheckstyle.skip=true -DfailIfNoTests=false -Dmaven.build.cache.enabled=false -Dtest="$1"
     fi
 else
     echo "Run Frontend UT"
     if [[ "${COVERAGE}" -eq 1 ]]; then
         "${MVN_CMD}" test jacoco:report -DfailIfNoTests=false -Dmaven.test.failure.ignore=true
     else
-        "${MVN_CMD}" test -Dcheckstyle.skip=true -DfailIfNoTests=false
+        "${MVN_CMD}" test -Dcheckstyle.skip=true -DfailIfNoTests=false -Dmaven.build.cache.enabled=false
     fi
 fi

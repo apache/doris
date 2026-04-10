@@ -24,8 +24,9 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.filesystem.FileSystemUtil;
+import org.apache.doris.filesystem.Location;
 import org.apache.doris.fs.FileSystemFactory;
-import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -176,7 +177,7 @@ public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Ex
             throws Exception {
         String filePath = props.get("file_path");
         // Extract parent directory from prefix path: s3://bucket/path/to/prefix_ -> s3://bucket/path/to/
-        String parentDir = extractParentDirectory(filePath);
+        String parentDir = FileSystemUtil.extractParentDirectory(filePath);
         LOG.info("TVF sink: deleting existing files in directory: {}", parentDir);
 
         // Copy props for building StorageProperties (exclude write-specific params)
@@ -191,19 +192,10 @@ public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Ex
         fsCopyProps.remove("compress_type");
 
         StorageProperties storageProps = StorageProperties.createPrimary(fsCopyProps);
-        RemoteFileSystem fs = FileSystemFactory.get(storageProps);
-        org.apache.doris.backup.Status deleteStatus = fs.deleteDirectory(parentDir);
-        if (!deleteStatus.ok()) {
-            throw new UserException("Failed to delete existing files in "
-                    + parentDir + ": " + deleteStatus.getErrMsg());
+        try (org.apache.doris.filesystem.FileSystem fs = FileSystemFactory.getFileSystem(storageProps)) {
+            fs.delete(Location.of(parentDir), true);
+        } catch (java.io.IOException e) {
+            throw new UserException("Failed to delete existing files in " + parentDir + ": " + e.getMessage());
         }
-    }
-
-    private static String extractParentDirectory(String prefixPath) {
-        int lastSlash = prefixPath.lastIndexOf('/');
-        if (lastSlash >= 0) {
-            return prefixPath.substring(0, lastSlash + 1);
-        }
-        return prefixPath;
     }
 }

@@ -23,7 +23,6 @@
 #include "util/debug_points.h"
 
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 IndexStorageFormat::IndexStorageFormat(IndexFileWriter* index_file_writer)
         : _index_file_writer(index_file_writer) {}
 
@@ -123,4 +122,3 @@ void IndexStorageFormat::copy_file(const char* fileName, lucene::store::Director
 }
 
 } // namespace doris::segment_v2
-#include "common/compile_check_end.h"

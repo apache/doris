@@ -18,13 +18,14 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
 #include "storage/compaction/compaction.h"
+#include "storage/compaction_task_tracker.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class CloudCumulativeCompaction : public CloudCompactionMixin {
 public:
@@ -35,6 +36,11 @@ public:
     Status prepare_compact() override;
     Status execute_compact() override;
     Status request_global_lock();
+
+    std::optional<CompactionProfileType> profile_type() const override {
+        return CompactionProfileType::CUMULATIVE;
+    }
+    int64_t input_segments_num_value() const override { return _input_segments; }
 
     void do_lease();
 
@@ -62,5 +68,4 @@ private:
     Version _last_delete_version {-1, -1};
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

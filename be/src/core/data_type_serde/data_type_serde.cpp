@@ -32,7 +32,6 @@
 #include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
 namespace doris {
-#include "common/compile_check_begin.h"
 DataTypeSerDe::~DataTypeSerDe() = default;
 
 DataTypeSerDeSPtrs create_data_type_serdes(const DataTypes& types) {

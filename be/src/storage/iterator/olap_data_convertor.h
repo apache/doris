@@ -54,8 +54,6 @@ namespace doris {
 class TabletSchema;
 class TabletColumn;
 
-#include "common/compile_check_begin.h"
-
 class Block;
 class ColumnArray;
 class ColumnMap;
@@ -545,7 +543,5 @@ private:
 private:
     std::vector<OlapColumnDataConvertorBaseUPtr> _convertors;
 };
-
-#include "common/compile_check_end.h"
 
 } // namespace doris

@@ -47,7 +47,6 @@
 #include "util/to_string.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 #ifdef BE_TEST
 template <PrimitiveType T>
 std::string DataTypeNumberBase<T>::to_string(
@@ -93,7 +92,7 @@ Field DataTypeNumberBase<T>::get_field(const TExprNode& node) const {
         return Field::create_field<T>(
                 typename PrimitiveTypeTraits<T>::CppType(node.int_literal.value));
     }
-    if constexpr (is_float_or_double(T) || T == TYPE_TIMEV2 || T == TYPE_TIME) {
+    if constexpr (is_float_or_double(T) || T == TYPE_TIMEV2) {
         return Field::create_field<T>(
                 typename PrimitiveTypeTraits<T>::CppType(node.float_literal.value));
     }
@@ -208,7 +207,6 @@ template class DataTypeNumberBase<TYPE_DATETIME>;
 template class DataTypeNumberBase<TYPE_DATETIMEV2>;
 template class DataTypeNumberBase<TYPE_IPV4>;
 template class DataTypeNumberBase<TYPE_IPV6>;
-template class DataTypeNumberBase<TYPE_TIME>;
 template class DataTypeNumberBase<TYPE_TIMEV2>;
 template class DataTypeNumberBase<TYPE_TIMESTAMPTZ>;
 

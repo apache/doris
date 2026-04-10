@@ -29,7 +29,6 @@
 #include "core/types.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 /**
  * For low cardinality string columns, using ColumnDictionary can reduce memory
@@ -491,4 +490,3 @@ private:
 };
 
 } // namespace doris
-#include "common/compile_check_end.h"

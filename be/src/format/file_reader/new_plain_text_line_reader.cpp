@@ -45,7 +45,6 @@
 // leave these 2 size small for debugging
 
 namespace doris {
-#include "common/compile_check_begin.h"
 const uint8_t* EncloseCsvLineReaderCtx::read_line_impl(const uint8_t* start, const size_t length) {
     // Avoid part bytes of the multi-char column separator have already been parsed,
     // causing parse column separator error.
@@ -528,5 +527,4 @@ void NewPlainTextLineReader::_collect_profile_before_close() {
     }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

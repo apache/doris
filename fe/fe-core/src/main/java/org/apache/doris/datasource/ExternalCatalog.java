@@ -38,7 +38,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.connectivity.CatalogConnectivityTestCoordinator;
 import org.apache.doris.datasource.doris.RemoteDorisExternalDatabase;
 import org.apache.doris.datasource.es.EsExternalDatabase;
@@ -56,7 +55,6 @@ import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalDatabase;
-import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.persist.CreateDbInfo;
@@ -80,6 +78,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
@@ -224,7 +223,10 @@ public abstract class ExternalCatalog
     }
 
     private Configuration buildConf() {
-        Configuration conf = DFSFileSystem.getHdfsConf(ifNotSetFallbackToSimpleAuth());
+        Configuration conf = new HdfsConfiguration();
+        if (ifNotSetFallbackToSimpleAuth()) {
+            conf.set("ipc.client.fallback-to-simple-auth-allowed", "true");
+        }
         Map<String, String> catalogProperties = catalogProperty.getHadoopProperties();
         for (Map.Entry<String, String> entry : catalogProperties.entrySet()) {
             conf.set(entry.getKey(), entry.getValue());
@@ -274,7 +276,7 @@ public abstract class ExternalCatalog
 
     // we need check auth fallback for kerberos or simple
     public boolean ifNotSetFallbackToSimpleAuth() {
-        return catalogProperty.getOrDefault(DFSFileSystem.PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH, "").isEmpty();
+        return catalogProperty.getOrDefault("ipc.client.fallback-to-simple-auth-allowed", "").isEmpty();
     }
 
     // Will be called when creating catalog(not replaying).
@@ -396,7 +398,7 @@ public abstract class ExternalCatalog
             if (LOG.isDebugEnabled()) {
                 LOG.debug("buildMetaCache for catalog: {}:{}", this.name, this.id, new Exception());
             }
-            metaCache = Env.getCurrentEnv().getExtMetaCacheMgr().buildMetaCache(
+            metaCache = Env.getCurrentEnv().getExtMetaCacheMgr().legacyMetaCacheFactory().build(
                     name,
                     OptionalLong.of(Config.external_cache_expire_time_seconds_after_access),
                     OptionalLong.of(Config.external_cache_refresh_time_minutes * 60L),
@@ -577,14 +579,16 @@ public abstract class ExternalCatalog
      * @param invalidCache if {@code true}, the catalog cache will be invalidated
      *                     and reloaded during the refresh process.
      */
-    public synchronized void resetToUninitialized(boolean invalidCache) {
-        this.objectCreated = false;
-        this.initialized = false;
-        synchronized (this.confLock) {
-            this.cachedConf = null;
+    public void resetToUninitialized(boolean invalidCache) {
+        synchronized (this) {
+            this.objectCreated = false;
+            this.initialized = false;
+            synchronized (this.confLock) {
+                this.cachedConf = null;
+            }
+            this.lowerCaseToDatabaseName.clear();
+            onClose();
         }
-        this.lowerCaseToDatabaseName.clear();
-        onClose();
         onRefreshCache(invalidCache);
     }
 
@@ -597,7 +601,7 @@ public abstract class ExternalCatalog
         setLastUpdateTime(System.currentTimeMillis());
         refreshMetaCacheOnly();
         if (invalidCache) {
-            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalogCache(id);
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalog(id);
         }
     }
 
@@ -1068,8 +1072,8 @@ public abstract class ExternalCatalog
     }
 
     @Override
-    public void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv, boolean ifExists,
-            boolean mustTemporary, boolean force) throws DdlException {
+    public void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv, boolean isStream,
+                          boolean ifExists, boolean mustTemporary, boolean force) throws DdlException {
         makeSureInitialized();
         if (metadataOps == null) {
             throw new DdlException("Drop table is not supported for catalog: " + getName());
@@ -1115,7 +1119,7 @@ public abstract class ExternalCatalog
         if (isInitialized()) {
             metaCache.invalidate(dbName, Util.genIdByName(name, dbName));
         }
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDbCache(getId(), dbName);
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(getId(), dbName);
     }
 
     public void registerDatabase(long dbId, String dbName) {
@@ -1333,9 +1337,11 @@ public abstract class ExternalCatalog
     @Override
     public void notifyPropertiesUpdated(Map<String, String> updatedProps) {
         CatalogIf.super.notifyPropertiesUpdated(updatedProps);
+        resetToUninitialized(false);
         String schemaCacheTtl = updatedProps.getOrDefault(SCHEMA_CACHE_TTL_SECOND, null);
         if (java.util.Objects.nonNull(schemaCacheTtl)) {
-            Env.getCurrentEnv().getExtMetaCacheMgr().invalidSchemaCache(id);
+            ExternalMetaCacheMgr extMetaCacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
+            extMetaCacheMgr.removeCatalog(id);
         }
     }
 

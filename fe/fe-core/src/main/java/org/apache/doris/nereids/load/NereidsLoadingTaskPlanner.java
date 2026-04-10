@@ -83,8 +83,6 @@ public class NereidsLoadingTaskPlanner {
     private List<PlanFragment> fragments = Lists.newArrayList();
     private List<ScanNode> scanNodes = Lists.newArrayList();
 
-    private int nextNodeId = 0;
-
     /**
      * NereidsLoadingTaskPlanner
      */

@@ -21,7 +21,6 @@
 #include <condition_variable>
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 std::mutex JemallocControl::je_purge_dirty_pages_lock;
 std::atomic<bool> JemallocControl::je_purge_dirty_pages_notify {false};
@@ -153,5 +152,4 @@ void JemallocControl::je_decay_all_arena_dirty_pages() {}
 void JemallocControl::je_thread_tcache_flush() {}
 #endif
 
-#include "common/compile_check_end.h"
 } // namespace doris

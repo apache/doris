@@ -17,13 +17,9 @@
 
 package org.apache.doris.datasource.property.metastore;
 
-import org.apache.doris.backup.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.S3URI;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.property.storage.S3Properties;
-import org.apache.doris.fs.StorageTypeMapper;
-import org.apache.doris.fs.remote.S3FileSystem;
 
 import com.amazonaws.ClientConfiguration;
 import com.amazonaws.auth.AWSStaticCredentialsProvider;
@@ -33,7 +29,6 @@ import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3ClientBuilder;
 import com.amazonaws.services.s3.model.GetObjectRequest;
 import com.amazonaws.services.s3.model.S3Object;
-import com.google.common.collect.Maps;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.paimon.catalog.Catalog.DatabaseNotExistException;
 import org.apache.paimon.catalog.Catalog.TableNotExistException;
@@ -59,13 +54,11 @@ import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3Configuration;
 
 import java.io.BufferedReader;
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -121,8 +114,6 @@ public class PaimonDlfRestCatalogTest {
                             if (rawFiles.isPresent()) {
                                 for (RawFile rawFile : rawFiles.get()) {
                                     System.out.println("test debug get raw file: " + rawFile.path());
-                                    readByDorisS3FileSystem(rawFile.path(), tmpAk, tmpSk, stsToken, endpoint,
-                                            "oss-cn-beijing");
                                     readByAwsSdkV1(rawFile.path(), tmpAk, tmpSk, stsToken, endpoint, "oss-cn-beijing");
                                     readByAwsSdkV2(rawFile.path(), tmpAk, tmpSk, stsToken, endpoint, "oss-cn-beijing");
                                 }
@@ -165,39 +156,6 @@ public class PaimonDlfRestCatalogTest {
         catalogOptions.set("dlf.access-key-secret", aliyunSk);
         CatalogContext catalogContext = CatalogContext.create(catalogOptions, hiveConf);
         return CatalogFactory.createCatalog(catalogContext);
-    }
-
-    private void readByDorisS3FileSystem(String path, String tmpAk, String tmpSk, String stsToken, String endpoint,
-            String region) {
-        // replace "oss://" with "s3://"
-        String finalPath = path.startsWith("oss://") ? path.replace("oss://", "s3://") : path;
-        System.out.println("test debug final path: " + finalPath);
-        Map<String, String> props = Maps.newHashMap();
-        props.put("s3.endpoint", endpoint);
-        props.put("s3.region", region);
-        props.put("s3.access_key", tmpAk);
-        props.put("s3.secret_key", tmpSk);
-        props.put("s3.session_token", stsToken);
-        S3Properties s3Properties = S3Properties.of(props);
-        S3FileSystem s3Fs = (S3FileSystem) StorageTypeMapper.create(s3Properties);
-        File localFile = new File("/tmp/s3/" + System.currentTimeMillis() + ".data");
-        if (localFile.exists()) {
-            try {
-                Files.delete(localFile.toPath());
-            } catch (IOException e) {
-                System.err.println("Failed to delete existing local file: " + localFile.getAbsolutePath());
-                e.printStackTrace();
-            }
-        } else {
-            localFile.getParentFile().mkdirs(); // Ensure parent directories exist
-        }
-        Status st = s3Fs.getObjStorage().getObject(finalPath, localFile);
-        System.out.println(st);
-        if (st.ok()) {
-            System.out.println("test debug local path: " + localFile.getAbsolutePath());
-        } else {
-            Assertions.fail(st.toString());
-        }
     }
 
     private void readByAwsSdkV1(String filePath, String accessKeyId, String secretAccessKey,

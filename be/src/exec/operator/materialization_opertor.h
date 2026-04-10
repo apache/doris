@@ -23,7 +23,6 @@
 #include "exec/operator/operator.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeState;
 
 class MaterializationOperator;
@@ -40,7 +39,7 @@ public:
     MaterializationSharedState() = default;
 
     Status init_multi_requests(const TMaterializationNode& tnode, RuntimeState* state);
-    Status create_muiltget_result(const Columns& columns, bool eos, bool gc_id_map);
+    Status create_muiltget_result(const Columns& columns, bool eos);
 
     Status merge_multi_response();
     void get_block(Block* block);
@@ -123,8 +122,6 @@ private:
     // Materialized slot by this node. The i-th result expr list refers to a slot of RowId
     TMaterializationNode _materialization_node;
     VExprContextSPtrs _rowid_exprs;
-    bool _gc_id_map = false;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

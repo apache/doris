@@ -25,11 +25,11 @@ import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.SymmetricEncryption;
 import org.apache.doris.persist.LdapInfo;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 import lombok.Data;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.springframework.ldap.AuthenticationException;
 import org.springframework.ldap.core.DirContextOperations;
 import org.springframework.ldap.core.LdapTemplate;
 import org.springframework.ldap.core.support.AbstractContextMapper;
@@ -37,9 +37,12 @@ import org.springframework.ldap.core.support.LdapContextSource;
 import org.springframework.ldap.pool.factory.PoolingContextSource;
 import org.springframework.ldap.pool.validation.DefaultDirContextValidator;
 import org.springframework.ldap.query.LdapQuery;
+import org.springframework.ldap.support.LdapEncoder;
 import org.springframework.ldap.transaction.compensating.manager.TransactionAwareContextSourceProxy;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 // This class is used to connect to the LDAP service.
 public class LdapClient {
@@ -60,17 +63,26 @@ public class LdapClient {
         public ClientInfo(String ldapPassword) {
             this.ldapPassword = ldapPassword;
             setLdapTemplateNoPool(ldapPassword);
-            setLdapTemplatePool(ldapPassword);
+            if (LdapConfig.ldap_search_use_pool) {
+                setLdapTemplatePool(ldapPassword);
+            }
+        }
+
+        // Returns the LdapTemplate for search operations:
+        // pooled if ldap_search_use_pool=true, non-pooled otherwise.
+        public LdapTemplate getSearchTemplate() {
+            return ldapTemplatePool != null ? ldapTemplatePool : ldapTemplateNoPool;
         }
 
         private void setLdapTemplateNoPool(String ldapPassword) {
             LdapContextSource contextSource = new LdapContextSource();
-            String url = "ldap://" + NetUtils
-                    .getHostPortInAccessibleFormat(LdapConfig.ldap_host, LdapConfig.ldap_port);
+            String url = LdapConfig.getConnectionURL(
+                    NetUtils.getHostPortInAccessibleFormat(LdapConfig.ldap_host, LdapConfig.ldap_port));
 
             contextSource.setUrl(url);
             contextSource.setUserDn(LdapConfig.ldap_admin_name);
             contextSource.setPassword(ldapPassword);
+            setLdapTimeoutProperties(contextSource);
             contextSource.afterPropertiesSet();
             ldapTemplateNoPool = new LdapTemplate(contextSource);
             ldapTemplateNoPool.setIgnorePartialResultException(true);
@@ -78,13 +90,13 @@ public class LdapClient {
 
         private void setLdapTemplatePool(String ldapPassword) {
             LdapContextSource contextSource = new LdapContextSource();
-            String url = "ldap://" + NetUtils
-                    .getHostPortInAccessibleFormat(LdapConfig.ldap_host, LdapConfig.ldap_port);
+            String url = LdapConfig.getConnectionURL(
+                    NetUtils.getHostPortInAccessibleFormat(LdapConfig.ldap_host, LdapConfig.ldap_port));
 
             contextSource.setUrl(url);
             contextSource.setUserDn(LdapConfig.ldap_admin_name);
             contextSource.setPassword(ldapPassword);
-            contextSource.setPooled(true);
+            setLdapTimeoutProperties(contextSource);
             contextSource.afterPropertiesSet();
 
             PoolingContextSource poolingContextSource = new PoolingContextSource();
@@ -108,6 +120,22 @@ public class LdapClient {
         public boolean checkUpdate(String ldapPassword) {
             return this.ldapPassword == null || !this.ldapPassword.equals(ldapPassword);
         }
+
+        private void setLdapTimeoutProperties(LdapContextSource contextSource) {
+            Map<String, Object> baseEnv = new HashMap<>();
+            if (LdapConfig.ldap_read_timeout_ms > 0) {
+                baseEnv.put("com.sun.jndi.ldap.read.timeout",
+                        String.valueOf(LdapConfig.ldap_read_timeout_ms));
+            }
+            if (LdapConfig.ldap_connect_timeout_ms > 0) {
+                baseEnv.put("com.sun.jndi.ldap.connect.timeout",
+                        String.valueOf(LdapConfig.ldap_connect_timeout_ms));
+            }
+            if (!baseEnv.isEmpty()) {
+                contextSource.setBaseEnvironmentProperties(baseEnv);
+            }
+        }
+
     }
 
     private void init() {
@@ -142,19 +170,37 @@ public class LdapClient {
 
     boolean checkPassword(String userName, String password) {
         init();
+        long start = System.currentTimeMillis();
         try {
             clientInfo.getLdapTemplateNoPool().authenticate(org.springframework.ldap.query.LdapQueryBuilder.query()
                     .base(LdapConfig.ldap_user_basedn)
-                    .filter(getUserFilter(LdapConfig.ldap_user_filter, userName)), password);
+                    .filter(applyLoginFilter(LdapConfig.ldap_user_filter, userName)), password);
+            long elapsed = System.currentTimeMillis() - start;
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("LdapClient.checkPassword: user={}, success=true, elapsed={}ms",
+                        userName, elapsed);
+            }
             return true;
+        } catch (AuthenticationException e) {
+            long elapsed = System.currentTimeMillis() - start;
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("LdapClient.checkPassword: user={}, success=false, elapsed={}ms, "
+                                + "errorClass={}, errorMessage={}",
+                        userName, elapsed, e.getClass().getSimpleName(), e.getMessage());
+            }
+            return false;
         } catch (Exception e) {
-            LOG.info("ldap client checkPassword failed, userName: {}", userName, e);
+            long elapsed = System.currentTimeMillis() - start;
+            LOG.warn("LdapClient.checkPassword failed: user={}, elapsed={}ms, "
+                            + "errorClass={}, errorMessage={}",
+                    userName, elapsed, e.getClass().getSimpleName(), e.getMessage(), e);
             return false;
         }
     }
 
     // Search group DNs by 'member' attribution.
     List<String> getGroups(String userName) {
+        long start = System.currentTimeMillis();
         List<String> groups = Lists.newArrayList();
         if (LdapConfig.ldap_group_basedn.isEmpty()) {
             return groups;
@@ -166,7 +212,7 @@ public class LdapClient {
         List<String> groupDns;
         if (!LdapConfig.ldap_group_filter.isEmpty()) {
             // Support Open Directory implementations
-            String filter = LdapConfig.ldap_group_filter.replace("{login}", userName);
+            String filter = applyLoginFilter(LdapConfig.ldap_group_filter, userName);
             groupDns = getDn(org.springframework.ldap.query.LdapQueryBuilder.query()
                     .attributes("dn")
                     .base(LdapConfig.ldap_group_basedn)
@@ -189,18 +235,23 @@ public class LdapClient {
                 groups.add(strings[1]);
             }
         }
+        long elapsed = System.currentTimeMillis() - start;
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("LdapClient.getGroups: user={}, groups={}, elapsed={}ms",
+                    userName, groups.size(), elapsed);
+        }
         return groups;
     }
 
     private String getUserDn(String userName) {
         List<String> userDns = getDn(org.springframework.ldap.query.LdapQueryBuilder.query()
-                .base(LdapConfig.ldap_user_basedn).filter(getUserFilter(LdapConfig.ldap_user_filter, userName)));
+                .base(LdapConfig.ldap_user_basedn).filter(applyLoginFilter(LdapConfig.ldap_user_filter, userName)));
         if (userDns == null || userDns.isEmpty()) {
             return null;
         }
         if (userDns.size() > 1) {
             String msg = String.format("[%s] not unique in LDAP server: [%s]",
-                    getUserFilter(LdapConfig.ldap_user_filter, userName), userDns);
+                    applyLoginFilter(LdapConfig.ldap_user_filter, userName), userDns);
             LOG.error(msg);
             ErrorReport.report(ErrorCode.ERROR_LDAP_USER_NOT_UNIQUE_ERR, userName);
             throw new RuntimeException(msg);
@@ -208,27 +259,38 @@ public class LdapClient {
         return userDns.get(0);
     }
 
-    @VisibleForTesting
     public List<String> getDn(LdapQuery query) {
         init();
+        long start = System.currentTimeMillis();
         try {
-            return clientInfo.getLdapTemplatePool().search(query,
+            List<String> result = clientInfo.getSearchTemplate().search(query,
                     new AbstractContextMapper<String>() {
                         protected String doMapFromContext(DirContextOperations ctx) {
                             return ctx.getNameInNamespace();
                         }
                     });
+            long elapsed = System.currentTimeMillis() - start;
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("LdapClient.getDn: base={}, elapsed={}ms, results={}",
+                        query.base(), elapsed, result == null ? 0 : result.size());
+            }
+            return result;
         } catch (Exception e) {
+            long elapsed = System.currentTimeMillis() - start;
             String msg
                     = "Failed to retrieve the user's Distinguished Name (DN),"
                     + "This may be due to incorrect LDAP configuration or an unset/incorrect LDAP admin password.";
-            LOG.error(msg, e);
+            LOG.warn("LdapClient.getDn failed: base={}, elapsed={}ms, error={}",
+                    query.base(), elapsed, e.getMessage(), e);
             ErrorReport.report(ErrorCode.ERROR_LDAP_CONFIGURATION_ERR);
             throw new RuntimeException(msg);
         }
     }
 
-    private String getUserFilter(String userFilter, String userName) {
-        return userFilter.replaceAll("\\{login}", userName);
+    private String applyLoginFilter(String filter, String userName) {
+        if (filter == null) {
+            return null;
+        }
+        return filter.replace("{login}", LdapEncoder.filterEncode(userName));
     }
 }

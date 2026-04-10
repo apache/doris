@@ -30,8 +30,6 @@
 #include "util/time.h"
 namespace doris::io {
 
-#include "common/compile_check_begin.h"
-
 HdfsFileHandle::~HdfsFileHandle() {
     if (_hdfs_file != nullptr && _fs != nullptr) {
         VLOG_FILE << "hdfsCloseFile() fid=" << _hdfs_file;
@@ -203,7 +201,5 @@ void FileHandleCache::_evict_handles_loop() {
         std::this_thread::sleep_for(std::chrono::milliseconds(1000));
     }
 }
-
-#include "common/compile_check_end.h"
 
 } // namespace doris::io

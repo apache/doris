@@ -24,7 +24,6 @@
 #include "util/debug_points.h"
 
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 
 IndexStorageFormatV1::IndexStorageFormatV1(IndexFileWriter* index_file_writer)
         : IndexStorageFormat(index_file_writer) {}
@@ -191,4 +190,3 @@ void IndexStorageFormatV1::add_index_info(int64_t index_id, const std::string& i
 }
 
 } // namespace doris::segment_v2
-#include "common/compile_check_end.h"

@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.ShuffleType;
@@ -142,28 +143,32 @@ public class PhysicalUnion extends PhysicalSetOperation implements Union {
 
     @Override
     public PhysicalUnion withChildren(List<Plan> children) {
-        return new PhysicalUnion(qualifier, outputs, regularChildrenOutputs, constantExprsList, groupExpression,
-                getLogicalProperties(), children);
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalUnion(qualifier, outputs,
+                regularChildrenOutputs, constantExprsList, groupExpression,
+                getLogicalProperties(), children));
     }
 
     @Override
     public PhysicalUnion withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalUnion(qualifier, outputs, regularChildrenOutputs, constantExprsList,
-                groupExpression, getLogicalProperties(), children);
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalUnion(qualifier, outputs,
+                regularChildrenOutputs, constantExprsList,
+                groupExpression, getLogicalProperties(), children));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new PhysicalUnion(qualifier, outputs, regularChildrenOutputs, constantExprsList,
-                groupExpression, logicalProperties.get(), children);
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalUnion(qualifier, outputs,
+                regularChildrenOutputs, constantExprsList,
+                groupExpression, logicalProperties.get(), children));
     }
 
     @Override
     public PhysicalUnion withPhysicalPropertiesAndStats(
             PhysicalProperties physicalProperties, Statistics statistics) {
-        return new PhysicalUnion(qualifier, outputs, regularChildrenOutputs, constantExprsList,
-                groupExpression, getLogicalProperties(), physicalProperties, statistics, children);
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalUnion(qualifier, outputs,
+                regularChildrenOutputs, constantExprsList,
+                groupExpression, getLogicalProperties(), physicalProperties, statistics, children));
     }
 
     @Override

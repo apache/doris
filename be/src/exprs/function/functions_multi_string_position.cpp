@@ -54,7 +54,6 @@
 #include "exprs/function/simple_function_factory.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class FunctionContext;
 } // namespace doris
 
@@ -315,5 +314,4 @@ void register_function_multi_string_position(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMultiSearchAllPositions>();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

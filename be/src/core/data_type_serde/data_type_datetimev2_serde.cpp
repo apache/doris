@@ -43,7 +43,6 @@ enum {
 
 namespace doris {
 static const int64_t micro_to_nano_second = 1000;
-#include "common/compile_check_begin.h"
 
 // NOLINTBEGIN(readability-function-size)
 // NOLINTBEGIN(readability-function-cognitive-complexity)
@@ -90,7 +89,8 @@ Status DataTypeDateTimeV2SerDe::from_string_strict_mode_batch(
         }
         auto str = col_str.get_data_at(i);
         DateV2Value<DateTimeV2ValueType> res;
-        CastToDatetimeV2::from_string_strict_mode<true>(str, res, options.timezone, _scale, params);
+        CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                str, res, options.timezone, _scale, params);
         // only after we called something with `IS_STRICT = true`, params.status will be set
         if (!params.status.ok()) [[unlikely]] {
             params.status.prepend(
@@ -122,6 +122,19 @@ Status DataTypeDateTimeV2SerDe::from_string(StringRef& str, IColumn& column,
     return Status::OK();
 }
 
+// Deserializes a DateTimeV2 value from its OLAP string representation (e.g. from ZoneMap protobuf).
+// This is the inverse of to_olap_string().
+//
+// Uses from_date_format_str("%Y-%m-%d %H:%i:%s.%f") to parse.
+// DateTimeV2 supports microsecond precision (scale 0-6) via a 20-bit microsecond_ field.
+//
+// Expected input format: "YYYY-MM-DD HH:MM:SS[.ffffff]"
+// Examples:
+//   "2023-10-15 14:30:00"         => scale 0, microsecond = 0
+//   "2023-10-15 14:30:00.123000"  => scale 6, microsecond = 123000
+//   "2023-10-15 14:30:00.123"     => scale 3, microsecond = 123000
+//
+// On parse failure, falls back to MIN_DATETIME_V2.
 Status DataTypeDateTimeV2SerDe::from_olap_string(const std::string& str, Field& field,
                                                  const FormatOptions& options) const {
     CastParameters params {.status = Status::OK(), .is_strict = false};
@@ -143,7 +156,8 @@ Status DataTypeDateTimeV2SerDe::from_string_strict_mode(StringRef& str, IColumn&
     CastParameters params {.status = Status::OK(), .is_strict = true};
 
     DateV2Value<DateTimeV2ValueType> res;
-    CastToDatetimeV2::from_string_strict_mode<true>(str, res, options.timezone, _scale, params);
+    CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(str, res, options.timezone,
+                                                                         _scale, params);
     // only after we called something with `IS_STRICT = true`, params.status will be set
     if (!params.status.ok()) [[unlikely]] {
         params.status.prepend(fmt::format("parse {} to datetime failed: ", str.to_string_view()));
@@ -164,7 +178,8 @@ Status DataTypeDateTimeV2SerDe::from_int_batch(const typename IntDataType::Colum
     CastParameters params {.status = Status::OK(), .is_strict = false};
     for (size_t i = 0; i < int_col.size(); ++i) {
         DateV2Value<DateTimeV2ValueType> val;
-        if (CastToDatetimeV2::from_integer<false>(int_col.get_element(i), val, params)) [[likely]] {
+        if (CastToDatetimeV2::from_integer<DatelikeParseMode::NON_STRICT>(int_col.get_element(i),
+                                                                          val, params)) [[likely]] {
             col_data.get_data()[i] = val;
             col_nullmap.get_data()[i] = false;
         } else {
@@ -184,7 +199,8 @@ Status DataTypeDateTimeV2SerDe::from_int_strict_mode_batch(
     CastParameters params {.status = Status::OK(), .is_strict = true};
     for (size_t i = 0; i < int_col.size(); ++i) {
         DateV2Value<DateTimeV2ValueType> val;
-        CastToDatetimeV2::from_integer<true>(int_col.get_element(i), val, params);
+        CastToDatetimeV2::from_integer<DatelikeParseMode::STRICT>(int_col.get_element(i), val,
+                                                                  params);
         if (!params.status.ok()) [[unlikely]] {
             params.status.prepend(
                     fmt::format("parse {} to datetime failed: ", int_col.get_element(i)));
@@ -207,8 +223,8 @@ Status DataTypeDateTimeV2SerDe::from_float_batch(
     CastParameters params {.status = Status::OK(), .is_strict = false};
     for (size_t i = 0; i < float_col.size(); ++i) {
         DateV2Value<DateTimeV2ValueType> val;
-        if (CastToDatetimeV2::from_float<false>(float_col.get_data()[i], val, _scale, params))
-                [[likely]] {
+        if (CastToDatetimeV2::from_float<DatelikeParseMode::NON_STRICT>(
+                    float_col.get_data()[i], val, _scale, params)) [[likely]] {
             col_data.get_data()[i] = val;
             col_nullmap.get_data()[i] = false;
         } else {
@@ -228,7 +244,8 @@ Status DataTypeDateTimeV2SerDe::from_float_strict_mode_batch(
     CastParameters params {.status = Status::OK(), .is_strict = true};
     for (size_t i = 0; i < float_col.size(); ++i) {
         DateV2Value<DateTimeV2ValueType> val;
-        CastToDatetimeV2::from_float<true>(float_col.get_data()[i], val, _scale, params);
+        CastToDatetimeV2::from_float<DatelikeParseMode::STRICT>(float_col.get_data()[i], val,
+                                                                _scale, params);
         if (!params.status.ok()) [[unlikely]] {
             params.status.prepend(
                     fmt::format("parse {} to datetime failed: ", float_col.get_data()[i]));
@@ -251,7 +268,7 @@ Status DataTypeDateTimeV2SerDe::from_decimal_batch(
     CastParameters params {.status = Status::OK(), .is_strict = false};
     for (size_t i = 0; i < decimal_col.size(); ++i) {
         DateV2Value<DateTimeV2ValueType> val;
-        if (CastToDatetimeV2::from_decimal<true>(
+        if (CastToDatetimeV2::from_decimal<DatelikeParseMode::NON_STRICT>(
                     decimal_col.get_intergral_part(i), decimal_col.get_fractional_part(i),
                     decimal_col.get_scale(), val, _scale, params)) [[likely]] {
             col_data.get_data()[i] = val;
@@ -273,9 +290,9 @@ Status DataTypeDateTimeV2SerDe::from_decimal_strict_mode_batch(
     CastParameters params {.status = Status::OK(), .is_strict = true};
     for (size_t i = 0; i < decimal_col.size(); ++i) {
         DateV2Value<DateTimeV2ValueType> val;
-        CastToDatetimeV2::from_decimal<true>(decimal_col.get_intergral_part(i),
-                                             decimal_col.get_fractional_part(i),
-                                             decimal_col.get_scale(), val, _scale, params);
+        CastToDatetimeV2::from_decimal<DatelikeParseMode::STRICT>(
+                decimal_col.get_intergral_part(i), decimal_col.get_fractional_part(i),
+                decimal_col.get_scale(), val, _scale, params);
         if (!params.status.ok()) [[unlikely]] {
             params.status.prepend(fmt::format(
                     "parse {}.{} to datetime failed: ", decimal_col.get_intergral_part(i),
@@ -512,8 +529,19 @@ void DataTypeDateTimeV2SerDe::write_one_cell_to_binary(const IColumn& src_column
            data_ref.size);
 }
 
+// Serializes a DateTimeV2 value to its OLAP string representation for ZoneMap storage.
+// This is the inverse of from_olap_string().
+//
+// Always passes scale=6 to CastToString::from_datetimev2 because historically the Field
+// type for DateTimeV2 always stores values with 6-digit (microsecond) precision.
+// With scale=6, the fractional part is ALWAYS written, even when microsecond=0.
+//
+// Output format: "YYYY-MM-DD HH:MM:SS.ffffff"
+// Examples:
+//   value with microsecond=0       => "2023-10-15 14:30:00.000000"
+//   value with microsecond=123000  => "2023-10-15 14:30:00.123000"
 std::string DataTypeDateTimeV2SerDe::to_olap_string(const Field& field) const {
-    return CastToString::from_datetimev2(field.get<TYPE_DATETIMEV2>());
+    return CastToString::from_datetimev2(field.get<TYPE_DATETIMEV2>(), 6);
 }
 
 // NOLINTEND(readability-function-cognitive-complexity)

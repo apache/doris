@@ -26,7 +26,6 @@
 #include "exprs/aggregate/aggregate_function.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 /** Aggregate function combinator allows to take one aggregate function
   *  and transform it to another aggregate function.
@@ -70,5 +69,3 @@ public:
 };
 
 } // namespace doris
-
-#include "common/compile_check_end.h"

@@ -40,7 +40,6 @@
 #include "exprs/function/function.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 struct ColumnRowRef {
     ENABLE_FACTORY_CREATOR(ColumnRowRef);
     ColumnPtr column;
@@ -189,5 +188,3 @@ public:
 };
 
 } // namespace doris
-
-#include "common/compile_check_end.h"

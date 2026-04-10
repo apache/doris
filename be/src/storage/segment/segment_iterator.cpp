@@ -76,6 +76,7 @@
 #include "storage/field.h"
 #include "storage/id_manager.h"
 #include "storage/index/ann/ann_index.h"
+#include "storage/index/ann/ann_index_iterator.h"
 #include "storage/index/ann/ann_index_reader.h"
 #include "storage/index/ann/ann_topn_runtime.h"
 #include "storage/index/index_file_reader.h"
@@ -111,8 +112,6 @@
 namespace doris {
 using namespace ErrorCode;
 namespace segment_v2 {
-
-#include "common/compile_check_begin.h"
 
 SegmentIterator::~SegmentIterator() = default;
 
@@ -697,7 +696,14 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
         }
     }
     if (!_seek_schema) {
-        _seek_schema = std::make_unique<Schema>(key_fields, key_fields.size());
+        // Schema constructors accept a vector of TabletColumnPtr. Convert
+        // StorageField pointers to TabletColumnPtr by copying their descriptors.
+        std::vector<TabletColumnPtr> cols;
+        cols.reserve(key_fields.size());
+        for (const StorageField* f : key_fields) {
+            cols.emplace_back(std::make_shared<TabletColumn>(f->get_desc()));
+        }
+        _seek_schema = std::make_unique<Schema>(cols, cols.size());
     }
     // todo(wb) need refactor here, when using pk to search, _seek_block is useless
     if (_seek_block.size() == 0) {
@@ -857,6 +863,7 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
                 has_ann_index, has_common_expr_push_down, has_column_predicate);
         // Disable index-only scan on ann indexed column.
         _need_read_data_indices[src_cid] = true;
+        _opts.stats->ann_fall_back_brute_force_cnt += 1;
         return Status::OK();
     }
 
@@ -870,6 +877,7 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
                     "Asc topn for inner product can not be evaluated by ann index");
             // Disable index-only scan on ann indexed column.
             _need_read_data_indices[src_cid] = true;
+            _opts.stats->ann_fall_back_brute_force_cnt += 1;
             return Status::OK();
         }
     } else {
@@ -877,6 +885,7 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
             VLOG_DEBUG << fmt::format("Desc topn for l2/cosine can not be evaluated by ann index");
             // Disable index-only scan on ann indexed column.
             _need_read_data_indices[src_cid] = true;
+            _opts.stats->ann_fall_back_brute_force_cnt += 1;
             return Status::OK();
         }
     }
@@ -889,6 +898,7 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
                 metric_to_string(ann_index_reader->get_metric_type()));
         // Disable index-only scan on ann indexed column.
         _need_read_data_indices[src_cid] = true;
+        _opts.stats->ann_fall_back_brute_force_cnt += 1;
         return Status::OK();
     }
 
@@ -902,14 +912,41 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
                 pre_size, rows_of_segment);
         // Disable index-only scan on ann indexed column.
         _need_read_data_indices[src_cid] = true;
+        _opts.stats->ann_fall_back_brute_force_cnt += 1;
         return Status::OK();
     }
     IColumn::MutablePtr result_column;
     std::unique_ptr<std::vector<uint64_t>> result_row_ids;
     segment_v2::AnnIndexStats ann_index_stats;
-    RETURN_IF_ERROR(_ann_topn_runtime->evaluate_vector_ann_search(ann_index_iterator, &_row_bitmap,
-                                                                  rows_of_segment, result_column,
-                                                                  result_row_ids, ann_index_stats));
+
+    // Try to load ANN index before search
+    auto ann_index_iterator_casted =
+            dynamic_cast<segment_v2::AnnIndexIterator*>(ann_index_iterator);
+    if (ann_index_iterator_casted == nullptr) {
+        VLOG_DEBUG << "Failed to cast index iterator to AnnIndexIterator, fallback to brute force";
+        _need_read_data_indices[src_cid] = true;
+        _opts.stats->ann_fall_back_brute_force_cnt += 1;
+        return Status::OK();
+    }
+
+    // Track load index timing
+    {
+        SCOPED_TIMER(&(ann_index_stats.load_index_costs_ns));
+        if (!ann_index_iterator_casted->try_load_index()) {
+            VLOG_DEBUG << "Failed to load ANN index, fallback to brute force search";
+            _need_read_data_indices[src_cid] = true;
+            _opts.stats->ann_fall_back_brute_force_cnt += 1;
+            return Status::OK();
+        }
+        double load_costs_ms =
+                static_cast<double>(ann_index_stats.load_index_costs_ns.value()) / 1000000.0;
+        DorisMetrics::instance()->ann_index_load_costs_ms->increment(
+                static_cast<int64_t>(load_costs_ms));
+    }
+
+    RETURN_IF_ERROR(_ann_topn_runtime->evaluate_vector_ann_search(
+            ann_index_iterator_casted, &_row_bitmap, rows_of_segment, result_column, result_row_ids,
+            ann_index_stats));
 
     VLOG_DEBUG << fmt::format("Ann topn filtered {} - {} = {} rows", pre_size,
                               _row_bitmap.cardinality(), pre_size - _row_bitmap.cardinality());
@@ -918,6 +955,10 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
     _opts.stats->rows_ann_index_topn_filtered += rows_filterd;
     _opts.stats->ann_index_load_ns += ann_index_stats.load_index_costs_ns.value();
     _opts.stats->ann_topn_search_ns += ann_index_stats.search_costs_ns.value();
+    _opts.stats->ann_ivf_on_disk_load_ns += ann_index_stats.ivf_on_disk_load_costs_ns.value();
+    _opts.stats->ann_ivf_on_disk_cache_hit_cnt += ann_index_stats.ivf_on_disk_cache_hit_cnt.value();
+    _opts.stats->ann_ivf_on_disk_cache_miss_cnt +=
+            ann_index_stats.ivf_on_disk_cache_miss_cnt.value();
     _opts.stats->ann_index_topn_engine_search_ns += ann_index_stats.engine_search_ns.value();
     _opts.stats->ann_index_topn_result_process_ns +=
             ann_index_stats.result_process_costs_ns.value();
@@ -1163,8 +1204,8 @@ Status SegmentIterator::_apply_index_expr() {
     }
 
     // Apply ann range search
-    segment_v2::AnnIndexStats ann_index_stats;
     for (const auto& expr_ctx : _common_expr_ctxs_push_down) {
+        segment_v2::AnnIndexStats ann_index_stats;
         size_t origin_rows = _row_bitmap.cardinality();
         RETURN_IF_ERROR(expr_ctx->evaluate_ann_range_search(
                 _index_iterators, _schema->column_ids(), _column_iterators,
@@ -1172,10 +1213,16 @@ Status SegmentIterator::_apply_index_expr() {
         _opts.stats->rows_ann_index_range_filtered += (origin_rows - _row_bitmap.cardinality());
         _opts.stats->ann_index_load_ns += ann_index_stats.load_index_costs_ns.value();
         _opts.stats->ann_index_range_search_ns += ann_index_stats.search_costs_ns.value();
+        _opts.stats->ann_ivf_on_disk_load_ns += ann_index_stats.ivf_on_disk_load_costs_ns.value();
+        _opts.stats->ann_ivf_on_disk_cache_hit_cnt +=
+                ann_index_stats.ivf_on_disk_cache_hit_cnt.value();
+        _opts.stats->ann_ivf_on_disk_cache_miss_cnt +=
+                ann_index_stats.ivf_on_disk_cache_miss_cnt.value();
         _opts.stats->ann_range_engine_search_ns += ann_index_stats.engine_search_ns.value();
         _opts.stats->ann_range_result_convert_ns += ann_index_stats.result_process_costs_ns.value();
         _opts.stats->ann_range_engine_convert_ns += ann_index_stats.engine_convert_ns.value();
         _opts.stats->ann_range_pre_process_ns += ann_index_stats.engine_prepare_ns.value();
+        _opts.stats->ann_fall_back_brute_force_cnt += ann_index_stats.fall_back_brute_force_cnt;
     }
 
     for (auto it = _common_expr_ctxs_push_down.begin(); it != _common_expr_ctxs_push_down.end();) {
@@ -1488,6 +1535,8 @@ Status SegmentIterator::_init_index_iterators() {
     if (_score_runtime) {
         _index_query_context->collection_statistics = _opts.collection_statistics;
         _index_query_context->collection_similarity = std::make_shared<CollectionSimilarity>();
+        _index_query_context->query_limit = _score_runtime->get_limit();
+        _index_query_context->is_asc = _score_runtime->is_asc();
     }
 
     // Inverted index iterators
@@ -1588,7 +1637,13 @@ Status SegmentIterator::_lookup_ordinal_from_sk_index(const RowCursor& key, bool
                                 is_include);
 
     const auto& key_col_ids = key.schema()->column_ids();
-    _convert_rowcursor_to_short_key(key, key_col_ids.size());
+
+    // Clone the key once and pad CHAR fields to storage format before the binary search.
+    // _seek_block holds storage-format data where CHAR is zero-padded to column length,
+    // while RowCursor holds CHAR in compute format (unpadded). Padding once here avoids
+    // repeated allocation inside the comparison loop.
+    RowCursor padded_key = key.clone();
+    padded_key.pad_char_fields();
 
     ssize_t start_block_id = 0;
     auto start_iter = sk_index_decoder->lower_bound(index_key);
@@ -1617,7 +1672,7 @@ Status SegmentIterator::_lookup_ordinal_from_sk_index(const RowCursor& key, bool
     while (start < end) {
         rowid_t mid = (start + end) / 2;
         RETURN_IF_ERROR(_seek_and_peek(mid));
-        int cmp = _compare_short_key_with_seek_block(key_col_ids);
+        int cmp = _compare_short_key_with_seek_block(padded_key, key_col_ids);
         if (cmp > 0) {
             start = mid + 1;
         } else if (cmp == 0) {
@@ -2981,6 +3036,7 @@ Status SegmentIterator::_construct_compound_expr_context() {
     auto inverted_index_context = std::make_shared<IndexExecContext>(
             _schema->column_ids(), _index_iterators, _storage_name_and_type,
             _common_expr_index_exec_status, _score_runtime, _segment.get(), iter_opts);
+    inverted_index_context->set_index_query_context(_index_query_context);
     for (const auto& expr_ctx : _opts.common_expr_ctxs_push_down) {
         VExprContextSPtr context;
         // _ann_range_search_runtime will do deep copy.
@@ -3157,7 +3213,6 @@ void SegmentIterator::_init_virtual_columns(Block* block) {
 }
 
 Status SegmentIterator::_materialization_of_virtual_column(Block* block) {
-    size_t prev_block_columns = block->columns();
     // Some expr can not process empty block, such as function `element_at`.
     // So materialize virtual column in advance to avoid errors.
     if (block->rows() == 0) {
@@ -3191,21 +3246,16 @@ Status SegmentIterator::_materialization_of_virtual_column(Block* block) {
                     block->get_by_position(idx_in_block).column.get())) {
             VLOG_DEBUG << fmt::format("Virtual column is doing materialization, cid {}, col idx {}",
                                       cid, idx_in_block);
-            int result_cid = -1;
-            RETURN_IF_ERROR(column_expr->execute(block, &result_cid));
+            ColumnPtr result_column;
+            RETURN_IF_ERROR(column_expr->execute(block, result_column));
 
-            block->replace_by_position(idx_in_block,
-                                       std::move(block->get_by_position(result_cid).column));
+            block->replace_by_position(idx_in_block, std::move(result_column));
             if (block->get_by_position(idx_in_block).column->size() == 0) {
-                LOG_WARNING(
-                        "Result of expr column {} is empty. cid {}, idx_in_block {}, result_cid",
-                        column_expr->root()->debug_string(), cid, idx_in_block, result_cid);
+                LOG_WARNING("Result of expr column {} is empty. cid {}, idx_in_block {}",
+                            column_expr->root()->debug_string(), cid, idx_in_block);
             }
         }
     }
-    // During execution of expr, some columns may be added to the end of the block.
-    // Remove them to keep consistent with current block.
-    block->erase_tail(prev_block_columns);
     return Status::OK();
 }
 

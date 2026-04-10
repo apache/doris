@@ -126,7 +126,7 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
             child = tryToConstructFilter(cascadesContext, cteProducer.getCteId(), child);
             Set<Slot> producerOutputs = cascadesContext.getStatementContext()
                     .getCteIdToOutputIds().get(cteProducer.getCteId());
-            if (producerOutputs.size() < child.getOutput().size()) {
+            if (producerOutputs != null && producerOutputs.size() < child.getOutput().size()) {
                 ImmutableList.Builder<NamedExpression> projectsBuilder
                         = ImmutableList.builderWithExpectedSize(producerOutputs.size());
                 for (Slot slot : child.getOutput()) {

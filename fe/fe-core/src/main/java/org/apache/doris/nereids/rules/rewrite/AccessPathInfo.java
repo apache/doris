@@ -27,6 +27,9 @@ public class AccessPathInfo {
     public static final String ACCESS_ALL = "*";
     public static final String ACCESS_MAP_KEYS = "KEYS";
     public static final String ACCESS_MAP_VALUES = "VALUES";
+    // Suffix appended to a string-column path to indicate that only the offset array
+    // (not the char data) is needed — agreed with BE as the special path component name.
+    public static final String ACCESS_STRING_OFFSET = "OFFSET";
 
     private DataType prunedType;
     // allAccessPaths is used to record all access path include predicate access path and non-predicate access path,

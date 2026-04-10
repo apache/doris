@@ -32,8 +32,6 @@ class FileWriter;
 namespace doris {
 class Block;
 
-#include "common/compile_check_begin.h"
-
 // Doris Native format writer.
 // It serializes vectorized Blocks into Doris Native binary format.
 class VNativeTransformer final : public VFileFormatTransformer {
@@ -61,5 +59,4 @@ private:
     segment_v2::CompressionTypePB _compression_type {segment_v2::CompressionTypePB::ZSTD};
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.es;
 
-import org.apache.doris.catalog.EsResource;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -45,7 +44,7 @@ public class EsExternalCatalog extends ExternalCatalog {
     private static final Logger LOG = LogManager.getLogger(EsExternalCatalog.class);
     private EsRestClient esRestClient;
     private static final List<String> REQUIRED_PROPERTIES = ImmutableList.of(
-            EsResource.HOSTS
+            EsProperties.HOSTS
     );
 
     /**
@@ -60,68 +59,68 @@ public class EsExternalCatalog extends ExternalCatalog {
         // Compatible with "Doris On ES" interfaces
         Map<String, String> properties = Maps.newHashMap();
         for (Map.Entry<String, String> kv : props.entrySet()) {
-            properties.put(StringUtils.removeStart(kv.getKey(), EsResource.ES_PROPERTIES_PREFIX), kv.getValue());
+            properties.put(StringUtils.removeStart(kv.getKey(), EsProperties.ES_PROPERTIES_PREFIX), kv.getValue());
         }
-        // nodes = properties.get(EsResource.HOSTS).trim().split(",");
+        // nodes = properties.get(EsProperties.HOSTS).trim().split(",");
         if (properties.containsKey("ssl")) {
-            properties.put(EsResource.HTTP_SSL_ENABLED, properties.remove("ssl"));
+            properties.put(EsProperties.HTTP_SSL_ENABLED, properties.remove("ssl"));
         }
         if (properties.containsKey("username")) {
-            properties.put(EsResource.USER, properties.remove("username"));
+            properties.put(EsProperties.USER, properties.remove("username"));
         }
         return properties;
     }
 
     public String[] getNodes() {
-        String hosts = catalogProperty.getOrDefault(EsResource.HOSTS, "");
-        String sslEnabled =
-                catalogProperty.getOrDefault(EsResource.HTTP_SSL_ENABLED, EsResource.HTTP_SSL_ENABLED_DEFAULT_VALUE);
+        String hosts = catalogProperty.getOrDefault(EsProperties.HOSTS, "");
+        String sslEnabled = catalogProperty.getOrDefault(
+                EsProperties.HTTP_SSL_ENABLED, EsProperties.HTTP_SSL_ENABLED_DEFAULT_VALUE);
         String[] hostUrls = hosts.trim().split(",");
-        EsResource.fillUrlsWithSchema(hostUrls, Boolean.parseBoolean(sslEnabled));
+        EsProperties.fillUrlsWithSchema(hostUrls, Boolean.parseBoolean(sslEnabled));
         return hostUrls;
     }
 
     public String getUsername() {
-        return catalogProperty.getOrDefault(EsResource.USER, "");
+        return catalogProperty.getOrDefault(EsProperties.USER, "");
     }
 
     public String getPassword() {
-        return catalogProperty.getOrDefault(EsResource.PASSWORD, "");
+        return catalogProperty.getOrDefault(EsProperties.PASSWORD, "");
     }
 
     public boolean enableDocValueScan() {
-        return Boolean.parseBoolean(catalogProperty.getOrDefault(EsResource.DOC_VALUE_SCAN,
-                EsResource.DOC_VALUE_SCAN_DEFAULT_VALUE));
+        return Boolean.parseBoolean(catalogProperty.getOrDefault(EsProperties.DOC_VALUE_SCAN,
+                EsProperties.DOC_VALUE_SCAN_DEFAULT_VALUE));
     }
 
     public boolean enableKeywordSniff() {
-        return Boolean.parseBoolean(catalogProperty.getOrDefault(EsResource.KEYWORD_SNIFF,
-                EsResource.KEYWORD_SNIFF_DEFAULT_VALUE));
+        return Boolean.parseBoolean(catalogProperty.getOrDefault(EsProperties.KEYWORD_SNIFF,
+                EsProperties.KEYWORD_SNIFF_DEFAULT_VALUE));
     }
 
     public boolean enableSsl() {
-        return Boolean.parseBoolean(catalogProperty.getOrDefault(EsResource.HTTP_SSL_ENABLED,
-                EsResource.HTTP_SSL_ENABLED_DEFAULT_VALUE));
+        return Boolean.parseBoolean(catalogProperty.getOrDefault(EsProperties.HTTP_SSL_ENABLED,
+                EsProperties.HTTP_SSL_ENABLED_DEFAULT_VALUE));
     }
 
     public boolean enableNodesDiscovery() {
-        return Boolean.parseBoolean(catalogProperty.getOrDefault(EsResource.NODES_DISCOVERY,
-                EsResource.NODES_DISCOVERY_DEFAULT_VALUE));
+        return Boolean.parseBoolean(catalogProperty.getOrDefault(EsProperties.NODES_DISCOVERY,
+                EsProperties.NODES_DISCOVERY_DEFAULT_VALUE));
     }
 
     public boolean enableMappingEsId() {
-        return Boolean.parseBoolean(catalogProperty.getOrDefault(EsResource.MAPPING_ES_ID,
-                EsResource.MAPPING_ES_ID_DEFAULT_VALUE));
+        return Boolean.parseBoolean(catalogProperty.getOrDefault(EsProperties.MAPPING_ES_ID,
+                EsProperties.MAPPING_ES_ID_DEFAULT_VALUE));
     }
 
     public boolean enableLikePushDown() {
-        return Boolean.parseBoolean(catalogProperty.getOrDefault(EsResource.LIKE_PUSH_DOWN,
-                EsResource.LIKE_PUSH_DOWN_DEFAULT_VALUE));
+        return Boolean.parseBoolean(catalogProperty.getOrDefault(EsProperties.LIKE_PUSH_DOWN,
+                EsProperties.LIKE_PUSH_DOWN_DEFAULT_VALUE));
     }
 
     public boolean enableIncludeHiddenIndex() {
-        return Boolean.parseBoolean(catalogProperty.getOrDefault(EsResource.INCLUDE_HIDDEN_INDEX,
-                EsResource.INCLUDE_HIDDEN_INDEX_DEFAULT_VALUE));
+        return Boolean.parseBoolean(catalogProperty.getOrDefault(EsProperties.INCLUDE_HIDDEN_INDEX,
+                EsProperties.INCLUDE_HIDDEN_INDEX_DEFAULT_VALUE));
     }
 
     @Override

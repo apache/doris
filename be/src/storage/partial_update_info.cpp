@@ -38,7 +38,6 @@
 #include "storage/utils.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 Status PartialUpdateInfo::init(int64_t tablet_id, int64_t txn_id, const TabletSchema& tablet_schema,
                                UniqueKeyUpdateModePB unique_key_update_mode,
                                PartialUpdateNewRowPolicyPB policy,

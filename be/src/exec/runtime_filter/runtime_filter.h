@@ -27,7 +27,6 @@
 #include "runtime/query_context.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeFilterWrapper;
 class RuntimeProfile;
 
@@ -43,6 +42,9 @@ public:
     RuntimeFilterType type() const { return _runtime_filter_type; }
 
     bool has_remote_target() const { return _has_remote_target; }
+
+    uint32_t stage() const { return _stage; }
+    void set_stage(uint32_t stage) { _stage = stage; }
 
     template <class T>
     Status assign(const T& request, butil::IOBufAsZeroCopyInputStream* data) {
@@ -120,6 +122,10 @@ protected:
     // _wrapper is a runtime filter function wrapper
     std::shared_ptr<RuntimeFilterWrapper> _wrapper;
 
+    // The recursion round number for recursive CTE.
+    // Stamped onto outgoing RPC requests so stale messages from old rounds are discarded.
+    uint32_t _stage = 0;
+
     // will apply to remote node
     const bool _has_remote_target;
 
@@ -132,5 +138,4 @@ protected:
 
     std::recursive_mutex _rmtx; // lock all member function of runtime filter producer/consumer
 };
-#include "common/compile_check_end.h"
 } // namespace doris

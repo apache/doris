@@ -39,7 +39,6 @@ class Block;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class TableFormatReader : public GenericReader {
 public:
     TableFormatReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeState* state,
@@ -103,6 +102,16 @@ public:
     virtual Status init_row_filters() = 0;
 
     bool count_read_rows() override { return _file_format_reader->count_read_rows(); }
+
+    void set_condition_cache_context(std::shared_ptr<ConditionCacheContext> ctx) override {
+        _file_format_reader->set_condition_cache_context(std::move(ctx));
+    }
+
+    bool has_delete_operations() const override {
+        return _file_format_reader->has_delete_operations();
+    }
+
+    int64_t get_total_rows() const override { return _file_format_reader->get_total_rows(); }
 
 protected:
     std::string _table_format;                          // hudi, iceberg, paimon
@@ -409,5 +418,4 @@ struct ColumnIdResult {
               filter_column_ids(std::move(filter_column_ids_)) {}
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

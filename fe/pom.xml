@@ -191,6 +191,14 @@ under the License.
                         <failsOnError>true</failsOnError>
                         <linkXRef>false</linkXRef>
                         <includeTestSourceDirectory>true</includeTestSourceDirectory>
+                        <!-- Explicitly set config_loc so that checkstyle.xml can reference sibling
+                             files via ${config_loc}/suppressions.xml etc.
+                             maven-checkstyle-plugin 3.0+ sets this automatically, but older
+                             versions do not, causing "Property ${config_loc} has not been set".
+                             ${maven.multiModuleProjectDirectory} always points to the directory
+                             from which Maven was invoked (the fe/ root), so this works for all
+                             submodules regardless of nesting depth. Requires Maven 3.3.1+. -->
+                        <propertyExpansion>config_loc=${maven.multiModuleProjectDirectory}/check/checkstyle</propertyExpansion>
                         <excludes>
                             **/apache/doris/thrift/**/*,
                             **/apache/parquet/**/*
@@ -243,6 +251,7 @@ under the License.
         <module>fe-foundation</module>
         <module>fe-common</module>
         <module>fe-catalog</module>
+        <module>fe-filesystem</module>
         <module>fe-extension-spi</module>
         <module>fe-extension-loader</module>
         <module>fe-core</module>
@@ -251,6 +260,7 @@ under the License.
         <module>fe-authentication</module>
         <module>fe-thrift</module>
         <module>fe-type</module>
+        <module>fe-grpc</module>
     </modules>
     <properties>
         <doris.hive.catalog.shade.version>3.1.1</doris.hive.catalog.shade.version>
@@ -313,7 +323,7 @@ under the License.
         <metrics-core.version>4.0.2</metrics-core.version>
         <!--Netty 4.1.94 is not compatible with arrow flight.-->
         <!--Need to ensure that the version is the same as in arrow/java/pom.xml or compatible with it.-->
-        <netty-all.version>4.1.130.Final</netty-all.version>
+        <netty-all.version>4.1.132.Final</netty-all.version>
         <!--The dependence of transitive dependence cannot be ruled out, only Saving the nation through twisted ways.-->
         <netty-3-test.version>3.10.6.Final</netty-3-test.version>
         <objenesis.version>2.1</objenesis.version>
@@ -325,6 +335,7 @@ under the License.
         <!--Need to ensure that the version is the same as in arrow/java/pom.xml or compatible with it.-->
         <grpc.version>1.65.1</grpc.version>
         <check.freamework.version>3.53.0</check.freamework.version>
+        <cel.version>0.9.1-proto3</cel.version>
         <protobuf.version>3.25.8</protobuf.version>
         <!-- we use protoc-jar-maven-plugin to generate protobuf generated code -->
         <!-- see https://repo.maven.apache.org/maven2/com/google/protobuf/protoc/ to get correct version -->
@@ -337,9 +348,7 @@ under the License.
         <generex.version>1.0.1</generex.version>
         <jetty-servlet.version>11.0.26</jetty-servlet.version>
         <jetty-websocket.version>9.4.58.v20250814</jetty-websocket.version>
-        <logging-interceptor.version>4.12.0</logging-interceptor.version>
-        <okhttp.version>4.9.3</okhttp.version>
-        <okio.version>3.4.0</okio.version>
+        <okhttp.version>5.3.2</okhttp.version>
         <snakeyaml.version>2.0</snakeyaml.version>
         <validation-api.version>2.0.1.Final</validation-api.version>
         <zjsonpatch.version>0.2.3</zjsonpatch.version>
@@ -392,7 +401,7 @@ under the License.
         <antlr4.version>4.13.1</antlr4.version>
         <joda.version>2.8.1</joda.version>
         <project.scm.id>github</project.scm.id>
-        <spring.version>3.5.7</spring.version>
+        <spring.version>3.5.13</spring.version>
         <spring-framework.version>6.2.12</spring-framework.version>
         <orc.version>1.8.4</orc.version>
         <zookeeper.version>3.9.3</zookeeper.version>
@@ -402,7 +411,7 @@ under the License.
         <woodstox.version>6.5.1</woodstox.version>
         <kerby.version>2.0.3</kerby.version>
         <jettison.version>1.5.4</jettison.version>
-        <jetty.version>12.0.29</jetty.version>
+        <jetty.version>12.0.34</jetty.version>
         <jetty-http.version>11.0.26</jetty-http.version>
         <immutables.version>2.9.3</immutables.version> 
         <ivy.version>2.5.2</ivy.version>
@@ -410,7 +419,7 @@ under the License.
         <ini4j.version>0.5.4</ini4j.version>
         <!--todo waiting release-->
         <quartz.version>2.3.2</quartz.version>
-        <aircompressor.version>0.27</aircompressor.version>
+        <aircompressor.version>2.0.3</aircompressor.version>
         <!-- paimon -->
         <paimon.version>1.3.1</paimon.version>
         <disruptor.version>3.4.4</disruptor.version>
@@ -758,18 +767,6 @@ under the License.
                 </exclusions>
             </dependency>
             <dependency>
-                <groupId>org.apache.hadoop</groupId>
-                <artifactId>hadoop-aliyun</artifactId>
-                <version>${hadoop.version}</version>
-                <exclusions>
-                    <!-- pls confirm if this is a mandatory dependency  -->
-                    <exclusion>
-                        <groupId>org.ini4j</groupId>
-                        <artifactId>ini4j</artifactId>
-                    </exclusion>
-                </exclusions>
-            </dependency>
-            <dependency>
                 <groupId>org.apache.doris</groupId>
                 <artifactId>hive-catalog-shade</artifactId>
                 <version>${doris.hive.catalog.shade.version}</version>
@@ -898,6 +895,11 @@ under the License.
                 <groupId>com.google.guava</groupId>
                 <artifactId>guava-testlib</artifactId>
                 <version>${guava.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>dev.cel</groupId>
+                <artifactId>cel</artifactId>
+                <version>${cel.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/org.javassist/javassist -->
             <dependency>
@@ -1134,14 +1136,8 @@ under the License.
             <!-- https://mvnrepository.com/artifact/com.squareup.okhttp3/okhttp -->
             <dependency>
                 <groupId>com.squareup.okhttp3</groupId>
-                <artifactId>okhttp</artifactId>
+                <artifactId>okhttp-jvm</artifactId>
                 <version>${okhttp.version}</version>
-            </dependency>
-            <!-- https://mvnrepository.com/artifact/com.squareup.okio/okio -->
-            <dependency>
-                <groupId>com.squareup.okio</groupId>
-                <artifactId>okio</artifactId>
-                <version>${okio.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/org.yaml/snakeyaml -->
             <dependency>
@@ -1364,6 +1360,36 @@ under the License.
                 <version>${iceberg.version}</version>
             </dependency>
             <dependency>
+                <groupId>org.apache.paimon</groupId>
+                <artifactId>paimon-core</artifactId>
+                <version>${paimon.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.paimon</groupId>
+                <artifactId>paimon-common</artifactId>
+                <version>${paimon.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.paimon</groupId>
+                <artifactId>paimon-hive-connector-3.1</artifactId>
+                <version>${paimon.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.paimon</groupId>
+                <artifactId>paimon-format</artifactId>
+                <version>${paimon.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.paimon</groupId>
+                <artifactId>paimon-s3</artifactId>
+                <version>${paimon.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.paimon</groupId>
+                <artifactId>paimon-jindo</artifactId>
+                <version>${paimon.version}</version>
+            </dependency>
+            <dependency>
                 <groupId>com.aliyun.odps</groupId>
                 <artifactId>odps-sdk-core</artifactId>
                 <version>${maxcompute.version}</version>
@@ -1375,6 +1401,14 @@ under the License.
                     <exclusion>
                         <groupId>org.ini4j</groupId>
                         <artifactId>ini4j</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>com.squareup.okhttp3</groupId>
+                        <artifactId>okhttp</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>com.squareup.okio</groupId>
+                        <artifactId>okio</artifactId>
                     </exclusion>
                 </exclusions>
             </dependency>
@@ -1547,11 +1581,6 @@ under the License.
                 <groupId>hu.webarticum</groupId>
                 <artifactId>tree-printer</artifactId>
                 <version>${tree-printer.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.hamcrest</groupId>
-                <artifactId>hamcrest</artifactId>
-                <version>${hamcrest.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.httpcomponents</groupId>
@@ -1753,6 +1782,14 @@ under the License.
                         <artifactId>re2j</artifactId>
                         <groupId>io.trino</groupId>
                     </exclusion>
+                    <exclusion>
+                        <groupId>com.squareup.okhttp3</groupId>
+                        <artifactId>okhttp</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>com.squareup.okio</groupId>
+                        <artifactId>okio</artifactId>
+                    </exclusion>
                 </exclusions>
             </dependency>
             <dependency>
@@ -1864,7 +1901,6 @@ under the License.
                 <artifactId>mockito-inline</artifactId>
                 <version>${mockito.version}</version>
             </dependency>
-            <!-- fastutil for memory-efficient primitive collections -->
             <dependency>
                 <groupId>it.unimi.dsi</groupId>
                 <artifactId>fastutil-core</artifactId>

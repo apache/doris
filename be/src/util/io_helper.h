@@ -39,7 +39,6 @@
 #include "util/var_int.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 inline std::string int128_to_string(int128_t value) {
     return fmt::format(FMT_COMPILE("{}"), value);
 }
@@ -113,15 +112,7 @@ bool try_read_int_text(T& x, const StringRef& buf) {
 
 bool read_date_text_impl(VecDateTimeValue& x, const StringRef& buf);
 
-template <typename T>
-bool read_date_text_impl(T& x, const StringRef& buf, const cctz::time_zone& local_time_zone) {
-    static_assert(std::is_same_v<Int64, T>);
-    auto dv = binary_cast<Int64, VecDateTimeValue>(x);
-    auto ans = dv.from_date_str(buf.data, buf.size, local_time_zone);
-    dv.cast_to_date();
-    x = binary_cast<VecDateTimeValue, Int64>(dv);
-    return ans;
-}
+bool read_date_text_impl(Int64& x, const StringRef& buf, const cctz::time_zone& local_time_zone);
 
 template <typename T>
 bool read_ipv4_text_impl(T& x, const StringRef& buf) {
@@ -139,15 +130,8 @@ bool read_ipv6_text_impl(T& x, const StringRef& buf) {
 
 bool read_datetime_text_impl(VecDateTimeValue& x, const StringRef& buf);
 
-template <typename T>
-bool read_datetime_text_impl(T& x, const StringRef& buf, const cctz::time_zone& local_time_zone) {
-    static_assert(std::is_same_v<Int64, T>);
-    auto dv = binary_cast<Int64, VecDateTimeValue>(x);
-    auto ans = dv.from_date_str(buf.data, buf.size, local_time_zone);
-    dv.to_datetime();
-    x = binary_cast<VecDateTimeValue, Int64>(dv);
-    return ans;
-}
+bool read_datetime_text_impl(Int64& x, const StringRef& buf,
+                             const cctz::time_zone& local_time_zone);
 
 bool read_date_v2_text_impl(DateV2Value<DateV2ValueType>& x, const StringRef& buf);
 
@@ -165,11 +149,19 @@ StringParser::ParseResult read_decimal_text_impl(T& x, const StringRef& buf, UIn
                                                  UInt32 scale) {
     static_assert(IsDecimalNumber<T>);
     if constexpr (!std::is_same_v<DecimalV2Value, T>) {
+        // DecimalV3: uses the caller-supplied precision and scale.
+        // When called from from_olap_string with ignore_scale=true, scale=0 means the
+        // string is treated as an unscaled integer (e.g. "12345" → internal int 12345).
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
         x.value = StringParser::string_to_decimal<P>(buf.data, (int)buf.size, precision, scale,
                                                      &result);
         return result;
     } else {
+        // DecimalV2: IGNORES the caller-supplied precision/scale and hardcodes
+        // DecimalV2Value::PRECISION (27) and DecimalV2Value::SCALE (9).
+        // This means from_olap_string's ignore_scale flag has no actual effect on DecimalV2
+        // parsing today — the string "123.456000000" is always parsed with scale=9.
+        // Callers should still set ignore_scale=false for DecimalV2 for semantic correctness.
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
         x = DecimalV2Value(StringParser::string_to_decimal<TYPE_DECIMALV2>(
                 buf.data, (int)buf.size, DecimalV2Value::PRECISION, DecimalV2Value::SCALE,
@@ -238,7 +230,5 @@ bool inline try_read_bool_text(UInt8& x, const StringRef& buf) {
     x = StringParser::string_to_bool(buf.data, buf.size, &result);
     return result == StringParser::PARSE_SUCCESS;
 }
-
-#include "common/compile_check_end.h"
 
 } // namespace doris

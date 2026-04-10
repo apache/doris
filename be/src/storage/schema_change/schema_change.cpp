@@ -88,8 +88,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
-
 class CollectionValue;
 
 using namespace ErrorCode;
@@ -1543,9 +1541,8 @@ Status SchemaChangeJob::_init_column_mapping(ColumnMapping* column_mapping,
     }
 
     if (!column_schema.is_nullable() || value.length() != 0) {
-        DataTypeSerDe::FormatOptions options;
-        RETURN_IF_ERROR(column_schema.get_vec_type()->get_serde()->from_olap_string(
-                value, column_mapping->default_value, options));
+        RETURN_IF_ERROR(column_schema.get_vec_type()->get_serde()->from_fe_string(
+                value, column_mapping->default_value));
     }
 
     return Status::OK();
@@ -1640,7 +1637,5 @@ Status SchemaChangeJob::_calc_delete_bitmap_for_mow_table(int64_t alter_version)
     _new_tablet->save_meta();
     return Status::OK();
 }
-
-#include "common/compile_check_end.h"
 
 } // namespace doris

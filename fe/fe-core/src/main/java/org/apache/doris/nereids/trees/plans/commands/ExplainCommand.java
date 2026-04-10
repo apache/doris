@@ -27,6 +27,8 @@ import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergDeleteSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergMergeSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.planner.ScanNode;
@@ -88,31 +90,52 @@ public class ExplainCommand extends Command implements NoForward {
             ctx.getStatementContext().setIsInsert(true);
         }
         if (explainable instanceof DeleteFromCommand) {
-            ctx.getStatementContext().setSkipPrunePredicate(true);
+            ctx.getStatementContext().setIsDelete(true);
         }
         explainPlan = ((LogicalPlan) explainable.getExplainPlan(ctx));
         NereidsPlanner planner = explainable.getExplainPlanner(explainPlan, ctx.getStatementContext()).orElseGet(() ->
             new NereidsPlanner(ctx.getStatementContext())
         );
 
-        LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(explainPlan, ctx.getStatementContext());
-        ExplainOptions explainOptions = new ExplainOptions(level, showPlanProcess);
-        logicalPlanAdapter.setIsExplain(explainOptions);
-        executor.setParsedStmt(logicalPlanAdapter);
-        if (ctx.getSessionVariable().isEnableMaterializedViewRewrite()) {
-            ctx.getStatementContext().addPlannerHook(InitMaterializationContextHook.INSTANCE);
+        long previousTargetTableId = ctx.getIcebergRowIdTargetTableId();
+        boolean resetTargetTableId = false;
+        if (explainPlan instanceof LogicalIcebergDeleteSink) {
+            if (previousTargetTableId < 0) {
+                ctx.setIcebergRowIdTargetTableId(
+                        ((LogicalIcebergDeleteSink<?>) explainPlan).getTargetTable().getId());
+                resetTargetTableId = true;
+            }
+        } else if (explainPlan instanceof LogicalIcebergMergeSink) {
+            if (previousTargetTableId < 0) {
+                ctx.setIcebergRowIdTargetTableId(
+                        ((LogicalIcebergMergeSink<?>) explainPlan).getTargetTable().getId());
+                resetTargetTableId = true;
+            }
         }
-        planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
-        executor.setPlanner(planner);
-        // Skip SQL block rules check for EXPLAIN statements since they only show
-        // the execution plan without actually executing the query
-        if (showPlanProcess) {
-            executor.handleExplainPlanProcessStmt(planner.getCascadesContext().getPlanProcesses());
-        } else {
-            executor.handleExplainStmt(planner.getExplainString(explainOptions), true);
-        }
-        for (ScanNode scanNode : planner.getScanNodes()) {
-            scanNode.stop();
+        try {
+            LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(explainPlan, ctx.getStatementContext());
+            ExplainOptions explainOptions = new ExplainOptions(level, showPlanProcess);
+            logicalPlanAdapter.setIsExplain(explainOptions);
+            executor.setParsedStmt(logicalPlanAdapter);
+            if (ctx.getSessionVariable().isEnableMaterializedViewRewrite()) {
+                ctx.getStatementContext().addPlannerHook(InitMaterializationContextHook.INSTANCE);
+            }
+            planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
+            executor.setPlanner(planner);
+            // Skip SQL block rules check for EXPLAIN statements since they only show
+            // the execution plan without actually executing the query
+            if (showPlanProcess) {
+                executor.handleExplainPlanProcessStmt(planner.getCascadesContext().getPlanProcesses());
+            } else {
+                executor.handleExplainStmt(planner.getExplainString(explainOptions), true);
+            }
+            for (ScanNode scanNode : planner.getScanNodes()) {
+                scanNode.stop();
+            }
+        } finally {
+            if (resetTargetTableId) {
+                ctx.setIcebergRowIdTargetTableId(previousTargetTableId);
+            }
         }
     }
 

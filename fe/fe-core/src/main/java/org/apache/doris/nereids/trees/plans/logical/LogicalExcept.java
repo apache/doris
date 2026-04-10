@@ -24,6 +24,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Except;
@@ -84,7 +85,8 @@ public class LogicalExcept extends LogicalSetOperation implements Except {
 
     @Override
     public LogicalExcept withChildren(List<Plan> children) {
-        return new LogicalExcept(qualifier, outputs, regularChildrenOutputs, children);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalExcept(qualifier, outputs, regularChildrenOutputs, children));
     }
 
     @Override
@@ -93,26 +95,30 @@ public class LogicalExcept extends LogicalSetOperation implements Except {
         Preconditions.checkArgument(children.size() == childrenOutputs.size(),
                 "children size %s is not equals with children outputs size %s",
                 children.size(), childrenOutputs.size());
-        return new LogicalExcept(qualifier, outputs, childrenOutputs, children);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalExcept(qualifier, outputs, childrenOutputs, children));
     }
 
     @Override
     public LogicalExcept withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalExcept(qualifier, outputs, regularChildrenOutputs, groupExpression,
-                Optional.of(getLogicalProperties()), children);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalExcept(qualifier, outputs, regularChildrenOutputs, groupExpression,
+                Optional.of(getLogicalProperties()), children));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalExcept(qualifier, outputs, regularChildrenOutputs,
-                groupExpression, logicalProperties, children);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalExcept(qualifier, outputs, regularChildrenOutputs,
+                groupExpression, logicalProperties, children));
     }
 
     @Override
     public LogicalExcept withNewOutputs(List<NamedExpression> newOutputs) {
-        return new LogicalExcept(qualifier, newOutputs, regularChildrenOutputs,
-                Optional.empty(), Optional.empty(), children);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalExcept(qualifier, newOutputs, regularChildrenOutputs,
+                Optional.empty(), Optional.empty(), children));
     }
 
     private Map<Slot, Slot> constructReplaceMapForChild(int index) {

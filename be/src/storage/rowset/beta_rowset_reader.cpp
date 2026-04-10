@@ -50,7 +50,6 @@
 #include "storage/tablet/tablet_schema.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 BetaRowsetReader::BetaRowsetReader(BetaRowsetSharedPtr rowset)
@@ -360,7 +359,7 @@ bool BetaRowsetReader::_should_push_down_value_predicates() const {
            (((_rowset->start_version() == 0 || _rowset->start_version() == 2) &&
              !_rowset->_rowset_meta->is_segments_overlapping() &&
              _read_context->sequence_id_idx == -1) ||
-            _read_context->enable_unique_key_merge_on_write);
+            _read_context->enable_unique_key_merge_on_write ||
+            _read_context->enable_mor_value_predicate_pushdown);
 }
-#include "common/compile_check_end.h"
 } // namespace doris

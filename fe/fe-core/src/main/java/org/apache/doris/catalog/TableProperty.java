@@ -98,6 +98,8 @@ public class TableProperty implements GsonPostProcessable {
 
     private boolean enableSingleReplicaCompaction = false;
 
+    private boolean enableTso = false;
+
     private int verticalCompactionNumColumnsPerGroup = 5;
 
     private boolean storeRowColumn = false;
@@ -169,6 +171,7 @@ public class TableProperty implements GsonPostProcessable {
                 buildTimeSeriesCompactionTimeThresholdSeconds();
                 buildSkipWriteIndexOnLoad();
                 buildEnableSingleReplicaCompaction();
+                buildEnableTso();
                 buildVerticalCompactionNumColumnsPerGroup();
                 buildDisableAutoCompaction();
                 buildTimeSeriesCompactionEmptyRowsetsThreshold();
@@ -327,9 +330,20 @@ public class TableProperty implements GsonPostProcessable {
     }
 
     public TableProperty buildVariantEnableFlattenNested() {
+        migrateDeprecatedVariantEnableFlattenNestedProperty();
         variantEnableFlattenNested = Boolean.parseBoolean(
                 properties.getOrDefault(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED, "false"));
         return this;
+    }
+
+    private void migrateDeprecatedVariantEnableFlattenNestedProperty() {
+        if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED)
+                && properties.containsKey(PropertyAnalyzer.LEGACY_PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED)) {
+            properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED,
+                    properties.remove(PropertyAnalyzer.LEGACY_PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED));
+            return;
+        }
+        properties.remove(PropertyAnalyzer.LEGACY_PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED);
     }
 
     public boolean variantEnableFlattenNested() {
@@ -344,6 +358,15 @@ public class TableProperty implements GsonPostProcessable {
 
     public boolean enableSingleReplicaCompaction() {
         return enableSingleReplicaCompaction;
+    }
+
+    public TableProperty buildEnableTso() {
+        enableTso = Boolean.parseBoolean(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_ENABLE_TSO, "false"));
+        return this;
+    }
+
+    public boolean enableTso() {
+        return enableTso;
     }
 
     public TableProperty buildVerticalCompactionNumColumnsPerGroup() {
@@ -764,6 +787,15 @@ public class TableProperty implements GsonPostProcessable {
             Integer.toString(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES_DEFAULT_VALUE)));
     }
 
+    public void setGroupCommitMode(String groupCommitMode) {
+        properties.put(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_MODE, groupCommitMode);
+    }
+
+    public String getGroupCommitMode() {
+        return properties.getOrDefault(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_MODE,
+                PropertyAnalyzer.GROUP_COMMIT_MODE_OFF);
+    }
+
     public void setRowStoreColumns(List<String> rowStoreColumns) {
         if (rowStoreColumns != null && !rowStoreColumns.isEmpty()) {
             modifyTableProperties(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN, "true");
@@ -898,6 +930,7 @@ public class TableProperty implements GsonPostProcessable {
         buildTimeSeriesCompactionTimeThresholdSeconds();
         buildDisableAutoCompaction();
         buildEnableSingleReplicaCompaction();
+        buildEnableTso();
         buildVerticalCompactionNumColumnsPerGroup();
         buildTimeSeriesCompactionEmptyRowsetsThreshold();
         buildTimeSeriesCompactionLevelThreshold();

@@ -26,7 +26,6 @@
 #include "runtime/runtime_profile.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class MemTrackerLimiter;
 class ResourceContext;
@@ -123,5 +122,4 @@ protected:
     std::atomic<int64_t> adjusted_mem_limit_ = 0;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

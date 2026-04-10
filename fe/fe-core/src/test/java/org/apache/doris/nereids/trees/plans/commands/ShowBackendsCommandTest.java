@@ -90,9 +90,41 @@ public class ShowBackendsCommandTest {
         List<Column> columnList = showResultSet.getMetaData().getColumns();
         ImmutableList<String> backendsTitleNames = BackendsTableValuedFunction.getBackendsTitleNames();
         Assertions.assertTrue(!columnList.isEmpty() && columnList.size() == backendsTitleNames.size());
+
         for (int i = 0; i < backendsTitleNames.size(); i++) {
-            Assertions.assertTrue(columnList.get(i).getName().equalsIgnoreCase(backendsTitleNames.get(i)));
+            Assertions.assertEquals(backendsTitleNames.get(i), columnList.get(i).getName(),
+                    "Column at index " + i + " should be " + backendsTitleNames.get(i));
         }
+
+        Assertions.assertEquals("BackendId", columnList.get(0).getName());
+        Assertions.assertEquals("Host", columnList.get(1).getName());
+        Assertions.assertEquals("HeartbeatPort", columnList.get(2).getName());
+        Assertions.assertEquals("BePort", columnList.get(3).getName());
+        Assertions.assertEquals("HttpPort", columnList.get(4).getName());
+        Assertions.assertEquals("BrpcPort", columnList.get(5).getName());
+        Assertions.assertEquals("ArrowFlightSqlPort", columnList.get(6).getName());
+        Assertions.assertEquals("LastStartTime", columnList.get(7).getName());
+        Assertions.assertEquals("LastHeartbeat", columnList.get(8).getName());
+        Assertions.assertEquals("Alive", columnList.get(9).getName());
+        Assertions.assertEquals("SystemDecommissioned", columnList.get(10).getName());
+        Assertions.assertEquals("TabletNum", columnList.get(11).getName());
+        Assertions.assertEquals("DataUsedCapacity", columnList.get(12).getName());
+        Assertions.assertEquals("TrashUsedCapacity", columnList.get(13).getName());
+        Assertions.assertEquals("AvailCapacity", columnList.get(14).getName());
+        Assertions.assertEquals("TotalCapacity", columnList.get(15).getName());
+        Assertions.assertEquals("UsedPct", columnList.get(16).getName());
+        Assertions.assertEquals("MaxDiskUsedPct", columnList.get(17).getName());
+        Assertions.assertEquals("RemoteUsedCapacity", columnList.get(18).getName());
+        Assertions.assertEquals("Tag", columnList.get(19).getName());
+        Assertions.assertEquals("ErrMsg", columnList.get(20).getName());
+        Assertions.assertEquals("Version", columnList.get(21).getName());
+        Assertions.assertEquals("Status", columnList.get(22).getName());
+        Assertions.assertEquals("HeartbeatFailureCounter", columnList.get(23).getName());
+        Assertions.assertEquals("CpuCores", columnList.get(24).getName());
+        Assertions.assertEquals("Memory", columnList.get(25).getName());
+        Assertions.assertEquals("LiveSince", columnList.get(26).getName());
+        Assertions.assertEquals("RunningTasks", columnList.get(27).getName());
+        Assertions.assertEquals("NodeRole", columnList.get(28).getName());
     }
 
     @Test

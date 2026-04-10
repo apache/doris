@@ -23,7 +23,6 @@
 #include "util/jsonb_utils.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 // JsonBinaryValue wraps a Doris jsonb object.
 // The jsonb object is written using JsonbWriter.
@@ -81,5 +80,4 @@ private:
     JsonbWriter writer;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

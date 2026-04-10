@@ -107,11 +107,6 @@ public class VariableExpr extends Expr {
         this.literalExpr = new FloatLiteral(value);
     }
 
-    public void setDecimalValue(BigDecimal value) {
-        this.decimalValue = value;
-        this.literalExpr = new DecimalLiteral(value);
-    }
-
     public void setStringValue(String value) {
         this.strValue = value;
         this.literalExpr = new StringLiteral(value);

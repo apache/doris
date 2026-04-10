@@ -90,9 +90,6 @@ public interface CatalogIf<T extends DatabaseIf> {
     Map<String, String> getProperties();
 
     default void notifyPropertiesUpdated(Map<String, String> updatedProps) {
-        if (this instanceof ExternalCatalog) {
-            ((ExternalCatalog) this).resetToUninitialized(false);
-        }
     }
 
     void modifyCatalogName(String name);
@@ -193,7 +190,7 @@ public interface CatalogIf<T extends DatabaseIf> {
      */
     boolean createTable(CreateTableInfo createTableInfo) throws UserException;
 
-    void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv, boolean ifExists,
+    void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv, boolean isStream, boolean ifExists,
             boolean mustTemporary, boolean force) throws DdlException;
 
     default void renameTable(String dbName, String oldTableName, String newTableName) throws DdlException {

@@ -46,7 +46,6 @@
 #include "util/string_parser.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 uint32_t olap_adler32_init() {
@@ -312,5 +311,4 @@ bool valid_ipv4(const std::string& value_str) {
 bool valid_ipv6(const std::string& value_str) {
     return IPv6Value::is_valid_string(value_str.c_str(), value_str.size());
 }
-#include "common/compile_check_end.h"
 } // namespace doris

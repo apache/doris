@@ -22,7 +22,6 @@
 #include "exprs/aggregate/helpers.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 // Forward declarations — template instantiations live in separate TUs
 AggregateFunctionPtr create_aggregate_function_collect_no_limit(const std::string& name,

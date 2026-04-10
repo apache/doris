@@ -29,7 +29,6 @@
 #include "io/file_factory.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class HiveTextFieldSplitter : public BaseCsvTextFieldSplitter<HiveTextFieldSplitter> {
 public:
@@ -68,5 +67,4 @@ private:
     Status _deserialize_nullable_string(IColumn& column, Slice& slice) override;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -48,7 +48,6 @@
 #include "util/debug_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 ParquetOutputStream::ParquetOutputStream(doris::io::FileWriter* file_writer)
         : _file_writer(file_writer), _cur_pos(0), _written_len(0) {
@@ -209,7 +208,7 @@ Status VParquetTransformer::_parse_properties() {
         //build arrow  writer properties
         ::parquet::ArrowWriterProperties::Builder arrow_builder;
         if (_parquet_options.enable_int96_timestamps) {
-            arrow_builder.enable_deprecated_int96_timestamps();
+            arrow_builder.enable_force_write_int96_timestamps();
         }
         arrow_builder.store_schema();
         _arrow_properties = arrow_builder.build();

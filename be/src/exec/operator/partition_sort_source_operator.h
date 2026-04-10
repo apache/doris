@@ -23,7 +23,6 @@
 #include "exec/operator/operator.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeState;
 
 class PartitionSortSourceOperatorX;
@@ -63,5 +62,4 @@ private:
                             PartitionSortSourceLocalState& local_state);
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

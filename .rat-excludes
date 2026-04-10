@@ -6,6 +6,7 @@
 .clang-format
 .gitattributes
 .gitignore
+.gitleaks.toml
 .rat-excludes
 DISCLAIMER-WIP
 LICENSE

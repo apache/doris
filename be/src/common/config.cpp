@@ -251,6 +251,8 @@ DEFINE_Int32(num_query_ctx_map_partitions, "128");
 DEFINE_Int32(make_snapshot_worker_count, "5");
 // the count of thread to release snapshot
 DEFINE_Int32(release_snapshot_worker_count, "5");
+// the count of thread to make committed rowsets visible in cloud mode
+DEFINE_Int32(cloud_make_committed_rs_visible_worker_count, "16");
 // report random wait a little time to avoid FE receiving multiple be reports at the same time.
 // do not set it to false for production environment
 DEFINE_mBool(report_random_wait, "true");
@@ -334,7 +336,7 @@ DEFINE_mInt32(thrift_connect_timeout_seconds, "3");
 DEFINE_mInt64(thrift_client_retry_interval_ms, "1000");
 // max message size of thrift request
 // default: 100 * 1024 * 1024
-DEFINE_mInt64(thrift_max_message_size, "104857600");
+DEFINE_mInt32(thrift_max_message_size, "104857600");
 // max bytes number for single scan range, used in segmentv2
 DEFINE_mInt32(doris_scan_range_max_mb, "1024");
 // single read execute fragment row number
@@ -343,6 +345,7 @@ DEFINE_mInt32(doris_scanner_row_num, "16384");
 DEFINE_mInt32(doris_scanner_row_bytes, "10485760");
 // single read execute fragment max run time millseconds
 DEFINE_mInt32(doris_scanner_max_run_time_ms, "1000");
+DEFINE_mInt32(doris_scanner_dynamic_interval_ms, "100");
 // (Advanced) Maximum size of per-query receive-side buffer
 DEFINE_mInt32(exchg_node_buffer_size_bytes, "20485760");
 DEFINE_mInt32(exchg_buffer_queue_capacity_factor, "64");
@@ -552,6 +555,9 @@ DEFINE_mInt32(compaction_keep_invisible_version_max_count, "500");
 DEFINE_mInt32(base_compaction_trace_threshold, "60");
 DEFINE_mInt32(cumulative_compaction_trace_threshold, "10");
 DEFINE_mBool(disable_compaction_trace_log, "true");
+
+DEFINE_mBool(enable_compaction_task_tracker, "true");
+DEFINE_mInt32(compaction_task_tracker_max_records, "10000");
 
 // Interval to picking rowset to compact, in seconds
 DEFINE_mInt64(pick_rowset_to_compact_interval_sec, "86400");
@@ -823,6 +829,12 @@ DEFINE_mInt32(high_priority_flush_thread_num_per_store, "6");
 // number of threads = min(flush_thread_num_per_store * num_store,
 //                         max_flush_thread_num_per_cpu * num_cpu)
 DEFINE_mInt32(max_flush_thread_num_per_cpu, "4");
+
+// minimum flush threads per cpu when adaptive flush is enabled (default 0.5)
+DEFINE_mDouble(min_flush_thread_num_per_cpu, "0.5");
+
+// Whether to enable adaptive flush thread adjustment
+DEFINE_mBool(enable_adaptive_flush_threads, "true");
 
 // config for tablet meta checkpoint
 DEFINE_mInt32(tablet_meta_checkpoint_min_new_rowsets_num, "10");
@@ -1418,6 +1430,7 @@ DEFINE_mBool(enable_be_proc_monitor, "false");
 DEFINE_mInt32(be_proc_monitor_interval_ms, "10000");
 
 DEFINE_Int32(workload_group_metrics_interval_ms, "5000");
+DEFINE_Int32(workload_policy_check_interval_ms, "500");
 
 // Ingest binlog work pool size, -1 is disable, 0 is hardware concurrency
 DEFINE_Int32(ingest_binlog_work_pool_size, "-1");
@@ -1460,9 +1473,10 @@ DEFINE_mDouble(high_disk_avail_level_diff_usages, "0.15");
 DEFINE_Int32(partition_disk_index_lru_size, "10000");
 // limit the storage space that query spill files can use
 DEFINE_String(spill_storage_root_path, "");
-DEFINE_String(spill_storage_limit, "20%");    // 20%
-DEFINE_mInt32(spill_gc_interval_ms, "2000");  // 2s
-DEFINE_mInt32(spill_gc_work_time_ms, "2000"); // 2s
+DEFINE_String(spill_storage_limit, "20%");               // 20%
+DEFINE_mInt32(spill_gc_interval_ms, "2000");             // 2s
+DEFINE_mInt32(spill_gc_work_time_ms, "2000");            // 2s
+DEFINE_mInt64(spill_file_part_size_bytes, "1073741824"); // 1GB
 
 // paused query in queue timeout(ms) will be resumed or canceled
 DEFINE_Int64(spill_in_paused_queue_timeout_ms, "60000");
@@ -1470,8 +1484,6 @@ DEFINE_Int64(spill_in_paused_queue_timeout_ms, "60000");
 DEFINE_Int64(wait_cancel_release_memory_ms, "5000");
 
 DEFINE_mBool(check_segment_when_build_rowset_meta, "false");
-
-DEFINE_mBool(force_azure_blob_global_endpoint, "false");
 
 DEFINE_mInt32(max_s3_client_retry, "10");
 DEFINE_mInt32(s3_read_base_wait_time_ms, "100");
@@ -1522,6 +1534,41 @@ DEFINE_mInt64(hive_sink_max_file_size, "1073741824"); // 1GB
 
 /** Iceberg sink configurations **/
 DEFINE_mInt64(iceberg_sink_max_file_size, "1073741824"); // 1GB
+
+// URI scheme to Doris file type mappings used by paimon-cpp DorisFileSystem.
+// Each entry uses the format "<scheme>=<file_type>", and file_type must be one of:
+// local, hdfs, s3, http, broker.
+DEFINE_Strings(paimon_file_system_scheme_mappings,
+               "file=local,hdfs=hdfs,viewfs=hdfs,local=hdfs,jfs=hdfs,"
+               "s3=s3,s3a=s3,s3n=s3,oss=s3,obs=s3,cos=s3,cosn=s3,gs=s3,"
+               "abfs=s3,abfss=s3,wasb=s3,wasbs=s3,http=http,https=http,"
+               "ofs=broker,gfs=broker");
+DEFINE_Validator(paimon_file_system_scheme_mappings,
+                 ([](const std::vector<std::string>& mappings) -> bool {
+                     doris::StringCaseUnorderedSet seen_schemes;
+                     static const doris::StringCaseUnorderedSet supported_types = {
+                             "local", "hdfs", "s3", "http", "broker"};
+                     for (const auto& raw_entry : mappings) {
+                         std::string_view entry = doris::trim(raw_entry);
+                         size_t separator = entry.find('=');
+                         if (separator == std::string_view::npos) {
+                             return false;
+                         }
+                         std::string scheme = std::string(doris::trim(entry.substr(0, separator)));
+                         std::string file_type =
+                                 std::string(doris::trim(entry.substr(separator + 1)));
+                         if (scheme.empty() || file_type.empty()) {
+                             return false;
+                         }
+                         if (supported_types.find(file_type) == supported_types.end()) {
+                             return false;
+                         }
+                         if (!seen_schemes.insert(scheme).second) {
+                             return false;
+                         }
+                     }
+                     return true;
+                 }));
 
 DEFINE_mInt32(thrift_client_open_num_tries, "1");
 
@@ -1653,7 +1700,7 @@ DEFINE_mBool(enable_mow_verbose_log, "false");
 DEFINE_mInt32(tablet_sched_delay_time_ms, "5000");
 DEFINE_mInt32(load_trigger_compaction_version_percent, "66");
 DEFINE_mInt64(base_compaction_interval_seconds_since_last_operation, "86400");
-DEFINE_mBool(enable_compaction_pause_on_high_memory, "true");
+DEFINE_mBool(enable_compaction_pause_on_high_memory, "false");
 
 DEFINE_mBool(enable_quorum_success_write, "true");
 DEFINE_mDouble(quorum_success_max_wait_multiplier, "0.2");
@@ -1667,7 +1714,7 @@ DEFINE_mBool(enable_update_delete_bitmap_kv_check_core, "false");
 DEFINE_mBool(enable_fetch_rowsets_from_peer_replicas, "false");
 // the max length of segments key bounds, in bytes
 // ATTENTION: as long as this conf has ever been enabled, cluster downgrade and backup recovery will no longer be supported.
-DEFINE_mInt32(segments_key_bounds_truncation_threshold, "-1");
+DEFINE_mInt32(segments_key_bounds_truncation_threshold, "36");
 // ATTENTION: for test only, use random segments key bounds truncation threshold every time
 DEFINE_mBool(random_segments_key_bounds_truncation, "false");
 // p0, daily, rqg, external
@@ -1680,6 +1727,10 @@ DEFINE_mBool(enable_auto_clone_on_mow_publish_missing_version, "false");
 // The maximum csv line reader output buffer size
 DEFINE_mInt64(max_csv_line_reader_output_buffer_size, "4294967296");
 
+// The maximum bytes of a single block returned by load file readers (CsvReader, NewJsonReader,
+// ParquetReader, OrcReader). Default is 64MB. Set to 0 to disable the limit.
+DEFINE_mInt64(load_reader_max_block_bytes, "67108864");
+
 // Maximum number of OpenMP threads allowed for concurrent vector index builds.
 // -1 means auto: use 80% of the available CPU cores.
 DEFINE_Int32(omp_threads_limit, "-1");
@@ -1689,6 +1740,14 @@ DEFINE_mInt32(max_segment_partial_column_cache_size, "100");
 
 DEFINE_mBool(enable_prefill_output_dbm_agg_cache_after_compaction, "true");
 DEFINE_mBool(enable_prefill_all_dbm_agg_cache_after_compaction, "true");
+
+// Cache for ANN index IVF on-disk list data.
+// "70%" means 70% of the process available memory, not 70% of total machine memory.
+// With default mem_limit="90%", this is effectively about 63% (90% * 70%) of physical memory
+// visible to the process (considering cgroup limits).
+DEFINE_String(ann_index_ivf_list_cache_limit, "70%");
+// Stale sweep time for ANN index IVF list cache in seconds. 3600s is 1 hour.
+DEFINE_mInt32(ann_index_ivf_list_cache_stale_sweep_time_sec, "3600");
 
 // Chunk size for ANN/vector index building per training/adding batch
 // 1M By default.
@@ -1712,6 +1771,10 @@ DEFINE_mBool(enable_concurrency_stats_dump, "false");
 DEFINE_mInt32(concurrency_stats_dump_interval_ms, "100");
 DEFINE_Validator(concurrency_stats_dump_interval_ms,
                  [](const int32_t config) -> bool { return config >= 10; });
+
+DEFINE_mBool(cloud_mow_sync_rowsets_when_load_txn_begin, "true");
+
+DEFINE_mBool(enable_cloud_make_rs_visible_on_be, "false");
 
 // clang-format off
 #ifdef BE_TEST

@@ -24,7 +24,7 @@
 #include <vector>
 
 #include "common/status.h"
-#include "format/jni_reader.h"
+#include "format/jni/jni_reader.h"
 #include "storage/olap_scan_common.h"
 
 namespace doris {
@@ -35,7 +35,6 @@ class Block;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 /**
  * The demo usage of JniReader, showing how to read data from java scanner.
  * The java side is also a mock reader that provide values for each type.
@@ -62,5 +61,4 @@ private:
     int64_t _remaining_table_level_row_count;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

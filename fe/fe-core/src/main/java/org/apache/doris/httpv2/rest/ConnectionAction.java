@@ -18,8 +18,8 @@
 package org.apache.doris.httpv2.rest;
 
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.httpv2.controller.BaseController.ActionAuthorizationInfo;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
-import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
 
@@ -55,8 +55,8 @@ public class ConnectionAction extends RestBaseController {
 
     @RequestMapping(path = "/api/connection", method = RequestMethod.GET)
     protected Object connection(HttpServletRequest request, HttpServletResponse response) {
-        executeCheckPassword(request, response);
-        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkAdminAuth(authInfo.userIdentity);
 
         String connStr = request.getParameter("connection_id");
         if (Strings.isNullOrEmpty(connStr)) {

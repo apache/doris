@@ -57,7 +57,6 @@ class IColumn;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 template <PrimitiveType T>
 constexpr size_t default_decimal_scale() {
@@ -524,5 +523,4 @@ static_assert(!has_original_precision_and_scale<DataTypeDecimal64>);
 static_assert(!has_original_precision_and_scale<DataTypeDecimal128>);
 static_assert(!has_original_precision_and_scale<DataTypeDecimal256>);
 
-#include "common/compile_check_end.h"
 } // namespace doris

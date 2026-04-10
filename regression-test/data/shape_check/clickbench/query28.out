@@ -9,6 +9,6 @@ PhysicalResultSink
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------hashAgg[LOCAL]
 ----------------PhysicalProject
-------------------filter(( not (URL = '')))
+------------------filter(( not (length(URL) = 0)))
 --------------------PhysicalOlapScan[hits]
 

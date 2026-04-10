@@ -38,7 +38,6 @@
 #include "exprs/aggregate/aggregate_function.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class Arena;
 class BufferReadable;
@@ -457,4 +456,3 @@ AggregateFunctionPtr create_aggregate_function_bitmap_union(const std::string& n
                                                             const bool result_is_nullable);
 
 } // namespace doris
-#include "common/compile_check_end.h"

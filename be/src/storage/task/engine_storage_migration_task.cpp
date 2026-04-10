@@ -47,7 +47,6 @@
 #include "util/uid_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 using std::stringstream;
 
@@ -454,5 +453,4 @@ Status EngineStorageMigrationTask::_copy_index_and_data_files(
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

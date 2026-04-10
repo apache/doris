@@ -35,7 +35,6 @@ namespace doris {
 template <PrimitiveType T>
 class ColumnDecimal;
 class Arena;
-#include "common/compile_check_begin.h"
 
 template <PrimitiveType T>
 class DataTypeDecimalSerDe : public DataTypeSerDe {
@@ -56,9 +55,6 @@ public:
 
     Status from_string_batch(const ColumnString& str, ColumnNullable& column,
                              const FormatOptions& options) const override;
-
-    Status from_olap_string(const std::string& str, Field& field,
-                            const FormatOptions& options) const override;
 
     Status from_string_strict_mode_batch(
             const ColumnString& str, IColumn& column, const FormatOptions& options,
@@ -142,6 +138,10 @@ public:
     static const uint8_t* deserialize_binary_to_field(const uint8_t* data, Field& field,
                                                       FieldInfo& info);
 
+protected:
+    Status from_olap_string(const std::string& str, Field& field,
+                            const FormatOptions& options) const override;
+
 private:
     int precision;
     int scale;
@@ -186,5 +186,4 @@ Status DataTypeDecimalSerDe<T>::read_column_from_pb(IColumn& column, const PValu
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

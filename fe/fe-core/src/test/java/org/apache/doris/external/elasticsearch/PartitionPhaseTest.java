@@ -18,9 +18,9 @@
 package org.apache.doris.external.elasticsearch;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.ExceptionChecker;
+import org.apache.doris.datasource.es.EsExternalTable;
 import org.apache.doris.datasource.es.EsNodeInfo;
 import org.apache.doris.datasource.es.EsRestClient;
 import org.apache.doris.datasource.es.EsShardPartitions;
@@ -73,7 +73,7 @@ public class PartitionPhaseTest extends EsTestCase {
         List<Column> columns = new ArrayList<>();
         Column k1 = new Column("k1", PrimitiveType.BIGINT);
         columns.add(k1);
-        EsTable esTableBefore7X = fakeEsTable("doe", "doe", "doc", columns);
+        EsExternalTable esTableBefore7X = fakeEsTable("doe", "doe", "doc", columns);
         SearchContext context = new SearchContext(esTableBefore7X);
         PartitionPhase partitionPhase = new PartitionPhase(client);
         ExceptionChecker.expectThrowsNoException(() -> partitionPhase.execute(context));

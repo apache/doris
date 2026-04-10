@@ -55,7 +55,7 @@ bool MetaChecker::scan_and_handle_kv(
         return false;
     }
     std::unique_ptr<RangeGetIterator> it;
-    do {
+    while (it == nullptr /* may be not init */ || it->more()) {
         err = txn->get(start_key, end_key, &it);
         if (err != TxnErrorCode::TXN_OK) {
             LOG(WARNING) << "failed to get tablet idx, ret=" << err;
@@ -71,7 +71,7 @@ bool MetaChecker::scan_and_handle_kv(
             }
         }
         start_key.push_back('\x00');
-    } while (it->more());
+    }
     return true;
 }
 

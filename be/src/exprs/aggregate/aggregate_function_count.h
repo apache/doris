@@ -39,7 +39,6 @@
 #include "exprs/aggregate/aggregate_function.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class Arena;
 class BufferReadable;
 class BufferWritable;
@@ -57,6 +56,7 @@ public:
     AggregateFunctionCount(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper(argument_types_) {}
 
+    bool is_simple_count() const override { return true; }
     String get_name() const override { return "count"; }
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }
@@ -334,5 +334,3 @@ public:
 };
 
 } // namespace doris
-
-#include "common/compile_check_end.h"

@@ -27,7 +27,6 @@
 #include "util/string_parser.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class IPv4Value {
 public:
@@ -113,5 +112,3 @@ IPv6 inline ipv4_to_ipv6(IPv4 ipv4) {
 }
 
 } // namespace doris
-
-#include "common/compile_check_end.h"

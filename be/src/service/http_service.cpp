@@ -43,6 +43,7 @@
 #include "service/http/action/checksum_action.h"
 #include "service/http/action/clear_cache_action.h"
 #include "service/http/action/compaction_action.h"
+#include "service/http/action/compaction_profile_action.h"
 #include "service/http/action/compaction_score_action.h"
 #include "service/http/action/config_action.h"
 #include "service/http/action/debug_point_action.h"
@@ -84,7 +85,6 @@
 #include "storage/storage_engine.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 namespace {
 std::shared_ptr<bufferevent_rate_limit_group> get_rate_limit_group(event_base* event_base) {
     auto rate_limit = config::download_binlog_rate_limit_kbs;
@@ -408,6 +408,11 @@ void HttpService::register_local_handler(StorageEngine& engine) {
     _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction/run_status",
                                       run_status_compaction_action);
 
+    CompactionProfileAction* compaction_profile_action = _pool.add(
+            new CompactionProfileAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction/profile",
+                                      compaction_profile_action);
+
     DeleteBitmapAction* count_delete_bitmap_action =
             _pool.add(new DeleteBitmapAction(DeleteBitmapActionType::COUNT_LOCAL, _env, engine,
                                              TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
@@ -471,6 +476,12 @@ void HttpService::register_cloud_handler(CloudStorageEngine& engine) {
                                       TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction/run_status",
                                       run_status_compaction_action);
+
+    CompactionProfileAction* compaction_profile_action = _pool.add(
+            new CompactionProfileAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction/profile",
+                                      compaction_profile_action);
+
     DeleteBitmapAction* count_local_delete_bitmap_action =
             _pool.add(new DeleteBitmapAction(DeleteBitmapActionType::COUNT_LOCAL, _env, engine,
                                              TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
@@ -529,5 +540,4 @@ int HttpService::get_real_port() const {
     return _ev_http_server->get_real_port();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -24,9 +24,7 @@ import org.apache.doris.catalog.AggStateType;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.NameFormatUtils;
 import org.apache.doris.common.TreeNode;
-import org.apache.doris.foundation.format.FormatOptions;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
@@ -38,11 +36,8 @@ import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
 
@@ -65,8 +60,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
     // Cached value of IsConstant(), set during analyze() and valid if isAnalyzed_ is true.
     private Supplier<Boolean> isConstant = Suppliers.memoize(this::isConstantImpl);
 
-    protected Optional<String> exprName = Optional.empty();
-
     protected Expr() {
         super();
         type = Type.INVALID;
@@ -82,16 +75,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
     }
 
     public void checkValueValid() throws AnalysisException {
-    }
-
-    // Name of expr, this is used by generating column name automatically when there is no
-    // alias or is not slotRef
-    public String getExprName() {
-        if (!this.exprName.isPresent()) {
-            this.exprName = Optional.of(
-                    NameFormatUtils.normalizeName(this.getClass().getSimpleName(), DEFAULT_EXPR_NAME));
-        }
-        return this.exprName.get();
     }
 
     public Type getType() {
@@ -307,19 +290,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
         return true;
     }
 
-    public Map<Long, Set<String>> getTableIdToColumnNames() {
-        Map<Long, Set<String>> tableIdToColumnNames = new HashMap<Long, Set<String>>();
-        getTableIdToColumnNames(tableIdToColumnNames);
-        return tableIdToColumnNames;
-    }
-
-    public void getTableIdToColumnNames(Map<Long, Set<String>> tableIdToColumnNames) {
-        Preconditions.checkState(tableIdToColumnNames != null);
-        for (Expr child : children) {
-            child.getTableIdToColumnNames(tableIdToColumnNames);
-        }
-    }
-
     /**
      * @return true if this is an instance of LiteralExpr
      */
@@ -390,35 +360,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
 
     public String getStringValue() {
         return "";
-    }
-
-    /**
-     * This method is used for constant fold of query in FE,
-     * for different serde dialect(hive, presto, doris).
-     */
-    public String getStringValueForQuery(FormatOptions options) {
-        return getStringValue();
-    }
-
-    /**
-     * This method is to return the string value of this expr in a complex type for query
-     * It is only used for "getStringValueForQuery()"
-     * For most of the integer types, it is same as getStringValueForQuery().
-     * But for others like StringLiteral and DateLiteral, it should be wrapped with quotations.
-     * eg: 1,2,abc,[1,2,3],["abc","def"],{10:20},{"abc":20}
-     */
-    protected String getStringValueInComplexTypeForQuery(FormatOptions options) {
-        return getStringValueForQuery(options);
-    }
-
-    /**
-     * This method is to return the string value of this expr for stream load.
-     * so there is a little different from "getStringValueForQuery()".
-     * eg, for NullLiteral, it should be "\N" for stream load, but "null" for FE constant
-     * for StructLiteral, the value should not contain sub column's name.
-     */
-    public String getStringValueForStreamLoad(FormatOptions options) {
-        return getStringValueForQuery(options);
     }
 
     /**

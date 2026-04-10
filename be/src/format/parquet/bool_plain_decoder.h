@@ -33,7 +33,6 @@ class ColumnSelectVector;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 /// Decoder bit-packed boolean-encoded values.
 /// Implementation from https://github.com/apache/impala/blob/master/be/src/exec/parquet/parquet-bool-decoder.h
 //bit-packed-run-len and rle-run-len must be in the range [1, 2^31 - 1].
@@ -93,6 +92,5 @@ protected:
     /// Bit packed decoder, used if 'encoding_' is PLAIN.
     BatchedBitReader bool_values_;
 };
-#include "common/compile_check_end.h"
 
 } // namespace doris

@@ -28,7 +28,6 @@
 #include "storage/predicate/column_predicate.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 template <PrimitiveType Type, PredicateType PT>
 class ComparisonPredicateBase final : public ColumnPredicate {
 public:
@@ -50,12 +49,6 @@ public:
         fmt::format_to(debug_string_buffer, "ComparisonPredicateBase({})",
                        ColumnPredicate::debug_string());
         return fmt::to_string(debug_string_buffer);
-    }
-    bool could_be_erased() const override {
-        if ((PT == PredicateType::NE && !_opposite) || (PT == PredicateType::EQ && _opposite)) {
-            return false;
-        }
-        return true;
     }
 
     PredicateType type() const override { return PT; }
@@ -716,5 +709,4 @@ private:
             _segment_id_to_cached_code;
     T _value;
 };
-#include "common/compile_check_end.h"
 } //namespace doris

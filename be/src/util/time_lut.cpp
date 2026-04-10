@@ -24,7 +24,6 @@
 #include "core/value/vdatetime_value.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 TimeLUTImpl::TimeLUTImpl() {
     init_time_lut();
 }
@@ -106,5 +105,4 @@ uint32_t year_week(uint16_t yy, uint8_t month, uint8_t day) {
     uint8_t week = calc_week(yy, month, day, false, true, true, &to_year);
     return to_year * 100 + week;
 }
-#include "common/compile_check_end.h"
 } // namespace doris

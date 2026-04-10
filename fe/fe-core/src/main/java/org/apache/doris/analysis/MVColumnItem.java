@@ -19,7 +19,6 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -27,6 +26,7 @@ import org.apache.doris.common.DdlException;
 
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -36,31 +36,22 @@ import java.util.Set;
  * It just a intermediate variable between semantic analysis and final handler.
  */
 public class MVColumnItem {
-    private String name;
+    private final String name;
     // the origin type of slot ref
     private Type type;
     private boolean isKey;
     private AggregateType aggregationType;
     private boolean isAggregationTypeImplicit;
-    private Expr defineExpr;
-    private Set<String> baseColumnNames;
+    private final Expr defineExpr;
+    private final Set<String> baseColumnNames;
 
     public MVColumnItem(String name, Type type, AggregateType aggregateType, Expr defineExpr) {
         this.name = name;
         this.type = type;
         this.aggregationType = aggregateType;
         this.isAggregationTypeImplicit = false;
-        this.defineExpr = defineExpr;
-
-        Map<Long, Set<String>> tableIdToColumnNames = defineExpr.getTableIdToColumnNames();
-
-        if (tableIdToColumnNames.size() == 1) {
-            for (Map.Entry<Long, Set<String>> entry : tableIdToColumnNames.entrySet()) {
-                baseColumnNames = entry.getValue();
-            }
-        } else {
-            baseColumnNames = new HashSet<>();
-        }
+        this.defineExpr = Objects.requireNonNull(defineExpr, "defineExpr is null");
+        baseColumnNames = extractBaseColumnNames(defineExpr);
     }
 
     public MVColumnItem(Expr defineExpr) throws AnalysisException {
@@ -70,23 +61,14 @@ public class MVColumnItem {
     public MVColumnItem(String name, Expr defineExpr) {
         this.name = name;
         this.isAggregationTypeImplicit = false;
-        this.defineExpr = defineExpr;
+        this.defineExpr = Objects.requireNonNull(defineExpr, "defineExpr is null");
 
         this.type = defineExpr.getType();
         if (this.type instanceof ScalarType && this.type.isStringType()) {
             this.type = new ScalarType(type.getPrimitiveType());
             ((ScalarType) this.type).setMaxLength();
         }
-
-        Map<Long, Set<String>> tableIdToColumnNames = defineExpr.getTableIdToColumnNames();
-
-        if (tableIdToColumnNames.size() == 1) {
-            for (Map.Entry<Long, Set<String>> entry : tableIdToColumnNames.entrySet()) {
-                baseColumnNames = entry.getValue();
-            }
-        } else {
-            baseColumnNames = new HashSet<>();
-        }
+        baseColumnNames = extractBaseColumnNames(defineExpr);
     }
 
     public String getName() {
@@ -126,32 +108,29 @@ public class MVColumnItem {
         return baseColumnNames;
     }
 
-    public Column toMVColumn(OlapTable olapTable, Map<String, String> sessionVars) throws DdlException {
-        Column baseColumn = olapTable.getBaseColumn(name);
+    public Column toMVColumn(Map<String, String> sessionVars) throws DdlException {
         Column result;
-        if (baseColumn == null && defineExpr == null) {
-            // Some mtmv column have name diffrent with base column
-            baseColumn = olapTable.getBaseColumn(baseColumnNames.iterator().next());
+        if (type == null) {
+            throw new DdlException("MVColumnItem type is null");
         }
-        if (baseColumn != null) {
-            result = new Column(baseColumn);
-            if (result.getType() == null) {
-                throw new DdlException("base column's type is null, column=" + result.getName());
-            }
-            result.setIsKey(isKey);
-        } else {
-            if (type == null) {
-                throw new DdlException("MVColumnItem type is null");
-            }
-            result = new Column(name, type, isKey, aggregationType, null, "");
-            if (defineExpr != null) {
-                result.setIsAllowNull(defineExpr.isNullable());
-            }
-        }
+        result = new Column(name, type, isKey, aggregationType, null, "");
+        result.setIsAllowNull(defineExpr.isNullable());
         result.setName(name);
         result.setAggregationType(aggregationType, isAggregationTypeImplicit);
         result.setDefineExpr(defineExpr);
         result.setSessionVariables(sessionVars);
+        return result;
+    }
+
+    private Set<String> extractBaseColumnNames(Expr defineExpr) {
+        Set<String> result = new HashSet<>();
+        Set<SlotRef> slotRefs = new HashSet<>();
+        defineExpr.collect(SlotRef.class, slotRefs);
+        for (SlotRef slotRef : slotRefs) {
+            if (slotRef.getCol() != null) {
+                result.add(slotRef.getCol());
+            }
+        }
         return result;
     }
 }

@@ -61,7 +61,6 @@ class SipHash;
 namespace doris::segment_v2 {
 enum CompressionTypePB : int;
 } // namespace doris::segment_v2
-#include "common/compile_check_begin.h"
 namespace doris {
 template <typename T>
 void clear_blocks(moodycamel::ConcurrentQueue<T>& blocks,
@@ -1154,5 +1153,4 @@ std::string MutableBlock::dump_names() const {
     }
     return out;
 }
-#include "common/compile_check_end.h"
 } // namespace doris

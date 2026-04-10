@@ -24,7 +24,6 @@
 #include "util/mysql_global.h"
 #include "util/to_string.h"
 namespace doris {
-#include "common/compile_check_begin.h"
 struct CastToString {
     template <class SRC>
     static inline std::string from_number(const SRC& from);
@@ -61,7 +60,7 @@ struct CastToString {
     static inline void push_datev2(const DateV2Value<DateV2ValueType>& from, BufferWritable& bw);
 
     static inline std::string from_datetimev2(const DateV2Value<DateTimeV2ValueType>& from,
-                                              UInt32 scale = -1);
+                                              UInt32 scale);
     static inline std::string from_timestamptz(const TimestampTzValue& from, UInt32 scale,
                                                const cctz::time_zone* timezone = nullptr);
     static inline void push_datetimev2(const DateV2Value<DateTimeV2ValueType>& from, UInt32 scale,
@@ -570,4 +569,3 @@ inline WrapperType create_string_wrapper(const DataTypePtr& from_type) {
 
 }; // namespace CastWrapper
 } // namespace doris
-#include "common/compile_check_end.h"

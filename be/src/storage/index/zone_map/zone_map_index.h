@@ -36,7 +36,6 @@
 #include "util/once.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 namespace io {
 class FileWriter;
 } // namespace io
@@ -196,5 +195,4 @@ private:
 };
 
 } // namespace segment_v2
-#include "common/compile_check_end.h"
 } // namespace doris

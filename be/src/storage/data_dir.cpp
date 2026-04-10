@@ -68,7 +68,6 @@
 #include "util/uid_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 namespace {
@@ -483,20 +482,21 @@ Status DataDir::load() {
         }
     }
 
-    auto load_pending_publish_info_func =
-            [&engine = _engine](int64_t tablet_id, int64_t publish_version, std::string_view info) {
-                PendingPublishInfoPB pending_publish_info_pb;
-                bool parsed = pending_publish_info_pb.ParseFromArray(info.data(),
-                                                                     cast_set<int>(info.size()));
-                if (!parsed) {
-                    LOG(WARNING) << "parse pending publish info failed, tablet_id: " << tablet_id
-                                 << " publish_version: " << publish_version;
-                }
-                engine.add_async_publish_task(pending_publish_info_pb.partition_id(), tablet_id,
-                                              publish_version,
-                                              pending_publish_info_pb.transaction_id(), true);
-                return true;
-            };
+    auto load_pending_publish_info_func = [&engine = _engine](int64_t tablet_id,
+                                                              int64_t publish_version,
+                                                              std::string_view info) {
+        PendingPublishInfoPB pending_publish_info_pb;
+        bool parsed =
+                pending_publish_info_pb.ParseFromArray(info.data(), cast_set<int>(info.size()));
+        if (!parsed) {
+            LOG(WARNING) << "parse pending publish info failed, tablet_id: " << tablet_id
+                         << " publish_version: " << publish_version;
+        }
+        engine.add_async_publish_task(pending_publish_info_pb.partition_id(), tablet_id,
+                                      publish_version, pending_publish_info_pb.transaction_id(),
+                                      true, pending_publish_info_pb.commit_tso());
+        return true;
+    };
     MonotonicStopWatch pending_publish_timer;
     pending_publish_timer.start();
     RETURN_IF_ERROR(
@@ -1095,5 +1095,4 @@ void DataDir::perform_remote_tablet_gc() {
         static_cast<void>(_meta->remove(META_COLUMN_FAMILY_INDEX, key));
     }
 }
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -34,6 +34,8 @@ import lombok.Setter;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.math.NumberUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Arrays;
 import java.util.HashMap;
@@ -47,10 +49,12 @@ import java.util.regex.Pattern;
  * Kafka data source properties
  */
 public class KafkaDataSourceProperties extends AbstractDataSourceProperties {
+    private static final Logger LOG = LogManager.getLogger(KafkaDataSourceProperties.class);
 
     private static final String ENDPOINT_REGEX = "[-A-Za-z0-9+&@#/%?=~_|!:,.;]+[-A-Za-z0-9+&@#/%=~_|]";
 
     private static final String CUSTOM_KAFKA_PROPERTY_PREFIX = "property.";
+    private static final String AWS_PROPERTY_PREFIX = "aws.";
 
     @Getter
     @Setter
@@ -124,7 +128,8 @@ public class KafkaDataSourceProperties extends AbstractDataSourceProperties {
     public void convertAndCheckDataSourceProperties() throws UserException {
         Optional<String> optional = originalDataSourceProperties.keySet()
                 .stream().filter(entity -> !CONFIGURABLE_DATA_SOURCE_PROPERTIES_SET.contains(entity))
-                .filter(entity -> !entity.startsWith(CUSTOM_KAFKA_PROPERTY_PREFIX)).findFirst();
+                .filter(entity -> !entity.startsWith(CUSTOM_KAFKA_PROPERTY_PREFIX))
+                .filter(entity -> !entity.startsWith(AWS_PROPERTY_PREFIX)).findFirst();
         if (optional.isPresent()) {
             throw new AnalysisException(optional.get() + " is invalid kafka property or can not be set");
         }
@@ -233,16 +238,81 @@ public class KafkaDataSourceProperties extends AbstractDataSourceProperties {
     private void analyzeCustomProperties() throws AnalysisException {
         this.customKafkaProperties = new HashMap<>();
         for (Map.Entry<String, String> dataSourceProperty : originalDataSourceProperties.entrySet()) {
-            if (dataSourceProperty.getKey().startsWith(CUSTOM_KAFKA_PROPERTY_PREFIX)) {
-                String propertyKey = dataSourceProperty.getKey();
-                String propertyValue = dataSourceProperty.getValue();
+            String propertyKey = dataSourceProperty.getKey();
+            String propertyValue = dataSourceProperty.getValue();
+            if (propertyKey.startsWith(CUSTOM_KAFKA_PROPERTY_PREFIX)) {
+                // property.xxx -> xxx (strip "property." prefix)
                 String[] propertyValueArr = propertyKey.split("\\.");
                 if (propertyValueArr.length < 2) {
                     throw new AnalysisException("kafka property value could not be a empty string");
                 }
                 this.customKafkaProperties.put(propertyKey.substring(propertyKey.indexOf(".") + 1), propertyValue);
+            } else if (propertyKey.startsWith(AWS_PROPERTY_PREFIX)) {
+                // aws.xxx -> aws.xxx (keep as-is, no prefix stripping)
+                // AWS properties are Doris-specific and passed directly to BE
+                this.customKafkaProperties.put(propertyKey, propertyValue);
             }
-            // can be extended in the future which other prefix
+        }
+
+        // Validate AWS MSK IAM authentication configuration if present
+        validateAwsMskIamConfig();
+    }
+
+    private void validateAwsMskIamConfig() throws AnalysisException {
+        String securityProtocol = customKafkaProperties.get(KafkaConfiguration.SECURITY_PROTOCOL);
+        String saslMechanism = customKafkaProperties.get(KafkaConfiguration.SASL_MECHANISM);
+
+        // Check if AWS MSK IAM authentication is being used
+        boolean hasAwsRegion = customKafkaProperties.containsKey(KafkaConfiguration.AWS_REGION);
+        boolean hasAccessKey = customKafkaProperties.containsKey(KafkaConfiguration.AWS_ACCESS_KEY);
+        boolean hasSecretKey = customKafkaProperties.containsKey(KafkaConfiguration.AWS_SECRET_KEY);
+        boolean hasRoleArn = customKafkaProperties.containsKey(KafkaConfiguration.AWS_MSK_IAM_ROLE_ARN);
+        boolean hasExternalId = customKafkaProperties.containsKey(KafkaConfiguration.AWS_EXTERNAL_ID);
+        boolean hasProfileName = customKafkaProperties.containsKey(KafkaConfiguration.AWS_PROFILE_NAME);
+        boolean hasCredentialsProvider = customKafkaProperties.containsKey(KafkaConfiguration.AWS_CREDENTIALS_PROVIDER);
+
+        boolean isAwsMskIam = hasAwsRegion || hasAccessKey || hasSecretKey || hasRoleArn
+                || hasExternalId
+                || hasProfileName || hasCredentialsProvider;
+
+        // If AWS-related property is set, validate the complete configuration
+        if (isAwsMskIam) {
+            if (hasExternalId && !hasRoleArn) {
+                throw new AnalysisException("When using AWS MSK IAM authentication, "
+                        + "'aws.external_id' must be used with 'aws.role_arn'.");
+            }
+
+            // aws.region is required for AWS MSK IAM authentication
+            if (!hasAwsRegion) {
+                throw new AnalysisException("When using AWS MSK IAM authentication, "
+                        + "'aws.region' is required. Please specify the AWS region.");
+            }
+
+            // security.protocol should be SASL_SSL for AWS MSK IAM
+            if (securityProtocol == null || !"SASL_SSL".equalsIgnoreCase(securityProtocol)) {
+                throw new AnalysisException("For AWS MSK IAM authentication, "
+                        + "'property.security.protocol' must be 'SASL_SSL' "
+                        + "(SSL encryption + SASL authentication required), "
+                        + "but got: " + securityProtocol);
+            }
+
+            // sasl.mechanism should be OAUTHBEARER for AWS MSK IAM
+            if (saslMechanism == null || !"OAUTHBEARER".equalsIgnoreCase(saslMechanism)) {
+                throw new AnalysisException("For AWS MSK IAM authentication, "
+                        + "'property.sasl.mechanism' must be 'OAUTHBEARER', but got: " + saslMechanism + ". "
+                        + "Other SASL mechanisms are not supported now.");
+            }
+
+            // Detect if this is public (internet) access or internal AWS access
+            boolean isPublicAccess = brokerList != null && brokerList.contains("-public.");
+
+            if (isPublicAccess) {
+                if (!(hasAccessKey && hasSecretKey)) {
+                    throw new AnalysisException(
+                            "When using explicit AWS credentials for public (internet) access, "
+                            + "both 'aws.access_key' and 'aws.secret_key' must be provided together.");
+                }
+            }
         }
     }
 

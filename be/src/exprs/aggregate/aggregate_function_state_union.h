@@ -23,7 +23,6 @@
 #include "exprs/aggregate/aggregate_function.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 const static std::string AGG_UNION_SUFFIX = "_union";
 
 class AggregateStateUnion : public IAggregateFunctionHelper<AggregateStateUnion> {
@@ -113,5 +112,3 @@ protected:
 };
 
 } // namespace doris
-
-#include "common/compile_check_end.h"

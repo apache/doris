@@ -301,23 +301,22 @@ file_changed_cloud_p0() {
     for af in ${all_files}; do
         if [[ "${af}" == 'be'* ]] ||
             [[ "${af}" == 'bin'* ]] ||
+            [[ "${af}" == 'cloud'* ]] ||
+            [[ "${af}" == 'common/cpp'* ]] ||
             [[ "${af}" == 'conf'* ]] ||
             [[ "${af}" == 'contrib'* ]] ||
+            [[ "${af}" == 'docker/thirdparties'* ]] ||
             [[ "${af}" == 'fe'* ]] ||
             [[ "${af}" == 'fe_plugins'* ]] ||
+            [[ "${af}" == 'fs_brokers/cdc_client'* ]] ||
             [[ "${af}" == 'gensrc'* ]] ||
             [[ "${af}" == 'regression-test'* ]] ||
             [[ "${af}" == 'thirdparty'* ]] ||
-            [[ "${af}" == 'docker'* ]] ||
             [[ "${af}" == 'ui'* ]] ||
             [[ "${af}" == 'webroot'* ]] ||
             [[ "${af}" == 'build.sh' ]] ||
             [[ "${af}" == 'env.sh' ]] ||
-            [[ "${af}" == 'run-regression-test.sh' ]] ||
-            [[ "${af}" == 'cloud/CMakeLists.txt' ]] ||
-            [[ "${af}" == 'cloud/src/'* ]] ||
-            [[ "${af}" == 'cloud/cmake/'* ]] ||
-            [[ "${af}" == 'cloud/test/'* ]]; then
+            [[ "${af}" == 'run-regression-test.sh' ]]; then
             echo "cloud-p0 related file changed, return need" && return 0
         fi
     done
@@ -336,14 +335,16 @@ file_changed_regression_p0() {
     for af in ${all_files}; do
         if [[ "${af}" == 'be'* ]] ||
             [[ "${af}" == 'bin'* ]] ||
+            [[ "${af}" == 'common/cpp'* ]] ||
             [[ "${af}" == 'conf'* ]] ||
             [[ "${af}" == 'contrib'* ]] ||
+            [[ "${af}" == 'docker/thirdparties'* ]] ||
             [[ "${af}" == 'fe'* ]] ||
             [[ "${af}" == 'fe_plugins'* ]] ||
+            [[ "${af}" == 'fs_brokers/cdc_client'* ]] ||
             [[ "${af}" == 'gensrc'* ]] ||
             [[ "${af}" == 'regression-test'* ]] ||
             [[ "${af}" == 'thirdparty'* ]] ||
-            [[ "${af}" == 'docker'* ]] ||
             [[ "${af}" == 'ui'* ]] ||
             [[ "${af}" == 'webroot'* ]] ||
             [[ "${af}" == 'build.sh' ]] ||
@@ -367,6 +368,7 @@ file_changed_performance() {
     for af in ${all_files}; do
         if [[ "${af}" == 'be'* ]] ||
             [[ "${af}" == 'bin'* ]] ||
+            [[ "${af}" == 'common/cpp'* ]] ||
             [[ "${af}" == 'conf'* ]] ||
             [[ "${af}" == 'fe'* ]] ||
             [[ "${af}" == 'gensrc'* ]] ||
@@ -416,3 +418,33 @@ file_changed_thirdparty() {
     echo "thirdparty not changed" && return 1
 }
 
+github_utils__maybe_enable_external_stage_timer() {
+    local timer_script
+    local main_definition
+
+    if [[ -z "${teamcity_build_checkoutDir:-}" ]]; then
+        return 0
+    fi
+    timer_script="${teamcity_build_checkoutDir}/regression-test/pipeline/external/external-stage-timer.sh"
+    if [[ ! -f "${timer_script}" ]]; then
+        return 0
+    fi
+    if ! declare -F main >/dev/null; then
+        return 0
+    fi
+
+    main_definition="$(declare -f main)"
+    if [[ "${main_definition}" != *"START EXTERNAL DOCKER"* ]] ||
+        [[ "${main_definition}" != *"RUN EXTERNAL CASE"* ]] ||
+        ([[ "${main_definition}" != *"collect_docker_logs"* ]] &&
+            [[ "${main_definition}" != *"COLLECT DOCKER LOGS"* ]]) ||
+        [[ "${main_definition}" != *"deploy_cluster.sh"* ]]; then
+        return 0
+    fi
+
+    # shellcheck source=/dev/null
+    source "${timer_script}"
+    external_regression_stage_timer_enable_auto_hooks
+}
+
+github_utils__maybe_enable_external_stage_timer

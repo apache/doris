@@ -74,7 +74,7 @@ public class PlanNodeTest {
 
     private static SlotDescriptor createColumnSlot(TupleDescriptor tupleDescriptor, int slotId,
             String columnName) {
-        SlotDescriptor slotDescriptor = new SlotDescriptor(new SlotId(slotId), tupleDescriptor);
+        SlotDescriptor slotDescriptor = new SlotDescriptor(new SlotId(slotId), tupleDescriptor.getId());
         slotDescriptor.setColumn(new Column(columnName, Type.BIGINT));
         slotDescriptor.setLabel(columnName);
         tupleDescriptor.addSlot(slotDescriptor);
@@ -83,7 +83,7 @@ public class PlanNodeTest {
 
     private static SlotDescriptor createExprSlot(TupleDescriptor tupleDescriptor, int slotId,
             String label) {
-        SlotDescriptor slotDescriptor = new SlotDescriptor(new SlotId(slotId), tupleDescriptor);
+        SlotDescriptor slotDescriptor = new SlotDescriptor(new SlotId(slotId), tupleDescriptor.getId());
         slotDescriptor.setType(Type.BIGINT);
         slotDescriptor.setLabel(label);
         tupleDescriptor.addSlot(slotDescriptor);

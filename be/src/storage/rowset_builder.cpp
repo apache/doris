@@ -60,7 +60,6 @@
 #include "util/trace.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 BaseRowsetBuilder::BaseRowsetBuilder(const WriteRequest& req, RuntimeProfile* profile)
@@ -167,8 +166,8 @@ Status RowsetBuilder::check_tablet_version_count() {
         (version_count > max_version_config - 100) &&
         !GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
         // Trigger compaction
-        auto st = _engine.submit_compaction_task(tablet_sptr(),
-                                                 CompactionType::CUMULATIVE_COMPACTION, true);
+        auto st = _engine.submit_compaction_task(
+                tablet_sptr(), CompactionType::CUMULATIVE_COMPACTION, true, true, 2);
         if (!st.ok()) [[unlikely]] {
             LOG(WARNING) << "failed to trigger compaction, tablet_id=" << _tablet->tablet_id()
                          << " : " << st;
@@ -417,5 +416,4 @@ Status BaseRowsetBuilder::_build_current_tablet_schema(
             table_schema_param->sequence_map_col_uid(), _max_version_in_flush_phase));
     return Status::OK();
 }
-#include "common/compile_check_end.h"
 } // namespace doris

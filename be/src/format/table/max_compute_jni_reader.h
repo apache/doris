@@ -24,9 +24,9 @@
 #include <vector>
 
 #include "common/status.h"
-#include "format/jni_reader.h"
+#include "format/jni/jni_reader.h"
 #include "runtime/descriptors.h"
-#include "storage/olap_scan_common.h"
+#include "storage/olap_common.h"
 
 namespace doris {
 class RuntimeProfile;
@@ -36,7 +36,6 @@ class Block;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 /**
  * The demo usage of JniReader, showing how to read data from java scanner.
  * The java side is also a mock reader that provide values for each type.
@@ -55,12 +54,6 @@ public:
     ~MaxComputeJniReader() override = default;
 
     Status init_reader();
-
-private:
-    const MaxComputeTableDescriptor* _table_desc = nullptr;
-    const TMaxComputeFileDesc& _max_compute_params;
-    const TFileRangeDesc& _range;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -29,7 +29,6 @@ using std::string;
 using std::stringstream;
 
 namespace doris {
-#include "common/compile_check_begin.h"
 HyperLogLog::HyperLogLog(const Slice& src) {
     // When deserialize return false, we make this object a empty
     if (!deserialize(src)) {
@@ -367,5 +366,4 @@ int64_t HyperLogLog::estimate_cardinality() const {
     }
     return (int64_t)(estimate + 0.5);
 }
-#include "common/compile_check_end.h"
 } // namespace doris

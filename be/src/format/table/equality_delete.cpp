@@ -20,7 +20,6 @@
 #include "exprs/create_predicate_function.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 std::unique_ptr<EqualityDeleteBase> EqualityDeleteBase::get_delete_impl(
         const Block* delete_block, const std::vector<int>& delete_col_ids) {
@@ -165,5 +164,4 @@ bool MultiEqualityDelete::_equal(Block* data_block, size_t data_row_index,
     return true;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

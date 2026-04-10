@@ -53,7 +53,6 @@
 #include "util/uid_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class ObjectPool;
 class RuntimeState;
 class RowDescriptor;
@@ -227,5 +226,3 @@ private:
     } while (0)
 
 } // namespace doris
-
-#include "common/compile_check_end.h"

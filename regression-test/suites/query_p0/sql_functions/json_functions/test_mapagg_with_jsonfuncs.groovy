@@ -16,8 +16,6 @@
 // under the License.
 
 suite("test_mapagg_with_jsonfuncs") {
-   sql "set enable_nereids_planner = true"
-   sql "set enable_fallback_to_original_planner = false"
    sql """ drop table if exists t003;"""
    sql """ create table t003 (a bigint, b json not null) properties ("replication_num"="1"); """
    sql """ insert into t003 values (1, '{"a":1,"b":2}'); """

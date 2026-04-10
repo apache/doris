@@ -27,7 +27,6 @@
 namespace doris::segment_v2 {
 struct AnnRangeSearchParams;
 struct AnnRangeSearchResult;
-#include "common/compile_check_begin.h"
 class AnnIndexIterator : public IndexIterator {
 public:
     AnnIndexIterator(const IndexReaderPtr& reader);
@@ -44,6 +43,10 @@ public:
 
     Result<bool> has_null() override { return true; }
 
+    // Try to load index, return true if successful, false if failed
+    // This method should be called before read_from_index or range_search
+    bool try_load_index();
+
     MOCK_FUNCTION Status range_search(const AnnRangeSearchParams& params,
                                       const VectorSearchUserParams& custom_params,
                                       AnnRangeSearchResult* result, AnnIndexStats* stats);
@@ -53,5 +56,4 @@ private:
 
     ENABLE_FACTORY_CREATOR(AnnIndexIterator);
 };
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

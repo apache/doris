@@ -24,7 +24,6 @@
 #include "exec/operator/operator.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeState;
 
 class Block;
@@ -141,5 +140,4 @@ private:
     std::vector<VExprContextSPtrs> _const_expr_lists;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

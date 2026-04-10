@@ -43,10 +43,37 @@ public class DataSourceConfigValidator {
             DataSourceConfigKeys.SSL_ROOTCERT
     );
 
+    // Known suffixes for per-table config keys (format: "table.<tableName>.<suffix>")
+    private static final Set<String> ALLOW_TABLE_LEVEL_SUFFIXES = Sets.newHashSet(
+            DataSourceConfigKeys.TABLE_TARGET_TABLE_SUFFIX,
+            DataSourceConfigKeys.TABLE_EXCLUDE_COLUMNS_SUFFIX
+    );
+
+    private static final String TABLE_LEVEL_PREFIX = DataSourceConfigKeys.TABLE + ".";
+
     public static void validateSource(Map<String, String> input) throws IllegalArgumentException {
         for (Map.Entry<String, String> entry : input.entrySet()) {
             String key = entry.getKey();
             String value = entry.getValue();
+
+            if (key.startsWith(TABLE_LEVEL_PREFIX)) {
+                // per-table config key must be exactly: table.<tableName>.<suffix>
+                // reject malformed keys like "table.exclude_columns" (missing tableName)
+                String[] parts = key.split("\\.", -1);
+                if (parts.length != 3 || parts[1].isEmpty()) {
+                    throw new IllegalArgumentException("Malformed per-table config key: '" + key
+                            + "'. Expected format: table.<tableName>.<suffix>");
+                }
+                String suffix = parts[parts.length - 1];
+                if (!ALLOW_TABLE_LEVEL_SUFFIXES.contains(suffix)) {
+                    throw new IllegalArgumentException("Unknown per-table config key: '" + key + "'");
+                }
+                if (value == null || value.trim().isEmpty()) {
+                    throw new IllegalArgumentException(
+                            "Value for per-table config key '" + key + "' must not be empty");
+                }
+                continue;
+            }
 
             if (!ALLOW_SOURCE_KEYS.contains(key)) {
                 throw new IllegalArgumentException("Unexpected key: '" + key + "'");
@@ -83,7 +110,8 @@ public class DataSourceConfigValidator {
 
         if (key.equals(DataSourceConfigKeys.OFFSET)
                 && !(value.equals(DataSourceConfigKeys.OFFSET_INITIAL)
-                || value.equals(DataSourceConfigKeys.OFFSET_LATEST))) {
+                || value.equals(DataSourceConfigKeys.OFFSET_LATEST)
+                || value.equals(DataSourceConfigKeys.OFFSET_SNAPSHOT))) {
             return false;
         }
         return true;

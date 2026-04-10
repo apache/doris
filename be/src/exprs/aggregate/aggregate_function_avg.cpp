@@ -26,7 +26,6 @@
 #include "exprs/aggregate/helpers.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 constexpr PrimitiveType result_type(PrimitiveType T) {
     if (T == TYPE_LARGEINT || T == TYPE_BIGINT) {

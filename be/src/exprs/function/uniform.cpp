@@ -40,7 +40,6 @@
 #include "exprs/function_context.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 // Integer uniform implementation
 struct UniformIntImpl {
@@ -183,5 +182,4 @@ void register_function_uniform(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionUniform<UniformIntImpl>>();
     factory.register_function<FunctionUniform<UniformDoubleImpl>>();
 }
-#include "common/compile_check_end.h"
 } // namespace doris

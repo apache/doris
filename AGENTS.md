@@ -16,6 +16,16 @@ When adding code, strictly follow existing similar code in similar contexts, inc
 
 After adding code, you must first conduct self-review and refactoring attempts to ensure good abstraction and reuse as much as possible.
 
+### Code Style Enforcement
+
+All code must pass style checks before committing. Use the corresponding skill for detailed step-by-step procedures.
+
+**BE (C++) Formatting**: Run `build-support/clang-format.sh` to auto-fix formatting. This script enforces clang-format v16; do not use other versions. Run `build-support/check-format.sh` to check without modifying files. See the `be-code-style` skill for details.
+
+**BE (C++) Static Analysis**: After building BE (which generates `compile_commands.json`), run `build-support/run-clang-tidy.sh` to check modified C++ files against the `.clang-tidy` config. The script parses `git diff` to filter warnings to changed lines where possible, reducing noise from pre-existing code (diagnostics from included headers may still appear). For Cloud C++ files, pass `--build-dir` pointing to the Cloud compilation database (e.g., `cloud/build_ASAN`). Try to fix all reported warnings; if a warning cannot be reasonably fixed, add a `// NOLINT` comment with justification and report it. See the `clang-tidy-check` skill for details.
+
+**FE (Java) Style**: Checkstyle is integrated into the Maven build (`maven-checkstyle-plugin`). Running `build.sh --fe` automatically validates style via `mvn validate`. If checkstyle fails, fix the reported issues according to `fe/check/checkstyle/checkstyle.xml`. See the `fe-code-style` skill for details.
+
 ## Code Review
 
 When conducting code review (including self-review and review tasks), it is necessary to complete the key checkpoints according to our `code-review` skill and provide conclusions for each key checkpoint (if applicable) as part of the final written description. Other content does not require individual responses; just check them during the review process.
@@ -48,3 +58,35 @@ Added regression tests must comply with the following standards:
 ## Commit Standards
 
 Files in git commit should only be related to the current modification task. Environment modifications for running (e.g., `conf/`, `AGENTS.md`, `hooks/`, etc.) must not be `git add`ed. When delivering the final task, you must ensure all actual code modifications have been committed.
+
+Commit messages must follow the format below, which mirrors the PR template (`.github/PULL_REQUEST_TEMPLATE.md`):
+
+```
+[<type>](<module>) <Short summary of the change>
+
+### What problem does this PR solve?
+
+Issue Number: close #xxx
+
+Related PR: #xxx
+
+Problem Summary: <Describe the problem this commit addresses>
+
+### Release note
+
+<If applicable, describe user-visible changes; otherwise write "None">
+
+### Check List (For Author)
+
+- Test: <Specify which testing was done>
+    - Regression test / Unit Test / Manual test / No need to test (with reason)
+- Behavior changed: No / Yes (with explanation)
+- Does this need documentation: No / Yes (with doc PR link)
+```
+
+Key rules for commit messages:
+1. The title must follow the `[type](module)` format validated by the PR title checker (`.github/workflows/title-checker.yml`). Common types include: `fix`, `feature`, `improvement`, `refactor`, `chore`, `test`, `doc`. Common modules include: `fe`, `be`, `cloud`, `regression`, `build`
+2. The short summary must be concise and written in imperative mood (e.g., `[fix](fe) Fix null pointer in scan node` not `[fix](fe) Fixed null pointer`)
+3. The `Issue Number` field must reference the corresponding GitHub Issue with `close #xxx` syntax when applicable
+4. The `Release note` section must be filled in for any user-visible behavior or feature change; write "None" for internal refactoring or test-only changes
+5. The test section must honestly reflect the testing performed; do not claim tests that were not actually run

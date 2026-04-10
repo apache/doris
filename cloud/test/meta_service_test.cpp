@@ -253,8 +253,8 @@ doris::RowsetMetaCloudPB create_rowset(int64_t txn_id, int64_t tablet_id, int pa
     return rowset;
 }
 
-static void prepare_rowset(MetaServiceProxy* meta_service, const doris::RowsetMetaCloudPB& rowset,
-                           CreateRowsetResponse& res) {
+void prepare_rowset(MetaServiceProxy* meta_service, const doris::RowsetMetaCloudPB& rowset,
+                    CreateRowsetResponse& res) {
     brpc::Controller cntl;
     auto arena = res.GetArena();
     auto req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
@@ -3857,9 +3857,8 @@ TEST(MetaServiceTest, CopyJobTest) {
             copy_file_key(key_info0, &key0);
             copy_file_key(key_info1, &key1);
             std::unique_ptr<RangeGetIterator> it;
-            ASSERT_EQ(txn->get(key0, key1, &it), TxnErrorCode::TXN_OK);
             int file_cnt = 0;
-            do {
+            while (it == nullptr /* may be not init */ || it->more()) {
                 ASSERT_EQ(txn->get(key0, key1, &it), TxnErrorCode::TXN_OK);
                 while (it->has_next()) {
                     auto [k, v] = it->next();
@@ -3872,7 +3871,7 @@ TEST(MetaServiceTest, CopyJobTest) {
                     }
                 }
                 key0.push_back('\x00');
-            } while (it->more());
+            }
             ASSERT_EQ(file_cnt, 20);
         }
         // 1 copy job with finish status
@@ -3885,7 +3884,7 @@ TEST(MetaServiceTest, CopyJobTest) {
             copy_job_key(key_info1, &key1);
             std::unique_ptr<RangeGetIterator> it;
             int job_cnt = 0;
-            do {
+            while (it == nullptr /* may be not init */ || it->more()) {
                 ASSERT_EQ(txn->get(key0, key1, &it), TxnErrorCode::TXN_OK);
                 while (it->has_next()) {
                     auto [k, v] = it->next();
@@ -3899,7 +3898,7 @@ TEST(MetaServiceTest, CopyJobTest) {
                     }
                 }
                 key0.push_back('\x00');
-            } while (it->more());
+            }
             ASSERT_EQ(job_cnt, 1);
         }
     }
@@ -4346,9 +4345,8 @@ TEST(MetaServiceTest, StageTest) {
             std::string get_val;
             ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
             std::unique_ptr<RangeGetIterator> it;
-            ASSERT_EQ(txn->get(key0, key1, &it), TxnErrorCode::TXN_OK);
             int stage_cnt = 0;
-            do {
+            while (it == nullptr /* may be not init */ || it->more()) {
                 ASSERT_EQ(txn->get(key0, key1, &it), TxnErrorCode::TXN_OK);
                 while (it->has_next()) {
                     auto [k, v] = it->next();
@@ -4358,7 +4356,7 @@ TEST(MetaServiceTest, StageTest) {
                     }
                 }
                 key0.push_back('\x00');
-            } while (it->more());
+            }
             ASSERT_EQ(stage_cnt, 1);
         }
 

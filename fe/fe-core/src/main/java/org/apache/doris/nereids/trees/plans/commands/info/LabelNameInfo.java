@@ -20,10 +20,10 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.base.Strings;
 
@@ -48,7 +48,7 @@ public class LabelNameInfo {
     public LabelNameInfo(String db, String label) {
         Objects.requireNonNull(label, "require label object");
         this.label = label;
-        if (Env.isStoredTableNamesLowerCase()) {
+        if (GlobalVariable.isStoredTableNamesLowerCase()) {
             this.label = label.toLowerCase();
         }
         this.db = db;

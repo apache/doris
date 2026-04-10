@@ -25,10 +25,8 @@ import org.apache.doris.cloud.proto.Cloud.CopyJobPB;
 import org.apache.doris.cloud.proto.Cloud.CopyJobPB.JobStatus;
 import org.apache.doris.cloud.proto.Cloud.ObjectFilePB;
 import org.apache.doris.cloud.stage.StageUtil;
-import org.apache.doris.cloud.storage.ListObjectsResult;
-import org.apache.doris.cloud.storage.ObjectFile;
-import org.apache.doris.cloud.storage.RemoteBase;
-import org.apache.doris.cloud.storage.RemoteBase.ObjectInfo;
+import org.apache.doris.cloud.storage.ObjectInfo;
+import org.apache.doris.cloud.storage.ObjectInfoAdapter;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
@@ -36,12 +34,18 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
+import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.filesystem.spi.ObjFileSystem;
+import org.apache.doris.filesystem.spi.RemoteObject;
+import org.apache.doris.filesystem.spi.RemoteObjects;
+import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 import org.apache.doris.load.loadv2.BrokerLoadPendingTask;
 import org.apache.doris.load.loadv2.BrokerPendingTaskAttachment;
 import org.apache.doris.thrift.TBrokerFileStatus;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.lang3.tuple.Triple;
@@ -258,7 +262,11 @@ public class CopyLoadPendingTask extends BrokerLoadPendingTask {
         matchedFileNum = 0;
         loadedFileNum = 0;
         reachLimitStr = "";
-        RemoteBase remote = RemoteBase.newInstance(objectInfo);
+        StorageProperties storageProps = ObjectInfoAdapter.toStorageProperties(objectInfo);
+        org.apache.doris.filesystem.FileSystem rawFs = FileSystemFactory.getFileSystem(storageProps);
+        Preconditions.checkState(rawFs instanceof ObjFileSystem,
+                "Copy operations require ObjFileSystem, but got: %s", rawFs.getClass().getSimpleName());
+        ObjFileSystem fs = (ObjFileSystem) rawFs;
         Set<String> loadedFileSet = copiedFiles.stream().map(f -> StageUtil.getFileInfoUniqueId(f))
                 .collect(Collectors.toSet());
         try {
@@ -268,15 +276,16 @@ public class CopyLoadPendingTask extends BrokerLoadPendingTask {
             String continuationToken = null;
             boolean finish = false;
             while (!finish) {
-                ListObjectsResult listObjectsResult = remote.listObjects(continuationToken);
-                listFileNum += listObjectsResult.getObjectInfoList().size();
+                RemoteObjects listObjectsResult = fs.listObjectsWithPrefix(
+                        objectInfo.getPrefix(), "", continuationToken);
+                listFileNum += listObjectsResult.getObjectList().size();
                 long costSeconds = (System.currentTimeMillis() - startTimestamp) / 1000;
                 if (costSeconds >= 3600 || listFileNum >= 1000000) {
                     throw new DdlException("Abort list object for queryId=" + ((CopyJob) callback).getCopyId()
                             + ". We don't collect enough files to load, after listing " + listFileNum + " objects for "
                             + costSeconds + " seconds, please check if your pattern " + pattern + " is correct.");
                 }
-                for (ObjectFile objectFile : listObjectsResult.getObjectInfoList()) {
+                for (RemoteObject objectFile : listObjectsResult.getObjectList()) {
                     // check:
                     // 1. match pattern if it's set
                     // 2. file is not copying or copied by other copy jobs
@@ -321,7 +330,7 @@ public class CopyLoadPendingTask extends BrokerLoadPendingTask {
                 continuationToken = listObjectsResult.getContinuationToken();
             }
         } finally {
-            remote.close();
+            fs.close();
         }
     }
 
@@ -337,31 +346,34 @@ public class CopyLoadPendingTask extends BrokerLoadPendingTask {
             throw new DdlException("Copy job is not in loading status, status=" + copyJobPB.getJobStatus());
         }
         isBeginCopyDone = true;
-        RemoteBase remote = null;
         try {
-            remote = RemoteBase.newInstance(objectInfo);
-            List<Pair<TBrokerFileStatus, ObjectFilePB>> fileStatuses = Lists.newArrayList();
-            for (ObjectFilePB objectFile : copyJobPB.getObjectFilesList()) {
-                List<ObjectFile> files = remote.headObject(objectFile.getRelativePath()).getObjectInfoList();
-                TBrokerFileStatus brokerFileStatus = null;
-                for (ObjectFile file : files) {
-                    if (file.getRelativePath().equals(objectFile.getRelativePath()) && file.getEtag()
-                            .equals(objectFile.getEtag())) {
-                        String objUrl = "s3://" + objectInfo.getBucket() + "/" + file.getKey();
-                        brokerFileStatus = new TBrokerFileStatus(objUrl, false, file.getSize(), true);
-                        break;
+            StorageProperties storageProps = ObjectInfoAdapter.toStorageProperties(objectInfo);
+            org.apache.doris.filesystem.FileSystem rawFs = FileSystemFactory.getFileSystem(storageProps);
+            Preconditions.checkState(rawFs instanceof ObjFileSystem,
+                    "Copy operations require ObjFileSystem, but got: %s", rawFs.getClass().getSimpleName());
+            try (ObjFileSystem fs = (ObjFileSystem) rawFs) {
+                List<Pair<TBrokerFileStatus, ObjectFilePB>> fileStatuses = Lists.newArrayList();
+                for (ObjectFilePB objectFile : copyJobPB.getObjectFilesList()) {
+                    List<RemoteObject> files = fs.headObjectWithMeta(
+                            objectInfo.getPrefix(), objectFile.getRelativePath()).getObjectList();
+                    TBrokerFileStatus brokerFileStatus = null;
+                    for (RemoteObject file : files) {
+                        if (file.getRelativePath().equals(objectFile.getRelativePath()) && file.getEtag()
+                                .equals(objectFile.getEtag())) {
+                            String objUrl = "s3://" + objectInfo.getBucket() + "/" + file.getKey();
+                            brokerFileStatus = new TBrokerFileStatus(objUrl, false, file.getSize(), true);
+                            break;
+                        }
                     }
+                    if (brokerFileStatus == null) {
+                        throw new Exception("Can not find object with relative path: " + objectFile.getRelativePath());
+                    }
+                    fileStatuses.add(Pair.of(brokerFileStatus, objectFile));
                 }
-                if (brokerFileStatus == null) {
-                    throw new Exception("Can not find object with relative path: " + objectFile.getRelativePath());
-                }
-                fileStatuses.add(Pair.of(brokerFileStatus, objectFile));
+                return fileStatuses;
             }
-            return fileStatuses;
         } catch (Exception e) {
             throw new DdlException(e.getMessage());
-        } finally {
-            remote.close();
         }
     }
 }

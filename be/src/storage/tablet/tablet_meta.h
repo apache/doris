@@ -51,7 +51,6 @@
 #include "util/uid_util.h"
 
 namespace json2pb {
-#include "common/compile_check_begin.h"
 struct Pb2JsonOptions;
 } // namespace json2pb
 
@@ -834,5 +833,4 @@ std::string tablet_state_name(TabletState state);
 bool operator==(const TabletMeta& a, const TabletMeta& b);
 bool operator!=(const TabletMeta& a, const TabletMeta& b);
 
-#include "common/compile_check_end.h"
 } // namespace doris
