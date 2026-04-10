@@ -29,7 +29,6 @@
 #include "util/thrift_rpc_helper.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 std::vector<SchemaScanner::ColumnDesc> SchemaRoleMappingsScanner::_s_tbls_columns = {
         {"NAME", TYPE_VARCHAR, sizeof(StringRef), true},
@@ -141,5 +140,4 @@ Status SchemaRoleMappingsScanner::get_next_block_internal(Block* block, bool* eo
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris
