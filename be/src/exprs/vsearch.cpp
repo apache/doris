@@ -278,10 +278,19 @@ Status VSearchExpr::evaluate_inverted_index(VExprContext* context, uint32_t segm
         return status;
     }
 
-    // Move (not copy) the bitmap into the expr context to avoid a deep copy of
-    // the underlying roaring bitmap per segment. `result_bitmap` is not used
-    // after this call.
-    index_context->set_index_result_for_expr(this, std::move(result_bitmap));
+    // IMPORTANT: do NOT std::move `result_bitmap` here. The DSL result cache
+    // (InvertedIndexQueryCache) already holds a shared_ptr to the same
+    // underlying roaring::Roaring as `result_bitmap._data_bitmap`. Storing a
+    // moved-from copy in the per-segment expr context would make the per-
+    // segment map entry SHARE that same Roaring object, and any later
+    // mutating consumer (notably `VCompoundPred::COMPOUND_NOT` →
+    // `InvertedIndexResultBitmap::op_not()`, which is `const` but writes
+    // through the shared_ptr) would corrupt the DSL cache entry, so the
+    // *next* segment that gets a cache hit would observe the negated data
+    // instead of the original SEARCH result. Pass by lvalue so the copy
+    // constructor deep-copies the bitmap and isolates the cache from
+    // per-segment mutations.
+    index_context->set_index_result_for_expr(this, result_bitmap);
     for (int column_id : bundle.column_ids) {
         index_context->set_true_for_index_status(this, column_id);
     }
