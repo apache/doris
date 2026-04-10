@@ -18,7 +18,6 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.LiteralExpr;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
