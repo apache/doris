@@ -42,7 +42,8 @@ Status VMCTableWriter::init_properties(ObjectPool* pool) {
 
 Status VMCTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
     _state = state;
-    _next_block_id.store(state->per_fragment_instance_idx() * BLOCK_ID_STRIDE);
+    _next_block_id.store(static_cast<int64_t>(state->per_fragment_instance_idx())
+                         << BLOCK_ID_INSTANCE_SHIFT);
 
     LOG(INFO) << "VMCTableWriter::open"
               << ", fragment_instance_id=" << print_id(state->fragment_instance_id())

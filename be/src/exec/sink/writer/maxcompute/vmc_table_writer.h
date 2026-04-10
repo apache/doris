@@ -82,11 +82,14 @@ private:
     // Write output expr contexts (after removing partition columns)
     VExprContextSPtrs _write_output_vexpr_ctxs;
 
-    // Atomic block_id counter: each partition writer gets a unique block_id
-    // Initialized with offset based on per_fragment_instance_idx to avoid collisions
-    // across pipeline instances sharing the same write session.
+    // Atomic block_id counter: each partition writer gets a unique block_id.
+    // Reserve the low 32 bits for the per-instance sequence so rotated
+    // block ids can grow without overlapping other fragment instances in
+    // the same write session. per_fragment_instance_idx is an int, and
+    // shifting it by 32 is the largest safe value that still keeps the
+    // computed block_id in the positive int64_t range.
     std::atomic<int64_t> _next_block_id {0};
-    static constexpr int64_t BLOCK_ID_STRIDE = 100;
+    static constexpr int64_t BLOCK_ID_INSTANCE_SHIFT = 32;
 
     size_t _row_count = 0;
     int64_t _send_data_ns = 0;
