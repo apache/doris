@@ -28,12 +28,21 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Collect the nondeterministic expr in MV plan, skipping hidden IVM row-id aliases.
+ * Collect the nondeterministic expressions in a plan.
  */
-public class MvNondeterministicFunctionCollector
+public class NondeterministicFunctionCollector
         extends DefaultPlanVisitor<Void, List<Expression>> {
 
-    public static final MvNondeterministicFunctionCollector INSTANCE = new MvNondeterministicFunctionCollector();
+    public static final NondeterministicFunctionCollector INSTANCE = new NondeterministicFunctionCollector(false);
+
+    /** MV-specific instance that skips hidden IVM row-id aliases during collection. */
+    public static final NondeterministicFunctionCollector MV_INSTANCE = new NondeterministicFunctionCollector(true);
+
+    private final boolean skipIvmRowId;
+
+    private NondeterministicFunctionCollector(boolean skipIvmRowId) {
+        this.skipIvmRowId = skipIvmRowId;
+    }
 
     @Override
     public Void visit(Plan plan, List<Expression> collectedExpressions) {
@@ -42,7 +51,7 @@ public class MvNondeterministicFunctionCollector
             return super.visit(plan, collectedExpressions);
         }
         for (Expression expression : expressions) {
-            if (isMvRowIdAlias(expression)) {
+            if (skipIvmRowId && isMvRowIdAlias(expression)) {
                 continue;
             }
             Set<Expression> nondeterministicFunctions =
