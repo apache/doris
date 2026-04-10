@@ -68,4 +68,13 @@ public class IcebergInsertExecutor extends BaseExternalTableInsertExecutor {
         return TransactionType.ICEBERG;
     }
 
+    @Override
+    public boolean shouldExecuteEmptyInsert() {
+        return emptyInsert
+                && insertCtx.filter(IcebergInsertCommandContext.class::isInstance)
+                        .map(IcebergInsertCommandContext.class::cast)
+                        .map(IcebergInsertCommandContext::isStaticPartitionOverwrite)
+                        .orElse(false);
+    }
+
 }
