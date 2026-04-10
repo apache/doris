@@ -68,6 +68,8 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
                             ctx.statementContext, selectHintPlan);
                 } else if (hintName.equalsIgnoreCase("USE_CBO_RULE")) {
                     extractRule((SelectHintUseCboRule) hint, ctx.statementContext);
+                } else if (hintName.equalsIgnoreCase("NO_USE_CBO_RULE")) {
+                    extractRule((SelectHintUseCboRule) hint, ctx.statementContext);
                 } else if (hintName.equalsIgnoreCase("USE_MV")) {
                     extractMv((SelectHintUseMv) hint, ConnectContext.get().getStatementContext());
                 } else if (hintName.equalsIgnoreCase("NO_USE_MV")) {
