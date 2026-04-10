@@ -102,5 +102,18 @@ public class SchemaTableTest {
         Assertions.assertEquals("CREATE_TIME", authenticationIntegrations.getFullSchema().get(5).getName());
         Assertions.assertEquals("ALTER_USER", authenticationIntegrations.getFullSchema().get(6).getName());
         Assertions.assertEquals("MODIFY_TIME", authenticationIntegrations.getFullSchema().get(7).getName());
+
+        SchemaTable roleMappings = (SchemaTable) SchemaTable.TABLE_MAP.get("role_mappings");
+        Assertions.assertFalse(roleMappings.shouldFetchAllFe());
+        Assertions.assertFalse(roleMappings.shouldAddAgg());
+        Assertions.assertEquals(8, roleMappings.getFullSchema().size());
+        Assertions.assertEquals("NAME", roleMappings.getFullSchema().get(0).getName());
+        Assertions.assertEquals("INTEGRATION_NAME", roleMappings.getFullSchema().get(1).getName());
+        Assertions.assertEquals("RULES", roleMappings.getFullSchema().get(2).getName());
+        Assertions.assertEquals("COMMENT", roleMappings.getFullSchema().get(3).getName());
+        Assertions.assertEquals("CREATE_USER", roleMappings.getFullSchema().get(4).getName());
+        Assertions.assertEquals("CREATE_TIME", roleMappings.getFullSchema().get(5).getName());
+        Assertions.assertEquals("ALTER_USER", roleMappings.getFullSchema().get(6).getName());
+        Assertions.assertEquals("MODIFY_TIME", roleMappings.getFullSchema().get(7).getName());
     }
 }

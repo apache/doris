@@ -870,6 +870,7 @@ enum TSchemaTableName {
   VIEW_DEPENDENCY = 11,
   SQL_BLOCK_RULE_STATUS = 12,
   AUTHENTICATION_INTEGRATIONS = 13,
+  ROLE_MAPPINGS = 14,
 }
 
 struct TMetadataTableRequestParams {

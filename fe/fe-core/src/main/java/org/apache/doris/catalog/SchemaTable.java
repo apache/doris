@@ -834,6 +834,17 @@ public class SchemaTable extends Table {
                             .column("ALTER_USER", ScalarType.createStringType())
                             .column("MODIFY_TIME", ScalarType.createStringType())
                             .build()))
+            .put("role_mappings",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "role_mappings", TableType.SCHEMA,
+                        builder().column("NAME", ScalarType.createVarchar(256))
+                            .column("INTEGRATION_NAME", ScalarType.createVarchar(256))
+                            .column("RULES", ScalarType.createStringType())
+                            .column("COMMENT", ScalarType.createStringType())
+                            .column("CREATE_USER", ScalarType.createStringType())
+                            .column("CREATE_TIME", ScalarType.createStringType())
+                            .column("ALTER_USER", ScalarType.createStringType())
+                            .column("MODIFY_TIME", ScalarType.createStringType())
+                            .build()))
             .build();
 
     private boolean fetchAllFe = false;
