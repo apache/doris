@@ -223,6 +223,76 @@ public class TestCheckPrivileges extends TestWithFeService implements GeneratedM
         });
     }
 
+    @Test
+    public void testCtePrivilegeCheck() throws Exception {
+        FeConstants.runningUnitTest = true;
+        // Use the same external catalog for privilege control infrastructure
+        String catalogProvider
+                = "org.apache.doris.nereids.privileges.TestCheckPrivileges$CustomCatalogProvider";
+        String accessControllerFactory
+                = "org.apache.doris.nereids.privileges.CustomAccessControllerFactory";
+        String catalog = "custom_catalog_cte";
+
+        createCatalog("create catalog " + catalog + " properties("
+                + " \"type\"=\"test\","
+                + " \"catalog_provider.class\"=\"" + catalogProvider + "\","
+                + " \"" + CatalogMgr.ACCESS_CONTROLLER_CLASS_PROP + "\"=\"" + accessControllerFactory + "\""
+                + ")");
+
+        // Create internal OLAP tables (LogicalOlapScan supports withRelationId needed by CTE)
+        String cteDb = "cte_priv_db";
+        createDatabase(cteDb);
+        useDatabase(cteDb);
+        createTable("create table allowed_tbl (id int, name varchar(50)) "
+                + "distributed by hash(id) buckets 1 "
+                + "properties('replication_num' = '1')");
+        createTable("create table denied_tbl (id int, name varchar(50)) "
+                + "distributed by hash(id) buckets 1 "
+                + "properties('replication_num' = '1')");
+
+        String user = "test_cte_privilege_user";
+        addUser(user, true);
+        useUser(user);
+
+        List<MakeTablePrivileges> privileges = ImmutableList.of(
+                MakePrivileges.table("internal", cteDb, "allowed_tbl").allowSelectTable(user)
+        );
+
+        AccessControllerManager accessManager = Env.getCurrentEnv().getAccessManager();
+        CatalogAccessController catalogAccessController = accessManager.getAccessControllerOrDefault(catalog);
+        new Expectations(accessManager) {
+            {
+                accessManager.getAccessControllerOrDefault("internal");
+                minTimes = 0;
+                result = catalogAccessController;
+            }
+        };
+
+        withPrivileges(privileges, () -> {
+            // CTE with authorized table should succeed
+            query("with cte as (select * from allowed_tbl) select * from cte");
+
+            // CTE with unauthorized table should fail (this was the bug:
+            // consumer was checked first, setting privChecked=true on shared StatementContext,
+            // so producer's CheckPrivileges was skipped)
+            Assertions.assertThrows(AnalysisException.class, () ->
+                    query("with cte as (select * from denied_tbl) select * from cte")
+            );
+
+            // CTE referenced twice forces no-inline path through RewriteCteChildren
+            Assertions.assertThrows(AnalysisException.class, () ->
+                    query("with cte as (select * from denied_tbl) "
+                            + "select * from cte union all select * from cte")
+            );
+
+            // CTE authorized + direct unauthorized table should fail
+            Assertions.assertThrows(AnalysisException.class, () ->
+                    query("with cte as (select * from allowed_tbl) "
+                            + "select * from cte union all select * from denied_tbl")
+            );
+        });
+    }
+
     private void query(String sql) {
         PlanChecker.from(connectContext)
                 .parse(sql)

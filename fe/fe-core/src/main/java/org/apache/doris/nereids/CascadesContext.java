@@ -120,6 +120,8 @@ public class CascadesContext implements ScheduleContext {
 
     private boolean isLeadingDisableJoinReorder = false;
 
+    private boolean privChecked = false;
+
     private final Map<String, Hint> hintMap = Maps.newLinkedHashMap();
     private final ThreadLocal<Boolean> showPlanProcess = new ThreadLocal<>();
 
@@ -518,6 +520,14 @@ public class CascadesContext implements ScheduleContext {
 
     public void setLeadingDisableJoinReorder(boolean leadingDisableJoinReorder) {
         isLeadingDisableJoinReorder = leadingDisableJoinReorder;
+    }
+
+    public boolean isPrivChecked() {
+        return privChecked;
+    }
+
+    public void setPrivChecked(boolean privChecked) {
+        this.privChecked = privChecked;
     }
 
     public Map<String, Hint> getHintMap() {

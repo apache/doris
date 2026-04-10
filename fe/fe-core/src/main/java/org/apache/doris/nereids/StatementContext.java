@@ -266,8 +266,6 @@ public class StatementContext implements Closeable {
 
     private final Map<MvccTableInfo, MvccSnapshot> snapshots = Maps.newHashMap();
 
-    private boolean privChecked;
-
     // if greater than 0 means the duration has used
     private long materializedViewRewriteDuration = 0L;
 
@@ -1027,14 +1025,6 @@ public class StatementContext implements Closeable {
     public void setGroupCommitMergeBackend(
             Backend groupCommitMergeBackend) {
         this.groupCommitMergeBackend = groupCommitMergeBackend;
-    }
-
-    public boolean isPrivChecked() {
-        return privChecked;
-    }
-
-    public void setPrivChecked(boolean privChecked) {
-        this.privChecked = privChecked;
     }
 
     public List<Backend> getUsedBackendsDistributing() {

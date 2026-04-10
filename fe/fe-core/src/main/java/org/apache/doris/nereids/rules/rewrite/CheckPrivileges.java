@@ -46,20 +46,24 @@ import java.util.Set;
 
 /**
  * CheckPrivileges
- * This rule should only check once, because after check would set setPrivChecked in statementContext
+ * This rule should only check once per CascadesContext, because after check would set privChecked
+ * on the CascadesContext. Using CascadesContext-level (instead of StatementContext-level) flag
+ * ensures CTE producer and consumer subtrees are checked independently, while still preventing
+ * duplicate checks within the same subtree (e.g., after view inlining).
  */
 public class CheckPrivileges extends ColumnPruning {
     private JobContext jobContext;
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
-        // Only enter once, if repeated, the permissions of the table in the view will be checked
-        if (jobContext.getCascadesContext().getStatementContext().isPrivChecked()) {
+        // Only enter once per CascadesContext. If repeated within the same context,
+        // the permissions of the table in the view will be checked incorrectly.
+        if (jobContext.getCascadesContext().isPrivChecked()) {
             return plan;
         }
         this.jobContext = jobContext;
         super.rewriteRoot(plan, jobContext);
-        jobContext.getCascadesContext().getStatementContext().setPrivChecked(true);
+        jobContext.getCascadesContext().setPrivChecked(true);
         // don't rewrite plan, because Reorder expect no LogicalProject on LogicalJoin
         return plan;
     }
