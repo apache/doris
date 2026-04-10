@@ -3313,10 +3313,15 @@ public class InternalCatalog implements CatalogIf<Database> {
         olapTable.readLock();
         try {
             olapTable.checkNormalStateForAlter();
+            boolean ifExists = truncateTableStmt.isIfExists();
             if (!truncateEntireTable) {
                 for (String partName : tblRef.getPartitionNames().getPartitionNames()) {
                     Partition partition = olapTable.getPartition(partName);
                     if (partition == null) {
+                        if (ifExists) {
+                            LOG.info("Partition {} does not exist, skip due to IF EXISTS", partName);
+                            continue;
+                        }
                         throw new DdlException("Partition " + partName + " does not exist");
                     }
                     // If need absolutely correct, should check running txn here.

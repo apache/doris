@@ -829,7 +829,7 @@ unsupportedUseStatement
     ;
 
 unsupportedDmlStatement
-    : TRUNCATE TABLE multipartIdentifier specifiedPartition?                        #truncateTable
+    : TRUNCATE TABLE multipartIdentifier (IF EXISTS)? specifiedPartition?                        #truncateTable
     ;
 
 unsupportedKillStatement

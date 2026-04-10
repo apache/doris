@@ -30,9 +30,20 @@ import org.apache.doris.qe.ConnectContext;
 public class TruncateTableStmt extends DdlStmt {
 
     private TableRef tblRef;
+    private boolean ifExists;
 
     public TruncateTableStmt(TableRef tblRef) {
         this.tblRef = tblRef;
+        this.ifExists = false;
+    }
+
+    public TruncateTableStmt(TableRef tblRef, boolean ifExists) {
+        this.tblRef = tblRef;
+        this.ifExists = ifExists;
+    }
+
+    public boolean isIfExists() {
+        return ifExists;
     }
 
     public TableRef getTblRef() {
@@ -72,6 +83,9 @@ public class TruncateTableStmt extends DdlStmt {
         StringBuilder sb = new StringBuilder();
         sb.append("TRUNCATE TABLE ");
         sb.append(tblRef.getName().toSql());
+        if (ifExists) {
+            sb.append(" IF EXISTS");
+        }
         if (tblRef.getPartitionNames() != null) {
             sb.append(tblRef.getPartitionNames().toSql());
         }
