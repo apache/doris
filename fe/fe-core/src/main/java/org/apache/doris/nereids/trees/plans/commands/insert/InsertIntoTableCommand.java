@@ -308,6 +308,8 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                             buildResult.planner.getFragments().get(0), buildResult.dataSink,
                             buildResult.physicalSink
                     );
+                } else if (insertExecutor.shouldExecuteEmptyInsert()) {
+                    insertExecutor.beginTransaction();
                 }
                 newestTargetTableIf.readUnlock();
             } catch (Throwable e) {
@@ -618,6 +620,13 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         AbstractInsertExecutor insertExecutor = initPlan(ctx, executor);
         // if the insert stmt data source is empty, directly return, no need to be executed.
         if (insertExecutor.isEmptyInsert()) {
+            if (!insertExecutor.shouldExecuteEmptyInsert()) {
+                return;
+            }
+            if (insertExecutorListener != null) {
+                insertExecutor.registerListener(insertExecutorListener);
+            }
+            insertExecutor.executeEmptyInsert(executor);
             return;
         }
         if (insertExecutorListener != null) {
