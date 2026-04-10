@@ -79,7 +79,7 @@ suite("test_information_schema_timezone", "p0,external,hive,kerberos,external_do
 
     def getStableRowsetsTime = { tabletId ->
         List<List<Object>> result = null
-        waitUntil(30) {
+        awaitUntil(30) {
             result = sql """
                 select CREATION_TIME, NEWEST_WRITE_TIMESTAMP
                 from information_schema.rowsets
