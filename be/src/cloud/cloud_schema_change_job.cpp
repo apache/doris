@@ -157,11 +157,10 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
     });
 
     // Check for cross-V1 compaction rowsets on new tablet.
-    // During queue wait, compaction may have committed a rowset that crosses the
-    // alter_version boundary (V1). This happens when compaction commits before
-    // prepare_tablet_job registers the SC job in meta-service.
-    // If such a rowset exists, SC commit would create version overlap, so we
-    // fail early and let FE retry (with a higher V1 next time).
+    // A compaction may have committed a rowset that crosses the alter_version
+    // boundary (V1) before prepare_tablet_job's clear_compaction took effect.
+    // If detected, abort the SC job in meta-service so the next retry registers
+    // a fresh job with a higher V1 (where the crossing rowset falls within range).
     {
         RETURN_IF_ERROR(_new_tablet->sync_rowsets());
         std::shared_lock rlock(_new_tablet->get_header_lock());
@@ -172,8 +171,15 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
                              << ", tablet_id=" << _new_tablet->tablet_id() << ", rowset=["
                              << v.first << "-" << v.second << "]"
                              << ", alter_version=" << start_resp.alter_version()
-                             << ", job_id=" << _job_id << ". Will retry with higher alter_version.";
-                return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                             << ", job_id=" << _job_id << ". Aborting SC job and retrying.";
+                // Abort the SC job so the next retry can register with a higher alter_version.
+                auto abort_st = _cloud_storage_engine.meta_mgr().abort_tablet_job(job);
+                if (!abort_st.ok()) {
+                    LOG(WARNING) << "failed to abort SC job after cross-V1 detection"
+                                 << ", tablet_id=" << _new_tablet->tablet_id()
+                                 << ", error=" << abort_st;
+                }
+                return Status::Error<ErrorCode::SC_COMPACTION_CONFLICT>(
                         "cross-V1 compaction detected on new tablet, tablet_id={}, "
                         "rowset=[{}-{}], alter_version={}",
                         _new_tablet->tablet_id(), v.first, v.second, start_resp.alter_version());
