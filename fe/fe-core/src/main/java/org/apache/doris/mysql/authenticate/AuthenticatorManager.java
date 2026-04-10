@@ -97,14 +97,30 @@ public class AuthenticatorManager {
                                 MysqlAuthPacket authPacket,
                                 MysqlHandshakePacket handshakePacket) throws IOException {
         Authenticator authenticator = chooseAuthenticator(userName);
+        boolean debugEnabled = LOG.isDebugEnabled();
+        long resolveStart = 0L;
+        if (debugEnabled) {
+            LOG.debug("AuthenticatorManager: user={}, authenticator={}",
+                    userName, authenticator.getClass().getSimpleName());
+            resolveStart = System.currentTimeMillis();
+        }
         Optional<Password> password = authenticator.getPasswordResolver()
                 .resolvePassword(context, channel, serializer, authPacket, handshakePacket);
         if (!password.isPresent()) {
             return false;
         }
+        if (debugEnabled) {
+            long resolveElapsed = System.currentTimeMillis() - resolveStart;
+            LOG.debug("resolvePassword: user={}, elapsed={}ms", userName, resolveElapsed);
+            resolveStart = System.currentTimeMillis();
+        }
         String remoteIp = context.getMysqlChannel().getRemoteIp();
         AuthenticateRequest request = new AuthenticateRequest(userName, password.get(), remoteIp);
         AuthenticateResponse response = authenticator.authenticate(request);
+        if (debugEnabled) {
+            long authenticateElapsed = System.currentTimeMillis() - resolveStart;
+            LOG.debug("authenticate: user={}, elapsed={}ms", userName, authenticateElapsed);
+        }
         if (!response.isSuccess()) {
             MysqlProto.sendResponsePacket(context);
             return false;
