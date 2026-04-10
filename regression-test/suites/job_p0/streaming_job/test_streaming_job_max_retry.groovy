@@ -43,8 +43,8 @@ suite("test_streaming_job_max_retry", "nonConcurrent") {
         PROPERTIES ("replication_allocation" = "tag.location.default: 1");
     """
 
-    // Set max retry count to 2 for faster testing
-    sql "ADMIN SET FRONTEND CONFIG ('streaming_job_max_auto_resume_count' = '2')"
+    // Set max retry count to 4 for faster testing
+    sql "ADMIN SET FRONTEND CONFIG ('streaming_job_max_auto_resume_count' = '4')"
 
     GetDebugPoint().enableDebugPointForAllFEs('StreamingJob.scheduleTask.exception')
     try {

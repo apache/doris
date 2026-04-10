@@ -173,7 +173,7 @@ suite("test_streaming_job_cdc_stream_postgres_latest_alter_cred",
             Awaitility.await().atMost(120, SECONDS).pollInterval(2, SECONDS).until({
                 def s = sql """select status from jobs("type"="insert") where Name='${jobName}'"""
                 log.info("status after wrong cred resume: " + s)
-                s.size() == 1 && s.get(0).get(0) == "PAUSED"
+                s.size() == 1 && s.get(0).get(0) == "RETRYING"
             })
         } catch (Exception ex) {
             log.info("job: " + (sql """select * from jobs("type"="insert") where Name='${jobName}'"""))
@@ -186,6 +186,12 @@ suite("test_streaming_job_cdc_stream_postgres_latest_alter_cred",
                 "ErrorMsg should be non-empty when wrong credentials are used"
 
         // ── Scenario C: ALTER back to correct credentials and recover ─────────────────
+        // Pause the job first since it's currently in RETRYING state
+        sql """PAUSE JOB where jobname = '${jobName}'"""
+        Awaitility.await().atMost(30, SECONDS).pollInterval(1, SECONDS).until({
+            def s = sql """select status from jobs("type"="insert") where Name='${jobName}'"""
+            s.size() == 1 && s.get(0).get(0) == "PAUSED"
+        })
         sql """
             ALTER JOB ${jobName}
             INSERT INTO ${currentDb}.${dorisTable} (name, age)

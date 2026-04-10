@@ -101,15 +101,15 @@ suite("test_streaming_insert_job_alter_aksk") {
         )
     """
 
-    // Step 5: resume the job and wait for it to pause again due to fetchMeta failure
+    // Step 5: resume the job and wait for it to enter RETRYING due to fetchMeta failure
     sql """RESUME JOB where jobname = '${jobName}'"""
     try {
         Awaitility.await().atMost(300, SECONDS)
                 .pollInterval(1, SECONDS).until(
                 {
                     def r = sql """select status from jobs("type"="insert") where Name='${jobName}' and ExecuteType='STREAMING'"""
-                    log.info("check job status paused after altering to wrong aksk: " + r)
-                    r.size() == 1 && 'PAUSED' == r.get(0).get(0)
+                    log.info("check job status retrying after altering to wrong aksk: " + r)
+                    r.size() == 1 && 'RETRYING' == r.get(0).get(0)
                 }
         )
     } catch (Exception ex) {
