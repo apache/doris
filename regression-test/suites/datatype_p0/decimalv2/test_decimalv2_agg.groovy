@@ -61,4 +61,36 @@ suite("test_decimalv2_agg", "nonConcurrent") {
     """
     qt_decimalv2_sum2 " select sum(k1) from test_decimalv2_agg; "
 
+    // test avg on decimalv2(10,0) with group by - scale 0 regression
+    sql """
+        drop table if exists test_decimalv2_avg_scale0;
+    """
+    sql """
+        create table test_decimalv2_avg_scale0 (
+            id int,
+            data decimalv2(10,0) not null
+        ) distributed by hash(id) buckets 1
+        properties("replication_num"="1");
+    """
+    sql """
+        insert into test_decimalv2_avg_scale0 values
+            (0, 1234567890),
+            (1, 9999999999),
+            (2, 1000000000),
+            (3, 1111111111),
+            (4, -1234567890),
+            (5, -9999999999),
+            (6, -1000000000),
+            (7, -1111111111),
+            (8, 1),
+            (9, 0),
+            (10, -1);
+    """
+    order_qt_decimalv2_avg_scale0_groupby """
+        select avg(data) from test_decimalv2_avg_scale0 group by data;
+    """
+    qt_decimalv2_avg_scale0_all """
+        select avg(data) from test_decimalv2_avg_scale0;
+    """
+
 }
