@@ -33,6 +33,9 @@ namespace {
 // The path handled here is expected to look like:
 //   local/remote segment file: .../{rowset_id}_{segment_id}.dat
 //   local/remote index file:   .../{rowset_id}_{segment_id}.idx
+// The .idx case here is V2 only. V1 inverted-index tablets are filtered before
+// PackedFileSystem is enabled, so V1 names like
+// {rowset_id}_{segment_id}_{index_id}@{suffix}.idx never reach this helper.
 // Multi-segment rowsets usually come from large loads or memory-pressure flushes,
 // and continuing to buffer later segments in packed files can amplify memory usage.
 // Non-rowset file names keep the legacy behavior to avoid changing unrelated callers.
