@@ -53,8 +53,10 @@ public class InsertLoadJob extends LoadJob {
         super(EtlJobType.INSERT);
     }
 
-    public InsertLoadJob(long dbId, String label, long jobId) {
+    public InsertLoadJob(long dbId, String label, long jobId, long tableId, String dbName, String tableName,
+            UserIdentity userInfo) {
         super(EtlJobType.INSERT, dbId, label, jobId);
+        initializeRunningJob(tableId, dbName, tableName, userInfo);
     }
 
     public InsertLoadJob(String label, long transactionId, long dbId, long tableId,
@@ -90,6 +92,12 @@ public class InsertLoadJob extends LoadJob {
         this.authorizationInfo = gatherAuthInfo();
         this.loadingStatus.setTrackingUrl(trackingUrl);
         this.loadingStatus.setFirstErrorMsg(firstErrorMsg);
+        this.userInfo = userInfo;
+    }
+
+    private void initializeRunningJob(long tableId, String dbName, String tableName, UserIdentity userInfo) {
+        this.tableId = tableId;
+        this.authorizationInfo = new AuthorizationInfo(dbName, Sets.newHashSet(tableName));
         this.userInfo = userInfo;
     }
 

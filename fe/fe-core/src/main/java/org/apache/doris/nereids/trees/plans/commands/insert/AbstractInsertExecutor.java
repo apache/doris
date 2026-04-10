@@ -99,7 +99,8 @@ public abstract class AbstractInsertExecutor {
             Optional<InsertCommandContext> insertCtx, boolean emptyInsert, long jobId) {
         this.ctx = ctx;
         this.database = table.getDatabase();
-        this.insertLoadJob = new InsertLoadJob(database.getId(), labelName, jobId);
+        this.insertLoadJob = new InsertLoadJob(database.getId(), labelName, jobId, table.getId(),
+                database.getFullName(), table.getName(), ctx.getCurrentUserIdentity());
         // Do not add load job if job id is -1.
         if (jobId != -1) {
             ctx.getEnv().getLoadManager().addLoadJob(insertLoadJob);
