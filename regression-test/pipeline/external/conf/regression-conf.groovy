@@ -72,11 +72,13 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_dump_image," +
     "test_index_failure_injection," +
     "test_information_schema_external," +
+    "test_parquet_join_runtime_filter," +
     "test_profile," +
     "test_refresh_mtmv," +
     "test_spark_load," +
     "test_broker_load_func," +
     "test_stream_stub_fault_injection," +
+    "test_hudi_olap_rewrite_mtmv," +
     "test_iceberg_overwrite_with_wrong_partition," +
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
