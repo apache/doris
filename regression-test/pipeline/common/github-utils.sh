@@ -463,7 +463,7 @@ github_utils__maybe_optimize_external_collect_docker_logs() {
         local skip_reason=""
 
         if [[ "${collect_on_success,,}" != "true" ]]; then
-            if skip_reason="$(github_utils__external_collect_docker_logs_skip_reason)"; then
+            if skip_reason="$(github_utils__external_success_state)"; then
                 echo "Skip collecting docker logs on ${skip_reason}. Set COLLECT_DOCKER_LOGS_ON_SUCCESS=true to enable."
                 return 0
             fi
@@ -474,7 +474,7 @@ github_utils__maybe_optimize_external_collect_docker_logs() {
     GITHUB_UTILS_EXTERNAL_COLLECT_DOCKER_LOGS_WRAPPED=true
 }
 
-github_utils__external_collect_docker_logs_skip_reason() {
+github_utils__external_success_state() {
     local summary=""
     local test_suites=0
     local failed_suites=0
@@ -495,6 +495,55 @@ github_utils__external_collect_docker_logs_skip_reason() {
         return 0
     fi
     return 1
+}
+
+github_utils__external_is_grace_timeout_target() {
+    if [[ "$#" -ge 5 && "$1" == "-v" && "$2" == "10m" && "$3" == "bash" && "$4" == */be/bin/stop_be.sh && "$5" == "--grace" ]]; then
+        return 0
+    fi
+    if [[ "$#" -ge 4 && "$1" == "10m" && "$2" == "bash" && "$3" == */be/bin/stop_be.sh && "$4" == "--grace" ]]; then
+        return 0
+    fi
+    return 1
+}
+
+github_utils__maybe_optimize_external_shutdown_waits() {
+    if ! github_utils__is_external_inline_shell; then
+        return 0
+    fi
+    if [[ "${GITHUB_UTILS_EXTERNAL_TIMEOUT_SLEEP_WRAPPED:-false}" == "true" ]]; then
+        return 0
+    fi
+
+    timeout() {
+        local state=""
+        local shortened_timeout="${EXTERNAL_BE_STOP_TIMEOUT_ON_SUCCESS:-2m}"
+        local -a args=("$@")
+
+        if state="$(github_utils__external_success_state)" && github_utils__external_is_grace_timeout_target "${args[@]}"; then
+            echo "Use shortened BE grace timeout ${shortened_timeout} on ${state}."
+            if [[ "${args[0]}" == "-v" ]]; then
+                args[1]="${shortened_timeout}"
+            else
+                args[0]="${shortened_timeout}"
+            fi
+        fi
+        command timeout "${args[@]}"
+    }
+
+    sleep() {
+        local state=""
+        local shortened_sleep="${EXTERNAL_FE_IMAGE_WAIT_SECONDS_ON_SUCCESS:-60}"
+
+        if [[ "$#" -eq 1 && "$1" == "300" ]] && state="$(github_utils__external_success_state)"; then
+            echo "Use shortened FE image wait ${shortened_sleep}s on ${state}."
+            command sleep "${shortened_sleep}"
+            return 0
+        fi
+        command sleep "$@"
+    }
+
+    GITHUB_UTILS_EXTERNAL_TIMEOUT_SLEEP_WRAPPED=true
 }
 
 github_utils__external_regression_summary_line() {
@@ -531,4 +580,5 @@ github_utils__external_regression_summary_log() {
 }
 
 github_utils__maybe_optimize_external_collect_docker_logs
+github_utils__maybe_optimize_external_shutdown_waits
 github_utils__maybe_enable_external_stage_timer
