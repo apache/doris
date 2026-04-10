@@ -157,20 +157,23 @@ TEST_F(VRuntimeFilterWrapperSamplingTest, sampling_frequency_survives_context_re
             wrapper->open(_runtime_states[0].get(), context1.get(), FunctionContext::FRAGMENT_LOCAL)
                     .ok());
 
-    // Simulate context recreation (what _append_rf_into_conjuncts does):
-    // Create a brand new VExprContext with the same VRuntimeFilterWrapper.
-    // The new context starts with default sampling_frequency = -1.
+    // Create a brand new non-clone VExprContext with the same VRuntimeFilterWrapper,
+    // matching the production path in _append_rf_into_conjuncts which calls
+    // VExprContext::create_shared(expr) then conjunct->prepare() and conjunct->open().
     auto context2 = std::make_shared<vectorized::VExprContext>(wrapper);
     EXPECT_FALSE(context2->get_runtime_filter_selectivity().maybe_always_true_can_ignore());
 
-    // After open() on the new context, sampling_frequency should be propagated
-    ASSERT_TRUE(
-            wrapper->open(_runtime_states[0].get(), context2.get(), FunctionContext::THREAD_LOCAL)
-                    .ok());
-    // Prepare/open the recreated context through VExprContext so the test matches
-    // the production lifecycle and context-managed initialization.
+    // Drive the recreated context through prepare/open via VExprContext (not the
+    // wrapper directly), matching the production _append_rf_into_conjuncts lifecycle.
     ASSERT_TRUE(context2->prepare(_runtime_states[0].get(), row_desc).ok());
     ASSERT_TRUE(context2->open(_runtime_states[0].get()).ok());
+
+    // After open(), sampling_frequency should be propagated from VRuntimeFilterWrapper
+    // to context2. Verify by accumulating low-selectivity data and checking that
+    // always_true can be detected — this is the actual behavior the fix protects.
+    auto& selectivity = context2->get_runtime_filter_selectivity();
+    selectivity.update_judge_selectivity(1, 2000, 50000, 0.1);
+    EXPECT_TRUE(selectivity.maybe_always_true_can_ignore());
 }
 
 } // namespace doris
