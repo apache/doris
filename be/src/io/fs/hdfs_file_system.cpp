@@ -297,7 +297,7 @@ Status HdfsFileSystem::download_impl(const Path& remote_file, const Path& local_
     // 4. read remote and write to local
     LOG(INFO) << "read remote file: " << remote_file << " to local: " << local_file;
     constexpr size_t buf_sz = 1024 * 1024;
-    PODArray<char> read_buf;
+    vectorized::PODArray<char> read_buf;
     read_buf.resize(buf_sz);
     size_t cur_offset = 0;
     while (true) {

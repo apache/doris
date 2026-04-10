@@ -635,7 +635,7 @@ void PrefetchBuffer::close() {
     // MemTrackerLimiter. The destructor may run in the thread pool's Orphan thread (when the
     // last shared_ptr ref is released after the prefetch lambda completes), so we must not
     // rely on ~PODArray() to release memory — that would trigger memory_orphan_check().
-    PODArray<char>().swap(_buf);
+    vectorized::PODArray<char>().swap(_buf);
 }
 
 void PrefetchBuffer::_collect_profile_before_close() {

@@ -452,7 +452,7 @@ struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer>, public Pro
     size_t _whole_buffer_size;
     io::FileReader* _reader = nullptr;
     const IOContext* _io_ctx = nullptr;
-    PODArray<char> _buf;
+    vectorized::PODArray<char> _buf;
     BufferStatus _buffer_status {BufferStatus::RESET};
     std::mutex _lock;
     std::condition_variable _prefetched;

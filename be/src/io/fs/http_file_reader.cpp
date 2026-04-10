@@ -327,7 +327,7 @@ Status HttpFileReader::close() {
     }
 
     // Release buffer memory (1MB)
-    PODArray<char>().swap(_read_buffer);
+    vectorized::PODArray<char>().swap(_read_buffer);
     _buffer_start = 0;
     _buffer_end = 0;
 
