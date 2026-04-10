@@ -193,10 +193,9 @@ Status RuntimeFilterConsumer::_get_push_exprs(std::vector<VRuntimeFilterPtr>& co
         auto bloom_pred = VBloomPredicate::create_shared(node);
         bloom_pred->set_filter(_wrapper->bloom_filter_func());
         bloom_pred->add_child(probe_ctx->root());
-        auto wrapper = VRuntimeFilterWrapper::create_shared(node, bloom_pred,
-                                                            get_bloom_filter_ignore_thredhold(),
-                                                            null_aware, _wrapper->filter_id(),
-                                                            sampling_frequency);
+        auto wrapper = VRuntimeFilterWrapper::create_shared(
+                node, bloom_pred, get_bloom_filter_ignore_thredhold(), null_aware,
+                _wrapper->filter_id(), sampling_frequency);
         container.push_back(wrapper);
         break;
     }
@@ -215,9 +214,8 @@ Status RuntimeFilterConsumer::_get_push_exprs(std::vector<VRuntimeFilterPtr>& co
         if (null_aware) {
             return Status::InternalError("bitmap predicate do not support null aware");
         }
-        auto wrapper = VRuntimeFilterWrapper::create_shared(node, bitmap_pred, 0, null_aware,
-                                                            _wrapper->filter_id(),
-                                                            sampling_frequency);
+        auto wrapper = VRuntimeFilterWrapper::create_shared(
+                node, bitmap_pred, 0, null_aware, _wrapper->filter_id(), sampling_frequency);
         container.push_back(wrapper);
         break;
     }

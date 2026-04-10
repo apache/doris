@@ -44,15 +44,14 @@ public:
 
 private:
     static TExprNode make_texpr_node() {
-        return TExprNodeBuilder(
-                       TExprNodeType::SLOT_REF,
-                       TTypeDescBuilder()
-                               .set_types(TTypeNodeBuilder()
-                                                  .set_type(TTypeNodeType::SCALAR)
-                                                  .set_scalar_type(TPrimitiveType::INT)
-                                                  .build())
-                               .build(),
-                       0)
+        return TExprNodeBuilder(TExprNodeType::SLOT_REF,
+                                TTypeDescBuilder()
+                                        .set_types(TTypeNodeBuilder()
+                                                           .set_type(TTypeNodeType::SCALAR)
+                                                           .set_scalar_type(TPrimitiveType::INT)
+                                                           .build())
+                                        .build(),
+                                0)
                 .build();
     }
 };
@@ -65,15 +64,14 @@ class VRuntimeFilterWrapperSamplingTest : public RuntimeFilterTest {};
 // VExprContext via VExprContext::create_shared(expr).
 TEST_F(VRuntimeFilterWrapperSamplingTest, open_propagates_sampling_frequency) {
     auto stub = std::make_shared<StubVExpr>();
-    auto node = TExprNodeBuilder(
-                        TExprNodeType::SLOT_REF,
-                        TTypeDescBuilder()
-                                .set_types(TTypeNodeBuilder()
-                                                   .set_type(TTypeNodeType::SCALAR)
-                                                   .set_scalar_type(TPrimitiveType::INT)
-                                                   .build())
-                                .build(),
-                        0)
+    auto node = TExprNodeBuilder(TExprNodeType::SLOT_REF,
+                                 TTypeDescBuilder()
+                                         .set_types(TTypeNodeBuilder()
+                                                            .set_type(TTypeNodeType::SCALAR)
+                                                            .set_scalar_type(TPrimitiveType::INT)
+                                                            .build())
+                                         .build(),
+                                 0)
                         .build();
 
     const int expected_frequency = 32;
@@ -87,9 +85,9 @@ TEST_F(VRuntimeFilterWrapperSamplingTest, open_propagates_sampling_frequency) {
 
     RowDescriptor row_desc;
     ASSERT_TRUE(wrapper->prepare(_runtime_states[0].get(), row_desc, context.get()).ok());
-    ASSERT_TRUE(wrapper->open(_runtime_states[0].get(), context.get(),
-                              FunctionContext::FRAGMENT_LOCAL)
-                        .ok());
+    ASSERT_TRUE(
+            wrapper->open(_runtime_states[0].get(), context.get(), FunctionContext::FRAGMENT_LOCAL)
+                    .ok());
 
     // After open(), sampling_frequency should be propagated from VRuntimeFilterWrapper
     // to VExprContext. Verify by accumulating low-selectivity data and checking
@@ -103,15 +101,14 @@ TEST_F(VRuntimeFilterWrapperSamplingTest, open_propagates_sampling_frequency) {
 // optimization, matching the behavior when disable_always_true_logic is set.
 TEST_F(VRuntimeFilterWrapperSamplingTest, default_sampling_frequency_disables_optimization) {
     auto stub = std::make_shared<StubVExpr>();
-    auto node = TExprNodeBuilder(
-                        TExprNodeType::SLOT_REF,
-                        TTypeDescBuilder()
-                                .set_types(TTypeNodeBuilder()
-                                                   .set_type(TTypeNodeType::SCALAR)
-                                                   .set_scalar_type(TPrimitiveType::INT)
-                                                   .build())
-                                .build(),
-                        0)
+    auto node = TExprNodeBuilder(TExprNodeType::SLOT_REF,
+                                 TTypeDescBuilder()
+                                         .set_types(TTypeNodeBuilder()
+                                                            .set_type(TTypeNodeType::SCALAR)
+                                                            .set_scalar_type(TPrimitiveType::INT)
+                                                            .build())
+                                         .build(),
+                                 0)
                         .build();
 
     // No sampling_frequency argument - uses default DISABLE_SAMPLING
@@ -120,9 +117,9 @@ TEST_F(VRuntimeFilterWrapperSamplingTest, default_sampling_frequency_disables_op
     auto context = std::make_shared<VExprContext>(wrapper);
     RowDescriptor row_desc;
     ASSERT_TRUE(wrapper->prepare(_runtime_states[0].get(), row_desc, context.get()).ok());
-    ASSERT_TRUE(wrapper->open(_runtime_states[0].get(), context.get(),
-                              FunctionContext::FRAGMENT_LOCAL)
-                        .ok());
+    ASSERT_TRUE(
+            wrapper->open(_runtime_states[0].get(), context.get(), FunctionContext::FRAGMENT_LOCAL)
+                    .ok());
 
     // Even with low-selectivity data, always_true should NOT be detected
     // because sampling is disabled
@@ -135,15 +132,14 @@ TEST_F(VRuntimeFilterWrapperSamplingTest, default_sampling_frequency_disables_op
 // exact scenario that caused the original bug.
 TEST_F(VRuntimeFilterWrapperSamplingTest, sampling_frequency_survives_context_recreation) {
     auto stub = std::make_shared<StubVExpr>();
-    auto node = TExprNodeBuilder(
-                        TExprNodeType::SLOT_REF,
-                        TTypeDescBuilder()
-                                .set_types(TTypeNodeBuilder()
-                                                   .set_type(TTypeNodeType::SCALAR)
-                                                   .set_scalar_type(TPrimitiveType::INT)
-                                                   .build())
-                                .build(),
-                        0)
+    auto node = TExprNodeBuilder(TExprNodeType::SLOT_REF,
+                                 TTypeDescBuilder()
+                                         .set_types(TTypeNodeBuilder()
+                                                            .set_type(TTypeNodeType::SCALAR)
+                                                            .set_scalar_type(TPrimitiveType::INT)
+                                                            .build())
+                                         .build(),
+                                 0)
                         .build();
 
     const int expected_frequency = 32;
@@ -154,9 +150,9 @@ TEST_F(VRuntimeFilterWrapperSamplingTest, sampling_frequency_survives_context_re
     auto context1 = std::make_shared<VExprContext>(wrapper);
     RowDescriptor row_desc;
     ASSERT_TRUE(wrapper->prepare(_runtime_states[0].get(), row_desc, context1.get()).ok());
-    ASSERT_TRUE(wrapper->open(_runtime_states[0].get(), context1.get(),
-                              FunctionContext::FRAGMENT_LOCAL)
-                        .ok());
+    ASSERT_TRUE(
+            wrapper->open(_runtime_states[0].get(), context1.get(), FunctionContext::FRAGMENT_LOCAL)
+                    .ok());
 
     // Simulate context recreation (what _append_rf_into_conjuncts does):
     // Create a brand new VExprContext with the same VRuntimeFilterWrapper.
@@ -165,9 +161,9 @@ TEST_F(VRuntimeFilterWrapperSamplingTest, sampling_frequency_survives_context_re
     EXPECT_FALSE(context2->get_runtime_filter_selectivity().maybe_always_true_can_ignore());
 
     // After open() on the new context, sampling_frequency should be propagated
-    ASSERT_TRUE(wrapper->open(_runtime_states[0].get(), context2.get(),
-                              FunctionContext::THREAD_LOCAL)
-                        .ok());
+    ASSERT_TRUE(
+            wrapper->open(_runtime_states[0].get(), context2.get(), FunctionContext::THREAD_LOCAL)
+                    .ok());
 
     auto& selectivity2 = context2->get_runtime_filter_selectivity();
     selectivity2.update_judge_selectivity(1, 2000, 50000, 0.1);
