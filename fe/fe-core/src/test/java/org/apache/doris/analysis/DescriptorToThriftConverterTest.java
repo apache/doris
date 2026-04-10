@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.thrift.TAccessPathType;
 import org.apache.doris.thrift.TColumnAccessPath;
 import org.apache.doris.thrift.TDescriptorTable;
 import org.apache.doris.thrift.TSlotDescriptor;
@@ -118,8 +119,11 @@ public class DescriptorToThriftConverterTest {
     public void testSlotDescriptorWithAccessPaths() {
         SlotDescriptor slotDesc = new SlotDescriptor(new SlotId(7), new TupleId(0));
         slotDesc.setType(Type.INT);
-        List<TColumnAccessPath> allPaths = Arrays.asList(new TColumnAccessPath(), new TColumnAccessPath());
-        List<TColumnAccessPath> predPaths = Arrays.asList(new TColumnAccessPath());
+        List<ColumnAccessPath> allPaths = Arrays.asList(
+                ColumnAccessPath.data(Arrays.asList("a", "b")),
+                ColumnAccessPath.meta(Arrays.asList("c")));
+        List<ColumnAccessPath> predPaths = Arrays.asList(
+                ColumnAccessPath.data(Arrays.asList("x")));
         slotDesc.setAllAccessPaths(allPaths);
         slotDesc.setPredicateAccessPaths(predPaths);
 
@@ -151,8 +155,10 @@ public class DescriptorToThriftConverterTest {
         slotDesc.setAutoInc(true);
         slotDesc.setMaterializedColumnName("mat_col");
         slotDesc.setSubColLables(Arrays.asList("x", "y"));
-        List<TColumnAccessPath> allPaths = Arrays.asList(new TColumnAccessPath());
-        List<TColumnAccessPath> predPaths = Arrays.asList(new TColumnAccessPath());
+        List<ColumnAccessPath> allPaths = Arrays.asList(
+                ColumnAccessPath.data(Arrays.asList("a")));
+        List<ColumnAccessPath> predPaths = Arrays.asList(
+                ColumnAccessPath.meta(Arrays.asList("b")));
         slotDesc.setAllAccessPaths(allPaths);
         slotDesc.setPredicateAccessPaths(predPaths);
 
@@ -239,7 +245,7 @@ public class DescriptorToThriftConverterTest {
     }
 
     @Test
-    public void testDescriptorTableCaching() {
+    public void testDescriptorTableReturnsNewInstanceEachCall() {
         DescriptorTable descTable = new DescriptorTable();
         TupleDescriptor tuple = descTable.createTupleDescriptor();
         SlotDescriptor slot = descTable.addSlotDescriptor(tuple);
@@ -248,7 +254,8 @@ public class DescriptorToThriftConverterTest {
         TDescriptorTable first = DescriptorToThriftConverter.toThrift(descTable);
         TDescriptorTable second = DescriptorToThriftConverter.toThrift(descTable);
 
-        Assertions.assertSame(first, second);
+        Assertions.assertNotSame(first, second);
+        Assertions.assertEquals(first, second);
     }
 
     @Test
@@ -272,5 +279,80 @@ public class DescriptorToThriftConverterTest {
         Assertions.assertNotNull(result.getTableDescriptors());
         Assertions.assertEquals(1, result.getTableDescriptors().size());
         Mockito.verify(mockTable).toThrift();
+    }
+
+    // ==================== ColumnAccessPath conversion tests ====================
+
+    @Test
+    public void testColumnAccessPathDataToThrift() {
+        ColumnAccessPath accessPath = ColumnAccessPath.data(Arrays.asList("col1", "field1"));
+
+        TColumnAccessPath result = DescriptorToThriftConverter.toThrift(accessPath);
+
+        Assertions.assertEquals(TAccessPathType.DATA, result.getType());
+        Assertions.assertTrue(result.isSetDataAccessPath());
+        Assertions.assertFalse(result.isSetMetaAccessPath());
+        Assertions.assertEquals(Arrays.asList("col1", "field1"), result.getDataAccessPath().getPath());
+    }
+
+    @Test
+    public void testColumnAccessPathMetaToThrift() {
+        ColumnAccessPath accessPath = ColumnAccessPath.meta(Arrays.asList("col2", "field2"));
+
+        TColumnAccessPath result = DescriptorToThriftConverter.toThrift(accessPath);
+
+        Assertions.assertEquals(TAccessPathType.META, result.getType());
+        Assertions.assertFalse(result.isSetDataAccessPath());
+        Assertions.assertTrue(result.isSetMetaAccessPath());
+        Assertions.assertEquals(Arrays.asList("col2", "field2"), result.getMetaAccessPath().getPath());
+    }
+
+    @Test
+    public void testColumnAccessPathListToThrift() {
+        List<ColumnAccessPath> paths = Arrays.asList(
+                ColumnAccessPath.data(Arrays.asList("a", "b")),
+                ColumnAccessPath.meta(Arrays.asList("c")),
+                ColumnAccessPath.data(Arrays.asList("d", "e", "f")));
+
+        List<TColumnAccessPath> results = DescriptorToThriftConverter.toThrift(paths);
+
+        Assertions.assertEquals(3, results.size());
+        Assertions.assertEquals(TAccessPathType.DATA, results.get(0).getType());
+        Assertions.assertEquals(Arrays.asList("a", "b"), results.get(0).getDataAccessPath().getPath());
+        Assertions.assertEquals(TAccessPathType.META, results.get(1).getType());
+        Assertions.assertEquals(Arrays.asList("c"), results.get(1).getMetaAccessPath().getPath());
+        Assertions.assertEquals(TAccessPathType.DATA, results.get(2).getType());
+        Assertions.assertEquals(Arrays.asList("d", "e", "f"), results.get(2).getDataAccessPath().getPath());
+    }
+
+    @Test
+    public void testColumnAccessPathEmptyPathToThrift() {
+        ColumnAccessPath accessPath = ColumnAccessPath.data(Arrays.asList());
+
+        TColumnAccessPath result = DescriptorToThriftConverter.toThrift(accessPath);
+
+        Assertions.assertEquals(TAccessPathType.DATA, result.getType());
+        Assertions.assertTrue(result.isSetDataAccessPath());
+        Assertions.assertEquals(Arrays.asList(), result.getDataAccessPath().getPath());
+    }
+
+    @Test
+    public void testSlotDescriptorAccessPathsRoundTrip() {
+        SlotDescriptor slotDesc = new SlotDescriptor(new SlotId(20), new TupleId(0));
+        slotDesc.setType(Type.INT);
+        List<ColumnAccessPath> allPaths = Arrays.asList(
+                ColumnAccessPath.data(Arrays.asList("x", "y")),
+                ColumnAccessPath.meta(Arrays.asList("z")));
+        slotDesc.setAllAccessPaths(allPaths);
+
+        TSlotDescriptor result = DescriptorToThriftConverter.toThrift(slotDesc);
+
+        Assertions.assertEquals(2, result.getAllAccessPaths().size());
+        TColumnAccessPath first = result.getAllAccessPaths().get(0);
+        Assertions.assertEquals(TAccessPathType.DATA, first.getType());
+        Assertions.assertEquals(Arrays.asList("x", "y"), first.getDataAccessPath().getPath());
+        TColumnAccessPath second = result.getAllAccessPaths().get(1);
+        Assertions.assertEquals(TAccessPathType.META, second.getType());
+        Assertions.assertEquals(Arrays.asList("z"), second.getMetaAccessPath().getPath());
     }
 }

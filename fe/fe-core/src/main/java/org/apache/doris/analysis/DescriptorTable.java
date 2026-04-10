@@ -21,7 +21,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.IdGenerator;
-import org.apache.doris.thrift.TDescriptorTable;
 
 import com.google.common.collect.Maps;
 
@@ -38,7 +37,6 @@ public class DescriptorTable {
     private final IdGenerator<TupleId> tupleIdGenerator = TupleId.createGenerator();
     private final IdGenerator<SlotId> slotIdGenerator = SlotId.createGenerator();
     private final HashMap<SlotId, SlotDescriptor> slotDescs = Maps.newHashMap();
-    private TDescriptorTable thriftDescTable = null; // serialized version of this
 
     public DescriptorTable() {
     }
@@ -58,14 +56,6 @@ public class DescriptorTable {
 
     public TupleDescriptor getTupleDesc(TupleId id) {
         return tupleDescs.get(id);
-    }
-
-    public TDescriptorTable getThriftDescTable() {
-        return thriftDescTable;
-    }
-
-    void setThriftDescTable(TDescriptorTable thriftDescTable) {
-        this.thriftDescTable = thriftDescTable;
     }
 
     public Collection<TupleDescriptor> getTupleDescs() {

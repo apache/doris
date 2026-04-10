@@ -19,7 +19,11 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.thrift.TAccessPathType;
+import org.apache.doris.thrift.TColumnAccessPath;
+import org.apache.doris.thrift.TDataAccessPath;
 import org.apache.doris.thrift.TDescriptorTable;
+import org.apache.doris.thrift.TMetaAccessPath;
 import org.apache.doris.thrift.TSlotDescriptor;
 import org.apache.doris.thrift.TTupleDescriptor;
 
@@ -27,6 +31,8 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -68,12 +74,37 @@ public final class DescriptorToThriftConverter {
             tSlotDescriptor.setVirtualColumnExpr(ExprToThriftVisitor.treeToThrift(slotDesc.getVirtualColumn()));
         }
         if (slotDesc.getAllAccessPaths() != null) {
-            tSlotDescriptor.setAllAccessPaths(slotDesc.getAllAccessPaths());
+            tSlotDescriptor.setAllAccessPaths(toThrift(slotDesc.getAllAccessPaths()));
         }
         if (slotDesc.getPredicateAccessPaths() != null) {
-            tSlotDescriptor.setPredicateAccessPaths(slotDesc.getPredicateAccessPaths());
+            tSlotDescriptor.setPredicateAccessPaths(toThrift(slotDesc.getPredicateAccessPaths()));
         }
         return tSlotDescriptor;
+    }
+
+    /**
+     * Converts a {@link ColumnAccessPath} to its Thrift representation.
+     */
+    public static TColumnAccessPath toThrift(ColumnAccessPath accessPath) {
+        TColumnAccessPath result = new TColumnAccessPath(
+                accessPath.getType() == ColumnAccessPathType.DATA ? TAccessPathType.DATA : TAccessPathType.META);
+        if (accessPath.getType() == ColumnAccessPathType.DATA) {
+            result.setDataAccessPath(new TDataAccessPath(accessPath.getPath()));
+        } else {
+            result.setMetaAccessPath(new TMetaAccessPath(accessPath.getPath()));
+        }
+        return result;
+    }
+
+    /**
+     * Converts a list of {@link ColumnAccessPath} to Thrift representations.
+     */
+    public static List<TColumnAccessPath> toThrift(List<ColumnAccessPath> accessPaths) {
+        List<TColumnAccessPath> result = new ArrayList<>(accessPaths.size());
+        for (ColumnAccessPath accessPath : accessPaths) {
+            result.add(toThrift(accessPath));
+        }
+        return result;
     }
 
     /**
@@ -89,13 +120,8 @@ public final class DescriptorToThriftConverter {
 
     /**
      * Converts a {@link DescriptorTable} to its Thrift representation.
-     * Uses caching: if a cached Thrift descriptor table exists, returns it directly.
      */
     public static TDescriptorTable toThrift(DescriptorTable descTable) {
-        if (descTable.getThriftDescTable() != null) {
-            return descTable.getThriftDescTable();
-        }
-
         TDescriptorTable result = new TDescriptorTable();
         Map<Long, TableIf> referencedTbls = Maps.newHashMap();
         for (TupleDescriptor tupleD : descTable.getTupleDescs()) {
@@ -111,7 +137,6 @@ public final class DescriptorToThriftConverter {
         for (TableIf tbl : referencedTbls.values()) {
             result.addToTableDescriptors(tbl.toThrift());
         }
-        descTable.setThriftDescTable(result);
         return result;
     }
 }
