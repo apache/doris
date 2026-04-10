@@ -28,20 +28,6 @@ class RuntimeState;
 
 class HashJoinProbeLocalState;
 
-using HashTableCtxVariants =
-        std::variant<std::monostate, ProcessHashTableProbe<TJoinOp::INNER_JOIN>,
-                     ProcessHashTableProbe<TJoinOp::LEFT_SEMI_JOIN>,
-                     ProcessHashTableProbe<TJoinOp::LEFT_ANTI_JOIN>,
-                     ProcessHashTableProbe<TJoinOp::LEFT_OUTER_JOIN>,
-                     ProcessHashTableProbe<TJoinOp::FULL_OUTER_JOIN>,
-                     ProcessHashTableProbe<TJoinOp::RIGHT_OUTER_JOIN>,
-                     ProcessHashTableProbe<TJoinOp::RIGHT_SEMI_JOIN>,
-                     ProcessHashTableProbe<TJoinOp::RIGHT_ANTI_JOIN>,
-                     ProcessHashTableProbe<TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN>,
-                     ProcessHashTableProbe<TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN>,
-                     ProcessHashTableProbe<TJoinOp::ASOF_LEFT_INNER_JOIN>,
-                     ProcessHashTableProbe<TJoinOp::ASOF_LEFT_OUTER_JOIN>>;
-
 class HashJoinProbeOperatorX;
 class HashJoinProbeLocalState MOCK_REMOVE(final)
         : public JoinProbeLocalState<HashJoinSharedState, HashJoinProbeLocalState> {
@@ -102,8 +88,6 @@ private:
     bool _need_null_map_for_probe = false;
     bool _has_set_need_null_map_for_probe = false;
     ColumnUInt8::MutablePtr _null_map_column;
-    std::unique_ptr<HashTableCtxVariants> _process_hashtable_ctx_variants =
-            std::make_unique<HashTableCtxVariants>();
 
     int _task_idx;
 

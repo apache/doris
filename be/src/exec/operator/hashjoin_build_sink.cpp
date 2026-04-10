@@ -19,12 +19,10 @@
 
 #include <cstdlib>
 #include <string>
-#include <variant>
 
 #include "core/block/block.h"
 #include "core/column/column_nullable.h"
 #include "core/data_type/data_type_nullable.h"
-#include "exec/common/template_helpers.hpp"
 #include "exec/operator/hashjoin_probe_operator.h"
 #include "exec/operator/operator.h"
 #include "exec/pipeline/pipeline_task.h"
@@ -195,13 +193,11 @@ size_t HashJoinBuildSinkLocalState::get_reserve_mem_size(RuntimeState* state, bo
                 throw Exception(st);
             }
 
-            std::visit(Overload {[&](std::monostate& arg) {},
-                                 [&](auto&& hash_map_context) {
-                                     size_to_reserve += hash_map_context.estimated_size(
-                                             raw_ptrs, (uint32_t)block.rows(), true, true,
+            size_to_reserve +=
+                    _shared_state->hash_table_variant_vector.front()
+                            ->method
+                            ->estimated_size(raw_ptrs, (uint32_t)block.rows(), true, true,
                                              bucket_size);
-                                 }},
-                       _shared_state->hash_table_variant_vector.front()->method_variant);
         }
     }
     return size_to_reserve;
@@ -238,9 +234,9 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
             std::unique_lock lock(p._mutex);
             // Only signal non-builder tasks when the builder actually built the hash table.
             // When the builder is terminated (woken up early because the probe side finished
-            // first), it never called process_build_block() so the hash table variant is still
-            // monostate. Setting _signaled=true in that case would cause non-builder tasks to
-            // enter std::visit on monostate and crash with "Hash table type mismatch".
+            // first), it never called process_build_block() so method is still nullptr.
+            // Setting _signaled=true in that case would cause non-builder tasks to
+            // dereference a nullptr method and crash.
             //
             // _terminated is reliably true here when the task was woken up early, because
             // operator terminate() is called from the execute() Defer in PipelineTask
@@ -343,16 +339,8 @@ Status HashJoinBuildSinkLocalState::build_asof_index(Block& block) {
     const uint32_t* next_array = nullptr;
     size_t build_rows = 0;
 
-    std::visit(Overload {[&](std::monostate&) {},
-                         [&](auto&& hash_table_ctx) {
-                             auto* hash_table = hash_table_ctx.hash_table.get();
-                             DORIS_CHECK(hash_table);
-                             bucket_size = hash_table->get_bucket_size();
-                             first_array = hash_table->get_first().data();
-                             next_array = hash_table->get_next().data();
-                             build_rows = hash_table->size();
-                         }},
-               _shared_state->hash_table_variant_vector.front()->method_variant);
+    _shared_state->hash_table_variant_vector.front()->method->get_table_metadata(
+            bucket_size, first_array, next_array, build_rows);
 
     if (bucket_size == 0) {
         return Status::OK();
@@ -387,108 +375,15 @@ Status HashJoinBuildSinkLocalState::build_asof_index(Block& block) {
     // Initialize reverse mapping (all build rows, including NULL ASOF values)
     _shared_state->asof_build_row_to_bucket.resize(build_rows + 1, 0);
 
-    // Dispatch on ASOF column type to create typed AsofIndexGroups with inline values.
-    // Sub-group by actual key equality within each hash bucket (hash collisions),
-    // extract integer representation of ASOF values, then sort by inline values.
-    asof_column_dispatch(build_col_nested.get(), [&](const auto* typed_col) {
-        using ColType = std::remove_const_t<std::remove_pointer_t<decltype(typed_col)>>;
-
-        if constexpr (std::is_same_v<ColType, IColumn>) {
-            throw Exception(ErrorCode::INTERNAL_ERROR,
-                            "Unsupported ASOF column type for inline optimization");
-        } else {
-            using IntType = typename ColType::value_type::underlying_value;
-            const auto& col_data = typed_col->get_data();
-
-            auto& groups = _shared_state->asof_index_groups
-                                   .emplace<std::vector<AsofIndexGroup<IntType>>>();
-
-            std::visit(
-                    Overload {
-                            [&](std::monostate&) {},
-                            [&](auto&& hash_table_ctx) {
-                                auto* hash_table = hash_table_ctx.hash_table.get();
-                                DORIS_CHECK(hash_table);
-                                const auto* build_keys = hash_table->get_build_keys();
-                                using KeyType = std::remove_const_t<
-                                        std::remove_pointer_t<decltype(build_keys)>>;
-                                uint32_t next_group_id = 0;
-
-                                // Group rows by equality key within each hash bucket,
-                                // then sort each group by ASOF value only (pure integer compare).
-                                // This avoids the previous approach of sorting by (build_key, asof_value)
-                                // which required memcmp per comparison.
-                                //
-                                // For each bucket: walk the chain, find-or-create a group for
-                                // each distinct build_key, insert rows into the group with their
-                                // inline ASOF value. After all buckets are processed, sort each group.
-
-                                // Map from build_key -> group_id, reused across buckets.
-                                // Within a single hash bucket, the number of distinct keys is
-                                // typically very small (hash collisions are rare), so a flat
-                                // scan is efficient.
-                                struct KeyGroupEntry {
-                                    KeyType key;
-                                    uint32_t group_id;
-                                };
-                                std::vector<KeyGroupEntry> bucket_key_groups;
-
-                                {
-                                    SCOPED_TIMER(_asof_index_group_timer);
-                                    for (uint32_t bucket = 0; bucket <= bucket_size; ++bucket) {
-                                        uint32_t row_idx = first_array[bucket];
-                                        if (row_idx == 0) {
-                                            continue;
-                                        }
-
-                                        // For each row in this bucket's chain, find-or-create its group
-                                        bucket_key_groups.clear();
-                                        while (row_idx != 0) {
-                                            DCHECK(row_idx <= build_rows);
-                                            const auto& key = build_keys[row_idx];
-
-                                            // Linear scan to find existing group for this key.
-                                            // Bucket chains are short (avg ~1-2 distinct keys per bucket),
-                                            // so this is faster than a hash map.
-                                            uint32_t group_id = UINT32_MAX;
-                                            for (const auto& entry : bucket_key_groups) {
-                                                if (entry.key == key) {
-                                                    group_id = entry.group_id;
-                                                    break;
-                                                }
-                                            }
-                                            if (group_id == UINT32_MAX) {
-                                                group_id = next_group_id++;
-                                                DCHECK(group_id == groups.size());
-                                                groups.emplace_back();
-                                                bucket_key_groups.push_back({key, group_id});
-                                            }
-
-                                            _shared_state->asof_build_row_to_bucket[row_idx] =
-                                                    group_id;
-                                            if (!(nullable_col &&
-                                                  nullable_col->is_null_at(row_idx))) {
-                                                groups[group_id].add_row(
-                                                        col_data[row_idx].to_date_int_val(),
-                                                        row_idx);
-                                            }
-
-                                            row_idx = next_array[row_idx];
-                                        }
-                                    }
-                                }
-
-                                // Sort each group by ASOF value only (pure integer comparison).
-                                {
-                                    SCOPED_TIMER(_asof_index_sort_timer);
-                                    for (auto& group : groups) {
-                                        group.sort_and_finalize();
-                                    }
-                                }
-                            }},
-                    _shared_state->hash_table_variant_vector.front()->method_variant);
-        }
-    });
+    // Dispatch build_asof_index_groups_impl via virtual call — handles ASOF column type
+    // dispatch and key equality grouping within hash buckets internally.
+    _shared_state->hash_table_variant_vector.front()
+            ->method
+            ->build_asof_index_groups_impl(
+                    _shared_state->asof_index_groups,
+                    _shared_state->asof_build_row_to_bucket, bucket_size, first_array, next_array,
+                    build_rows, nullable_col, build_col_nested.get(), _asof_index_group_timer,
+                    _asof_index_sort_timer);
 
     return Status::OK();
 }
@@ -597,28 +492,17 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state, Blo
 
     RETURN_IF_ERROR(_hash_table_init(state, raw_ptrs));
 
-    Status st = std::visit(
-            Overload {[&](std::monostate& arg, auto join_op) -> Status {
-                          throw Exception(Status::FatalError("FATAL: uninited hash table"));
-                      },
-                      [&](auto&& arg, auto&& join_op) -> Status {
-                          using HashTableCtxType = std::decay_t<decltype(arg)>;
-                          using JoinOpType = std::decay_t<decltype(join_op)>;
-                          ProcessHashTableBuild<HashTableCtxType> hash_table_build_process(
-                                  rows, raw_ptrs, this, state->batch_size(), state);
-                          auto st = hash_table_build_process.template run<JoinOpType::value>(
-                                  arg, null_map_val ? &null_map_val->get_data() : nullptr,
-                                  &_shared_state->_has_null_in_build_side,
-                                  p._short_circuit_for_null_in_build_side,
-                                  p._have_other_join_conjunct);
-                          COUNTER_SET(_memory_used_counter,
-                                      _build_blocks_memory_usage->value() +
-                                              (int64_t)(arg.hash_table->get_byte_size() +
-                                                        arg.serialized_keys_size(true)));
-                          return st;
-                      }},
-            _shared_state->hash_table_variant_vector.front()->method_variant,
-            _shared_state->join_op_variants);
+    auto* method = _shared_state->hash_table_variant_vector.front()->method.get();
+    Status st = method->process_build(rows, raw_ptrs, this, state->batch_size(), state,
+                                      _shared_state->join_op_variants,
+                                      null_map_val ? &null_map_val->get_data() : nullptr,
+                                      &_shared_state->_has_null_in_build_side,
+                                      p._short_circuit_for_null_in_build_side,
+                                      p._have_other_join_conjunct);
+    COUNTER_SET(_memory_used_counter,
+                _build_blocks_memory_usage->value() +
+                        (int64_t)(method->hash_table_byte_size() +
+                                  method->serialized_keys_size(true)));
     return st;
 }
 
@@ -669,10 +553,16 @@ Status HashJoinBuildSinkLocalState::_hash_table_init(RuntimeState* state,
     }
 
     for (auto& variant_ptr : variant_ptrs) {
-        RETURN_IF_ERROR(init_hash_method<JoinDataVariants>(variant_ptr.get(), data_types, true));
+        auto type = get_hash_key_type_with_phase(get_hash_key_type(data_types), false);
+        try {
+            variant_ptr->init(data_types, type);
+        } catch (const Exception& e) {
+            variant_ptr->method.reset();
+            return e.to_status();
+        }
+        DCHECK(variant_ptr->method) << "JoinDataVariants init produced nullptr";
     }
-    std::visit([&](auto&& arg) { try_convert_to_direct_mapping(&arg, raw_ptrs, variant_ptrs); },
-               variant_ptrs[0]->method_variant);
+    variant_ptrs[0]->method->try_convert_to_direct(raw_ptrs, variant_ptrs);
     return Status::OK();
 }
 
@@ -857,7 +747,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, Block* in_block, bo
         // The close() Defer in the builder conditionally sets _signaled=true ONLY when the builder
         // was NOT terminated (i.e., the hash table was actually built). When the builder is
         // terminated, _signaled stays false, so non-builders always hit this guard and return EOF
-        // safely — never reaching the std::visit on an uninitialized (monostate) hash table.
+        // safely — never reaching share_hash_table_from on an uninitialized (null) hash table.
         //
         // At this point, termination is reflected solely through the value of _signaled: a
         // terminated builder never sets _signaled to true. Checking !_signaled is therefore
@@ -868,20 +758,11 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, Block* in_block, bo
 
         DCHECK_LE(local_state._task_idx,
                   local_state._shared_state->hash_table_variant_vector.size());
-        std::visit(
-                [](auto&& dst, auto&& src) {
-                    if constexpr (!std::is_same_v<std::monostate, std::decay_t<decltype(dst)>> &&
-                                  std::is_same_v<std::decay_t<decltype(src)>,
-                                                 std::decay_t<decltype(dst)>>) {
-                        dst.hash_table = src.hash_table;
-                    } else {
-                        throw Exception(Status::InternalError(
-                                "Hash table type mismatch when share hash table"));
-                    }
-                },
-                local_state._shared_state->hash_table_variant_vector[local_state._task_idx]
-                        ->method_variant,
-                local_state._shared_state->hash_table_variant_vector.front()->method_variant);
+        local_state._shared_state->hash_table_variant_vector[local_state._task_idx]
+                ->method
+                ->share_hash_table_from(*local_state._shared_state
+                                                 ->hash_table_variant_vector.front()
+                                                 ->method);
     }
 
     if (eos) {
