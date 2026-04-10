@@ -402,6 +402,16 @@ Status ParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
         if (desc.category == ColumnCategory::REGULAR ||
             desc.category == ColumnCategory::GENERATED) {
             ctx->column_names.push_back(desc.name);
+        } else if (desc.category == ColumnCategory::SYNTHESIZED &&
+                   desc.name.starts_with(BeConsts::GLOBAL_ROWID_COL)) {
+            auto topn_row_id_column_iter = _create_topn_row_id_column_iterator();
+            this->register_synthesized_column_handler(
+                    desc.name,
+                    [iter = std::move(topn_row_id_column_iter), this, &desc](
+                            Block* block, size_t rows) -> Status {
+                        return fill_topn_row_id(iter, desc.name, block, rows);
+                    });
+            continue;
         }
     }
 
@@ -471,23 +481,6 @@ Status ParquetReader::_do_init_reader(ReaderInitContext* base_ctx) {
     // _init_read_columns handles both normal path (missing cols populated above)
     // and standalone path (_fill_missing_cols empty, _table_info_node_ptr may be null).
     _init_read_columns(base_ctx->column_names);
-
-    // Register row-position-based synthesized column handler.
-    // _row_id_column_iterator_pair and _row_lineage_columns are set before init_reader
-    // by FileScanner. This must be outside has_column_descs() guard because standalone
-    // readers also need synthesized column handlers.
-    if (_row_id_column_iterator_pair.first != nullptr ||
-        (_row_lineage_columns != nullptr &&
-         (_row_lineage_columns->need_row_ids() ||
-          _row_lineage_columns->has_last_updated_sequence_number_column()))) {
-        register_synthesized_column_handler(
-                BeConsts::ROWID_COL, [this](Block* block, size_t rows) -> Status {
-                    if (_current_group_reader) {
-                        return _current_group_reader->fill_topn_row_id(block, rows);
-                    }
-                    return Status::OK();
-                });
-    }
 
     // build column predicates for column lazy read
     if (ctx->conjuncts != nullptr) {
@@ -609,6 +602,9 @@ void ParquetReader::_collect_predicate_columns_from_conjuncts(
         auto and_pred = AndBlockColumnPredicate::create_unique();
         for (const auto& entry : _lazy_read_ctx.slot_id_to_predicates) {
             for (const auto& pred : entry.second) {
+                if (disable_column_opt(pred->col_name())) {
+                    continue;
+                }
                 if (!_exists_in_file(pred->col_name()) || !_type_matches(pred->column_id())) {
                     continue;
                 }
@@ -623,23 +619,47 @@ void ParquetReader::_collect_predicate_columns_from_conjuncts(
 }
 
 void ParquetReader::_classify_columns_for_lazy_read(
-        const std::unordered_map<std::string, std::pair<uint32_t, int>>& predicate_columns,
+        const std::unordered_map<std::string, std::pair<uint32_t, int>>&
+                predicate_conjuncts_columns,
         const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
                 partition_columns,
         const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) {
     const FieldDescriptor& schema = _file_metadata->schema();
+    auto predicate_columns = predicate_conjuncts_columns;
 
-    auto check_iceberg_row_lineage_column_idx = [&](const auto& col_name) -> int {
-        if (_row_lineage_columns != nullptr) {
-            if (col_name == IcebergTableReader::ROW_LINEAGE_ROW_ID) {
-                return _row_lineage_columns->row_id_column_idx;
-            } else if (col_name == IcebergTableReader::ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER) {
-                return _row_lineage_columns->last_updated_sequence_number_column_idx;
+    for (const auto& [col_name, _] : _generated_col_handlers) {
+        int slot_id = -1;
+        for (auto slot : _tuple_descriptor->slots()) {
+            if (slot->col_name() == col_name) {
+                slot_id = slot->id();
+                break;
             }
         }
-        return -1;
-    };
+        DCHECK(slot_id != -1) << "slot id should not be -1 for generated column: " << col_name;
+        auto column_index = _row_descriptor->get_column_id(slot_id);
+        if (column_index == 0) {
+            _lazy_read_ctx.resize_first_column = false;
+        }
+        // assume generated columns are only used for predicate push down.
+        predicate_columns.emplace(col_name, std::make_pair(column_index, slot_id));
+    }
 
+    for (const auto& [col_name, _] : _synthesized_col_handlers) {
+        int slot_id = -1;
+        for (auto slot : _tuple_descriptor->slots()) {
+            if (slot->col_name() == col_name) {
+                slot_id = slot->id();
+                break;
+            }
+        }
+        DCHECK(slot_id != -1) << "slot id should not be -1 for synthesized column: " << col_name;
+        auto column_index = _row_descriptor->get_column_id(slot_id);
+        if (column_index == 0) {
+            _lazy_read_ctx.resize_first_column = false;
+        }
+        // synthesized columns always fill data on first phase.
+        _lazy_read_ctx.all_predicate_col_ids.emplace_back(column_index);
+    }
     for (auto& read_table_col : _read_table_columns) {
         _lazy_read_ctx.all_read_columns.emplace_back(read_table_col);
 
@@ -652,30 +672,13 @@ void ParquetReader::_classify_columns_for_lazy_read(
         if (predicate_columns.size() > 0) {
             auto iter = predicate_columns.find(read_table_col);
             if (iter == predicate_columns.end()) {
-                if (auto row_lineage_idx = check_iceberg_row_lineage_column_idx(read_table_col);
-                    row_lineage_idx != -1) {
-                    _lazy_read_ctx.predicate_columns.first.emplace_back(read_table_col);
-                    // row lineage column can not dict filter.
-                    int slot_id = 0;
-                    for (auto slot : _tuple_descriptor->slots()) {
-                        if (slot->col_name_lower_case() == read_table_col) {
-                            slot_id = slot->id();
-                        }
-                    }
-                    _lazy_read_ctx.predicate_columns.second.emplace_back(slot_id);
-                    _lazy_read_ctx.all_predicate_col_ids.emplace_back(row_lineage_idx);
-                } else {
-                    _lazy_read_ctx.lazy_read_columns.emplace_back(read_table_col);
-                }
+                _lazy_read_ctx.lazy_read_columns.emplace_back(read_table_col);
             } else {
                 _lazy_read_ctx.predicate_columns.first.emplace_back(iter->first);
                 _lazy_read_ctx.predicate_columns.second.emplace_back(iter->second.second);
                 _lazy_read_ctx.all_predicate_col_ids.emplace_back(iter->second.first);
             }
         }
-    }
-    if (_row_id_column_iterator_pair.first != nullptr) {
-        _lazy_read_ctx.all_predicate_col_ids.emplace_back(_row_id_column_iterator_pair.second);
     }
 
     for (auto& kv : partition_columns) {
@@ -700,10 +703,6 @@ void ParquetReader::_classify_columns_for_lazy_read(
             }
             _lazy_read_ctx.predicate_missing_columns.emplace(kv.first, kv.second);
             _lazy_read_ctx.all_predicate_col_ids.emplace_back(iter->second.first);
-        } else if (auto row_lineage_idx = check_iceberg_row_lineage_column_idx(kv.first);
-                   row_lineage_idx != -1) {
-            _lazy_read_ctx.predicate_missing_columns.emplace(kv.first, kv.second);
-            _lazy_read_ctx.all_predicate_col_ids.emplace_back(row_lineage_idx);
         } else {
             _lazy_read_ctx.missing_columns.emplace(kv.first, kv.second);
         }
@@ -948,8 +947,6 @@ Status ParquetReader::_next_row_group_reader() {
     _row_group_eof = false;
 
     _current_group_reader->set_current_row_group_idx(_current_row_group_index);
-    _current_group_reader->set_row_id_column_iterator(_row_id_column_iterator_pair);
-    _current_group_reader->set_row_lineage_columns(_row_lineage_columns);
     _current_group_reader->set_col_name_to_block_idx(_col_name_to_block_idx);
     if (_condition_cache_ctx) {
         _current_group_reader->set_condition_cache_context(_condition_cache_ctx);

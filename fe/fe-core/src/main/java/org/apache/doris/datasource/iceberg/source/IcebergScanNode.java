@@ -54,6 +54,7 @@ import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
+import org.apache.doris.thrift.TColumnCategory;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
@@ -875,6 +876,20 @@ public class IcebergScanNode extends FileQueryScanNode {
                 SerializationUtil.serializeToBase64(fileScanTask), rowCount);
         split.setTableFormatType(TableFormatType.ICEBERG);
         return split;
+    }
+
+    @Override
+    protected TColumnCategory classifyColumn(SlotDescriptor slot, List<String> partitionKeys) {
+        if (Column.ICEBERG_ROWID_COL.equalsIgnoreCase(slot.getColumn().getName())) {
+            return TColumnCategory.SYNTHESIZED;
+        }
+        if (slot.getColumn().getName().startsWith(Column.GLOBAL_ROWID_COL)) {
+            return TColumnCategory.SYNTHESIZED;
+        }
+        if (IcebergUtils.isIcebergRowLineageColumn(slot.getColumn())) {
+            return TColumnCategory.GENERATED;
+        }
+        return super.classifyColumn(slot, partitionKeys);
     }
 
     private List<Split> doGetSplits(int numBackends) throws UserException {

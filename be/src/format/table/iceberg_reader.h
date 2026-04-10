@@ -60,23 +60,7 @@ class GenericReader;
 class ShardedKVCache;
 class VExprContext;
 
-struct RowLineageColumns {
-    int row_id_column_idx = -1;
-    int last_updated_sequence_number_column_idx = -1;
-    int64_t first_row_id = -1;
-    int64_t last_updated_sequence_number = -1;
-
-    bool need_row_ids() const { return row_id_column_idx >= 0; }
-    bool has_last_updated_sequence_number_column() const {
-        return last_updated_sequence_number_column_idx >= 0;
-    }
-};
-
 struct IcebergTableReader {
-    static constexpr const char* ROW_LINEAGE_ROW_ID = "_row_id";
-    static constexpr const char* ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER =
-            "_last_updated_sequence_number";
-
     static bool _is_fully_dictionary_encoded(const tparquet::ColumnMetaData& column_metadata);
 };
 

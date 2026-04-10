@@ -165,16 +165,24 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
     // Single pass: classify columns, detect $row_id, handle partition fallback.
     bool has_partition_from_path = false;
     for (auto& desc : *ctx->column_descs) {
-        if (desc.category == ColumnCategory::SYNTHESIZED &&
-            desc.name == BeConsts::ICEBERG_ROWID_COL) {
-            _need_row_id_column = true;
-            this->register_synthesized_column_handler(BeConsts::ICEBERG_ROWID_COL,
-                                                      [this](Block* block, size_t rows) -> Status {
-                                                          return _fill_iceberg_row_id(block, rows);
-                                                      });
-            continue;
-        }
-        if (desc.category == ColumnCategory::REGULAR) {
+        if (desc.category == ColumnCategory::SYNTHESIZED) {
+            if (desc.name == BeConsts::ICEBERG_ROWID_COL) {
+                this->register_synthesized_column_handler(
+                        BeConsts::ICEBERG_ROWID_COL, [this](Block* block, size_t rows) -> Status {
+                            return _fill_iceberg_row_id(block, rows);
+                        });
+                continue;
+            } else if (desc.name.starts_with(BeConsts::GLOBAL_ROWID_COL)) {
+                auto topn_row_id_column_iter = _create_topn_row_id_column_iterator();
+                this->register_synthesized_column_handler(
+                        desc.name,
+                        [iter = std::move(topn_row_id_column_iter), this, &desc](
+                                Block* block, size_t rows) -> Status {
+                            return fill_topn_row_id(iter, desc.name, block, rows);
+                        });
+                continue;
+            }
+        } else if (desc.category == ColumnCategory::REGULAR) {
             // Partition fallback: if column is a partition key and NOT in the file
             // (checked via field ID matching in table_info_node), read from path instead.
             if (partition_col_names.contains(desc.name) &&
@@ -187,7 +195,23 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
             }
             ctx->column_names.push_back(desc.name);
         } else if (desc.category == ColumnCategory::GENERATED) {
-            ctx->column_names.push_back(desc.name);
+            _init_row_lineage_columns();
+            if (desc.name == ROW_LINEAGE_ROW_ID) {
+                ctx->column_names.push_back(desc.name);
+                this->register_generated_column_handler(
+                        ROW_LINEAGE_ROW_ID, [this](Block* block, size_t rows) -> Status {
+                            return _fill_row_lineage_row_id(block, rows);
+                        });
+                continue;
+            } else if (desc.name == ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER) {
+                ctx->column_names.push_back(desc.name);
+                this->register_generated_column_handler(
+                        ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER,
+                        [this](Block* block, size_t rows) -> Status {
+                            return _fill_row_lineage_last_updated_sequence_number(block, rows);
+                        });
+                continue;
+            }
         }
     }
 
@@ -436,16 +460,24 @@ Status IcebergOrcReader::on_before_init_reader(ReaderInitContext* ctx) {
     // Single pass: classify columns, detect $row_id, handle partition fallback.
     bool has_partition_from_path = false;
     for (auto& desc : *ctx->column_descs) {
-        if (desc.category == ColumnCategory::SYNTHESIZED &&
-            desc.name == BeConsts::ICEBERG_ROWID_COL) {
-            _need_row_id_column = true;
-            this->register_synthesized_column_handler(BeConsts::ICEBERG_ROWID_COL,
-                                                      [this](Block* block, size_t rows) -> Status {
-                                                          return _fill_iceberg_row_id(block, rows);
-                                                      });
-            continue;
-        }
-        if (desc.category == ColumnCategory::REGULAR) {
+        if (desc.category == ColumnCategory::SYNTHESIZED) {
+            if (desc.name == BeConsts::ICEBERG_ROWID_COL) {
+                this->register_synthesized_column_handler(
+                        BeConsts::ICEBERG_ROWID_COL, [this](Block* block, size_t rows) -> Status {
+                            return _fill_iceberg_row_id(block, rows);
+                        });
+                continue;
+            } else if (desc.name.starts_with(BeConsts::GLOBAL_ROWID_COL)) {
+                auto topn_row_id_column_iter = _create_topn_row_id_column_iterator();
+                this->register_synthesized_column_handler(
+                        desc.name,
+                        [iter = std::move(topn_row_id_column_iter), this, &desc](
+                                Block* block, size_t rows) -> Status {
+                            return fill_topn_row_id(iter, desc.name, block, rows);
+                        });
+                continue;
+            }
+        } else if (desc.category == ColumnCategory::REGULAR) {
             // Partition fallback: if column is a partition key and NOT in the file
             // (checked via field ID matching in table_info_node), read from path instead.
             if (partition_col_names.contains(desc.name) &&
@@ -458,7 +490,23 @@ Status IcebergOrcReader::on_before_init_reader(ReaderInitContext* ctx) {
             }
             ctx->column_names.push_back(desc.name);
         } else if (desc.category == ColumnCategory::GENERATED) {
-            ctx->column_names.push_back(desc.name);
+            _init_row_lineage_columns();
+            if (desc.name == ROW_LINEAGE_ROW_ID) {
+                ctx->column_names.push_back(desc.name);
+                this->register_generated_column_handler(
+                        ROW_LINEAGE_ROW_ID, [this](Block* block, size_t rows) -> Status {
+                            return _fill_row_lineage_row_id(block, rows);
+                        });
+                continue;
+            } else if (desc.name == ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER) {
+                ctx->column_names.push_back(desc.name);
+                this->register_generated_column_handler(
+                        ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER,
+                        [this](Block* block, size_t rows) -> Status {
+                            return _fill_row_lineage_last_updated_sequence_number(block, rows);
+                        });
+                continue;
+            }
         }
     }
 

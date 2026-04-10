@@ -211,13 +211,25 @@ public:
 
     static std::string get_field_name_lower_case(const orc::Type* orc_type, int pos);
 
-    void set_row_id_column_iterator(
-            const std::pair<std::shared_ptr<segment_v2::RowIdColumnIteratorV2>, int>&
-                    iterator_pair) {
-        _row_id_column_iterator_pair = iterator_pair;
+    void set_create_row_id_column_iterator_func(
+            std::function<std::shared_ptr<segment_v2::RowIdColumnIteratorV2>()> create_func) {
+        _create_topn_row_id_column_iterator = create_func;
     }
-    void set_row_lineage_columns(std::shared_ptr<RowLineageColumns> row_lineage_columns) {
-        _row_lineage_columns = std::move(row_lineage_columns);
+
+    Status fill_topn_row_id(
+            std::shared_ptr<segment_v2::RowIdColumnIteratorV2> _row_id_column_iterator,
+            std::string col_name, Block* block, size_t rows) {
+        int col_pos = block->get_position_by_name(col_name);
+        DCHECK(col_pos >= 0);
+        if (col_pos < 0) {
+            return Status::InternalError("Column {} not found in block", col_name);
+        }
+        auto col = block->get_by_position(col_pos).column->assume_mutable();
+        const auto& row_ids = this->current_batch_row_positions();
+        RETURN_IF_ERROR(
+                _row_id_column_iterator->read_by_rowids(row_ids.data(), row_ids.size(), col));
+
+        return Status::OK();
     }
 
     static bool inline is_hive1_col_name(const orc::Type* orc_type_ptr) {
@@ -686,8 +698,6 @@ private:
         return true;
     }
 
-    Status _fill_row_id_columns(Block* block, int64_t start_row);
-
     bool _seek_to_read_one_line() {
         if (_read_by_rows) {
             if (_row_ids.empty()) {
@@ -794,6 +804,9 @@ protected:
     // in on_before_init_reader.
     LazyReadContext _lazy_read_ctx;
 
+    std::function<std::shared_ptr<segment_v2::RowIdColumnIteratorV2>()>
+            _create_topn_row_id_column_iterator;
+
 private:
     std::unique_ptr<IColumn::Filter> _filter;
     const AcidRowIDSet* _delete_rows = nullptr;
@@ -824,10 +837,6 @@ private:
     int64_t _orc_tiny_stripe_threshold_bytes = 8L * 1024L * 1024L;
     int64_t _orc_once_max_read_bytes = 8L * 1024L * 1024L;
     int64_t _orc_max_merge_distance_bytes = 1L * 1024L * 1024L;
-
-    std::pair<std::shared_ptr<segment_v2::RowIdColumnIteratorV2>, int>
-            _row_id_column_iterator_pair = {nullptr, -1};
-    std::shared_ptr<RowLineageColumns> _row_lineage_columns;
 
     std::vector<rowid_t> _current_batch_row_positions;
 

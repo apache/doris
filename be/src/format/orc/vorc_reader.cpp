@@ -466,20 +466,6 @@ Status OrcReader::_do_init_reader(ReaderInitContext* base_ctx) {
     // and standalone path (_fill_missing_cols empty, _table_info_node_ptr may be null).
     _init_file_column_mapping();
 
-    // Register row-position-based synthesized column handler.
-    // _row_id_column_iterator_pair and _row_lineage_columns are set before init_reader
-    // by FileScanner. This must be outside has_column_descs() guard because standalone
-    // readers (e.g., orc_read_lines tests) also use row_id columns.
-    if (_row_id_column_iterator_pair.first != nullptr ||
-        (_row_lineage_columns != nullptr &&
-         (_row_lineage_columns->need_row_ids() ||
-          _row_lineage_columns->has_last_updated_sequence_number_column()))) {
-        register_synthesized_column_handler(
-                BeConsts::ROWID_COL, [this](Block* block, size_t rows) -> Status {
-                    return _fill_row_id_columns(block, _row_reader->getRowNumber());
-                });
-    }
-
     // ---- Inlined set_fill_columns logic (partition/missing/synthesized classification) ----
 
     // 1. Collect predicate columns from conjuncts for lazy materialization
@@ -541,6 +527,16 @@ Status OrcReader::on_before_init_reader(ReaderInitContext* ctx) {
         if (desc.category == ColumnCategory::REGULAR ||
             desc.category == ColumnCategory::GENERATED) {
             ctx->column_names.push_back(desc.name);
+        } else if (desc.category == ColumnCategory::SYNTHESIZED &&
+                   desc.name.starts_with(BeConsts::GLOBAL_ROWID_COL)) {
+            auto topn_row_id_column_iter = _create_topn_row_id_column_iterator();
+            this->register_synthesized_column_handler(
+                    desc.name,
+                    [iter = std::move(topn_row_id_column_iter), this, &desc](
+                            Block* block, size_t rows) -> Status {
+                        return fill_topn_row_id(iter, desc.name, block, rows);
+                    });
+            continue;
         }
     }
 
@@ -901,6 +897,10 @@ bool OrcReader::_check_slot_can_push_down(const VExprSPtr& expr) {
     // check if the slot exists in orc file and not partition column
     if (_lazy_read_ctx.predicate_partition_columns.contains(slot_ref->expr_name()) ||
         (!_table_info_node_ptr->children_column_exists(slot_ref->expr_name()))) {
+        return false;
+    }
+
+    if (disable_column_opt(slot_ref->expr_name())) {
         return false;
     }
 
@@ -1272,17 +1272,6 @@ void OrcReader::_classify_columns_for_lazy_read(
                 TransactionalHive::READ_ROW_COLUMN_NAMES.end());
     }
 
-    auto check_iceberg_row_lineage_column_idx = [&](const auto& col_name) -> int {
-        if (_row_lineage_columns != nullptr) {
-            if (col_name == IcebergTableReader::ROW_LINEAGE_ROW_ID) {
-                return _row_lineage_columns->row_id_column_idx;
-            } else if (col_name == IcebergTableReader::ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER) {
-                return _row_lineage_columns->last_updated_sequence_number_column_idx;
-            }
-        }
-        return -1;
-    };
-
     for (auto& read_table_col : _read_table_cols) {
         _lazy_read_ctx.all_read_columns.emplace_back(read_table_col);
         if (!predicate_table_columns.empty()) {
@@ -1300,7 +1289,7 @@ void OrcReader::_classify_columns_for_lazy_read(
                 _lazy_read_ctx.predicate_columns.second.emplace_back(iter->second.second);
                 _lazy_read_ctx.predicate_orc_columns.emplace_back(
                         _table_info_node_ptr->children_file_column_name(iter->first));
-                if (check_iceberg_row_lineage_column_idx(read_table_col) != -1) {
+                if (disable_column_opt(read_table_col)) {
                     // Todo : enable lazy mat where filter iceberg row lineage column.
                     _enable_lazy_mat = false;
                 }
@@ -1330,7 +1319,7 @@ void OrcReader::_classify_columns_for_lazy_read(
                 }
             }
             _lazy_read_ctx.predicate_missing_columns.emplace(kv.first, kv.second);
-            if (check_iceberg_row_lineage_column_idx(kv.first) != -1) {
+            if (disable_column_opt(kv.first)) {
                 _enable_lazy_mat = false;
             }
         }
@@ -1474,52 +1463,6 @@ Status OrcReader::_init_orc_row_reader() {
         // ignore stop exception
         if (!(_io_ctx && _io_ctx->should_stop && _err_msg == "stop")) {
             return Status::InternalError("Failed to create orc row reader. reason = {}", _err_msg);
-        }
-    }
-
-    return Status::OK();
-}
-
-Status OrcReader::_fill_row_id_columns(Block* block, int64_t start_row) {
-    size_t fill_size = _batch->numElements;
-    if (_row_id_column_iterator_pair.first != nullptr) {
-        RETURN_IF_ERROR(_row_id_column_iterator_pair.first->seek_to_ordinal(start_row));
-        auto col = block->get_by_position(_row_id_column_iterator_pair.second)
-                           .column->assume_mutable();
-        RETURN_IF_ERROR(_row_id_column_iterator_pair.first->next_batch(&fill_size, col));
-    }
-
-    if (_row_lineage_columns != nullptr && _row_lineage_columns->need_row_ids() &&
-        _row_lineage_columns->first_row_id >= 0) {
-        auto col = block->get_by_position(_row_lineage_columns->row_id_column_idx)
-                           .column->assume_mutable();
-        auto* nullable_column = assert_cast<ColumnNullable*>(col.get());
-        auto& null_map = nullable_column->get_null_map_data();
-        auto& data =
-                assert_cast<ColumnInt64&>(*nullable_column->get_nested_column_ptr()).get_data();
-        for (size_t i = 0; i < fill_size; ++i) {
-            if (null_map[i] != 0) {
-                null_map[i] = 0;
-                data[i] = _row_lineage_columns->first_row_id + start_row + static_cast<int64_t>(i);
-            }
-        }
-    }
-
-    if (_row_lineage_columns != nullptr &&
-        _row_lineage_columns->has_last_updated_sequence_number_column() &&
-        _row_lineage_columns->last_updated_sequence_number >= 0) {
-        auto col = block->get_by_position(
-                                _row_lineage_columns->last_updated_sequence_number_column_idx)
-                           .column->assume_mutable();
-        auto* nullable_column = assert_cast<ColumnNullable*>(col.get());
-        auto& null_map = nullable_column->get_null_map_data();
-        auto& data =
-                assert_cast<ColumnInt64&>(*nullable_column->get_nested_column_ptr()).get_data();
-        for (size_t i = 0; i < fill_size; ++i) {
-            if (null_map[i] != 0) {
-                null_map[i] = 0;
-                data[i] = _row_lineage_columns->last_updated_sequence_number;
-            }
         }
     }
 
@@ -2454,9 +2397,8 @@ Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eo
             _current_batch_row_positions[i] =
                     static_cast<rowid_t>(start_row + static_cast<int64_t>(i));
         }
-        if (has_synthesized_column_handlers()) {
-            RETURN_IF_ERROR(fill_synthesized_columns(block, block->rows()));
-        }
+        RETURN_IF_ERROR(fill_synthesized_columns(block, block->rows()));
+        RETURN_IF_ERROR(fill_generated_columns(block, block->rows()));
 
         if (block->rows() == 0) {
             RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block, nullptr));
@@ -2605,9 +2547,8 @@ Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eo
             _current_batch_row_positions[i] =
                     static_cast<rowid_t>(start_row + static_cast<int64_t>(i));
         }
-        if (has_synthesized_column_handlers()) {
-            RETURN_IF_ERROR(fill_synthesized_columns(block, block->rows()));
-        }
+        RETURN_IF_ERROR(fill_synthesized_columns(block, block->rows()));
+        RETURN_IF_ERROR(fill_generated_columns(block, block->rows()));
 
         if (block->rows() == 0) {
             RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block, nullptr));
@@ -2931,7 +2872,8 @@ Status OrcReader::fill_dict_filter_column_names(
     int i = 0;
     for (const auto& predicate_col_name : predicate_col_names) {
         int slot_id = predicate_col_slot_ids[i];
-        if (!_disable_dict_filter && _can_filter_by_dict(slot_id)) {
+        if (!_disable_dict_filter && !disable_column_opt(predicate_col_name) &&
+            _can_filter_by_dict(slot_id)) {
             _dict_filter_cols.emplace_back(predicate_col_name, slot_id);
             column_names.emplace_back(
                     _table_info_node_ptr->children_file_column_name(predicate_col_name));

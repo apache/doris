@@ -186,7 +186,6 @@ public:
 
     ParquetColumnReader::ColumnStatistics merged_column_statistics();
     void set_remaining_rows(int64_t rows) { _remaining_rows = rows; }
-    Status fill_topn_row_id(Block* block, size_t read_rows);
 
     int64_t get_remaining_rows() { return _remaining_rows; }
 
@@ -195,12 +194,6 @@ public:
     static RowRanges filter_ranges_by_cache(const RowRanges& read_ranges,
                                             const std::vector<bool>& cache, int64_t first_row,
                                             int64_t base_granule = 0);
-
-    void set_row_id_column_iterator(
-            const std::pair<std::shared_ptr<segment_v2::RowIdColumnIteratorV2>, int>&
-                    iterator_pair) {
-        _row_id_column_iterator_pair = iterator_pair;
-    }
 
     void set_table_format_reader(TableFormatReader* reader) { _table_format_reader = reader; }
 
@@ -303,8 +296,6 @@ private:
     bool _is_row_group_filtered = false;
 
     RowGroupIndex _current_row_group_idx {0, 0, 0};
-    std::pair<std::shared_ptr<segment_v2::RowIdColumnIteratorV2>, int>
-            _row_id_column_iterator_pair = {nullptr, -1};
     std::vector<rowid_t> _current_batch_row_ids;
 
     std::unordered_map<std::string, uint32_t>* _col_name_to_block_idx = nullptr;

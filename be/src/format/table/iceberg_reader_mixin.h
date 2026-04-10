@@ -104,6 +104,11 @@ public:
         return BaseReader::_do_get_next_block(block, read_rows, eof);
     }
 
+    void set_create_row_id_column_iterator_func(
+            std::function<std::shared_ptr<segment_v2::RowIdColumnIteratorV2>()> create_func) {
+        _create_topn_row_id_column_iterator = create_func;
+    }
+
 protected:
     // ---- Hook implementations ----
 
@@ -138,6 +143,66 @@ protected:
                                                     _partition_spec_id, _partition_data_json,
                                                     &row_id_column));
         col_with_type.column = std::move(row_id_column);
+        return Status::OK();
+    }
+
+    void _init_row_lineage_columns() {
+        const auto& table_desc = this->get_scan_range().table_format_params.iceberg_params;
+        if (table_desc.__isset.first_row_id) {
+            _row_lineage_columns.first_row_id = table_desc.first_row_id;
+        }
+        if (table_desc.__isset.last_updated_sequence_number) {
+            _row_lineage_columns.last_updated_sequence_number =
+                    table_desc.last_updated_sequence_number;
+        }
+    }
+
+    Status _fill_row_lineage_row_id(Block* block, size_t rows) {
+        int col_pos = block->get_position_by_name(ROW_LINEAGE_ROW_ID);
+        DCHECK(col_pos >= 0);
+        if (col_pos < 0) {
+            return Status::InternalError("Row lineage column {} not found in block",
+                                         ROW_LINEAGE_ROW_ID);
+        }
+
+        if (_row_lineage_columns.first_row_id >= 0) {
+            auto col = block->get_by_position(col_pos).column->assume_mutable();
+            auto* nullable_column = assert_cast<ColumnNullable*>(col.get());
+            auto& null_map = nullable_column->get_null_map_data();
+            auto& data =
+                    assert_cast<ColumnInt64&>(*nullable_column->get_nested_column_ptr()).get_data();
+            const auto& row_ids = this->current_batch_row_positions();
+            for (size_t i = 0; i < rows; ++i) {
+                if (null_map[i] != 0) {
+                    null_map[i] = 0;
+                    data[i] = _row_lineage_columns.first_row_id + static_cast<int64_t>(row_ids[i]);
+                }
+            }
+        }
+        return Status::OK();
+    }
+
+    Status _fill_row_lineage_last_updated_sequence_number(Block* block, size_t rows) {
+        int col_pos = block->get_position_by_name(ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER);
+        DCHECK(col_pos >= 0);
+        if (col_pos < 0) {
+            return Status::InternalError("Row lineage column {} not found in block",
+                                         ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER);
+        }
+
+        if (_row_lineage_columns.last_updated_sequence_number >= 0) {
+            auto col = block->get_by_position(col_pos).column->assume_mutable();
+            auto* nullable_column = assert_cast<ColumnNullable*>(col.get());
+            auto& null_map = nullable_column->get_null_map_data();
+            auto& data =
+                    assert_cast<ColumnInt64&>(*nullable_column->get_nested_column_ptr()).get_data();
+            for (size_t i = 0; i < rows; ++i) {
+                if (null_map[i] != 0) {
+                    null_map[i] = 0;
+                    data[i] = _row_lineage_columns.last_updated_sequence_number;
+                }
+            }
+        }
         return Status::OK();
     }
 
@@ -304,6 +369,18 @@ protected:
 
     // File column names used during init
     std::vector<std::string> _file_col_names;
+
+    std::function<std::shared_ptr<segment_v2::RowIdColumnIteratorV2>()>
+            _create_topn_row_id_column_iterator;
+
+    static constexpr const char* ROW_LINEAGE_ROW_ID = "_row_id";
+    static constexpr const char* ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER =
+            "_last_updated_sequence_number";
+    struct RowLineageColumns {
+        int64_t first_row_id = -1;
+        int64_t last_updated_sequence_number = -1;
+    };
+    RowLineageColumns _row_lineage_columns;
 };
 
 // ============================================================================

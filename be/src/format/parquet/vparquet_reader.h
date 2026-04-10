@@ -173,9 +173,9 @@ public:
 
     Status get_file_metadata_schema(const FieldDescriptor** ptr);
 
-    void set_row_id_column_iterator(
-            std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> iterator_pair) {
-        _row_id_column_iterator_pair = iterator_pair;
+    void set_create_row_id_column_iterator_func(
+            std::function<std::shared_ptr<segment_v2::RowIdColumnIteratorV2>()> create_func) {
+        _create_topn_row_id_column_iterator = create_func;
     }
 
     /// Access current batch row positions (delegates to RowGroupReader).
@@ -184,8 +184,20 @@ public:
         return _current_group_reader->current_batch_row_positions();
     }
 
-    void set_row_lineage_columns(std::shared_ptr<RowLineageColumns> row_lineage_columns) {
-        _row_lineage_columns = std::move(row_lineage_columns);
+    Status fill_topn_row_id(
+            std::shared_ptr<segment_v2::RowIdColumnIteratorV2> _row_id_column_iterator,
+            std::string col_name, Block* block, size_t rows) {
+        int col_pos = block->get_position_by_name(col_name);
+        DCHECK(col_pos >= 0);
+        if (col_pos < 0) {
+            return Status::InternalError("Column {} not found in block", col_name);
+        }
+        auto col = block->get_by_position(col_pos).column->assume_mutable();
+        const auto& row_ids = this->current_batch_row_positions();
+        RETURN_IF_ERROR(
+                _row_id_column_iterator->read_by_rowids(row_ids.data(), row_ids.size(), col));
+
+        return Status::OK();
     }
 
     bool count_read_rows() override { return true; }
@@ -414,16 +426,15 @@ private:
     const std::unordered_map<int, VExprContextSPtrs>* _slot_id_to_filter_conjuncts = nullptr;
     std::unordered_map<tparquet::Type::type, bool> _ignored_stats;
 
-    std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> _row_id_column_iterator_pair = {nullptr,
-                                                                                           -1};
-    std::shared_ptr<RowLineageColumns> _row_lineage_columns;
-
 protected:
     // Used for column lazy read. Protected so Iceberg/Paimon subclasses can
     // register synthesized columns in on_before_init_reader.
     RowGroupReader::LazyReadContext _lazy_read_ctx;
     bool _filter_groups = true;
     size_t get_batch_size() const { return _batch_size; }
+
+    std::function<std::shared_ptr<segment_v2::RowIdColumnIteratorV2>()>
+            _create_topn_row_id_column_iterator;
 
 private:
     std::set<uint64_t> _column_ids;

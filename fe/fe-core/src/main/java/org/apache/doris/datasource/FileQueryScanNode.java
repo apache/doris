@@ -202,9 +202,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
      * Subclasses override this for format-specific classification.
      */
     protected TColumnCategory classifyColumn(SlotDescriptor slot, List<String> partitionKeys) {
-        if (Column.ICEBERG_ROWID_COL.equalsIgnoreCase(slot.getColumn().getName())) {
-            return TColumnCategory.SYNTHESIZED;
-        }
         if (partitionKeys.contains(slot.getColumn().getName())) {
             return TColumnCategory.PARTITION_KEY;
         }

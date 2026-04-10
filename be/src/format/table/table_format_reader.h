@@ -142,6 +142,53 @@ public:
         return Status::OK();
     }
 
+    Status clear_synthesized_columns(Block* block) {
+        for (auto& [name, handler] : _synthesized_col_handlers) {
+            int col_pos = block->get_position_by_name(name);
+            if (col_pos < 0) {
+                continue;
+            }
+            block->get_by_position(static_cast<size_t>(col_pos)).column->assume_mutable()->clear();
+        }
+        return Status::OK();
+    }
+
+    using GeneratedColumnHandler = std::function<Status(Block* block, size_t rows)>;
+
+    // disable column lazy read, dict filter and min-max filter.
+    virtual bool disable_column_opt(std::string col_name) {
+        // generated columns may have complex expressions that are not compatible with lazy read, dict filter, or min-max filter.
+        for (auto& [name, handler] : _generated_col_handlers) {
+            if (name == col_name) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    void register_generated_column_handler(const std::string& col_name,
+                                           GeneratedColumnHandler handler) {
+        _generated_col_handlers.emplace_back(col_name, std::move(handler));
+    }
+
+    Status fill_generated_columns(Block* block, size_t rows) {
+        for (auto& [name, handler] : _generated_col_handlers) {
+            RETURN_IF_ERROR(handler(block, rows));
+        }
+        return Status::OK();
+    }
+
+    Status clear_generated_columns(Block* block) {
+        for (auto& [name, handler] : _generated_col_handlers) {
+            int col_pos = block->get_position_by_name(name);
+            if (col_pos < 0) {
+                continue;
+            }
+            block->get_by_position(static_cast<size_t>(col_pos)).column->assume_mutable()->clear();
+        }
+        return Status::OK();
+    }
+
     /// Unified fill for partition + missing + synthesized columns.
     /// Called automatically by on_after_read_block for simple readers.
     /// Parquet/ORC call individual on_fill_* methods per-batch internally.
@@ -157,10 +204,13 @@ public:
         }
         RETURN_IF_ERROR(on_fill_missing_columns(block, rows, miss_col_names));
         RETURN_IF_ERROR(fill_synthesized_columns(block, rows));
+        RETURN_IF_ERROR(fill_generated_columns(block, rows));
         return Status::OK();
     }
 
     bool has_synthesized_column_handlers() const { return !_synthesized_col_handlers.empty(); }
+
+    bool has_generated_column_handlers() const { return !_generated_col_handlers.empty(); }
 
     /// Fill generated columns. Default is no-op.
     virtual Status on_fill_generated_columns(Block* block, size_t rows,
@@ -199,6 +249,9 @@ protected:
 
     // ---- Synthesized column handlers ----
     std::vector<std::pair<std::string, SynthesizedColumnHandler>> _synthesized_col_handlers;
+
+    // ---- Generated column handlers ----
+    std::vector<std::pair<std::string, GeneratedColumnHandler>> _generated_col_handlers;
 };
 
 #include "common/compile_check_end.h"

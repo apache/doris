@@ -232,10 +232,6 @@ private:
     // otherwise, point to _output_tuple_desc
     const TupleDescriptor* _real_tuple_desc = nullptr;
 
-    std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> _row_id_column_iterator_pair = {nullptr,
-                                                                                           -1};
-    // for iceberg row lineage
-    RowLineageColumns _row_lineage_columns;
     int64_t _last_bytes_read_from_local = 0;
     int64_t _last_bytes_read_from_remote = 0;
 
@@ -282,7 +278,7 @@ private:
                             std::unique_ptr<OrcReader> orc_reader = nullptr);
     Status _init_parquet_reader(FileMetaCache* file_meta_cache_ptr,
                                 std::unique_ptr<ParquetReader> parquet_reader = nullptr);
-    Status _create_row_id_column_iterator();
+    std::shared_ptr<segment_v2::RowIdColumnIteratorV2> _create_row_id_column_iterator();
 
     TFileFormatType::type _get_current_format_type() {
         // for compatibility, if format_type is not set in range, use the format type of params
