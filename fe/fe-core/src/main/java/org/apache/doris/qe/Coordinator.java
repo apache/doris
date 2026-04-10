@@ -18,6 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.DescriptorTable;
+import org.apache.doris.analysis.DescriptorToThriftConverter;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.AIResource;
 import org.apache.doris.catalog.Env;
@@ -338,7 +339,7 @@ public class Coordinator implements CoordInterface {
         this.queryId = context.queryId();
         this.fragments = planner.getFragments();
         this.scanNodes = planner.getScanNodes();
-        this.descTable = planner.getDescTable().toThrift();
+        this.descTable = DescriptorToThriftConverter.toThrift(planner.getDescTable());
 
         this.returnedAllResults = false;
         this.enableShareHashTableForBroadcastJoin = context.getSessionVariable().enableShareHashTableForBroadcastJoin;
@@ -380,7 +381,7 @@ public class Coordinator implements CoordInterface {
             List<ScanNode> scanNodes, String timezone, boolean loadZeroTolerance, boolean enableProfile) {
         this.jobId = jobId;
         this.queryId = queryId;
-        this.descTable = descTable.toThrift();
+        this.descTable = DescriptorToThriftConverter.toThrift(descTable);
         this.fragments = fragments;
         this.scanNodes = scanNodes;
         this.queryOptions = new TQueryOptions();

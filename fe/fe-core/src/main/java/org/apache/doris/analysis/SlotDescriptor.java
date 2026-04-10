@@ -23,18 +23,14 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.thrift.TColumnAccessPath;
-import org.apache.doris.thrift.TSlotDescriptor;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.collect.Lists;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.Collections;
 import java.util.List;
 
 public class SlotDescriptor {
-    private static final Logger LOG = LogManager.getLogger(SlotDescriptor.class);
     private final SlotId id;
     private final TupleId parentId;
     private Type type;
@@ -158,6 +154,10 @@ public class SlotDescriptor {
         this.materializedColumnName = name;
     }
 
+    public String getMaterializedColumnName() {
+        return materializedColumnName;
+    }
+
     public String getLabel() {
         return label;
     }
@@ -187,38 +187,6 @@ public class SlotDescriptor {
 
     public void setVirtualColumn(Expr virtualColumn) {
         this.virtualColumn = virtualColumn;
-    }
-
-    public TSlotDescriptor toThrift() {
-        // Non-nullable slots will have 0 for the byte offset and -1 for the bit mask
-        String colName = materializedColumnName != null ? materializedColumnName :
-                                     ((column != null) ? column.getNonShadowName() : "");
-        TSlotDescriptor tSlotDescriptor = new TSlotDescriptor(id.asInt(), parentId.asInt(), type.toThrift(), -1,
-                0, 0, getIsNullable() ? 0 : -1, colName, -1,
-                true);
-        tSlotDescriptor.setIsAutoIncrement(isAutoInc);
-        if (column != null) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("column name:{}, column unique id:{}", column.getNonShadowName(), column.getUniqueId());
-            }
-            tSlotDescriptor.setColUniqueId(column.getUniqueId());
-            tSlotDescriptor.setPrimitiveType(column.getDataType().toThrift());
-            tSlotDescriptor.setIsKey(column.isKey());
-            tSlotDescriptor.setColDefaultValue(column.getDefaultValue());
-        }
-        if (subColPath != null) {
-            tSlotDescriptor.setColumnPaths(subColPath);
-        }
-        if (virtualColumn != null) {
-            tSlotDescriptor.setVirtualColumnExpr(ExprToThriftVisitor.treeToThrift(virtualColumn));
-        }
-        if (allAccessPaths != null) {
-            tSlotDescriptor.setAllAccessPaths(allAccessPaths);
-        }
-        if (predicateAccessPaths != null) {
-            tSlotDescriptor.setPredicateAccessPaths(predicateAccessPaths);
-        }
-        return tSlotDescriptor;
     }
 
     private String normalizeCaption(String caption) {
