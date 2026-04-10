@@ -138,12 +138,13 @@ static void read_parquet_lines(std::vector<std::string> numeric_types,
     }
     auto p_reader =
             new ParquetReader(nullptr, scan_params, scan_range, 992, &ctz, nullptr, nullptr);
-    std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> iterator_pair;
-    iterator_pair =
-            std::make_pair(std::make_shared<RowIdColumnIteratorV2>(
-                                   IdManager::ID_VERSION, BackendOptions::get_backend_id(), 10),
-                           tuple_desc->slots().size());
-    p_reader->set_row_id_column_iterator(iterator_pair);
+
+    auto iter = std::make_shared<RowIdColumnIteratorV2>(IdManager::ID_VERSION,
+                                                        BackendOptions::get_backend_id(), 10);
+    p_reader->register_synthesized_column_handler(
+            "row_id", [&](Block* block, size_t rows) -> Status {
+                return p_reader->fill_topn_row_id(iter, "row_id", block, rows);
+            });
     p_reader->set_file_reader(reader);
     static_cast<void>(p_reader->read_by_rows(read_lines));
 

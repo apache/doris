@@ -155,20 +155,49 @@ public:
 
     using GeneratedColumnHandler = std::function<Status(Block* block, size_t rows)>;
 
-    // disable column lazy read, dict filter and min-max filter.
-    virtual bool disable_column_opt(std::string col_name) {
-        // generated columns may have complex expressions that are not compatible with lazy read, dict filter, or min-max filter.
-        for (auto& [name, handler] : _generated_col_handlers) {
-            if (name == col_name) {
-                return true;
-            }
+    struct ColumnOptimizationTypes {
+        using Type = int;
+
+        static constexpr Type NONE = 0x00;
+        static constexpr Type LAZY_READ = 0x01;
+        static constexpr Type DICT_FILTER = 0x02;
+        static constexpr Type MIN_MAX = 0x04;
+        static constexpr Type DEFAULT = LAZY_READ | DICT_FILTER | MIN_MAX;
+    };
+
+    void set_column_optimizations(const std::string& col_name,
+                                  ColumnOptimizationTypes::Type optimizations) {
+        if (optimizations == ColumnOptimizationTypes::DEFAULT) {
+            _column_optimizations.erase(col_name);
+            return;
         }
-        return false;
+        _column_optimizations[col_name] = optimizations;
+    }
+
+    ColumnOptimizationTypes::Type get_column_optimizations(const std::string& col_name) const {
+        auto it = _column_optimizations.find(col_name);
+        if (it != _column_optimizations.end()) {
+            return it->second;
+        }
+        return ColumnOptimizationTypes::DEFAULT;
+    }
+
+    bool has_column_optimization(const std::string& col_name,
+                                 ColumnOptimizationTypes::Type optimization) const {
+        return (get_column_optimizations(col_name) & optimization) == optimization;
+    }
+
+    // Transitional helper kept for compatibility while readers migrate to bitmask checks.
+    bool disable_column_opt(const std::string& col_name) const {
+        return get_column_optimizations(col_name) == ColumnOptimizationTypes::NONE;
     }
 
     void register_generated_column_handler(const std::string& col_name,
                                            GeneratedColumnHandler handler) {
         _generated_col_handlers.emplace_back(col_name, std::move(handler));
+        // Generated columns may depend on computed values that are not compatible with
+        // lazy read, dictionary filtering, or min-max filtering.
+        set_column_optimizations(col_name, ColumnOptimizationTypes::NONE);
     }
 
     Status fill_generated_columns(Block* block, size_t rows) {
@@ -252,6 +281,9 @@ protected:
 
     // ---- Generated column handlers ----
     std::vector<std::pair<std::string, GeneratedColumnHandler>> _generated_col_handlers;
+
+    // ---- Column optimization flags ----
+    std::unordered_map<std::string, ColumnOptimizationTypes::Type> _column_optimizations;
 };
 
 #include "common/compile_check_end.h"

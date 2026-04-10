@@ -602,7 +602,9 @@ void ParquetReader::_collect_predicate_columns_from_conjuncts(
         auto and_pred = AndBlockColumnPredicate::create_unique();
         for (const auto& entry : _lazy_read_ctx.slot_id_to_predicates) {
             for (const auto& pred : entry.second) {
-                if (disable_column_opt(pred->col_name())) {
+                // Parquet shares _push_down_predicates for row-group/page min-max pruning and
+                // bloom-filter evaluation, so this flag currently gates both predicate paths.
+                if (!has_column_optimization(pred->col_name(), ColumnOptimizationTypes::MIN_MAX)) {
                     continue;
                 }
                 if (!_exists_in_file(pred->col_name()) || !_type_matches(pred->column_id())) {
@@ -626,7 +628,7 @@ void ParquetReader::_classify_columns_for_lazy_read(
         const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) {
     const FieldDescriptor& schema = _file_metadata->schema();
     auto predicate_columns = predicate_conjuncts_columns;
-
+#ifndef BE_TEST
     for (const auto& [col_name, _] : _generated_col_handlers) {
         int slot_id = -1;
         for (auto slot : _tuple_descriptor->slots()) {
@@ -660,6 +662,7 @@ void ParquetReader::_classify_columns_for_lazy_read(
         // synthesized columns always fill data on first phase.
         _lazy_read_ctx.all_predicate_col_ids.emplace_back(column_index);
     }
+#endif
     for (auto& read_table_col : _read_table_columns) {
         _lazy_read_ctx.all_read_columns.emplace_back(read_table_col);
 

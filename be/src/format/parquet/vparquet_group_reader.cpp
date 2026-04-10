@@ -157,8 +157,10 @@ Status RowGroupReader::init(
             const std::string& predicate_col_name = predicate_col_names[i];
             int slot_id = predicate_col_slot_ids[i];
 
-            if (_table_format_reader->disable_column_opt(predicate_col_name)) {
-                // row lineage column can not dict filter.
+            if (!_table_format_reader->has_column_optimization(
+                        predicate_col_name,
+                        TableFormatReader::ColumnOptimizationTypes::DICT_FILTER)) {
+                // Row-lineage style generated columns cannot participate in dict filtering.
                 if (_slot_id_to_filter_conjuncts->find(slot_id) !=
                     _slot_id_to_filter_conjuncts->end()) {
                     for (auto& ctx : _slot_id_to_filter_conjuncts->at(slot_id)) {

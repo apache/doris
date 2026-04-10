@@ -900,7 +900,7 @@ bool OrcReader::_check_slot_can_push_down(const VExprSPtr& expr) {
         return false;
     }
 
-    if (disable_column_opt(slot_ref->expr_name())) {
+    if (!has_column_optimization(slot_ref->expr_name(), ColumnOptimizationTypes::MIN_MAX)) {
         return false;
     }
 
@@ -1289,7 +1289,7 @@ void OrcReader::_classify_columns_for_lazy_read(
                 _lazy_read_ctx.predicate_columns.second.emplace_back(iter->second.second);
                 _lazy_read_ctx.predicate_orc_columns.emplace_back(
                         _table_info_node_ptr->children_file_column_name(iter->first));
-                if (disable_column_opt(read_table_col)) {
+                if (!has_column_optimization(read_table_col, ColumnOptimizationTypes::LAZY_READ)) {
                     // Todo : enable lazy mat where filter iceberg row lineage column.
                     _enable_lazy_mat = false;
                 }
@@ -1319,7 +1319,7 @@ void OrcReader::_classify_columns_for_lazy_read(
                 }
             }
             _lazy_read_ctx.predicate_missing_columns.emplace(kv.first, kv.second);
-            if (disable_column_opt(kv.first)) {
+            if (!has_column_optimization(kv.first, ColumnOptimizationTypes::LAZY_READ)) {
                 _enable_lazy_mat = false;
             }
         }
@@ -2872,7 +2872,8 @@ Status OrcReader::fill_dict_filter_column_names(
     int i = 0;
     for (const auto& predicate_col_name : predicate_col_names) {
         int slot_id = predicate_col_slot_ids[i];
-        if (!_disable_dict_filter && !disable_column_opt(predicate_col_name) &&
+        if (!_disable_dict_filter &&
+            has_column_optimization(predicate_col_name, ColumnOptimizationTypes::DICT_FILTER) &&
             _can_filter_by_dict(slot_id)) {
             _dict_filter_cols.emplace_back(predicate_col_name, slot_id);
             column_names.emplace_back(

@@ -128,12 +128,11 @@ static void read_orc_line(int64_t line, std::string block_dump,
 
     static_cast<void>(local_fs->open_file(range.path, &file_reader));
 
-    std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> iterator_pair;
-    iterator_pair =
-            std::make_pair(std::make_shared<RowIdColumnIteratorV2>(
-                                   IdManager::ID_VERSION, BackendOptions::get_backend_id(), 10),
-                           tuple_desc->slots().size());
-    reader->set_row_id_column_iterator(iterator_pair);
+    auto iter = std::make_shared<RowIdColumnIteratorV2>(IdManager::ID_VERSION,
+                                                        BackendOptions::get_backend_id(), 10);
+    reader->register_synthesized_column_handler("row_id", [&](Block* block, size_t rows) -> Status {
+        return reader->fill_topn_row_id(iter, "row_id", block, rows);
+    });
 
     // Construct OrcInitContext for standalone reader (no column_descs).
     OrcInitContext orc_ctx;
