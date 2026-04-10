@@ -22,8 +22,13 @@ import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.stream.AbstractTableStreamUpdate;
+import org.apache.doris.catalog.stream.OlapTableStreamUpdate;
+import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
+import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.ProfileManager.ProfileType;
 import org.apache.doris.common.util.DebugUtil;
@@ -77,12 +82,15 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.planner.DataSink;
+import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.Backend;
+import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
@@ -92,6 +100,8 @@ import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -99,6 +109,7 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 /**
  * insert into select command implementation
@@ -280,6 +291,44 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             lineagePlan = Optional.ofNullable(analyzedPlan);
             if (!needBeginTransaction) {
                 return insertExecutor;
+            }
+
+            List<ScanNode> tableStreamScanNodes =
+                    buildResult.planner.getScanNodes().stream()
+                            .filter(s -> s.getTableIf() instanceof OlapTableStreamWrapper).collect(Collectors.toList());
+
+            if (!tableStreamScanNodes.isEmpty()) {
+                // stream id -> <partition id, offset>
+                Map<Pair<Long, Long>, AbstractTableStreamUpdate> distinctUpdate =
+                        new HashMap<>(tableStreamScanNodes.size());
+                for (ScanNode scanNode : tableStreamScanNodes) {
+                    // only support OlapScanNode currently
+                    Preconditions.checkArgument(scanNode instanceof OlapScanNode);
+                    OlapScanNode olapScanNode = (OlapScanNode) scanNode;
+                    OlapTableStreamWrapper wrapper = (OlapTableStreamWrapper) scanNode.getTableIf();
+                    if (!distinctUpdate.containsKey(
+                            Pair.of(wrapper.getStreamDbId(), wrapper.getStreamId()))) {
+                        distinctUpdate.put(Pair.of(wrapper.getStreamDbId(), wrapper.getStreamId()),
+                                new OlapTableStreamUpdate());
+                    }
+                    distinctUpdate.get(Pair.of(wrapper.getStreamDbId(), wrapper.getStreamId()))
+                                    .merge(olapScanNode.getStreamUpdate());
+                }
+                List<TableStreamUpdateInfo> infos = new ArrayList<>(distinctUpdate.size());
+                distinctUpdate.forEach((key, value) -> infos.add(new TableStreamUpdateInfo(key.first,
+                        key.second, value)));
+                // put offset into executor
+                insertExecutor.setStreamUpdateInfos(infos);
+                insertExecutor.registerListener(new InsertExecutorListener() {
+                    @Override
+                    public void beforeComplete(AbstractInsertExecutor insertExecutor, StmtExecutor executor,
+                                               long jobId) throws Exception {
+                        TransactionState transactionState = Env.getCurrentGlobalTransactionMgr()
+                                .getTransactionState(insertExecutor.getDatabase().getId(),
+                                        insertExecutor.getTxnId());
+                        transactionState.setStreamUpdateInfos(insertExecutor.getStreamUpdateInfos());
+                    }
+                });
             }
 
             // lock after plan and check does table's schema changed to ensure we lock table order by id.

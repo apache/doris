@@ -22,6 +22,8 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TCell;
@@ -46,6 +48,9 @@ public class OlapTableStream extends BaseTableStream {
     @SerializedName("pct")
     private Map<Long, Long> partitionConsumptionTime;
 
+    @SerializedName("hpo")
+    private Map<Long, Long> historicalPartitionOffset;
+
     // for persist
     public OlapTableStream() {
         super();
@@ -56,6 +61,7 @@ public class OlapTableStream extends BaseTableStream {
         Preconditions.checkArgument(baseTable instanceof OlapTable);
         this.partitionOffset = new HashMap<>();
         this.partitionConsumptionTime = new HashMap<>();
+        this.historicalPartitionOffset = new HashMap<>();
         this.baseTable = baseTable;
     }
 
@@ -85,8 +91,12 @@ public class OlapTableStream extends BaseTableStream {
         // set offset according to baseTable
         if (!showInitialRows) {
             // set partition offset
+            // todo(TsukiokaKogane): change offset from partition version to commit tso
             ((OlapTable) baseTable).getPartitions()
                     .forEach(p -> partitionOffset.put(p.getId(), p.getVisibleVersion()));
+        } else {
+            ((OlapTable) baseTable).getPartitions()
+                    .forEach(p -> historicalPartitionOffset.put(p.getId(), p.getVisibleVersion()));
         }
     }
 
@@ -152,6 +162,52 @@ public class OlapTableStream extends BaseTableStream {
             } finally {
                 table.readUnlock();
             }
+        }
+    }
+
+    public boolean hasData(Partition partition) {
+        // if all available visible data has been consumed, return false
+        // todo(TsukiokaKogane): change offset from partition version to commit tso
+        return  (!partitionOffset.containsKey(partition.getId())
+                || !partitionOffset.get(partition.getId()).equals(partition.getVisibleVersion())
+                || historicalPartitionOffset.containsKey(partition.getId()))
+                && partition.hasData();
+    }
+
+    public Pair<Long, Long> getStreamUpdate(Long partitionId) {
+        Long next = null;
+        Long prev = null;
+        if (historicalPartitionOffset.containsKey(partitionId)) {
+            next = historicalPartitionOffset.get(partitionId);
+        } else {
+            // todo(TsukiokaKogane): update next version with stepping
+            next = ((OlapTable) baseTable).getPartition(partitionId).getVisibleVersion();
+        }
+        prev = partitionOffset.get(partitionId);
+        return Pair.of(prev, next);
+    }
+
+    @Override
+    public void unprotectedCheckStreamUpdate(AbstractTableStreamUpdate update)
+            throws UserException {
+        Preconditions.checkArgument(update instanceof OlapTableStreamUpdate);
+        // check valid
+        ((OlapTableStreamUpdate) update).checkPartitionOffset(getDBName(), getName(), historicalPartitionOffset,
+                partitionOffset);
+    }
+
+    @Override
+    public void unprotectedUpdateStreamUpdate(AbstractTableStreamUpdate update, Long ts) {
+        Map<Long, Long> next = ((OlapTableStreamUpdate) update).getNext();
+        for (Map.Entry<Long, Long> entry : next.entrySet()) {
+            if (historicalPartitionOffset.containsKey(entry.getKey())) {
+                historicalPartitionOffset.remove(entry.getKey());
+                partitionOffset.put(entry.getKey(), entry.getValue());
+            } else {
+                // todo(TsukiokaKogane): update partition offset with tso
+                partitionOffset.put(entry.getKey(), entry.getValue());
+            }
+            partitionConsumptionTime.put(entry.getKey(), ts);
         }
     }
 }

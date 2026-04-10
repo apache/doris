@@ -34,6 +34,8 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.catalog.stream.BaseTableStream;
+import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DuplicatedRequestException;
@@ -90,6 +92,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.TimeUnit;
@@ -815,7 +818,8 @@ public class DatabaseTransactionMgr {
             checkCommitStatus(tableList, transactionState, tabletCommitInfos, txnCommitAttachment, errorReplicaIds,
                     tableToPartition, totalInvolvedBackends);
         }
-
+        // check table stream offset if necessary
+        checkStreamOffset(transactionState);
         // before state transform
         transactionState.beforeStateTransform(TransactionStatus.COMMITTED);
         // transaction state transform
@@ -871,6 +875,8 @@ public class DatabaseTransactionMgr {
         if (!checkTransactionStateBeforeCommit(db, tableList, transactionId, false, transactionState)) {
             return;
         }
+        // check table stream offset if necessary
+        checkStreamOffset(transactionState);
 
         // error replica may be duplicated for different sub transaction, but it's ok
         Set<Long> errorReplicaIds = Sets.newHashSet();
@@ -1766,6 +1772,10 @@ public class DatabaseTransactionMgr {
      * @param isReplay true if this is a replay operation (edit log already contains this state)
      */
     protected void unprotectUpdateInMemoryState(TransactionState transactionState, boolean isReplay) {
+        if (transactionState.getTransactionStatus().equals(TransactionStatus.COMMITTED)) {
+            // update table stream offset if necessary
+            updateStreamOffset(transactionState, transactionState.getCommitTime());
+        }
         if (!transactionState.getTransactionStatus().isFinalStatus()) {
             if (idToRunningTransactionState.put(transactionState.getTransactionId(), transactionState) == null) {
                 runningTxnNums.incrementAndGet();
@@ -2653,6 +2663,7 @@ public class DatabaseTransactionMgr {
         if (shouldAddTableListLock) {
             db = env.getInternalCatalog().getDbOrMetaException(transactionState.getDbId());
             tableList = db.getTablesOnIdOrderIfExist(transactionState.getTableIdList());
+            tableList = buildLockTableListNoException(tableList, transactionState);
             tableList = MetaLockUtils.writeLockTablesIfExist(tableList);
         }
         writeLock();
@@ -3112,6 +3123,58 @@ public class DatabaseTransactionMgr {
             LOG.warn("failed to get TSO for txn {}, abort commit", transactionState.getTransactionId(), e);
             throw new TransactionCommitFailedException("failed to get TSO for txn "
                     + transactionState.getTransactionId(), e);
+        }
+    }
+
+    private List<? extends TableIf> buildLockTableListNoException(List<? extends TableIf> tableList,
+                                                                 TransactionState transactionState) {
+        if (transactionState == null || CollectionUtils.isEmpty(transactionState.getStreamUpdateInfos())) {
+            return tableList;
+        }
+        TreeSet<Pair<Long, Long>> tableIfs = new TreeSet<>(new Pair.PairComparator<>());
+        tableList.forEach(table -> tableIfs.add(Pair.of(table.getDatabase().getId(), table.getId())));
+        transactionState.getStreamUpdateInfos()
+                .forEach(info -> tableIfs.add(Pair.of(info.getDbId(), info.getStreamId())));
+        List<Table> newTableList = new ArrayList<>(tableIfs.size());
+        for (Pair<Long, Long> p : tableIfs) {
+            Database db = env.getInternalCatalog().getDbNullable(p.first);
+            if (db == null) {
+                continue;
+            }
+            Table table = db.getTableNullable(p.second);
+            if (table == null) {
+                continue;
+            }
+            newTableList.add(table);
+        }
+        return newTableList;
+    }
+
+    private void checkStreamOffset(TransactionState transactionState) throws UserException {
+        if (CollectionUtils.isEmpty(transactionState.getStreamUpdateInfos())) {
+            return;
+        }
+        for (TableStreamUpdateInfo info : transactionState.getStreamUpdateInfos()) {
+            Database db = env.getInternalCatalog().getDbOrMetaException(info.getDbId());
+            TableIf tableIf = db.getTableOrMetaException(info.getStreamId());
+            ((BaseTableStream) tableIf).unprotectedCheckStreamUpdate(info.getUpdate());
+        }
+    }
+
+    private void updateStreamOffset(TransactionState transactionState, Long ts) {
+        if (CollectionUtils.isEmpty(transactionState.getStreamUpdateInfos())) {
+            return;
+        }
+        for (TableStreamUpdateInfo info : transactionState.getStreamUpdateInfos()) {
+            Database db = env.getInternalCatalog().getDbNullable(info.getDbId());
+            if (db == null) {
+                continue;
+            }
+            TableIf tableIf = db.getTableNullable(info.getStreamId());
+            if (tableIf == null) {
+                continue;
+            }
+            ((BaseTableStream) tableIf).unprotectedUpdateStreamUpdate(info.getUpdate(), ts);
         }
     }
 }
