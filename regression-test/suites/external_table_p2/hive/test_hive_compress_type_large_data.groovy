@@ -44,15 +44,18 @@ suite("test_hive_compress_type_large_data", "p2,external") {
         );"""
         sql """use `${catalog_name}`.`multi_catalog`"""
 
-        // table test_compress_partitioned has mixed compressed files and larger data volume.
+        // table test_compress_partitioned has 16 files across 8 partitions (734MB total).
+        // With count pushdown, needSplit depends on totalFileNum vs parallelNum * backendNum.
+        // When needSplit=false: each file = 1 split = 16 splits.
+        // When needSplit=true and file_split_size=0: splits by dynamic size = 28 splits.
+        // When needSplit=true and file_split_size=8MB: splits by 8MB = 82 splits.
+        def needSplit = (backendNum > 1) && (16 < parallelExecInstanceNum * backendNum)
+
         sql """set file_split_size=0"""
-        def expectedSplitNum = 16
-        if (backendNum > 1) {
-            expectedSplitNum = (16 < parallelExecInstanceNum * backendNum) ? 28 : 16
-        }
+        def expectedSplitNum1 = needSplit ? 28 : 16
         explain {
             sql("select count(*) from test_compress_partitioned")
-            contains "inputSplitNum=${expectedSplitNum}, totalFileSize=734675596, scanRanges=${expectedSplitNum}"
+            contains "inputSplitNum=${expectedSplitNum1}, totalFileSize=734675596, scanRanges=${expectedSplitNum1}"
             contains "partition=8/8"
         }
 
@@ -64,9 +67,10 @@ suite("test_hive_compress_type_large_data", "p2,external") {
         assertEquals(15, countWatchId1[0][0])
 
         sql """set file_split_size=8388608"""
+        def expectedSplitNum2 = needSplit ? 82 : 16
         explain {
             sql("select count(*) from test_compress_partitioned")
-            contains "inputSplitNum=16, totalFileSize=734675596, scanRanges=16"
+            contains "inputSplitNum=${expectedSplitNum2}, totalFileSize=734675596, scanRanges=${expectedSplitNum2}"
             contains "partition=8/8"
         }
 
