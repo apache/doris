@@ -19,14 +19,12 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.persist.gson.GsonPostProcessable;
 
-import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
-
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 /**
  * The OlapTraditional table is a materialized table which stored as rowcolumnar file or columnar file
@@ -58,7 +56,7 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
     @SerializedName(value = "rowCount")
     private long rowCount;
 
-    private Map<Long, Tablet> idToTablets;
+    private Long2ObjectOpenHashMap<Tablet> idToTablets;
     @SerializedName(value = "tablets")
     // this is for keeping tablet order
     private List<Tablet> tablets;

@@ -133,6 +133,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.time.StopWatch;
 import org.apache.logging.log4j.LogManager;
@@ -2562,11 +2563,17 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     private void cleanSubTransactions(long transactionId) {
+        // Collect keys first to avoid read→write lock deadlock:
+        // forEach(LongLongConsumer) holds segment read-lock, remove() needs write-lock.
+        LongArrayList keysToRemove = new LongArrayList();
         subTxnIdToTxnId.forEach((subTxnId, txnId) -> {
             if (txnId == transactionId) {
-                subTxnIdToTxnId.remove(subTxnId);
+                keysToRemove.add(subTxnId);
             }
         });
+        for (long key : keysToRemove) {
+            subTxnIdToTxnId.remove(key);
+        }
     }
 
     public Pair<Long, TransactionState> beginSubTxn(long txnId, long dbId, Set<Long> tableIds, String label,

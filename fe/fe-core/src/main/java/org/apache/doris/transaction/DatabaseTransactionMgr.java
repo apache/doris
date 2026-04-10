@@ -67,8 +67,6 @@ import org.apache.doris.task.PublishVersionTask;
 import org.apache.doris.thrift.TTabletCommitInfo;
 import org.apache.doris.thrift.TUniqueId;
 
-import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
-
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -76,6 +74,8 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
@@ -3045,10 +3045,16 @@ public class DatabaseTransactionMgr {
     }
 
     private void cleanSubTransactions(long transactionId) {
+        // Collect keys first to avoid read→write lock deadlock:
+        // forEach(LongLongConsumer) holds segment read-lock, remove() needs write-lock.
+        LongArrayList keysToRemove = new LongArrayList();
         subTxnIdToTxnId.forEach((subTxnId, txnId) -> {
             if (txnId == transactionId) {
-                subTxnIdToTxnId.remove(subTxnId);
+                keysToRemove.add(subTxnId);
             }
         });
+        for (long key : keysToRemove) {
+            subTxnIdToTxnId.remove(key);
+        }
     }
 }

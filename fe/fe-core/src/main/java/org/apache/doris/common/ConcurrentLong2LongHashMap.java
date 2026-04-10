@@ -478,6 +478,11 @@ public class ConcurrentLong2LongHashMap extends AbstractLong2LongMap {
 
     /**
      * Applies the given action to each entry under read-lock per segment.
+     *
+     * <p><b>WARNING:</b> The callback is invoked while holding a segment read-lock.
+     * Do NOT mutate this map (put/remove) from within the callback, as it will
+     * attempt to acquire the write-lock on the same segment, causing a deadlock.
+     * To remove entries conditionally, collect keys first, then remove after iteration.
      */
     public void forEach(LongLongConsumer action) {
         for (Segment seg : segments) {

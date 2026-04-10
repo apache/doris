@@ -19,9 +19,8 @@ package org.apache.doris.transaction;
 
 import org.apache.doris.thrift.TPartitionVersionInfo;
 
-import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
-
 import com.google.gson.annotations.SerializedName;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 

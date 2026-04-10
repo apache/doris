@@ -20,10 +20,9 @@ package org.apache.doris.cloud.catalog;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TabletInvertedIndex;
 
-import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
-
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 

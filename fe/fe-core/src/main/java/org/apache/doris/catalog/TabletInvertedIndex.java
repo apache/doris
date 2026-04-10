@@ -26,14 +26,13 @@ import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTablet;
 import org.apache.doris.thrift.TTabletMetaInfo;
 
-import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
-
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Maps;
 import com.google.common.collect.SetMultimap;
 import com.google.common.collect.Table;
 import com.google.common.collect.TreeMultimap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
