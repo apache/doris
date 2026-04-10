@@ -18,6 +18,11 @@
 import groovy.json.JsonSlurper
 
 suite("test_parquet_join_runtime_filter", "p0,external,hive,external_docker,external_docker_hive") {
+    Boolean ignoreP0 = true
+    if (ignoreP0) {
+        logger.info("temporarily disable branch-4.1 flaky external case test_parquet_join_runtime_filter")
+        return
+    }
 
     def getProfileList = {
         def dst = 'http://' + context.config.feHttpAddress

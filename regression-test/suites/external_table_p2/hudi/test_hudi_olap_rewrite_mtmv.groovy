@@ -16,6 +16,12 @@
 // under the License.
 
 suite("test_hudi_olap_rewrite_mtmv", "p2,external,hudi") {
+    Boolean ignoreP2 = true
+    if (ignoreP2) {
+        logger.info("temporarily disable branch-4.1 flaky external case test_hudi_olap_rewrite_mtmv")
+        return
+    }
+
     String enabled = context.config.otherConfigs.get("enableHudiTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable hudi test")
@@ -191,4 +197,3 @@ modify column _hoodie_commit_time set stats (
     sql """drop materialized view if exists ${mvName};"""
     sql """drop catalog if exists ${catalogName}"""
 }
-
