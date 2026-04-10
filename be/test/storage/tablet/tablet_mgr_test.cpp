@@ -312,7 +312,7 @@ TEST_F(TabletMgrTest, DropTabletForce) {
     EXPECT_TRUE(trash_st == Status::OK());
     tablet = _tablet_mgr->get_tablet(111, true);
     EXPECT_TRUE(tablet == nullptr);
-    
+
     // the directory should be force deleted, not moved to trash
     EXPECT_TRUE(io::global_local_filesystem()->exists(tablet_path, &dir_exist).ok());
     EXPECT_FALSE(dir_exist);
@@ -340,7 +340,7 @@ TEST_F(TabletMgrTest, DropTabletForce_DiffPath) {
     create_tablet_req.__set_version(2);
     std::vector<DataDir*> data_dirs;
     data_dirs.push_back(_data_dir);
-    
+
     // 1. Create first tablet
     Status create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs, &profile);
     EXPECT_TRUE(create_st == Status::OK());
@@ -376,7 +376,7 @@ TEST_F(TabletMgrTest, DropTabletForce_DiffPath) {
     // 6. Check if the second tablet is still alive
     EXPECT_TRUE(io::global_local_filesystem()->exists(tablet2_path, &dir_exist).ok());
     EXPECT_TRUE(dir_exist);
-    
+
     // Clean up
     drop_st = _tablet_mgr->drop_tablet(111, create_tablet_req.replica_id, false, true);
     EXPECT_TRUE(drop_st == Status::OK());
