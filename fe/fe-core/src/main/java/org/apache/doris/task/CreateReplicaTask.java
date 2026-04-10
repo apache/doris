@@ -20,6 +20,7 @@ package org.apache.doris.task;
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ColumnToThrift;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
@@ -318,7 +319,7 @@ public class CreateReplicaTask extends AgentTask {
             tColumns = new ArrayList<>();
             for (int i = 0; i < columns.size(); i++) {
                 Column column = columns.get(i);
-                TColumn tColumn = column.toThrift();
+                TColumn tColumn = ColumnToThrift.toThrift(column);
                 // is bloom filter column
                 if (bfColumns != null && bfColumns.contains(column.getName())) {
                     tColumn.setIsBloomFilterColumn(true);

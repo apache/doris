@@ -23,6 +23,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.PlanContext;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.UseMvHint;
 import org.apache.doris.nereids.processor.post.RuntimeFilterGenerator;
@@ -40,7 +41,11 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanNodeAndHash;
 import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
@@ -61,6 +66,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -610,5 +616,68 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
                 statistics.getRowCount(),
                 0
         );
+    }
+
+    @Override
+    public Cost visitPhysicalCTEProducer(PhysicalCTEProducer<? extends Plan> cteProducer, PlanContext context) {
+        Statistics childStats = context.getChildStatistics(0);
+        double rows = childStats.getRowCount();
+        double tupleSize = childStats.computeTupleSize(cteProducer.child().getOutput());
+
+        // Determine network cost factor to guide CBO inline decision:
+        // 1. UNION ALL CTEs with N>=3 consumers: pipeline serialization means N consumers wait for producer.
+        //    Each inline copy can use consumer-specific filters (e.g. different d_year) to prune branches.
+        //    Factor = numConsumers * 3 makes materialized more expensive so CBO prefers inline.
+        // 2. Small-output CTEs (rows < 1M): computation cost far exceeds output size
+        //    (e.g. store_sales 2.87B -> 520K agg). Materialization creates a barrier preventing pipeline
+        //    parallelism. Factor = 300 reflects this overhead.
+        double networkFactor = 1.0;
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null) {
+            StatementContext statCtx = connectContext.getStatementContext();
+            if (statCtx != null) {
+                Set<?> consumers = statCtx.getCteIdToConsumers().get(cteProducer.getCteId());
+                int numConsumers = (consumers != null) ? consumers.size() : 1;
+                boolean hasUnionAll = cteProducer.child().anyMatch(p -> p instanceof PhysicalUnion);
+                if (hasUnionAll && numConsumers >= 3) {
+                    // Model pipeline serialization: N consumers each forced to wait for producer
+                    networkFactor = numConsumers * 3.0;
+                } else if (rows < 1_000_000) {
+                    // Small-output CTE: high computation-to-output ratio, parallelism benefit dominates
+                    networkFactor = 300.0;
+                }
+            }
+        }
+        return Cost.of(context.getSessionVariable(), rows, 0, rows * tupleSize * networkFactor);
+    }
+
+    @Override
+    public Cost visitPhysicalCTEConsumer(PhysicalCTEConsumer cteConsumer, PlanContext context) {
+        Statistics stats = context.getStatisticsWithCheck();
+        double rows = stats.getRowCount();
+        double tupleSize = stats.computeTupleSize(cteConsumer.getOutput());
+
+        double networkFactor = 1.0;
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null) {
+            StatementContext statCtx = connectContext.getStatementContext();
+            if (statCtx != null) {
+                Set<?> consumers = statCtx.getCteIdToConsumers().get(cteConsumer.getCteId());
+                int numConsumers = (consumers != null) ? consumers.size() : 1;
+                // Check UNION ALL via logical producer (physical plan may differ after optimization)
+                boolean hasUnionAll = false;
+                LogicalCTEProducer<?> logicalProducer =
+                        statCtx.getCteProducerByCteId(cteConsumer.getCteId());
+                if (logicalProducer != null) {
+                    hasUnionAll = logicalProducer.child().anyMatch(p -> p instanceof LogicalUnion);
+                }
+                if (hasUnionAll && numConsumers >= 3) {
+                    networkFactor = numConsumers * 3.0;
+                } else if (rows < 1_000_000) {
+                    networkFactor = 300.0;
+                }
+            }
+        }
+        return Cost.of(context.getSessionVariable(), rows, 0, rows * tupleSize * networkFactor);
     }
 }

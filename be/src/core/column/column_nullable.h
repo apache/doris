@@ -185,6 +185,14 @@ public:
         get_nested_column().insert_many_continuous_binary_data(data, offsets, num);
     }
 
+    void insert_offsets_from_lengths(const uint32_t* lengths, size_t num) override {
+        if (UNLIKELY(num == 0)) {
+            return;
+        }
+        push_false_to_nullmap(num);
+        get_nested_column().insert_offsets_from_lengths(lengths, num);
+    }
+
     // Default value in `ColumnNullable` is null
     void insert_default() override {
         get_nested_column().insert_default();

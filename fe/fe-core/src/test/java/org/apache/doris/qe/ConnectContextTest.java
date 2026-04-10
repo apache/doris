@@ -42,7 +42,9 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.nio.channels.SocketChannel;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -643,5 +645,46 @@ public class ConnectContextTest {
         } finally {
             Config.cloud_unique_id = originalCloudUniqueId;
         }
+    }
+
+    @Test
+    public void testConnectAttributesDefault() {
+        ConnectContext ctx = new ConnectContext();
+        Map<String, String> attrs = ctx.getConnectAttributes();
+        Assert.assertNotNull("connectAttributes should never be null", attrs);
+        Assert.assertTrue("connectAttributes should default to empty", attrs.isEmpty());
+    }
+
+    @Test
+    public void testConnectAttributesSetAndGet() {
+        ConnectContext ctx = new ConnectContext();
+        Map<String, String> attrs = new HashMap<>();
+        attrs.put("scheduleInfo", "{\"SKYNET_TASKID\":\"523987416281\"}");
+        attrs.put("_client_name", "dataworks-connector");
+
+        ctx.setConnectAttributes(attrs);
+        Map<String, String> result = ctx.getConnectAttributes();
+        Assert.assertEquals(2, result.size());
+        Assert.assertEquals("{\"SKYNET_TASKID\":\"523987416281\"}", result.get("scheduleInfo"));
+        Assert.assertEquals("dataworks-connector", result.get("_client_name"));
+    }
+
+    @Test
+    public void testConnectAttributesDefensiveCopy() {
+        ConnectContext ctx = new ConnectContext();
+        Map<String, String> attrs = new HashMap<>();
+        attrs.put("scheduleInfo", "original");
+        ctx.setConnectAttributes(attrs);
+
+        attrs.put("scheduleInfo", "modified");
+        Assert.assertEquals("original", ctx.getConnectAttributes().get("scheduleInfo"));
+    }
+
+    @Test
+    public void testConnectAttributesSetNull() {
+        ConnectContext ctx = new ConnectContext();
+        ctx.setConnectAttributes(null);
+        Assert.assertNotNull(ctx.getConnectAttributes());
+        Assert.assertTrue(ctx.getConnectAttributes().isEmpty());
     }
 }

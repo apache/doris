@@ -48,6 +48,8 @@
 #include "absl/strings/substitute.h"
 #include "cctz/civil_time.h"
 #include "cctz/time_zone.h"
+#include "common/config.h"
+#include "common/consts.h"
 #include "common/exception.h"
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
@@ -56,10 +58,13 @@
 #include "core/column/column_const.h"
 #include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
 #include "core/column/column_struct.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
@@ -78,6 +83,7 @@
 #include "exprs/vin_predicate.h"
 #include "exprs/vruntimefilter_wrapper.h"
 #include "format/orc/orc_file_reader.h"
+#include "format/table/iceberg_reader.h"
 #include "format/table/transactional_hive_common.h"
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"
@@ -107,6 +113,63 @@ enum class FileCachePolicy : uint8_t;
 
 namespace doris {
 #include "common/compile_check_begin.h"
+
+namespace {
+Status build_iceberg_rowid_column(const DataTypePtr& type, const std::string& file_path,
+                                  int64_t start_row, size_t num_rows, int32_t partition_spec_id,
+                                  const std::string& partition_data_json,
+                                  MutableColumnPtr* column_out) {
+    if (type == nullptr || column_out == nullptr) {
+        return Status::InvalidArgument("Invalid iceberg rowid column type or output column");
+    }
+
+    MutableColumnPtr column = type->create_column();
+    ColumnNullable* nullable_col = check_and_get_column<ColumnNullable>(column.get());
+    ColumnStruct* struct_col = nullptr;
+    if (nullable_col != nullptr) {
+        struct_col =
+                check_and_get_column<ColumnStruct>(nullable_col->get_nested_column_ptr().get());
+    } else {
+        struct_col = check_and_get_column<ColumnStruct>(column.get());
+    }
+
+    if (struct_col == nullptr || struct_col->tuple_size() < 4) {
+        return Status::InternalError("Invalid iceberg rowid column structure");
+    }
+
+    auto& file_path_col = struct_col->get_column(0);
+    auto& row_pos_col = struct_col->get_column(1);
+    auto& spec_id_col = struct_col->get_column(2);
+    auto& partition_data_col = struct_col->get_column(3);
+
+    file_path_col.reserve(num_rows);
+    row_pos_col.reserve(num_rows);
+    spec_id_col.reserve(num_rows);
+    partition_data_col.reserve(num_rows);
+
+    for (size_t i = 0; i < num_rows; ++i) {
+        file_path_col.insert_data(file_path.data(), file_path.size());
+    }
+    for (size_t i = 0; i < num_rows; ++i) {
+        int64_t row_pos = start_row + static_cast<int64_t>(i);
+        row_pos_col.insert_data(reinterpret_cast<const char*>(&row_pos), sizeof(row_pos));
+    }
+    for (size_t i = 0; i < num_rows; ++i) {
+        int32_t spec_id = partition_spec_id;
+        spec_id_col.insert_data(reinterpret_cast<const char*>(&spec_id), sizeof(spec_id));
+    }
+    for (size_t i = 0; i < num_rows; ++i) {
+        partition_data_col.insert_data(partition_data_json.data(), partition_data_json.size());
+    }
+
+    if (nullable_col != nullptr) {
+        nullable_col->get_null_map_data().resize_fill(num_rows, 0);
+    }
+
+    *column_out = std::move(column);
+    return Status::OK();
+}
+} // namespace
 // TODO: we need to determine it by test.
 static constexpr uint32_t MAX_DICT_CODE_PREDICATE_TO_REWRITE = std::numeric_limits<uint32_t>::max();
 static constexpr char EMPTY_STRING_FOR_OVERFLOW[ColumnString::MAX_STRINGS_OVERFLOW_SIZE] = "";
@@ -450,6 +513,16 @@ Status OrcReader::get_parsed_schema(std::vector<std::string>* col_names,
         col_types->emplace_back(convert_to_doris_type(root_type.getSubtype(i)));
     }
     return Status::OK();
+}
+
+void OrcReader::set_iceberg_rowid_params(const std::string& file_path, int32_t partition_spec_id,
+                                         const std::string& partition_data_json,
+                                         int row_id_column_pos) {
+    _iceberg_rowid_params.enabled = true;
+    _iceberg_rowid_params.file_path = file_path;
+    _iceberg_rowid_params.partition_spec_id = partition_spec_id;
+    _iceberg_rowid_params.partition_data_json = partition_data_json;
+    _iceberg_rowid_params.row_id_column_pos = row_id_column_pos;
 }
 
 Status OrcReader::_init_read_columns() {
@@ -1160,6 +1233,17 @@ Status OrcReader::set_fill_columns(
                 TransactionalHive::READ_ROW_COLUMN_NAMES.end());
     }
 
+    auto check_iceberg_row_lineage_column_idx = [&](const auto& col_name) -> int {
+        if (_row_lineage_columns != nullptr) {
+            if (col_name == IcebergTableReader::ROW_LINEAGE_ROW_ID) {
+                return _row_lineage_columns->row_id_column_idx;
+            } else if (col_name == IcebergTableReader::ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER) {
+                return _row_lineage_columns->last_updated_sequence_number_column_idx;
+            }
+        }
+        return -1;
+    };
+
     for (auto& read_table_col : _read_table_cols) {
         _lazy_read_ctx.all_read_columns.emplace_back(read_table_col);
         if (!predicate_table_columns.empty()) {
@@ -1178,6 +1262,10 @@ Status OrcReader::set_fill_columns(
 
                 _lazy_read_ctx.predicate_orc_columns.emplace_back(
                         _table_info_node_ptr->children_file_column_name(iter->first));
+                if (check_iceberg_row_lineage_column_idx(read_table_col) != -1) {
+                    // Todo : enable lazy mat where filter iceberg row lineage column.
+                    _enable_lazy_mat = false;
+                }
             }
         }
     }
@@ -1207,6 +1295,9 @@ Status OrcReader::set_fill_columns(
 
             // predicate_missing_columns is VLiteral.To fill in default values for missing columns.
             _lazy_read_ctx.predicate_missing_columns.emplace(kv.first, kv.second);
+            if (check_iceberg_row_lineage_column_idx(kv.first) != -1) {
+                _enable_lazy_mat = false;
+            }
         }
     }
 
@@ -1458,15 +1549,92 @@ Status OrcReader::_fill_missing_columns(
     return Status::OK();
 }
 
-Status OrcReader::_fill_row_id_columns(Block* block) {
+Status OrcReader::_fill_row_id_columns(Block* block, int64_t start_row) {
+    size_t fill_size = _batch->numElements;
     if (_row_id_column_iterator_pair.first != nullptr) {
-        RETURN_IF_ERROR(
-                _row_id_column_iterator_pair.first->seek_to_ordinal(_row_reader->getRowNumber()));
-        size_t fill_size = _batch->numElements;
-
+        RETURN_IF_ERROR(_row_id_column_iterator_pair.first->seek_to_ordinal(start_row));
         auto col = block->get_by_position(_row_id_column_iterator_pair.second)
                            .column->assume_mutable();
         RETURN_IF_ERROR(_row_id_column_iterator_pair.first->next_batch(&fill_size, col));
+    }
+
+    if (_row_lineage_columns != nullptr && _row_lineage_columns->need_row_ids() &&
+        _row_lineage_columns->first_row_id >= 0) {
+        auto col = block->get_by_position(_row_lineage_columns->row_id_column_idx)
+                           .column->assume_mutable();
+        auto* nullable_column = assert_cast<ColumnNullable*>(col.get());
+        auto& null_map = nullable_column->get_null_map_data();
+        auto& data =
+                assert_cast<ColumnInt64&>(*nullable_column->get_nested_column_ptr()).get_data();
+        for (size_t i = 0; i < fill_size; ++i) {
+            if (null_map[i] != 0) {
+                null_map[i] = 0;
+                data[i] = _row_lineage_columns->first_row_id + start_row + static_cast<int64_t>(i);
+            }
+        }
+    }
+
+    if (_row_lineage_columns != nullptr &&
+        _row_lineage_columns->has_last_updated_sequence_number_column() &&
+        _row_lineage_columns->last_updated_sequence_number >= 0) {
+        auto col = block->get_by_position(
+                                _row_lineage_columns->last_updated_sequence_number_column_idx)
+                           .column->assume_mutable();
+        auto* nullable_column = assert_cast<ColumnNullable*>(col.get());
+        auto& null_map = nullable_column->get_null_map_data();
+        auto& data =
+                assert_cast<ColumnInt64&>(*nullable_column->get_nested_column_ptr()).get_data();
+        for (size_t i = 0; i < fill_size; ++i) {
+            if (null_map[i] != 0) {
+                null_map[i] = 0;
+                data[i] = _row_lineage_columns->last_updated_sequence_number;
+            }
+        }
+    }
+
+    return Status::OK();
+}
+
+Status OrcReader::_append_iceberg_rowid_column(Block* block, size_t rows, int64_t start_row) {
+    if (!_iceberg_rowid_params.enabled) {
+        return Status::OK();
+    }
+
+    int row_id_idx = block->get_position_by_name(doris::BeConsts::ICEBERG_ROWID_COL);
+    if (row_id_idx >= 0) {
+        auto& col_with_type = block->get_by_position(static_cast<size_t>(row_id_idx));
+        MutableColumnPtr row_id_column;
+        RETURN_IF_ERROR(build_iceberg_rowid_column(
+                col_with_type.type, _iceberg_rowid_params.file_path, start_row, rows,
+                _iceberg_rowid_params.partition_spec_id, _iceberg_rowid_params.partition_data_json,
+                &row_id_column));
+        col_with_type.column = std::move(row_id_column);
+    } else {
+        DataTypes field_types;
+        field_types.push_back(std::make_shared<DataTypeString>());
+        field_types.push_back(std::make_shared<DataTypeInt64>());
+        field_types.push_back(std::make_shared<DataTypeInt32>());
+        field_types.push_back(std::make_shared<DataTypeString>());
+
+        std::vector<std::string> field_names = {"file_path", "row_position", "partition_spec_id",
+                                                "partition_data"};
+        auto row_id_type = std::make_shared<DataTypeStruct>(field_types, field_names);
+        MutableColumnPtr row_id_column;
+        RETURN_IF_ERROR(build_iceberg_rowid_column(
+                row_id_type, _iceberg_rowid_params.file_path, start_row, rows,
+                _iceberg_rowid_params.partition_spec_id, _iceberg_rowid_params.partition_data_json,
+                &row_id_column));
+        int insert_pos = _iceberg_rowid_params.row_id_column_pos;
+        if (insert_pos < 0 || insert_pos > static_cast<int>(block->columns())) {
+            insert_pos = static_cast<int>(block->columns());
+        }
+        block->insert(static_cast<size_t>(insert_pos),
+                      ColumnWithTypeAndName(std::move(row_id_column), row_id_type,
+                                            doris::BeConsts::ICEBERG_ROWID_COL));
+    }
+
+    if (_col_name_to_block_idx != nullptr) {
+        *_col_name_to_block_idx = block->get_name_to_pos_map();
     }
 
     return Status::OK();
@@ -2268,6 +2436,15 @@ Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eo
         *read_rows = 0;
         return Status::OK();
     }
+
+    // Limit memory per batch for load paths: pre-shrink _batch_size using the bytes-per-row
+    // estimate from the previous batch so the current batch stays within load_reader_max_block_bytes
+    // (effective from call 2 onward; first batch is capped on the next call).
+    const int64_t max_block_bytes =
+            (_state != nullptr && _state->query_type() == TQueryType::LOAD &&
+             config::load_reader_max_block_bytes > 0)
+                    ? config::load_reader_max_block_bytes
+                    : 0;
     if (_push_down_agg_type == TPushAggOp::type::COUNT) {
         auto rows = std::min(get_remaining_rows(), (int64_t)_batch_size);
 
@@ -2282,6 +2459,15 @@ Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eo
             *eof = true;
         }
         return Status::OK();
+    }
+
+    if (max_block_bytes > 0 && _load_bytes_per_row > 0 && _row_reader) {
+        size_t new_batch_size = std::max(
+                (size_t)1, (size_t)((int64_t)max_block_bytes / (int64_t)_load_bytes_per_row));
+        if (new_batch_size != _batch_size) {
+            _batch_size = new_batch_size;
+            _batch = _row_reader->createRowBatch(_batch_size);
+        }
     }
 
     if (!_seek_to_read_one_line()) {
@@ -2355,7 +2541,7 @@ Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eo
                 }
             }
         }
-
+        int64_t start_row = _row_reader->getRowNumber();
         std::vector<orc::ColumnVectorBatch*> batch_vec;
         _fill_batch_vec(batch_vec, _batch.get(), 0);
 
@@ -2383,7 +2569,8 @@ Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eo
         RETURN_IF_ERROR(
                 _fill_missing_columns(block, _batch->numElements, _lazy_read_ctx.missing_columns));
 
-        RETURN_IF_ERROR(_fill_row_id_columns(block));
+        RETURN_IF_ERROR(_fill_row_id_columns(block, start_row));
+        RETURN_IF_ERROR(_append_iceberg_rowid_column(block, block->rows(), start_row));
 
         if (block->rows() == 0) {
             RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block, nullptr));
@@ -2402,7 +2589,7 @@ Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eo
             }
 #endif
             SCOPED_RAW_TIMER(&_statistics.predicate_filter_time);
-            _execute_filter_position_delete_rowids(*_filter);
+            _execute_filter_position_delete_rowids(*_filter, start_row);
 #ifndef NDEBUG
             for (auto col : *block) {
                 col.column->sanity_check();
@@ -2461,7 +2648,7 @@ Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eo
                                              _err_msg);
             }
         }
-
+        int64_t start_row = _row_reader->getRowNumber();
         if (!_dict_cols_has_converted && !_dict_filter_cols.empty()) {
             for (auto& dict_filter_cols : _dict_filter_cols) {
                 MutableColumnPtr dict_col_ptr = ColumnInt32::create();
@@ -2515,7 +2702,8 @@ Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eo
         RETURN_IF_ERROR(
                 _fill_missing_columns(block, _batch->numElements, _lazy_read_ctx.missing_columns));
 
-        RETURN_IF_ERROR(_fill_row_id_columns(block));
+        RETURN_IF_ERROR(_fill_row_id_columns(block, start_row));
+        RETURN_IF_ERROR(_append_iceberg_rowid_column(block, block->rows(), start_row));
 
         if (block->rows() == 0) {
             RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block, nullptr));
@@ -2586,18 +2774,18 @@ Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eo
                     Block::erase_useless_column(block, column_to_keep);
                     return _convert_dict_cols_to_string_cols(block, &batch_vec);
                 }
-                _execute_filter_position_delete_rowids(result_filter);
+                _execute_filter_position_delete_rowids(result_filter, start_row);
                 RETURN_IF_CATCH_EXCEPTION(
                         Block::filter_block_internal(block, columns_to_filter, result_filter));
                 Block::erase_useless_column(block, column_to_keep);
             } else {
                 if (_delete_rows_filter_ptr) {
-                    _execute_filter_position_delete_rowids(*_delete_rows_filter_ptr);
+                    _execute_filter_position_delete_rowids(*_delete_rows_filter_ptr, start_row);
                     RETURN_IF_CATCH_EXCEPTION(Block::filter_block_internal(
                             block, columns_to_filter, (*_delete_rows_filter_ptr)));
                 } else if (_position_delete_ordered_rowids != nullptr) {
                     std::unique_ptr<IColumn::Filter> filter(new IColumn::Filter(block->rows(), 1));
-                    _execute_filter_position_delete_rowids(*filter);
+                    _execute_filter_position_delete_rowids(*filter, start_row);
                     RETURN_IF_CATCH_EXCEPTION(
                             Block::filter_block_internal(block, columns_to_filter, (*filter)));
                 }
@@ -2622,6 +2810,10 @@ Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eo
         }
 #endif
         *read_rows = block->rows();
+    }
+
+    if (max_block_bytes > 0 && *read_rows > 0) {
+        _load_bytes_per_row = block->bytes() / *read_rows;
     }
     return Status::OK();
 }
@@ -3363,11 +3555,11 @@ void ORCFileInputStream::_build_large_ranges_input_stripe_streams(
     }
 }
 
-void OrcReader::_execute_filter_position_delete_rowids(IColumn::Filter& filter) {
+void OrcReader::_execute_filter_position_delete_rowids(IColumn::Filter& filter, int64_t start_row) {
     if (_position_delete_ordered_rowids == nullptr) {
         return;
     }
-    auto start = _row_reader->getRowNumber();
+    auto start = start_row;
     auto nums = _batch->numElements;
     auto l = std::lower_bound(_position_delete_ordered_rowids->begin(),
                               _position_delete_ordered_rowids->end(), start);

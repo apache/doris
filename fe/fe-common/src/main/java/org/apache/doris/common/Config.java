@@ -2578,6 +2578,17 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = {"Maximum number of buckets for auto bucketing."})
     public static int autobucket_max_buckets = 128;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Maximum number of buckets allowed when creating a table or adding a partition. "
+                    + "This config shares the same default value with autobucket_max_buckets for consistency. "
+                    + "Behavior: "
+                    + "1. For user-specified buckets (CREATE TABLE / ALTER TABLE ADD PARTITION): "
+                    + "if bucket number exceeds this limit, the operation will be rejected with an error message. "
+                    + "2. For auto-bucket feature (Dynamic Partition): "
+                    + "bucket number will be capped at autobucket_max_buckets automatically. "
+                    + "Set to 0 or negative value to disable this limit for user-specified buckets."})
+    public static int max_bucket_num_per_partition = autobucket_max_buckets;
+
     @ConfField(description = {"Maximum number of connections for the Arrow Flight Server per FE."})
     public static int arrow_flight_max_connections = 4096;
 
@@ -2780,9 +2791,16 @@ public class Config extends ConfigBase {
     @ConfField
     public static boolean ignore_bdbje_log_checksum_read = false;
 
-    @ConfField(description = {"Specifies the authentication type"},
-            options = {"default", "ldap"})
+    @ConfField(description = {
+            "Specifies the primary MySQL authenticator name, either a built-in authenticator "
+                    + "or an authentication plugin name"},
+            options = {"default", "password", "ldap", "<plugin_name>"})
     public static String authentication_type = "default";
+
+    @ConfField(description = {
+            "Specifies the authentication chain used after primary authentication failure, "
+                    + "multiple integration names are comma-separated"})
+    public static String authentication_chain = "";
 
     @ConfField(mutable = true, masterOnly = false, description = {
             "Specify the default plugins loading path for the trino-connector catalog"})
@@ -2912,6 +2930,11 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = {
             "Interval at which the dictionary triggers a data expiration check, in seconds."})
     public static int dictionary_auto_refresh_interval_seconds = 5;
+
+    @ConfField(mutable = false, masterOnly = false, description = {
+            "Whether to enable the experimental Table Stream functionality" },
+            varType = VariableAnnotation.EXPERIMENTAL)
+    public static boolean enable_table_stream = false;
 
     //==========================================================================
     //                    begin of cloud config
@@ -3361,6 +3384,54 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static long mow_get_ms_lock_retry_backoff_interval = 80;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Whether to enable TSO."}, varType = VariableAnnotation.EXPERIMENTAL)
+    public static boolean enable_tso_feature = false;
+
+    @ConfField(mutable = false, masterOnly = true, description = {
+            "TSO service update interval in milliseconds. Default is 50, which means the TSO service "
+                    + "will perform timestamp update checks every 50 milliseconds."})
+    public static int tso_service_update_interval_ms = 50;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "TSO service max retry count. Default is 3, which means the TSO service will retry 3 times "
+                    + "to update the global timestamp."})
+    public static int tso_max_update_retry_count = 3;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "TSO get max retry count. Default is 10, which means the TSO service will retry 10 times "
+                    + "to generate TSO."})
+    public static int tso_max_get_retry_count = 10;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "TSO service time window in milliseconds. Default is 5000, which means the TSO service "
+                    + "will apply for a TSO time window of 5000ms from BDBJE once."})
+    public static int tso_service_window_duration_ms = 5000;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Max tolerated clock backward threshold during TSO calibration in milliseconds. "
+                    + "Exceeding this threshold will fail enabling TSO. Default is 30 minutes."})
+    public static long tso_clock_backward_startup_threshold_ms = 30L * 60 * 1000;
+
+    @ConfField(mutable = true, description = {
+            "TSO service time offset in milliseconds. Only for test. Default is 0, which means the TSO service "
+                    + "timestamp offset is 0 milliseconds."})
+    public static int tso_time_offset_debug_mode = 0;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Whether to enable persisting TSO window end into edit log. Enabling emits new op code, "
+                    + "which may break rollback to older versions."})
+    public static boolean enable_tso_persist_journal = false;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Whether to include TSO info as an image module in checkpoint. Older versions may need to ignore "
+                    + "unknown modules when reading new images."})
+    public static boolean enable_tso_checkpoint_module = false;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Whether to forward TSO 1ms when logical counter is nearly full. Default is true."})
+    public static boolean enable_tso_forward_when_counter_full = true;
+
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_notify_be_after_load_txn_commit = false;
 
@@ -3400,6 +3471,11 @@ public class Config extends ConfigBase {
 
     @ConfField(description = {"Security plugin directory."})
     public static String security_plugins_dir = EnvUtils.getDorisHome() + "/plugins/security";
+
+    @ConfField(description = {"Directory containing filesystem provider plugin subdirectories. "
+            + "Each subdirectory is one storage backend (e.g., s3/, hdfs/, azure/). "
+            + "If empty, only classpath-based built-in providers are used (test/dev mode)."})
+    public static String filesystem_plugin_root = EnvUtils.getDorisHome() + "/plugins/filesystem";
 
     @ConfField(description = {"Authorization plugin configuration file path. Must be under DORIS_HOME. "
             + "Default is conf/authorization.conf."})

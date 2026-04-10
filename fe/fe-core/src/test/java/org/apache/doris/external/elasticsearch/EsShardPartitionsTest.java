@@ -17,26 +17,37 @@
 
 package org.apache.doris.external.elasticsearch;
 
-import org.apache.doris.catalog.CatalogTestUtil;
-import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.EsTable;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.datasource.es.EsExternalTable;
 import org.apache.doris.datasource.es.EsShardPartitions;
 import org.apache.doris.datasource.es.EsTablePartitions;
 
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.util.ArrayList;
+import java.util.List;
+
 public class EsShardPartitionsTest extends EsTestCase {
 
     @Test
     public void testPartition() throws Exception {
-        EsTable esTable = (EsTable) Env.getCurrentInternalCatalog()
-                .getDbOrMetaException(CatalogTestUtil.testDb1).getTableOrMetaException(CatalogTestUtil.testEsTableId1);
+        List<Column> columns = new ArrayList<>();
+        columns.add(new Column("userId", PrimitiveType.VARCHAR));
+        columns.add(new Column("time", PrimitiveType.BIGINT));
+        columns.add(new Column("type", PrimitiveType.VARCHAR));
+        EsExternalTable esTable = fakeEsTable("doe", "doe", "doc", columns);
         EsShardPartitions esShardPartitions =
-                EsShardPartitions.findShardPartitions("doe", loadJsonFromFile("data/es/test_search_shards.json"));
-        EsTablePartitions esTablePartitions = EsTablePartitions.fromShardPartitions(esTable, esShardPartitions);
+                EsShardPartitions.findShardPartitions("doe",
+                        loadJsonFromFile("data/es/test_search_shards.json"));
+        EsTablePartitions esTablePartitions =
+                EsTablePartitions.fromShardPartitions(esTable, esShardPartitions);
         Assert.assertNotNull(esTablePartitions);
-        Assert.assertEquals(1, esTablePartitions.getUnPartitionedIndexStates().size());
-        Assert.assertEquals(5, esTablePartitions.getEsShardPartitions("doe").getShardRoutings().size());
+        Assert.assertEquals(1,
+                esTablePartitions.getUnPartitionedIndexStates().size());
+        Assert.assertEquals(5,
+                esTablePartitions.getEsShardPartitions("doe")
+                        .getShardRoutings().size());
     }
 }

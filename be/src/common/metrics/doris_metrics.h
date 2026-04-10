@@ -260,6 +260,12 @@ public:
     IntCounter* ann_index_load_cnt = nullptr;
     IntCounter* ann_index_search_costs_ms = nullptr;
     IntCounter* ann_index_search_cnt = nullptr;
+    IntCounter* ann_ivf_on_disk_fetch_page_costs_ms = nullptr;
+    IntCounter* ann_ivf_on_disk_fetch_page_cnt = nullptr;
+    IntCounter* ann_ivf_on_disk_search_costs_ms = nullptr;
+    IntCounter* ann_ivf_on_disk_search_cnt = nullptr;
+    IntCounter* ann_ivf_on_disk_cache_hit_cnt = nullptr;
+    IntCounter* ann_ivf_on_disk_cache_miss_cnt = nullptr;
     IntCounter* ann_index_in_memory_cnt = nullptr;
     IntCounter* ann_index_in_memory_rows_cnt = nullptr;
     IntCounter* ann_index_construction = nullptr;

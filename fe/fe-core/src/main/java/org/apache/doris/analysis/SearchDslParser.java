@@ -35,7 +35,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
@@ -369,89 +368,6 @@ public class SearchDslParser {
             // Leaf node - set field and mark as explicit
             node.setField(field);
             node.setExplicitField(true);
-        }
-    }
-
-    /**
-     * Common ANTLR parsing helper with visitor pattern.
-     * Reduces code duplication across parsing methods.
-     *
-     * @param expandedDsl The expanded DSL string to parse
-     * @param visitorFactory Factory function to create the appropriate visitor
-     * @param originalDsl Original DSL for error messages
-     * @param modeDescription Description of the parsing mode for error messages
-     * @return Parsed QsPlan
-     */
-    private static QsPlan parseWithVisitor(String expandedDsl,
-            Function<SearchParser, FieldTrackingVisitor> visitorFactory,
-            String originalDsl, String modeDescription) {
-        try {
-            // Create ANTLR lexer and parser
-            SearchLexer lexer = new SearchLexer(CharStreams.fromString(expandedDsl));
-            CommonTokenStream tokens = new CommonTokenStream(lexer);
-            SearchParser parser = new SearchParser(tokens);
-
-            // Add error listener
-            parser.removeErrorListeners();
-            parser.addErrorListener(new org.antlr.v4.runtime.BaseErrorListener() {
-                @Override
-                public void syntaxError(org.antlr.v4.runtime.Recognizer<?, ?> recognizer,
-                        Object offendingSymbol,
-                        int line, int charPositionInLine,
-                        String msg, org.antlr.v4.runtime.RecognitionException e) {
-                    throw new SearchDslSyntaxException("Syntax error at line " + line
-                            + ":" + charPositionInLine + " " + msg);
-                }
-            });
-
-            ParseTree tree = parser.search();
-            if (tree == null) {
-                throw new SearchDslSyntaxException("Invalid search DSL syntax: parsing returned null");
-            }
-
-            // Build AST using provided visitor
-            FieldTrackingVisitor visitor = visitorFactory.apply(parser);
-            QsNode root = visitor.visit(tree);
-
-            // Extract field bindings
-            Set<String> fieldNames = visitor.getFieldNames();
-            List<QsFieldBinding> bindings = new ArrayList<>();
-            int slotIndex = 0;
-            for (String fieldName : fieldNames) {
-                bindings.add(new QsFieldBinding(fieldName, slotIndex++));
-            }
-
-            return new QsPlan(root, bindings);
-
-        } catch (SearchDslSyntaxException e) {
-            // Syntax error in DSL - user input issue
-            LOG.error("Failed to parse search DSL in {}: '{}' (expanded: '{}')",
-                    modeDescription, originalDsl, expandedDsl, e);
-            throw new SearchDslSyntaxException("Invalid search DSL: " + originalDsl + ". " + e.getMessage(), e);
-        } catch (IllegalArgumentException e) {
-            // Invalid argument - user input issue
-            LOG.error("Invalid argument in search DSL ({}): '{}' (expanded: '{}')",
-                    modeDescription, originalDsl, expandedDsl, e);
-            throw new IllegalArgumentException("Invalid search DSL argument: " + originalDsl
-                    + ". " + e.getMessage(), e);
-        } catch (NullPointerException e) {
-            // Internal error - programming bug
-            LOG.error("Internal error (NPE) while parsing search DSL in {}: '{}' (expanded: '{}')",
-                    modeDescription, originalDsl, expandedDsl, e);
-            throw new RuntimeException("Internal error while parsing search DSL: " + originalDsl
-                    + ". This may be a bug. Details: " + e.getMessage(), e);
-        } catch (IndexOutOfBoundsException e) {
-            // Internal error - programming bug
-            LOG.error("Internal error (IOOB) while parsing search DSL in {}: '{}' (expanded: '{}')",
-                    modeDescription, originalDsl, expandedDsl, e);
-            throw new RuntimeException("Internal error while parsing search DSL: " + originalDsl
-                    + ". This may be a bug. Details: " + e.getMessage(), e);
-        } catch (RuntimeException e) {
-            // Other runtime errors
-            LOG.error("Unexpected error while parsing search DSL in {}: '{}' (expanded: '{}')",
-                    modeDescription, originalDsl, expandedDsl, e);
-            throw new RuntimeException("Unexpected error parsing search DSL: " + originalDsl
-                    + ". " + e.getMessage(), e);
         }
     }
 

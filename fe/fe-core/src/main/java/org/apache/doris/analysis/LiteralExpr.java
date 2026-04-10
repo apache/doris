@@ -27,7 +27,6 @@ import org.apache.doris.common.AnalysisException;
 import com.google.common.base.Preconditions;
 
 import java.nio.ByteBuffer;
-import java.util.Optional;
 
 public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr> {
     public LiteralExpr() {
@@ -65,7 +64,7 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
             case DECIMAL64:
             case DECIMAL128:
             case DECIMAL256:
-                literalExpr = new DecimalLiteral(value);
+                literalExpr = DecimalLiteralUtils.create(value);
                 break;
             case CHAR:
             case VARCHAR:
@@ -82,7 +81,7 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
             case DATEV2:
             case DATETIMEV2:
             case TIMESTAMPTZ:
-                literalExpr = new DateLiteral(value, type);
+                literalExpr = DateLiteralUtils.createDateLiteral(value, type);
                 break;
             case IPV4:
                 literalExpr = new IPv4Literal(value);
@@ -191,11 +190,4 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
         return getStringValue();
     }
 
-    @Override
-    public String getExprName() {
-        if (!this.exprName.isPresent()) {
-            this.exprName = Optional.of("literal");
-        }
-        return this.exprName.get();
-    }
 }

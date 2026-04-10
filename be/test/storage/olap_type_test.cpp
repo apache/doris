@@ -33,7 +33,6 @@
 #include "exprs/function/cast/cast_to_string.h"
 #include "gtest/gtest_pred_impl.h"
 #include "storage/olap_common.h"
-#include "storage/types.h"
 
 namespace doris {
 
@@ -101,21 +100,28 @@ TEST_F(OlapTypeTest, deser_float_old) {
                                                std::numeric_limits<float>::quiet_NaN()};
     test_input_values.insert(test_input_values.end(), special_input_values.begin(),
                              special_input_values.end());
+    auto data_type_ptr = DataTypeFactory::instance().create_data_type(TYPE_FLOAT, false);
+    auto data_type_serde = data_type_ptr->get_serde();
     std::ifstream input_file(test_data_dir + "/ser_float_3.0.txt");
     EXPECT_TRUE(input_file.is_open());
     std::string line;
     int line_index = 0;
     while (std::getline(input_file, line)) {
-        float deser_float_value = 0.0F;
-        auto status = FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_FLOAT>::from_string(
-                &deser_float_value, line, 0, 0);
+        Field restored_field;
+        auto status = data_type_serde->from_fe_string(line, restored_field);
+        // from_fe_string rejects NaN/Infinity strings
+        if (std::isnan(test_input_values[line_index]) ||
+            std::isinf(test_input_values[line_index])) {
+            EXPECT_FALSE(status.ok());
+            line_index++;
+            continue;
+        }
         EXPECT_TRUE(status.ok()) << status.to_string();
+        float deser_float_value = restored_field.get<TYPE_FLOAT>();
         float diff_ratio = std::abs(deser_float_value - test_input_values[line_index]) /
                            abs(test_input_values[line_index]);
         EXPECT_TRUE((test_input_values[line_index] == 0 && deser_float_value == 0) ||
-                    diff_ratio < 1e-6 ||
-                    (std::isnan(deser_float_value) && std::isnan(test_input_values[line_index])) ||
-                    (std::isinf(deser_float_value) && std::isinf(test_input_values[line_index])))
+                    diff_ratio < 1e-6)
                 << "expected float value: " << fmt::format("{:.9g}", test_input_values[line_index])
                 << ", deser float value: " << fmt::format("{:.9g}", deser_float_value)
                 << ", diff_ratio: " << fmt::format("{:.9g}", diff_ratio);
@@ -182,24 +188,29 @@ TEST_F(OlapTypeTest, deser_double_old) {
                                                 std::numeric_limits<float>::quiet_NaN()};
     test_input_values.insert(test_input_values.end(), special_input_values.begin(),
                              special_input_values.end());
+    auto data_type_ptr = DataTypeFactory::instance().create_data_type(TYPE_DOUBLE, false);
+    auto data_type_serde = data_type_ptr->get_serde();
     std::ifstream input_file(test_data_dir + "/ser_double_3.0.txt");
     EXPECT_TRUE(input_file.is_open());
     std::string line;
     int line_index = 0;
     while (std::getline(input_file, line)) {
-        double deser_float_value = 0.0;
-        auto status = FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DOUBLE>::from_string(
-                &deser_float_value, line, 0, 0);
+        Field restored_field;
+        auto status = data_type_serde->from_fe_string(line, restored_field);
+        // from_fe_string rejects NaN/Infinity strings, and also rejects
+        // double::max()/lowest() whose string representation parses to Infinity
+        if (std::isnan(test_input_values[line_index]) ||
+            std::isinf(test_input_values[line_index])) {
+            EXPECT_FALSE(status.ok());
+            line_index++;
+            continue;
+        }
         EXPECT_TRUE(status.ok()) << status.to_string();
+        double deser_float_value = restored_field.get<TYPE_DOUBLE>();
         double diff_ratio = std::abs(deser_float_value - test_input_values[line_index]) /
                             abs(test_input_values[line_index]);
         EXPECT_TRUE((test_input_values[line_index] == 0 && deser_float_value == 0) ||
-                    diff_ratio < 1e-15 ||
-                    (std::isnan(deser_float_value) && std::isnan(test_input_values[line_index])) ||
-                    (std::isinf(deser_float_value) &&
-                     (std::isinf(test_input_values[line_index]) ||
-                      test_input_values[line_index] == std::numeric_limits<double>::max() ||
-                      test_input_values[line_index] == std::numeric_limits<double>::lowest())))
+                    diff_ratio < 1e-15)
                 << "expected double value: "
                 << fmt::format("{:.17g}", test_input_values[line_index])
                 << ", deser double value: " << fmt::format("{:.17g}", deser_float_value)
@@ -372,14 +383,17 @@ TEST_F(OlapTypeTest, ser_deser_float) {
         auto field = Field::create_field<TYPE_FLOAT>(float_value);
         auto result_str = data_type_serde->to_olap_string(field);
         EXPECT_EQ(result_str, expected_str);
-        float deser_float_value = 0.0F;
-        auto status = FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_FLOAT>::from_string(
-                &deser_float_value, result_str, 0, 0);
+        Field restored_field;
+        auto status = data_type_serde->from_fe_string(result_str, restored_field);
+        // from_fe_string rejects NaN/Infinity strings
+        if (std::isnan(float_value) || std::isinf(float_value)) {
+            EXPECT_FALSE(status.ok());
+            continue;
+        }
         EXPECT_TRUE(status.ok()) << status.to_string();
+        float deser_float_value = restored_field.get<TYPE_FLOAT>();
         float diff_ratio = std::abs(deser_float_value - float_value) / abs(float_value);
-        EXPECT_TRUE((float_value == 0 && deser_float_value == 0) || diff_ratio < 1e-6 ||
-                    (std::isnan(deser_float_value) && std::isnan(float_value)) ||
-                    (std::isinf(deser_float_value) && std::isinf(float_value)))
+        EXPECT_TRUE((float_value == 0 && deser_float_value == 0) || diff_ratio < 1e-6)
                 << "expected float value: " << fmt::format("{:.9g}", float_value)
                 << ", expected float str: " << expected_str
                 << ", deser float value: " << fmt::format("{:.9g}", deser_float_value)
@@ -572,17 +586,20 @@ TEST_F(OlapTypeTest, ser_deser_double) {
         auto field = Field::create_field<TYPE_DOUBLE>(float_value);
         auto result_str = data_type_serde->to_olap_string(field);
         EXPECT_EQ(result_str, expected_str);
-        double deser_float_value = 0.0;
-        auto status = FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DOUBLE>::from_string(
-                &deser_float_value, result_str, 0, 0);
+        Field restored_field;
+        auto status = data_type_serde->from_fe_string(result_str, restored_field);
+        // from_fe_string rejects NaN/Infinity strings, and also rejects
+        // double::max()/lowest() whose string representation parses to Infinity
+        if (std::isnan(float_value) || std::isinf(float_value) ||
+            float_value == std::numeric_limits<double>::max() ||
+            float_value == std::numeric_limits<double>::lowest()) {
+            EXPECT_FALSE(status.ok());
+            continue;
+        }
         EXPECT_TRUE(status.ok()) << status.to_string();
+        double deser_float_value = restored_field.get<TYPE_DOUBLE>();
         double diff_ratio = std::abs(deser_float_value - float_value) / abs(float_value);
-        EXPECT_TRUE(
-                (float_value == 0 && deser_float_value == 0) || diff_ratio < 1e-15 ||
-                (std::isnan(deser_float_value) && std::isnan(float_value)) ||
-                (std::isinf(deser_float_value) &&
-                 (std::isinf(float_value) || float_value == std::numeric_limits<double>::max() ||
-                  float_value == std::numeric_limits<double>::lowest())))
+        EXPECT_TRUE((float_value == 0 && deser_float_value == 0) || diff_ratio < 1e-15)
                 << "expected double value: " << fmt::format("{:.17g}", float_value)
                 << ", expected double str: " << expected_str
                 << ", deser double value: " << fmt::format("{:.17g}", deser_float_value)

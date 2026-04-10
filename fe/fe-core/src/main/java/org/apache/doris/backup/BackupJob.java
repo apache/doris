@@ -437,7 +437,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
                     continue;
                 }
                 ((UploadTask) task).updateBrokerProperties(
-                        repo.getRemoteFileSystem().getStorageProperties().getBackendConfigProperties());
+                        repo.getFileSystemDescriptor().getBackendConfigProperties());
                 AgentTaskQueue.updateTask(beId, TTaskType.UPLOAD, signature, task);
             }
             LOG.info("finished to update upload job properties. {}", this);
@@ -717,16 +717,8 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
     }
 
     private void checkResourceForOdbcTable(OdbcTable odbcTable) {
-        if (odbcTable.getOdbcCatalogResourceName() != null) {
-            String odbcResourceName = odbcTable.getOdbcCatalogResourceName();
-            Resource resource = Env.getCurrentEnv().getResourceMgr()
-                    .getResource(odbcResourceName);
-            if (resource == null) {
-                status = new Status(ErrCode.NOT_FOUND, "resource " + odbcResourceName
-                        + " related to " + odbcTable.getName() + "does not exist.");
-                return;
-            }
-        }
+        // ODBC tables are deprecated. No resources to check.
+        LOG.warn("checkResourceForOdbcTable called for deprecated ODBC table: {}. Skipping.", odbcTable.getName());
     }
 
     private void prepareBackupMetaForOlapTableWithoutLock(TableRefInfo tableRef, OlapTable olapTable,
@@ -753,23 +745,11 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
 
     private void prepareBackupMetaForOdbcTableWithoutLock(OdbcTable odbcTable, List<Table> copiedTables,
             List<Resource> copiedResources) {
-        OdbcTable copiedOdbcTable = odbcTable.clone();
-        if (copiedOdbcTable == null) {
-            status = new Status(ErrCode.COMMON_ERROR, "failed to copy odbc table: " + odbcTable.getName());
-            return;
-        }
-        copiedTables.add(copiedOdbcTable);
-        if (copiedOdbcTable.getOdbcCatalogResourceName() != null) {
-            Resource resource = Env.getCurrentEnv().getResourceMgr()
-                    .getResource(copiedOdbcTable.getOdbcCatalogResourceName());
-            Resource copiedResource = resource.clone();
-            if (copiedResource == null) {
-                status = new Status(ErrCode.COMMON_ERROR, "failed to copy odbc resource: "
-                        + resource.getName());
-                return;
-            }
-            copiedResources.add(copiedResource);
-        }
+        // ODBC tables are deprecated. We still add the table reference for metadata
+        // compatibility with old backups, but we can no longer read full properties.
+        copiedTables.add(odbcTable);
+        LOG.warn("prepareBackupMetaForOdbcTableWithoutLock called for deprecated ODBC table: {}. "
+                + "Adding table reference without full property copy.", odbcTable.getName());
     }
 
     private void waitingAllSnapshotsFinished() {
@@ -841,8 +821,8 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
                 long signature = env.getNextId();
                 UploadTask task = new UploadTask(null, beId, signature, jobId, dbId, srcToDest,
                         brokers.get(0),
-                        repo.getRemoteFileSystem().getStorageProperties().getBackendConfigProperties(),
-                        repo.getRemoteFileSystem().getStorageType(), repo.getLocation());
+                        repo.getFileSystemDescriptor().getBackendConfigProperties(),
+                        repo.getFileSystemDescriptor().getThriftStorageType(), repo.getLocation());
                 batchTask.addTask(task);
                 unfinishedTaskIds.put(signature, beId);
             }

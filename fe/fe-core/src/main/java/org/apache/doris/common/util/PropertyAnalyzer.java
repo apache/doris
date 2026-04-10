@@ -19,25 +19,27 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.analysis.DateLiteral;
+import org.apache.doris.analysis.DateLiteralUtils;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
-import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.es.EsProperties;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
@@ -168,6 +170,8 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION = "enable_single_replica_compaction";
 
+    public static final String PROPERTIES_ENABLE_TSO = "enable_tso";
+
     public static final String PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP =
             "vertical_compaction_num_columns_per_group";
 
@@ -294,6 +298,10 @@ public class PropertyAnalyzer {
     // number of buckets when using doc snapshot serialization
     public static final String PROPERTIES_VARIANT_DOC_HASH_SHARD_COUNT = "variant_doc_hash_shard_count";
 
+    // stream properties
+    public static final String PROPERTIES_STREAM_TYPE = "type";
+    public static final String PROPERTIES_STREAM_SHOW_INITIAL_ROWS = "show_initial_rows";
+
     public enum RewriteType {
         PUT,      // always put property
         REPLACE,  // replace if exists property
@@ -403,7 +411,8 @@ public class PropertyAnalyzer {
                 }
             } else if (key.equalsIgnoreCase(PROPERTIES_STORAGE_COOLDOWN_TIME)) {
                 try {
-                    DateLiteral dateLiteral = new DateLiteral(value, ScalarType.getDefaultDateType(Type.DATETIME));
+                    DateLiteral dateLiteral = DateLiteralUtils.createDateLiteral(value,
+                            ScalarType.getDefaultDateType(Type.DATETIME));
                     cooldownTimestamp = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
                 } catch (AnalysisException e) {
                     LOG.warn("dateLiteral failed, use max cool down time", e);
@@ -564,24 +573,6 @@ public class PropertyAnalyzer {
             properties.remove(PROPERTIES_MIN_LOAD_REPLICA_NUM);
         }
         return minLoadReplicaNum;
-    }
-
-    public static String analyzeColumnSeparator(Map<String, String> properties, String oldColumnSeparator) {
-        String columnSeparator = oldColumnSeparator;
-        if (properties != null && properties.containsKey(PROPERTIES_COLUMN_SEPARATOR)) {
-            columnSeparator = properties.get(PROPERTIES_COLUMN_SEPARATOR);
-            properties.remove(PROPERTIES_COLUMN_SEPARATOR);
-        }
-        return columnSeparator;
-    }
-
-    public static String analyzeLineDelimiter(Map<String, String> properties, String oldLineDelimiter) {
-        String lineDelimiter = oldLineDelimiter;
-        if (properties != null && properties.containsKey(PROPERTIES_LINE_DELIMITER)) {
-            lineDelimiter = properties.get(PROPERTIES_LINE_DELIMITER);
-            properties.remove(PROPERTIES_LINE_DELIMITER);
-        }
-        return lineDelimiter;
     }
 
     public static TStorageType analyzeStorageType(Map<String, String> properties) throws AnalysisException {
@@ -879,6 +870,27 @@ public class PropertyAnalyzer {
         }
         throw new AnalysisException(PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION
                 + " must be `true` or `false`");
+    }
+
+    public static Boolean analyzeEnableTso(Map<String, String> properties) throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return false;
+        }
+        String value = properties.get(PROPERTIES_ENABLE_TSO);
+        if (null == value) {
+            return false;
+        }
+        properties.remove(PROPERTIES_ENABLE_TSO);
+        if (value.equalsIgnoreCase("true")) {
+            if (!Config.enable_tso_feature) {
+                throw new AnalysisException(PROPERTIES_ENABLE_TSO
+                        + " can not be enabled when experimental_enable_tso_feature is disabled");
+            }
+            return true;
+        } else if (value.equalsIgnoreCase("false")) {
+            return false;
+        }
+        throw new AnalysisException(PROPERTIES_ENABLE_TSO + " must be `true` or `false`");
     }
 
     public static Boolean analyzeEnableDuplicateWithoutKeysByDefault(Map<String, String> properties)
@@ -1948,7 +1960,7 @@ public class PropertyAnalyzer {
         // validate the properties of es catalog
         if ("es".equalsIgnoreCase(properties.get("type"))) {
             try {
-                EsResource.valid(properties, true);
+                EsProperties.valid(properties, true);
             } catch (Exception e) {
                 throw new AnalysisException(e.getMessage());
             }
@@ -2299,14 +2311,29 @@ public class PropertyAnalyzer {
         properties.remove(PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP);
         try {
             int num = Integer.parseInt(value);
-            if (num < 1 || num > 50) {
+            if (num < 1) {
                 throw new AnalysisException(PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP
-                        + " must be between 1 and 50");
+                        + " must be >= 1");
             }
             return num;
         } catch (NumberFormatException e) {
             throw new AnalysisException(PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP
                     + " must be a valid integer");
         }
+    }
+
+    public static BaseTableStream.StreamConsumeType analyzeStreamType(Map<String, String> properties)
+            throws AnalysisException {
+        if (properties != null && properties.containsKey(PROPERTIES_STREAM_TYPE)) {
+            String value = properties.get(PROPERTIES_STREAM_TYPE);
+            BaseTableStream.StreamConsumeType type = BaseTableStream.StreamConsumeType.getType(value);
+            if (type.equals(BaseTableStream.StreamConsumeType.UNKNOWN)) {
+                throw new AnalysisException("not supported " + PropertyAnalyzer.PROPERTIES_STREAM_TYPE
+                        +  ": " + value);
+            }
+            properties.remove(PROPERTIES_STREAM_TYPE);
+            return type;
+        }
+        return BaseTableStream.StreamConsumeType.DEFAULT;
     }
 }

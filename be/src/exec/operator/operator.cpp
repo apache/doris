@@ -42,6 +42,8 @@
 #include "exec/operator/hashjoin_build_sink.h"
 #include "exec/operator/hashjoin_probe_operator.h"
 #include "exec/operator/hive_table_sink_operator.h"
+#include "exec/operator/iceberg_delete_sink_operator.h"
+#include "exec/operator/iceberg_merge_sink_operator.h"
 #include "exec/operator/iceberg_table_sink_operator.h"
 #include "exec/operator/jdbc_scan_operator.h"
 #include "exec/operator/jdbc_table_sink_operator.h"
@@ -362,10 +364,8 @@ Status OperatorXBase::do_projections(RuntimeState* state, Block* origin_block,
             VectorizedUtils::build_mutable_mem_reuse_block(output_block, *_output_row_descriptor);
     if (rows != 0) {
         auto& mutable_columns = mutable_block.mutable_columns();
-        const size_t origin_columns_count = input_block.columns();
         DCHECK_EQ(mutable_columns.size(), local_state->_projections.size()) << debug_string();
         for (int i = 0; i < mutable_columns.size(); ++i) {
-            auto result_column_id = -1;
             ColumnPtr column_ptr;
             RETURN_IF_ERROR(local_state->_projections[i]->execute(&input_block, column_ptr));
             if (column_ptr->size() != rows) {
@@ -375,9 +375,7 @@ Status OperatorXBase::do_projections(RuntimeState* state, Block* origin_block,
                         local_state->_projections[i]->root()->debug_string());
             }
             column_ptr = column_ptr->convert_to_full_column_if_const();
-            if (result_column_id >= origin_columns_count) {
-                bytes_usage += column_ptr->allocated_bytes();
-            }
+            bytes_usage += column_ptr->allocated_bytes();
             insert_column_datas(mutable_columns[i], column_ptr, rows);
         }
         DCHECK(mutable_block.rows() == rows);
@@ -813,6 +811,8 @@ DECLARE_OPERATOR(HiveTableSinkLocalState)
 DECLARE_OPERATOR(TVFTableSinkLocalState)
 DECLARE_OPERATOR(IcebergTableSinkLocalState)
 DECLARE_OPERATOR(SpillIcebergTableSinkLocalState)
+DECLARE_OPERATOR(IcebergDeleteSinkLocalState)
+DECLARE_OPERATOR(IcebergMergeSinkLocalState)
 DECLARE_OPERATOR(MCTableSinkLocalState)
 DECLARE_OPERATOR(AnalyticSinkLocalState)
 DECLARE_OPERATOR(BlackholeSinkLocalState)
@@ -933,6 +933,8 @@ template class AsyncWriterSink<doris::VTabletWriterV2, OlapTableSinkV2OperatorX>
 template class AsyncWriterSink<doris::VHiveTableWriter, HiveTableSinkOperatorX>;
 template class AsyncWriterSink<doris::VIcebergTableWriter, IcebergTableSinkOperatorX>;
 template class AsyncWriterSink<doris::VIcebergTableWriter, SpillIcebergTableSinkOperatorX>;
+template class AsyncWriterSink<doris::VIcebergDeleteSink, IcebergDeleteSinkOperatorX>;
+template class AsyncWriterSink<doris::VIcebergMergeSink, IcebergMergeSinkOperatorX>;
 template class AsyncWriterSink<doris::VMCTableWriter, MCTableSinkOperatorX>;
 template class AsyncWriterSink<doris::VTVFTableWriter, TVFTableSinkOperatorX>;
 

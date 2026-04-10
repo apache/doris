@@ -345,6 +345,7 @@ DEFINE_mInt32(doris_scanner_row_num, "16384");
 DEFINE_mInt32(doris_scanner_row_bytes, "10485760");
 // single read execute fragment max run time millseconds
 DEFINE_mInt32(doris_scanner_max_run_time_ms, "1000");
+DEFINE_mInt32(doris_scanner_dynamic_interval_ms, "100");
 // (Advanced) Maximum size of per-query receive-side buffer
 DEFINE_mInt32(exchg_node_buffer_size_bytes, "20485760");
 DEFINE_mInt32(exchg_buffer_queue_capacity_factor, "64");
@@ -554,6 +555,9 @@ DEFINE_mInt32(compaction_keep_invisible_version_max_count, "500");
 DEFINE_mInt32(base_compaction_trace_threshold, "60");
 DEFINE_mInt32(cumulative_compaction_trace_threshold, "10");
 DEFINE_mBool(disable_compaction_trace_log, "true");
+
+DEFINE_mBool(enable_compaction_task_tracker, "true");
+DEFINE_mInt32(compaction_task_tracker_max_records, "10000");
 
 // Interval to picking rowset to compact, in seconds
 DEFINE_mInt64(pick_rowset_to_compact_interval_sec, "86400");
@@ -825,6 +829,12 @@ DEFINE_mInt32(high_priority_flush_thread_num_per_store, "6");
 // number of threads = min(flush_thread_num_per_store * num_store,
 //                         max_flush_thread_num_per_cpu * num_cpu)
 DEFINE_mInt32(max_flush_thread_num_per_cpu, "4");
+
+// minimum flush threads per cpu when adaptive flush is enabled (default 0.5)
+DEFINE_mDouble(min_flush_thread_num_per_cpu, "0.5");
+
+// Whether to enable adaptive flush thread adjustment
+DEFINE_mBool(enable_adaptive_flush_threads, "true");
 
 // config for tablet meta checkpoint
 DEFINE_mInt32(tablet_meta_checkpoint_min_new_rowsets_num, "10");
@@ -1704,7 +1714,7 @@ DEFINE_mBool(enable_update_delete_bitmap_kv_check_core, "false");
 DEFINE_mBool(enable_fetch_rowsets_from_peer_replicas, "false");
 // the max length of segments key bounds, in bytes
 // ATTENTION: as long as this conf has ever been enabled, cluster downgrade and backup recovery will no longer be supported.
-DEFINE_mInt32(segments_key_bounds_truncation_threshold, "-1");
+DEFINE_mInt32(segments_key_bounds_truncation_threshold, "36");
 // ATTENTION: for test only, use random segments key bounds truncation threshold every time
 DEFINE_mBool(random_segments_key_bounds_truncation, "false");
 // p0, daily, rqg, external
@@ -1717,6 +1727,10 @@ DEFINE_mBool(enable_auto_clone_on_mow_publish_missing_version, "false");
 // The maximum csv line reader output buffer size
 DEFINE_mInt64(max_csv_line_reader_output_buffer_size, "4294967296");
 
+// The maximum bytes of a single block returned by load file readers (CsvReader, NewJsonReader,
+// ParquetReader, OrcReader). Default is 64MB. Set to 0 to disable the limit.
+DEFINE_mInt64(load_reader_max_block_bytes, "67108864");
+
 // Maximum number of OpenMP threads allowed for concurrent vector index builds.
 // -1 means auto: use 80% of the available CPU cores.
 DEFINE_Int32(omp_threads_limit, "-1");
@@ -1726,6 +1740,14 @@ DEFINE_mInt32(max_segment_partial_column_cache_size, "100");
 
 DEFINE_mBool(enable_prefill_output_dbm_agg_cache_after_compaction, "true");
 DEFINE_mBool(enable_prefill_all_dbm_agg_cache_after_compaction, "true");
+
+// Cache for ANN index IVF on-disk list data.
+// "70%" means 70% of the process available memory, not 70% of total machine memory.
+// With default mem_limit="90%", this is effectively about 63% (90% * 70%) of physical memory
+// visible to the process (considering cgroup limits).
+DEFINE_String(ann_index_ivf_list_cache_limit, "70%");
+// Stale sweep time for ANN index IVF list cache in seconds. 3600s is 1 hour.
+DEFINE_mInt32(ann_index_ivf_list_cache_stale_sweep_time_sec, "3600");
 
 // Chunk size for ANN/vector index building per training/adding batch
 // 1M By default.

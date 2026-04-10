@@ -707,8 +707,8 @@ TEST_F(SchemaUtilTest, TestParseVariantColumns) {
     Block block;
 
     // Create a variant column with JSON string data
-    auto variant_type = std::make_shared<DataTypeVariant>(10);
-    auto variant_column = ColumnVariant::create(10);
+    auto variant_type = std::make_shared<DataTypeVariant>(10, false);
+    auto variant_column = ColumnVariant::create(10, false);
     auto root_column = ColumnString::create();
     root_column->insert(Field::create_field<PrimitiveType::TYPE_STRING>("{'a': 1, 'b': 'test'}"));
     variant_column->create_root(std::make_shared<DataTypeString>(), root_column->get_ptr());
@@ -773,7 +773,7 @@ TEST_F(SchemaUtilTest, TestCastColumnEdgeCases) {
     EXPECT_EQ(result->size(), 1);
 
     // Test casting to variant type
-    auto variant_type = std::make_shared<DataTypeVariant>(10);
+    auto variant_type = std::make_shared<DataTypeVariant>(10, false);
     auto nullable_array_type =
             make_nullable(std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>()));
     auto array_column =
@@ -801,7 +801,7 @@ TEST_F(SchemaUtilTest, TestCastColumnEdgeCases) {
     EXPECT_TRUE(result1->is_nullable());
 
     // Test casting from variant to variant
-    auto variant_column = ColumnVariant::create(10);
+    auto variant_column = ColumnVariant::create(10, false);
     variant_column->create_root(nullable_array_type, nullable_array_column->assume_mutable());
 
     ColumnWithTypeAndName variant_col;
@@ -1215,8 +1215,8 @@ TEST_F(SchemaUtilTest, TestParseVariantColumnsEdgeCases) {
     Block block;
 
     // Test parsing from string to variant
-    auto variant_type = std::make_shared<DataTypeVariant>(10);
-    auto variant_column = ColumnVariant::create(10);
+    auto variant_type = std::make_shared<DataTypeVariant>(10, false);
+    auto variant_column = ColumnVariant::create(10, false);
     auto root_column = ColumnString::create();
 
     // Add some test JSON data
@@ -1239,7 +1239,7 @@ TEST_F(SchemaUtilTest, TestParseVariantColumnsEdgeCases) {
     auto jsonb_column = ColumnString::create();
     jsonb_column->insert(Field::create_field<PrimitiveType::TYPE_STRING>("{'x': 1}"));
 
-    auto variant_column2 = ColumnVariant::create(10);
+    auto variant_column2 = ColumnVariant::create(10, false);
     variant_column2->create_root(jsonb_type, jsonb_column->get_ptr());
 
     Block block2;
@@ -1249,7 +1249,7 @@ TEST_F(SchemaUtilTest, TestParseVariantColumnsEdgeCases) {
     EXPECT_TRUE(status.ok());
 
     // Test parsing already parsed variant
-    auto variant_column3 = ColumnVariant::create(10);
+    auto variant_column3 = ColumnVariant::create(10, false);
     variant_column3->finalize();
 
     Block block3;
@@ -1263,14 +1263,14 @@ TEST_F(SchemaUtilTest, TestParseVariantColumnsWithNulls) {
     Block block;
 
     // Create a nullable variant column
-    auto variant_type = make_nullable(std::make_shared<DataTypeVariant>(10));
+    auto variant_type = make_nullable(std::make_shared<DataTypeVariant>(10, false));
     auto string_type = make_nullable(std::make_shared<DataTypeString>());
 
     auto string_column = ColumnString::create();
     string_column->insert(Field::create_field<PrimitiveType::TYPE_STRING>("{'a': 1}"));
     auto nullable_string = make_nullable(string_column->get_ptr());
 
-    auto variant_column = ColumnVariant::create(10);
+    auto variant_column = ColumnVariant::create(10, false);
     variant_column->create_root(string_type, nullable_string->assume_mutable());
     auto nullable_variant = make_nullable(variant_column->get_ptr());
 
@@ -1866,7 +1866,7 @@ TEST_F(SchemaUtilTest, parse_and_materialize_variant_columns_ambiguous_paths) {
     dynamic_subcolumns.create_root(
             ColumnVariant::Subcolumn(string_col->assume_mutable(), string_type, true));
 
-    auto variant_col = ColumnVariant::create(0, std::move(dynamic_subcolumns));
+    auto variant_col = ColumnVariant::create(0, false, std::move(dynamic_subcolumns));
     auto variant_type = std::make_shared<DataTypeVariant>();
 
     // Construct the block

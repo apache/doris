@@ -166,7 +166,7 @@ Status DataTypeNumberSerDe<T>::deserialize_one_cell_from_json(IColumn& column, S
     if constexpr (T == TYPE_IPV6) {
         // TODO: support for Uint128
         return Status::InvalidArgument("uint128 is not support");
-    } else if constexpr (is_float_or_double(T) || T == TYPE_TIMEV2 || T == TYPE_TIME) {
+    } else if constexpr (is_float_or_double(T) || T == TYPE_TIMEV2) {
         typename PrimitiveTypeTraits<T>::CppType val = 0;
         if (!try_read_float_text(val, str_ref)) {
             return Status::InvalidArgument("parse number fail, string: '{}'", slice.to_string());
@@ -558,7 +558,7 @@ Status DataTypeNumberSerDe<T>::write_column_to_mysql_binary(const IColumn& colum
         buf_ret = result.push_float(data[col_index]);
     } else if constexpr (T == TYPE_DOUBLE) {
         buf_ret = result.push_double(data[col_index]);
-    } else if constexpr (T == TYPE_TIME || T == TYPE_TIMEV2) {
+    } else if constexpr (T == TYPE_TIMEV2) {
         if (std::isnan(data[col_index])) {
             // Handle NaN for double, we should push null value
             buf_ret = result.push_null();
@@ -639,7 +639,7 @@ Status DataTypeNumberSerDe<T>::write_column_to_orc(const std::string& timezone,
         WRITE_INTEGRAL_COLUMN_TO_ORC(orc::LongVectorBatch)
     } else if constexpr (T == TYPE_FLOAT) { // float
         WRITE_INTEGRAL_COLUMN_TO_ORC(orc::FloatVectorBatch)
-    } else if constexpr (T == TYPE_DOUBLE || T == TYPE_TIME || T == TYPE_TIMEV2) { // double
+    } else if constexpr (T == TYPE_DOUBLE || T == TYPE_TIMEV2) { // double
         WRITE_INTEGRAL_COLUMN_TO_ORC(orc::DoubleVectorBatch)
     } else if constexpr (T == TYPE_IPV4) { // ipv4
         WRITE_INTEGRAL_COLUMN_TO_ORC(orc::IntVectorBatch)
@@ -674,7 +674,7 @@ void DataTypeNumberSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
         col.insert_value(arg->unpack<JsonbInt128Val>()->val());
     } else if constexpr (T == TYPE_FLOAT) {
         col.insert_value(arg->unpack<JsonbFloatVal>()->val());
-    } else if constexpr (T == TYPE_DOUBLE || T == TYPE_TIME || T == TYPE_TIMEV2) {
+    } else if constexpr (T == TYPE_DOUBLE || T == TYPE_TIMEV2) {
         col.insert_value(arg->unpack<JsonbDoubleVal>()->val());
     } else {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
@@ -712,7 +712,7 @@ void DataTypeNumberSerDe<T>::write_one_cell_to_jsonb(const IColumn& column,
     } else if constexpr (T == TYPE_FLOAT) {
         float val = *reinterpret_cast<const float*>(data_ref.data);
         result.writeFloat(val);
-    } else if constexpr (T == TYPE_DOUBLE || T == TYPE_TIME || T == TYPE_TIMEV2) {
+    } else if constexpr (T == TYPE_DOUBLE || T == TYPE_TIMEV2) {
         double val = *reinterpret_cast<const double*>(data_ref.data);
         result.writeDouble(val);
     } else {
@@ -1033,7 +1033,7 @@ void value_to_string(const typename PrimitiveTypeTraits<T>::CppType value, Buffe
         CastToString::push_datetimev2(value, scale, bw);
     } else if constexpr (T == TYPE_TIMESTAMPTZ) {
         CastToString::push_timestamptz(value, scale, bw, options);
-    } else if constexpr (T == TYPE_TIME || T == TYPE_TIMEV2) {
+    } else if constexpr (T == TYPE_TIMEV2) {
         CastToString::push_time(value, scale, bw);
     } else if constexpr (T == TYPE_IPV4 || T == TYPE_IPV6) {
         CastToString::push_ip(value, bw);
@@ -1123,7 +1123,6 @@ template class DataTypeNumberSerDe<TYPE_DATETIME>;
 template class DataTypeNumberSerDe<TYPE_DATETIMEV2>;
 template class DataTypeNumberSerDe<TYPE_IPV4>;
 template class DataTypeNumberSerDe<TYPE_IPV6>;
-template class DataTypeNumberSerDe<TYPE_TIME>;
 template class DataTypeNumberSerDe<TYPE_TIMEV2>;
 template class DataTypeNumberSerDe<TYPE_TIMESTAMPTZ>;
 } // namespace doris

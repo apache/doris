@@ -152,9 +152,6 @@ public class BackendsProcDir implements ProcDirInterface {
             // heartbeat failure counter
             backendInfo.add(backend.getHeartbeatFailureCounter());
 
-            // node role, show the value only when backend is alive.
-            backendInfo.add(backend.isAlive() ? backend.getNodeRoleTag().value : "");
-
             // cpu cores
             backendInfo.add(String.valueOf(backend.getCputCores()));
 
@@ -166,6 +163,9 @@ public class BackendsProcDir implements ProcDirInterface {
 
             // runningFragments
             backendInfo.add(String.valueOf(backend.getRunningTasks()));
+
+            // node role, show the value only when backend is alive.
+            backendInfo.add(backend.isAlive() ? backend.getNodeRoleTag().value : "");
 
             comparableBackendInfos.add(backendInfo);
         }

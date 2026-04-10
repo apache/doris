@@ -24,6 +24,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ColumnToThrift;
 import org.apache.doris.catalog.ColumnType;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DistributionInfo;
@@ -66,15 +67,15 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.BufferSizeUtil;
 import org.apache.doris.common.util.DbUtil;
 import org.apache.doris.common.util.DynamicPartitionUtil;
-import org.apache.doris.common.util.IdGeneratorUtil;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.AlterCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
@@ -409,7 +410,9 @@ public class SchemaChangeHandler extends AlterHandler {
         String dropColName = dropColumnOp.getColName();
 
         String constraintName = Env.getCurrentEnv().getConstraintManager()
-                .findConstraintWithColumn(new TableNameInfo(externalTable), dropColName);
+                .findConstraintWithColumn(TableNameInfoUtils.fromCatalogDb(
+                        externalTable.getDatabase().getCatalog(),
+                        externalTable.getDatabase(), externalTable), dropColName);
         if (constraintName != null) {
             throw new DdlException(String.format(
                     "Cannot drop column '%s' because it is used by constraint '%s'. "
@@ -455,7 +458,9 @@ public class SchemaChangeHandler extends AlterHandler {
         String dropColName = dropColumnOp.getColName();
 
         String constraintName = Env.getCurrentEnv().getConstraintManager()
-                .findConstraintWithColumn(new TableNameInfo(olapTable), dropColName);
+                .findConstraintWithColumn(TableNameInfoUtils.fromCatalogDb(
+                        olapTable.getDatabase().getCatalog(),
+                        olapTable.getDatabase(), olapTable), dropColName);
         if (constraintName != null) {
             throw new DdlException(String.format(
                     "Cannot drop column '%s' because it is used by constraint '%s'. "
@@ -1809,7 +1814,7 @@ public class SchemaChangeHandler extends AlterHandler {
         }
 
         // create job
-        long bufferSize = IdGeneratorUtil.getBufferSizeForAlterTable(olapTable, changedIndexIdToSchema.keySet());
+        long bufferSize = BufferSizeUtil.getBufferSizeForAlterTable(olapTable, changedIndexIdToSchema.keySet());
         IdGeneratorBuffer idGeneratorBuffer = Env.getCurrentEnv().getIdGeneratorBuffer(bufferSize);
         long jobId = idGeneratorBuffer.getNextId();
         SchemaChangeJobV2 schemaChangeJob =
@@ -2374,37 +2379,80 @@ public class SchemaChangeHandler extends AlterHandler {
                     buildIndexChange = true;
                     lightSchemaChange = false;
                 } else if (alterOp instanceof DropIndexOp) {
-                    if (processDropIndex((DropIndexOp) alterOp, olapTable, newIndexes)) {
-                        return;
-                    }
-                    lightSchemaChange = false;
-
                     DropIndexOp dropIndexOp = (DropIndexOp) alterOp;
-                    List<Index> existedIndexes = olapTable.getIndexes();
-                    Index found = null;
-                    for (Index existedIdx : existedIndexes) {
-                        if (existedIdx.getIndexName().equalsIgnoreCase(dropIndexOp.getIndexName())) {
-                            found = existedIdx;
-                            break;
+
+                    if (dropIndexOp.hasPartitionSpec()) {
+                        // DROP INDEX ON PARTITION: only delete physical index files,
+                        // do not modify table-level index metadata.
+                        List<Index> existedIndexes = olapTable.getIndexes();
+                        Index found = null;
+                        for (Index existedIdx : existedIndexes) {
+                            if (existedIdx.getIndexName().equalsIgnoreCase(dropIndexOp.getIndexName())) {
+                                found = existedIdx;
+                                break;
+                            }
                         }
-                    }
-                    // for inverted index, light schema change is supported in both cloud and local mode;
-                    // for ngram index, light schema change is supported only in cloud mode;
-                    boolean supportLightIndexChange = false;
-                    if (Config.isCloudMode()) {
-                        if (enableAddIndexForNewData) {
-                            supportLightIndexChange = (
-                                    found.getIndexType() == IndexType.NGRAM_BF
-                                            || found.getIndexType() == IndexType.INVERTED);
+                        if (found == null) {
+                            if (dropIndexOp.isSetIfExists()) {
+                                LOG.info("drop index[{}] which does not exist on table[{}]",
+                                        dropIndexOp.getIndexName(), olapTable.getName());
+                                return;
+                            }
+                            throw new DdlException("index " + dropIndexOp.getIndexName() + " does not exist");
                         }
-                    } else {
-                        supportLightIndexChange = found.getIndexType() == IndexType.INVERTED
-                                || found.getIndexType() == IndexType.ANN;
-                    }
-                    if (found != null && supportLightIndexChange) {
+                        if (found.getIndexType() != IndexType.INVERTED) {
+                            throw new DdlException(
+                                    "Only inverted index supports DROP INDEX ON PARTITION");
+                        }
+                        if (!olapTable.isPartitionedTable()) {
+                            throw new DdlException("table " + olapTable.getName()
+                                    + " is not partitioned, cannot drop index with partitions");
+                        }
+                        Set<String> specifiedPartitions = new HashSet<>(dropIndexOp.getPartitionNames());
+                        for (String partName : specifiedPartitions) {
+                            if (olapTable.getPartition(partName) == null) {
+                                throw new DdlException("partition " + partName + " does not exist");
+                            }
+                        }
+
                         alterIndexes.add(found);
+                        indexOnPartitions.put(found.getIndexId(), specifiedPartitions);
                         isDropIndex = true;
-                        lightIndexChange = true;
+                        buildIndexChange = true;
+                        lightSchemaChange = false;
+                    } else {
+                        // Original full-table DROP INDEX logic
+                        if (processDropIndex(dropIndexOp, olapTable, newIndexes)) {
+                            return;
+                        }
+                        lightSchemaChange = false;
+
+                        List<Index> existedIndexes = olapTable.getIndexes();
+                        Index found = null;
+                        for (Index existedIdx : existedIndexes) {
+                            if (existedIdx.getIndexName().equalsIgnoreCase(dropIndexOp.getIndexName())) {
+                                found = existedIdx;
+                                break;
+                            }
+                        }
+                        // for inverted index, light schema change is supported in both cloud and local mode;
+                        // for ngram index, light schema change is supported only in cloud mode;
+                        boolean supportLightIndexChange = false;
+                        if (Config.isCloudMode()) {
+                            if (enableAddIndexForNewData) {
+                                supportLightIndexChange = (
+                                        found.getIndexType() == IndexType.NGRAM_BF
+                                                || found.getIndexType() == IndexType.INVERTED);
+                            }
+                        } else {
+                            supportLightIndexChange = found.getIndexType() == IndexType.INVERTED
+                                    || found.getIndexType() == IndexType.ANN;
+                        }
+                        if (found != null && supportLightIndexChange) {
+                            alterIndexes.add(found);
+                            isDropIndex = true;
+                            lightIndexChange = true;
+                        }
                     }
                 } else {
                     Preconditions.checkState(false);
@@ -2434,7 +2482,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 }
                 if (Config.enable_light_index_change) {
                     buildOrDeleteTableInvertedIndices(db, olapTable, indexSchemaMap,
-                            alterIndexes, indexOnPartitions, false);
+                            alterIndexes, indexOnPartitions, isDropIndex);
                 }
             } else {
                 createJob(rawSql, db.getId(), olapTable, indexSchemaMap, propertyMap, newIndexes, sequenceMapping);
@@ -2574,6 +2622,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 add(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES);
                 add(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE);
                 add(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION);
+                add(PropertyAnalyzer.PROPERTIES_ENABLE_TSO);
                 add(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION);
                 add(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD);
                 add(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD);
@@ -2686,6 +2735,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_MODE)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD)
+                && !properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_TSO)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT)) {
@@ -3002,8 +3052,12 @@ public class SchemaChangeHandler extends AlterHandler {
         }
 
         if (indexDef.isAnnIndex()) {
-            if (olapTable.getKeysType() != KeysType.DUP_KEYS) {
-                throw new AnalysisException("ANN index can only be built on table with DUP_KEYS");
+            if (olapTable.getKeysType() != KeysType.DUP_KEYS
+                    && !(olapTable.getKeysType() == KeysType.UNIQUE_KEYS
+                    && olapTable.getEnableUniqueKeyMergeOnWrite())) {
+                throw new AnalysisException(
+                        "ANN index can only be built on table with DUP_KEYS or UNIQUE_KEYS"
+                                + " with merge-on-write enabled");
             }
             AnnIndexPropertiesChecker.checkProperties(indexDef.getProperties());
         }
@@ -3536,8 +3590,8 @@ public class SchemaChangeHandler extends AlterHandler {
                 MaterializedIndexMeta indexMeta = olapTable.getIndexMetaByIndexId(originIndexId);
                 List<Column> colList = indexMeta.getSchema(true);
                 for (Column col : colList) {
-                    TColumn tColumn = col.toThrift();
-                    col.setIndexFlag(tColumn, olapTable);
+                    TColumn tColumn = ColumnToThrift.toThrift(col);
+                    ColumnToThrift.setIndexFlag(tColumn, olapTable);
                 }
                 List<Index> indexList = indexMeta.getIndexes();
                 int schemaVersion = indexMeta.getSchemaVersion();

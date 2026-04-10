@@ -49,6 +49,7 @@ Status VExplodeTableFunction::_process_init_variant(Block* block, int value_colu
     auto& variant_column = assert_cast<ColumnVariant&>(*(column->assume_mutable()));
     variant_column.finalize();
     _detail.output_as_variant = true;
+    _detail.variant_enable_doc_mode = variant_column.enable_doc_mode();
     if (!variant_column.is_null_root()) {
         _array_column = variant_column.get_root();
         // We need to wrap the output nested column within a variant column.
@@ -89,6 +90,25 @@ Status VExplodeTableFunction::process_init(Block* block, RuntimeState* state) {
                                     block->get_by_position(value_column_idx).column->get_name());
     }
 
+    return Status::OK();
+}
+
+bool VExplodeTableFunction::support_block_fast_path() const {
+    return true;
+}
+
+Status VExplodeTableFunction::prepare_block_fast_path(Block* /*block*/, RuntimeState* /*state*/,
+                                                      BlockFastPathContext* ctx) {
+    if (!support_block_fast_path()) {
+        return Status::NotSupported("vexplode doesn't support block fast path in current mode");
+    }
+    if (_detail.offsets_ptr == nullptr || _detail.nested_col.get() == nullptr) {
+        return Status::InternalError("vexplode block fast path not initialized");
+    }
+    ctx->array_nullmap_data = _detail.array_nullmap_data;
+    ctx->offsets_ptr = _detail.offsets_ptr;
+    ctx->nested_col = _detail.nested_col;
+    ctx->nested_nullmap_data = _detail.nested_nullmap_data;
     return Status::OK();
 }
 

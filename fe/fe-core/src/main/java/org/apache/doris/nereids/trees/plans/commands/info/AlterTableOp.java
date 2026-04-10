@@ -28,9 +28,6 @@ import java.util.Map;
  * AlterTableOp
  */
 public abstract class AlterTableOp extends AlterOp {
-    // if set to true, the corresponding table should be stable before processing this operation on it.
-    protected boolean needTableStable = true;
-
     protected AlterOpType opType;
 
     protected TableNameInfo tableName;

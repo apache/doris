@@ -183,42 +183,4 @@ public class CompressedMaterialize implements AnalysisRuleFactory {
         }
         return encode;
     }
-
-    private LogicalRepeat<Plan> compressMaterializeRepeat(LogicalRepeat<Plan> repeat) {
-        Map<Expression, Expression> encode = getEncodeGroupingSets(repeat);
-        if (encode.isEmpty()) {
-            return repeat;
-        }
-        List<List<Expression>> newGroupingSets = Lists.newArrayList();
-        for (int i = 0; i < repeat.getGroupingSets().size(); i++) {
-            List<Expression> grouping = Lists.newArrayList();
-            for (int j = 0; j < repeat.getGroupingSets().get(i).size(); j++) {
-                Expression groupingExpr = repeat.getGroupingSets().get(i).get(j);
-                grouping.add(encode.getOrDefault(groupingExpr, groupingExpr));
-            }
-            newGroupingSets.add(grouping);
-        }
-        List<NamedExpression> newOutputs = Lists.newArrayList();
-        Map<Expression, Expression> decodeMap = new HashMap<>();
-        for (Expression gp : encode.keySet()) {
-            decodeMap.put(gp, new DecodeAsVarchar(encode.get(gp)));
-        }
-        for (NamedExpression out : repeat.getOutputExpressions()) {
-            Expression replaced = ExpressionUtils.replace(out, decodeMap);
-            if (out != replaced) {
-                if (out instanceof SlotReference) {
-                    newOutputs.add(new Alias(out.getExprId(), replaced, out.getName()));
-                } else if (out instanceof Alias) {
-                    newOutputs.add(((Alias) out).withChildren(replaced.children()));
-                } else {
-                    // should not reach here
-                    Preconditions.checkArgument(false, "output abnormal: " + repeat);
-                }
-            } else {
-                newOutputs.add(out);
-            }
-        }
-        repeat = repeat.withGroupSetsAndOutput(newGroupingSets, newOutputs);
-        return repeat;
-    }
 }

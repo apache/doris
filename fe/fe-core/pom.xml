@@ -58,30 +58,6 @@ under the License.
                 <fe_ut_parallel>${env.FE_UT_PARALLEL}</fe_ut_parallel>
             </properties>
         </profile>
-        <profile>
-            <id>protoc_rosetta</id>
-            <activation>
-                <os>
-                    <family>mac</family>
-                    <arch>aarch64</arch>
-                </os>
-            </activation>
-            <properties>
-                <protoc.artifact>com.google.protobuf:protoc:${protobuf.version}:exe:osx-x86_64</protoc.artifact>
-                <grpc.java.artifact>io.grpc:protoc-gen-grpc-java:${grpc-java.version}:exe:osx-x86_64</grpc.java.artifact>
-            </properties>
-        </profile>
-        <profile>
-            <id>protoc_command</id>
-            <activation>
-                <file>
-                    <exists>${doris.thirdparty}/installed/bin/protoc</exists>
-                </file>
-            </activation>
-            <properties>
-                <protoc.command>${doris.thirdparty}/installed/bin/protoc</protoc.command>
-            </properties>
-        </profile>
     </profiles>
     <dependencies>
         <dependency>
@@ -93,9 +69,37 @@ under the License.
             <artifactId>fe-common</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!-- fe-filesystem-api: consumer-facing filesystem API (FileSystem, Location, FileEntry, etc.) -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-filesystem-api</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- fe-filesystem-spi: provider contracts (ObjFileSystem, ObjStorage, etc.) —
+             needed by S3Resource which directly invokes ObjStorage for connectivity validation. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-filesystem-spi</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- fe-filesystem impl modules: runtime dependencies removed in Phase 4 P4.1.
+             Providers are now loaded from plugins/filesystem/ directory at startup
+             via FileSystemPluginManager + DirectoryPluginRuntimeManager. -->
+        <!-- fe-filesystem-local: test-scope only, used for unit testing FileSystemTransferUtil etc. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-filesystem-local</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>fe-thrift</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-grpc</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
@@ -116,6 +120,26 @@ under the License.
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>fe-extension-loader</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-authentication-api</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-authentication-spi</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-authentication-handler</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-authentication-role-mapping</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
@@ -157,11 +181,6 @@ under the License.
         <dependency>
             <groupId>org.apache.hadoop</groupId>
             <artifactId>hadoop-azure</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.aliyun.oss</groupId>
-            <artifactId>aliyun-sdk-oss</artifactId>
-            <version>${aliyun-sdk-oss.version}</version>
         </dependency>
         <!-- https://mvnrepository.com/artifact/org.apache.commons/commons-lang3 -->
         <dependency>
@@ -238,11 +257,6 @@ under the License.
             <groupId>org.objenesis</groupId>
             <artifactId>objenesis</artifactId>
         </dependency>
-        <!-- https://mvnrepository.com/artifact/com.google.protobuf/protobuf-java -->
-        <dependency>
-            <groupId>com.google.protobuf</groupId>
-            <artifactId>protobuf-java</artifactId>
-        </dependency>
         <!-- https://mvnrepository.com/artifact/com.squareup/protoparser -->
         <dependency>
             <groupId>com.squareup</groupId>
@@ -304,13 +318,12 @@ under the License.
             <groupId>com.amazonaws</groupId>
             <artifactId>aws-java-sdk-sts</artifactId>
         </dependency>
+        <!-- hadoop-huaweicloud provides OBSFileSystem; loaded via reflection in OBSProperties
+             with graceful S3A fallback — runtime only, not needed at compile time -->
         <dependency>
             <groupId>com.huaweicloud</groupId>
             <artifactId>hadoop-huaweicloud</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.qcloud.cos</groupId>
-            <artifactId>hadoop-cos</artifactId>
+            <scope>runtime</scope>
         </dependency>
         <!-- antl4 The version of antlr-runtime in trino parser is need to be consistent with doris,
             when upgrade doris antlr-runtime version, should take care of trino-parser.-->
@@ -376,36 +389,6 @@ under the License.
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>s3</artifactId>
         </dependency>
-        <!-- tencent cloud sts -->
-        <dependency>
-            <groupId>com.tencentcloudapi</groupId>
-            <artifactId>tencentcloud-sdk-java-sts</artifactId>
-            <exclusions>
-                <exclusion>
-                    <groupId>com.squareup.okhttp3</groupId>
-                    <artifactId>okhttp</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>com.squareup.okio</groupId>
-                    <artifactId>okio</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
-        <!-- huawei cloud sts -->
-        <dependency>
-            <groupId>com.huaweicloud.sdk</groupId>
-            <artifactId>huaweicloud-sdk-iam</artifactId>
-            <exclusions>
-                <exclusion>
-                    <groupId>com.squareup.okhttp3</groupId>
-                    <artifactId>okhttp</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>com.squareup.okio</groupId>
-                    <artifactId>okio</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
         <!-- ICU4J for unicode normalization -->
         <dependency>
             <groupId>com.ibm.icu</groupId>
@@ -423,18 +406,6 @@ under the License.
         <dependency>
             <groupId>hu.webarticum</groupId>
             <artifactId>tree-printer</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>io.grpc</groupId>
-            <artifactId>grpc-netty-shaded</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>io.grpc</groupId>
-            <artifactId>grpc-protobuf</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>io.grpc</groupId>
-            <artifactId>grpc-stub</artifactId>
         </dependency>
         <dependency>
             <groupId>org.apache.httpcomponents</groupId>
@@ -557,25 +528,25 @@ under the License.
         <dependency>
             <groupId>org.apache.paimon</groupId>
             <artifactId>paimon-core</artifactId>
-            <version>${paimon.version}</version>
         </dependency>
 
         <dependency>
             <groupId>org.apache.paimon</groupId>
             <artifactId>paimon-common</artifactId>
-            <version>${paimon.version}</version>
         </dependency>
 
         <dependency>
             <groupId>org.apache.paimon</groupId>
             <artifactId>paimon-format</artifactId>
-            <version>${paimon.version}</version>
         </dependency>
 
         <dependency>
             <groupId>org.apache.paimon</groupId>
             <artifactId>paimon-s3</artifactId>
-            <version>${paimon.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.paimon</groupId>
+            <artifactId>paimon-jindo</artifactId>
         </dependency>
 
         <dependency>
@@ -588,6 +559,10 @@ under the License.
                 </exclusion>
             </exclusions>
         </dependency>
+        <!-- Required at runtime by paimon-s3 and iceberg-aws (both direct deps): their S3 I/O
+             paths use software.amazon.awssdk.transfer.s3.model.ObjectTransfer and related
+             classes from this jar.  Without it the FE classloader throws NoClassDefFoundError
+             when loading Paimon/Iceberg catalog metadata. -->
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>s3-transfer-manager</artifactId>
@@ -653,18 +628,6 @@ under the License.
             <artifactId>okhttp-jvm</artifactId>
         </dependency>
 
-        <dependency>
-            <groupId>com.qcloud</groupId>
-            <artifactId>cos_api</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.qcloud</groupId>
-            <artifactId>qcloud-java-sdk</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.huaweicloud</groupId>
-            <artifactId>esdk-obs-java-bundle</artifactId>
-        </dependency>
         <dependency>
             <groupId>com.baidubce</groupId>
             <artifactId>bce-java-sdk</artifactId>
@@ -770,19 +733,6 @@ under the License.
             <version>3.0-8</version>
         </dependency>
         <dependency>
-            <groupId>com.azure</groupId>
-            <artifactId>azure-storage-blob</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.azure</groupId>
-            <artifactId>azure-identity</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.azure</groupId>
-            <artifactId>azure-storage-blob-batch</artifactId>
-            <version>${azure.sdk.batch.version}</version>
-        </dependency>
-        <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>s3tables</artifactId>
         </dependency>
@@ -811,7 +761,8 @@ under the License.
             <artifactId>mockito-inline</artifactId>
             <scope>test</scope>
         </dependency>
-        <!-- fastutil for memory-efficient primitive collections -->
+        <!-- fastutil-core: keep as direct dependency to ensure classpath priority
+             over the ancient unrelocated fastutil classes embedded in hive-catalog-shade -->
         <dependency>
             <groupId>it.unimi.dsi</groupId>
             <artifactId>fastutil-core</artifactId>
@@ -891,88 +842,6 @@ under the License.
                     <skip>true</skip>
                 </configuration>
             </plugin>
-            <!-- protobuf -->
-            <plugin>
-                <groupId>com.github.os72</groupId>
-                <artifactId>protoc-jar-maven-plugin</artifactId>
-                <version>3.11.4</version>
-                <executions>
-                    <execution>
-                        <phase>generate-sources</phase>
-                        <goals>
-                            <goal>run</goal>
-                        </goals>
-                        <configuration>
-                            <protocCommand>${protoc.command}</protocCommand>
-                            <!--You can use following protocArtifact instead of protocCommand, so that you don't need to install protobuf tools-->
-                            <protocArtifact>${protoc.artifact}</protocArtifact>
-                            <protocVersion>${protobuf.version}</protocVersion>
-                            <inputDirectories>
-                                <include>${doris.home}/gensrc/proto</include>
-                            </inputDirectories>
-                            <outputTargets>
-                                <outputTarget>
-                                    <type>java</type>
-                                </outputTarget>
-                                <outputTarget>
-                                    <type>grpc-java</type>
-                                    <pluginArtifact>${grpc.java.artifact}</pluginArtifact>
-                                </outputTarget>
-                            </outputTargets>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-            <!-- run make to generate Version and builtin -->
-            <!-- also parse the proto for FE -->
-            <plugin>
-                <groupId>org.codehaus.mojo</groupId>
-                <artifactId>exec-maven-plugin</artifactId>
-                <version>3.1.0</version>
-                <executions>
-                    <execution>
-                        <id>gensrc</id>
-                        <phase>generate-sources</phase>
-                        <goals>
-                            <goal>exec</goal>
-                        </goals>
-                        <configuration>
-                            <environmentVariables>
-                                <DORIS_HOME>${doris.home}</DORIS_HOME>
-                            </environmentVariables>
-                            <environmentScript>${doris.home}/env.sh</environmentScript>
-                            <executable>make</executable>
-                            <arguments>
-                                <argument>-C</argument>
-                                <argument>${doris.home}/gensrc/script</argument>
-                            </arguments>
-                            <skip>${skip.plugin}</skip>
-                        </configuration>
-                    </execution>
-                    <!--execution>
-                        <id>doc</id>
-                        <phase>process-classes</phase>
-                        <goals>
-                            <goal>java</goal>
-                        </goals>
-                        <configuration>
-                            <mainClass>org.apache.doris.common.util.DocGenerator</mainClass>
-                            <arguments>
-                                <argument>${doris.home}/docs/en/docs/admin-manual/config/fe-config-template.md</argument>
-                                <argument>${doris.home}/docs/zh-CN/docs/admin-manual/config/fe-config-template.md</argument>
-                                <argument>${doris.home}/docs/en/docs/admin-manual/config/fe-config.md</argument>
-                                <argument>${doris.home}/docs/zh-CN/docs/admin-manual/config/fe-config.md</argument>
-                                <argument>${doris.home}/docs/en/docs/advanced/variables-template.md</argument>
-                                <argument>${doris.home}/docs/zh-CN/docs/advanced/variables-template.md</argument>
-                                <argument>${doris.home}/docs/en/docs/advanced/variables.md</argument>
-                                <argument>${doris.home}/docs/zh-CN/docs/advanced/variables.md</argument>
-                            </arguments>
-                            <skip>${skip.doc}</skip>
-                        </configuration>
-                    </execution-->
-                </executions>
-            </plugin>
-
             <!-- annotation processor -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -1048,7 +917,6 @@ under the License.
                         <configuration>
                             <sources>
                                 <!-- add arbitrary num of src dirs here -->
-                                <source>${basedir}/target/generated-sources/build/</source>
                                 <source>${basedir}/target/generated-sources/</source>
                             </sources>
                         </configuration>

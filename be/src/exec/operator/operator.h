@@ -796,7 +796,6 @@ public:
               _resource_profile(tnode.resource_profile),
               _limit(tnode.limit) {
         if (tnode.__isset.output_tuple_id) {
-            _output_row_descriptor.reset(new RowDescriptor(descs, {tnode.output_tuple_id}));
             _output_row_descriptor =
                     std::make_unique<RowDescriptor>(descs, std::vector {tnode.output_tuple_id});
         }

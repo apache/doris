@@ -70,6 +70,8 @@ public class PaimonSysExternalTable extends ExternalTable {
     private final String sysTableType;
     private volatile Boolean isDataTable;
     private volatile Table paimonSysTable;
+    private volatile List<Column> fullSchema;
+    private volatile SchemaCacheValue schemaCacheValue;
 
     /**
      * Creates a new Paimon system external table.
@@ -93,6 +95,7 @@ public class PaimonSysExternalTable extends ExternalTable {
         return PaimonExternalMetaCache.ENGINE;
     }
 
+    @Override
     protected synchronized void makeSureInitialized() {
         super.makeSureInitialized();
         if (!objectCreated) {
@@ -136,30 +139,7 @@ public class PaimonSysExternalTable extends ExternalTable {
      */
     @Override
     public List<Column> getFullSchema() {
-        Table sysTable = getSysPaimonTable();
-        List<DataField> fields = sysTable.rowType().getFields();
-        List<Column> columns = Lists.newArrayListWithCapacity(fields.size());
-
-        for (DataField field : fields) {
-            Column column = new Column(
-                    field.name().toLowerCase(),
-                    PaimonUtil.paimonTypeToDorisType(
-                            field.type(),
-                            getCatalog().getEnableMappingVarbinary(),
-                            getCatalog().getEnableMappingTimestampTz()),
-                    true,
-                    null,
-                    true,
-                    field.description(),
-                    true,
-                    field.id());
-            PaimonUtil.updatePaimonColumnUniqueId(column, field);
-            if (field.type().getTypeRoot() == DataTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE) {
-                column.setWithTZExtraInfo();
-            }
-            columns.add(column);
-        }
-        return columns;
+        return getOrCreateSchemaCacheValue().getSchema();
     }
 
     public PaimonExternalTable getSourceTable() {
@@ -232,12 +212,12 @@ public class PaimonSysExternalTable extends ExternalTable {
 
     @Override
     public Optional<SchemaCacheValue> initSchema(SchemaCacheKey key) {
-        return Optional.of(new SchemaCacheValue(getFullSchema()));
+        return Optional.of(getOrCreateSchemaCacheValue());
     }
 
     @Override
     public Optional<SchemaCacheValue> getSchemaCacheValue() {
-        return Optional.of(new SchemaCacheValue(getFullSchema()));
+        return Optional.of(getOrCreateSchemaCacheValue());
     }
 
     @Override
@@ -252,5 +232,46 @@ public class PaimonSysExternalTable extends ExternalTable {
     @Override
     public String getComment() {
         return "Paimon system table: " + sysTableType + " for " + sourceTable.getName();
+    }
+
+    private SchemaCacheValue getOrCreateSchemaCacheValue() {
+        if (schemaCacheValue == null) {
+            synchronized (this) {
+                if (schemaCacheValue == null) {
+                    if (fullSchema == null) {
+                        fullSchema = buildFullSchema();
+                    }
+                    schemaCacheValue = new SchemaCacheValue(fullSchema);
+                }
+            }
+        }
+        return schemaCacheValue;
+    }
+
+    private List<Column> buildFullSchema() {
+        Table sysTable = getSysPaimonTable();
+        List<DataField> fields = sysTable.rowType().getFields();
+        List<Column> columns = Lists.newArrayListWithCapacity(fields.size());
+
+        for (DataField field : fields) {
+            Column column = new Column(
+                    field.name().toLowerCase(),
+                    PaimonUtil.paimonTypeToDorisType(
+                            field.type(),
+                            getCatalog().getEnableMappingVarbinary(),
+                            getCatalog().getEnableMappingTimestampTz()),
+                    true,
+                    null,
+                    true,
+                    field.description(),
+                    true,
+                    field.id());
+            PaimonUtil.updatePaimonColumnUniqueId(column, field);
+            if (field.type().getTypeRoot() == DataTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE) {
+                column.setWithTZExtraInfo();
+            }
+            columns.add(column);
+        }
+        return columns;
     }
 }

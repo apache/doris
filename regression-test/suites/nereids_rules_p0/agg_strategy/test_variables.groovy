@@ -113,8 +113,11 @@ suite("agg_strategy_variable") {
 
     sql "set agg_phase=4;"
     sql "set multi_distinct_strategy=2;"
-    qt_agg_phase4_and_multi_distinct_strategy2 """explain shape plan
-    select count(distinct dst_key2), count(distinct dst_key1), max(gby_key),min(gby_key),sum(gby_key),sum0(gby_key),count(gby_key) from t_gbykey_10_dstkey_10_1000_id_2 group by gby_key;"""
+    explain {
+        sql "shape plan select count(distinct dst_key2), count(distinct dst_key1), max(gby_key),min(gby_key),sum(gby_key),sum0(gby_key),count(gby_key) from t_gbykey_10_dstkey_10_1000_id_2 group by gby_key;"
+        contains "PhysicalCteAnchor"
+        contains "DISTINCT_GLOBAL"
+    }
     sql "set agg_phase=0;"
     sql "set multi_distinct_strategy=0;"
 

@@ -330,4 +330,13 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
     public String getStorageName() {
         return "S3";
     }
+
+    /** Returns the bucket name from the connector properties map. */
+    public String getBucket() {
+        String bucket = origProps.get("s3.bucket");
+        if (bucket == null) {
+            bucket = origProps.get("AWS_BUCKET");
+        }
+        return bucket != null ? bucket : "";
+    }
 }

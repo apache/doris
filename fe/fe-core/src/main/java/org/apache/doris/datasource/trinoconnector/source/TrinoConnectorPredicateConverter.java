@@ -278,7 +278,7 @@ public class TrinoConnectorPredicateConverter {
             case "VarcharType":
                 return Slices.utf8Slice((String) literalExpr.getRealValue());
             case "DateType":
-                return ((DateLiteral) literalExpr).daynr() - new DateLiteral(EPOCH_DATE).daynr();
+                return ((DateLiteral) literalExpr).daynr() - new DateLiteral(1970, 1, 1).daynr();
             case "ShortTimestampType": {
                 DateLiteral dateLiteral = (DateLiteral) literalExpr;
                 return dateLiteral.unixTimestamp(TimeZone.getTimeZone(GMT)) * 1000

@@ -480,7 +480,8 @@ MutableColumnPtr ColumnVariant::apply_for_columns(Func&& func) const {
         return finalized_object.apply_for_columns(std::forward<Func>(func));
     }
     auto new_root = func(get_root())->assume_mutable();
-    auto res = ColumnVariant::create(_max_subcolumns_count, get_root_type(), std::move(new_root));
+    auto res = ColumnVariant::create(_max_subcolumns_count, _enable_doc_mode, get_root_type(),
+                                     std::move(new_root));
     for (const auto& subcolumn : subcolumns) {
         if (subcolumn->data.is_root) {
             continue;
@@ -678,17 +679,21 @@ ColumnVariant::Subcolumn::LeastCommonType::LeastCommonType(DataTypePtr type_, bo
     base_type_id = base_type->get_primitive_type();
 }
 
-ColumnVariant::ColumnVariant(int32_t max_subcolumns_count)
-        : is_nullable(true), num_rows(0), _max_subcolumns_count(max_subcolumns_count) {
+ColumnVariant::ColumnVariant(int32_t max_subcolumns_count, bool enable_doc_mode)
+        : is_nullable(true),
+          num_rows(0),
+          _max_subcolumns_count(max_subcolumns_count),
+          _enable_doc_mode(enable_doc_mode) {
     subcolumns.create_root(Subcolumn(0, is_nullable, true /*root*/));
     ENABLE_CHECK_CONSISTENCY(this);
 }
 
-ColumnVariant::ColumnVariant(int32_t max_subcolumns_count, DataTypePtr root_type,
-                             MutableColumnPtr&& root_column)
+ColumnVariant::ColumnVariant(int32_t max_subcolumns_count, bool enable_doc_mode,
+                             DataTypePtr root_type, MutableColumnPtr&& root_column)
         : is_nullable(true),
           num_rows(root_column->size()),
-          _max_subcolumns_count(max_subcolumns_count) {
+          _max_subcolumns_count(max_subcolumns_count),
+          _enable_doc_mode(enable_doc_mode) {
     subcolumns.create_root(
             Subcolumn(std::move(root_column), root_type, is_nullable, true /*root*/));
     serialized_sparse_column->resize(num_rows);
@@ -696,11 +701,13 @@ ColumnVariant::ColumnVariant(int32_t max_subcolumns_count, DataTypePtr root_type
     ENABLE_CHECK_CONSISTENCY(this);
 }
 
-ColumnVariant::ColumnVariant(int32_t max_subcolumns_count, Subcolumns&& subcolumns_)
+ColumnVariant::ColumnVariant(int32_t max_subcolumns_count, bool enable_doc_mode,
+                             Subcolumns&& subcolumns_)
         : is_nullable(true),
           subcolumns(std::move(subcolumns_)),
           num_rows(subcolumns.empty() ? 0 : (*subcolumns.begin())->data.size()),
-          _max_subcolumns_count(max_subcolumns_count) {
+          _max_subcolumns_count(max_subcolumns_count),
+          _enable_doc_mode(enable_doc_mode) {
     if (max_subcolumns_count && subcolumns_.size() > max_subcolumns_count + 1) {
         throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
                                "unmatched max subcolumns count:, max subcolumns count: {}, but "
@@ -711,8 +718,11 @@ ColumnVariant::ColumnVariant(int32_t max_subcolumns_count, Subcolumns&& subcolum
     serialized_doc_value_column->resize(num_rows);
 }
 
-ColumnVariant::ColumnVariant(int32_t max_subcolumns_count, size_t size)
-        : is_nullable(true), num_rows(0), _max_subcolumns_count(max_subcolumns_count) {
+ColumnVariant::ColumnVariant(int32_t max_subcolumns_count, bool enable_doc_mode, size_t size)
+        : is_nullable(true),
+          num_rows(0),
+          _max_subcolumns_count(max_subcolumns_count),
+          _enable_doc_mode(enable_doc_mode) {
     subcolumns.create_root(Subcolumn(0, is_nullable, true /*root*/));
     insert_many_defaults(size);
     ENABLE_CHECK_CONSISTENCY(this);
@@ -737,12 +747,30 @@ void ColumnVariant::check_consistency() const {
                                "unmatched doc snapshot column:, expeted rows: {}, but meet: {}",
                                num_rows, serialized_doc_value_column->size());
     }
-    // const auto& offsets = serialized_doc_value_column_offsets();
-    // size_t off = offsets[num_rows - 1];
-    // if (off > 0 && subcolumns.size() != 1) {
-    //     throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-    //                            "doc snapshot column offsets is not empty, but subcolumns size is not 1");
-    // }
+    if (_enable_doc_mode && num_rows > 0) {
+        // doc mode invariants:
+        // - only root subcolumn (size == 1)
+        // - sparse column is empty
+        // - subcolumns and doc_value are mutually exclusive
+        if (subcolumns.size() != 1) {
+            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                                   "doc mode: should only have root, but subcolumns size is {}",
+                                   subcolumns.size());
+        }
+        const auto& sparse_offs = serialized_sparse_column_offsets();
+        if (sparse_offs[num_rows - 1] > 0) {
+            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                                   "doc mode: should not have sparse data");
+        }
+    } else {
+        const auto& offsets = serialized_doc_value_column_offsets();
+        size_t off = offsets[num_rows - 1];
+        if (off > 0 && subcolumns.size() != 1) {
+            throw doris::Exception(
+                    doris::ErrorCode::INTERNAL_ERROR,
+                    "doc snapshot column offsets is not empty, but subcolumns size is not 1");
+        }
+    }
 }
 
 size_t ColumnVariant::size() const {
@@ -752,7 +780,7 @@ size_t ColumnVariant::size() const {
 
 MutableColumnPtr ColumnVariant::clone_resized(size_t new_size) const {
     if (new_size == 0) {
-        return ColumnVariant::create(_max_subcolumns_count);
+        return ColumnVariant::create(_max_subcolumns_count, _enable_doc_mode);
     }
     return apply_for_columns(
             [&](const ColumnPtr column) { return column->clone_resized(new_size); });
@@ -793,8 +821,11 @@ void ColumnVariant::for_each_subcolumn(ColumnCallback callback) {
 
 void ColumnVariant::insert_from(const IColumn& src, size_t n) {
     const auto* src_v = check_and_get_column<ColumnVariant>(src);
-    // only root, quick insert
-    if (src_v->get_subcolumns().size() == 1 && get_subcolumns().size() == 1) {
+    ENABLE_CHECK_CONSISTENCY(src_v);
+    ENABLE_CHECK_CONSISTENCY(this);
+    // doc mode fast path: both sides root-only, direct copy root + sparse + doc_value
+    if (_enable_doc_mode) {
+        DCHECK(src_v->_enable_doc_mode) << "dst is doc mode but src is not";
         FieldWithDataType field;
         src_v->subcolumns.get_root()->data.get(n, field);
         subcolumns.get_mutable_root()->data.insert(field);
@@ -802,8 +833,9 @@ void ColumnVariant::insert_from(const IColumn& src, size_t n) {
         serialized_doc_value_column->insert_from(*src_v->get_doc_value_column(), n);
         num_rows++;
     } else {
-        return try_insert((*src_v)[n]);
+        try_insert((*src_v)[n]);
     }
+    ENABLE_CHECK_CONSISTENCY(this);
 }
 
 void ColumnVariant::try_insert(const Field& field) {
@@ -1126,6 +1158,20 @@ void ColumnVariant::insert_range_from(const IColumn& src, size_t start, size_t l
     ENABLE_CHECK_CONSISTENCY(&src_object);
     ENABLE_CHECK_CONSISTENCY(this);
 
+    // doc mode fast path: both sides root-only, direct range copy root + sparse + doc_value
+    if (_enable_doc_mode) {
+        DCHECK(src_object._enable_doc_mode) << "dst is doc mode but src is not";
+        subcolumns.get_mutable_root()->data.insert_range_from(
+                src_object.subcolumns.get_root()->data, start, length);
+        serialized_sparse_column->insert_range_from(*src_object.serialized_sparse_column, start,
+                                                    length);
+        serialized_doc_value_column->insert_range_from(*src_object.serialized_doc_value_column,
+                                                       start, length);
+        num_rows += length;
+        ENABLE_CHECK_CONSISTENCY(this);
+        return;
+    }
+
     // First, insert src subcolumns
     // We can reach the limit of subcolumns, and in this case
     // the rest of subcolumns from src will be inserted into sparse column.
@@ -1288,7 +1334,7 @@ MutableColumnPtr ColumnVariant::permute(const Permutation& perm, size_t limit) c
     }
 
     if (limit == 0) {
-        return ColumnVariant::create(_max_subcolumns_count);
+        return ColumnVariant::create(_max_subcolumns_count, _enable_doc_mode);
     }
 
     return apply_for_columns([&](const ColumnPtr column) { return column->permute(perm, limit); });
@@ -2144,13 +2190,14 @@ ColumnPtr ColumnVariant::filter(const Filter& filter, ssize_t count) const {
         return finalized_object.filter(filter, count);
     }
     if (num_rows == 0) {
-        auto res = ColumnVariant::create(_max_subcolumns_count, count_bytes_in_filter(filter));
+        auto res = ColumnVariant::create(_max_subcolumns_count, _enable_doc_mode,
+                                         count_bytes_in_filter(filter));
         ENABLE_CHECK_CONSISTENCY(res.get());
         return res;
     }
     auto new_root = get_root()->filter(filter, count)->assume_mutable();
-    auto new_column =
-            ColumnVariant::create(_max_subcolumns_count, get_root_type(), std::move(new_root));
+    auto new_column = ColumnVariant::create(_max_subcolumns_count, _enable_doc_mode,
+                                            get_root_type(), std::move(new_root));
     for (const auto& entry : subcolumns) {
         if (entry->data.is_root) {
             continue;
@@ -2254,7 +2301,7 @@ bool NO_SANITIZE_UNDEFINED ColumnVariant::is_scalar_variant() const {
 
 const DataTypePtr ColumnVariant::NESTED_TYPE =
         std::make_shared<DataTypeNullable>(std::make_shared<DataTypeArray>(
-                std::make_shared<DataTypeNullable>(std::make_shared<DataTypeVariant>(0))));
+                std::make_shared<DataTypeNullable>(std::make_shared<DataTypeVariant>(0, false))));
 
 const DataTypePtr ColumnVariant::NESTED_TYPE_AS_ARRAY_OF_JSONB = std::make_shared<DataTypeArray>(
         std::make_shared<DataTypeNullable>(std::make_shared<DataTypeJsonb>()));
@@ -2634,7 +2681,7 @@ void ColumnVariant::fill_path_column_from_sparse_data(Subcolumn& subcolumn, Null
 }
 
 MutableColumnPtr ColumnVariant::clone() const {
-    auto res = ColumnVariant::create(_max_subcolumns_count);
+    auto res = ColumnVariant::create(_max_subcolumns_count, _enable_doc_mode);
     Subcolumns new_subcolumns;
     for (const auto& subcolumn : subcolumns) {
         auto new_subcolumn = subcolumn->data;

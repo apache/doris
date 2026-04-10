@@ -184,7 +184,7 @@ public class WarmUpClusterCommand extends Command implements ForwardWithSync {
             for (WarmUpItem warmUpItem : warmUpItems) {
                 TableNameInfo tableNameInfo = warmUpItem.getTableNameInfo();
                 String partitionName = warmUpItem.getPartitionName();
-                tableNameInfo.analyze(connectContext);
+                tableNameInfo.analyze(connectContext.getNameSpaceContext());
                 String dbName = tableNameInfo.getDb();
                 if (Strings.isNullOrEmpty(dbName)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR, dbName);

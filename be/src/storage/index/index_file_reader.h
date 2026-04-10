@@ -42,6 +42,9 @@ namespace segment_v2 {
 class ReaderFileEntry;
 class DorisCompoundReader;
 
+// A singleton class responsible for reading index files, managing file entries, and providing interfaces to access index data.
+// The singleton object is at segment level, and it is shared by all threads that read the same segment (even across different queries).
+// It is created when the first index reader is initialized, and destroyed when the segment is closed.
 class IndexFileReader {
 public:
     // Modern C++ using std::unordered_map with smart pointers for automatic memory management
@@ -52,11 +55,13 @@ public:
 
     IndexFileReader(io::FileSystemSPtr fs, std::string index_path_prefix,
                     InvertedIndexStorageFormatPB storage_format,
-                    InvertedIndexFileInfo idx_file_info = InvertedIndexFileInfo())
+                    InvertedIndexFileInfo idx_file_info = InvertedIndexFileInfo(),
+                    int64_t tablet_id = -1)
             : _fs(std::move(fs)),
               _index_path_prefix(std::move(index_path_prefix)),
               _storage_format(storage_format),
-              _idx_file_info(idx_file_info) {}
+              _idx_file_info(idx_file_info),
+              _tablet_id(tablet_id) {}
     virtual ~IndexFileReader() = default;
 
     MOCK_FUNCTION Status init(int32_t read_buffer_size = config::inverted_index_read_buffer_size,
@@ -90,6 +95,7 @@ private:
     mutable std::shared_mutex _mutex; // Use mutable for const read operations
     bool _inited = false;
     InvertedIndexFileInfo _idx_file_info;
+    int64_t _tablet_id = -1;
 };
 
 } // namespace segment_v2

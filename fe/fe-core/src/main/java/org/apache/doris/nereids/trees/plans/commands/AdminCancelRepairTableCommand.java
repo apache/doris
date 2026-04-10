@@ -82,7 +82,7 @@ public class AdminCancelRepairTableCommand extends Command implements ForwardWit
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
 
-        tableRefInfo.getTableNameInfo().analyze(ctx);
+        tableRefInfo.getTableNameInfo().analyze(ctx.getNameSpaceContext());
         Util.prohibitExternalCatalog(tableRefInfo.getTableNameInfo().getCtl(), this.getClass().getSimpleName());
 
         PartitionNamesInfo partitionNamesInfo = tableRefInfo.getPartitionNamesInfo();

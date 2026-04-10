@@ -26,6 +26,7 @@
 #include <functional>
 #include <utility>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
@@ -536,6 +537,17 @@ Status ParquetReader::set_fill_columns(
 
     const FieldDescriptor& schema = _file_metadata->schema();
 
+    auto check_iceberg_row_lineage_column_idx = [&](const auto& col_name) -> int {
+        if (_row_lineage_columns != nullptr) {
+            if (col_name == IcebergTableReader::ROW_LINEAGE_ROW_ID) {
+                return _row_lineage_columns->row_id_column_idx;
+            } else if (col_name == IcebergTableReader::ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER) {
+                return _row_lineage_columns->last_updated_sequence_number_column_idx;
+            }
+        }
+        return -1;
+    };
+
     for (auto& read_table_col : _read_table_columns) {
         _lazy_read_ctx.all_read_columns.emplace_back(read_table_col);
 
@@ -548,7 +560,21 @@ Status ParquetReader::set_fill_columns(
         if (predicate_columns.size() > 0) {
             auto iter = predicate_columns.find(read_table_col);
             if (iter == predicate_columns.end()) {
-                _lazy_read_ctx.lazy_read_columns.emplace_back(read_table_col);
+                if (auto row_lineage_idx = check_iceberg_row_lineage_column_idx(read_table_col);
+                    row_lineage_idx != -1) {
+                    _lazy_read_ctx.predicate_columns.first.emplace_back(read_table_col);
+                    // row lineage column can not dict filter.
+                    int slot_id = 0;
+                    for (auto slot : _tuple_descriptor->slots()) {
+                        if (slot->col_name_lower_case() == read_table_col) {
+                            slot_id = slot->id();
+                        }
+                    }
+                    _lazy_read_ctx.predicate_columns.second.emplace_back(slot_id);
+                    _lazy_read_ctx.all_predicate_col_ids.emplace_back(row_lineage_idx);
+                } else {
+                    _lazy_read_ctx.lazy_read_columns.emplace_back(read_table_col);
+                }
             } else {
                 _lazy_read_ctx.predicate_columns.first.emplace_back(iter->first);
                 _lazy_read_ctx.predicate_columns.second.emplace_back(iter->second.second);
@@ -572,9 +598,7 @@ Status ParquetReader::set_fill_columns(
 
     for (auto& kv : _lazy_read_ctx.fill_missing_columns) {
         auto iter = predicate_columns.find(kv.first);
-        if (iter == predicate_columns.end()) {
-            _lazy_read_ctx.missing_columns.emplace(kv.first, kv.second);
-        } else {
+        if (iter != predicate_columns.end()) {
             //For check missing column :   missing column == xx, missing column is null,missing column is not null.
             if (_slot_id_to_filter_conjuncts->find(iter->second.second) !=
                 _slot_id_to_filter_conjuncts->end()) {
@@ -585,6 +609,12 @@ Status ParquetReader::set_fill_columns(
 
             _lazy_read_ctx.predicate_missing_columns.emplace(kv.first, kv.second);
             _lazy_read_ctx.all_predicate_col_ids.emplace_back(iter->second.first);
+        } else if (auto row_lineage_idx = check_iceberg_row_lineage_column_idx(kv.first);
+                   row_lineage_idx != -1) {
+            _lazy_read_ctx.predicate_missing_columns.emplace(kv.first, kv.second);
+            _lazy_read_ctx.all_predicate_col_ids.emplace_back(row_lineage_idx);
+        } else {
+            _lazy_read_ctx.missing_columns.emplace(kv.first, kv.second);
         }
     }
 
@@ -626,6 +656,20 @@ Status ParquetReader::get_parsed_schema(std::vector<std::string>* col_names,
         col_types->emplace_back(make_nullable(schema_desc.get_column(i)->data_type));
     }
     return Status::OK();
+}
+
+void ParquetReader::set_iceberg_rowid_params(const std::string& file_path,
+                                             int32_t partition_spec_id,
+                                             const std::string& partition_data_json,
+                                             int row_id_column_pos) {
+    _iceberg_rowid_params.enabled = true;
+    _iceberg_rowid_params.file_path = file_path;
+    _iceberg_rowid_params.partition_spec_id = partition_spec_id;
+    _iceberg_rowid_params.partition_data_json = partition_data_json;
+    _iceberg_rowid_params.row_id_column_pos = row_id_column_pos;
+    if (_current_group_reader != nullptr) {
+        _current_group_reader->set_iceberg_rowid_params(_iceberg_rowid_params);
+    }
 }
 
 Status ParquetReader::get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
@@ -676,6 +720,19 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
         return Status::OK();
     }
 
+    // Limit memory per batch for load paths.
+    // _load_bytes_per_row is updated after each batch so the *next* call pre-shrinks _batch_size
+    // before reading, ensuring the current batch is already within the limit (from call 2 onward).
+    const int64_t max_block_bytes =
+            (_state != nullptr && _state->query_type() == TQueryType::LOAD &&
+             config::load_reader_max_block_bytes > 0)
+                    ? config::load_reader_max_block_bytes
+                    : 0;
+    if (max_block_bytes > 0 && _load_bytes_per_row > 0) {
+        _batch_size = std::max((size_t)1,
+                               (size_t)((int64_t)max_block_bytes / (int64_t)_load_bytes_per_row));
+    }
+
     SCOPED_RAW_TIMER(&_reader_statistics.column_read_time);
     Status batch_st =
             _current_group_reader->next_batch(block, _batch_size, read_rows, &_row_group_eof);
@@ -690,6 +747,10 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
     if (!batch_st.ok()) {
         return Status::InternalError("Read parquet file {} failed, reason = {}", _scan_range.path,
                                      batch_st.to_string());
+    }
+
+    if (max_block_bytes > 0 && *read_rows > 0) {
+        _load_bytes_per_row = block->bytes() / *read_rows;
     }
 
     if (_row_group_eof) {
@@ -828,10 +889,14 @@ Status ParquetReader::_next_row_group_reader() {
                     : group_file_reader,
             _read_table_columns, _current_row_group_index.row_group_id, row_group, _ctz, _io_ctx,
             position_delete_ctx, _lazy_read_ctx, _state, _column_ids, _filter_column_ids));
+    if (_iceberg_rowid_params.enabled) {
+        _current_group_reader->set_iceberg_rowid_params(_iceberg_rowid_params);
+    }
     _row_group_eof = false;
 
     _current_group_reader->set_current_row_group_idx(_current_row_group_index);
     _current_group_reader->set_row_id_column_iterator(_row_id_column_iterator_pair);
+    _current_group_reader->set_row_lineage_columns(_row_lineage_columns);
     _current_group_reader->set_col_name_to_block_idx(_col_name_to_block_idx);
     if (_condition_cache_ctx) {
         _current_group_reader->set_condition_cache_context(_condition_cache_ctx);

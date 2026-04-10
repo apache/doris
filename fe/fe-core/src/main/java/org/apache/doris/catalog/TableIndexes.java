@@ -44,11 +44,6 @@ public class TableIndexes {
         this.properties = Maps.newHashMap();
     }
 
-    public TableIndexes(List<Index> indexes, Map<String, String> properties) {
-        this.indexes = indexes;
-        this.properties = properties;
-    }
-
     public List<Index> getIndexes() {
         if (indexes == null) {
             indexes = Lists.newArrayList();
@@ -67,7 +62,7 @@ public class TableIndexes {
     }
 
     public List<Index> getCopiedIndexes() {
-        if (indexes == null || indexes.size() == 0) {
+        if (indexes == null || indexes.isEmpty()) {
             return Lists.newArrayList();
         } else {
             return Lists.newArrayList(indexes);
@@ -86,7 +81,7 @@ public class TableIndexes {
     }
 
     public Map<String, String> getCopiedProperties() {
-        if (properties == null || properties.size() == 0) {
+        if (properties == null || properties.isEmpty()) {
             return new HashMap<>();
         } else {
             return new HashMap<>(properties);
