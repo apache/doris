@@ -2212,18 +2212,18 @@ public class SessionVariable implements Serializable, Writable {
 
     // Whether disable block file cache. Block cache only works when FE's query options sets disableFileCache false
     // along with BE's config `enable_file_cache` true
-    @VariableMgr.VarAttr(name = DISABLE_FILE_CACHE, needForward = true, varType = VariableAnnotation.DEPRECATED)
+    @VarAttrDef.VarAttr(name = DISABLE_FILE_CACHE, needForward = true, varType = VariableAnnotation.DEPRECATED)
     public boolean disableFileCache = false;
 
     // Whether enable block file cache. Only take effect when BE config item enable_file_cache is true.
-    @VariableMgr.VarAttr(name = ENABLE_FILE_CACHE, needForward = true, varType = VariableAnnotation.DEPRECATED,
+    @VarAttrDef.VarAttr(name = ENABLE_FILE_CACHE, needForward = true, varType = VariableAnnotation.DEPRECATED,
             description = {"是否启用 file cache。该变量只有在 be.conf 中 enable_file_cache=true 时才有效，"
                     + "如果 be.conf 中 enable_file_cache=false，该 BE 节点的 file cache 处于禁用状态。",
                 "Set whether to use file cache. This variable takes effect only if the BE config "
                     + "enable_file_cache=true. The cache is not used when BE config enable_file_cache=false."})
     public boolean enableFileCache = false;
 
-    @VariableMgr.VarAttr(name = ENABLE_FILE_CACHE_FOR_OLAP_TABLE, needForward = true, description = {
+    @VarAttrDef.VarAttr(name = ENABLE_FILE_CACHE_FOR_OLAP_TABLE, needForward = true, description = {
             "是否在存算分离场景下启用 file cache。该变量只有在 be.conf 中 enable_file_cache=true 时才有效，"
                     + "如果 be.conf 中 enable_file_cache=false，该 BE 节点的 file cache 处于禁用状态。",
             "Set whether to enable file cache for OLAP tables in cloud mode. "
@@ -2231,7 +2231,7 @@ public class SessionVariable implements Serializable, Writable {
                     + "The cache is not used when BE config enable_file_cache=false."})
     public boolean enableFileCacheForOlapTable = true;
 
-    @VariableMgr.VarAttr(name = ENABLE_FILE_CACHE_FOR_EXTERNAL_TABLE, needForward = true, description = {
+    @VarAttrDef.VarAttr(name = ENABLE_FILE_CACHE_FOR_EXTERNAL_TABLE, needForward = true, description = {
             "是否在湖仓一体场景下启用 file cache。该变量只有在 be.conf 中 enable_file_cache=true 时才有效，"
                     + "如果 be.conf 中 enable_file_cache=false，该 BE 节点的 file cache 处于禁用状态。",
             "Set whether to enable file cache for external tables in lakehouse scenarios. "
