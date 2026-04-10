@@ -30,6 +30,7 @@
 #include "core/data_type/file_schema_descriptor.h"
 #include "core/data_type_serde/data_type_file_serde.h"
 #include "core/string_buffer.hpp"
+#include "util/jsonb_utils.h"
 #include "util/jsonb_writer.h"
 
 namespace doris {
@@ -39,6 +40,12 @@ static std::string make_file_jsonb(const FileMetadata& meta) {
     FileSchemaDescriptor::write_file_jsonb(writer, meta);
     return std::string(writer.getOutput()->getBuffer(),
                        static_cast<size_t>(writer.getOutput()->getSize()));
+}
+
+// Compare two JSONB blobs by their JSON text representation, since JSONB
+// integer encoding width may change during a JSON roundtrip (e.g. int64 → int32).
+static std::string jsonb_to_json(const StringRef& ref) {
+    return JsonbToJson::jsonb_to_json_string(ref.data, ref.size);
 }
 
 static FileMetadata sample_metadata(int idx = 0) {
@@ -231,7 +238,9 @@ TEST_F(DataTypeFileSerDeTest, WriteReadPb) {
     EXPECT_TRUE(st.ok());
     EXPECT_EQ(col2->size(), 3);
     for (size_t i = 0; i < 3; ++i) {
-        EXPECT_EQ(col2->get_data_at(i), col->get_data_at(i));
+        // Compare via JSON text because JSONB integer encoding width may differ
+        // after a PB roundtrip (JSONB→JSON text→JSONB re-encodes int types).
+        EXPECT_EQ(jsonb_to_json(col2->get_data_at(i)), jsonb_to_json(col->get_data_at(i)));
     }
 }
 
@@ -261,10 +270,8 @@ TEST_F(DataTypeFileSerDeTest, SetReturnObjectAsString) {
 
 TEST_F(DataTypeFileSerDeTest, GetNestedSerdes) {
     auto serde = dt_file.get_serde();
-    auto nested = serde->get_nested_serdes();
-    // FILE serde delegates to JSONB serde, which may or may not have nested serdes
-    // Just verify no crash
-    (void)nested;
+    // FILE serde delegates to JSONB serde which does not support get_nested_serdes
+    EXPECT_THROW(serde->get_nested_serdes(), doris::Exception);
 }
 
 TEST_F(DataTypeFileSerDeTest, FromString) {
