@@ -59,8 +59,8 @@ suite("test_streaming_mysql_job_restart_fe_with_props", "docker,mysql,external_d
             // from properties in the constructor, causing timeoutMs=0 and every task
             // to timeout immediately.
             sql """CREATE JOB ${jobName}
-                    ON STREAMING
                     PROPERTIES("max_interval" = "5")
+                    ON STREAMING
                     FROM MYSQL (
                         "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
                         "driver_url" = "${driver_url}",
