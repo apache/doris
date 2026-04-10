@@ -35,6 +35,8 @@
 #include <iterator>
 #include <memory>
 #include <utility>
+#include <dirent.h>
+#include <fstream>
 
 #include "common/cast_set.h"
 #include "io/fs/local_file_system.h"
@@ -166,6 +168,56 @@ std::string DiskInfo::debug_string() {
     return stream.str();
 }
 
+std::set<std::string> DiskInfo::get_lvm_physical_disks(const std::string dm_name) {
+    set<std::string> disks;
+    // find slaves dir
+    std::string slaves_dir = "/sys/block/" + dm_name + "/slaves/";
+    DIR* dir = opendir(slaves_dir.c_str());
+    if (!dir) {
+        return disks;
+    }
+ 
+    dirent* entry;
+    while ((entry = readdir(dir)) != nullptr) {
+        std::string slave_name = entry->d_name;
+        if (slave_name == "." || slave_name == "..") {
+            continue;
+        }
+ 
+        // If the subdirectory is still of the LVM type, recursive processing is performed.
+        if (slave_name.find("dm-") == 0) {
+            auto sub_disks = get_lvm_physical_disks(slave_name);
+            disks.insert(sub_disks.begin(), sub_disks.end());
+            continue;
+        }
+ 
+        // if it is, get parent device.
+        std::string partition_path = "/sys/class/block/" + slave_name + "/partition";
+        std::ifstream pf(partition_path);
+        if (pf.good()) {
+            std::string current_link = "/sys/class/block/" + slave_name;
+            char current_path[256];
+            ssize_t len = readlink(current_link.c_str(), current_path, sizeof(current_path)-1);
+ 
+            string parent_path_str = "";
+            parent_path_str.append("/sys/class/block/").append(current_path).append("/..");
+            char parent_path[parent_path_str.length() + 1];
+            strcpy(parent_path, parent_path_str.c_str());
+            if (len != -1) {
+                std::string parent_str(parent_path);
+                size_t pos = parent_str.find_last_of('/');
+                std::string parent_dev = (pos != std::string::npos) ? parent_str.substr(pos+1) : parent_str;
+                disks.insert(parent_dev);
+            }
+        } else {
+            disks.insert(slave_name);
+        }
+        pf.close();
+    }
+    closedir(dir);
+    return disks;
+}
+
 Status DiskInfo::get_disk_devices(const std::vector<std::string>& paths,
                                   std::set<std::string>* devices) {
     std::vector<std::string> real_paths;
@@ -208,7 +260,29 @@ Status DiskInfo::get_disk_devices(const std::vector<std::string>& paths,
                 strncmp(path.c_str(), mount_path, mount_size) != 0) {
                 continue;
             }
-            std::string dev(basename(dev_path));
+            std::string dev;
+            std::string dev_path_str(dev_path);
+            char real_dm_path_char[PATH_MAX];
+            // is lvm disk type
+            if (dev_path_str.find("/dev/mapper/") == 0 && realpath(dev_path, real_dm_path_char)) {
+                std::string real_dm_path(real_dm_path_char);
+                size_t pos = real_dm_path.find_last_of('/');
+                if (pos == std::string::npos) {
+                    LOG(WARNING) << "real dm path [" << real_dm_path << "] dont contains /.";
+                    continue;
+                }
+                std::string dm_name = real_dm_path.substr(pos + 1);
+                std::set<std::string> disk_devs = get_lvm_physical_disks(dm_name);
+                if (disk_devs.size() != 1) {
+                    LOG(WARNING) << "more than one disk device is found in " << dm_name << "." << "size: " << disk_devs.size();
+                    if (disk_devs.size() == 0) {
+                        continue;
+                    }
+                }
+                dev = *(disk_devs.begin());
+            } else {
+                dev = basename(dev_path);
+            }
             boost::trim_right_if(dev, boost::is_any_of("0123456789"));
             if (_s_disk_name_to_disk_id.find(dev) != std::end(_s_disk_name_to_disk_id)) {
                 max_mount_size = mount_size;
