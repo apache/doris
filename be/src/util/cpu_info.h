@@ -148,6 +148,16 @@ public:
 
     static std::string debug_string();
 
+    static long get_cache_size(CacheLevel level) {
+        DCHECK(initialized_);
+        return cache_sizes_[level];
+    }
+
+    static long get_cache_line_size(CacheLevel level) {
+        DCHECK(initialized_);
+        return cache_line_sizes_[level];
+    }
+
     /// A utility class for temporarily disabling CPU features. Usage:
     ///
     /// {
@@ -221,5 +231,8 @@ private:
     /// Array with 'max_num_cores_' entries, each of which is the index of that core in its
     /// NUMA node.
     static std::vector<int> numa_node_core_idx_;
+
+    static long cache_sizes_[NUM_CACHE_LEVELS];
+    static long cache_line_sizes_[NUM_CACHE_LEVELS];
 };
 } // namespace doris

@@ -34,10 +34,6 @@
 
 namespace doris {
 #include "common/compile_check_begin.h"
-class RuntimeState;
-} // namespace doris
-
-namespace doris {
 
 StreamingAggLocalState::StreamingAggLocalState(RuntimeState* state, OperatorXBase* parent)
         : Base(state, parent),
