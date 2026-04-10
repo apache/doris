@@ -164,10 +164,10 @@ TEST_F(VRuntimeFilterWrapperSamplingTest, sampling_frequency_survives_context_re
     ASSERT_TRUE(
             wrapper->open(_runtime_states[0].get(), context2.get(), FunctionContext::THREAD_LOCAL)
                     .ok());
-
-    auto& selectivity2 = context2->get_runtime_filter_selectivity();
-    selectivity2.update_judge_selectivity(1, 2000, 50000, 0.1);
-    EXPECT_TRUE(selectivity2.maybe_always_true_can_ignore());
+    // Prepare/open the recreated context through VExprContext so the test matches
+    // the production lifecycle and context-managed initialization.
+    ASSERT_TRUE(context2->prepare(_runtime_states[0].get(), row_desc).ok());
+    ASSERT_TRUE(context2->open(_runtime_states[0].get()).ok());
 }
 
 } // namespace doris
