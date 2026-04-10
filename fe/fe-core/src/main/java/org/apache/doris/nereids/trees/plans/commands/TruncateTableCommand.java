@@ -60,7 +60,7 @@ public class TruncateTableCommand extends Command implements ForwardWithSync {
      * validate
      */
     public void validate(ConnectContext ctx) throws AnalysisException {
-        tableNameInfo.analyze(ctx);
+        tableNameInfo.analyze(ctx.getNameSpaceContext());
 
         InternalDatabaseUtil.checkDatabase(tableNameInfo.getDb(), ctx);
         // check access

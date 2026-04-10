@@ -423,6 +423,12 @@ void PrefetchBuffer::reset_offset(size_t offset) {
     } else {
         _exceed = false;
     }
+    // Lazy-allocate the backing buffer in the calling (query) thread, which has a
+    // MemTrackerLimiter attached. The prefetch thread pool threads are "Orphan" threads
+    // without a tracker, so allocation must not happen there.
+    if (_buf.empty()) {
+        _buf.resize(_size);
+    }
     _prefetch_status = ExecEnv::GetInstance()->buffered_reader_prefetch_thread_pool()->submit_func(
             [buffer_ptr = shared_from_this()]() { buffer_ptr->prefetch_buffer(); });
 }
@@ -449,13 +455,6 @@ void PrefetchBuffer::prefetch_buffer() {
         _prefetched.notify_all();
     }
 
-    // Lazy-allocate the backing buffer on first actual prefetch, avoiding the cost of
-    // pre-allocating memory for readers that are initialized but never read (e.g. when
-    // many file readers are created concurrently for a TVF scan over many small S3 files).
-    if (!_buf) {
-        _buf = std::make_unique<char[]>(_size);
-    }
-
     int read_range_index = search_read_range(_offset);
     size_t buf_size;
     if (read_range_index == -1) {
@@ -470,7 +469,7 @@ void PrefetchBuffer::prefetch_buffer() {
 
     {
         SCOPED_RAW_TIMER(&_statis.read_time);
-        s = _reader->read_at(_offset, Slice {_buf.get(), buf_size}, &_len, _io_ctx);
+        s = _reader->read_at(_offset, Slice {_buf.data(), buf_size}, &_len, _io_ctx);
     }
     if (UNLIKELY(s.ok() && buf_size != _len)) {
         // This indicates that the data size returned by S3 object storage is smaller than what we requested,
@@ -567,10 +566,6 @@ Status PrefetchBuffer::read_buffer(size_t off, const char* out, size_t buf_len,
         reset_offset((off / _size) * _size);
         return read_buffer(off, out, buf_len, bytes_read);
     }
-    auto start = std::chrono::steady_clock::now();
-    // The baseline time is calculated by dividing the size of each buffer by MB/s.
-    // If it exceeds this value, it is considered a slow I/O operation.
-    constexpr auto read_time_baseline = std::chrono::seconds(s_max_pre_buffer_size / 1024 / 1024);
     {
         std::unique_lock lck {_lock};
         // buffer must be prefetched or it's closed
@@ -586,11 +581,6 @@ Status PrefetchBuffer::read_buffer(size_t off, const char* out, size_t buf_len,
         if (UNLIKELY(BufferStatus::CLOSED == _buffer_status)) {
             return Status::OK();
         }
-    }
-    auto duration = std::chrono::duration_cast<std::chrono::seconds>(
-            std::chrono::steady_clock::now() - start);
-    if (duration > read_time_baseline) [[unlikely]] {
-        LOG_WARNING("The prefetch io is too slow");
     }
     RETURN_IF_ERROR(_prefetch_status);
     // there is only parquet would do not sequence read
@@ -609,7 +599,7 @@ Status PrefetchBuffer::read_buffer(size_t off, const char* out, size_t buf_len,
         size_t read_len = std::min({buf_len, _offset + _size - off, _offset + _len - off});
         {
             SCOPED_RAW_TIMER(&_statis.copy_time);
-            memcpy((void*)out, _buf.get() + (off - _offset), read_len);
+            memcpy((void*)out, _buf.data() + (off - _offset), read_len);
         }
         *bytes_read = read_len;
         _statis.request_io += 1;
@@ -632,6 +622,11 @@ void PrefetchBuffer::close() {
     }
     _buffer_status = BufferStatus::CLOSED;
     _prefetched.notify_all();
+    // Explicitly release the backing buffer here, in the calling (query) thread which has a
+    // MemTrackerLimiter. The destructor may run in the thread pool's Orphan thread (when the
+    // last shared_ptr ref is released after the prefetch lambda completes), so we must not
+    // rely on ~PODArray() to release memory — that would trigger memory_orphan_check().
+    PODArray<char>().swap(_buf);
 }
 
 void PrefetchBuffer::_collect_profile_before_close() {

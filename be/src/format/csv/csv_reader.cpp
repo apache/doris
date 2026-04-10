@@ -31,6 +31,7 @@
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
 #include "common/consts.h"
 #include "common/status.h"
 #include "core/block/block.h"
@@ -315,12 +316,18 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     }
 
     const int batch_size = std::max(_state->batch_size(), (int)_MIN_BATCH_SIZE);
+    const int64_t max_block_bytes =
+            (_state->query_type() == TQueryType::LOAD && config::load_reader_max_block_bytes > 0)
+                    ? config::load_reader_max_block_bytes
+                    : 0;
     size_t rows = 0;
+    size_t block_bytes = 0;
 
     bool success = false;
     bool is_remove_bom = false;
     if (_push_down_agg_type == TPushAggOp::type::COUNT) {
-        while (rows < batch_size && !_line_reader_eof) {
+        while (rows < batch_size && !_line_reader_eof &&
+               (max_block_bytes <= 0 || (int64_t)block_bytes < max_block_bytes)) {
             const uint8_t* ptr = nullptr;
             size_t size = 0;
             RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof, _io_ctx));
@@ -348,6 +355,7 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
 
             RETURN_IF_ERROR(_validate_line(Slice(ptr, size), &success));
             ++rows;
+            block_bytes += size;
         }
         auto mutate_columns = block->mutate_columns();
         for (auto& col : mutate_columns) {
@@ -356,7 +364,8 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
         block->set_columns(std::move(mutate_columns));
     } else {
         auto columns = block->mutate_columns();
-        while (rows < batch_size && !_line_reader_eof) {
+        while (rows < batch_size && !_line_reader_eof &&
+               (max_block_bytes <= 0 || (int64_t)block_bytes < max_block_bytes)) {
             const uint8_t* ptr = nullptr;
             size_t size = 0;
             RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof, _io_ctx));
@@ -387,6 +396,7 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                 continue;
             }
             RETURN_IF_ERROR(_fill_dest_columns(Slice(ptr, size), block, columns, &rows));
+            block_bytes += size;
         }
         block->set_columns(std::move(columns));
     }

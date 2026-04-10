@@ -37,6 +37,8 @@ import org.apache.paimon.options.CatalogOptions;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -45,6 +47,8 @@ import java.util.concurrent.ConcurrentHashMap;
 public class PaimonJdbcMetaStoreProperties extends AbstractPaimonProperties {
     private static final Logger LOG = LogManager.getLogger(PaimonJdbcMetaStoreProperties.class);
     private static final String JDBC_PREFIX = "jdbc.";
+    private static final String JDBC_DRIVER_URL = JDBC_PREFIX + JdbcResource.DRIVER_URL;
+    private static final String JDBC_DRIVER_CLASS = JDBC_PREFIX + JdbcResource.DRIVER_CLASS;
     private static final Map<URL, ClassLoader> DRIVER_CLASS_LOADER_CACHE = new ConcurrentHashMap<>();
     private static final Set<String> REGISTERED_DRIVER_KEYS = ConcurrentHashMap.newKeySet();
 
@@ -155,6 +159,20 @@ public class PaimonJdbcMetaStoreProperties extends AbstractPaimonProperties {
                 catalogOptions.set(key, value);
             }
         });
+    }
+
+    public Map<String, String> getBackendPaimonOptions() {
+        if (StringUtils.isBlank(driverUrl)) {
+            return Collections.emptyMap();
+        }
+        if (StringUtils.isBlank(driverClass)) {
+            throw new IllegalArgumentException("jdbc.driver_class or paimon.jdbc.driver_class is required when "
+                    + "jdbc.driver_url or paimon.jdbc.driver_url is specified");
+        }
+        Map<String, String> backendPaimonOptions = new HashMap<>();
+        backendPaimonOptions.put(JDBC_DRIVER_URL, JdbcResource.getFullDriverUrl(driverUrl));
+        backendPaimonOptions.put(JDBC_DRIVER_CLASS, driverClass);
+        return backendPaimonOptions;
     }
 
     /**

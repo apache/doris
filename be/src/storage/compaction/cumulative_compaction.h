@@ -17,12 +17,14 @@
 
 #pragma once
 
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "common/status.h"
 #include "io/io_common.h"
 #include "storage/compaction/compaction.h"
+#include "storage/compaction_task_tracker.h"
 #include "storage/olap_common.h"
 
 namespace doris {
@@ -36,6 +38,10 @@ public:
     Status prepare_compact() override;
 
     Status execute_compact() override;
+
+    std::optional<CompactionProfileType> profile_type() const override {
+        return CompactionProfileType::CUMULATIVE;
+    }
 
 private:
     std::string_view compaction_name() const override { return "cumulative compaction"; }

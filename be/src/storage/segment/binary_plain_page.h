@@ -30,7 +30,6 @@
 
 #include "common/logging.h"
 #include "core/column/column_complex.h"
-#include "core/column/column_nullable.h"
 #include "storage/olap_common.h"
 #include "storage/segment/options.h"
 #include "storage/segment/page_builder.h"
@@ -244,6 +243,21 @@ public:
         }
         const size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elems - _cur_idx));
 
+        if (_options.only_read_offsets) {
+            // OFFSET_ONLY mode: read string lengths from page offset trailer
+            // without copying actual char data. This allows length() to work.
+            _offsets.resize(max_fetch);
+            for (size_t i = 0; i < max_fetch; ++i) {
+                uint32_t str_start = offset(_cur_idx + i);
+                uint32_t str_end = offset(_cur_idx + i + 1);
+                _offsets[i] = str_end - str_start;
+            }
+            dst->insert_offsets_from_lengths(_offsets.data(), max_fetch);
+            _cur_idx += max_fetch;
+            *n = max_fetch;
+            return Status::OK();
+        }
+
         uint32_t last_offset = guarded_offset(_cur_idx);
         _offsets.resize(max_fetch + 1);
         _offsets[0] = last_offset;
@@ -279,6 +293,29 @@ public:
         }
 
         auto total = *n;
+
+        if (_options.only_read_offsets) {
+            // OFFSET_ONLY mode: read string lengths from page offset trailer
+            // without copying actual char data. This allows length() to work.
+            size_t read_count = 0;
+            _offsets.resize(total);
+            for (size_t i = 0; i < total; ++i) {
+                ordinal_t ord = rowids[i] - page_first_ordinal;
+                if (UNLIKELY(ord >= _num_elems)) {
+                    break;
+                }
+                uint32_t str_start = offset(ord);
+                uint32_t str_end = offset(ord + 1);
+                _offsets[read_count] = str_end - str_start;
+                read_count++;
+            }
+            if (read_count > 0) {
+                dst->insert_offsets_from_lengths(_offsets.data(), read_count);
+            }
+            *n = read_count;
+            return Status::OK();
+        }
+
         size_t read_count = 0;
         _binary_data.resize(total);
         for (size_t i = 0; i < total; ++i) {

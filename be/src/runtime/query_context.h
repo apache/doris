@@ -33,6 +33,7 @@
 #include "common/factory_creator.h"
 #include "common/object_pool.h"
 #include "common/status.h"
+#include "exec/common/memory.h"
 #include "exec/runtime_filter/runtime_filter_mgr.h"
 #include "exec/scan/scanner_scheduler.h"
 #include "runtime/exec_env.h"
@@ -70,7 +71,8 @@ enum class QuerySource {
     STREAM_LOAD,
     GROUP_COMMIT_LOAD,
     ROUTINE_LOAD,
-    EXTERNAL_CONNECTOR
+    EXTERNAL_CONNECTOR,
+    EXTERNAL_FRONTEND
 };
 
 const std::string toString(QuerySource query_source);
@@ -220,6 +222,7 @@ public:
     }
 
     bool is_nereids() const { return _is_nereids; }
+    std::shared_ptr<MemShareArbitrator> mem_arb() const { return _mem_arb; }
 
     WorkloadGroupPtr workload_group() const { return _resource_ctx->workload_group(); }
     std::shared_ptr<MemTrackerLimiter> query_mem_tracker() const {
@@ -394,6 +397,7 @@ private:
     // instance id + node id -> cte scan
     std::map<std::pair<TUniqueId, int>, RecCTEScanLocalState*> _cte_scan;
     std::mutex _cte_scan_lock;
+    std::shared_ptr<MemShareArbitrator> _mem_arb = nullptr;
 
 public:
     // when fragment of pipeline is closed, it will register its profile to this map by using add_fragment_profile
@@ -411,7 +415,7 @@ public:
     timespec get_query_arrival_timestamp() const { return this->_query_arrival_timestamp; }
     QuerySource get_query_source() const { return this->_query_source; }
 
-    const TQueryOptions get_query_options() const { return _query_options; }
+    TQueryOptions get_query_options() const { return _query_options; }
 };
 
 } // namespace doris

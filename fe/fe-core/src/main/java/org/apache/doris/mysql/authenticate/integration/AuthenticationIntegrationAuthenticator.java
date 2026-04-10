@@ -23,11 +23,14 @@ import org.apache.doris.authentication.AuthenticationFailureType;
 import org.apache.doris.authentication.AuthenticationIntegration;
 import org.apache.doris.authentication.AuthenticationIntegrationMeta;
 import org.apache.doris.authentication.AuthenticationRequest;
+import org.apache.doris.authentication.Principal;
 import org.apache.doris.authentication.handler.AuthenticationOutcome;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.mysql.authenticate.AuthenticateRequest;
 import org.apache.doris.mysql.authenticate.AuthenticateResponse;
+import org.apache.doris.mysql.authenticate.AuthenticationFailureSummary;
 import org.apache.doris.mysql.authenticate.Authenticator;
+import org.apache.doris.mysql.authenticate.password.AuthPacketAwarePasswordResolver;
 import org.apache.doris.mysql.authenticate.password.ClearPassword;
 import org.apache.doris.mysql.authenticate.password.ClearPasswordResolver;
 import org.apache.doris.mysql.authenticate.password.Password;
@@ -44,6 +47,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Authenticator that executes a configured authentication integration chain.
@@ -59,14 +63,16 @@ public class AuthenticationIntegrationAuthenticator implements Authenticator {
         this.chainConfig = chainConfig;
         this.chainConfigName = chainConfigName;
         validateChainConfig(chainConfig, chainConfigName);
-        this.passwordResolver = new ClearPasswordResolver();
+        this.passwordResolver = new AuthPacketAwarePasswordResolver(new ClearPasswordResolver());
     }
 
     @Override
     public AuthenticateResponse authenticate(AuthenticateRequest request) throws IOException {
         AuthenticationRequest integrationRequest = toIntegrationRequest(request);
         if (integrationRequest == null) {
-            return AuthenticateResponse.failedResponse;
+            return AuthenticateResponse.failed(AuthenticationFailureSummary.forFailureType(
+                    AuthenticationFailureType.INTERNAL_ERROR,
+                    "Authentication integration chain could not translate the supplied credential"));
         }
 
         AuthenticationOutcome outcome;
@@ -76,13 +82,17 @@ public class AuthenticationIntegrationAuthenticator implements Authenticator {
         } catch (AuthenticationException e) {
             LOG.warn("Authentication integration chain failed for user '{}': {}", request.getUserName(),
                     e.getMessage());
-            return AuthenticateResponse.failedResponse;
+            return AuthenticateResponse.failed(AuthenticationFailureSummary.forException(e,
+                    "Authentication integration chain failed"));
         }
 
         if (outcome.isContinue()) {
             LOG.warn("Authentication integration '{}' returned CONTINUE for user '{}', which is not supported",
                     outcome.getIntegration().getName(), request.getUserName());
-            return AuthenticateResponse.failedResponse;
+            return AuthenticateResponse.failed(AuthenticationFailureSummary.forFailureType(
+                    AuthenticationFailureType.INTERNAL_ERROR,
+                    "Authentication integration '" + outcome.getIntegration().getName()
+                            + "' returned unsupported CONTINUE result"));
         }
         if (!outcome.isSuccess()) {
             if (outcome.getAuthResult().getException() != null) {
@@ -90,11 +100,18 @@ public class AuthenticationIntegrationAuthenticator implements Authenticator {
                         outcome.getIntegration().getName(),
                         request.getUserName(),
                         outcome.getAuthResult().getException().getMessage());
+                return AuthenticateResponse.failed(summarizeFailure(outcome.getIntegration(),
+                        outcome.getAuthResult().getException(),
+                        "Authentication integration '" + outcome.getIntegration().getName()
+                                + "' rejected the credential"));
             }
-            return AuthenticateResponse.failedResponse;
+            return AuthenticateResponse.failed(AuthenticationFailureSummary.forFailureType(
+                    AuthenticationFailureType.INTERNAL_ERROR,
+                    "Authentication integration '" + outcome.getIntegration().getName()
+                            + "' returned a failure without reason"));
         }
 
-        return mapSuccessfulAuthentication(request.getUserName(), request.getRemoteIp(), outcome.getIntegration());
+        return mapSuccessfulAuthentication(request.getUserName(), request.getRemoteIp(), outcome);
     }
 
     @Override
@@ -145,19 +162,25 @@ public class AuthenticationIntegrationAuthenticator implements Authenticator {
     }
 
     private AuthenticateResponse mapSuccessfulAuthentication(String qualifiedUser, String remoteIp,
-            AuthenticationIntegration integration) {
+            AuthenticationOutcome outcome) {
+        AuthenticationIntegration integration = outcome.getIntegration();
+        Principal principal = outcome.getPrincipal()
+                .orElseThrow(() -> new IllegalStateException("principal is required for successful authentication"));
+        Set<String> authenticatedRoles = outcome.getGrantedRoles();
         List<UserIdentity> userIdentities =
                 Env.getCurrentEnv().getAuth().getUserIdentityForExternalAuth(qualifiedUser, remoteIp);
         if (!userIdentities.isEmpty()) {
-            return new AuthenticateResponse(true, userIdentities.get(0), false);
+            return new AuthenticateResponse(true, userIdentities.get(0), false,
+                    principal, authenticatedRoles);
         }
         if (!Boolean.parseBoolean(integration.getProperty("enable_jit_user", "false"))) {
             LOG.info("Authentication integration '{}' authenticated user '{}' but JIT is disabled",
                     integration.getName(), qualifiedUser);
             return AuthenticateResponse.failedResponse;
         }
-        UserIdentity tempUserIdentity = UserIdentity.createAnalyzedUserIdentWithIp(qualifiedUser, remoteIp);
-        return new AuthenticateResponse(true, tempUserIdentity, true);
+        UserIdentity tempUserIdentity = UserIdentity.createAnalyzedUserIdentWithIp(principal.getName(), remoteIp);
+        return new AuthenticateResponse(true, tempUserIdentity, true,
+                principal, authenticatedRoles);
     }
 
     private List<AuthenticationIntegrationMeta> resolveAuthenticationChain() throws AuthenticationException {
@@ -187,5 +210,28 @@ public class AuthenticationIntegrationAuthenticator implements Authenticator {
         if (parseAuthenticationChain(chainConfig).isEmpty()) {
             throw new IllegalStateException(chainConfigName + " must not be empty");
         }
+    }
+
+    private AuthenticationFailureSummary summarizeFailure(AuthenticationIntegration integration,
+            AuthenticationException exception, String fallbackMessage) {
+        return AuthenticationFailureSummary.forException(exception, fallbackMessage,
+                oidcClientVisibleFailureMessage(integration, exception));
+    }
+
+    private String oidcClientVisibleFailureMessage(AuthenticationIntegration integration,
+            AuthenticationException exception) {
+        if (!"oidc".equalsIgnoreCase(integration.getType())
+                || exception.getFailureType() != AuthenticationFailureType.BAD_CREDENTIAL) {
+            return "";
+        }
+        String detailMessage = Strings.nullToEmpty(exception.getMessage());
+        if (detailMessage.startsWith("OIDC token signature validation failed")) {
+            return "OIDC token signature validation failed";
+        }
+        if (detailMessage.startsWith("OIDC token ")
+                || "Authentication request username does not match OIDC token username".equals(detailMessage)) {
+            return detailMessage;
+        }
+        return "";
     }
 }

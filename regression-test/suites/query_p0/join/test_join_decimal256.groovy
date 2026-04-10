@@ -20,7 +20,6 @@
 // and modified by Doris.
 
 suite("join_decimal256") {
-    sql "set enable_nereids_planner = true;"
     sql "set enable_decimal256 = true;"
     sql "drop table if exists test_join_decimal256_0;"
     sql """ create table test_join_decimal256_0(k1 int, v1 decimal(38, 6), v2 decimal(38, 6))

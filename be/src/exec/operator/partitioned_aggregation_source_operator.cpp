@@ -191,6 +191,11 @@ size_t PartitionedAggSourceOperatorX::revocable_mem_size(RuntimeState* state) co
     if (!local_state._shared_state->_is_spilled || !local_state._current_partition.spill_file) {
         return 0;
     }
+    // If the current partition has reached the max repartition depth, it cannot be
+    // repartitioned further, so its data is not revocable.
+    if ((local_state._current_partition.level + 1) >= _repartition_max_depth) {
+        return 0;
+    }
 
     size_t bytes = 0;
     for (const auto& block : local_state._blocks) {

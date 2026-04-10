@@ -53,7 +53,10 @@ class MockTaskScheduler : public TaskScheduler {
 public:
     MockTaskScheduler() : TaskScheduler() { _task_queue = std::make_unique<DummyTaskQueue>(1); }
 
-    Status submit(PipelineTaskSPtr task) override { return _task_queue->push_back(task); }
+    Status submit(PipelineTaskSPtr task) override {
+        _submit_count++;
+        return _task_queue->push_back(task);
+    }
 
     Status start() override { return Status::OK(); }
 
@@ -63,7 +66,11 @@ public:
         return {};
     }
 
+    int submit_count() const { return _submit_count.load(); }
+    void reset_submit_count() { _submit_count.store(0); }
+
 private:
     std::unique_ptr<DummyTaskQueue> _task_queue;
+    std::atomic<int> _submit_count {0};
 };
 } // namespace doris

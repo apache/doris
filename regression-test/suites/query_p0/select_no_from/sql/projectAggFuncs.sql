@@ -1,5 +1,4 @@
 -- database: presto; groups: no_from
-SET enable_nereids_planner = TRUE;
 SELECT 1,
        'a',
        COUNT(),

@@ -122,14 +122,15 @@ private:
             ColumnVariant& container_variant,
             const std::map<PathInData, PathsWithColumnAndType>& nested_subcolumns, size_t nrows);
 
-    Status _process_sparse_column(ColumnVariant& container_variant, size_t nrows);
+    Status _process_binary_column(ColumnVariant& container_variant, size_t nrows);
 
     // 1. add root column
     // 2. collect path for subcolumns and nested subcolumns
     // 3. init container with subcolumns
     // 4. init container with nested subcolumns
     // 5. init container with sparse column
-    Status _init_container(MutableColumnPtr& container, size_t nrows, int max_subcolumns_count);
+    Status _init_container(MutableColumnPtr& container, size_t nrows, int max_subcolumns_count,
+                           bool enable_doc_mode);
 
     // clear all subcolumns's column data for next batch read
     // set null map for nullable column
@@ -170,7 +171,8 @@ private:
         }
 
         MutableColumnPtr container;
-        RETURN_IF_ERROR(_init_container(container, nrows, variant.max_subcolumns_count()));
+        RETURN_IF_ERROR(_init_container(container, nrows, variant.max_subcolumns_count(),
+                                        variant.enable_doc_mode()));
         auto& container_variant = assert_cast<ColumnVariant&>(*container);
         variant.insert_range_from(container_variant, 0, nrows);
 

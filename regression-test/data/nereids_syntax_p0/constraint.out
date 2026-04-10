@@ -7,12 +7,12 @@ pk	PRIMARY KEY	PRIMARY KEY (id)
 uk	UNIQUE	UNIQUE (id)
 
 -- !add_foreign --
-fk1	FOREIGN KEY	FOREIGN KEY (id) REFERENCES regression_test_nereids_syntax_p0.t2 (id)
+fk1	FOREIGN KEY	FOREIGN KEY (id) REFERENCES internal.regression_test_nereids_syntax_p0.t2 (id)
 pk	PRIMARY KEY	PRIMARY KEY (id)
 uk	UNIQUE	UNIQUE (id)
 
 -- !drop_uk --
-fk1	FOREIGN KEY	FOREIGN KEY (id) REFERENCES regression_test_nereids_syntax_p0.t2 (id)
+fk1	FOREIGN KEY	FOREIGN KEY (id) REFERENCES internal.regression_test_nereids_syntax_p0.t2 (id)
 pk	PRIMARY KEY	PRIMARY KEY (id)
 
 -- !drop_fk --

@@ -115,13 +115,13 @@ public class ExprToStringValueVisitorTest {
 
     @Test
     public void testDecimalLiteralPlainString() throws Exception {
-        DecimalLiteral d = new DecimalLiteral("123.45");
+        DecimalLiteral d = DecimalLiteralUtils.create("123.45", false);
         Assertions.assertEquals("123.45", V.visitDecimalLiteral(d, StringValueContext.forQuery(FormatOptions.getDefault())));
     }
 
     @Test
     public void testDecimalLiteralNoScientificNotation() throws Exception {
-        DecimalLiteral d = new DecimalLiteral("100000000000000000.123");
+        DecimalLiteral d = DecimalLiteralUtils.create("100000000000000000.123", false);
         // toPlainString avoids scientific notation
         Assertions.assertFalse(V.visitDecimalLiteral(d,
                 StringValueContext.forQuery(FormatOptions.getDefault())).contains("E"));
@@ -293,14 +293,14 @@ public class ExprToStringValueVisitorTest {
 
     @Test
     public void testDateLiteralDateType() throws Exception {
-        DateLiteral d = new DateLiteral("2024-01-15", Type.DATEV2);
+        DateLiteral d = new DateLiteral(2024, 1, 15, Type.DATEV2);
         Assertions.assertEquals("2024-01-15",
                 V.visitDateLiteral(d, StringValueContext.forQuery(FormatOptions.getDefault())));
     }
 
     @Test
     public void testDateLiteralDatetimeType() throws Exception {
-        DateLiteral d = new DateLiteral("2024-01-15 10:30:00",
+        DateLiteral d = new DateLiteral(2024, 1, 15, 10, 30, 0,
                 ScalarType.createDatetimeV2Type(0));
         String result = V.visitDateLiteral(d, StringValueContext.forQuery(FormatOptions.getDefault()));
         Assertions.assertEquals("2024-01-15 10:30:00", result);
@@ -308,7 +308,7 @@ public class ExprToStringValueVisitorTest {
 
     @Test
     public void testDateLiteralInComplexType() throws Exception {
-        DateLiteral d = new DateLiteral("2024-01-15", Type.DATEV2);
+        DateLiteral d = new DateLiteral(2024, 1, 15, Type.DATEV2);
         Assertions.assertEquals("\"2024-01-15\"",
                 V.visitDateLiteral(d, StringValueContext.forQuery(FormatOptions.getDefault()).asComplexType()));
     }

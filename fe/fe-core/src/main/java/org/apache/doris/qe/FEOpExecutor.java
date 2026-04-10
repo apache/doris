@@ -195,6 +195,11 @@ public class FEOpExecutor {
         if (null != ctx.queryId()) {
             params.setQueryId(ctx.queryId());
         }
+        // connect attributes (e.g. scheduleInfo for lineage)
+        Map<String, String> connectAttributes = ctx.getConnectAttributes();
+        if (connectAttributes != null && !connectAttributes.isEmpty()) {
+            params.setConnectAttributes(connectAttributes);
+        }
 
         // set transaction load info
         if (ctx.isTxnModel()) {

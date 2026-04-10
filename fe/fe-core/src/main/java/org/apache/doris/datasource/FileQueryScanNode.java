@@ -34,7 +34,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.hive.source.HiveSplit;
 import org.apache.doris.planner.PlanNodeId;
@@ -247,7 +246,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
         }
 
         // Pre-index columns into a Map for O(1) lookup
-        List<Column> columns = getColumns();
+        List<Column> columns = desc.getTable().getFullSchema();
         Map<String, Integer> columnNameMap = new HashMap<>(columns.size());
         for (int i = 0; i < columns.size(); i++) {
             columnNameMap.putIfAbsent(columns.get(i).getName(), i);
@@ -439,7 +438,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             isACID = hiveSplit.isACID();
         }
         List<String> partitionValuesFromPath = fileSplit.getPartitionValues() == null
-                ? BrokerUtil.parseColumnsFromPath(fileSplit.getPathString(), pathPartitionKeys,
+                ? FilePartitionUtils.parseColumnsFromPath(fileSplit.getPathString(), pathPartitionKeys,
                 false, isACID) : fileSplit.getPartitionValues();
 
         TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath, pathPartitionKeys);

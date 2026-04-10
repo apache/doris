@@ -62,6 +62,7 @@ import org.apache.flink.cdc.connectors.mysql.source.utils.RecordUtils;
 import org.apache.flink.cdc.connectors.mysql.source.utils.TableDiscoveryUtils;
 import org.apache.flink.cdc.connectors.mysql.table.StartupMode;
 import org.apache.flink.cdc.connectors.mysql.table.StartupOptions;
+import org.apache.flink.table.catalog.ObjectPath;
 import org.apache.flink.table.types.logical.RowType;
 import org.apache.kafka.connect.source.SourceRecord;
 
@@ -69,7 +70,6 @@ import java.io.IOException;
 import java.sql.SQLException;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -135,7 +135,7 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
     }
 
     @Override
-    public void initialize(long jobId, DataSource dataSource, Map<String, String> config) {
+    public void initialize(String jobId, DataSource dataSource, Map<String, String> config) {
         this.serializer.init(config);
 
         // Initialize thread pool for parallel polling
@@ -338,6 +338,18 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
         tryLoadTableSchemasFromRequest(baseReq);
         Tuple2<MySqlSplit, Boolean> splitFlag = createBinlogSplit(offsetMeta, baseReq);
         this.binlogSplit = (MySqlBinlogSplit) splitFlag.f0;
+
+        // Close previous binlog reader to release resources before creating a new one.
+        // This prevents connection leaks when a cancelled task's reader is still active
+        // while a new task arrives.
+        if (this.binlogReader != null) {
+            LOG.info(
+                    "Closing previous binlog reader before creating new one for job {}",
+                    baseReq.getJobId());
+            this.binlogReader.close();
+            this.binlogReader = null;
+        }
+
         this.binlogReader = getBinlogSplitReader(baseReq);
 
         LOG.info("Prepare binlog split: {}", this.binlogSplit.toString());
@@ -779,12 +791,11 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
         // unnecessary processing overhead until DDL support is added.
         configFactory.includeSchemaChanges(false);
 
-        String includingTables = cdcConfig.get(DataSourceConfigKeys.INCLUDE_TABLES);
-        String[] includingTbls =
-                Arrays.stream(includingTables.split(","))
-                        .map(t -> databaseName + "." + t.trim())
-                        .toArray(String[]::new);
-        configFactory.tableList(includingTbls);
+        // Set table list
+        String[] tableList = ConfigUtil.getTableList(databaseName, cdcConfig);
+        com.google.common.base.Preconditions.checkArgument(
+                tableList.length >= 1, "include_tables or table is required");
+        configFactory.tableList(tableList);
 
         // setting startMode
         String startupMode = cdcConfig.get(DataSourceConfigKeys.OFFSET);
@@ -811,7 +822,14 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
             }
             if (offsetMap.containsKey(BinlogOffset.BINLOG_FILENAME_OFFSET_KEY)
                     && offsetMap.containsKey(BinlogOffset.BINLOG_POSITION_OFFSET_KEY)) {
-                BinlogOffset binlogOffset = new BinlogOffset(offsetMap);
+                BinlogOffset binlogOffset =
+                        BinlogOffset.builder()
+                                .setBinlogFilePosition(
+                                        offsetMap.get(BinlogOffset.BINLOG_FILENAME_OFFSET_KEY),
+                                        Long.parseLong(
+                                                offsetMap.get(
+                                                        BinlogOffset.BINLOG_POSITION_OFFSET_KEY)))
+                                .build();
                 configFactory.startupOptions(StartupOptions.specificOffset(binlogOffset));
             } else {
                 throw new RuntimeException("Incorrect offset " + startupMode);
@@ -841,6 +859,22 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
         if (cdcConfig.containsKey(DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE)) {
             configFactory.splitSize(
                     Integer.parseInt(cdcConfig.get(DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE)));
+        }
+
+        // todo: Currently, only one split key is supported; future will require multiple split
+        // keys.
+        if (cdcConfig.containsKey(DataSourceConfigKeys.SNAPSHOT_SPLIT_KEY)) {
+            String database = cdcConfig.get(DataSourceConfigKeys.DATABASE);
+            String table = cdcConfig.get(DataSourceConfigKeys.TABLE);
+            Preconditions.checkArgument(
+                    database != null && !database.isEmpty() && table != null && !table.isEmpty(),
+                    "When '%s' is set, both '%s' and '%s' must be configured (include_tables is not supported).",
+                    DataSourceConfigKeys.SNAPSHOT_SPLIT_KEY,
+                    DataSourceConfigKeys.DATABASE,
+                    DataSourceConfigKeys.TABLE);
+            ObjectPath objectPath = new ObjectPath(database, table);
+            configFactory.chunkKeyColumn(
+                    objectPath, cdcConfig.get(DataSourceConfigKeys.SNAPSHOT_SPLIT_KEY));
         }
 
         return configFactory.createConfig(0);

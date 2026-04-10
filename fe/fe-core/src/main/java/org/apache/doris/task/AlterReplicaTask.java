@@ -23,6 +23,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ColumnToThrift;
 import org.apache.doris.common.Config;
 import org.apache.doris.thrift.TAlterMaterializedViewParam;
 import org.apache.doris.thrift.TAlterTabletReqV2;
@@ -181,7 +182,7 @@ public class AlterReplicaTask extends AgentTask {
             if (value == null) {
                 List<TColumn> columns = new ArrayList<TColumn>();
                 for (Column column : baseSchemaColumns) {
-                    columns.add(column.toThrift());
+                    columns.add(ColumnToThrift.toThrift(column));
                 }
                 objectPool.put(baseSchemaColumns, columns);
                 req.setColumns(columns);

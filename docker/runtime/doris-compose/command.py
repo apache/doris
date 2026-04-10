@@ -391,7 +391,7 @@ class UpCommand(Command):
         )
         group1.add_argument("--be-disks",
                             nargs="*",
-                            default=["HDD=1"],
+                            default=None,
                             type=str,
                             help="Specify each be disks, each group is \"disk_type=disk_num[,disk_capactity]\", "\
                                     "disk_type is HDD or SSD, disk_capactity is capactity limit in gb. default: HDD=1. "\
@@ -665,7 +665,7 @@ class UpCommand(Command):
                 args.NAME, args.IMAGE, args.cloud, args.root, args.fe_config,
                 args.be_config, args.ms_config, args.recycle_config,
                 args.remote_master_fe, args.local_network_ip, args.fe_follower,
-                args.be_disks, args.be_cluster, args.reg_be, args.extra_hosts, args.env,
+                args.be_disks if args.be_disks is not None else ["HDD=1"], args.be_cluster, args.reg_be, args.extra_hosts, args.env,
                 args.coverage_dir, cloud_store_config, args.sql_mode_node_mgr,
                 args.be_metaservice_endpoint, args.be_cluster_id, args.tde_ak, args.tde_sk,
                 external_ms_cluster, instance_id, cluster_snapshot)
@@ -707,8 +707,18 @@ class UpCommand(Command):
                 related_nodes.append(node)
                 add_ids.append(node.id)
 
+        # If --be-disks is explicitly provided for an existing cluster,
+        # temporarily override cluster.be_disks so newly added BEs use
+        # the specified disk config instead of the original cluster config.
+        saved_be_disks = cluster.be_disks
+        if args.be_disks is not None:
+            cluster.be_disks = args.be_disks
+
         for node_type, add_num, add_ids in add_type_nums:
             do_add_node(node_type, add_num, add_ids)
+
+        # Restore original be_disks to avoid side effects
+        cluster.be_disks = saved_be_disks
 
         if args.IMAGE:
             for node in related_nodes:

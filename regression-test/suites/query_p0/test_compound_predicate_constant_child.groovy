@@ -35,8 +35,6 @@ suite("test_compound_predicate_constant_child", "query") {
     sql """ INSERT INTO ${testTable} VALUES (false) """
     sql """ INSERT INTO ${testTable} VALUES (true) """
 
-    sql """ set experimental_enable_nereids_planner = true """
-    sql """ set enable_fallback_to_original_planner = false """
     sql """ set enable_fold_constant_by_be=true """
 
     qt_select """ SELECT SUM(count) FROM

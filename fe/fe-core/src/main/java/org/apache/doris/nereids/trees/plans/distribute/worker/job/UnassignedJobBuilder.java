@@ -31,6 +31,7 @@ import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.SchemaScanNode;
+import org.apache.doris.planner.TVFTableSink;
 import org.apache.doris.thrift.TExplainLevel;
 
 import com.google.common.collect.ArrayListMultimap;
@@ -92,7 +93,20 @@ public class UnassignedJobBuilder {
             // this fragment already set its instances in `visitPhysicalDistribute`.
             // now assign to 1 BE 1 instance.
             return new UnassignedAllBEJob(statementContext, planFragment, inputJobs);
-        } else if (scanNodes.isEmpty() && isTopFragment
+        }
+
+        // For INSERT INTO local() with a specific backend_id, the sink fragment must
+        // execute on the designated backend so that data is written to the correct
+        // node's local disk.
+        if (planFragment.getSink() instanceof TVFTableSink) {
+            TVFTableSink tvfSink = (TVFTableSink) planFragment.getSink();
+            if ("local".equals(tvfSink.getTvfName()) && tvfSink.getBackendId() != -1) {
+                return new UnassignedLocalTVFSinkJob(
+                        statementContext, planFragment, inputJobs, tvfSink.getBackendId());
+            }
+        }
+
+        if (scanNodes.isEmpty() && isTopFragment
                 && statementContext.getGroupCommitMergeBackend() != null) {
             return new UnassignedGroupCommitJob(statementContext, planFragment, scanNodes, inputJobs);
         } else if (!scanNodes.isEmpty() || isLeafFragment(planFragment)) {

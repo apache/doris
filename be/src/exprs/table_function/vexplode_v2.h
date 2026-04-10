@@ -46,6 +46,10 @@ public:
     void get_same_many_values(MutableColumnPtr& column, int length) override;
     int get_value(MutableColumnPtr& column, int max_step) override;
 
+    bool support_block_fast_path() const override;
+    Status prepare_block_fast_path(Block* block, RuntimeState* state,
+                                   BlockFastPathContext* ctx) override;
+
     void set_generate_row_index(bool generate_row_index) {
         _generate_row_index = generate_row_index;
     }

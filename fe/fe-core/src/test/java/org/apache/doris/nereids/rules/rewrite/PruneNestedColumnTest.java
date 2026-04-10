@@ -100,6 +100,13 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                 + "  v variant\n"
                 + ") properties ('replication_num'='1')");
 
+        // Table for string-length offset-only optimization tests
+        createTable("create table str_tbl(\n"
+                + "  id int,\n"
+                + "  str_col string,\n"
+                + "  c_struct struct<f1: int, f3: string>\n"
+                + ") properties ('replication_num'='1')");
+
         connectContext.getSessionVariable().setDisableNereidsRules(RuleType.PRUNE_EMPTY_PARTITION.name());
         connectContext.getSessionVariable().enableNereidsTimeout = false;
     }
@@ -1175,6 +1182,95 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
             });
         }
     }
+
+    // @Test
+    // public void testStringLengthPruning() {
+    //     // ── Case 1: length(str_col) only ─ offset-only optimization applied ──────────
+    //     assertStringColumn(
+    //             "select length(str_col) from str_tbl",
+    //             "str_col",
+    //             true,
+    //             ImmutableList.of(path("str_col", "offset")));
+
+    //     // ── Case 2: length(str_col) + direct projection of str_col ─ suppressed ─────
+    //     assertStringColumn(
+    //             "select length(str_col), str_col from str_tbl",
+    //             "str_col",
+    //             false,
+    //             ImmutableList.of());
+
+    //     // ── Case 3: length(str_col) + substr(str_col, …) ─ suppressed ───────────────
+    //     assertStringColumn(
+    //             "select length(str_col), substr(str_col, 2) from str_tbl",
+    //             "str_col",
+    //             false,
+    //             ImmutableList.of());
+
+    //     // ── Case 4: length applied to a struct field ─ struct pruned to bigint field ─
+    //     // c_struct has {f1:int, f3:string}; only f3 accessed offset-only →
+    //     // pruned type is struct<f3:bigint>, access path is DATA(["c_struct","f3","offset"])
+    //     assertColumn(
+    //             "select length(struct_element(c_struct, 'f3')) from str_tbl",
+    //             "struct<f3:bigint>",
+    //             ImmutableList.of(path("c_struct", "f3", "offset")),
+    //             ImmutableList.of());
+
+    //     // ── Case 5: length(struct field) + direct read of same field ─ suppressed ───
+    //     // Both the full-data path ["c_struct","f3"] and offset path ["c_struct","f3","offset"]
+    //     // are recorded; f3 pruneDataType() sees accessAll=true → returns text (not bigint).
+    //     assertColumn(
+    //             "select length(struct_element(c_struct, 'f3')), struct_element(c_struct, 'f3') from str_tbl",
+    //             "struct<f3:text>",
+    //             ImmutableList.of(path("c_struct", "f3"), path("c_struct", "f3", "offset")),
+    //             ImmutableList.of());
+    // }
+
+    // /**
+    //  * Verify that a specific string-typed column in the rewritten LogicalOlapScan either has
+    //  * BigIntType (offset-only optimization applied) or retains its original string type (suppressed).
+    //  *
+    //  * @param sql              query to analyze and rewrite
+    //  * @param columnName       name of the string column to inspect
+    //  * @param expectOptimized  true → expect BigIntType + access paths; false → expect string type
+    //  * @param expectAllPaths   expected access paths when {@code expectOptimized} is true
+    //  */
+    // private void assertStringColumn(String sql, String columnName,
+    //         boolean expectOptimized, List<TColumnAccessPath> expectAllPaths) {
+    //     Plan rewritePlan = PlanChecker.from(connectContext)
+    //             .analyze(sql)
+    //             .rewrite()
+    //             .getCascadesContext()
+    //             .getRewritePlan();
+
+    //     LogicalOlapScan scan = rewritePlan.collect(LogicalOlapScan.class::isInstance)
+    //             .stream()
+    //             .map(p -> (LogicalOlapScan) p)
+    //             .findFirst()
+    //             .orElseThrow(() -> new AssertionError("No LogicalOlapScan in plan for: " + sql));
+
+    //     for (Slot slot : scan.getOutput()) {
+    //         if (!slot.getName().equalsIgnoreCase(columnName)) {
+    //             continue;
+    //         }
+    //         SlotReference slotRef = (SlotReference) slot;
+    //         if (expectOptimized) {
+    //             Assertions.assertEquals(BigIntType.INSTANCE, slotRef.getDataType(),
+    //                     "Slot '" + columnName + "' should be BigIntType after offset-only optimization");
+    //             Optional<List<TColumnAccessPath>> allPaths = slotRef.getAllAccessPaths();
+    //             Assertions.assertTrue(allPaths.isPresent() && !allPaths.get().isEmpty(),
+    //                     "Slot '" + columnName + "' should have access paths set");
+    //             Assertions.assertEquals(
+    //                     new TreeSet<>(expectAllPaths),
+    //                     new TreeSet<>(allPaths.get()),
+    //                     "Unexpected access paths for slot '" + columnName + "'");
+    //         } else {
+    //             Assertions.assertNotEquals(BigIntType.INSTANCE, slotRef.getDataType(),
+    //                     "Slot '" + columnName + "' should NOT be BigIntType (optimization suppressed)");
+    //         }
+    //         return;
+    //     }
+    //     Assertions.fail("Column '" + columnName + "' not found in LogicalOlapScan output for: " + sql);
+    // }
 
     private Pair<PhysicalPlan, List<SlotDescriptor>> collectComplexSlots(String sql) throws Exception {
         NereidsPlanner planner = (NereidsPlanner) executeNereidsSql(sql).planner();

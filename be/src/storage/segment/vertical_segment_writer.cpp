@@ -174,6 +174,7 @@ void VerticalSegmentWriter::_init_column_meta(ColumnMetaPB* meta, uint32_t colum
     }
     if (column.is_variant_type()) {
         meta->set_variant_max_subcolumns_count(column.variant_max_subcolumns_count());
+        meta->set_variant_enable_doc_mode(column.variant_enable_doc_mode());
     }
     meta->set_result_is_nullable(column.get_result_is_nullable());
     meta->set_function_name(column.get_aggregation_name());
@@ -635,6 +636,11 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     RETURN_IF_ERROR(read_plan.fill_missing_columns(
             _opts.rowset_ctx, _rsid_to_rowset, *_tablet_schema, full_block,
             use_default_or_null_flag, has_default_or_nullable, segment_start_pos, data.block));
+
+    if (_tablet_schema->num_variant_columns() > 0) {
+        RETURN_IF_ERROR(variant_util::parse_and_materialize_variant_columns(
+                full_block, *_tablet_schema, _opts.rowset_ctx->partial_update_info->missing_cids));
+    }
 
     // row column should be filled here
     // convert block to row store format

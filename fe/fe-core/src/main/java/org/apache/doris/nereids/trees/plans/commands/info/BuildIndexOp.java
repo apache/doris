@@ -82,7 +82,7 @@ public class BuildIndexOp extends AlterTableOp {
 
     @Override
     public void validate(ConnectContext ctx) throws UserException {
-        tableName.analyze(ctx);
+        tableName.analyze(ctx.getNameSpaceContext());
         DatabaseIf<Table> db = Env.getCurrentEnv().getCatalogMgr().getInternalCatalog()
                 .getDb(tableName.getDb()).orElse(null);
         if (db == null) {

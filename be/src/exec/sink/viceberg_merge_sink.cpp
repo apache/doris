@@ -293,6 +293,12 @@ Status VIcebergMergeSink::_build_inner_sinks() {
     if (merge_sink.__isset.broker_addresses) {
         delete_sink.__set_broker_addresses(merge_sink.broker_addresses);
     }
+    if (merge_sink.__isset.format_version) {
+        delete_sink.__set_format_version(merge_sink.format_version);
+    }
+    if (merge_sink.__isset.rewritable_delete_file_sets) {
+        delete_sink.__set_rewritable_delete_file_sets(merge_sink.rewritable_delete_file_sets);
+    }
     _delete_sink.__set_type(TDataSinkType::ICEBERG_DELETE_SINK);
     _delete_sink.__set_iceberg_delete_sink(delete_sink);
 
