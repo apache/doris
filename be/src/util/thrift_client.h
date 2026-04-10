@@ -123,6 +123,7 @@ template <class InterfaceType>
 ThriftClient<InterfaceType>::ThriftClient(const std::string& ipaddress, int port)
         : ThriftClientImpl(ipaddress, port) {
     _transport.reset(new apache::thrift::transport::TBufferedTransport(_socket));
+    _transport->getConfiguration()->setMaxMessageSize(config::thrift_max_message_size);
     _protocol.reset(new apache::thrift::protocol::TBinaryProtocol(_transport));
     _iface.reset(new InterfaceType(_protocol));
 }
@@ -134,10 +135,12 @@ ThriftClient<InterfaceType>::ThriftClient(const std::string& ipaddress, int port
     switch (server_type) {
     case ThriftServer::NON_BLOCKING:
         _transport.reset(new apache::thrift::transport::TFramedTransport(_socket));
+        _transport->getConfiguration()->setMaxMessageSize(config::thrift_max_message_size);
         break;
     case ThriftServer::THREADED:
     case ThriftServer::THREAD_POOL:
         _transport.reset(new apache::thrift::transport::TBufferedTransport(_socket));
+        _transport->getConfiguration()->setMaxMessageSize(config::thrift_max_message_size);
         break;
     default:
         std::stringstream error_msg;

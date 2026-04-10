@@ -2587,7 +2587,7 @@ public class Config extends ConfigBase {
                     + "2. For auto-bucket feature (Dynamic Partition): "
                     + "bucket number will be capped at autobucket_max_buckets automatically. "
                     + "Set to 0 or negative value to disable this limit for user-specified buckets."})
-    public static int max_bucket_num_per_partition = autobucket_max_buckets;
+    public static int max_bucket_num_per_partition = 768;
 
     @ConfField(description = {"Maximum number of connections for the Arrow Flight Server per FE."})
     public static int arrow_flight_max_connections = 4096;

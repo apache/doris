@@ -128,7 +128,7 @@ CREATE TABLE supplier (
 )ENGINE=OLAP
 DUPLICATE KEY(`s_suppkey`)
 COMMENT "OLAP"
-DISTRIBUTED BY HASH(`s_suppkey`) BUCKETS 24
+DISTRIBUTED BY HASH(`s_suppkey`) BUCKETS 48
 PROPERTIES (
     "replication_num" = "1"
 );

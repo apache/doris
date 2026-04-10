@@ -87,7 +87,36 @@ public class LdapConfig extends ConfigBase {
     public static long ldap_cache_timeout_day = 30;
 
     /**
-     * LDAP pool configuration:
+     * LDAP read timeout in milliseconds.
+     * Controls the maximum time to wait for an LDAP response after a request is sent.
+     * Uses JNDI property "com.sun.jndi.ldap.read.timeout".
+     * Set to 0 for no timeout (not recommended). Default 5000ms.
+     */
+    @ConfigBase.ConfField
+    public static int ldap_read_timeout_ms = 5000;
+
+    /**
+     * LDAP connect timeout in milliseconds.
+     * Controls the maximum time to wait for establishing a TCP connection to the LDAP server.
+     * Uses JNDI property "com.sun.jndi.ldap.connect.timeout".
+     * Set to 0 for no timeout (not recommended). Default 5000ms.
+     */
+    @ConfigBase.ConfField
+    public static int ldap_connect_timeout_ms = 5000;
+
+    /**
+     * Whether to use connection pooling for LDAP search operations.
+     * When true (default), uses Spring PoolingContextSource with ldap_pool_* settings.
+     * When false, each LDAP search creates a fresh connection, avoiding dead connection
+     * detection cost (testOnBorrow can burn read_timeout discovering stale connections
+     * killed by firewalls/NAT idle timeout). Recommended to set false if experiencing
+     * intermittent ~5s LDAP search latency spikes.
+     */
+    @ConfigBase.ConfField
+    public static boolean ldap_search_use_pool = true;
+
+    /**
+     * LDAP pool configuration (only effective when ldap_search_use_pool = true):
      * https://docs.spring.io/spring-ldap/docs/2.3.3.RELEASE/reference/#pool-configuration
      */
     /**

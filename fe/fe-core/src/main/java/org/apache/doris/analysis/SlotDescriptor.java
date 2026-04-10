@@ -36,7 +36,7 @@ import java.util.List;
 public class SlotDescriptor {
     private static final Logger LOG = LogManager.getLogger(SlotDescriptor.class);
     private final SlotId id;
-    private final TupleDescriptor parent;
+    private final TupleId parentId;
     private Type type;
     private Column column;  // underlying column, if there is one
 
@@ -66,20 +66,10 @@ public class SlotDescriptor {
     private List<TColumnAccessPath> displayAllAccessPaths;
     private List<TColumnAccessPath> displayPredicateAccessPaths;
 
-    public SlotDescriptor(SlotId id, TupleDescriptor parent) {
-
+    public SlotDescriptor(SlotId id, TupleId parentId) {
         this.id = id;
-        this.parent = parent;
+        this.parentId = parentId;
         this.isNullable = true;
-    }
-
-    public SlotDescriptor(SlotId id, TupleDescriptor parent, SlotDescriptor src) {
-        this.id = id;
-        this.parent = parent;
-        this.column = src.column;
-        this.isNullable = src.isNullable;
-        this.type = src.type;
-        this.sourceExprs.add(new SlotRef(src));
     }
 
     public SlotId getId() {
@@ -126,8 +116,8 @@ public class SlotDescriptor {
         this.displayPredicateAccessPaths = displayPredicateAccessPaths;
     }
 
-    public TupleDescriptor getParent() {
-        return parent;
+    public TupleId getParentId() {
+        return parentId;
     }
 
     public Type getType() {
@@ -203,7 +193,7 @@ public class SlotDescriptor {
         // Non-nullable slots will have 0 for the byte offset and -1 for the bit mask
         String colName = materializedColumnName != null ? materializedColumnName :
                                      ((column != null) ? column.getNonShadowName() : "");
-        TSlotDescriptor tSlotDescriptor = new TSlotDescriptor(id.asInt(), parent.getId().asInt(), type.toThrift(), -1,
+        TSlotDescriptor tSlotDescriptor = new TSlotDescriptor(id.asInt(), parentId.asInt(), type.toThrift(), -1,
                 0, 0, getIsNullable() ? 0 : -1, colName, -1,
                 true);
         tSlotDescriptor.setIsAutoIncrement(isAutoInc);
@@ -265,7 +255,7 @@ public class SlotDescriptor {
 
     public String debugString() {
         String typeStr = (type == null ? "null" : type.toString());
-        String parentTupleId = (parent == null) ? "null" : parent.getId().toString();
+        String parentTupleId = (parentId == null) ? "null" : parentId.toString();
         return MoreObjects.toStringHelper(this).add("id", id.asInt()).add("parent", parentTupleId).add("col", caption)
                 .add("type", typeStr).add("nullable", getIsNullable())
                 .add("isAutoIncrement", isAutoInc).add("subColPath", subColPath)
