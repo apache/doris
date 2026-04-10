@@ -102,7 +102,7 @@ Status CloudDeleteTask::execute(CloudStorageEngine& engine, const TPushReq& requ
         return st;
     }
 
-    st = engine.meta_mgr().commit_rowset(*rowset->rowset_meta(), "");
+    st = engine.meta_mgr().commit_rowset(*rowset->rowset_meta(), "", nullptr, tablet->table_id());
     if (!st.ok()) {
         LOG(WARNING) << "failed to commit rowset, status=" << st.to_string();
         return st;

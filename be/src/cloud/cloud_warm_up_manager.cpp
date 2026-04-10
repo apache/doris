@@ -459,7 +459,8 @@ Status CloudWarmUpManager::clear_job(int64_t job_id) {
     return st;
 }
 
-Status CloudWarmUpManager::set_event(int64_t job_id, TWarmUpEventType::type event, bool clear) {
+Status CloudWarmUpManager::set_event(int64_t job_id, TWarmUpEventType::type event, bool clear,
+                                     const std::vector<int64_t>* table_ids) {
     DBUG_EXECUTE_IF("CloudWarmUpManager.set_event.ignore_all", {
         LOG(INFO) << "Ignore set_event request, job_id=" << job_id << ", event=" << event
                   << ", clear=" << clear;
@@ -470,10 +471,28 @@ Status CloudWarmUpManager::set_event(int64_t job_id, TWarmUpEventType::type even
     if (event == TWarmUpEventType::type::LOAD) {
         if (clear) {
             _tablet_replica_cache.erase(job_id);
+            _event_driven_filters.erase(job_id);
             LOG(INFO) << "Clear event driven sync, job_id=" << job_id << ", event=" << event;
         } else if (!_tablet_replica_cache.contains(job_id)) {
             static_cast<void>(_tablet_replica_cache[job_id]);
-            LOG(INFO) << "Set event driven sync, job_id=" << job_id << ", event=" << event;
+            if (table_ids != nullptr) {
+                // table-level filter: set to the given table_id set (may be empty,
+                // meaning all matched tables were deleted — warm up nothing)
+                _event_driven_filters[job_id] =
+                        std::unordered_set<int64_t>(table_ids->begin(), table_ids->end());
+                LOG(INFO) << "Set event driven sync with table filter, job_id=" << job_id
+                          << ", event=" << event << ", table_ids_size=" << table_ids->size();
+            } else {
+                // cluster-level: no filter, warm up all tables
+                _event_driven_filters[job_id] = std::nullopt;
+                LOG(INFO) << "Set event driven sync, job_id=" << job_id << ", event=" << event;
+            }
+        } else if (table_ids != nullptr) {
+            // Update table_ids for an existing job (may be empty)
+            _event_driven_filters[job_id] =
+                    std::unordered_set<int64_t>(table_ids->begin(), table_ids->end());
+            LOG(INFO) << "Updated table filter for event driven sync, job_id=" << job_id
+                      << ", table_ids_size=" << table_ids->size();
         }
     } else {
         st = Status::InternalError("The event {} is not supported yet", event);
@@ -481,13 +500,27 @@ Status CloudWarmUpManager::set_event(int64_t job_id, TWarmUpEventType::type even
     return st;
 }
 
-std::vector<TReplicaInfo> CloudWarmUpManager::get_replica_info(int64_t tablet_id, bool bypass_cache,
-                                                               bool& cache_hit) {
+std::vector<TReplicaInfo> CloudWarmUpManager::get_replica_info(int64_t tablet_id, int64_t table_id,
+                                                               bool bypass_cache, bool& cache_hit) {
     std::vector<TReplicaInfo> replicas;
     std::vector<int64_t> cancelled_jobs;
     std::lock_guard<std::mutex> lock(_mtx);
     cache_hit = false;
     for (auto& [job_id, cache] : _tablet_replica_cache) {
+        // Check table-level filter: skip this job if table_id doesn't match
+        // table_id == 0 means the caller doesn't have table context (e.g., recycle_cache),
+        // so skip filtering
+        if (table_id != 0) {
+            auto filter_it = _event_driven_filters.find(job_id);
+            if (filter_it != _event_driven_filters.end() && filter_it->second.has_value()) {
+                if (filter_it->second->find(table_id) == filter_it->second->end()) {
+                    VLOG_DEBUG << "get_replica_info: table_id=" << table_id
+                               << " not in filter for job_id=" << job_id << ", skipping";
+                    continue;
+                }
+            }
+        }
+
         if (!bypass_cache) {
             auto it = cache.find(tablet_id);
             if (it != cache.end()) {
@@ -580,13 +613,14 @@ std::vector<TReplicaInfo> CloudWarmUpManager::get_replica_info(int64_t tablet_id
     return replicas;
 }
 
-void CloudWarmUpManager::warm_up_rowset(RowsetMeta& rs_meta, int64_t sync_wait_timeout_ms) {
+void CloudWarmUpManager::warm_up_rowset(RowsetMeta& rs_meta, int64_t table_id,
+                                        int64_t sync_wait_timeout_ms) {
     bthread::Mutex mu;
     bthread::ConditionVariable cv;
     std::unique_lock<bthread::Mutex> lock(mu);
     auto st = _thread_pool_token->submit_func([&, this]() {
         std::unique_lock<bthread::Mutex> l(mu);
-        _warm_up_rowset(rs_meta, sync_wait_timeout_ms);
+        _warm_up_rowset(rs_meta, table_id, sync_wait_timeout_ms);
         cv.notify_one();
     });
     if (!st.ok()) {
@@ -597,9 +631,10 @@ void CloudWarmUpManager::warm_up_rowset(RowsetMeta& rs_meta, int64_t sync_wait_t
     }
 }
 
-void CloudWarmUpManager::_warm_up_rowset(RowsetMeta& rs_meta, int64_t sync_wait_timeout_ms) {
+void CloudWarmUpManager::_warm_up_rowset(RowsetMeta& rs_meta, int64_t table_id,
+                                         int64_t sync_wait_timeout_ms) {
     bool cache_hit = false;
-    auto replicas = get_replica_info(rs_meta.tablet_id(), false, cache_hit);
+    auto replicas = get_replica_info(rs_meta.tablet_id(), table_id, false, cache_hit);
     if (replicas.empty()) {
         VLOG_DEBUG << "There is no need to warmup tablet=" << rs_meta.tablet_id()
                    << ", skipping rowset=" << rs_meta.rowset_id().to_string();
@@ -608,7 +643,7 @@ void CloudWarmUpManager::_warm_up_rowset(RowsetMeta& rs_meta, int64_t sync_wait_
     }
     Status st = _do_warm_up_rowset(rs_meta, replicas, sync_wait_timeout_ms, !cache_hit);
     if (cache_hit && !st.ok() && st.is<ErrorCode::TABLE_NOT_FOUND>()) {
-        replicas = get_replica_info(rs_meta.tablet_id(), true, cache_hit);
+        replicas = get_replica_info(rs_meta.tablet_id(), table_id, true, cache_hit);
         st = _do_warm_up_rowset(rs_meta, replicas, sync_wait_timeout_ms, true);
     }
     if (!st.ok()) {
@@ -754,7 +789,7 @@ void CloudWarmUpManager::_recycle_cache(int64_t tablet_id,
                                         const std::vector<RecycledRowsets>& rowsets) {
     LOG(INFO) << "recycle_cache: tablet_id=" << tablet_id << ", num_rowsets=" << rowsets.size();
     bool cache_hit = false;
-    auto replicas = get_replica_info(tablet_id, false, cache_hit);
+    auto replicas = get_replica_info(tablet_id, /*table_id=*/0, false, cache_hit);
     if (replicas.empty()) {
         return;
     }

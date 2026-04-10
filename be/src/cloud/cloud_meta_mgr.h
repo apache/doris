@@ -81,7 +81,8 @@ public:
                           std::shared_ptr<RowsetMeta>* existed_rs_meta = nullptr);
 
     Status commit_rowset(RowsetMeta& rs_meta, const std::string& job_id,
-                         std::shared_ptr<RowsetMeta>* existed_rs_meta = nullptr);
+                         std::shared_ptr<RowsetMeta>* existed_rs_meta = nullptr,
+                         int64_t table_id = 0);
     void cache_committed_rowset(RowsetMetaSharedPtr rs_meta, int64_t expiration_time);
 
     Status update_tmp_rowset(const RowsetMeta& rs_meta);

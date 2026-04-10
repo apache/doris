@@ -418,8 +418,8 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
                                          st.to_string());
         }
 
-        st = _cloud_storage_engine.meta_mgr().commit_rowset(*rowset_writer->rowset_meta(), _job_id,
-                                                            &existed_rs_meta);
+        st = _cloud_storage_engine.meta_mgr().commit_rowset(
+                *rowset_writer->rowset_meta(), _job_id, &existed_rs_meta, _new_tablet->table_id());
         if (!st.ok()) {
             if (st.is<ALREADY_EXIST>()) {
                 LOG(INFO) << "Rowset " << rs_reader->version() << " has already existed in tablet "

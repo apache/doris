@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.cloud.OnTablesFilter.TableFilterRule;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.catalog.ComputeGroup;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
@@ -64,6 +65,7 @@ public class WarmUpClusterCommand extends Command implements ForwardWithSync {
     private boolean isWarmUpWithTable;
     private List<Triple<String, String, String>> tables = new ArrayList<>();
     private Map<String, String> properties = new HashMap<>();
+    private final List<TableFilterRule> onTablesRules;
 
     /**
      * WarmUpClusterCommand
@@ -79,6 +81,7 @@ public class WarmUpClusterCommand extends Command implements ForwardWithSync {
         this.dstCluster = dstCluster;
         this.isForce = isForce;
         this.isWarmUpWithTable = isWarmUpWithTable;
+        this.onTablesRules = null;
     }
 
     public WarmUpClusterCommand(List<WarmUpItem> warmUpItems,
@@ -89,6 +92,26 @@ public class WarmUpClusterCommand extends Command implements ForwardWithSync {
                                 Map<String, String> properties) {
         this(warmUpItems, srcCluster, dstCluster, isForce, isWarmUpWithTable);
         this.properties = properties;
+    }
+
+    /**
+     * Constructor with ON TABLES filter rules.
+     */
+    public WarmUpClusterCommand(List<WarmUpItem> warmUpItems,
+                                String srcCluster,
+                                String dstCluster,
+                                boolean isForce,
+                                boolean isWarmUpWithTable,
+                                Map<String, String> properties,
+                                List<TableFilterRule> onTablesRules) {
+        super(PlanType.WARM_UP_CLUSTER_COMMAND);
+        this.warmUpItems = warmUpItems;
+        this.srcCluster = srcCluster;
+        this.dstCluster = dstCluster;
+        this.isForce = isForce;
+        this.isWarmUpWithTable = isWarmUpWithTable;
+        this.properties = properties;
+        this.onTablesRules = onTablesRules;
     }
 
     public List<WarmUpItem> getWarmUpItems() {
@@ -113,6 +136,10 @@ public class WarmUpClusterCommand extends Command implements ForwardWithSync {
 
     public List<Triple<String, String, String>> getTables() {
         return tables;
+    }
+
+    public List<TableFilterRule> getOnTablesRules() {
+        return onTablesRules;
     }
 
     @Override
@@ -201,6 +228,24 @@ public class WarmUpClusterCommand extends Command implements ForwardWithSync {
                     throw new AnalysisException("The partition " + partitionName + " doesn't exist");
                 }
                 tables.add(Triple.of(dbName, tableNameInfo.getTbl(), partitionName));
+            }
+        }
+
+        if (onTablesRules != null && !onTablesRules.isEmpty()) {
+            boolean hasInclude = onTablesRules.stream()
+                    .anyMatch(r -> r.getRuleType() == TableFilterRule.RuleType.INCLUDE);
+            if (!hasInclude) {
+                throw new AnalysisException("ON TABLES clause must contain at least one INCLUDE rule");
+            }
+            for (TableFilterRule rule : onTablesRules) {
+                if (!rule.getRawPattern().contains(".")) {
+                    throw new AnalysisException("ON TABLES pattern must be in 'db.table' format: '"
+                            + rule.getRawPattern() + "'");
+                }
+            }
+            String syncMode = properties.get("sync_mode");
+            if (!"event_driven".equals(syncMode)) {
+                throw new AnalysisException("ON TABLES clause is only supported with event_driven sync_mode");
             }
         }
     }

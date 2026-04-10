@@ -64,4 +64,12 @@ public class ShowWarmUpCommandTest {
         ShowWarmUpCommand command = new ShowWarmUpCommand(where);
         Assertions.assertDoesNotThrow(() -> command.validate());
     }
+
+    @Test
+    public void testMetaDataContainsTableFilterColumns() {
+        ShowWarmUpCommand command = new ShowWarmUpCommand(null);
+
+        Assertions.assertEquals("TableFilter", command.getMetaData().getColumn(13).getName());
+        Assertions.assertEquals("MatchedTables", command.getMetaData().getColumn(14).getName());
+    }
 }

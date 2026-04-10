@@ -208,6 +208,7 @@ struct TWarmUpTabletsRequest {
     3: optional list<TJobMeta> job_metas
     4: required TWarmUpTabletsRequestType type
     5: optional TWarmUpEventType event
+    6: optional list<i64> table_ids
 }
 
 struct TWarmUpTabletsResponse {

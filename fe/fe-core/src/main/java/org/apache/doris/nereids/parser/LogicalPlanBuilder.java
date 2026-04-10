@@ -55,6 +55,7 @@ import org.apache.doris.catalog.info.ColumnPosition;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.catalog.info.TagOptions;
+import org.apache.doris.cloud.OnTablesFilter;
 import org.apache.doris.cloud.stage.StageUtil;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -9460,7 +9461,24 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             isForce = true;
         }
         ImmutableMap<String, String> properties = ImmutableMap.copyOf(visitPropertyClause(ctx.properties));
-        return new WarmUpClusterCommand(warmUpItems, srcCluster, dstCluster, isForce, isWarmUpWithTable, properties);
+
+        List<OnTablesFilter.TableFilterRule> onTablesRules = null;
+        if (ctx.onTablesClause() != null) {
+            onTablesRules = new ArrayList<>();
+            for (DorisParser.OnTablesFilterRuleContext ruleCtx : ctx.onTablesClause().onTablesFilterRule()) {
+                OnTablesFilter.TableFilterRule.RuleType ruleType;
+                if (ruleCtx.INCLUDE() != null) {
+                    ruleType = OnTablesFilter.TableFilterRule.RuleType.INCLUDE;
+                } else {
+                    ruleType = OnTablesFilter.TableFilterRule.RuleType.EXCLUDE;
+                }
+                String pattern = stripQuotes(ruleCtx.STRING_LITERAL().getText());
+                onTablesRules.add(new OnTablesFilter.TableFilterRule(ruleType, pattern));
+            }
+        }
+
+        return new WarmUpClusterCommand(warmUpItems, srcCluster, dstCluster,
+                isForce, isWarmUpWithTable, properties, onTablesRules);
     }
 
     void fileCacheAdmissionCheck(DorisParser.WarmUpSelectContext ctx) {
