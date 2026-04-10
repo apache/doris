@@ -440,6 +440,18 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         this.setFailureReason(reason);
         // Currently, only delayMsg is present here, which needs to be cleared when the status changes.
         this.setJobRuntimeMsg("");
+        // Clearing the failure (reason == null) means either a task just succeeded
+        // or the user is RESUME-ing the job — in both cases, the retry budget should
+        // be restored so exponential backoff starts fresh, aligning with the
+        // semantics of a fresh job's first failure.
+        if (reason == null) {
+            this.setAutoResumeCount(0);
+            this.setLatestAutoResumeTimestamp(0);
+        }
+    }
+
+    public long getMaxAutoResumeCount() {
+        return Config.streaming_job_max_auto_resume_count;
     }
 
     @Override
@@ -648,6 +660,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         try {
             resetFailureInfo(null);
             succeedTaskCount.incrementAndGet();
+            lastTaskSuccessTime = System.currentTimeMillis();
             //update metric
             if (MetricRepo.isInit) {
                 MetricRepo.COUNTER_STREAMING_JOB_TASK_EXECUTE_COUNT.increase(1L);
@@ -786,6 +799,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         setSucceedTaskCount(replayJob.getSucceedTaskCount());
         setFailedTaskCount(replayJob.getFailedTaskCount());
         setCanceledTaskCount(replayJob.getCanceledTaskCount());
+        setLastTaskSuccessTime(replayJob.getLastTaskSuccessTime());
     }
 
     /**
@@ -878,12 +892,19 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             trow.addToColumnValue(new TCell().setStringVal(
                     nonTxnJobStatistic == null ? "" : nonTxnJobStatistic.toJson()));
         }
+        // ErrorMsg column returns the full FailureReason as JSON ({"code":"...","msg":"..."})
+        // for streaming insert jobs only, so the frontend can switch on the structured code
+        // instead of grepping the message. One-time insert jobs (InsertJob.getTvfInfo) keep
+        // returning the plain FailMsg.msg string — they use a different error taxonomy
+        // (FailMsg/CancelType) that is out of scope for this PR.
         trow.addToColumnValue(new TCell().setStringVal(failureReason == null
-                ? "" : failureReason.getMsg()));
+                ? "" : GsonUtils.GSON.toJson(failureReason)));
         trow.addToColumnValue(new TCell().setStringVal(jobRuntimeMsg == null
                 ? "" : jobRuntimeMsg));
         trow.addToColumnValue(new TCell().setStringVal(
                 offsetProvider != null ? offsetProvider.getLag() : ""));
+        trow.addToColumnValue(new TCell().setStringVal(lastTaskSuccessTime > 0
+                ? TimeUtils.longToTimeString(lastTaskSuccessTime) : ""));
         return trow;
     }
 
