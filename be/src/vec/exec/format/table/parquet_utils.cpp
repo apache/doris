@@ -36,7 +36,6 @@
 #include "vec/exec/format/parquet/parquet_column_convert.h"
 
 namespace doris::vectorized::parquet_utils {
-namespace {
 
 #define MERGE_STATS_CASE(ParquetType)                                                     \
     case ParquetType: {                                                                   \
@@ -70,5 +69,4 @@ void merge_stats(const std::shared_ptr<::parquet::Statistics>& left,
         break;
     }
 }
-} // namespace
 } // namespace doris::vectorized::parquet_utils
