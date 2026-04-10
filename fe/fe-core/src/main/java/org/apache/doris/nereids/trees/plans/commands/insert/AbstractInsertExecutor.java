@@ -264,6 +264,39 @@ public abstract class AbstractInsertExecutor {
         afterExec(executor);
     }
 
+    /**
+     * Execute an insert that has no source rows but still needs side effects.
+     * For example, Iceberg static partition overwrite with an empty source still
+     * needs to commit a partition delete.
+     */
+    public void executeEmptyInsert(StmtExecutor executor) throws Exception {
+        beforeExec();
+        try {
+            for (InsertExecutorListener listener : listeners) {
+                listener.beforeComplete(this, executor, jobId);
+            }
+            onComplete();
+            for (InsertExecutorListener listener : listeners) {
+                listener.afterComplete(this, executor, jobId);
+            }
+        } catch (Throwable t) {
+            onFail(t);
+            return;
+        } finally {
+            coordinator.close();
+            executor.updateProfile(true);
+        }
+        afterExec(executor);
+    }
+
+    /**
+     * Whether an empty source insert should still execute instead of using the
+     * normal fast-return path.
+     */
+    public boolean shouldExecuteEmptyInsert() {
+        return false;
+    }
+
     public boolean isEmptyInsert() {
         return emptyInsert;
     }
