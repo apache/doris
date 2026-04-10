@@ -347,10 +347,8 @@ public class DFSFileSystem extends RemoteFileSystem {
     @Override
     public Status exists(String remotePath) {
         try {
-            URI pathUri = URI.create(remotePath);
-            Path inputFilePath = new Path(pathUri.getLocation());
             FileSystem fileSystem = nativeFileSystem(inputFilePath);
-            boolean isPathExist = hdfsProperties.getHadoopAuthenticator().doAs(() -> fileSystem.exists(inputFilePath));
+            boolean isPathExist = hdfsProperties.getHadoopAuthenticator().doAs(() -> fileSystem.exists(new Path(remotePath)));
             if (!isPathExist) {
                 return new Status(Status.ErrCode.NOT_FOUND, "remote path does not exist: " + remotePath);
             }
@@ -484,10 +482,8 @@ public class DFSFileSystem extends RemoteFileSystem {
     @Override
     public Status delete(String remotePath) {
         try {
-            URI pathUri = URI.create(remotePath);
-            Path inputFilePath = new Path(pathUri.getLocation());
             FileSystem fileSystem = nativeFileSystem(inputFilePath);
-            hdfsProperties.getHadoopAuthenticator().doAs(() -> fileSystem.delete(inputFilePath, true));
+            hdfsProperties.getHadoopAuthenticator().doAs(() -> fileSystem.delete(new Path(remotePath), true));
         } catch (UserException e) {
             return new Status(Status.ErrCode.COMMON_ERROR, e.getMessage());
         } catch (IOException e) {
@@ -510,8 +506,7 @@ public class DFSFileSystem extends RemoteFileSystem {
     @Override
     public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
         try {
-            URI pathUri = URI.create(remotePath);
-            Path pathPattern = new Path(S3Util.extendGlobs(pathUri.getLocation()));
+            Path pathPattern = new Path(S3Util.extendGlobs(remotePath));
             FileSystem fileSystem = nativeFileSystem(pathPattern);
             FileStatus[] files = hdfsProperties.getHadoopAuthenticator().doAs(() -> fileSystem.globStatus(pathPattern));
             if (files == null) {
