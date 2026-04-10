@@ -70,6 +70,7 @@ public:
     // get disk devices of given path
     static Status get_disk_devices(const std::vector<std::string>& paths,
                                    std::set<std::string>* devices);
+    static std::set<std::string> get_lvm_physical_disks(std::string dev_path);
 
 private:
     static bool _s_initialized;
