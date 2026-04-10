@@ -85,7 +85,7 @@ public:
 
     virtual RowsetReaderSharedPtr clone() = 0;
 
-    virtual void set_topn_limit(size_t topn_limit) = 0;
+    virtual void set_local_read_limit(size_t limit) = 0;
 };
 
 } // namespace doris

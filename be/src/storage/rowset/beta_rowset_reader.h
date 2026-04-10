@@ -91,7 +91,7 @@ public:
 
     RowsetReaderSharedPtr clone() override;
 
-    void set_topn_limit(size_t topn_limit) override { _topn_limit = topn_limit; }
+    void set_local_read_limit(size_t limit) override { _local_read_limit = limit; }
 
     OlapReaderStatistics* get_stats() { return _stats; }
 
@@ -166,7 +166,7 @@ private:
     StorageReadOptions _read_options;
 
     bool _empty = false;
-    size_t _topn_limit = 0;
+    size_t _local_read_limit = 0;
     uint64_t _merged_rows = 0;
 };
 

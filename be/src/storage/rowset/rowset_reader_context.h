@@ -18,6 +18,7 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_ROWSET_READER_CONTEXT_H
 #define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_READER_CONTEXT_H
 
+#include <atomic>
 #include <vector>
 
 #include "exprs/score_runtime.h"
@@ -100,6 +101,14 @@ struct RowsetReaderContext {
     std::shared_ptr<segment_v2::AnnTopNRuntime> ann_topn_runtime;
 
     uint64_t condition_cache_digest = 0;
+
+    // General limit pushdown for DUP_KEYS and UNIQUE_KEYS with MOW.
+    // Propagated from ReaderParams.general_read_limit.
+    int64_t general_read_limit = -1;
+
+    // Dynamic shared limit pointer from ScanOperatorX.
+    // See ReaderParams.shared_scan_limit for details.
+    std::atomic<int64_t>* shared_scan_limit = nullptr;
 };
 
 } // namespace doris

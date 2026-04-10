@@ -249,6 +249,11 @@ protected:
     int64_t _projection_timer = 0;
 
     bool _should_stop = false;
+
+    // Cached shared scan limit pointer for the general (non-topn) limit path.
+    // nullptr when this scanner uses the topn path or when no SQL LIMIT exists.
+    // Set during scanner initialization; avoids per-block virtual call.
+    std::atomic<int64_t>* _shared_scan_limit = nullptr;
 };
 
 using ScannerSPtr = std::shared_ptr<Scanner>;

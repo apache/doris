@@ -23,6 +23,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <atomic>
 #include <memory>
 #include <set>
 #include <string>
@@ -210,6 +211,17 @@ public:
         std::shared_ptr<segment_v2::AnnTopNRuntime> ann_topn_runtime;
 
         uint64_t condition_cache_digest = 0;
+
+        // General limit pushdown for DUP_KEYS and UNIQUE_KEYS with MOW.
+        // When > 0, the storage layer (VCollectIterator) will stop reading
+        // after returning this many rows. -1 means no limit.
+        int64_t general_read_limit = -1;
+
+        // Pointer to the shared remaining-row budget maintained by ScanOperatorX.
+        // Decremented by Scanner::get_block() after each block is produced.
+        // Storage layer uses it as a dynamic hint to reduce I/O.
+        // nullptr when no SQL LIMIT or when the table requires merge reads.
+        std::atomic<int64_t>* shared_scan_limit = nullptr;
     };
 
     TabletReader() = default;

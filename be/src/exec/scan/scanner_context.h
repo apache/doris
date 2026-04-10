@@ -224,9 +224,6 @@ protected:
     // Points to the shared remaining limit on ScanOperatorX, shared across all
     // parallel instances and their scanners. -1 means no limit.
     std::atomic<int64_t>* _shared_scan_limit = nullptr;
-    // Atomically acquire up to `desired` rows. Returns actual granted count (0 = exhausted).
-    int64_t acquire_limit_quota(int64_t desired);
-    int64_t remaining_limit() const { return _shared_scan_limit->load(std::memory_order_acquire); }
 
     int64_t _max_bytes_in_queue = 0;
     // Using stack so that we can resubmit scanner in a LIFO order, maybe more cache friendly

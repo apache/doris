@@ -2619,14 +2619,19 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
     // If the row bitmap size is smaller than nrows_read_limit, there's no need to reserve that many column rows.
     uint32_t nrows_read_limit =
             std::min(cast_set<uint32_t>(_row_bitmap.cardinality()), _opts.block_row_max);
-    if (_can_opt_topn_reads()) {
-        nrows_read_limit = std::min(static_cast<uint32_t>(_opts.topn_limit), nrows_read_limit);
+    if (_can_opt_limit_reads()) {
+        nrows_read_limit = _opts.read_limit.cap(nrows_read_limit);
+    } else if (_opts.read_limit.exhausted()) {
+        // Even without index optimization eligibility, stop reading when
+        // the global limit is fully exhausted — no more rows needed.
+        nrows_read_limit = 0;
     }
     DBUG_EXECUTE_IF("segment_iterator.topn_opt_1", {
         if (nrows_read_limit != 1) {
             return Status::Error<ErrorCode::INTERNAL_ERROR>(
-                    "topn opt 1 execute failed: nrows_read_limit={}, _opts.topn_limit={}",
-                    nrows_read_limit, _opts.topn_limit);
+                    "topn opt 1 execute failed: nrows_read_limit={}, "
+                    "_opts.read_limit.local_limit={}",
+                    nrows_read_limit, _opts.read_limit.local_limit);
         }
     })
 
@@ -3173,8 +3178,8 @@ bool SegmentIterator::_has_delete_predicate(ColumnId cid) {
     return delete_columns_set.contains(cid);
 }
 
-bool SegmentIterator::_can_opt_topn_reads() {
-    if (_opts.topn_limit <= 0) {
+bool SegmentIterator::_can_opt_limit_reads() {
+    if (!_opts.read_limit.active()) {
         return false;
     }
 

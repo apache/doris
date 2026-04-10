@@ -83,7 +83,12 @@ public:
         }
     }
 
-    inline bool use_topn_next() const { return _topn_limit > 0; }
+    // Unified local read limit for both topn and general limit paths.
+    // These two paths are mutually exclusive within a single scanner.
+    enum class LimitMode { NONE, TOPN, GENERAL };
+    LimitMode _limit_mode = LimitMode::NONE;
+
+    inline bool use_topn_next() const { return _limit_mode == LimitMode::TOPN; }
 
 private:
     // next for topn query
@@ -345,10 +350,18 @@ private:
     bool _merge = true;
     // reverse the compare order
     bool _is_reverse = false;
-    // for topn next
-    size_t _topn_limit = 0;
+    // Unified local read limit for both topn and general limit paths.
+    // For TOPN: per-scanner budget fed to _topn_next() algorithm.
+    // For GENERAL: per-scanner cap with row counting and truncation.
+    // 0 means no limit (LimitMode::NONE).
+    size_t _local_read_limit = 0;
     bool _topn_eof = false;
     std::vector<RowSetSplits> _rs_splits;
+
+
+    // Number of rows already returned to the caller (used by GENERAL limit mode).
+    int64_t _rows_returned = 0;
+
 
     // Hold reader point to access read params, such as fetch conditions.
     TabletReader* _reader = nullptr;

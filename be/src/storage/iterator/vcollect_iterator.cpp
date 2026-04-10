@@ -84,21 +84,31 @@ void VCollectIterator::init(TabletReader* reader, bool ori_data_overlapping, boo
     }
     _is_reverse = is_reverse;
 
-    // use topn_next opt only for DUP_KEYS and UNIQUE_KEYS with MOW
-    if (_reader->_reader_context.read_orderby_key_limit > 0 &&
-        (_reader->_tablet->keys_type() == KeysType::DUP_KEYS ||
-         (_reader->_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
-          _reader->_tablet->enable_unique_key_merge_on_write()))) {
-        _topn_limit = _reader->_reader_context.read_orderby_key_limit;
-    } else {
-        _topn_limit = 0;
-        DCHECK_EQ(_reader->_reader_context.filter_block_conjuncts.size(), 0);
+    // Determine local read limit mode.
+    // TopN: read_orderby_key_limit is only set when _storage_no_merge() holds
+    // at the scanner level, so no DUP/MOW re-check needed here.
+    if (_reader->_reader_context.read_orderby_key_limit > 0) {
+        _local_read_limit = _reader->_reader_context.read_orderby_key_limit;
+        _limit_mode = LimitMode::TOPN;
+    } else if (!_merge && _reader->_reader_context.general_read_limit > 0) {
+        // General limit pushdown: only for non-merge path.
+        // The scanner already guards this with _storage_no_merge(), but we also
+        // check !_merge here because _merge can be forced true by overlapping
+        // data (force_merge), in which case limit pushdown is not safe.
+        _local_read_limit = static_cast<size_t>(_reader->_reader_context.general_read_limit);
+        _limit_mode = LimitMode::GENERAL;
     }
 }
 
 Status VCollectIterator::add_child(const RowSetSplits& rs_splits) {
+    // Propagate local read limit to rowset reader for both topn and general
+    // paths so that SegmentIterator can use it (via StorageReadOptions.read_limit)
+    // to reduce per-batch I/O.
+    if (_local_read_limit > 0) {
+        rs_splits.rs_reader->set_local_read_limit(_local_read_limit);
+    }
+
     if (use_topn_next()) {
-        rs_splits.rs_reader->set_topn_limit(_topn_limit);
         _rs_splits.push_back(rs_splits);
         return Status::OK();
     }
@@ -247,8 +257,43 @@ Status VCollectIterator::next(Block* block) {
         return _topn_next(block);
     }
 
+    // Fast path: if general limit already reached, return EOF immediately
+    if (_limit_mode == LimitMode::GENERAL &&
+        _rows_returned >= static_cast<int64_t>(_local_read_limit)) {
+        return Status::Error<END_OF_FILE>("");
+    }
+
     if (LIKELY(_inner_iter)) {
-        return _inner_iter->next(block);
+        auto st = _inner_iter->next(block);
+        if (UNLIKELY(!st.ok())) {
+            return st;
+        }
+
+        // Apply filter_block_conjuncts that were moved from Scanner::_conjuncts.
+        // This must happen BEFORE limit counting so that _rows_returned
+        // reflects post-filter rows (same pattern as _topn_next).
+        // filter_block_conjuncts is only populated when the general-limit or
+        // topn branches move conjuncts into the storage layer (topn takes
+        // the _topn_next path and never reaches here).
+        if (!_reader->_reader_context.filter_block_conjuncts.empty()) {
+            RETURN_IF_ERROR(VExprContext::filter_block(
+                    _reader->_reader_context.filter_block_conjuncts, block, block->columns()));
+        }
+
+        // Enforce general read limit: truncate block if needed
+        if (_limit_mode == LimitMode::GENERAL) {
+            _rows_returned += block->rows();
+            if (_rows_returned > static_cast<int64_t>(_local_read_limit)) {
+                // Truncate block to return exactly the remaining rows needed
+                int64_t excess = _rows_returned - static_cast<int64_t>(_local_read_limit);
+                int64_t keep = block->rows() - excess;
+                DCHECK_GT(keep, 0);
+                block->set_num_rows(keep);
+                _rows_returned = static_cast<int64_t>(_local_read_limit);
+            }
+        }
+
+        return Status::OK();
     } else {
         return Status::Error<END_OF_FILE>("");
     }
@@ -304,10 +349,10 @@ Status VCollectIterator::_topn_next(Block* block) {
         // init will prune segment by _reader_context.conditions and _reader_context.runtime_conditions
         RETURN_IF_ERROR(rs_split.rs_reader->init(&_reader->_reader_context, rs_split));
 
-        // read _topn_limit rows from this rs
+        // read _local_read_limit rows from this rs
         size_t read_rows = 0;
         bool eof = false;
-        while (read_rows < _topn_limit && !eof) {
+        while (read_rows < _local_read_limit && !eof) {
             block->clear_column_data();
             auto status = rs_split.rs_reader->next_batch(block);
             if (!status.ok()) {
@@ -333,7 +378,7 @@ Status VCollectIterator::_topn_next(Block* block) {
 
             size_t rows_to_copy = 0;
             if (sorted_row_pos.empty()) {
-                rows_to_copy = std::min(block->rows(), _topn_limit);
+                rows_to_copy = std::min(block->rows(), _local_read_limit);
             } else {
                 // _is_reverse == true  last_row_pos is the pos of smallest row
                 // _is_reverse == false last_row_pos is biggest row
@@ -342,7 +387,7 @@ Status VCollectIterator::_topn_next(Block* block) {
                 // find the how many rows which is less than the last row in mutable_block
                 for (size_t j = 0; j < block->rows(); j++) {
                     // if there is not enough rows in sorted_row_pos, just copy new rows
-                    if (sorted_row_pos.size() + rows_to_copy < _topn_limit) {
+                    if (sorted_row_pos.size() + rows_to_copy < _local_read_limit) {
                         rows_to_copy++;
                         continue;
                     }
@@ -391,16 +436,16 @@ Status VCollectIterator::_topn_next(Block* block) {
                 }
             }
 
-            // delete to keep _topn_limit row pos
-            if (sorted_row_pos.size() > _topn_limit) {
+            // delete to keep _local_read_limit row pos
+            if (sorted_row_pos.size() > _local_read_limit) {
                 auto first = sorted_row_pos.begin();
-                for (size_t j = 0; j < _topn_limit; j++) {
+                for (size_t j = 0; j < _local_read_limit; j++) {
                     first++;
                 }
                 sorted_row_pos.erase(first, sorted_row_pos.end());
 
-                // shrink mutable_block to save memory when rows > _topn_limit * 2
-                if (mutable_block.rows() > _topn_limit * 2) {
+                // shrink mutable_block to save memory when rows > _local_read_limit * 2
+                if (mutable_block.rows() > _local_read_limit * 2) {
                     VLOG_DEBUG << "topn debug start  shrink mutable_block from "
                                << mutable_block.rows() << " rows";
                     Block tmp_block = mutable_block.to_block();
@@ -411,7 +456,7 @@ Status VCollectIterator::_topn_next(Block* block) {
                     }
 
                     sorted_row_pos.clear();
-                    for (size_t j = 0; j < _topn_limit; j++) {
+                    for (size_t j = 0; j < _local_read_limit; j++) {
                         sorted_row_pos.insert(j);
                     }
                     VLOG_DEBUG << "topn debug finish shrink mutable_block to "
@@ -421,7 +466,7 @@ Status VCollectIterator::_topn_next(Block* block) {
 
             // update runtime_predicate
             if (!_reader->_reader_context.topn_filter_source_node_ids.empty() && changed &&
-                sorted_row_pos.size() >= _topn_limit) {
+                sorted_row_pos.size() >= _local_read_limit) {
                 // get field value from column
                 size_t last_sorted_row = *sorted_row_pos.rbegin();
                 auto* col_ptr = mutable_block.get_column_by_position(first_sort_column_idx).get();
@@ -434,15 +479,15 @@ Status VCollectIterator::_topn_next(Block* block) {
                     RETURN_IF_ERROR(query_ctx->get_runtime_predicate(id).update(new_top));
                 }
             }
-        } // end of while (read_rows < _topn_limit && !eof)
+        } // end of while (read_rows < _local_read_limit && !eof)
         VLOG_DEBUG << "topn debug rowset " << i << " read_rows=" << read_rows << " eof=" << eof
-                   << " _topn_limit=" << _topn_limit
+                   << " _local_read_limit=" << _local_read_limit
                    << " sorted_row_pos.size()=" << sorted_row_pos.size()
                    << " mutable_block.rows()=" << mutable_block.rows();
     } // end of for (auto rs_reader : _rs_readers)
 
     // copy result_block to block
-    VLOG_DEBUG << "topn debug result _topn_limit=" << _topn_limit
+    VLOG_DEBUG << "topn debug result _local_read_limit=" << _local_read_limit
                << " sorted_row_pos.size()=" << sorted_row_pos.size()
                << " mutable_block.rows()=" << mutable_block.rows();
     *block = mutable_block.to_block();

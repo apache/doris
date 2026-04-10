@@ -197,6 +197,10 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.predicate_access_paths = read_params.predicate_access_paths;
 
     _reader_context.condition_cache_digest = read_params.condition_cache_digest;
+
+    // Propagate general read limit for DUP_KEYS and UNIQUE_KEYS with MOW
+    _reader_context.general_read_limit = read_params.general_read_limit;
+    _reader_context.shared_scan_limit = read_params.shared_scan_limit;
     return Status::OK();
 }
 

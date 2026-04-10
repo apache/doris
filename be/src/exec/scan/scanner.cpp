@@ -47,6 +47,12 @@ Scanner::Scanner(RuntimeState* state, ScanLocalStateBase* local_state, int64_t l
 }
 
 Status Scanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
+    // By default, all scanners participate in the cross-scanner shared limit
+    // so that LIMIT queries stop early once enough rows are collected.
+    // OlapScanner overrides this to nullptr for the topn path where each
+    // scanner must independently produce its full local top-N candidates.
+    _shared_scan_limit = _local_state->shared_scan_limit_ptr();
+
     if (!conjuncts.empty()) {
         _conjuncts.resize(conjuncts.size());
         for (size_t i = 0; i != conjuncts.size(); ++i) {
@@ -123,6 +129,17 @@ Status Scanner::get_block_after_projects(RuntimeState* state, Block* block, bool
 Status Scanner::get_block(RuntimeState* state, Block* block, bool* eof) {
     // only empty block should be here
     DCHECK(block->rows() == 0);
+
+    // Early exit when the global shared scan limit is exhausted.
+    // This avoids unnecessary I/O when other scanners have already
+    // collected enough rows for the SQL LIMIT.
+    // _shared_scan_limit is nullptr for topn (ORDER BY key LIMIT) because
+    // each scanner must independently produce its full local top-N candidates.
+    if (_shared_scan_limit && _shared_scan_limit->load(std::memory_order_acquire) <= 0) {
+        *eof = true;
+        return Status::OK();
+    }
+
     // scanner running time
     SCOPED_RAW_TIMER(&_per_scanner_timer);
     int64_t rows_read_threshold = _num_rows_read + config::doris_scanner_row_num;
@@ -156,6 +173,14 @@ Status Scanner::get_block(RuntimeState* state, Block* block, bool* eof) {
             }
             // record rows return (after filter) for _limit check
             _num_rows_return += block->rows();
+            // Decrement the global shared scan limit so that other scanners
+            // can observe the progress and stop early when the SQL LIMIT is
+            // satisfied.  The counter may go negative when multiple scanners
+            // subtract concurrently; this is harmless because the operator's
+            // reached_limit() provides the authoritative truncation.
+            if (_shared_scan_limit && block->rows() > 0) {
+                _shared_scan_limit->fetch_sub(block->rows(), std::memory_order_acq_rel);
+            }
         } while (!_should_stop && !state->is_cancelled() && block->rows() == 0 && !(*eof) &&
                  _num_rows_read < rows_read_threshold);
     }
@@ -168,6 +193,8 @@ Status Scanner::get_block(RuntimeState* state, Block* block, bool* eof) {
     // set eof to true if per scanner limit is reached
     // currently for query: ORDER BY key LIMIT n
     *eof = *eof || (_limit > 0 && _num_rows_return >= _limit);
+    // Also stop when the global shared scan limit is exhausted.
+    *eof = *eof || (_shared_scan_limit && _shared_scan_limit->load(std::memory_order_acquire) <= 0);
 
     return Status::OK();
 }
