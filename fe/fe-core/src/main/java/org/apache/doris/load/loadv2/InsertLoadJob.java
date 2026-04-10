@@ -48,6 +48,12 @@ public class InsertLoadJob extends LoadJob {
     @SerializedName("tid")
     private long tableId;
 
+    // Snapshot of loadStatistic.toJson() captured when the job finishes.
+    // loadStatistic is not persisted (no @SerializedName), so we save it here
+    // to survive FE restarts.
+    @SerializedName("jdj")
+    private String jobDetailsJson = null;
+
     // only for log replay
     public InsertLoadJob() {
         super(EtlJobType.INSERT);
@@ -91,6 +97,9 @@ public class InsertLoadJob extends LoadJob {
         this.loadingStatus.setTrackingUrl(trackingUrl);
         this.loadingStatus.setFirstErrorMsg(firstErrorMsg);
         this.userInfo = userInfo;
+        // Snapshot the current loadStatistic so it survives FE restarts.
+        // loadStatistic itself is not annotated with @SerializedName and won't be persisted.
+        this.jobDetailsJson = this.loadStatistic.toJson();
     }
 
     public AuthorizationInfo gatherAuthInfo() throws MetaNotFoundException {
@@ -115,5 +124,15 @@ public class InsertLoadJob extends LoadJob {
             LOG.warn(e);
             throw e;
         }
+    }
+
+    @Override
+    protected String getJobDetailsJson() {
+        // Use the persisted snapshot when loadStatistic is empty (e.g. after FE restart).
+        // Fall back to the live loadStatistic during execution.
+        if (jobDetailsJson != null) {
+            return jobDetailsJson;
+        }
+        return loadStatistic.toJson();
     }
 }
