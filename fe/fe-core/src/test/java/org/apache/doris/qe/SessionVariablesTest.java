@@ -22,10 +22,10 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.utframe.TestWithFeService;
 
-import mockit.Mock;
-import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
 import java.util.Map;
@@ -142,34 +142,28 @@ public class SessionVariablesTest extends TestWithFeService {
 
     @Test
     public void testEnableStrictConsistencyDmlDefaultsToFalseInCloudMode() {
-        new MockUp<Config>() {
-            @Mock
-            public boolean isCloudMode() {
-                return true;
-            }
-        };
-        SessionVariable sv = new SessionVariable();
-        // In cloud mode, enable_strict_consistency_dml should always return false
-        // because store-compute separation has no multi-replica consistency concern.
-        Assertions.assertFalse(sv.isEnableStrictConsistencyDml());
-        // Even if the field is set to true, cloud mode overrides it.
-        sv.enableStrictConsistencyDml = true;
-        Assertions.assertFalse(sv.isEnableStrictConsistencyDml());
+        try (MockedStatic<Config> mockedConfig = Mockito.mockStatic(Config.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedConfig.when(Config::isCloudMode).thenReturn(true);
+            SessionVariable sv = new SessionVariable();
+            // In cloud mode, enable_strict_consistency_dml should always return false
+            // because store-compute separation has no multi-replica consistency concern.
+            Assertions.assertFalse(sv.isEnableStrictConsistencyDml());
+            // Even if the field is set to true, cloud mode overrides it.
+            sv.enableStrictConsistencyDml = true;
+            Assertions.assertFalse(sv.isEnableStrictConsistencyDml());
+        }
     }
 
     @Test
     public void testEnableStrictConsistencyDmlDefaultsTrueInNonCloudMode() {
-        new MockUp<Config>() {
-            @Mock
-            public boolean isCloudMode() {
-                return false;
-            }
-        };
-        SessionVariable sv = new SessionVariable();
-        // In non-cloud mode, default is true (multi-replica consistency is needed).
-        Assertions.assertTrue(sv.isEnableStrictConsistencyDml());
-        // Users can disable it.
-        sv.enableStrictConsistencyDml = false;
-        Assertions.assertFalse(sv.isEnableStrictConsistencyDml());
+        try (MockedStatic<Config> mockedConfig = Mockito.mockStatic(Config.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedConfig.when(Config::isCloudMode).thenReturn(false);
+            SessionVariable sv = new SessionVariable();
+            // In non-cloud mode, default is true (multi-replica consistency is needed).
+            Assertions.assertTrue(sv.isEnableStrictConsistencyDml());
+            // Users can disable it.
+            sv.enableStrictConsistencyDml = false;
+            Assertions.assertFalse(sv.isEnableStrictConsistencyDml());
+        }
     }
 }

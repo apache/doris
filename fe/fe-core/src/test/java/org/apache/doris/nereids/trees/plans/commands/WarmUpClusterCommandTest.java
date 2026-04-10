@@ -31,56 +31,58 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.info.WarmUpItem;
 import org.apache.doris.qe.ConnectContext;
 
-import mockit.Expectations;
-import mockit.Mocked;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.List;
 
 public class WarmUpClusterCommandTest {
     private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
-    @Mocked
+
     private Env env;
-    @Mocked
     private AccessControllerManager accessControllerManager;
-    @Mocked
     private InternalCatalog catalog;
-    @Mocked
     private ConnectContext connectContext;
     private Database db;
+    private MockedStatic<Env> envMockedStatic;
+    private MockedStatic<ConnectContext> ctxMockedStatic;
 
-    private void runBefore() throws Exception {
+    @BeforeEach
+    public void setUp() throws Exception {
         db = CatalogMocker.mockDb();
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
+        env = Mockito.mock(Env.class);
+        accessControllerManager = Mockito.mock(AccessControllerManager.class);
+        catalog = Mockito.mock(InternalCatalog.class);
+        connectContext = Mockito.mock(ConnectContext.class);
 
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessControllerManager;
+        envMockedStatic = Mockito.mockStatic(Env.class);
+        ctxMockedStatic = Mockito.mockStatic(ConnectContext.class);
+        envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
+        ctxMockedStatic.when(ConnectContext::get).thenReturn(connectContext);
 
-                ConnectContext.get();
-                minTimes = 0;
-                result = connectContext;
+        Mockito.when(env.getAccessManager()).thenReturn(accessControllerManager);
+        Mockito.when(connectContext.isSkipAuth()).thenReturn(true);
+        Mockito.when(accessControllerManager.checkGlobalPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN))).thenReturn(true);
+    }
 
-                connectContext.isSkipAuth();
-                minTimes = 0;
-                result = true;
-
-                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN);
-                minTimes = 0;
-                result = true;
-            }
-        };
+    @AfterEach
+    public void tearDown() {
+        if (envMockedStatic != null) {
+            envMockedStatic.close();
+        }
+        if (ctxMockedStatic != null) {
+            ctxMockedStatic.close();
+        }
     }
 
     @Test
     public void testValidate() throws Exception {
-        runBefore();
         if (Config.isCloudMode()) {
             List<String> cloudClusterNames = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterNames();
             if (cloudClusterNames.isEmpty()) {

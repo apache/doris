@@ -22,10 +22,12 @@ import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.persist.meta.MetaHeader;
 
-import mockit.Expectations;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.io.BufferedInputStream;
 import java.io.DataInputStream;
@@ -38,16 +40,20 @@ import java.util.Random;
 
 public class EnvTest {
 
+    private MockedStatic<MetaContext> mockedMetaContext;
+
     @Before
     public void setUp() {
         MetaContext metaContext = new MetaContext();
-        new Expectations(metaContext) {
-            {
-                MetaContext.get();
-                minTimes = 0;
-                result = metaContext;
-            }
-        };
+        mockedMetaContext = Mockito.mockStatic(MetaContext.class);
+        mockedMetaContext.when(MetaContext::get).thenReturn(metaContext);
+    }
+
+    @After
+    public void tearDown() {
+        if (mockedMetaContext != null) {
+            mockedMetaContext.close();
+        }
     }
 
     public void mkdir(String dirString) {

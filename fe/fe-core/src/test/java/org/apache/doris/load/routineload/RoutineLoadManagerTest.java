@@ -46,20 +46,19 @@ import org.apache.doris.nereids.trees.plans.commands.load.StopRoutineLoadCommand
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.system.BeSelectionPolicy;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.thrift.TResourceInfo;
+import org.apache.doris.transaction.GlobalTransactionMgrIface;
+import org.apache.doris.transaction.TxnStateCallbackFactory;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.MockUp;
-import mockit.Mocked;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
 import java.util.HashMap;
@@ -71,14 +70,18 @@ public class RoutineLoadManagerTest {
 
     private static final Logger LOG = LogManager.getLogger(RoutineLoadManagerTest.class);
 
-    @Mocked
-    private SystemInfoService systemInfoService;
+    private SystemInfoService systemInfoService = Mockito.mock(SystemInfoService.class);
+
+    private void mockSessionVariable(ConnectContext connectContext) {
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(VariableMgr.newSessionVariable());
+    }
 
     @Test
-    public void testCreateJobAuthDeny(@Injectable AccessControllerManager accessManager,
-            @Injectable TResourceInfo tResourceInfo,
-            @Mocked ConnectContext connectContext,
-            @Mocked Env env) {
+    public void testCreateJobAuthDeny() {
+        AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        Env env = Mockito.mock(Env.class);
+
         String jobName = "job1";
         String dbName = "db1";
         LabelNameInfo labelNameInfo = new LabelNameInfo(dbName, jobName);
@@ -97,252 +100,225 @@ public class RoutineLoadManagerTest {
         CreateRoutineLoadInfo createRoutineLoadInfo = new CreateRoutineLoadInfo(labelNameInfo, tableNameString,
                 loadPropertyMap, properties, typeName, customProperties, LoadTask.MergeType.APPEND, "");
 
-        new Expectations() {
-            {
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessManager;
-                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, anyString, PrivPredicate.LOAD);
-                minTimes = 0;
-                result = false;
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedStatic<ConnectContext> ctxStatic = Mockito.mockStatic(ConnectContext.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            ctxStatic.when(ConnectContext::get).thenReturn(connectContext);
+            mockSessionVariable(connectContext);
+            Mockito.when(connectContext.getState()).thenReturn(new org.apache.doris.qe.QueryState());
+
+            Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+            Mockito.when(accessManager.checkTblPriv(Mockito.nullable(ConnectContext.class), Mockito.anyString(),
+                    Mockito.anyString(), Mockito.anyString(), Mockito.eq(PrivPredicate.LOAD))).thenReturn(false);
+
+            RoutineLoadManager routineLoadManager = new RoutineLoadManager();
+            try {
+                createRoutineLoadInfo.checkJobProperties();
+                routineLoadManager.createRoutineLoadJob(createRoutineLoadInfo, connectContext);
+                Assert.fail();
+            } catch (LoadException | DdlException e) {
+                Assert.fail();
+            } catch (AnalysisException e) {
+                LOG.info("Access deny");
+            } catch (UserException e) {
+                e.printStackTrace();
             }
-        };
-        RoutineLoadManager routineLoadManager = new RoutineLoadManager();
-        try {
-            createRoutineLoadInfo.checkJobProperties();
-            routineLoadManager.createRoutineLoadJob(createRoutineLoadInfo, connectContext);
-            Assert.fail();
-        } catch (LoadException | DdlException e) {
-            Assert.fail();
-        } catch (AnalysisException e) {
-            LOG.info("Access deny");
-        } catch (UserException e) {
-            e.printStackTrace();
         }
     }
 
     @Test
-    public void testCreateWithSameName(@Mocked ConnectContext connectContext) {
-        String jobName = "job1";
-        String topicName = "topic1";
-        String serverAddress = "http://127.0.0.1:8080";
-        KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob(1L, jobName, 1L, 1L,
-                serverAddress, topicName, UserIdentity.ADMIN);
+    public void testCreateWithSameName() {
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
 
-        RoutineLoadManager routineLoadManager = new RoutineLoadManager();
+        try (MockedStatic<ConnectContext> ctxStatic = Mockito.mockStatic(ConnectContext.class)) {
+            ctxStatic.when(ConnectContext::get).thenReturn(connectContext);
+            mockSessionVariable(connectContext);
 
-        Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newConcurrentMap();
-        Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob = Maps.newConcurrentMap();
-        List<RoutineLoadJob> routineLoadJobList = Lists.newArrayList();
-        KafkaRoutineLoadJob kafkaRoutineLoadJobWithSameName = new KafkaRoutineLoadJob(1L, jobName,
-                1L, 1L, serverAddress, topicName, UserIdentity.ADMIN);
-        routineLoadJobList.add(kafkaRoutineLoadJobWithSameName);
-        nameToRoutineLoadJob.put(jobName, routineLoadJobList);
-        dbToNameToRoutineLoadJob.put(1L, nameToRoutineLoadJob);
+            String jobName = "job1";
+            String topicName = "topic1";
+            String serverAddress = "http://127.0.0.1:8080";
+            KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob(1L, jobName, 1L, 1L,
+                    serverAddress, topicName, UserIdentity.ADMIN);
 
-        Deencapsulation.setField(routineLoadManager, "dbToNameToRoutineLoadJob", dbToNameToRoutineLoadJob);
-        try {
+            RoutineLoadManager routineLoadManager = new RoutineLoadManager();
+
+            Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newConcurrentMap();
+            Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob = Maps.newConcurrentMap();
+            List<RoutineLoadJob> routineLoadJobList = Lists.newArrayList();
+            KafkaRoutineLoadJob kafkaRoutineLoadJobWithSameName = new KafkaRoutineLoadJob(1L, jobName,
+                    1L, 1L, serverAddress, topicName, UserIdentity.ADMIN);
+            routineLoadJobList.add(kafkaRoutineLoadJobWithSameName);
+            nameToRoutineLoadJob.put(jobName, routineLoadJobList);
+            dbToNameToRoutineLoadJob.put(1L, nameToRoutineLoadJob);
+
+            Deencapsulation.setField(routineLoadManager, "dbToNameToRoutineLoadJob", dbToNameToRoutineLoadJob);
+            try {
+                routineLoadManager.addRoutineLoadJob(kafkaRoutineLoadJob, "db", "table");
+                Assert.fail();
+            } catch (UserException e) {
+                LOG.info(e.getMessage());
+            }
+        }
+    }
+
+    @Test
+    public void testCreateWithSameNameOfStoppedJob() throws UserException {
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        GlobalTransactionMgrIface globalTxnMgr = Mockito.mock(GlobalTransactionMgrIface.class);
+        TxnStateCallbackFactory callbackFactory = Mockito.mock(TxnStateCallbackFactory.class);
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedStatic<ConnectContext> ctxStatic = Mockito.mockStatic(ConnectContext.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            envStatic.when(Env::getCurrentGlobalTransactionMgr).thenReturn(globalTxnMgr);
+            ctxStatic.when(ConnectContext::get).thenReturn(connectContext);
+            mockSessionVariable(connectContext);
+
+            String jobName = "job1";
+            String topicName = "topic1";
+            String serverAddress = "http://127.0.0.1:8080";
+            KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob(1L, jobName, 1L, 1L,
+                    serverAddress, topicName, UserIdentity.ADMIN);
+
+            RoutineLoadManager routineLoadManager = new RoutineLoadManager();
+
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
+            Mockito.when(globalTxnMgr.getCallbackFactory()).thenReturn(callbackFactory);
+
+            Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newConcurrentMap();
+            Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob = Maps.newConcurrentMap();
+            List<RoutineLoadJob> routineLoadJobList = Lists.newArrayList();
+            KafkaRoutineLoadJob kafkaRoutineLoadJobWithSameName = new KafkaRoutineLoadJob(1L, jobName,
+                    1L, 1L, serverAddress, topicName, UserIdentity.ADMIN);
+            Deencapsulation.setField(kafkaRoutineLoadJobWithSameName, "state", RoutineLoadJob.JobState.STOPPED);
+            routineLoadJobList.add(kafkaRoutineLoadJobWithSameName);
+            nameToRoutineLoadJob.put(jobName, routineLoadJobList);
+            dbToNameToRoutineLoadJob.put(1L, nameToRoutineLoadJob);
+            Map<String, RoutineLoadJob> idToRoutineLoadJob = Maps.newConcurrentMap();
+            idToRoutineLoadJob.put(UUID.randomUUID().toString(), kafkaRoutineLoadJobWithSameName);
+
+            Deencapsulation.setField(routineLoadManager, "dbToNameToRoutineLoadJob", dbToNameToRoutineLoadJob);
+            Deencapsulation.setField(routineLoadManager, "idToRoutineLoadJob", idToRoutineLoadJob);
             routineLoadManager.addRoutineLoadJob(kafkaRoutineLoadJob, "db", "table");
-            Assert.fail();
-        } catch (UserException e) {
-            LOG.info(e.getMessage());
+
+            Map<Long, Map<String, List<RoutineLoadJob>>> result =
+                    Deencapsulation.getField(routineLoadManager, "dbToNameToRoutineLoadJob");
+            Map<String, RoutineLoadJob> result1 = Deencapsulation.getField(routineLoadManager, "idToRoutineLoadJob");
+            Assert.assertEquals(1, result.size());
+            Assert.assertEquals(Long.valueOf(1L), result.keySet().iterator().next());
+            Map<String, List<RoutineLoadJob>> resultNameToRoutineLoadJob = result.get(1L);
+            Assert.assertEquals(jobName, resultNameToRoutineLoadJob.keySet().iterator().next());
+            Assert.assertEquals(2, resultNameToRoutineLoadJob.values().iterator().next().size());
+            Assert.assertEquals(2, result1.values().size());
         }
     }
 
     @Test
-    public void testCreateWithSameNameOfStoppedJob(@Mocked ConnectContext connectContext,
-                                                   @Mocked Env env,
-                                                   @Mocked EditLog editLog) throws UserException {
-        String jobName = "job1";
-        String topicName = "topic1";
-        String serverAddress = "http://127.0.0.1:8080";
-        KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob(1L, jobName, 1L, 1L,
-                serverAddress, topicName, UserIdentity.ADMIN);
+    public void testGetMinTaskBeId() throws LoadException {
+        RoutineLoadJob routineLoadJob = Mockito.mock(RoutineLoadJob.class);
 
-        RoutineLoadManager routineLoadManager = new RoutineLoadManager();
-
-        new Expectations() {
-            {
-                env.getEditLog();
-                minTimes = 0;
-                result = editLog;
-            }
-        };
-
-        Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newConcurrentMap();
-        Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob = Maps.newConcurrentMap();
-        List<RoutineLoadJob> routineLoadJobList = Lists.newArrayList();
-        KafkaRoutineLoadJob kafkaRoutineLoadJobWithSameName = new KafkaRoutineLoadJob(1L, jobName,
-                1L, 1L, serverAddress, topicName, UserIdentity.ADMIN);
-        Deencapsulation.setField(kafkaRoutineLoadJobWithSameName, "state", RoutineLoadJob.JobState.STOPPED);
-        routineLoadJobList.add(kafkaRoutineLoadJobWithSameName);
-        nameToRoutineLoadJob.put(jobName, routineLoadJobList);
-        dbToNameToRoutineLoadJob.put(1L, nameToRoutineLoadJob);
-        Map<String, RoutineLoadJob> idToRoutineLoadJob = Maps.newConcurrentMap();
-        idToRoutineLoadJob.put(UUID.randomUUID().toString(), kafkaRoutineLoadJobWithSameName);
-
-        Deencapsulation.setField(routineLoadManager, "dbToNameToRoutineLoadJob", dbToNameToRoutineLoadJob);
-        Deencapsulation.setField(routineLoadManager, "idToRoutineLoadJob", idToRoutineLoadJob);
-        routineLoadManager.addRoutineLoadJob(kafkaRoutineLoadJob, "db", "table");
-
-        Map<Long, Map<String, List<RoutineLoadJob>>> result =
-                Deencapsulation.getField(routineLoadManager, "dbToNameToRoutineLoadJob");
-        Map<String, RoutineLoadJob> result1 = Deencapsulation.getField(routineLoadManager, "idToRoutineLoadJob");
-        Assert.assertEquals(1, result.size());
-        Assert.assertEquals(Long.valueOf(1L), result.keySet().iterator().next());
-        Map<String, List<RoutineLoadJob>> resultNameToRoutineLoadJob = result.get(1L);
-        Assert.assertEquals(jobName, resultNameToRoutineLoadJob.keySet().iterator().next());
-        Assert.assertEquals(2, resultNameToRoutineLoadJob.values().iterator().next().size());
-        Assert.assertEquals(2, result1.values().size());
-    }
-
-    @Test
-    public void testGetMinTaskBeId(@Injectable RoutineLoadJob routineLoadJob) throws LoadException {
         List<Long> beIds = Lists.newArrayList();
         beIds.add(1L);
         beIds.add(2L);
 
-        new Expectations() {
-            {
-                systemInfoService.getAllBackendIds(true);
-                minTimes = 0;
-                result = beIds;
-            }
-        };
+        Mockito.when(systemInfoService.getAllBackendIds(true)).thenReturn(beIds);
 
-        new MockUp<Env>() {
-            SystemInfoService getCurrentSystemInfo() {
-                return systemInfoService;
-            }
-        };
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
 
-        Map<Long, RoutineLoadJob> idToRoutineLoadJob = Maps.newConcurrentMap();
-        idToRoutineLoadJob.put(1L, routineLoadJob);
-        RoutineLoadManager routineLoadManager = new RoutineLoadManager();
-        Map<Long, Integer> beIdToConcurrentTaskMap = Maps.newHashMap();
-        beIdToConcurrentTaskMap.put(1L, 1);
+            Map<Long, RoutineLoadJob> idToRoutineLoadJob = Maps.newConcurrentMap();
+            idToRoutineLoadJob.put(1L, routineLoadJob);
+            RoutineLoadManager routineLoadManager = new RoutineLoadManager();
+            Map<Long, Integer> beIdToConcurrentTaskMap = Maps.newHashMap();
+            beIdToConcurrentTaskMap.put(1L, 1);
 
-        new Expectations(routineLoadJob) {
-            {
-                routineLoadJob.getBeCurrentTasksNumMap();
-                result = beIdToConcurrentTaskMap;
-                routineLoadJob.getState();
-                result = RoutineLoadJob.JobState.RUNNING;
-            }
-        };
+            Mockito.when(routineLoadJob.getBeCurrentTasksNumMap()).thenReturn(beIdToConcurrentTaskMap);
+            Mockito.when(routineLoadJob.getState()).thenReturn(RoutineLoadJob.JobState.RUNNING);
 
-        Deencapsulation.setField(routineLoadManager, "idToRoutineLoadJob", idToRoutineLoadJob);
+            Deencapsulation.setField(routineLoadManager, "idToRoutineLoadJob", idToRoutineLoadJob);
 
-        Assert.assertEquals(2L, routineLoadManager.getMinTaskBeId("default"));
+            Assert.assertEquals(2L, routineLoadManager.getMinTaskBeId("default"));
+        }
     }
 
     @Test
     public void testGetMinTaskBeIdWhileClusterDeleted() {
-        new Expectations() {
-            {
-                systemInfoService.getAllBackendIds(true);
-                minTimes = 0;
-                result = null;
-            }
-        };
+        Mockito.when(systemInfoService.getAllBackendIds(true)).thenReturn(null);
 
-        new MockUp<Env>() {
-            SystemInfoService getCurrentSystemInfo() {
-                return systemInfoService;
-            }
-        };
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
 
-        RoutineLoadManager routineLoadManager = new RoutineLoadManager();
-        try {
-            routineLoadManager.getMinTaskBeId("default");
-            Assert.fail();
-        } catch (LoadException e) {
-            // do nothing
+            RoutineLoadManager routineLoadManager = new RoutineLoadManager();
+            try {
+                routineLoadManager.getMinTaskBeId("default");
+                Assert.fail();
+            } catch (LoadException e) {
+                // do nothing
+            }
         }
 
     }
 
     @Test
-    public void testGetMinTaskBeIdWhileNoSlot(@Injectable RoutineLoadJob routineLoadJob) {
+    public void testGetMinTaskBeIdWhileNoSlot() {
+        RoutineLoadJob routineLoadJob = Mockito.mock(RoutineLoadJob.class);
+
         List<Long> beIds = Lists.newArrayList();
         beIds.add(1L);
         Map<Long, Integer> beIdToConcurrentTaskMap = Maps.newHashMap();
         beIdToConcurrentTaskMap.put(1L, 11);
 
-        new Expectations() {
-            {
-                systemInfoService.getAllBackendIds(true);
-                minTimes = 0;
-                result = beIds;
-                routineLoadJob.getBeCurrentTasksNumMap();
-                minTimes = 0;
-                result = beIdToConcurrentTaskMap;
-                routineLoadJob.getState();
-                minTimes = 0;
-                result = RoutineLoadJob.JobState.RUNNING;
+        Mockito.when(systemInfoService.getAllBackendIds(true)).thenReturn(beIds);
+        Mockito.when(routineLoadJob.getBeCurrentTasksNumMap()).thenReturn(beIdToConcurrentTaskMap);
+        Mockito.when(routineLoadJob.getState()).thenReturn(RoutineLoadJob.JobState.RUNNING);
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
+
+            RoutineLoadManager routineLoadManager = new RoutineLoadManager();
+            Config.max_routine_load_task_num_per_be = 0;
+            Map<Long, RoutineLoadJob> routineLoadJobMap = Maps.newHashMap();
+            routineLoadJobMap.put(1L, routineLoadJob);
+            Deencapsulation.setField(routineLoadManager, "idToRoutineLoadJob", routineLoadJobMap);
+
+            try {
+                Assert.assertEquals(-1, routineLoadManager.getMinTaskBeId("default"));
+            } catch (LoadException e) {
+                e.printStackTrace();
+                Assert.fail();
             }
-        };
-
-        new MockUp<Env>() {
-            SystemInfoService getCurrentSystemInfo() {
-                return systemInfoService;
-            }
-        };
-
-        RoutineLoadManager routineLoadManager = new RoutineLoadManager();
-        Config.max_routine_load_task_num_per_be = 0;
-        Map<Long, RoutineLoadJob> routineLoadJobMap = Maps.newHashMap();
-        routineLoadJobMap.put(1L, routineLoadJob);
-        Deencapsulation.setField(routineLoadManager, "idToRoutineLoadJob", routineLoadJobMap);
-
-
-        try {
-            Assert.assertEquals(-1, routineLoadManager.getMinTaskBeId("default"));
-        } catch (LoadException e) {
-            e.printStackTrace();
-            Assert.fail();
         }
     }
 
     @Test
-    public void testGetTotalIdleTaskNum(@Injectable RoutineLoadJob routineLoadJob) {
+    public void testGetTotalIdleTaskNum() {
+        RoutineLoadJob routineLoadJob = Mockito.mock(RoutineLoadJob.class);
+
         List<Long> beIds = Lists.newArrayList();
         beIds.add(1L);
         beIds.add(2L);
 
-        new Expectations() {
-            {
-                systemInfoService.getAllBackendIds(true);
-                minTimes = 0;
-                result = beIds;
-            }
-        };
+        Mockito.when(systemInfoService.getAllBackendIds(true)).thenReturn(beIds);
 
-        new MockUp<Env>() {
-            SystemInfoService getCurrentSystemInfo() {
-                return systemInfoService;
-            }
-        };
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
 
-        Map<Long, RoutineLoadJob> idToRoutineLoadJob = Maps.newConcurrentMap();
-        idToRoutineLoadJob.put(1L, routineLoadJob);
-        RoutineLoadManager routineLoadManager = new RoutineLoadManager();
-        Map<Long, Integer> beIdToConcurrentTaskMap = Maps.newHashMap();
-        beIdToConcurrentTaskMap.put(1L, 1);
+            Map<Long, RoutineLoadJob> idToRoutineLoadJob = Maps.newConcurrentMap();
+            idToRoutineLoadJob.put(1L, routineLoadJob);
+            RoutineLoadManager routineLoadManager = new RoutineLoadManager();
+            Map<Long, Integer> beIdToConcurrentTaskMap = Maps.newHashMap();
+            beIdToConcurrentTaskMap.put(1L, 1);
 
-        new Expectations(routineLoadJob) {
-            {
-                routineLoadJob.getBeCurrentTasksNumMap();
-                result = beIdToConcurrentTaskMap;
-                routineLoadJob.getState();
-                result = RoutineLoadJob.JobState.RUNNING;
-            }
-        };
+            Mockito.when(routineLoadJob.getBeCurrentTasksNumMap()).thenReturn(beIdToConcurrentTaskMap);
+            Mockito.when(routineLoadJob.getState()).thenReturn(RoutineLoadJob.JobState.RUNNING);
 
-        Deencapsulation.setField(routineLoadManager, "idToRoutineLoadJob", idToRoutineLoadJob);
-        routineLoadManager.updateBeIdToMaxConcurrentTasks();
-        Assert.assertEquals(Config.max_routine_load_task_num_per_be * 2 - 1,
-                routineLoadManager.getClusterIdleSlotNum());
+            Deencapsulation.setField(routineLoadManager, "idToRoutineLoadJob", idToRoutineLoadJob);
+            routineLoadManager.updateBeIdToMaxConcurrentTasks();
+            Assert.assertEquals(Config.max_routine_load_task_num_per_be * 2 - 1,
+                    routineLoadManager.getClusterIdleSlotNum());
+        }
     }
 
     @Test
@@ -355,28 +331,22 @@ public class RoutineLoadManagerTest {
         newBeIds.add(1L);
         newBeIds.add(3L);
 
-        new Expectations() {
-            {
-                systemInfoService.getAllBackendIds(true);
-                minTimes = 0;
-                returns(oldBeIds, newBeIds);
-            }
-        };
+        Mockito.when(systemInfoService.getAllBackendIds(true)).thenReturn(oldBeIds).thenReturn(newBeIds);
 
-        new MockUp<Env>() {
-            SystemInfoService getCurrentSystemInfo() {
-                return systemInfoService;
-            }
-        };
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
 
-        RoutineLoadManager routineLoadManager = new RoutineLoadManager();
-        routineLoadManager.updateBeIdToMaxConcurrentTasks();
+            RoutineLoadManager routineLoadManager = new RoutineLoadManager();
+            routineLoadManager.updateBeIdToMaxConcurrentTasks();
+        }
     }
 
     @Test
-    public void testGetJobByName(@Injectable RoutineLoadJob routineLoadJob1,
-                                 @Injectable RoutineLoadJob routineLoadJob2,
-                                 @Injectable RoutineLoadJob routineLoadJob3) {
+    public void testGetJobByName() {
+        RoutineLoadJob routineLoadJob1 = Mockito.mock(RoutineLoadJob.class);
+        RoutineLoadJob routineLoadJob2 = Mockito.mock(RoutineLoadJob.class);
+        RoutineLoadJob routineLoadJob3 = Mockito.mock(RoutineLoadJob.class);
+
         String jobName = "ilovedoris";
         List<RoutineLoadJob> routineLoadJobList1 = Lists.newArrayList();
         routineLoadJobList1.add(routineLoadJob1);
@@ -393,16 +363,8 @@ public class RoutineLoadManagerTest {
         dbToNameRoutineLoadList.put("db1", nameToRoutineLoadList1);
         dbToNameRoutineLoadList.put("db2", nameToRoutineLoadList2);
 
-        new Expectations() {
-            {
-                routineLoadJob1.isFinal();
-                minTimes = 0;
-                result = true;
-                routineLoadJob2.isFinal();
-                minTimes = 0;
-                result = false;
-            }
-        };
+        Mockito.when(routineLoadJob1.isFinal()).thenReturn(true);
+        Mockito.when(routineLoadJob2.isFinal()).thenReturn(false);
 
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         Deencapsulation.setField(routineLoadManager, "dbToNameToRoutineLoadJob", dbToNameRoutineLoadList);
@@ -416,33 +378,18 @@ public class RoutineLoadManagerTest {
     }
 
     @Test
-    public void testGetJob(@Injectable RoutineLoadJob routineLoadJob1,
-            @Injectable RoutineLoadJob routineLoadJob2,
-            @Injectable RoutineLoadJob routineLoadJob3) throws MetaNotFoundException,
+    public void testGetJob() throws MetaNotFoundException,
             PatternMatcherException {
+        RoutineLoadJob routineLoadJob1 = Mockito.mock(RoutineLoadJob.class);
+        RoutineLoadJob routineLoadJob2 = Mockito.mock(RoutineLoadJob.class);
+        RoutineLoadJob routineLoadJob3 = Mockito.mock(RoutineLoadJob.class);
 
-        new Expectations() {
-            {
-                routineLoadJob1.isFinal();
-                minTimes = 0;
-                result = true;
-                routineLoadJob2.isFinal();
-                minTimes = 0;
-                result = false;
-                routineLoadJob3.isFinal();
-                minTimes = 0;
-                result = true;
-                routineLoadJob1.getName();
-                minTimes = 0;
-                result = "routine_load_job_test1";
-                routineLoadJob2.getName();
-                minTimes = 0;
-                result = "routine_load_job";
-                routineLoadJob3.getName();
-                minTimes = 0;
-                result = "routine_load_job_test2";
-            }
-        };
+        Mockito.when(routineLoadJob1.isFinal()).thenReturn(true);
+        Mockito.when(routineLoadJob2.isFinal()).thenReturn(false);
+        Mockito.when(routineLoadJob3.isFinal()).thenReturn(true);
+        Mockito.when(routineLoadJob1.getName()).thenReturn("routine_load_job_test1");
+        Mockito.when(routineLoadJob2.getName()).thenReturn("routine_load_job");
+        Mockito.when(routineLoadJob3.getName()).thenReturn("routine_load_job_test2");
 
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         Map<Long, RoutineLoadJob> idToRoutineLoadJob = Maps.newHashMap();
@@ -465,330 +412,317 @@ public class RoutineLoadManagerTest {
     }
 
     @Test
-    public void testGetJobIncludeHistory(@Injectable RoutineLoadJob routineLoadJob1,
-            @Injectable RoutineLoadJob routineLoadJob2, @Injectable RoutineLoadJob routineLoadJob3, @Mocked Env env,
-            @Mocked InternalCatalog catalog, @Mocked Database database)
-            throws MetaNotFoundException {
-        new Expectations() {
-            {
-                routineLoadJob1.isFinal();
-                minTimes = 0;
-                result = true;
-                routineLoadJob2.isFinal();
-                minTimes = 0;
-                result = false;
-                routineLoadJob3.isFinal();
-                minTimes = 0;
-                result = true;
-                env.getInternalCatalog();
-                minTimes = 0;
-                result = catalog;
-                catalog.getDbNullable(anyString);
-                minTimes = 0;
-                result = database;
-                database.getId();
-                minTimes = 0;
-                result = 1L;
-            }
-        };
+    public void testGetJobIncludeHistory() throws MetaNotFoundException {
+        RoutineLoadJob routineLoadJob1 = Mockito.mock(RoutineLoadJob.class);
+        RoutineLoadJob routineLoadJob2 = Mockito.mock(RoutineLoadJob.class);
+        RoutineLoadJob routineLoadJob3 = Mockito.mock(RoutineLoadJob.class);
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Database database = Mockito.mock(Database.class);
 
-        RoutineLoadManager routineLoadManager = new RoutineLoadManager();
-        Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newHashMap();
-        Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob = Maps.newHashMap();
-        List<RoutineLoadJob> routineLoadJobList = Lists.newArrayList();
-        routineLoadJobList.add(routineLoadJob1);
-        routineLoadJobList.add(routineLoadJob2);
-        routineLoadJobList.add(routineLoadJob3);
-        nameToRoutineLoadJob.put("", routineLoadJobList);
-        dbToNameToRoutineLoadJob.put(1L, nameToRoutineLoadJob);
-        Deencapsulation.setField(routineLoadManager, "dbToNameToRoutineLoadJob", dbToNameToRoutineLoadJob);
-        List<RoutineLoadJob> result = routineLoadManager.getJob("", "", true, null);
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            envStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
 
-        Assert.assertEquals(3, result.size());
-        Assert.assertEquals(routineLoadJob2, result.get(0));
-        Assert.assertEquals(routineLoadJob1, result.get(1));
-        Assert.assertEquals(routineLoadJob3, result.get(2));
+            Mockito.when(routineLoadJob1.isFinal()).thenReturn(true);
+            Mockito.when(routineLoadJob2.isFinal()).thenReturn(false);
+            Mockito.when(routineLoadJob3.isFinal()).thenReturn(true);
+            Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+            Mockito.when(catalog.getDbNullable(Mockito.anyString())).thenReturn(database);
+            Mockito.doReturn(database).when(catalog).getDbOrMetaException(Mockito.anyString());
+            Mockito.when(database.getId()).thenReturn(1L);
+
+            RoutineLoadManager routineLoadManager = new RoutineLoadManager();
+            Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newHashMap();
+            Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob = Maps.newHashMap();
+            List<RoutineLoadJob> routineLoadJobList = Lists.newArrayList();
+            routineLoadJobList.add(routineLoadJob1);
+            routineLoadJobList.add(routineLoadJob2);
+            routineLoadJobList.add(routineLoadJob3);
+            nameToRoutineLoadJob.put("", routineLoadJobList);
+            dbToNameToRoutineLoadJob.put(1L, nameToRoutineLoadJob);
+            Deencapsulation.setField(routineLoadManager, "dbToNameToRoutineLoadJob", dbToNameToRoutineLoadJob);
+            List<RoutineLoadJob> result = routineLoadManager.getJob("", "", true, null);
+
+            Assert.assertEquals(3, result.size());
+            Assert.assertEquals(routineLoadJob2, result.get(0));
+            Assert.assertEquals(routineLoadJob1, result.get(1));
+            Assert.assertEquals(routineLoadJob3, result.get(2));
+        }
     }
 
     @Test
-    public void testPauseRoutineLoadJob(@Injectable PauseRoutineLoadCommand pauseRoutineLoadCommand, @Mocked Env env,
-                                        @Mocked InternalCatalog catalog, @Mocked Database database, @Mocked Table tbl,
-                                        @Mocked AccessControllerManager accessManager,
-                                        @Mocked ConnectContext connectContext) throws UserException {
-        RoutineLoadManager routineLoadManager = new RoutineLoadManager();
-        Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newHashMap();
-        Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob = Maps.newHashMap();
-        List<RoutineLoadJob> routineLoadJobList = Lists.newArrayList();
-        RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
-        routineLoadJobList.add(routineLoadJob);
-        nameToRoutineLoadJob.put("", routineLoadJobList);
-        dbToNameToRoutineLoadJob.put(1L, nameToRoutineLoadJob);
-        Deencapsulation.setField(routineLoadManager, "dbToNameToRoutineLoadJob", dbToNameToRoutineLoadJob);
+    public void testPauseRoutineLoadJob() throws UserException {
+        PauseRoutineLoadCommand pauseRoutineLoadCommand = Mockito.mock(PauseRoutineLoadCommand.class);
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Database database = Mockito.mock(Database.class);
+        Table tbl = Mockito.mock(Table.class);
+        AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
 
-        Map<Long, RoutineLoadJob> idToRoutineLoadJob = Maps.newConcurrentMap();
-        idToRoutineLoadJob.put(routineLoadJob.getId(), routineLoadJob);
-        Deencapsulation.setField(routineLoadManager, "idToRoutineLoadJob", idToRoutineLoadJob);
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedStatic<ConnectContext> ctxStatic = Mockito.mockStatic(ConnectContext.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            envStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+            ctxStatic.when(ConnectContext::get).thenReturn(connectContext);
+            mockSessionVariable(connectContext);
+            EditLog editLog = Mockito.mock(EditLog.class);
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
 
-        new Expectations() {
-            {
-                pauseRoutineLoadCommand.getDbFullName();
-                minTimes = 0;
-                result = "";
-                pauseRoutineLoadCommand.getLabel();
-                minTimes = 0;
-                result = "";
-                env.getInternalCatalog();
-                minTimes = 0;
-                result = catalog;
-                catalog.getDbNullable("");
-                minTimes = 0;
-                result = database;
-                database.getId();
-                minTimes = 0;
-                result = 1L;
-                database.getTableOrAnalysisException(anyLong);
-                minTimes = 0;
-                result = tbl;
-                tbl.getName();
-                minTimes = 0;
-                result = "tbl";
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessManager;
-                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, anyString, (PrivPredicate) any);
-                minTimes = 0;
-                result = true;
-            }
-        };
+            RoutineLoadManager routineLoadManager = new RoutineLoadManager();
+            Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newHashMap();
+            Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob = Maps.newHashMap();
+            List<RoutineLoadJob> routineLoadJobList = Lists.newArrayList();
+            RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
+            routineLoadJobList.add(routineLoadJob);
+            nameToRoutineLoadJob.put("", routineLoadJobList);
+            dbToNameToRoutineLoadJob.put(1L, nameToRoutineLoadJob);
+            Deencapsulation.setField(routineLoadManager, "dbToNameToRoutineLoadJob", dbToNameToRoutineLoadJob);
 
-        routineLoadManager.pauseRoutineLoadJob(pauseRoutineLoadCommand);
+            Map<Long, RoutineLoadJob> idToRoutineLoadJob = Maps.newConcurrentMap();
+            idToRoutineLoadJob.put(routineLoadJob.getId(), routineLoadJob);
+            Deencapsulation.setField(routineLoadManager, "idToRoutineLoadJob", idToRoutineLoadJob);
 
-        Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, routineLoadJob.getState());
+            Mockito.when(pauseRoutineLoadCommand.getDbFullName()).thenReturn("");
+            Mockito.when(pauseRoutineLoadCommand.getLabel()).thenReturn("");
+            Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+            Mockito.when(catalog.getDbNullable("")).thenReturn(database);
+            Mockito.when(catalog.getDbNullable(Mockito.anyLong())).thenReturn(database);
+            Mockito.doReturn(database).when(catalog).getDbOrMetaException(Mockito.anyString());
+            Mockito.doReturn(database).when(catalog).getDbOrMetaException(Mockito.anyLong());
+            Mockito.when(database.getId()).thenReturn(1L);
+            Mockito.when(database.getFullName()).thenReturn("");
+            Mockito.when(database.getTableNullable(Mockito.anyLong())).thenReturn(tbl);
+            Mockito.doReturn(tbl).when(database).getTableOrAnalysisException(Mockito.anyLong());
+            Mockito.doReturn(tbl).when(database).getTableOrMetaException(Mockito.anyLong());
+            Mockito.when(tbl.getName()).thenReturn("tbl");
+            Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+            Mockito.when(accessManager.checkTblPriv(Mockito.nullable(ConnectContext.class), Mockito.anyString(),
+                    Mockito.anyString(), Mockito.anyString(), Mockito.any(PrivPredicate.class))).thenReturn(true);
 
-        for (int i = 0; i < 3; i++) {
-            Deencapsulation.setField(routineLoadJob, "pauseReason",
-                    new ErrorReason(InternalErrorCode.REPLICA_FEW_ERR, ""));
-            try {
-                Thread.sleep(((long) Math.pow(2, i) * 10 * 1000L));
-            } catch (InterruptedException e) {
-                throw new UserException("thread sleep failed");
+            routineLoadManager.pauseRoutineLoadJob(pauseRoutineLoadCommand);
+
+            Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, routineLoadJob.getState());
+
+            for (int i = 0; i < 3; i++) {
+                Deencapsulation.setField(routineLoadJob, "pauseReason",
+                        new ErrorReason(InternalErrorCode.REPLICA_FEW_ERR, ""));
+                try {
+                    Thread.sleep(((long) Math.pow(2, i) * 10 * 1000L));
+                } catch (InterruptedException e) {
+                    throw new UserException("thread sleep failed");
+                }
+                routineLoadManager.updateRoutineLoadJob();
+                Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, routineLoadJob.getState());
             }
             routineLoadManager.updateRoutineLoadJob();
             Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, routineLoadJob.getState());
         }
-        routineLoadManager.updateRoutineLoadJob();
-        Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, routineLoadJob.getState());
     }
 
     @Test
-    public void testResumeRoutineLoadJob(@Injectable ResumeRoutineLoadCommand resumeRoutineLoadCommand, @Mocked Env env,
-                                         @Mocked InternalCatalog catalog, @Mocked Database database, @Mocked Table tbl,
-                                         @Mocked AccessControllerManager accessManager,
-                                         @Mocked ConnectContext connectContext) throws UserException {
-        RoutineLoadManager routineLoadManager = new RoutineLoadManager();
-        Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newHashMap();
-        Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob = Maps.newHashMap();
-        List<RoutineLoadJob> routineLoadJobList = Lists.newArrayList();
-        RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
-        routineLoadJobList.add(routineLoadJob);
-        nameToRoutineLoadJob.put("", routineLoadJobList);
-        dbToNameToRoutineLoadJob.put(1L, nameToRoutineLoadJob);
-        Deencapsulation.setField(routineLoadManager, "dbToNameToRoutineLoadJob", dbToNameToRoutineLoadJob);
+    public void testResumeRoutineLoadJob() throws UserException {
+        ResumeRoutineLoadCommand resumeRoutineLoadCommand = Mockito.mock(ResumeRoutineLoadCommand.class);
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Database database = Mockito.mock(Database.class);
+        Table tbl = Mockito.mock(Table.class);
+        AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
 
-        new Expectations() {
-            {
-                resumeRoutineLoadCommand.getDbFullName();
-                minTimes = 0;
-                result = "";
-                resumeRoutineLoadCommand.getLabel();
-                minTimes = 0;
-                result = "";
-                env.getInternalCatalog();
-                minTimes = 0;
-                result = catalog;
-                catalog.getDbNullable("");
-                minTimes = 0;
-                result = database;
-                database.getId();
-                minTimes = 0;
-                result = 1L;
-                database.getTableOrAnalysisException(anyLong);
-                minTimes = 0;
-                result = tbl;
-                tbl.getName();
-                minTimes = 0;
-                result = "tbl";
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessManager;
-                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, anyString, (PrivPredicate) any);
-                minTimes = 0;
-                result = true;
-            }
-        };
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedStatic<ConnectContext> ctxStatic = Mockito.mockStatic(ConnectContext.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            envStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+            ctxStatic.when(ConnectContext::get).thenReturn(connectContext);
+            mockSessionVariable(connectContext);
+            EditLog editLog = Mockito.mock(EditLog.class);
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
 
-        routineLoadManager.resumeRoutineLoadJob(resumeRoutineLoadCommand);
+            RoutineLoadManager routineLoadManager = new RoutineLoadManager();
+            Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newHashMap();
+            Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob = Maps.newHashMap();
+            List<RoutineLoadJob> routineLoadJobList = Lists.newArrayList();
+            RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
+            routineLoadJobList.add(routineLoadJob);
+            nameToRoutineLoadJob.put("", routineLoadJobList);
+            dbToNameToRoutineLoadJob.put(1L, nameToRoutineLoadJob);
+            Deencapsulation.setField(routineLoadManager, "dbToNameToRoutineLoadJob", dbToNameToRoutineLoadJob);
 
-        Assert.assertEquals(RoutineLoadJob.JobState.NEED_SCHEDULE, routineLoadJob.getState());
+            Mockito.when(resumeRoutineLoadCommand.getDbFullName()).thenReturn("");
+            Mockito.when(resumeRoutineLoadCommand.getLabel()).thenReturn("");
+            Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+            Mockito.when(catalog.getDbNullable("")).thenReturn(database);
+            Mockito.doReturn(database).when(catalog).getDbOrMetaException(Mockito.anyString());
+            Mockito.doReturn(database).when(catalog).getDbOrMetaException(Mockito.anyLong());
+            Mockito.when(database.getId()).thenReturn(1L);
+            Mockito.when(database.getFullName()).thenReturn("");
+            Mockito.doReturn(tbl).when(database).getTableOrAnalysisException(Mockito.anyLong());
+            Mockito.doReturn(tbl).when(database).getTableOrMetaException(Mockito.anyLong());
+            Mockito.when(tbl.getName()).thenReturn("tbl");
+            Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+            Mockito.when(accessManager.checkTblPriv(Mockito.nullable(ConnectContext.class), Mockito.anyString(),
+                    Mockito.anyString(), Mockito.anyString(), Mockito.any(PrivPredicate.class))).thenReturn(true);
+
+            routineLoadManager.resumeRoutineLoadJob(resumeRoutineLoadCommand);
+
+            Assert.assertEquals(RoutineLoadJob.JobState.NEED_SCHEDULE, routineLoadJob.getState());
+        }
     }
 
     @Test
-    public void testStopRoutineLoadJob(@Injectable StopRoutineLoadCommand stopRoutineLoadCommand, @Mocked Env env,
-                                       @Mocked InternalCatalog catalog, @Mocked Database database, @Mocked Table tbl,
-                                       @Mocked AccessControllerManager accessManager,
-                                       @Mocked ConnectContext connectContext) throws UserException {
-        RoutineLoadManager routineLoadManager = new RoutineLoadManager();
-        Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newHashMap();
-        Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob = Maps.newHashMap();
-        List<RoutineLoadJob> routineLoadJobList = Lists.newArrayList();
-        RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
-        routineLoadJobList.add(routineLoadJob);
-        nameToRoutineLoadJob.put("", routineLoadJobList);
-        dbToNameToRoutineLoadJob.put(1L, nameToRoutineLoadJob);
-        Deencapsulation.setField(routineLoadManager, "dbToNameToRoutineLoadJob", dbToNameToRoutineLoadJob);
+    public void testStopRoutineLoadJob() throws UserException {
+        StopRoutineLoadCommand stopRoutineLoadCommand = Mockito.mock(StopRoutineLoadCommand.class);
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Database database = Mockito.mock(Database.class);
+        Table tbl = Mockito.mock(Table.class);
+        AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
 
-        new Expectations() {
-            {
-                stopRoutineLoadCommand.getDbFullName();
-                minTimes = 0;
-                result = "";
-                stopRoutineLoadCommand.getLabel();
-                minTimes = 0;
-                result = "";
-                env.getInternalCatalog();
-                minTimes = 0;
-                result = catalog;
-                catalog.getDbNullable("");
-                minTimes = 0;
-                result = database;
-                database.getId();
-                minTimes = 0;
-                result = 1L;
-                database.getTableOrAnalysisException(anyLong);
-                minTimes = 0;
-                result = tbl;
-                tbl.getName();
-                minTimes = 0;
-                result = "tbl";
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessManager;
-                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, anyString, (PrivPredicate) any);
-                minTimes = 0;
-                result = true;
-            }
-        };
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedStatic<ConnectContext> ctxStatic = Mockito.mockStatic(ConnectContext.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            envStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+            ctxStatic.when(ConnectContext::get).thenReturn(connectContext);
+            mockSessionVariable(connectContext);
+            EditLog editLog = Mockito.mock(EditLog.class);
+            GlobalTransactionMgrIface globalTxnMgr = Mockito.mock(GlobalTransactionMgrIface.class);
+            TxnStateCallbackFactory callbackFactory = Mockito.mock(TxnStateCallbackFactory.class);
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
+            envStatic.when(Env::getCurrentGlobalTransactionMgr).thenReturn(globalTxnMgr);
+            Mockito.when(globalTxnMgr.getCallbackFactory()).thenReturn(callbackFactory);
 
-        routineLoadManager.stopRoutineLoadJob(stopRoutineLoadCommand);
+            RoutineLoadManager routineLoadManager = new RoutineLoadManager();
+            Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newHashMap();
+            Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob = Maps.newHashMap();
+            List<RoutineLoadJob> routineLoadJobList = Lists.newArrayList();
+            RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
+            routineLoadJobList.add(routineLoadJob);
+            nameToRoutineLoadJob.put("", routineLoadJobList);
+            dbToNameToRoutineLoadJob.put(1L, nameToRoutineLoadJob);
+            Deencapsulation.setField(routineLoadManager, "dbToNameToRoutineLoadJob", dbToNameToRoutineLoadJob);
 
-        Assert.assertEquals(RoutineLoadJob.JobState.STOPPED, routineLoadJob.getState());
+            Mockito.when(stopRoutineLoadCommand.getDbFullName()).thenReturn("");
+            Mockito.when(stopRoutineLoadCommand.getLabel()).thenReturn("");
+            Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+            Mockito.when(catalog.getDbNullable("")).thenReturn(database);
+            Mockito.doReturn(database).when(catalog).getDbOrMetaException(Mockito.anyString());
+            Mockito.doReturn(database).when(catalog).getDbOrMetaException(Mockito.anyLong());
+            Mockito.when(database.getId()).thenReturn(1L);
+            Mockito.when(database.getFullName()).thenReturn("");
+            Mockito.doReturn(tbl).when(database).getTableOrAnalysisException(Mockito.anyLong());
+            Mockito.doReturn(tbl).when(database).getTableOrMetaException(Mockito.anyLong());
+            Mockito.when(tbl.getName()).thenReturn("tbl");
+            Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+            Mockito.when(accessManager.checkTblPriv(Mockito.nullable(ConnectContext.class), Mockito.anyString(),
+                    Mockito.anyString(), Mockito.anyString(), Mockito.any(PrivPredicate.class))).thenReturn(true);
+
+            routineLoadManager.stopRoutineLoadJob(stopRoutineLoadCommand);
+
+            Assert.assertEquals(RoutineLoadJob.JobState.STOPPED, routineLoadJob.getState());
+        }
     }
 
     @Test
-    public void testCheckBeToTask(@Mocked Env env,
-                                  @Mocked SystemInfoService systemInfoService) throws UserException {
-        List<Long> beIdsInCluster = Lists.newArrayList();
-        beIdsInCluster.add(1L);
-        Map<Long, Integer> beIdToMaxConcurrentTasks = Maps.newHashMap();
-        beIdToMaxConcurrentTasks.put(1L, 10);
-        new Expectations() {
-            {
-                systemInfoService.selectBackendIdsByPolicy((BeSelectionPolicy) any, anyInt);
-                minTimes = 0;
-                result = beIdsInCluster;
-            }
-        };
+    public void testCheckBeToTask() throws UserException {
+        Env env = Mockito.mock(Env.class);
+        SystemInfoService localSystemInfoService = Mockito.mock(SystemInfoService.class);
+        GlobalTransactionMgrIface globalTxnMgr = Mockito.mock(GlobalTransactionMgrIface.class);
+        TxnStateCallbackFactory callbackFactory = Mockito.mock(TxnStateCallbackFactory.class);
 
-        RoutineLoadManager routineLoadManager = new RoutineLoadManager();
-        KafkaRoutineLoadJob job = new KafkaRoutineLoadJob(1L, "testjob",
-                10000, 10001, "192.168.1.1:9090", "testtopic", UserIdentity.ADMIN);
-        routineLoadManager.addRoutineLoadJob(job, "testdb", "testtable");
-        Config.max_routine_load_task_num_per_be = 10;
-        Deencapsulation.setField(routineLoadManager, "beIdToMaxConcurrentTasks", beIdToMaxConcurrentTasks);
-        Assert.assertEquals(-1L, routineLoadManager.getAvailableBeForTask(1L, 1L));
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            envStatic.when(Env::getCurrentSystemInfo).thenReturn(localSystemInfoService);
+            envStatic.when(Env::getCurrentGlobalTransactionMgr).thenReturn(globalTxnMgr);
+            EditLog editLog = Mockito.mock(EditLog.class);
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
+            Mockito.when(globalTxnMgr.getCallbackFactory()).thenReturn(callbackFactory);
+
+            RoutineLoadManager routineLoadManager = Mockito.spy(new RoutineLoadManager());
+            Mockito.doReturn(Lists.newArrayList()).when(routineLoadManager)
+                    .getAvailableBackendIds(Mockito.anyLong());
+
+            KafkaRoutineLoadJob job = new KafkaRoutineLoadJob(1L, "testjob",
+                    10000, 10001, "192.168.1.1:9090", "testtopic", UserIdentity.ADMIN);
+            routineLoadManager.addRoutineLoadJob(job, "testdb", "testtable");
+            Assert.assertEquals(-1L, routineLoadManager.getAvailableBeForTask(1L, 1L));
+        }
     }
 
     @Test
-    public void testCleanOldRoutineLoadJobs(@Injectable RoutineLoadJob routineLoadJob,
-                                            @Mocked Env env,
-                                            @Mocked EditLog editLog) {
-        RoutineLoadManager routineLoadManager = new RoutineLoadManager();
-        Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newHashMap();
-        Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob = Maps.newHashMap();
-        List<RoutineLoadJob> routineLoadJobList = Lists.newArrayList();
-        routineLoadJobList.add(routineLoadJob);
-        nameToRoutineLoadJob.put("", routineLoadJobList);
-        dbToNameToRoutineLoadJob.put(1L, nameToRoutineLoadJob);
-        Map<Long, RoutineLoadJob> idToRoutineLoadJob = Maps.newHashMap();
-        idToRoutineLoadJob.put(1L, routineLoadJob);
-        Deencapsulation.setField(routineLoadManager, "idToRoutineLoadJob", idToRoutineLoadJob);
-        Deencapsulation.setField(routineLoadManager, "dbToNameToRoutineLoadJob", dbToNameToRoutineLoadJob);
+    public void testCleanOldRoutineLoadJobs() {
+        RoutineLoadJob routineLoadJob = Mockito.mock(RoutineLoadJob.class);
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
 
-        new Expectations() {
-            {
-                routineLoadJob.isExpired();
-                minTimes = 0;
-                result = true;
-                routineLoadJob.getDbId();
-                minTimes = 0;
-                result = 1L;
-                routineLoadJob.getName();
-                minTimes = 0;
-                result = "";
-                env.getEditLog();
-                minTimes = 0;
-                result = editLog;
-            }
-        };
-        routineLoadManager.cleanOldRoutineLoadJobs();
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
 
-        Assert.assertEquals(0, dbToNameToRoutineLoadJob.size());
-        Assert.assertEquals(0, idToRoutineLoadJob.size());
+            RoutineLoadManager routineLoadManager = new RoutineLoadManager();
+            Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newHashMap();
+            Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob = Maps.newHashMap();
+            List<RoutineLoadJob> routineLoadJobList = Lists.newArrayList();
+            routineLoadJobList.add(routineLoadJob);
+            nameToRoutineLoadJob.put("", routineLoadJobList);
+            dbToNameToRoutineLoadJob.put(1L, nameToRoutineLoadJob);
+            Map<Long, RoutineLoadJob> idToRoutineLoadJob = Maps.newHashMap();
+            idToRoutineLoadJob.put(1L, routineLoadJob);
+            Deencapsulation.setField(routineLoadManager, "idToRoutineLoadJob", idToRoutineLoadJob);
+            Deencapsulation.setField(routineLoadManager, "dbToNameToRoutineLoadJob", dbToNameToRoutineLoadJob);
+
+            Mockito.when(routineLoadJob.isExpired()).thenReturn(true);
+            Mockito.when(routineLoadJob.getDbId()).thenReturn(1L);
+            Mockito.when(routineLoadJob.getName()).thenReturn("");
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
+
+            routineLoadManager.cleanOldRoutineLoadJobs();
+
+            Assert.assertEquals(0, dbToNameToRoutineLoadJob.size());
+            Assert.assertEquals(0, idToRoutineLoadJob.size());
+        }
     }
 
     @Test
-    public void testCleanOverLimitRoutineLoadJobs(@Injectable RoutineLoadJob routineLoadJob,
-            @Mocked Env env, @Mocked EditLog editLog) {
-        RoutineLoadManager routineLoadManager = new RoutineLoadManager();
-        Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newHashMap();
-        Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob = Maps.newHashMap();
-        List<RoutineLoadJob> routineLoadJobList = Lists.newArrayList();
-        routineLoadJobList.add(routineLoadJob);
-        nameToRoutineLoadJob.put("", routineLoadJobList);
-        dbToNameToRoutineLoadJob.put(1L, nameToRoutineLoadJob);
-        Map<Long, RoutineLoadJob> idToRoutineLoadJob = Maps.newHashMap();
-        idToRoutineLoadJob.put(1L, routineLoadJob);
-        Deencapsulation.setField(routineLoadManager, "idToRoutineLoadJob", idToRoutineLoadJob);
-        Deencapsulation.setField(routineLoadManager, "dbToNameToRoutineLoadJob", dbToNameToRoutineLoadJob);
+    public void testCleanOverLimitRoutineLoadJobs() {
+        RoutineLoadJob routineLoadJob = Mockito.mock(RoutineLoadJob.class);
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
 
-        new Expectations() {
-            {
-                routineLoadJob.getId();
-                minTimes = 0;
-                result = 1L;
-                routineLoadJob.isFinal();
-                minTimes = 0;
-                result = true;
-                routineLoadJob.getDbId();
-                minTimes = 0;
-                result = 1L;
-                routineLoadJob.getName();
-                minTimes = 0;
-                result = "";
-                env.getEditLog();
-                minTimes = 0;
-                result = editLog;
-            }
-        };
-        Config.label_num_threshold = 0;
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
 
-        routineLoadManager.cleanOverLimitRoutineLoadJobs();
-        Assert.assertEquals(0, dbToNameToRoutineLoadJob.size());
-        Assert.assertEquals(0, idToRoutineLoadJob.size());
+            RoutineLoadManager routineLoadManager = new RoutineLoadManager();
+            Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newHashMap();
+            Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob = Maps.newHashMap();
+            List<RoutineLoadJob> routineLoadJobList = Lists.newArrayList();
+            routineLoadJobList.add(routineLoadJob);
+            nameToRoutineLoadJob.put("", routineLoadJobList);
+            dbToNameToRoutineLoadJob.put(1L, nameToRoutineLoadJob);
+            Map<Long, RoutineLoadJob> idToRoutineLoadJob = Maps.newHashMap();
+            idToRoutineLoadJob.put(1L, routineLoadJob);
+            Deencapsulation.setField(routineLoadManager, "idToRoutineLoadJob", idToRoutineLoadJob);
+            Deencapsulation.setField(routineLoadManager, "dbToNameToRoutineLoadJob", dbToNameToRoutineLoadJob);
+
+            Mockito.when(routineLoadJob.getId()).thenReturn(1L);
+            Mockito.when(routineLoadJob.isFinal()).thenReturn(true);
+            Mockito.when(routineLoadJob.getDbId()).thenReturn(1L);
+            Mockito.when(routineLoadJob.getName()).thenReturn("");
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
+
+            Config.label_num_threshold = 0;
+
+            routineLoadManager.cleanOverLimitRoutineLoadJobs();
+            Assert.assertEquals(0, dbToNameToRoutineLoadJob.size());
+            Assert.assertEquals(0, idToRoutineLoadJob.size());
+        }
     }
 
     @Test
-    public void testGetBeIdConcurrentTaskMaps(@Injectable RoutineLoadJob routineLoadJob) {
+    public void testGetBeIdConcurrentTaskMaps() {
+        RoutineLoadJob routineLoadJob = Mockito.mock(RoutineLoadJob.class);
+
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         Map<Long, RoutineLoadJob> idToRoutineLoadJob = Maps.newHashMap();
         idToRoutineLoadJob.put(1L, routineLoadJob);
@@ -796,16 +730,8 @@ public class RoutineLoadManagerTest {
         Map<Long, Integer> beIdToConcurrenTaskNum = Maps.newHashMap();
         beIdToConcurrenTaskNum.put(1L, 1);
 
-        new Expectations() {
-            {
-                routineLoadJob.getState();
-                minTimes = 0;
-                result = RoutineLoadJob.JobState.RUNNING;
-                routineLoadJob.getBeCurrentTasksNumMap();
-                minTimes = 0;
-                result = beIdToConcurrenTaskNum;
-            }
-        };
+        Mockito.when(routineLoadJob.getState()).thenReturn(RoutineLoadJob.JobState.RUNNING);
+        Mockito.when(routineLoadJob.getBeCurrentTasksNumMap()).thenReturn(beIdToConcurrenTaskNum);
 
         Map<Long, Integer> result = Deencapsulation.invoke(routineLoadManager, "getBeCurrentTasksNumMap");
         Assert.assertEquals(1, (int) result.get(1L));
@@ -813,8 +739,10 @@ public class RoutineLoadManagerTest {
     }
 
     @Test
-    public void testReplayRemoveOldRoutineLoad(@Injectable RoutineLoadOperation operation,
-                                               @Injectable RoutineLoadJob routineLoadJob) {
+    public void testReplayRemoveOldRoutineLoad() {
+        RoutineLoadOperation operation = Mockito.mock(RoutineLoadOperation.class);
+        RoutineLoadJob routineLoadJob = Mockito.mock(RoutineLoadJob.class);
+
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         Map<Long, RoutineLoadJob> idToRoutineLoadJob = Maps.newHashMap();
         idToRoutineLoadJob.put(1L, routineLoadJob);
@@ -827,26 +755,18 @@ public class RoutineLoadManagerTest {
         dbToNameToRoutineLoadJob.put(1L, nameToRoutineLoadJob);
         Deencapsulation.setField(routineLoadManager, "dbToNameToRoutineLoadJob", dbToNameToRoutineLoadJob);
 
-        new Expectations() {
-            {
-                routineLoadJob.getName();
-                minTimes = 0;
-                result = "";
-                routineLoadJob.getDbId();
-                minTimes = 0;
-                result = 1L;
-                operation.getId();
-                minTimes = 0;
-                result = 1L;
-            }
-        };
+        Mockito.when(routineLoadJob.getName()).thenReturn("");
+        Mockito.when(routineLoadJob.getDbId()).thenReturn(1L);
+        Mockito.when(operation.getId()).thenReturn(1L);
 
         routineLoadManager.replayRemoveOldRoutineLoad(operation);
         Assert.assertEquals(0, idToRoutineLoadJob.size());
     }
 
     @Test
-    public void testReplayChangeRoutineLoadJob(@Injectable RoutineLoadOperation operation) {
+    public void testReplayChangeRoutineLoadJob() {
+        RoutineLoadOperation operation = Mockito.mock(RoutineLoadOperation.class);
+
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
         Deencapsulation.setField(routineLoadJob, "name", "");
@@ -862,142 +782,133 @@ public class RoutineLoadManagerTest {
         dbToNameToRoutineLoadJob.put(1L, nameToRoutineLoadJob);
         Deencapsulation.setField(routineLoadManager, "dbToNameToRoutineLoadJob", dbToNameToRoutineLoadJob);
 
-        new Expectations() {
-            {
-                operation.getId();
-                minTimes = 0;
-                result = 1L;
-                operation.getJobState();
-                minTimes = 0;
-                result = RoutineLoadJob.JobState.PAUSED;
-            }
-        };
+        Mockito.when(operation.getId()).thenReturn(1L);
+        Mockito.when(operation.getJobState()).thenReturn(RoutineLoadJob.JobState.PAUSED);
 
         routineLoadManager.replayChangeRoutineLoadJob(operation);
         Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, routineLoadJob.getState());
     }
 
     @Test
-    public void testAlterRoutineLoadJob(@Injectable StopRoutineLoadCommand stopRoutineLoadCommand, @Mocked Env env,
-            @Mocked InternalCatalog catalog, @Mocked Database database, @Mocked Table tbl,
-            @Mocked AccessControllerManager accessManager,
-            @Mocked ConnectContext connectContext) throws UserException {
-        RoutineLoadManager routineLoadManager = new RoutineLoadManager();
-        Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newHashMap();
-        Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob = Maps.newHashMap();
-        List<RoutineLoadJob> routineLoadJobList = Lists.newArrayList();
-        RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
-        routineLoadJobList.add(routineLoadJob);
-        nameToRoutineLoadJob.put("", routineLoadJobList);
-        dbToNameToRoutineLoadJob.put(1L, nameToRoutineLoadJob);
-        Deencapsulation.setField(routineLoadManager, "dbToNameToRoutineLoadJob", dbToNameToRoutineLoadJob);
+    public void testAlterRoutineLoadJob() throws UserException {
+        StopRoutineLoadCommand stopRoutineLoadCommand = Mockito.mock(StopRoutineLoadCommand.class);
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Database database = Mockito.mock(Database.class);
+        Table tbl = Mockito.mock(Table.class);
+        AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
 
-        new Expectations() {
-            {
-                stopRoutineLoadCommand.getDbFullName();
-                minTimes = 0;
-                result = "";
-                stopRoutineLoadCommand.getLabel();
-                minTimes = 0;
-                result = "";
-                env.getInternalCatalog();
-                minTimes = 0;
-                result = catalog;
-                catalog.getDbNullable("");
-                minTimes = 0;
-                result = database;
-                database.getId();
-                minTimes = 0;
-                result = 1L;
-                database.getTableOrAnalysisException(anyLong);
-                minTimes = 0;
-                result = tbl;
-                tbl.getName();
-                minTimes = 0;
-                result = "tbl";
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessManager;
-                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, anyString, (PrivPredicate) any);
-                minTimes = 0;
-                result = true;
-            }
-        };
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedStatic<ConnectContext> ctxStatic = Mockito.mockStatic(ConnectContext.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            envStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+            ctxStatic.when(ConnectContext::get).thenReturn(connectContext);
+            mockSessionVariable(connectContext);
+            EditLog editLog = Mockito.mock(EditLog.class);
+            GlobalTransactionMgrIface globalTxnMgr = Mockito.mock(GlobalTransactionMgrIface.class);
+            TxnStateCallbackFactory callbackFactory = Mockito.mock(TxnStateCallbackFactory.class);
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
+            envStatic.when(Env::getCurrentGlobalTransactionMgr).thenReturn(globalTxnMgr);
+            Mockito.when(globalTxnMgr.getCallbackFactory()).thenReturn(callbackFactory);
 
-        routineLoadManager.stopRoutineLoadJob(stopRoutineLoadCommand);
+            RoutineLoadManager routineLoadManager = new RoutineLoadManager();
+            Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newHashMap();
+            Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob = Maps.newHashMap();
+            List<RoutineLoadJob> routineLoadJobList = Lists.newArrayList();
+            RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
+            routineLoadJobList.add(routineLoadJob);
+            nameToRoutineLoadJob.put("", routineLoadJobList);
+            dbToNameToRoutineLoadJob.put(1L, nameToRoutineLoadJob);
+            Deencapsulation.setField(routineLoadManager, "dbToNameToRoutineLoadJob", dbToNameToRoutineLoadJob);
 
-        Assert.assertEquals(RoutineLoadJob.JobState.STOPPED, routineLoadJob.getState());
+            Mockito.when(stopRoutineLoadCommand.getDbFullName()).thenReturn("");
+            Mockito.when(stopRoutineLoadCommand.getLabel()).thenReturn("");
+            Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+            Mockito.when(catalog.getDbNullable("")).thenReturn(database);
+            Mockito.doReturn(database).when(catalog).getDbOrMetaException(Mockito.anyString());
+            Mockito.doReturn(database).when(catalog).getDbOrMetaException(Mockito.anyLong());
+            Mockito.when(database.getId()).thenReturn(1L);
+            Mockito.when(database.getFullName()).thenReturn("");
+            Mockito.doReturn(tbl).when(database).getTableOrAnalysisException(Mockito.anyLong());
+            Mockito.doReturn(tbl).when(database).getTableOrMetaException(Mockito.anyLong());
+            Mockito.when(tbl.getName()).thenReturn("tbl");
+            Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+            Mockito.when(accessManager.checkTblPriv(Mockito.nullable(ConnectContext.class), Mockito.anyString(),
+                    Mockito.anyString(), Mockito.anyString(), Mockito.any(PrivPredicate.class))).thenReturn(true);
+
+            routineLoadManager.stopRoutineLoadJob(stopRoutineLoadCommand);
+
+            Assert.assertEquals(RoutineLoadJob.JobState.STOPPED, routineLoadJob.getState());
+        }
     }
 
     @Test
-    public void testPauseAndResumeAllRoutineLoadJob(@Injectable PauseRoutineLoadCommand pauseRoutineLoadCommand,
-                                                    @Injectable ResumeRoutineLoadCommand resumeRoutineLoadCommand, @Mocked Env env, @Mocked InternalCatalog catalog,
-                                                    @Mocked Database database, @Mocked Table tbl, @Mocked AccessControllerManager accessManager,
-                                                    @Mocked ConnectContext connectContext) throws UserException {
-        RoutineLoadManager routineLoadManager = new RoutineLoadManager();
-        Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newHashMap();
-        Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob = Maps.newHashMap();
+    public void testPauseAndResumeAllRoutineLoadJob() throws UserException {
+        PauseRoutineLoadCommand pauseRoutineLoadCommand = Mockito.mock(PauseRoutineLoadCommand.class);
+        ResumeRoutineLoadCommand resumeRoutineLoadCommand = Mockito.mock(ResumeRoutineLoadCommand.class);
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Database database = Mockito.mock(Database.class);
+        Table tbl = Mockito.mock(Table.class);
+        AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
 
-        List<RoutineLoadJob> routineLoadJobList1 = Lists.newArrayList();
-        RoutineLoadJob routineLoadJob1 = new KafkaRoutineLoadJob();
-        Deencapsulation.setField(routineLoadJob1, "id", 1000L);
-        routineLoadJobList1.add(routineLoadJob1);
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedStatic<ConnectContext> ctxStatic = Mockito.mockStatic(ConnectContext.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            envStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+            ctxStatic.when(ConnectContext::get).thenReturn(connectContext);
+            mockSessionVariable(connectContext);
+            EditLog editLog = Mockito.mock(EditLog.class);
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
 
-        List<RoutineLoadJob> routineLoadJobList2 = Lists.newArrayList();
-        RoutineLoadJob routineLoadJob2 = new KafkaRoutineLoadJob();
-        Deencapsulation.setField(routineLoadJob2, "id", 1002L);
-        routineLoadJobList2.add(routineLoadJob2);
+            RoutineLoadManager routineLoadManager = new RoutineLoadManager();
+            Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newHashMap();
+            Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob = Maps.newHashMap();
 
-        nameToRoutineLoadJob.put("job1", routineLoadJobList1);
-        nameToRoutineLoadJob.put("job2", routineLoadJobList2);
-        dbToNameToRoutineLoadJob.put(1L, nameToRoutineLoadJob);
-        Deencapsulation.setField(routineLoadManager, "dbToNameToRoutineLoadJob", dbToNameToRoutineLoadJob);
+            List<RoutineLoadJob> routineLoadJobList1 = Lists.newArrayList();
+            RoutineLoadJob routineLoadJob1 = new KafkaRoutineLoadJob();
+            Deencapsulation.setField(routineLoadJob1, "id", 1000L);
+            routineLoadJobList1.add(routineLoadJob1);
 
-        Assert.assertEquals(RoutineLoadJob.JobState.NEED_SCHEDULE, routineLoadJob1.getState());
-        Assert.assertEquals(RoutineLoadJob.JobState.NEED_SCHEDULE, routineLoadJob1.getState());
+            List<RoutineLoadJob> routineLoadJobList2 = Lists.newArrayList();
+            RoutineLoadJob routineLoadJob2 = new KafkaRoutineLoadJob();
+            Deencapsulation.setField(routineLoadJob2, "id", 1002L);
+            routineLoadJobList2.add(routineLoadJob2);
 
-        new Expectations() {
-            {
-                pauseRoutineLoadCommand.isAll();
-                minTimes = 0;
-                result = true;
-                pauseRoutineLoadCommand.getDbFullName();
-                minTimes = 0;
-                result = "";
-                env.getInternalCatalog();
-                minTimes = 0;
-                result = catalog;
-                catalog.getDb("");
-                minTimes = 0;
-                result = database;
-                database.getId();
-                minTimes = 0;
-                result = 1L;
-                database.getTableOrAnalysisException(anyLong);
-                minTimes = 0;
-                result = tbl;
-                tbl.getName();
-                minTimes = 0;
-                result = "tbl";
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessManager;
-                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, anyString, (PrivPredicate) any);
-                minTimes = 0;
-                result = true;
-                resumeRoutineLoadCommand.isAll();
-                minTimes = 0;
-                result = true;
-            }
-        };
+            nameToRoutineLoadJob.put("job1", routineLoadJobList1);
+            nameToRoutineLoadJob.put("job2", routineLoadJobList2);
+            dbToNameToRoutineLoadJob.put(1L, nameToRoutineLoadJob);
+            Deencapsulation.setField(routineLoadManager, "dbToNameToRoutineLoadJob", dbToNameToRoutineLoadJob);
 
-        routineLoadManager.pauseRoutineLoadJob(pauseRoutineLoadCommand);
-        Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, routineLoadJob1.getState());
-        Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, routineLoadJob2.getState());
+            Assert.assertEquals(RoutineLoadJob.JobState.NEED_SCHEDULE, routineLoadJob1.getState());
+            Assert.assertEquals(RoutineLoadJob.JobState.NEED_SCHEDULE, routineLoadJob1.getState());
 
-        routineLoadManager.resumeRoutineLoadJob(resumeRoutineLoadCommand);
-        Assert.assertEquals(RoutineLoadJob.JobState.NEED_SCHEDULE, routineLoadJob1.getState());
-        Assert.assertEquals(RoutineLoadJob.JobState.NEED_SCHEDULE, routineLoadJob2.getState());
+            Mockito.when(pauseRoutineLoadCommand.isAll()).thenReturn(true);
+            Mockito.when(pauseRoutineLoadCommand.getDbFullName()).thenReturn("");
+            Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+            Mockito.doReturn(database).when(catalog).getDbOrDdlException(Mockito.anyString());
+            Mockito.doReturn(database).when(catalog).getDbOrMetaException(Mockito.anyLong());
+            Mockito.when(database.getId()).thenReturn(1L);
+            Mockito.when(database.getFullName()).thenReturn("");
+            Mockito.doReturn(tbl).when(database).getTableOrAnalysisException(Mockito.anyLong());
+            Mockito.doReturn(tbl).when(database).getTableOrMetaException(Mockito.anyLong());
+            Mockito.when(tbl.getName()).thenReturn("tbl");
+            Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+            Mockito.when(accessManager.checkTblPriv(Mockito.nullable(ConnectContext.class), Mockito.anyString(),
+                    Mockito.anyString(), Mockito.anyString(), Mockito.any(PrivPredicate.class))).thenReturn(true);
+            Mockito.when(resumeRoutineLoadCommand.isAll()).thenReturn(true);
+            Mockito.when(resumeRoutineLoadCommand.getDbFullName()).thenReturn("");
+
+            routineLoadManager.pauseRoutineLoadJob(pauseRoutineLoadCommand);
+            Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, routineLoadJob1.getState());
+            Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, routineLoadJob2.getState());
+
+            routineLoadManager.resumeRoutineLoadJob(resumeRoutineLoadCommand);
+            Assert.assertEquals(RoutineLoadJob.JobState.NEED_SCHEDULE, routineLoadJob1.getState());
+            Assert.assertEquals(RoutineLoadJob.JobState.NEED_SCHEDULE, routineLoadJob2.getState());
+        }
     }
 
     @Test

@@ -39,15 +39,13 @@ import org.apache.doris.service.FrontendOptions;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import mockit.Delegate;
-import mockit.Expectations;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
@@ -74,73 +72,58 @@ public class RepositoryTest {
 
     private SnapshotInfo info;
 
-    @Mocked
-    private org.apache.doris.filesystem.FileSystem mockFs;
-    @Mocked
-    private DorisOutputFile mockOutputFile;
-    @Mocked
-    private DorisInputFile mockInputFile;
-    @Mocked
-    private Env mockedEnv;
-    @Mocked
-    private BrokerMgr mockedBrokerMgr;
+    private org.apache.doris.filesystem.FileSystem mockFs = Mockito.mock(org.apache.doris.filesystem.FileSystem.class);
+    private DorisOutputFile mockOutputFile = Mockito.mock(DorisOutputFile.class);
+    private DorisInputFile mockInputFile = Mockito.mock(DorisInputFile.class);
+    private Env mockedEnv = Mockito.mock(Env.class);
+    private BrokerMgr mockedBrokerMgr = Mockito.mock(BrokerMgr.class);
+
+    private MockedStatic<Env> mockedEnvStatic;
+    private MockedStatic<FrontendOptions> mockedFrontendOptions;
+    private MockedStatic<FileSystemFactory> mockedFileSystemFactory;
 
     private final BrokerProperties testProps = BrokerProperties.of("broker", Maps.newHashMap());
 
     @Before
-    public void setUp() {
+    public void setUp() throws Exception {
         List<String> files = Lists.newArrayList();
         files.add("1.dat");
         files.add("1.hdr");
         files.add("1.idx");
         info = new SnapshotInfo(1, 2, 3, 4, 5, 6, 7, "/path/to/tablet/snapshot/", files);
 
-        new MockUp<FrontendOptions>() {
-            @Mock
-            String getLocalHostAddress() {
-                return "127.0.0.1";
-            }
-        };
+        mockedFrontendOptions = Mockito.mockStatic(FrontendOptions.class);
+        mockedFrontendOptions.when(FrontendOptions::getLocalHostAddress).thenReturn("127.0.0.1");
 
-        // Route all FileSystemFactory.getFileSystem calls to mockFs so that
-        // acquireSpiFs() (broker path) returns the mock without a real connection.
-        new MockUp<FileSystemFactory>() {
-            @Mock
-            public org.apache.doris.filesystem.FileSystem getFileSystem(
-                    Map<String, String> properties) throws IOException {
-                return mockFs;
-            }
+        mockedFileSystemFactory = Mockito.mockStatic(FileSystemFactory.class);
+        mockedFileSystemFactory.when(() -> FileSystemFactory.getFileSystem(Mockito.anyMap())).thenReturn(mockFs);
+        mockedFileSystemFactory.when(() -> FileSystemFactory.getFileSystem(Mockito.any(StorageProperties.class))).thenReturn(mockFs);
+        mockedFileSystemFactory.when(() -> FileSystemFactory.getBrokerFileSystem(
+                Mockito.anyString(), Mockito.anyInt(), Mockito.anyString(), Mockito.anyMap())).thenReturn(mockFs);
 
-            @Mock
-            public org.apache.doris.filesystem.FileSystem getFileSystem(
-                    StorageProperties storageProperties) throws IOException {
-                return mockFs;
-            }
-        };
+        mockedEnvStatic = Mockito.mockStatic(Env.class);
+        mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(mockedEnv);
 
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = mockedEnv;
-
-                mockedEnv.getBrokerMgr();
-                minTimes = 0;
-                result = mockedBrokerMgr;
-
-                try {
-                    mockedBrokerMgr.getBroker(anyString, anyString);
-                } catch (AnalysisException ignored) {
-                    // never thrown during JMockit recording phase
-                }
-                minTimes = 0;
-                result = new FsBroker("10.74.167.16", 8111);
-            }
-        };
+        Mockito.when(mockedEnv.getBrokerMgr()).thenReturn(mockedBrokerMgr);
+        Mockito.when(mockedBrokerMgr.getBroker(Mockito.anyString(), Mockito.anyString()))
+                .thenReturn(new FsBroker("10.74.167.16", 8111));
 
         // initRepository() and ping() short-circuit when runningUnitTest is true,
         // which avoids real filesystem calls in those particular tests.
         FeConstants.runningUnitTest = true;
+    }
+
+    @After
+    public void tearDown() {
+        if (mockedEnvStatic != null) {
+            mockedEnvStatic.close();
+        }
+        if (mockedFrontendOptions != null) {
+            mockedFrontendOptions.close();
+        }
+        if (mockedFileSystemFactory != null) {
+            mockedFileSystemFactory.close();
+        }
     }
 
     @Test
@@ -207,48 +190,36 @@ public class RepositoryTest {
     }
 
     @Test
-    public void testListSnapshots() {
-        new Expectations() {
-            {
-                // Return one snapshot directory (__ss_a) and one non-directory (_ss_b).
-                // Only the directory with the correct prefix should appear in the result.
-                try {
-                    mockFs.list((Location) any);
-                } catch (IOException ignored) {
-                    // never thrown during JMockit recording phase
+    public void testListSnapshots() throws IOException {
+        // Return one snapshot directory (__ss_a) and one non-directory (_ss_b).
+        // Only the directory with the correct prefix should appear in the result.
+        Mockito.when(mockFs.list(Mockito.any(Location.class))).thenAnswer(inv -> {
+            List<FileEntry> entries = Lists.newArrayList(
+                    new FileEntry(
+                            Location.of(location + "/__palo_repository_repo/"
+                                    + Repository.PREFIX_SNAPSHOT_DIR + "a"),
+                            100, true, 0L, null),
+                    new FileEntry(
+                            Location.of(location + "/__palo_repository_repo/_ss_b"),
+                            100, false, 0L, null));
+            return new FileIterator() {
+                private int idx = 0;
+
+                @Override
+                public boolean hasNext() {
+                    return idx < entries.size();
                 }
-                minTimes = 0;
-                result = new Delegate<FileIterator>() {
-                    public FileIterator list(Location loc) throws IOException {
-                        List<FileEntry> entries = Lists.newArrayList(
-                                new FileEntry(
-                                        Location.of(location + "/__palo_repository_repo/"
-                                                + Repository.PREFIX_SNAPSHOT_DIR + "a"),
-                                        100, true, 0L, null),
-                                new FileEntry(
-                                        Location.of(location + "/__palo_repository_repo/_ss_b"),
-                                        100, false, 0L, null));
-                        return new FileIterator() {
-                            private int idx = 0;
 
-                            @Override
-                            public boolean hasNext() {
-                                return idx < entries.size();
-                            }
+                @Override
+                public FileEntry next() throws IOException {
+                    return entries.get(idx++);
+                }
 
-                            @Override
-                            public FileEntry next() throws IOException {
-                                return entries.get(idx++);
-                            }
-
-                            @Override
-                            public void close() {
-                            }
-                        };
-                    }
-                };
-            }
-        };
+                @Override
+                public void close() {
+                }
+            };
+        });
 
         repo = new Repository(10000, "repo", false, location, testProps);
         List<String> snapshotNames = Lists.newArrayList();
@@ -265,57 +236,45 @@ public class RepositoryTest {
      * producing a spurious "content" snapshot name.
      */
     @Test
-    public void testListSnapshotsFlatObjectKeys() {
+    public void testListSnapshotsFlatObjectKeys() throws IOException {
         String repoRoot = location + "/__palo_repository_repo";
-        new Expectations() {
-            {
-                try {
-                    mockFs.list((Location) any);
-                } catch (IOException ignored) {
-                    // never thrown during JMockit recording phase
+        Mockito.when(mockFs.list(Mockito.any(Location.class))).thenAnswer(inv -> {
+            List<FileEntry> entries = Lists.newArrayList(
+                    // A meta file directly under __ss_snap1 (single __ss_ segment)
+                    new FileEntry(
+                            Location.of(repoRoot + "/__ss_snap1/__meta__abc"),
+                            50, false, 0L, null),
+                    // A data file under __ss_snap1/__ss_content (two __ss_ segments)
+                    new FileEntry(
+                            Location.of(repoRoot
+                                    + "/__ss_snap1/__ss_content/__db_1/__tbl_2/data.dat"),
+                            200, false, 0L, null),
+                    // A second snapshot
+                    new FileEntry(
+                            Location.of(repoRoot + "/__ss_snap2/__meta__def"),
+                            50, false, 0L, null),
+                    // An entry without __ss_ prefix — should be skipped
+                    new FileEntry(
+                            Location.of(repoRoot + "/__repo_info"),
+                            10, false, 0L, null));
+            return new FileIterator() {
+                private int idx = 0;
+
+                @Override
+                public boolean hasNext() {
+                    return idx < entries.size();
                 }
-                minTimes = 0;
-                result = new Delegate<FileIterator>() {
-                    public FileIterator list(Location loc) throws IOException {
-                        List<FileEntry> entries = Lists.newArrayList(
-                                // A meta file directly under __ss_snap1 (single __ss_ segment)
-                                new FileEntry(
-                                        Location.of(repoRoot + "/__ss_snap1/__meta__abc"),
-                                        50, false, 0L, null),
-                                // A data file under __ss_snap1/__ss_content (two __ss_ segments)
-                                new FileEntry(
-                                        Location.of(repoRoot
-                                                + "/__ss_snap1/__ss_content/__db_1/__tbl_2/data.dat"),
-                                        200, false, 0L, null),
-                                // A second snapshot
-                                new FileEntry(
-                                        Location.of(repoRoot + "/__ss_snap2/__meta__def"),
-                                        50, false, 0L, null),
-                                // An entry without __ss_ prefix — should be skipped
-                                new FileEntry(
-                                        Location.of(repoRoot + "/__repo_info"),
-                                        10, false, 0L, null));
-                        return new FileIterator() {
-                            private int idx = 0;
 
-                            @Override
-                            public boolean hasNext() {
-                                return idx < entries.size();
-                            }
+                @Override
+                public FileEntry next() throws IOException {
+                    return entries.get(idx++);
+                }
 
-                            @Override
-                            public FileEntry next() throws IOException {
-                                return entries.get(idx++);
-                            }
-
-                            @Override
-                            public void close() {
-                            }
-                        };
-                    }
-                };
-            }
-        };
+                @Override
+                public void close() {
+                }
+            };
+        });
 
         repo = new Repository(10000, "repo", false, location, testProps);
         List<String> snapshotNames = Lists.newArrayList();
@@ -329,29 +288,12 @@ public class RepositoryTest {
     }
 
     @Test
-    public void testUpload() {
-        new Expectations() {
-            {
-                // BROKER path: delete(tmp), upload via newOutputFile, rename, delete(final) are called
-                try {
-                    mockFs.delete((Location) any, anyBoolean);
-                    minTimes = 0;
-
-                    mockFs.newOutputFile((Location) any);
-                    minTimes = 0;
-                    result = mockOutputFile;
-
-                    mockOutputFile.create();
-                    minTimes = 0;
-                    result = new ByteArrayOutputStream();
-
-                    mockFs.rename((Location) any, (Location) any);
-                    minTimes = 0;
-                } catch (IOException e) {
-                    throw new RuntimeException(e);
-                }
-            }
-        };
+    public void testUpload() throws IOException {
+        // BROKER path: delete(tmp), upload via newOutputFile, rename, delete(final) are called
+        Mockito.doNothing().when(mockFs).delete(Mockito.any(Location.class), Mockito.anyBoolean());
+        Mockito.when(mockFs.newOutputFile(Mockito.any(Location.class))).thenReturn(mockOutputFile);
+        Mockito.when(mockOutputFile.create()).thenReturn(new ByteArrayOutputStream());
+        Mockito.doNothing().when(mockFs).rename(Mockito.any(Location.class), Mockito.any(Location.class));
 
         repo = new Repository(10000, "repo", false, location, testProps);
         String localFilePath = "./tmp_" + System.currentTimeMillis();
@@ -372,7 +314,7 @@ public class RepositoryTest {
     }
 
     @Test
-    public void testDownload() {
+    public void testDownload() throws Exception {
         String localFilePath = "./tmp_" + System.currentTimeMillis();
         File localFile = new File(localFilePath);
         try {
@@ -383,58 +325,45 @@ public class RepositoryTest {
                 Assert.fail();
             }
 
-            new Expectations() {
-                {
-                    // The remote file has an md5 checksum suffix matching content "a"
-                    try {
-                        // Broker does not support globListWithLimit; fall back to listFiles.
-                        mockFs.globListWithLimit((Location) any, anyString, anyLong, anyLong);
-                        minTimes = 0;
-                        result = new UnsupportedOperationException("broker does not support globListWithLimit");
+            // The remote file has an md5 checksum suffix matching content "a"
+            // Broker does not support globListWithLimit; fall back to listFiles.
+            Mockito.when(mockFs.globListWithLimit(Mockito.any(Location.class), Mockito.anyString(),
+                    Mockito.anyLong(), Mockito.anyLong()))
+                    .thenThrow(new UnsupportedOperationException("broker does not support globListWithLimit"));
 
-                        mockFs.listFiles((Location) any);
-                        minTimes = 0;
-                        result = Lists.newArrayList(
-                                new FileEntry(
-                                        Location.of(location + "/remote_file"
-                                                + ".0cc175b9c0f1b6a831c399e269772661"),
-                                        1, false, 0L, null));
+            Mockito.when(mockFs.listFiles(Mockito.any(Location.class)))
+                    .thenReturn(Lists.newArrayList(
+                            new FileEntry(
+                                    Location.of(location + "/remote_file"
+                                            + ".0cc175b9c0f1b6a831c399e269772661"),
+                                    1, false, 0L, null)));
 
-                        mockFs.newInputFile((Location) any);
-                        minTimes = 0;
-                        result = mockInputFile;
+            Mockito.when(mockFs.newInputFile(Mockito.any(Location.class))).thenReturn(mockInputFile);
 
-                        mockInputFile.newStream();
-                        minTimes = 0;
-                        // Return a DorisInputStream wrapping content "a"
-                        result = new DorisInputStream() {
-                            private final java.io.InputStream delegate =
-                                    new java.io.ByteArrayInputStream("a".getBytes());
+            // Return a DorisInputStream wrapping content "a"
+            Mockito.when(mockInputFile.newStream()).thenReturn(new DorisInputStream() {
+                private final java.io.InputStream delegate =
+                        new java.io.ByteArrayInputStream("a".getBytes());
 
-                            @Override
-                            public int read() throws IOException {
-                                return delegate.read();
-                            }
-
-                            @Override
-                            public int read(byte[] b, int off, int len) throws IOException {
-                                return delegate.read(b, off, len);
-                            }
-
-                            @Override
-                            public long getPos() throws IOException {
-                                return 0;
-                            }
-
-                            @Override
-                            public void seek(long newPos) throws IOException {
-                            }
-                        };
-                    } catch (IOException e) {
-                        throw new RuntimeException(e);
-                    }
+                @Override
+                public int read() throws IOException {
+                    return delegate.read();
                 }
-            };
+
+                @Override
+                public int read(byte[] b, int off, int len) throws IOException {
+                    return delegate.read(b, off, len);
+                }
+
+                @Override
+                public long getPos() throws IOException {
+                    return 0;
+                }
+
+                @Override
+                public void seek(long newPos) throws IOException {
+                }
+            });
 
             repo = new Repository(10000, "repo", false, location, testProps);
             String remoteFilePath = location + "/remote_file";
@@ -446,58 +375,45 @@ public class RepositoryTest {
     }
 
     @Test
-    public void testGetSnapshotInfo() {
-        new Expectations() {
-            {
-                try {
-                    // listSnapshots calls fs.list; return two snapshot directories
-                    mockFs.list((Location) any);
-                    minTimes = 0;
-                    result = new Delegate<FileIterator>() {
-                        public FileIterator list(Location loc) throws IOException {
-                            List<FileEntry> entries = Lists.newArrayList(
-                                    new FileEntry(
-                                            Location.of(location + "/__palo_repository_repo/"
-                                                    + Repository.PREFIX_SNAPSHOT_DIR + "s1"),
-                                            100, true, 0L, null),
-                                    new FileEntry(
-                                            Location.of(location + "/__palo_repository_repo/"
-                                                    + Repository.PREFIX_SNAPSHOT_DIR + "s2"),
-                                            100, true, 0L, null));
-                            return new FileIterator() {
-                                private int idx = 0;
+    public void testGetSnapshotInfo() throws IOException {
+        // listSnapshots calls fs.list; return two snapshot directories
+        Mockito.when(mockFs.list(Mockito.any(Location.class))).thenAnswer(inv -> {
+            List<FileEntry> entries = Lists.newArrayList(
+                    new FileEntry(
+                            Location.of(location + "/__palo_repository_repo/"
+                                    + Repository.PREFIX_SNAPSHOT_DIR + "s1"),
+                            100, true, 0L, null),
+                    new FileEntry(
+                            Location.of(location + "/__palo_repository_repo/"
+                                    + Repository.PREFIX_SNAPSHOT_DIR + "s2"),
+                            100, true, 0L, null));
+            return new FileIterator() {
+                private int idx = 0;
 
-                                @Override
-                                public boolean hasNext() {
-                                    return idx < entries.size();
-                                }
-
-                                @Override
-                                public FileEntry next() throws IOException {
-                                    return entries.get(idx++);
-                                }
-
-                                @Override
-                                public void close() {
-                                }
-                            };
-                        }
-                    };
-
-                    // getSnapshotInfo calls fs.listFiles to find __info_* files
-                    mockFs.listFiles((Location) any);
-                    minTimes = 0;
-                    result = Lists.newArrayList(
-                            new FileEntry(
-                                    Location.of(location + "/__palo_repository_repo/__ss_s1/"
-                                            + "__info_2018-04-18-20-11-00"
-                                            + ".12345678123456781234567812345678"),
-                                    100, false, 0L, null));
-                } catch (IOException e) {
-                    throw new RuntimeException(e);
+                @Override
+                public boolean hasNext() {
+                    return idx < entries.size();
                 }
-            }
-        };
+
+                @Override
+                public FileEntry next() throws IOException {
+                    return entries.get(idx++);
+                }
+
+                @Override
+                public void close() {
+                }
+            };
+        });
+
+        // getSnapshotInfo calls fs.listFiles to find __info_* files
+        Mockito.when(mockFs.listFiles(Mockito.any(Location.class)))
+                .thenReturn(Lists.newArrayList(
+                        new FileEntry(
+                                Location.of(location + "/__palo_repository_repo/__ss_s1/"
+                                        + "__info_2018-04-18-20-11-00"
+                                        + ".12345678123456781234567812345678"),
+                                100, false, 0L, null)));
 
         repo = new Repository(10000, "repo", false, location, testProps);
         String snapshotName = "";
@@ -625,7 +541,7 @@ public class RepositoryTest {
      * {@link BrokerMgr#getBroker(String, String)} when resolving the broker endpoint.
      *
      * <p>The setUp() already mocks {@code FrontendOptions.getLocalHostAddress()} to return
-     * {@code "127.0.0.1"}.  This test uses a JMockit {@link Delegate} to capture the actual
+     * {@code "127.0.0.1"}.  This test captures the actual
      * host argument forwarded to {@code getBroker()} and asserts it equals the mocked value.
      */
     @Test
@@ -633,52 +549,34 @@ public class RepositoryTest {
         java.util.concurrent.atomic.AtomicReference<String> capturedHost =
                 new java.util.concurrent.atomic.AtomicReference<>();
 
-        new Expectations() {
-            {
-                // Override the setUp() expectation for getBroker() with a Delegate that captures
-                // the host argument so we can assert it equals FrontendOptions.getLocalHostAddress().
-                try {
-                    mockedBrokerMgr.getBroker(anyString, anyString);
-                } catch (AnalysisException ignored) {
-                    // never thrown during JMockit recording phase
+        // Override the setUp() stub for getBroker() with an answer that captures
+        // the host argument so we can assert it equals FrontendOptions.getLocalHostAddress().
+        Mockito.when(mockedBrokerMgr.getBroker(Mockito.anyString(), Mockito.anyString()))
+                .thenAnswer(inv -> {
+                    String host = inv.getArgument(1);
+                    capturedHost.set(host);
+                    return new FsBroker("10.74.167.16", 8111);
+                });
+
+        // listSnapshots() calls fs.list(); return an empty iterator so the method
+        // completes normally without further interaction.
+        Mockito.when(mockFs.list(Mockito.any(Location.class))).thenAnswer(inv -> {
+            return new FileIterator() {
+                @Override
+                public boolean hasNext() {
+                    return false;
                 }
-                minTimes = 0;
-                result = new Delegate<FsBroker>() {
-                    FsBroker getBroker(String brokerName, String host) throws AnalysisException {
-                        capturedHost.set(host);
-                        return new FsBroker("10.74.167.16", 8111);
-                    }
-                };
 
-                // listSnapshots() calls fs.list(); return an empty iterator so the method
-                // completes normally without further interaction.
-                try {
-                    mockFs.list((Location) any);
-                } catch (IOException ignored) {
-                    // never thrown during JMockit recording phase
+                @Override
+                public FileEntry next() throws IOException {
+                    throw new java.util.NoSuchElementException();
                 }
-                minTimes = 0;
-                result = new Delegate<FileIterator>() {
-                    public FileIterator list(Location loc) throws IOException {
-                        return new FileIterator() {
-                            @Override
-                            public boolean hasNext() {
-                                return false;
-                            }
 
-                            @Override
-                            public FileEntry next() throws IOException {
-                                throw new java.util.NoSuchElementException();
-                            }
-
-                            @Override
-                            public void close() {
-                            }
-                        };
-                    }
-                };
-            }
-        };
+                @Override
+                public void close() {
+                }
+            };
+        });
 
         repo = new Repository(10000, "repo", false, location, testProps);
         List<String> snapshotNames = Lists.newArrayList();

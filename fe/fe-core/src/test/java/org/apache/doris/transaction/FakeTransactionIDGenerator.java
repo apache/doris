@@ -17,43 +17,30 @@
 
 package org.apache.doris.transaction;
 
-import org.apache.doris.persist.EditLog;
+import org.mockito.MockedConstruction;
+import org.mockito.Mockito;
 
-import mockit.Mock;
-import mockit.MockUp;
-
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-
-public final class FakeTransactionIDGenerator extends MockUp<TransactionIdGenerator> {
+public final class FakeTransactionIDGenerator implements AutoCloseable {
 
     private long currentId = 1000L;
+    private MockedConstruction<TransactionIdGenerator> mockedConstruction;
 
-    @Mock
-    public void $init() { // CHECKSTYLE IGNORE THIS LINE
-        // do nothing
+    public FakeTransactionIDGenerator() {
+        mockedConstruction = Mockito.mockConstruction(TransactionIdGenerator.class,
+            (mock, context) -> {
+                Mockito.doAnswer(inv -> {
+                    System.out.println("getNextTransactionId is called");
+                    return currentId++;
+                }).when(mock).getNextTransactionId();
+            });
     }
 
-    @Mock
-    public void setEditLog(EditLog editLog) {
-        // do nothing
-    }
-
-    @Mock
-    public synchronized long getNextTransactionId() {
-        System.out.println("getNextTransactionId is called");
-        return currentId++;
-    }
-
-    @Mock
-    public void write(DataOutput out) throws IOException {
-        // do nothing
-    }
-
-    @Mock
-    public void readFields(DataInput in) throws IOException {
-        // do nothing
+    @Override
+    public void close() {
+        if (mockedConstruction != null) {
+            mockedConstruction.close();
+            mockedConstruction = null;
+        }
     }
 
     public void setCurrentId(long newId) {

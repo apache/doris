@@ -20,8 +20,6 @@ package org.apache.doris.planner;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
-import org.apache.doris.datasource.hive.HMSCachedClient;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
@@ -30,14 +28,13 @@ import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.foundation.util.PathUtils;
 import org.apache.doris.qe.ConnectContext;
 
-import mockit.Mock;
-import mockit.MockUp;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.SerDeInfo;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -45,10 +42,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-
 
 public class HiveTableSinkTest {
 
@@ -57,25 +52,21 @@ public class HiveTableSinkTest {
         ConnectContext ctx = new ConnectContext();
         ctx.setThreadLocalInfo();
 
-        new MockUp<ThriftHMSCachedClient>() {
-            @Mock
-            List<Partition> listPartitions(String dbName, String tblName) {
-                return new ArrayList<Partition>() {{
-                        add(new Partition() {{
-                                setValues(new ArrayList<String>() {{
-                                        add("a");
-                                    }
-                                });
-                                setSd(new StorageDescriptor() {{
-                                        setInputFormat("orc");
-                                    }
-                                });
+        List<Partition> partitions = new ArrayList<Partition>() {{
+                add(new Partition() {{
+                        setValues(new ArrayList<String>() {{
+                                add("a");
+                            }
+                        });
+                        setSd(new StorageDescriptor() {{
+                                setInputFormat("orc");
                             }
                         });
                     }
-                };
+                });
             }
         };
+
         Map<String, String> storageProperties = new HashMap<>();
         storageProperties.put("oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
         storageProperties.put("oss.access_key", "access_key");
@@ -90,19 +81,8 @@ public class HiveTableSinkTest {
         Map<StorageProperties.Type, StorageProperties> storagePropertiesMap = storagePropertiesList.stream()
                 .collect(Collectors.toMap(StorageProperties::getType, Function.identity()));
 
-        new MockUp<HMSExternalTable>() {
-            @Mock
-            public Map<StorageProperties.Type, StorageProperties> getStoragePropertiesMap() {
-                return storagePropertiesMap;
-            }
-        };
-        new MockUp<HMSExternalCatalog>() {
-            @Mock
-            public HMSCachedClient getClient() {
-                return new ThriftHMSCachedClient(null, 2, new ExecutionAuthenticator() {
-                });
-            }
-        };
+        ThriftHMSCachedClient mockClient = Mockito.mock(ThriftHMSCachedClient.class);
+        Mockito.when(mockClient.listPartitions(Mockito.anyString(), Mockito.anyString())).thenReturn(partitions);
 
         ArrayList<String> locations = new ArrayList<String>() {{
                 add("oss://abc/def");
@@ -113,65 +93,55 @@ public class HiveTableSinkTest {
             }
         };
         for (String location : locations) {
-            mockDifferLocationTable(location);
-
-            HMSExternalCatalog hmsExternalCatalog = new HMSExternalCatalog();
+            HMSExternalCatalog hmsExternalCatalog = Mockito.spy(new HMSExternalCatalog());
             hmsExternalCatalog.setInitializedForTest(true);
+            Mockito.doReturn(mockClient).when(hmsExternalCatalog).getClient();
+
             HMSExternalDatabase db = new HMSExternalDatabase(hmsExternalCatalog, 10000, "hive_db1", "hive_db1");
-            HMSExternalTable tbl = new HMSExternalTable(10001, "hive_tbl1", "hive_db1", hmsExternalCatalog, db);
+            HMSExternalTable tbl = Mockito.spy(new HMSExternalTable(10001, "hive_tbl1", "hive_db1",
+                    hmsExternalCatalog, db));
+            Mockito.doReturn(storagePropertiesMap).when(tbl).getStoragePropertiesMap();
+            mockDifferLocationTable(tbl, location);
+
             HiveTableSink hiveTableSink = new HiveTableSink(tbl);
             hiveTableSink.bindDataSink(Optional.empty());
             Assert.assertTrue(PathUtils.equalsIgnoreSchemeIfOneIsS3(hiveTableSink.tDataSink.hive_table_sink.location.write_path, location));
         }
     }
 
-    private void mockDifferLocationTable(String location) {
-        new MockUp<HMSExternalTable>() {
-            @Mock
-            public boolean isPartitionedTable() {
-                return false;
-            }
+    private void mockDifferLocationTable(HMSExternalTable tbl, String location) {
+        Mockito.doReturn(false).when(tbl).isPartitionedTable();
 
-            @Mock
-            public Set<String> getPartitionColumnNames() {
-                return new HashSet<String>() {{
-                        add("a");
-                        add("b");
-                    }
-                };
+        Mockito.doReturn(new HashSet<String>() {{
+                add("a");
+                add("b");
             }
+        }).when(tbl).getPartitionColumnNames();
 
-            @Mock
-            public List<Column> getColumns() {
-                Column a = new Column("a", PrimitiveType.INT);
-                Column b = new Column("b", PrimitiveType.INT);
-                return new ArrayList<Column>() {{
-                        add(a);
-                        add(b);
-                    }
-                };
+        Column a = new Column("a", PrimitiveType.INT);
+        Column b = new Column("b", PrimitiveType.INT);
+        Mockito.doReturn(new ArrayList<Column>() {{
+                add(a);
+                add(b);
             }
+        }).when(tbl).getColumns();
 
-            @Mock
-            public org.apache.hadoop.hive.metastore.api.Table getRemoteTable() {
-                Table table = new Table();
-                table.setSd(new StorageDescriptor() {{
-                        setInputFormat("orc");
-                        setBucketCols(new ArrayList<>());
-                        setNumBuckets(1);
-                        setSerdeInfo(new SerDeInfo() {{
-                                setParameters(new HashMap<>());
-                            }
-                        });
-                        setLocation(location);
+        Table table = new Table();
+        table.setSd(new StorageDescriptor() {{
+                setInputFormat("orc");
+                setBucketCols(new ArrayList<>());
+                setNumBuckets(1);
+                setSerdeInfo(new SerDeInfo() {{
+                        setParameters(new HashMap<>());
                     }
                 });
-                table.setParameters(new HashMap<String, String>() {{
-                        put("orc.compress", "lzo");
-                    }
-                });
-                return table;
+                setLocation(location);
             }
-        };
+        });
+        table.setParameters(new HashMap<String, String>() {{
+                put("orc.compress", "lzo");
+            }
+        });
+        Mockito.doReturn(table).when(tbl).getRemoteTable();
     }
 }

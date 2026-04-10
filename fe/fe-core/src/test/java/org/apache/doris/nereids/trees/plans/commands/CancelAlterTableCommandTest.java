@@ -19,61 +19,47 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.utframe.TestWithFeService;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
-public class CancelAlterTableCommandTest {
+public class CancelAlterTableCommandTest extends TestWithFeService {
     private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
-    @Mocked
-    private Env env;
-    @Mocked
     private ConnectContext connectContext;
-    @Mocked
+    private Env env;
     private AccessControllerManager accessControllerManager;
 
     private final String dbName = "test_db";
     private final String tblName = "test_tbl";
 
-    private void runBefore() {
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessControllerManager;
-
-                ConnectContext.get();
-                minTimes = 0;
-                result = connectContext;
-
-                connectContext.isSkipAuth();
-                minTimes = 0;
-                result = true;
-
-                accessControllerManager.checkTblPriv(connectContext, internalCtl, dbName, tblName, PrivPredicate.ALTER);
-                minTimes = 0;
-                result = true;
-            }
-        };
+    private void runBefore() throws IOException {
+        connectContext = createDefaultCtx();
+        env = Env.getCurrentEnv();
+        accessControllerManager = env.getAccessManager();
     }
 
     @Test
     public void testValidateNormal() throws Exception {
         runBefore();
+        connectContext.setSkipAuth(true);
+        AccessControllerManager spyAcm = Mockito.spy(accessControllerManager);
+        Mockito.doReturn(true).when(spyAcm).checkTblPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.anyString(),
+                Mockito.anyString(), Mockito.anyString(), Mockito.eq(PrivPredicate.ALTER));
+        Deencapsulation.setField(env, "accessManager", spyAcm);
+
         TableNameInfo tableNameInfo = new TableNameInfo(dbName, tblName);
         CancelAlterTableCommand.AlterType alterType = CancelAlterTableCommand.AlterType.COLUMN;
         List<Long> alterJobIdList = new ArrayList<>();

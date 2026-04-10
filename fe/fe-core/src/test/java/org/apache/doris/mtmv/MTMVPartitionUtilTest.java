@@ -31,11 +31,12 @@ import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import mockit.Expectations;
-import mockit.Mocked;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.List;
 import java.util.Map;
@@ -43,146 +44,91 @@ import java.util.Optional;
 import java.util.Set;
 
 public class MTMVPartitionUtilTest {
-    @Mocked
-    private MTMV mtmv;
-    @Mocked
-    private Partition p1;
-    @Mocked
-    private MTMVRelation relation;
-    @Mocked
-    private BaseTableInfo baseTableInfo;
-    @Mocked
-    private MTMVPartitionInfo mtmvPartitionInfo;
-    @Mocked
-    private OlapTable baseOlapTable;
-    @Mocked
-    private DatabaseIf databaseIf;
-    @Mocked
-    private CatalogIf catalogIf;
-    @Mocked
-    private MTMVSnapshotIf baseSnapshotIf;
-    @Mocked
-    private MTMVRefreshSnapshot refreshSnapshot;
-    @Mocked
-    private MTMVUtil mtmvUtil;
-    @Mocked
-    private MTMVRefreshContext context;
-    @Mocked
-    private MTMVBaseVersions versions;
+    private MTMV mtmv = Mockito.mock(MTMV.class);
+    private Partition p1 = Mockito.mock(Partition.class);
+    private MTMVRelation relation = Mockito.mock(MTMVRelation.class);
+    private BaseTableInfo baseTableInfo = Mockito.mock(BaseTableInfo.class);
+    private MTMVPartitionInfo mtmvPartitionInfo = Mockito.mock(MTMVPartitionInfo.class);
+    private OlapTable baseOlapTable = Mockito.mock(OlapTable.class);
+    private DatabaseIf databaseIf = Mockito.mock(DatabaseIf.class);
+    private CatalogIf catalogIf = Mockito.mock(CatalogIf.class);
+    private MTMVSnapshotIf baseSnapshotIf = Mockito.mock(MTMVSnapshotIf.class);
+    private MTMVRefreshSnapshot refreshSnapshot = Mockito.mock(MTMVRefreshSnapshot.class);
+    private MockedStatic<MTMVUtil> mtmvUtilStatic;
+    private MockedStatic<MTMVRefreshContext> refreshContextStatic;
+    private MTMVRefreshContext context = Mockito.mock(MTMVRefreshContext.class);
+    private MTMVBaseVersions versions = Mockito.mock(MTMVBaseVersions.class);
 
     private Set<BaseTableInfo> baseTables = Sets.newHashSet();
 
     @Before
     public void setUp() throws NoSuchMethodException, SecurityException, AnalysisException {
         baseTables.add(baseTableInfo);
-        new Expectations() {
-            {
-                mtmv.getRelation();
-                minTimes = 0;
-                result = relation;
 
-                context.getMtmv();
-                minTimes = 0;
-                result = mtmv;
+        mtmvUtilStatic = Mockito.mockStatic(MTMVUtil.class);
+        refreshContextStatic = Mockito.mockStatic(MTMVRefreshContext.class);
+        refreshContextStatic.when(() -> MTMVRefreshContext.buildContext(Mockito.any(MTMV.class))).thenReturn(context);
 
-                context.getPartitionMappings();
-                minTimes = 0;
-                result = Maps.newHashMap();
+        Mockito.when(mtmv.getRelation()).thenReturn(relation);
 
-                context.getBaseVersions();
-                minTimes = 0;
-                result = versions;
+        Mockito.when(context.getMtmv()).thenReturn(mtmv);
 
-                context.getBaseTableSnapshotCache();
-                minTimes = 0;
-                result = Maps.newHashMap();
+        Mockito.when(context.getPartitionMappings()).thenReturn(Maps.newHashMap());
 
-                mtmv.getPartitions();
-                minTimes = 0;
-                result = Lists.newArrayList(p1);
+        Mockito.when(context.getBaseVersions()).thenReturn(versions);
 
-                mtmv.getPartitionNames();
-                minTimes = 0;
-                result = Sets.newHashSet("name1");
+        Mockito.when(context.getBaseTableSnapshotCache()).thenReturn(Maps.newHashMap());
 
-                p1.getName();
-                minTimes = 0;
-                result = "name1";
+        Mockito.when(mtmv.getPartitions()).thenReturn(Lists.newArrayList(p1));
 
-                mtmv.getMvPartitionInfo();
-                minTimes = 0;
-                result = mtmvPartitionInfo;
+        Mockito.when(mtmv.getPartitionNames()).thenReturn(Sets.newHashSet("name1"));
 
-                mtmvPartitionInfo.getPartitionType();
-                minTimes = 0;
-                result = MTMVPartitionType.SELF_MANAGE;
+        Mockito.when(p1.getName()).thenReturn("name1");
 
-                mtmvUtil.getTable(baseTableInfo);
-                minTimes = 0;
-                result = baseOlapTable;
+        Mockito.when(mtmv.getMvPartitionInfo()).thenReturn(mtmvPartitionInfo);
 
-                baseOlapTable.needAutoRefresh();
-                minTimes = 0;
-                result = true;
+        Mockito.when(mtmvPartitionInfo.getPartitionType()).thenReturn(MTMVPartitionType.SELF_MANAGE);
 
-                baseOlapTable.getTableSnapshot((MTMVRefreshContext) any, (Optional) any);
-                minTimes = 0;
-                result = baseSnapshotIf;
+        mtmvUtilStatic.when(() -> MTMVUtil.getTable(Mockito.any(BaseTableInfo.class)))
+                .thenReturn(baseOlapTable);
 
-                mtmv.getRefreshSnapshot();
-                minTimes = 0;
-                result = refreshSnapshot;
+        Mockito.when(baseOlapTable.needAutoRefresh()).thenReturn(true);
 
-                refreshSnapshot.equalsWithBaseTable(anyString, (BaseTableInfo) any, (MTMVSnapshotIf) any);
-                minTimes = 0;
-                result = true;
+        Mockito.when(baseOlapTable.getTableSnapshot(Mockito.any(MTMVRefreshContext.class), Mockito.any(Optional.class)))
+                .thenReturn(baseSnapshotIf);
 
-                relation.getBaseTablesOneLevelAndFromView();
-                minTimes = 0;
-                result = baseTables;
+        Mockito.when(mtmv.getRefreshSnapshot()).thenReturn(refreshSnapshot);
 
-                baseOlapTable.needAutoRefresh();
-                minTimes = 0;
-                result = true;
+        Mockito.when(refreshSnapshot.equalsWithBaseTable(Mockito.anyString(), Mockito.any(BaseTableInfo.class), Mockito.any(MTMVSnapshotIf.class)))
+                .thenReturn(true);
 
-                baseOlapTable.getPartitionSnapshot(anyString, (MTMVRefreshContext) any, (Optional) any);
-                minTimes = 0;
-                result = baseSnapshotIf;
+        Mockito.when(relation.getBaseTablesOneLevelAndFromView()).thenReturn(baseTables);
 
-                refreshSnapshot.equalsWithPct(anyString, anyString, (MTMVSnapshotIf) any,
-                        (BaseTableInfo) any);
-                minTimes = 0;
-                result = true;
+        Mockito.when(baseOlapTable.getPartitionSnapshot(Mockito.anyString(), Mockito.any(MTMVRefreshContext.class), Mockito.any(Optional.class)))
+                .thenReturn(baseSnapshotIf);
 
-                refreshSnapshot.getPctSnapshots(anyString, (BaseTableInfo) any);
-                minTimes = 0;
-                result = Sets.newHashSet("name2");
+        Mockito.when(refreshSnapshot.equalsWithPct(Mockito.anyString(), Mockito.anyString(), Mockito.any(MTMVSnapshotIf.class),
+                Mockito.any(BaseTableInfo.class)))
+                .thenReturn(true);
 
-                baseOlapTable.getName();
-                minTimes = 0;
-                result = "t1";
+        Mockito.when(refreshSnapshot.getPctSnapshots(Mockito.anyString(), Mockito.any(BaseTableInfo.class)))
+                .thenReturn(Sets.newHashSet("name2"));
 
-                baseOlapTable.getDatabase();
-                minTimes = 0;
-                result = databaseIf;
+        Mockito.when(baseOlapTable.getName()).thenReturn("t1");
 
-                databaseIf.getFullName();
-                minTimes = 0;
-                result = "db1";
+        Mockito.when(baseOlapTable.getDatabase()).thenReturn(databaseIf);
 
-                databaseIf.getCatalog();
-                minTimes = 0;
-                result = catalogIf;
+        Mockito.when(databaseIf.getFullName()).thenReturn("db1");
 
-                databaseIf.getCatalog();
-                minTimes = 0;
-                result = catalogIf;
+        Mockito.when(databaseIf.getCatalog()).thenReturn(catalogIf);
 
-                catalogIf.getName();
-                minTimes = 0;
-                result = "ctl1";
-            }
-        };
+        Mockito.when(catalogIf.getName()).thenReturn("ctl1");
+    }
+
+    @After
+    public void tearDown() {
+        mtmvUtilStatic.close();
+        refreshContextStatic.close();
     }
 
     @Test
@@ -193,13 +139,8 @@ public class MTMVPartitionUtilTest {
 
     @Test
     public void testIsMTMVSyncNotSync() {
-        new Expectations() {
-            {
-                refreshSnapshot.equalsWithBaseTable(anyString, (BaseTableInfo) any, (MTMVSnapshotIf) any);
-                minTimes = 0;
-                result = false;
-            }
-        };
+        Mockito.when(refreshSnapshot.equalsWithBaseTable(Mockito.anyString(), Mockito.any(BaseTableInfo.class), Mockito.any(MTMVSnapshotIf.class)))
+                .thenReturn(false);
         boolean mtmvSync = MTMVPartitionUtil.isMTMVSync(mtmv);
         Assert.assertFalse(mtmvSync);
     }
@@ -213,13 +154,8 @@ public class MTMVPartitionUtilTest {
 
     @Test
     public void testIsSyncWithPartitionNotEqual() throws AnalysisException {
-        new Expectations() {
-            {
-                refreshSnapshot.getPctSnapshots(anyString, (BaseTableInfo) any);
-                minTimes = 0;
-                result = Sets.newHashSet("name2", "name3");
-            }
-        };
+        Mockito.when(refreshSnapshot.getPctSnapshots(Mockito.anyString(), Mockito.any(BaseTableInfo.class)))
+                .thenReturn(Sets.newHashSet("name2", "name3"));
         boolean isSyncWithPartition = MTMVPartitionUtil
                 .isSyncWithPartitions(context, "name1", Sets.newHashSet("name2"), baseOlapTable);
         Assert.assertFalse(isSyncWithPartition);
@@ -227,14 +163,9 @@ public class MTMVPartitionUtilTest {
 
     @Test
     public void testIsSyncWithPartitionNotSync() throws AnalysisException {
-        new Expectations() {
-            {
-                refreshSnapshot.equalsWithPct(anyString, anyString, (MTMVSnapshotIf) any,
-                        (BaseTableInfo) any);
-                minTimes = 0;
-                result = false;
-            }
-        };
+        Mockito.when(refreshSnapshot.equalsWithPct(Mockito.anyString(), Mockito.anyString(), Mockito.any(MTMVSnapshotIf.class),
+                Mockito.any(BaseTableInfo.class)))
+                .thenReturn(false);
         boolean isSyncWithPartition = MTMVPartitionUtil
                 .isSyncWithPartitions(context, "name1", Sets.newHashSet("name2"), baseOlapTable);
         Assert.assertFalse(isSyncWithPartition);
@@ -307,13 +238,7 @@ public class MTMVPartitionUtilTest {
     @Test
     public void testGetTableSnapshotFromContext() throws AnalysisException {
         Map<BaseTableInfo, MTMVSnapshotIf> cache = Maps.newHashMap();
-        new Expectations() {
-            {
-                context.getBaseTableSnapshotCache();
-                minTimes = 0;
-                result = cache;
-            }
-        };
+        Mockito.when(context.getBaseTableSnapshotCache()).thenReturn(cache);
         Assert.assertTrue(cache.isEmpty());
         MTMVPartitionUtil.getTableSnapshotFromContext(baseOlapTable, context);
         Assert.assertEquals(1, cache.size());

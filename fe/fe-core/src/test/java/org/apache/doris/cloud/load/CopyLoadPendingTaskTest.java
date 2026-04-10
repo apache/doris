@@ -37,11 +37,10 @@ import org.apache.doris.utframe.TestWithFeService;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import com.google.common.collect.Lists;
-import mockit.Expectations;
-import mockit.Mock;
-import mockit.MockUp;
 import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.io.IOException;
 import java.nio.file.FileSystems;
@@ -64,6 +63,8 @@ public class CopyLoadPendingTaskTest extends TestWithFeService {
     // In-memory file store served by MockObjFileSystem
     private Map<String, RemoteObject> objectStore = new LinkedHashMap<>();
     MockInternalCatalog mockInternalCatalog = new MockInternalCatalog();
+    private MockedStatic<FileSystemFactory> mockedFileSystemFactory;
+    private MockedStatic<Env> mockedEnvStatic;
 
     private class MockInternalCatalog extends CloudInternalCatalog {
         @Override
@@ -152,15 +153,36 @@ public class CopyLoadPendingTaskTest extends TestWithFeService {
         FeConstants.runningUnitTest = true;
     }
 
-    /** Registers a MockUp on FileSystemFactory to serve requests from the test's objectStore. */
+    @Override
+    protected void runBeforeEach() throws Exception {
+        closeMocks();
+    }
+
+    @Override
+    protected void runAfterAll() throws Exception {
+        closeMocks();
+    }
+
+    private void closeMocks() {
+        if (mockedFileSystemFactory != null) {
+            mockedFileSystemFactory.close();
+            mockedFileSystemFactory = null;
+        }
+        if (mockedEnvStatic != null) {
+            mockedEnvStatic.close();
+            mockedEnvStatic = null;
+        }
+    }
+
+    /** Registers a mock on FileSystemFactory to serve requests from the test's objectStore. */
     private void setupObjFsMock() {
         MockObjFileSystem mockObjFs = new MockObjFileSystem();
-        new MockUp<FileSystemFactory>() {
-            @Mock
-            public org.apache.doris.filesystem.FileSystem getFileSystem(StorageProperties sp) throws IOException {
-                return mockObjFs;
-            }
-        };
+        if (mockedFileSystemFactory != null) {
+            mockedFileSystemFactory.close();
+        }
+        mockedFileSystemFactory = Mockito.mockStatic(FileSystemFactory.class);
+        mockedFileSystemFactory.when(() -> FileSystemFactory.getFileSystem(Mockito.any(StorageProperties.class)))
+                .thenReturn(mockObjFs);
     }
 
     @Test
@@ -212,13 +234,7 @@ public class CopyLoadPendingTaskTest extends TestWithFeService {
             }
         }
         setupObjFsMock();
-        new Expectations(ctx.getEnv(), ctx.getEnv().getInternalCatalog()) {
-            {
-                Env.getCurrentInternalCatalog();
-                minTimes = 0;
-                result = mockInternalCatalog;
-            }
-        };
+        setupEnvMock();
 
         String stageId = "1";
         long tableId = 100;
@@ -310,15 +326,24 @@ public class CopyLoadPendingTaskTest extends TestWithFeService {
         }
     }
 
-    /** Registers a paginating MockUp on FileSystemFactory with the given page size. */
+    /** Registers a paginating mock on FileSystemFactory with the given page size. */
     private void setupPaginatingObjFsMock(int pageSize) {
         PaginatingMockObjFileSystem mockObjFs = new PaginatingMockObjFileSystem(pageSize);
-        new MockUp<FileSystemFactory>() {
-            @Mock
-            public org.apache.doris.filesystem.FileSystem getFileSystem(StorageProperties sp) throws IOException {
-                return mockObjFs;
-            }
-        };
+        if (mockedFileSystemFactory != null) {
+            mockedFileSystemFactory.close();
+        }
+        mockedFileSystemFactory = Mockito.mockStatic(FileSystemFactory.class);
+        mockedFileSystemFactory.when(() -> FileSystemFactory.getFileSystem(Mockito.any(StorageProperties.class)))
+                .thenReturn(mockObjFs);
+    }
+
+    /** Sets up a MockedStatic for Env to return the mock internal catalog. */
+    private void setupEnvMock() {
+        if (mockedEnvStatic != null) {
+            mockedEnvStatic.close();
+        }
+        mockedEnvStatic = Mockito.mockStatic(Env.class, Mockito.CALLS_REAL_METHODS);
+        mockedEnvStatic.when(Env::getCurrentInternalCatalog).thenReturn(mockInternalCatalog);
     }
 
     @Test
@@ -340,13 +365,7 @@ public class CopyLoadPendingTaskTest extends TestWithFeService {
         }
         // Use paginating mock with page size 3 to force multiple continuation token rounds
         setupPaginatingObjFsMock(3);
-        new Expectations(ctx.getEnv(), ctx.getEnv().getInternalCatalog()) {
-            {
-                Env.getCurrentInternalCatalog();
-                minTimes = 0;
-                result = mockInternalCatalog;
-            }
-        };
+        setupEnvMock();
 
         String stageId = "1";
         long tableId = 100;
@@ -392,13 +411,7 @@ public class CopyLoadPendingTaskTest extends TestWithFeService {
             objectStore.put(objectFile.getKey(), objectFile);
         }
         setupObjFsMock();
-        new Expectations(ctx.getEnv(), ctx.getEnv().getInternalCatalog()) {
-            {
-                Env.getCurrentInternalCatalog();
-                minTimes = 0;
-                result = mockInternalCatalog;
-            }
-        };
+        setupEnvMock();
 
         String stageId = "1";
         long tableId = 300;
