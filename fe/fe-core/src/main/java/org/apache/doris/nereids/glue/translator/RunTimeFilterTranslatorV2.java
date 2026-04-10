@@ -22,6 +22,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.nereids.processor.post.runtimefilterv2.RuntimeFilterV2;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.planner.CTEScanNode;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.planner.RuntimeFilter.RuntimeFilterTarget;
@@ -93,13 +94,25 @@ public class RunTimeFilterTranslatorV2 {
         Expr srcExpr = ExpressionTranslator.translate(head.getSourceExpression(), ctx);
 
         List<RuntimeFilterTarget> targets = new ArrayList<>();
+        // Compute locality once for the whole group: if any target is in a different fragment
+        // or is a CTE scan, mark all targets as remote. BE requires has_remote_targets and
+        // has_local_targets to never both be true for the same RuntimeFilter.
+        boolean isLocalTarget = true;
+        for (RuntimeFilterV2 filter : filters) {
+            PlanNode targetNode = filter.getLegacyTargetNode();
+            if (targetNode instanceof CTEScanNode
+                    || !targetNode.getFragmentId().equals(sourceNode.getFragmentId())) {
+                isLocalTarget = false;
+                break;
+            }
+        }
         for (RuntimeFilterV2 filter : filters) {
             Expr targetExpr = filter.getLegacyTargetExpr();
             if (!srcExpr.getType().equals(targetExpr.getType())) {
                 targetExpr = new CastExpr(srcExpr.getType(), targetExpr, Cast.castNullable(srcExpr.isNullable(),
                         DataType.fromCatalogType(srcExpr.getType()), DataType.fromCatalogType(targetExpr.getType())));
             }
-            targets.add(new RuntimeFilterTarget(filter.getLegacyTargetNode(), targetExpr));
+            targets.add(new RuntimeFilterTarget(filter.getLegacyTargetNode(), targetExpr, true, isLocalTarget));
         }
 
         RuntimeFilter legacyFilter = new RuntimeFilter(
