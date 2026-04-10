@@ -56,7 +56,7 @@ jobs:
           separator: "\n"
 
       - name: Generate incremental licenserc
-        if: github.event_name == 'pull_request_target'
+        if: github.event_name == 'pull_request_target' && steps.changed-files.outputs.all_changed_files != ''
         env:
           CHANGED_FILES: ${{ steps.changed-files.outputs.all_changed_files }}
         run: |
@@ -76,6 +76,7 @@ jobs:
           EOF
 
       - name: Check License
+        if: github.event_name != 'pull_request_target' || steps.changed-files.outputs.all_changed_files != ''
         uses: apache/skywalking-eyes@v0.8.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
