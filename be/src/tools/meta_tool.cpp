@@ -58,14 +58,6 @@
 #include "storage/tablet/tablet_schema.h"
 #include "storage/types.h"
 #include "util/coding.h"
-#include "vec/columns/column.h"
-#include "vec/columns/column_nullable.h"
-#include "vec/columns/column_string.h"
-#include "vec/columns/column_vector.h"
-#include "vec/common/assert_cast.h"
-#include "vec/core/field.h"
-#include "vec/core/types.h"
-#include "vec/data_types/data_type_factory.hpp"
 
 using doris::DataDir;
 using doris::StorageEngine;
@@ -442,9 +434,8 @@ std::string get_compression_string(doris::segment_v2::CompressionTypePB compress
 }
 
 // Helper function to format a single value from a column
-std::string format_column_value(const doris::vectorized::IColumn& column, size_t row,
+std::string format_column_value(const doris::IColumn& column, size_t row,
                                 doris::FieldType field_type) {
-    using namespace doris::vectorized;
     using namespace doris;
 
     try {
@@ -564,7 +555,6 @@ void print_column_data_values(const doris::segment_v2::ColumnMetaPB& column_meta
                               const FileReaderSPtr& file_reader, uint64_t num_segment_rows,
                               int indent_level) {
     using namespace doris::segment_v2;
-    using namespace doris::vectorized;
 
     std::string indent(indent_level * 2, ' ');
 
@@ -634,7 +624,7 @@ void print_column_data_values(const doris::segment_v2::ColumnMetaPB& column_meta
     }
 
     // Create destination column for reading data
-    auto data_type = doris::vectorized::DataTypeFactory::instance().create_data_type(column_meta);
+    auto data_type = doris::DataTypeFactory::instance().create_data_type(column_meta);
     if (!data_type) {
         std::cout << indent << "(Failed to create data type for field type "
                   << static_cast<int>(field_type) << ")" << std::endl;
@@ -774,12 +764,11 @@ void print_column_meta(const doris::segment_v2::ColumnMetaPB& column_meta,
 }
 
 // Register hijacked accessors
-ACCESS_PRIVATE_FIELD(ExecEnv_encoding_info_resolver, ExecEnv, EncodingInfoResolver,
-                     _encoding_info_resolver);
-ACCESS_PRIVATE_FIELD(ExecEnv_orphan_mem_tracker, ExecEnv, EncodingInfoResolver,
+ACCESS_PRIVATE_FIELD(ExecEnv_encoding_info_resolver, ExecEnv,
+                     doris::segment_v2::EncodingInfoResolver*, _encoding_info_resolver);
+ACCESS_PRIVATE_FIELD(ExecEnv_orphan_mem_tracker, ExecEnv, std::shared_ptr<doris::MemTrackerLimiter>,
                      _orphan_mem_tracker);
-ACCESS_PRIVATE_STATIC_FIELD(ExecEnv_tracking_memory, ExecEnv, EncodingInfoResolver,
-                            _s_tracking_memory);
+ACCESS_PRIVATE_STATIC_FIELD(ExecEnv_tracking_memory, ExecEnv, std::atomic_bool, _s_tracking_memory);
 
 void show_segment_data(const std::string& file_name) {
     // Initialize ExecEnv components needed for ColumnReader
@@ -797,7 +786,7 @@ void show_segment_data(const std::string& file_name) {
     if (exec_env->mem_tracker_limiter_pool.empty()) {
         exec_env->mem_tracker_limiter_pool.resize(doris::MEM_TRACKER_GROUP_NUM,
                                                   doris::TrackerLimiterGroup());
-        tracking->store(true, std::memory_order_release);
+        tracking_memory->store(true, std::memory_order_release);
         exec_env.*mem_tracker = doris::MemTrackerLimiter::create_shared(
                 doris::MemTrackerLimiter::Type::GLOBAL, "Orphan");
     }
