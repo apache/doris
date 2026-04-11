@@ -19,7 +19,8 @@
 # Shared JuiceFS helper functions used by build and docker scripts.
 
 JUICEFS_DEFAULT_VERSION="${JUICEFS_DEFAULT_VERSION:-1.3.1}"
-JUICEFS_HADOOP_MAVEN_REPO="${JUICEFS_HADOOP_MAVEN_REPO:-https://repo1.maven.org/maven2/io/juicefs/juicefs-hadoop}"
+MAVEN_REPOSITORY_URL="${MAVEN_REPOSITORY_URL:-https://repo1.maven.org/maven2}"
+JUICEFS_HADOOP_MAVEN_REPO="${JUICEFS_HADOOP_MAVEN_REPO:-${MAVEN_REPOSITORY_URL}/io/juicefs/juicefs-hadoop}"
 
 juicefs_find_hadoop_jar_by_globs() {
     local jar_glob=""
