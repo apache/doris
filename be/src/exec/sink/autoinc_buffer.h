@@ -25,7 +25,6 @@
 #include "util/threadpool.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class VOlapTableSink;
 class OlapTableBlockConvertor;
@@ -149,4 +148,3 @@ private:
 };
 
 } // namespace doris
-#include "common/compile_check_end.h"

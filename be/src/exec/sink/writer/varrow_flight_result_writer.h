@@ -24,7 +24,6 @@
 #include "runtime/runtime_profile.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeState;
 class PFetchArrowDataResult;
 
@@ -119,5 +118,3 @@ private:
     uint64_t _bytes_sent = 0;
 };
 } // namespace doris
-
-#include "common/compile_check_end.h"

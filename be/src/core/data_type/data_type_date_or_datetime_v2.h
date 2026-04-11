@@ -45,7 +45,6 @@ class IColumn;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 /**
  * Use UInt32 as underlying type to represent DateV2 type.
  * Specifically, a dateV2 type is represented as (YYYY (23 bits), MM (4 bits), dd (5 bits)).
@@ -167,5 +166,4 @@ template <typename DataType>
 constexpr bool IsDataTypeDateTimeV2 = false;
 template <>
 inline constexpr bool IsDataTypeDateTimeV2<DataTypeDateTimeV2> = true;
-#include "common/compile_check_end.h"
 } // namespace doris

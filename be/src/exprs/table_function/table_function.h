@@ -27,7 +27,6 @@
 #include "exprs/vexpr_context.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 constexpr auto COMBINATOR_SUFFIX_OUTER = "_outer";
 
@@ -119,5 +118,4 @@ protected:
     bool _is_const = false;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

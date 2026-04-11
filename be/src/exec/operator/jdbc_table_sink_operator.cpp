@@ -25,7 +25,6 @@
 #include "exprs/vexpr_context.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 JdbcTableSinkOperatorX::JdbcTableSinkOperatorX(const RowDescriptor& row_desc, int operator_id,
                                                const std::vector<TExpr>& t_output_expr)
         : DataSinkOperatorX(operator_id, std::numeric_limits<int>::max(),

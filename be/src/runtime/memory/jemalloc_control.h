@@ -31,7 +31,6 @@
 #endif
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class JemallocControl {
 public:
@@ -132,5 +131,4 @@ private:
     static std::atomic<int64_t> je_virtual_memory_used_;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

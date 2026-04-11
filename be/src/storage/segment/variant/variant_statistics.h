@@ -25,8 +25,6 @@
 
 namespace doris::segment_v2 {
 
-#include "common/compile_check_begin.h"
-
 struct VariantStatistics {
     std::map<std::string, int64_t> subcolumns_non_null_size;
     std::map<std::string, uint32_t> sparse_column_non_null_size;
@@ -96,6 +94,5 @@ struct VariantStatistics {
         return has_prefix_path_in_doc_value_column(dot_prefix);
     }
 };
-#include "common/compile_check_end.h"
 
 } // namespace doris::segment_v2

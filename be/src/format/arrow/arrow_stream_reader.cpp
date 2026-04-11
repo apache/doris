@@ -34,7 +34,6 @@
 #include "runtime/runtime_state.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeProfile;
 } // namespace doris
 
@@ -134,5 +133,4 @@ Status ArrowStreamReader::get_columns(std::unordered_map<std::string, DataTypePt
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

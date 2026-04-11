@@ -37,7 +37,6 @@
 #include "storage/tablet/tablet_schema.h"
 
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 class AnnIndexColumnWriter : public IndexColumnWriter {
 public:
     static inline int64_t chunk_size() {
@@ -87,5 +86,4 @@ private:
     std::shared_ptr<DorisFSDirectory> _dir;
     bool _need_save_index = false;
 };
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

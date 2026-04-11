@@ -127,7 +127,6 @@
 #include "util/uid_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 PipelineFragmentContext::PipelineFragmentContext(
         TUniqueId query_id, const TPipelineFragmentParams& request,
         std::shared_ptr<QueryContext> query_ctx, ExecEnv* exec_env,
@@ -2175,5 +2174,4 @@ void PipelineFragmentContext::_release_resource() {
     _op_id_to_shared_state.clear();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

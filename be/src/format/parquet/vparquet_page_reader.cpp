@@ -40,7 +40,6 @@ struct IOContext;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 static constexpr size_t INIT_PAGE_HEADER_SIZE = 128;
 
 void ParquetPageCacheKeyBuilder::init(const std::string& path, int64_t mtime) {
@@ -217,6 +216,5 @@ template class PageReader<true, true>;
 template class PageReader<true, false>;
 template class PageReader<false, true>;
 template class PageReader<false, false>;
-#include "common/compile_check_end.h"
 
 } // namespace doris

@@ -20,7 +20,6 @@
 #include "runtime/runtime_profile.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 /**
  * Support Iceberg equality delete.
@@ -115,5 +114,4 @@ public:
                              IColumn::Filter& filter) override;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

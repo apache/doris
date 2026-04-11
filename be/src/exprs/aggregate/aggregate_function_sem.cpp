@@ -23,7 +23,6 @@
 #include "exprs/aggregate/helpers.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 using AggregateFuncSem = AggregateFunctionSem<AggregateFunctionSemData>;
 
@@ -37,5 +36,4 @@ void register_aggregate_function_sem(AggregateFunctionSimpleFactory& factory) {
     factory.register_function_both("sem", creator);
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

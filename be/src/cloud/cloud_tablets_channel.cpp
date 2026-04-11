@@ -27,7 +27,6 @@
 #include "load/delta_writer/delta_writer.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 CloudTabletsChannel::CloudTabletsChannel(CloudStorageEngine& engine, const TabletsChannelKey& key,
                                          const UniqueId& load_id, bool is_high_priority,
@@ -277,5 +276,4 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

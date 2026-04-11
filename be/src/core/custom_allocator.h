@@ -24,7 +24,6 @@
 #include "core/allocator_fwd.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 template <class T, typename MemoryAllocator = Allocator<false>>
 class CustomStdAllocator;
@@ -165,5 +164,4 @@ bool operator!=(const CustomStdAllocator<T>&, const CustomStdAllocator<Up>&) {
     return false;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

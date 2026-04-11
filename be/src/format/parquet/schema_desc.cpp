@@ -35,7 +35,6 @@
 #include "util/string_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 static bool is_group_node(const tparquet::SchemaElement& schema) {
     return schema.num_children > 0;
@@ -712,7 +711,5 @@ void FieldSchema::set_column_id(uint64_t id) {
 uint64_t FieldSchema::get_max_column_id() const {
     return max_column_id;
 }
-
-#include "common/compile_check_end.h"
 
 } // namespace doris

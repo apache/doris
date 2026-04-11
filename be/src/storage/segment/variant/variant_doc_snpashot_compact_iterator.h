@@ -17,7 +17,6 @@
 
 namespace doris::segment_v2 {
 
-#include "common/compile_check_begin.h"
 #include "core/column/column_variant.h"
 #include "storage/segment/column_reader.h"
 
@@ -65,7 +64,5 @@ private:
 
     ColumnIteratorUPtr _doc_value_iterator;
 };
-
-#include "common/compile_check_end.h"
 
 } // namespace doris::segment_v2

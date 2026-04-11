@@ -42,7 +42,6 @@
 #include "util/stopwatch.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 bvar::Adder<int64_t> g_memtable_cnt("memtable_cnt");
 bvar::Adder<uint64_t> g_flush_cuz_memtable_full("flush_cuz_memtable_full");
@@ -781,5 +780,4 @@ Status MemTable::to_block(std::unique_ptr<Block>* res) {
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

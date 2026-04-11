@@ -23,7 +23,6 @@
 #include "util/client_cache.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 /*
  * Multiple scanners within a scan node share a split source.
@@ -172,5 +171,4 @@ public:
     }
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

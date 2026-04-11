@@ -41,7 +41,6 @@
 #include "util/unaligned.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 #define ROTL(x, b) static_cast<UInt64>(((x) << (b)) | ((x) >> (64 - (b))))
 
 #define SIPROUND           \
@@ -217,5 +216,4 @@ inline void sip_hash128(const char* data, const size_t size, char* out) {
     hash.update(data, size);
     hash.get128(out);
 }
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -18,7 +18,6 @@
 #include "storage/index/inverted/query/query_helper.h"
 
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 
 void QueryHelper::collect(const IndexQueryContextPtr& context,
                           const std::vector<SimilarityPtr>& similarities,
@@ -103,5 +102,4 @@ std::vector<TermInfo> QueryHelper::build_phrase_term_infos(const std::vector<Ter
     return dst;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

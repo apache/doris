@@ -37,7 +37,6 @@
 
 namespace doris {
 #include "common/compile_check_avoid_begin.h"
-#include "common/compile_check_begin.h"
 
 bvar::Adder<uint64_t> g_file_cache_get_by_peer_num("file_cache_get_by_peer_num");
 bvar::Adder<uint64_t> g_file_cache_get_by_peer_blocks_num("file_cache_get_by_peer_blocks_num");
@@ -346,8 +345,6 @@ void CloudInternalServiceImpl::fetch_peer_data(google::protobuf::RpcController* 
                      << _heavy_work_pool.get_info();
     }
 }
-
-#include "common/compile_check_end.h"
 
 bvar::Adder<uint64_t> g_file_cache_event_driven_warm_up_submitted_segment_num(
         "file_cache_event_driven_warm_up_submitted_segment_num");

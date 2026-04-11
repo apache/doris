@@ -51,8 +51,6 @@
 namespace doris {
 using namespace ErrorCode;
 
-#include "common/compile_check_begin.h"
-
 #define RETURN_IF_NOT_EOF_AND_OK(stmt)                                 \
     do {                                                               \
         const Status& _status_ = (stmt);                               \
@@ -953,5 +951,4 @@ Status VCollectIterator::Level1Iterator::current_block_row_locations(
     }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -20,7 +20,6 @@
 #include "exec/sort/sorter.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class HeapSorter final : public Sorter {
     ENABLE_FACTORY_CREATOR(HeapSorter);
@@ -61,5 +60,4 @@ private:
     RuntimeProfile::Counter* _topn_filter_rows_counter = nullptr;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

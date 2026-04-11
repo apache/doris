@@ -66,7 +66,6 @@ class ColumnIterator;
 struct AnnRangeSearchRuntime;
 }; // namespace segment_v2
 
-#include "common/compile_check_begin.h"
 #define RETURN_IF_ERROR_OR_PREPARED(stmt) \
     if (_prepared) {                      \
         return Status::OK();              \
@@ -640,5 +639,4 @@ TExprNode create_texpr_node_from(const void* data, const PrimitiveType& type, in
 TExprNode create_texpr_node_from(const Field& field, const PrimitiveType& type, int precision,
                                  int scale);
 
-#include "common/compile_check_end.h"
 } // namespace doris

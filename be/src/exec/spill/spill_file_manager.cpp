@@ -36,7 +36,6 @@
 #include "util/time.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 SpillFileManager::~SpillFileManager() {
     DorisMetrics::instance()->metric_registry()->deregister_entity(_entity);

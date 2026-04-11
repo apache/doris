@@ -23,7 +23,6 @@
 #include "exec/operator/operator.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeState;
 
 class MaterializationOperator;
@@ -125,5 +124,4 @@ private:
     VExprContextSPtrs _rowid_exprs;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

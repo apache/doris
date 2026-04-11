@@ -26,7 +26,6 @@
 #include "exprs/aggregate/helpers.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 // Defined in separate translation units to reduce per-file template instantiation cost:
 //   aggregate_function_window_lag.cpp

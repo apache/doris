@@ -63,7 +63,6 @@ enum class FileCachePolicy : uint8_t;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 void EncloseCsvTextFieldSplitter::do_split(const Slice& line, std::vector<Slice>* splitted_values) {
     const char* data = line.data;
@@ -855,5 +854,4 @@ Status CsvReader::close() {
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

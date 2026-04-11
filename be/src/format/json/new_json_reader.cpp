@@ -73,7 +73,6 @@ enum class FileCachePolicy : uint8_t;
 } // namespace doris::io
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 NewJsonReader::NewJsonReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
@@ -1591,5 +1590,4 @@ void NewJsonReader::_collect_profile_before_close() {
     }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -35,7 +35,6 @@
 #include "service/http/http_headers.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 struct AIResource {
     AIResource() = default;
@@ -1178,5 +1177,4 @@ public:
     }
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

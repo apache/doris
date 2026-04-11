@@ -31,7 +31,6 @@ class Block;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 const std::string PaimonJniReader::PAIMON_OPTION_PREFIX = "paimon.";
 const std::string PaimonJniReader::HADOOP_OPTION_PREFIX = "hadoop.";
@@ -124,5 +123,4 @@ Status PaimonJniReader::get_next_block(Block* block, size_t* read_rows, bool* eo
 Status PaimonJniReader::init_reader() {
     return open(_state, _profile);
 }
-#include "common/compile_check_end.h"
 } // namespace doris

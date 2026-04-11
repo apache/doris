@@ -26,7 +26,6 @@
 #include "exprs/aggregate/helpers.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 template <template <typename> class Function, typename Name,
           template <PrimitiveType, typename, bool> class Data, bool is_stddev>

@@ -20,7 +20,6 @@
 #include "glog/logging.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 // A static piece of memory for 0-size allocations, so as to return
 // an aligned non-null pointer.  Note the correct value for DebugAllocator
 // checks is hardcoded.
@@ -70,6 +69,5 @@ void ArrowAllocator::deallocate_aligned(uint8_t* ptr, int64_t size, int64_t alig
 void ArrowAllocator::release_unused() {
     _allocator.release_unused();
 }
-#include "common/compile_check_end.h"
 
 } // namespace doris

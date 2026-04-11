@@ -31,7 +31,6 @@
 #include "runtime/runtime_profile.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 // VSortedRunMerger is used to merge multiple sorted runs of blocks. A run is a sorted
 // sequence of blocks, which are fetched from a BlockSupplier function object.
@@ -97,5 +96,3 @@ private:
 };
 
 } // namespace doris
-
-#include "common/compile_check_end.h"

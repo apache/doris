@@ -41,7 +41,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
 class Random : public IFunction {
 public:
     static constexpr auto name = "random";
@@ -164,5 +163,4 @@ void register_function_random(SimpleFunctionFactory& factory) {
     factory.register_function<Random>();
     factory.register_alias(Random::name, "rand");
 }
-#include "common/compile_check_end.h"
 } // namespace doris

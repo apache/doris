@@ -21,7 +21,6 @@
 #include "exprs/vliteral.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 std::string filter_type_to_string(RuntimeFilterType type) {
     switch (type) {
     case RuntimeFilterType::IN_FILTER: {

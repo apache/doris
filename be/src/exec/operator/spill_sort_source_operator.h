@@ -25,7 +25,6 @@
 #include "exec/spill/spill_file_reader.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class ExecNode;
 class RuntimeState;
 
@@ -91,5 +90,4 @@ private:
 
     std::unique_ptr<SortSourceOperatorX> _sort_source_operator;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

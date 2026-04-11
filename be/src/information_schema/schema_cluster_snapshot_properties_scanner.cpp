@@ -28,7 +28,6 @@
 #include "storage/storage_engine.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeState;
 class Block;
 
@@ -95,5 +94,4 @@ Status SchemaClusterSnapshotPropertiesScanner::_fill_block_impl(Block* block) {
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

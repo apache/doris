@@ -57,7 +57,6 @@ class RuntimeState;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState* state,
                            std::shared_ptr<PipelineFragmentContext> fragment_context,
@@ -1095,5 +1094,4 @@ Status PipelineTask::_state_transition(State new_state) {
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

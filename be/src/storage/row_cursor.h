@@ -34,7 +34,6 @@
 #include "storage/tablet/tablet_schema.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class StorageField;
 
 // Delegate the operation of a row of data.
@@ -114,5 +113,4 @@ private:
     std::unique_ptr<Schema> _schema;
     std::vector<Field> _fields;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

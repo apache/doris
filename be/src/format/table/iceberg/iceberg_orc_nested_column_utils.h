@@ -28,7 +28,6 @@ class Type;
 } // namespace orc
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class IcebergOrcNestedColumnUtils {
 public:
@@ -40,5 +39,4 @@ private:
     static constexpr const char* ICEBERG_ORC_ATTRIBUTE = "iceberg.id";
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

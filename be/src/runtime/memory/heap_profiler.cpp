@@ -25,7 +25,6 @@
 #include "io/fs/local_file_system.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 void HeapProfiler::set_prof_active(bool prof) {
 #ifdef USE_JEMALLOC
@@ -155,5 +154,4 @@ bool HeapProfiler::heap_profiler_reset(size_t lg_sample) {
     return true;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

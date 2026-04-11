@@ -18,7 +18,6 @@
 #include "exec/scan/task_executor/time_sharing/time_sharing_task_handle.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 TimeSharingTaskHandle::TimeSharingTaskHandle(
         const TaskId& task_id, std::shared_ptr<SplitQueue> split_queue,

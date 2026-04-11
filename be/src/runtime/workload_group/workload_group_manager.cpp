@@ -41,8 +41,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
-
 const static std::string INTERNAL_NORMAL_WG_NAME = "normal";
 const static uint64_t INTERNAL_NORMAL_WG_ID = 1;
 
@@ -957,7 +955,5 @@ Status WorkloadGroupMgr::create_internal_wg() {
 
     return Status::OK();
 }
-
-#include "common/compile_check_end.h"
 
 } // namespace doris

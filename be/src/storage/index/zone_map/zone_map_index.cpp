@@ -42,7 +42,6 @@
 #include "util/unaligned.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 struct uint24_t;
 
 namespace segment_v2 {
@@ -356,5 +355,4 @@ Status ZoneMapIndexWriter::create(DataTypePtr data_type, StorageField* field,
     }
 }
 } // namespace segment_v2
-#include "common/compile_check_end.h"
 } // namespace doris

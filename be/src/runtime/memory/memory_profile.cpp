@@ -29,7 +29,6 @@
 #include "util/mem_info.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 static bvar::Adder<int64_t> memory_all_tracked_sum_bytes("memory_all_tracked_sum_bytes");
 static bvar::Adder<int64_t> memory_global_trackers_sum_bytes("memory_global_trackers_sum_bytes");
@@ -375,5 +374,4 @@ void MemoryProfile::print_log_process_usage() {
     }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

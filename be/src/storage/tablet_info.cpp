@@ -59,7 +59,6 @@
 #include "exprs/vliteral.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 void OlapTableIndexSchema::to_protobuf(POlapTableIndexSchema* pindex) const {
     pindex->set_id(index_id);
@@ -911,6 +910,5 @@ Status VOlapTablePartitionParam::replace_partitions(
 
     return Status::OK();
 }
-#include "common/compile_check_end.h"
 
 } // namespace doris

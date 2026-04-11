@@ -56,8 +56,6 @@ class Block;
 class PathInData;
 class IDataType;
 
-#include "common/compile_check_begin.h"
-
 struct OlapTableIndexSchema;
 class TColumn;
 class TOlapTableIndex;
@@ -860,5 +858,4 @@ bool operator!=(const TabletSchema& a, const TabletSchema& b);
 
 using TabletSchemaSPtr = std::shared_ptr<TabletSchema>;
 
-#include "common/compile_check_end.h"
 } // namespace doris

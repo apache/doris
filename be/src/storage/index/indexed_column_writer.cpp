@@ -38,7 +38,6 @@
 
 namespace doris {
 namespace segment_v2 {
-#include "common/compile_check_begin.h"
 
 IndexedColumnWriter::IndexedColumnWriter(const IndexedColumnWriterOptions& options,
                                          const TypeInfo* type_info, io::FileWriter* file_writer)
@@ -195,6 +194,5 @@ Status IndexedColumnWriter::_flush_index(IndexPageBuilder* index_builder, BTreeM
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace segment_v2
 } // namespace doris

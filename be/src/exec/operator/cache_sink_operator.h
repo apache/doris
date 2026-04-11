@@ -26,7 +26,6 @@
 #include "exec/operator/operator.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeState;
 
 class DataQueue;
@@ -70,5 +69,4 @@ public:
     }
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

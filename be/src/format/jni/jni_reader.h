@@ -34,7 +34,6 @@
 #include "util/string_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeProfile;
 class RuntimeState;
 class SlotDescriptor;
@@ -202,5 +201,4 @@ public:
     Status init_reader();
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

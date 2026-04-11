@@ -40,7 +40,6 @@ class TExprNode;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class VExprContext;
 
@@ -126,5 +125,4 @@ uint64_t VBloomPredicate::get_digest(uint64_t seed) const {
     return 0;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

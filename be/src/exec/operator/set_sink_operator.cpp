@@ -24,7 +24,6 @@
 #include "exec/operator/operator.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 template <bool is_intersect>
 Status SetSinkLocalState<is_intersect>::terminate(RuntimeState* state) {

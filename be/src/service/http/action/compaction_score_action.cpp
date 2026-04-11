@@ -52,7 +52,6 @@
 #include "util/stopwatch.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 const std::string TOP_N = "top_n";
 const std::string SYNC_META = "sync_meta";
@@ -235,5 +234,4 @@ Status CompactionScoreAction::_handle(size_t top_n, bool sync_meta, std::string*
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

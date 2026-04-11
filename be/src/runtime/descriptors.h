@@ -48,7 +48,6 @@ class RepeatedField;
 } // namespace google::protobuf
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class ObjectPool;
 class PTupleDescriptor;
 class PSlotDescriptor;
@@ -531,5 +530,4 @@ private:
     int _num_materialized_slots = 0;
     int _num_slots = 0;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

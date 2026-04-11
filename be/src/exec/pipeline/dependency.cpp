@@ -30,7 +30,6 @@
 #include "runtime/exec_env.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 Dependency* BasicSharedState::create_source_dependency(int operator_id, int node_id,
                                                        const std::string& name) {

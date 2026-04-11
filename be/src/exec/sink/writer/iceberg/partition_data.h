@@ -20,7 +20,6 @@
 #include "format/table/iceberg/struct_like.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class IcebergPartitionData : public iceberg::StructLike {
 public:
@@ -39,4 +38,3 @@ private:
 };
 
 } // namespace doris
-#include "common/compile_check_end.h"

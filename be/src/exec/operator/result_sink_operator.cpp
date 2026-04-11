@@ -35,7 +35,6 @@
 #include "runtime/result_buffer_mgr.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 Status ResultSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
@@ -215,5 +214,4 @@ Status ResultSinkLocalState::close(RuntimeState* state, Status exec_status) {
     return final_status;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

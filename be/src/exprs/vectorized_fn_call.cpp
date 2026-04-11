@@ -71,7 +71,6 @@ class TExprNode;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 const std::string AGG_STATE_SUFFIX = "_state";
 
@@ -713,5 +712,4 @@ double VectorizedFnCall::execute_cost() const {
     return cost;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

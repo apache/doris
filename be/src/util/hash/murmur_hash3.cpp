@@ -30,7 +30,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
 #if defined(_MSC_VER)
 
 #define FORCE_INLINE __forceinline
@@ -544,6 +543,5 @@ void murmur_hash3_x64_64(const void* key, const int64_t len, const uint64_t seed
 
     ((uint64_t*)out)[0] = h1;
 }
-#include "common/compile_check_end.h"
 
 } // namespace doris

@@ -59,7 +59,6 @@
 #include "util/slice.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
                               const TabletSchema& cur_tablet_schema,
                               const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
@@ -620,5 +619,4 @@ Status Merger::vertical_merge_rowsets(BaseTabletSPtr tablet, ReaderType reader_t
 
     return Status::OK();
 }
-#include "common/compile_check_end.h"
 } // namespace doris

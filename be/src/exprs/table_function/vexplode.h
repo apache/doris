@@ -25,7 +25,6 @@
 #include "exprs/table_function/table_function.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class Block;
 } // namespace doris
@@ -57,5 +56,4 @@ private:
     size_t _array_offset; // start offset of array[row_idx]
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

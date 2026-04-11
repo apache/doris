@@ -19,7 +19,6 @@
 #include <any>
 
 namespace doris::iceberg {
-#include "common/compile_check_begin.h"
 
 class StructLike {
 public:
@@ -28,5 +27,4 @@ public:
     virtual std::any get(size_t pos) const = 0;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris::iceberg

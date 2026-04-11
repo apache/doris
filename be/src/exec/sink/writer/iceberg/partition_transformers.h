@@ -30,8 +30,6 @@ class Type;
 class PartitionField;
 }; // namespace iceberg
 
-#include "common/compile_check_begin.h"
-
 class IColumn;
 class PartitionColumnTransform;
 
@@ -1301,4 +1299,3 @@ private:
 };
 
 } // namespace doris
-#include "common/compile_check_end.h"

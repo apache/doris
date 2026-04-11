@@ -39,7 +39,6 @@ class TExprNode;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class Block;
 class VExprContext;
@@ -108,5 +107,4 @@ private:
                        ColumnPtr& result_column, ColumnPtr* arg_column) const;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

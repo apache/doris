@@ -66,7 +66,6 @@
 #include "util/stack_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 bvar::LatencyRecorder g_cu_compaction_get_delete_bitmap_lock_time_ms(
@@ -2060,7 +2059,5 @@ void CloudTablet::apply_visible_pending_rowsets() {
                           ","));
     }
 }
-
-#include "common/compile_check_end.h"
 
 } // namespace doris

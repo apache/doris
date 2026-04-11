@@ -26,7 +26,6 @@
 #include "exec/pipeline/pipeline_task.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeState;
 
 class Block;
@@ -309,5 +308,4 @@ template class SetProbeSinkLocalState<false>;
 template class SetProbeSinkOperatorX<true>;
 template class SetProbeSinkOperatorX<false>;
 
-#include "common/compile_check_end.h"
 } // namespace doris

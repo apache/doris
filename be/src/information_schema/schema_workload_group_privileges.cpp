@@ -26,7 +26,6 @@
 #include "util/thrift_rpc_helper.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 std::vector<SchemaScanner::ColumnDesc> SchemaWorkloadGroupPrivilegesScanner::_s_tbls_columns = {
         {"GRANTEE", TYPE_VARCHAR, sizeof(StringRef), true},

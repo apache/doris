@@ -24,7 +24,6 @@
 #include "exec/operator/operator.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class MultiCastDataStreamSinkOperatorX;
 class MultiCastDataStreamSinkLocalState final
@@ -76,5 +75,4 @@ private:
     std::atomic<size_t> _num_dests;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -20,7 +20,6 @@
 #include "exprs/aggregate/helpers.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 const std::string AggregateFunctionLinearHistogramConsts::NAME = "linear_histogram";
 

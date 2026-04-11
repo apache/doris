@@ -30,7 +30,6 @@
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 template <PrimitiveType K>
 struct AggregateFunctionMapAggData {
@@ -323,5 +322,3 @@ protected:
 };
 
 } // namespace doris
-
-#include "common/compile_check_end.h"

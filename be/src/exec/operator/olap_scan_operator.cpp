@@ -49,7 +49,6 @@
 #include "util/to_string.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 Status OlapScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     const TOlapScanNode& olap_scan_node = _parent->cast<OlapScanOperatorX>()._olap_scan_node;
@@ -1091,5 +1090,4 @@ OlapScanOperatorX::OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, i
     }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

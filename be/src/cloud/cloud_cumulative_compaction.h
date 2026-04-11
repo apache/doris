@@ -26,7 +26,6 @@
 #include "storage/compaction_task_tracker.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class CloudCumulativeCompaction : public CloudCompactionMixin {
 public:
@@ -69,5 +68,4 @@ private:
     Version _last_delete_version {-1, -1};
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

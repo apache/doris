@@ -27,7 +27,6 @@
 #include "exec/pipeline/dependency.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 DataQueue::DataQueue(int child_count)
         : _queue_blocks_lock(child_count),
           _queue_blocks(child_count),

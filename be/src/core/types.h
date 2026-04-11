@@ -34,7 +34,6 @@
 #include "exec/common/int_exp.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class BitmapValue;
 class HyperLogLog;
 class QuantileState;
@@ -575,7 +574,6 @@ struct NativeType<Decimal256> {
 };
 
 // NOLINTEND(readability-function-size)
-#include "common/compile_check_end.h"
 } // namespace doris
 
 /// Specialization of `std::hash` for the Decimal<T> types.

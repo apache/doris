@@ -23,7 +23,6 @@
 #include "exprs/aggregate/helpers.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 template <template <PrimitiveType> class StatFunctionTemplate>
 AggregateFunctionPtr create_aggregate_function_regr(const std::string& name,

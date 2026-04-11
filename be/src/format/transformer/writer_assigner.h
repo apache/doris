@@ -25,7 +25,6 @@
 #include "exec/connector/skewed_partition_rebalancer.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class WriterAssigner {
 public:
@@ -123,5 +122,4 @@ private:
     std::vector<int> _partition_writer_indexes;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

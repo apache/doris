@@ -43,7 +43,6 @@
 #include "util/to_string.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 // Type map的基本结构
 template <typename Key, typename Value, typename... Rest>
 struct TypeMap {

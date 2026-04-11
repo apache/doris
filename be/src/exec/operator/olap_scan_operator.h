@@ -33,7 +33,6 @@ class OlapScanner;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class OlapScanOperatorX;
 class OlapScanLocalState final : public ScanLocalState<OlapScanLocalState> {
@@ -344,5 +343,4 @@ private:
     TabletSchemaSPtr _tablet_schema;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

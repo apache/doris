@@ -102,7 +102,6 @@
 #include "util/json/simd_json_parser.h"
 
 namespace doris::variant_util {
-#include "common/compile_check_begin.h"
 
 inline void append_escaped_regex_char(std::string* regex_output, char ch) {
     switch (ch) {
@@ -2210,5 +2209,4 @@ Status parse_and_materialize_variant_columns(Block& block, const TabletSchema& t
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris::variant_util

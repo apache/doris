@@ -34,7 +34,6 @@
 #include "runtime/thread_context.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 // Default spill partitioner for initial partitioning (level-0). Repartition
 // paths may use different channel-id policies (e.g. raw-hash mode).
@@ -111,7 +110,5 @@ inline void update_profile_from_inner_profile(const std::string& name,
         counter->set(inner_counter->value());
     }
 }
-
-#include "common/compile_check_end.h"
 
 } // namespace doris

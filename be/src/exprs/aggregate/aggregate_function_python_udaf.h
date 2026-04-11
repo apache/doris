@@ -27,7 +27,6 @@
 #include "udf/python/python_udf_meta.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 /**
  * Aggregate state data for Python UDAF
@@ -182,5 +181,3 @@ private:
 };
 
 } // namespace doris
-
-#include "common/compile_check_end.h"

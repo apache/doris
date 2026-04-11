@@ -31,7 +31,6 @@
 #include "storage/olap_scan_common.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeState;
 class SlotDescriptor;
 class TFileRangeDesc;
@@ -128,5 +127,4 @@ inline bool operator<(const TransactionalHiveReader::AcidRowID& lhs,
     }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

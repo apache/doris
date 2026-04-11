@@ -31,7 +31,6 @@
 #include "runtime/runtime_profile.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class PipelineFragmentContext;
 class Pipeline;
 
@@ -179,5 +178,4 @@ private:
     // Parallelism of parent pipeline.
     const int _num_tasks_of_parent;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

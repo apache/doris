@@ -22,7 +22,6 @@
 #include "runtime/workload_management/task_controller.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 std::unique_ptr<TaskController> QueryTaskController::create(
         std::shared_ptr<QueryContext> query_ctx) {

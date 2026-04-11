@@ -31,7 +31,6 @@
 #include "runtime/runtime_state.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 std::vector<SchemaScanner::ColumnDesc> SchemaProcessListScanner::_s_processlist_columns = {
         {"CurrentConnected", TYPE_VARCHAR, sizeof(StringRef), false},       // 0

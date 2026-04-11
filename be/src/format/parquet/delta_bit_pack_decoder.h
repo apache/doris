@@ -39,7 +39,6 @@
 #include "util/slice.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class DeltaDecoder : public Decoder {
 public:
     DeltaDecoder(Decoder* decoder) { _type_converted_decoder.reset(decoder); }
@@ -520,7 +519,5 @@ Status DeltaBitPackDecoder<T>::_get_internal(T* buffer, uint32_t num_values,
     *out_num_values = num_values;
     return Status::OK();
 }
-
-#include "common/compile_check_end.h"
 
 } // namespace doris

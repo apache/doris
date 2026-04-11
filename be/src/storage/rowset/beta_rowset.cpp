@@ -53,7 +53,6 @@
 #include "util/debug_points.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 std::string BetaRowset::local_segment_path_segcompacted(const std::string& tablet_path,
@@ -944,5 +943,4 @@ Status BetaRowset::show_nested_index_file(rapidjson::Value* rowset_value,
     rowset_value->AddMember("segments", segments, allocator);
     return Status::OK();
 }
-#include "common/compile_check_end.h"
 } // namespace doris

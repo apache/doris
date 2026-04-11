@@ -46,7 +46,6 @@
 #include "util/timezone_utils.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 PythonUDTFFunction::PythonUDTFFunction(const TFunction& t_fn) : TableFunction(), _t_fn(t_fn) {
     _fn_name = _t_fn.name.function_name;
@@ -279,5 +278,4 @@ Status PythonUDTFFunction::_convert_list_array_to_array_column(
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

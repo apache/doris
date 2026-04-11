@@ -80,7 +80,6 @@
     } while (false)
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 struct creator_without_type {
     template <bool multi_arguments, bool f, typename T>
@@ -518,5 +517,3 @@ template <PrimitiveType... AllowedTypes>
 using creator_with_type_list = creator_with_type_list_base<0, AllowedTypes...>;
 
 } // namespace  doris
-
-#include "common/compile_check_end.h"

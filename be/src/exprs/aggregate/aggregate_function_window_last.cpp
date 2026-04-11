@@ -18,7 +18,6 @@
 #include "exprs/aggregate/aggregate_function_window_impl.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 CREATE_WINDOW_FUNCTION_DIRECT(create_aggregate_function_window_last, FirstLastData,
                               WindowFunctionLastImpl, false);
@@ -26,5 +25,4 @@ CREATE_WINDOW_FUNCTION_DIRECT(create_aggregate_function_window_last, FirstLastDa
 CREATE_WINDOW_FUNCTION_DIRECT(create_aggregate_function_window_last_ignore_null, FirstLastData,
                               WindowFunctionLastImpl, true);
 
-#include "common/compile_check_end.h"
 } // namespace doris

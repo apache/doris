@@ -28,7 +28,6 @@
 #include "storage/predicate/column_predicate.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 template <PrimitiveType Type, PredicateType PT>
 class ComparisonPredicateBase final : public ColumnPredicate {
 public:
@@ -710,5 +709,4 @@ private:
             _segment_id_to_cached_code;
     T _value;
 };
-#include "common/compile_check_end.h"
 } //namespace doris

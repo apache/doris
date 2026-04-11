@@ -47,7 +47,6 @@
 #include "util/to_string.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 #ifdef BE_TEST
 template <PrimitiveType T>
 std::string DataTypeNumberBase<T>::to_string(

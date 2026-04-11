@@ -64,7 +64,6 @@ class RowIdColumnIteratorV2;
 }
 
 namespace doris {
-#include "common/compile_check_begin.h"
 // TODO: we need to determine it by test.
 
 class RowGroupReader : public ProfileCollector {
@@ -315,6 +314,5 @@ private:
     std::unordered_map<std::string, uint32_t>* _col_name_to_block_idx = nullptr;
     IcebergRowIdParams _iceberg_rowid_params;
 };
-#include "common/compile_check_end.h"
 
 } // namespace doris

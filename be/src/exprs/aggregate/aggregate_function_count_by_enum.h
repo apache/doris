@@ -28,7 +28,6 @@
 #include "exprs/aggregate/aggregate_function.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 struct CountByEnumData {
     std::unordered_map<std::string, uint64_t> cbe;
@@ -238,4 +237,3 @@ private:
 };
 
 } // namespace doris
-#include "common/compile_check_end.h"

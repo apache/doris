@@ -41,7 +41,6 @@
 #include "util/trace.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 void CumulativeCompaction::find_longest_consecutive_version(std::vector<RowsetSharedPtr>* rowsets,
@@ -290,6 +289,5 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
 
     return Status::OK();
 }
-#include "common/compile_check_end.h"
 
 } // namespace doris

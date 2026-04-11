@@ -42,7 +42,6 @@
 #include "util/jsonb_writer.h"
 
 namespace doris {
-// #include "common/compile_check_begin.h"
 
 template <PrimitiveType T>
 Status DataTypeDecimalSerDe<T>::from_string_batch(const ColumnString& str, ColumnNullable& column,

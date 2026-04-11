@@ -36,7 +36,6 @@
 #include "util/url_coding.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 namespace {
 constexpr const char* VALUE_KIND_FIELD = "_VALUE_KIND";
@@ -334,5 +333,4 @@ std::map<std::string, std::string> PaimonCppReader::_build_options() const {
     return options;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -31,7 +31,6 @@
 #include "service/http/http_client.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class AggregateFunctionAIAggData {
 public:
@@ -306,5 +305,4 @@ public:
     }
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

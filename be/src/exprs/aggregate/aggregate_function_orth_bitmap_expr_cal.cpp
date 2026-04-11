@@ -20,7 +20,6 @@
 #include "exprs/aggregate/helpers.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 // FE guarantees exactly 3 params: (bitmap, varchar_filter, varchar_expr)
 AggregateFunctionPtr create_aggregate_function_orth_bitmap_expr_cal(

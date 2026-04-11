@@ -44,7 +44,6 @@ struct IOContext;
 } // namespace doris::io
 
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 
 struct AnnIndexStats {
     AnnIndexStats()
@@ -181,5 +180,4 @@ struct HNSWSearchParameters : public IndexSearchParameters {
 struct IVFSearchParameters : public IndexSearchParameters {
     int nprobe = 1;
 };
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

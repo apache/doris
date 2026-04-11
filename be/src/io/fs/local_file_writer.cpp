@@ -44,7 +44,6 @@
 #include "util/debug_points.h"
 
 namespace doris::io {
-#include "common/compile_check_begin.h"
 namespace {
 
 Status sync_dir(const io::Path& dirname) {
@@ -245,6 +244,5 @@ Status LocalFileWriter::_close(bool sync) {
     TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileWriter::close", Status::IOError("inject io error"));
     return fd_reclaim_func(Status::OK());
 }
-#include "common/compile_check_end.h"
 
 } // namespace doris::io

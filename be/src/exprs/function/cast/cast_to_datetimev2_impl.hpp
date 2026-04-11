@@ -33,7 +33,6 @@
 #include "util/string_parser.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 // NOLINTBEGIN(readability-function-size)
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
@@ -133,7 +132,9 @@ struct CastToDatetimeV2 {
             return false;
         }
 
+#include "common/compile_check_avoid_begin.h"
         int ms_part_7 = (float_value - (double)int_part) * common::exp10_i32(7);
+#include "common/compile_check_avoid_end.h"
         if (!init_microsecond<ParseMode>(ms_part_7, 7, val, to_scale, params)) {
             return false; // status set in init_microsecond
         }
@@ -1094,5 +1095,4 @@ inline bool transform_date_scale(UInt32 to_scale, UInt32 from_scale,
     return true;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

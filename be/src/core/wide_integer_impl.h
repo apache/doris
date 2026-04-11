@@ -32,7 +32,6 @@
 #include <tuple>
 #include <type_traits>
 
-#include "common/compile_check_begin.h"
 #include "common/exception.h"
 // NOLINTBEGIN(*)
 
@@ -1474,5 +1473,4 @@ struct hash<wide::integer<Bits, Signed>> {
 
 } // namespace std
 
-#include "common/compile_check_end.h"
 // NOLINTEND(*)

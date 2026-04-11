@@ -22,7 +22,6 @@
 #include "exprs/function/simple_function_factory.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 template <PrimitiveType TypeA, PrimitiveType TypeB>
 struct MinusDecimalImpl {
     static_assert(is_decimal(TypeA) && is_decimal(TypeB));
@@ -115,5 +114,4 @@ void register_function_minus(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionPlusMinus<PlusMinusIntegralImpl<MinusImpl<TYPE_DOUBLE>>>>();
     factory.register_function<FunctionPlusMinus<PlusMinusIntegralImpl<MinusImpl<TYPE_FLOAT>>>>();
 }
-#include "common/compile_check_end.h"
 } // namespace doris

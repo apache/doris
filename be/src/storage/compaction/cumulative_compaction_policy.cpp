@@ -32,7 +32,6 @@
 #include "util/defer_op.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 SizeBasedCumulativeCompactionPolicy::SizeBasedCumulativeCompactionPolicy(
         int64_t promotion_size, double promotion_ratio, int64_t promotion_min_size,
@@ -422,5 +421,4 @@ CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(
     }
     return std::make_shared<SizeBasedCumulativeCompactionPolicy>();
 }
-#include "common/compile_check_end.h"
 } // namespace doris

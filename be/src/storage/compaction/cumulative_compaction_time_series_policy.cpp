@@ -27,7 +27,6 @@
 #include "util/time.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 static constexpr int64_t MAX_LEVEL2_COMPACTION_TIMEOUT = 24 * 60 * 60;
 static constexpr int64_t MAX_LEVEL1_COMPACTION_GOAL_SIZE = 2 * 1024;
@@ -476,6 +475,5 @@ int64_t TimeSeriesCumulativeCompactionPolicy::get_compaction_level(
 
     return first_level + 1;
 }
-#include "common/compile_check_end.h"
 
 } // namespace doris

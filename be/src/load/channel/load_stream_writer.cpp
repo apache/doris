@@ -67,7 +67,6 @@
 #include "util/time.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 bvar::Adder<int64_t> g_load_stream_writer_cnt("load_stream_writer_count");
@@ -324,5 +323,4 @@ Status LoadStreamWriter::close() {
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

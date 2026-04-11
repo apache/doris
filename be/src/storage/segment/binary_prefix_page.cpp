@@ -30,7 +30,6 @@
 
 namespace doris {
 namespace segment_v2 {
-#include "common/compile_check_begin.h"
 
 Status BinaryPrefixPageBuilder::add(const uint8_t* vals, size_t* add_count) {
     DCHECK(!_finished);
@@ -244,6 +243,5 @@ Status BinaryPrefixPageDecoder::next_batch(size_t* n, MutableColumnPtr& dst) {
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace segment_v2
 } // namespace doris

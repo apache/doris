@@ -24,7 +24,6 @@
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 // Forward declarations — implementations live in separate TUs
 AggregateFunctionPtr create_aggregate_function_group_array_intersect(

@@ -33,7 +33,6 @@
 #include "util/brpc_client_cache.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 RPCFnImpl::RPCFnImpl(const TFunction& fn) : _fn(fn) {
     _function_name = _fn.scalar_fn.symbol;
     _server_addr = _fn.hdfs_location;

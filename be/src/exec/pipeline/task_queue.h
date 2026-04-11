@@ -32,7 +32,6 @@
 #include "exec/pipeline/pipeline_task.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class SubTaskQueue {
     friend class PriorityTaskQueue;
@@ -136,5 +135,4 @@ private:
     int _core_size;
     static constexpr auto WAIT_CORE_TASK_TIMEOUT_MS = 100;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

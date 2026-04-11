@@ -41,7 +41,6 @@
 #include "util/thrift_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 template <typename ResultCtxType>
 ResultBlockBuffer<ResultCtxType>::ResultBlockBuffer(TUniqueId id, RuntimeState* state,
@@ -257,5 +256,4 @@ Status ResultBlockBuffer<ResultCtxType>::add_batch(RuntimeState* state,
 template class ResultBlockBuffer<GetArrowResultBatchCtx>;
 template class ResultBlockBuffer<GetResultBatchCtx>;
 
-#include "common/compile_check_end.h"
 } // namespace doris

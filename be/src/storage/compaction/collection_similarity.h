@@ -23,7 +23,6 @@
 #include "storage/segment/common.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 using ScoreMap = phmap::flat_hash_map<segment_v2::rowid_t, float>;
 using ScoreMapIterator = ScoreMap::const_iterator;
@@ -68,5 +67,4 @@ private:
 };
 using CollectionSimilarityPtr = std::shared_ptr<CollectionSimilarity>;
 
-#include "common/compile_check_end.h"
 } // namespace doris

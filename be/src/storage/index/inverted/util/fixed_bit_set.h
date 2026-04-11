@@ -24,7 +24,6 @@
 #include "common/exception.h"
 
 namespace doris::segment_v2::inverted_index {
-#include "common/compile_check_begin.h"
 
 class FixedBitSet;
 using FixedBitSetPtr = std::unique_ptr<FixedBitSet>;
@@ -191,5 +190,4 @@ private:
     int32_t _num_words = 0;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

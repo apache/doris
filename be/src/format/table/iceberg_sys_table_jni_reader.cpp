@@ -23,7 +23,6 @@
 #include "util/string_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 static const std::string HADOOP_OPTION_PREFIX = "hadoop.";
 
@@ -88,5 +87,4 @@ Status IcebergSysTableJniReader::init_reader() {
     return open(_state, _profile);
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

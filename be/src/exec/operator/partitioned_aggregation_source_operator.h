@@ -27,7 +27,6 @@
 #include "operator.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeState;
 
 class PartitionedAggSourceOperatorX;
@@ -157,5 +156,4 @@ private:
     // max repartition depth (configured from session variable in FE)
     int _repartition_max_depth = SpillRepartitioner::MAX_DEPTH;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

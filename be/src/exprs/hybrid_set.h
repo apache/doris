@@ -30,7 +30,6 @@
 #include "exprs/filter_base.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 constexpr int FIXED_CONTAINER_MAX_SIZE = 8;
 
 /**
@@ -808,5 +807,4 @@ private:
     ContainerType _set;
     ObjectPool _pool;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

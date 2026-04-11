@@ -21,7 +21,6 @@
 #include "runtime/runtime_profile.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 RuntimeFilterConsumerHelper::RuntimeFilterConsumerHelper(
         const std::vector<TRuntimeFilterDesc>& runtime_filters)
         : _runtime_filter_descs(runtime_filters) {}

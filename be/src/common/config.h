@@ -395,7 +395,7 @@ DECLARE_mInt32(thrift_connect_timeout_seconds);
 DECLARE_mInt64(thrift_client_retry_interval_ms);
 // max message size of thrift request
 // default: 100 * 1024 * 1024
-DECLARE_mInt64(thrift_max_message_size);
+DECLARE_mInt32(thrift_max_message_size);
 // max bytes number for single scan range, used in segmentv2
 DECLARE_mInt32(doris_scan_range_max_mb);
 // single read execute fragment row number

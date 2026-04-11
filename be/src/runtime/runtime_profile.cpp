@@ -39,7 +39,6 @@
 #endif
 
 namespace doris {
-#include "common/compile_check_begin.h"
 // Thread counters name
 static const std::string THREAD_VOLUNTARY_CONTEXT_SWITCHES = "VoluntaryContextSwitches";
 static const std::string THREAD_INVOLUNTARY_CONTEXT_SWITCHES = "InvoluntaryContextSwitches";

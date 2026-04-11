@@ -42,7 +42,6 @@
 #include "storage/index/inverted/char_filter/char_replace_char_filter_factory.h"
 
 namespace doris::segment_v2::inverted_index {
-#include "common/compile_check_begin.h"
 
 ReaderPtr InvertedIndexAnalyzer::create_reader(const CharFilterMap& char_filter_map) {
     ReaderPtr reader = std::make_shared<lucene::util::SStringReader<char>>();
@@ -222,4 +221,3 @@ bool InvertedIndexAnalyzer::should_analyzer(const std::map<std::string, std::str
 }
 
 } // namespace doris::segment_v2::inverted_index
-#include "common/compile_check_end.h"
