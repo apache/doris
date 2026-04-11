@@ -17,21 +17,16 @@
 
 package org.apache.doris.nereids.processor.post;
 
-import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.stats.ExpressionEstimation;
-import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
-import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -52,7 +47,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -67,9 +61,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -331,8 +323,6 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
 
     @Override
     public PhysicalCTEConsumer visitPhysicalCTEConsumer(PhysicalCTEConsumer scan, CascadesContext context) {
-        RuntimeFilterContext ctx = context.getRuntimeFilterContext();
-        scan.getOutput().forEach(slot -> ctx.aliasTransferMapPut(slot, Pair.of(scan, slot)));
         return scan;
     }
 
@@ -424,17 +414,9 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
             Expression expr = join.getOtherJoinConjuncts().get(exprOrder);
             ComparisonPredicate compare = normalizeNonEqual(join, expr);
             if (compare != null) {
-                Slot unwrappedSlot = checkTargetChild(compare.child(0));
-                if (unwrappedSlot == null) {
+                if (compare.child(0).getInputSlots().size() != 1) {
                     continue;
                 }
-                Pair<PhysicalRelation, Slot> pair = ctx.getAliasTransferPair(unwrappedSlot);
-                if (pair == null) {
-                    continue;
-                }
-                Slot olapScanSlot = pair.second;
-                PhysicalRelation scan = pair.first;
-                Preconditions.checkState(olapScanSlot != null && scan != null);
                 RuntimeFilterPushDownVisitor.PushDownContext pushDownContext =
                         RuntimeFilterPushDownVisitor.PushDownContext.createPushDownContextForNljMinMaxFilter(
                                 compare.child(1), compare.child(0),
@@ -473,64 +455,27 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
     @Override
     public PhysicalPlan visitPhysicalProject(PhysicalProject<? extends Plan> project, CascadesContext context) {
         project.child().accept(this, context);
-        RuntimeFilterContext ctx = context.getRuntimeFilterContext();
-        // change key when encounter alias.
-        // TODO: same action will be taken for set operation
-        for (Expression expression : project.getProjects()) {
-            if (expression.children().isEmpty()) {
-                continue;
-            }
-            Expression expr = ExpressionUtils.getSingleNumericSlotOrExpressionCoveredByCast(expression.child(0));
-            if (expr instanceof NamedExpression
-                    && ctx.aliasTransferMapContains((NamedExpression) expr)) {
-                if (expression instanceof Alias) {
-                    Alias alias = ((Alias) expression);
-                    ctx.aliasTransferMapPut(alias.toSlot(), ctx.getAliasTransferPair((NamedExpression) expr));
-                }
-            }
-        }
         return project;
     }
 
     @Override
     public Plan visitPhysicalOneRowRelation(PhysicalOneRowRelation oneRowRelation, CascadesContext context) {
-        // TODO: OneRowRelation will be translated to union. Union node cannot apply runtime filter now
-        //  so, just return itself now, until runtime filter could apply on any node.
         return oneRowRelation;
     }
 
     @Override
     public PhysicalRelation visitPhysicalRelation(PhysicalRelation relation, CascadesContext context) {
-        if (relation instanceof PhysicalSchemaScan) {
-            return relation;
-        }
-        // add all the slots in map.
-        RuntimeFilterContext ctx = context.getRuntimeFilterContext();
-        relation.getOutput().forEach(slot -> ctx.aliasTransferMapPut(slot, Pair.of(relation, slot)));
         return relation;
     }
 
     @Override
     public Plan visitPhysicalLazyMaterializeOlapScan(PhysicalLazyMaterializeOlapScan scan, CascadesContext context) {
-        RuntimeFilterContext ctx = context.getRuntimeFilterContext();
-        scan.getOutput().forEach(slot -> ctx.aliasTransferMapPut(slot, Pair.of(scan, slot)));
         return scan;
     }
 
     @Override
     public PhysicalSetOperation visitPhysicalSetOperation(PhysicalSetOperation setOperation, CascadesContext context) {
         setOperation.children().forEach(child -> child.accept(this, context));
-        RuntimeFilterContext ctx = context.getRuntimeFilterContext();
-        if (!setOperation.getRegularChildrenOutputs().isEmpty()) {
-            // example: RegularChildrenOutputs is empty
-            // "select 1 a, 2 b union all select 3, 4 union all select 10 e, 20 f;"
-            for (int i = 0; i < setOperation.getOutput().size(); i++) {
-                Pair childSlotPair = ctx.getAliasTransferPair(setOperation.getRegularChildOutput(0).get(i));
-                if (childSlotPair != null) {
-                    ctx.aliasTransferMapPut(setOperation.getOutput().get(i), childSlotPair);
-                }
-            }
-        }
         return setOperation;
     }
 
@@ -554,78 +499,47 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
     }
 
     private boolean doPushDownIntoCTEProducerInternal(RuntimeFilter rf, Expression targetExpression,
-                                                   RuntimeFilterContext ctx, PhysicalCTEProducer cteProducer) {
+                                                    RuntimeFilterContext ctx, PhysicalCTEProducer cteProducer) {
         PhysicalPlan inputPlanNode = (PhysicalPlan) cteProducer.child(0);
         Slot unwrappedSlot = checkTargetChild(targetExpression);
-        // aliasTransMap doesn't contain the key, means that the path from the scan to the join
-        // contains join with denied join type. for example: a left join b on a.id = b.id
-        if (!checkProbeSlot(ctx, unwrappedSlot)) {
+        if (unwrappedSlot == null) {
             return false;
         }
-        Slot consumerOutputSlot = ctx.getAliasTransferPair(unwrappedSlot).second;
-        PhysicalRelation cteNode = ctx.getAliasTransferPair(unwrappedSlot).first;
-        long buildSideNdv = rf.getBuildSideNdv();
-        if (!(cteNode instanceof PhysicalCTEConsumer) || !(inputPlanNode instanceof PhysicalProject)) {
+        // Find the CTE consumer that owns this target
+        PhysicalCTEConsumer cteConsumer = null;
+        Slot consumerSlot = null;
+        for (int i = 0; i < rf.getTargetScans().size(); i++) {
+            PhysicalRelation rel = rf.getTargetScans().get(i);
+            if (rel instanceof PhysicalCTEConsumer) {
+                PhysicalCTEConsumer candidate = (PhysicalCTEConsumer) rel;
+                if (candidate.getCteId().equals(cteProducer.getCteId())) {
+                    cteConsumer = candidate;
+                    consumerSlot = rf.getTargetSlots().get(i);
+                    break;
+                }
+            }
+        }
+        if (cteConsumer == null || consumerSlot == null) {
             return false;
         }
-        Slot cteSlot = ((PhysicalCTEConsumer) cteNode).getProducerSlot(consumerOutputSlot);
-
-        PhysicalProject<Plan> project = (PhysicalProject<Plan>) inputPlanNode;
-        NamedExpression targetExpr = null;
-        for (NamedExpression ne : project.getProjects()) {
-            if (cteSlot.getExprId().equals(ne.getExprId())) {
-                targetExpr = ne;
-                break;
-            }
+        // Map consumer slot to producer slot
+        Slot producerSlot = cteConsumer.getProducerSlot(consumerSlot);
+        if (producerSlot == null) {
+            return false;
         }
-        Preconditions.checkState(targetExpr != null,
-                "cannot find runtime filter cte.target: "
-                        + cteSlot + "in project " + project.toString());
-        if (targetExpr instanceof SlotReference && checkCanPushDownIntoBasicTable(project)) {
-            Map<Slot, PhysicalRelation> pushDownBasicTableInfos = getPushDownBasicTablesInfos(project,
-                    (SlotReference) targetExpr, ctx);
-            if (!pushDownBasicTableInfos.isEmpty()) {
-                List<Slot> targetList = new ArrayList<>();
-                List<Expression> targetExpressions = new ArrayList<>();
-                List<PhysicalRelation> targetNodes = new ArrayList<>();
-                for (Map.Entry<Slot, PhysicalRelation> entry : pushDownBasicTableInfos.entrySet()) {
-                    Slot targetSlot = entry.getKey();
-                    PhysicalRelation scan = entry.getValue();
-                    if (!RuntimeFilterGenerator.checkPushDownPreconditionsForRelation(project, scan)) {
-                        continue;
-                    }
-                    targetList.add(targetSlot);
-                    targetExpressions.add(targetSlot);
-                    targetNodes.add(scan);
-                    ctx.addJoinToTargetMap(rf.getBuilderNode(), targetSlot.getExprId());
-                    ctx.setTargetsOnScanNode(scan, targetSlot);
-                }
-                if (targetList.isEmpty()) {
-                    return false;
-                }
-                RuntimeFilter filter = new RuntimeFilter(ctx.getRuntimeFilterIdGen().getNextId(),
-                        rf.getSrcExpr(), targetList, targetExpressions, rf.getType(), rf.getExprOrder(),
-                        rf.getBuilderNode(), buildSideNdv, rf.isBloomFilterSizeCalculatedByNdv(),
-                        rf.gettMinMaxType(), cteNode);
-                targetNodes.forEach(node -> node.addAppliedRuntimeFilter(filter));
-                for (Slot slot : targetList) {
-                    ctx.setTargetExprIdToFilter(slot.getExprId(), filter);
-                }
-                ctx.setRuntimeFilterIdentityToFilter(rf.getSrcExpr(), rf.getType(), rf.getBuilderNode(), filter);
-                return true;
-            }
+        if (!checkCanPushDownIntoBasicTable(inputPlanNode)) {
+            return false;
+        }
+        // Use the PushDownVisitor to push inside the CTE producer subtree
+        RuntimeFilterPushDownVisitor.PushDownContext pushDownContext =
+                RuntimeFilterPushDownVisitor.PushDownContext.createPushDownContextForHashJoin(
+                        rf.getSrcExpr(), producerSlot, ctx, ctx.getRuntimeFilterIdGen(),
+                        rf.getType(), rf.getBuilderNode(), !rf.isBloomFilterSizeCalculatedByNdv(),
+                        rf.getBuildSideNdv(), rf.getExprOrder());
+        if (pushDownContext.isValid()) {
+            return inputPlanNode.accept(new RuntimeFilterPushDownVisitor(), pushDownContext);
         }
         return false;
-    }
-
-    /**
-     * check if slot is in ctx.aliasTransferMap
-     */
-    public static boolean checkProbeSlot(RuntimeFilterContext ctx, Slot slot) {
-        if (slot == null || !ctx.aliasTransferMapContains(slot)) {
-            return false;
-        }
-        return true;
     }
 
     /**
@@ -633,11 +547,9 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
      */
     public static boolean checkPushDownPreconditionsForRelation(PhysicalPlan root, PhysicalRelation relation) {
         Preconditions.checkState(relation != null, "relation is null");
-        // check if the relation supports runtime filter push down
         if (!relation.canPushDownRuntimeFilter()) {
             return false;
         }
-        // check if the plan root can cover the push down candidate relation
         Set<PhysicalRelation> relations = new HashSet<>();
         RuntimeFilterGenerator.getAllScanInfo(root, relations);
         return relations.contains(relation);
@@ -650,48 +562,6 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         return plans.stream().allMatch(p -> SPJ_PLAN.stream().anyMatch(c -> c.isInstance(p)));
     }
 
-    private Map<Slot, PhysicalRelation> getPushDownBasicTablesInfos(PhysicalPlan root, SlotReference slot,
-            RuntimeFilterContext ctx) {
-        Map<Slot, PhysicalRelation> basicTableInfos = new HashMap<>();
-        Set<PhysicalHashJoin> joins = new HashSet<>();
-        ExprId exprId = slot.getExprId();
-        if (ctx.getAliasTransferPair(slot) != null) {
-            basicTableInfos.put(slot, ctx.getAliasTransferPair(slot).first);
-        }
-        // try to find propagation condition from join
-        getAllJoinInfo(root, joins);
-        for (PhysicalHashJoin join : joins) {
-            List<Expression> conditions = join.getHashJoinConjuncts();
-            for (Expression equalTo : conditions) {
-                if (equalTo instanceof EqualTo) {
-                    SlotReference leftSlot = (SlotReference) ((EqualTo) equalTo).left();
-                    SlotReference rightSlot = (SlotReference) ((EqualTo) equalTo).right();
-                    if (leftSlot.getExprId() == exprId && ctx.getAliasTransferPair(rightSlot) != null) {
-                        PhysicalRelation rightTable = ctx.getAliasTransferPair(rightSlot).first;
-                        if (rightTable != null) {
-                            basicTableInfos.put(rightSlot, rightTable);
-                        }
-                    } else if (rightSlot.getExprId() == exprId && ctx.getAliasTransferPair(leftSlot) != null) {
-                        PhysicalRelation leftTable = ctx.getAliasTransferPair(leftSlot).first;
-                        if (leftTable != null) {
-                            basicTableInfos.put(leftSlot, leftTable);
-                        }
-                    }
-                }
-            }
-        }
-        return basicTableInfos;
-    }
-
-    private void getAllJoinInfo(PhysicalPlan root, Set<PhysicalHashJoin> joins) {
-        if (root instanceof PhysicalHashJoin) {
-            joins.add((PhysicalHashJoin) root);
-        } else {
-            for (Object child : root.children()) {
-                getAllJoinInfo((PhysicalPlan) child, joins);
-            }
-        }
-    }
 
     /**
      * Get all relation node from current root plan.

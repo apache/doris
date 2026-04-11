@@ -125,8 +125,8 @@ public class RuntimeFilterTranslator {
                     Preconditions.checkArgument(curTargetExpression.getInputSlots().size() == 1,
                             "target expression is invalid, input slot num > 1; filter :" + filter);
                     Slot slotInTargetExpression = curTargetExpression.getInputSlots().iterator().next();
-                    Preconditions.checkArgument(slotInTargetExpression.equals(curTargetSlot)
-                            || curTargetSlot.equals(context.getAliasTransferMap().get(slotInTargetExpression).second));
+                    Preconditions.checkArgument(slotInTargetExpression.equals(curTargetSlot),
+                            "target expression input slot should equal target slot after rewrite; filter:" + filter);
                     RuntimeFilterExpressionTranslator translator = new RuntimeFilterExpressionTranslator(targetSlotRef);
                     targetExpr = curTargetExpression.accept(translator, ctx);
                 }

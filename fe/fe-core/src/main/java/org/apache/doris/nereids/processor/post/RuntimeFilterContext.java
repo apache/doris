@@ -19,11 +19,9 @@ package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.common.IdGenerator;
-import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
@@ -42,7 +40,6 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 
 import java.util.Collections;
 import java.util.Iterator;
@@ -109,11 +106,6 @@ public class RuntimeFilterContext {
     // exprId to olap scan node slotRef because the slotRef will be changed when translating.
     private final Map<ExprId, SlotRef> exprIdToOlapScanNodeSlotRef = Maps.newHashMap();
 
-    // alias -> alias's child, if there's a key that is alias's child, the key-value will change by this way
-    // Alias(A) = B, now B -> A in map, and encounter Alias(B) -> C, the kv will be C -> A.
-    // you can see disjoint set data structure to learn the processing detailed.
-    private final Map<NamedExpression, Pair<PhysicalRelation, Slot>> aliasTransferMap = Maps.newHashMap();
-
     private final Map<Slot, ScanNode> scanNodeOfLegacyRuntimeFilterTarget = Maps.newLinkedHashMap();
 
     private final Map<Plan, EffectiveSrcType> effectiveSrcNodes = Maps.newHashMap();
@@ -126,7 +118,6 @@ public class RuntimeFilterContext {
 
     private final List<ExpandRF> expandedRF = Lists.newArrayList();
 
-    private final Map<Plan, Set<PhysicalRelation>> relationsUsedByPlan = Maps.newHashMap();
     private final IdGenerator<RuntimeFilterId> runtimeFilterIdGen;
 
     /**
@@ -156,19 +147,6 @@ public class RuntimeFilterContext {
         this.sessionVariable = sessionVariable;
         this.limits = new FilterSizeLimits(sessionVariable);
         this.runtimeFilterIdGen = runtimeFilterIdGen;
-    }
-
-    /**
-     * return true, if the relation is in the subtree
-     */
-    public boolean isRelationUseByPlan(Plan plan, PhysicalRelation relation) {
-        Set<PhysicalRelation> relations = relationsUsedByPlan.get(plan);
-        if (relations == null) {
-            relations = Sets.newHashSet();
-            RuntimeFilterGenerator.getAllScanInfo(plan, relations);
-            relationsUsedByPlan.put(plan, relations);
-        }
-        return relations.contains(relation);
     }
 
     public SessionVariable getSessionVariable() {
@@ -270,22 +248,6 @@ public class RuntimeFilterContext {
 
     public Map<PlanNodeId, DataStreamSink> getPlanNodeIdToCTEDataSinkMap() {
         return planNodeIdToCTEDataSinkMap;
-    }
-
-    public Map<NamedExpression, Pair<PhysicalRelation, Slot>> getAliasTransferMap() {
-        return aliasTransferMap;
-    }
-
-    public Pair<PhysicalRelation, Slot> getAliasTransferPair(NamedExpression slot) {
-        return aliasTransferMap.get(slot);
-    }
-
-    public Pair<PhysicalRelation, Slot> aliasTransferMapPut(NamedExpression slot, Pair<PhysicalRelation, Slot> pair) {
-        return aliasTransferMap.put(slot, pair);
-    }
-
-    public boolean aliasTransferMapContains(NamedExpression slot) {
-        return aliasTransferMap.containsKey(slot);
     }
 
     public Map<Slot, ScanNode> getScanNodeOfLegacyRuntimeFilterTarget() {
