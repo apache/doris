@@ -33,6 +33,7 @@ suite("test_hive_migrate_iceberg", "p2,external,iceberg,external_remote,external
     sql """drop catalog if exists ${catalog_name}"""
     sql """create catalog if not exists ${catalog_name} properties (
         "type" = "iceberg",
+        'hive.version' = '3.1.3',
         "iceberg.catalog.type" = "hms",
         ${props}
     );"""
