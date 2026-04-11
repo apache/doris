@@ -293,7 +293,6 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                     LOG.warn("insert plan failed {} times. query id is {}. table id changed from {} to {}",
                             retryTimes, DebugUtil.printId(ctx.queryId()),
                             targetTableIf.getId(), newestTargetTableIf.getId());
-                    newestTargetTableIf.readUnlock();
                     continue;
                 }
                 // Use the schema saved during planning as the schema of the original target table.
@@ -301,7 +300,6 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                     LOG.warn("insert plan failed {} times. query id is {}. table schema changed from {} to {}",
                             retryTimes, DebugUtil.printId(ctx.queryId()),
                             ctx.getStatementContext().getInsertTargetSchema(), newestTargetTableIf.getFullSchema());
-                    newestTargetTableIf.readUnlock();
                     continue;
                 }
                 if (!insertExecutor.isEmptyInsert()) {
@@ -311,15 +309,15 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                             buildResult.physicalSink
                     );
                 }
-                newestTargetTableIf.readUnlock();
             } catch (Throwable e) {
-                newestTargetTableIf.readUnlock();
                 // the abortTxn in onFail need to acquire table write lock
                 if (insertExecutor != null) {
                     insertExecutor.onFail(e);
                 }
                 Throwables.throwIfInstanceOf(e, RuntimeException.class);
                 throw new IllegalStateException(e.getMessage(), e);
+            } finally {
+                newestTargetTableIf.readUnlock();
             }
             stmtExecutor.setProfileType(ProfileType.LOAD);
             // We exposed @StmtExecutor#cancel as a unified entry point for statement interruption,
