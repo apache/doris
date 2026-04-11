@@ -17,7 +17,7 @@
 
 // Cross compute group peer read bvar metrics smoke tests.
 //
-// Verifies that 4 new bvar / config items land and work end-to-end:
+// Verifies that 5 new bvar / config items land and work end-to-end:
 //
 // T_bvar1 – peer_lazy_fetch_total & peer_lazy_fetch_count
 //   CGB has no candidates for the tablet (cold miss). A cross-CG query triggers
@@ -35,6 +35,10 @@
 //   peer_race_hedge_delay_ms=50 is set in beConfigs. CGA has warm cache so the peer
 //   RPC returns in ~5 ms, well within the hedge window. S3 is never submitted;
 //   peer_race_peer_win must increase on CGB's BE.
+//
+// T_bvar4 – peer_race_active_count gauge
+//   After all cross-CG queries complete, verify the active-race gauge returns to 0
+//   (no leaked races).
 //
 // Topology: 1 FE + CG-A (BE_A1, then BE_A2 added in T_bvar2) + CG-B (BE_B).
 
@@ -188,6 +192,15 @@ suite('test_cross_cg_bvar_metrics', 'docker') {
             "hedge delay keeps S3 submission suppressed")
         logger.info("T_bvar3 PASS: peer_race_peer_win={}",
             getBrpcMetric(beB.Host, beB.BrpcPort, "peer_race_peer_win"))
+
+        // ==================== T_bvar4: peer_race_active_count gauge ====================
+        // After all cross-CG queries above have completed, no races should be in-flight.
+        // Verify that the gauge is exposed and returns to 0 (no leaked races).
+        logger.info("=== T_bvar4: peer_race_active_count gauge (no leaked races) ===")
+        def t4_activeRaces = getBrpcMetric(beB.Host, beB.BrpcPort, "peer_race_active_count")
+        assertEquals(0L, t4_activeRaces,
+            "T_bvar4: peer_race_active_count should be 0 after queries complete (actual=${t4_activeRaces})")
+        logger.info("T_bvar4 PASS: peer_race_active_count={}", t4_activeRaces)
 
         // ==================== T_bvar2: peer_same_compute_group_read ====================
         // Add BE_A2 to CG-A. Skip warmup segment downloads so BE_A2's file cache stays empty.

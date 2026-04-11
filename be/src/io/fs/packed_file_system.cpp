@@ -153,6 +153,9 @@ Status PackedFileSystem::open_file_impl(const Path& file, FileReaderSPtr* reader
         if (opts && opts->cache_type != FileCachePolicy::NO_CACHE) {
             FileReaderOptions cache_opts = *opts;
             cache_opts.file_size = index.size; // Use segment size for cache
+            if (cache_opts.storage_resource_id.empty()) {
+                cache_opts.storage_resource_id = id();
+            }
             *reader = DORIS_TRY(create_cached_file_reader(packed_reader, cache_opts));
         } else {
             *reader = packed_reader;

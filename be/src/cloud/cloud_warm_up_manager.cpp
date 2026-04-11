@@ -591,13 +591,13 @@ std::vector<JobReplicaInfo> CloudWarmUpManager::get_replica_info(int64_t tablet_
                     cache_hit = true;
                     continue;
                 } else {
-                    LOG(INFO) << "get_replica_info: cache expired, tablet_id=" << tablet_id
-                              << ", job_id=" << job_id;
+                    VLOG_DEBUG << "get_replica_info: cache expired, tablet_id=" << tablet_id
+                               << ", job_id=" << job_id;
                     cache.erase(it);
                 }
             }
-            LOG(INFO) << "get_replica_info: cache miss, tablet_id=" << tablet_id
-                      << ", job_id=" << job_id;
+            VLOG_DEBUG << "get_replica_info: cache miss, tablet_id=" << tablet_id
+                       << ", job_id=" << job_id;
         }
 
         if (!cache_hit) {

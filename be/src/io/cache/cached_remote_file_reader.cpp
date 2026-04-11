@@ -95,6 +95,9 @@ bvar::Adder<uint64_t> g_failed_get_peer_addr_counter(
         "cached_remote_reader_failed_get_peer_addr_counter");
 
 static std::atomic<int> g_active_peer_races {0};
+bvar::PassiveStatus<int> g_active_peer_races_bvar(
+        "peer_race_active_count",
+        [](void*) { return g_active_peer_races.load(std::memory_order_relaxed); }, nullptr);
 // Cross-CG peer read race statistics
 bvar::Adder<uint64_t> g_peer_race_peer_win("peer_race_peer_win");
 bvar::Adder<uint64_t> g_peer_race_s3_win("peer_race_s3_win");
@@ -107,6 +110,7 @@ CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader
                                                const FileReaderOptions& opts)
         : _is_doris_table(opts.is_doris_table),
           _tablet_id(opts.tablet_id),
+          _storage_resource_id(opts.storage_resource_id),
           _remote_file_reader(std::move(remote_file_reader)) {
     DCHECK(!_is_doris_table || _tablet_id > 0);
     if (_is_doris_table) {
@@ -152,7 +156,8 @@ bool CachedRemoteFileReader::_can_read_cache_file_directly() const {
 
 bool CachedRemoteFileReader::_should_read_from_peer(const IOContext* io_ctx) const {
     return doris::config::is_cloud_mode() && _is_doris_table && _tablet_id > 0 &&
-           !io_ctx->is_warmup && doris::config::enable_cache_read_from_peer;
+           !io_ctx->is_warmup && !io_ctx->bypass_peer_read &&
+           doris::config::enable_cache_read_from_peer;
 }
 
 void CachedRemoteFileReader::_insert_file_reader(FileBlockSPtr file_block) {
@@ -198,6 +203,10 @@ struct PeerFetchLayout {
     std::vector<size_t> block_sizes;
     size_t total_size = 0;
 };
+
+bool is_fill_not_found(const Status& st, bool request_fill) {
+    return request_fill && st.is<ErrorCode::NOT_FOUND>();
+}
 
 bool contains_file_block(const PeerFetchedBlockSet& fetched_blocks, const FileBlockSPtr& block) {
     return fetched_blocks.contains(block.get());
@@ -333,10 +342,13 @@ struct RaceState {
 };
 
 // Peer race logic: try candidates sequentially until one succeeds or all fail.
+// NOTE: Do NOT capture io_ctx here — it points into the caller's stack which may be destroyed
+// when S3 wins the race and the caller returns before this bthread finishes.
 void run_peer_race(std::shared_ptr<RaceState> race, std::vector<FileBlockSPtr> empty_blocks,
                    const std::string& file_path, size_t file_sz, bool is_doris,
-                   const IOContext* io_ctx, std::vector<doris::PeerCandidate> candidates,
-                   int64_t tablet_id, std::shared_ptr<ResourceContext> parent_resource_ctx) {
+                   std::vector<doris::PeerCandidate> candidates, int64_t tablet_id,
+                   std::string resource_id,
+                   std::shared_ptr<ResourceContext> parent_resource_ctx) {
     std::unique_ptr<AttachTask> attach_task;
     if (parent_resource_ctx != nullptr) {
         attach_task = std::make_unique<AttachTask>(parent_resource_ctx);
@@ -363,12 +375,15 @@ void run_peer_race(std::shared_ptr<RaceState> race, std::vector<FileBlockSPtr> e
         peer_read_counter << 1;
         PeerFileCacheReader peer_reader(file_path, is_doris, cand.host, cand.brpc_port);
         PeerFetchResult local_peer_res;
-        const bool request_fill = !config::peer_cache_fill_compute_group_id.empty() &&
-                                  cand.compute_group_id == config::peer_cache_fill_compute_group_id;
+        const bool request_fill =
+                !config::peer_cache_fill_compute_group_id.empty() &&
+                cand.compute_group_id == config::peer_cache_fill_compute_group_id &&
+                !resource_id.empty() && !file_path.empty();
         MonotonicStopWatch cand_sw;
         cand_sw.start();
-        auto st = peer_reader.fetch_blocks(empty_blocks, &local_peer_res, file_sz, io_ctx,
-                                           request_fill, tablet_id);
+        auto st = peer_reader.fetch_blocks(empty_blocks, &local_peer_res, file_sz,
+                                           /*ctx=*/nullptr, request_fill, tablet_id, file_path,
+                                           request_fill ? resource_id : std::string {});
         if (st.ok()) {
             manager.update_peer_candidate_on_success(tablet_id, cand.compute_group_id);
             std::unique_lock<bthread::Mutex> lk(race->mtx);
@@ -388,6 +403,14 @@ void run_peer_race(std::shared_ptr<RaceState> race, std::vector<FileBlockSPtr> e
 
         // Handle per-candidate failure.
         if (st.template is<ErrorCode::TOO_MANY_TASKS>()) {
+            all_tried = false;
+            break;
+        }
+        if (is_fill_not_found(st, request_fill)) {
+            // Pull-through fill already told us this designated fill CG could not serve the block
+            // in time. Do not serially retry additional candidates in the same race; let S3 win
+            // instead of paying more peer RPC latency.
+            manager.rotate_peer_candidate_on_cache_miss(tablet_id, cand.host, cand.brpc_port);
             all_tried = false;
             break;
         }
@@ -479,13 +502,6 @@ Status collect_race_result(std::shared_ptr<RaceState> race, size_t span_size,
     {
         std::unique_lock<bthread::Mutex> lk(race->mtx);
         while (race->winner < 0 && !(race->peer_done && race->s3_done)) {
-            race->cv.wait(lk);
-        }
-        // When S3 wins, the peer bthread may still be finishing its current candidate or
-        // recording cooldown state. Wait for that cleanup before returning so follow-up reads
-        // observe the completed bookkeeping and test hooks / mock services are not torn down
-        // while the peer path is still executing.
-        while (race->winner == 1 && !race->peer_done) {
             race->cv.wait(lk);
         }
     }
@@ -695,10 +711,12 @@ Status CachedRemoteFileReader::_execute_winner_race(
 
     // Launch peer bthread.
     start_bthread(
-            [race, empty_blocks = std::move(empty_blocks), file_path, file_sz, is_doris, io_ctx,
-             candidates = std::move(candidates), tablet_id, parent_resource_ctx]() mutable {
-                run_peer_race(race, std::move(empty_blocks), file_path, file_sz, is_doris, io_ctx,
-                              std::move(candidates), tablet_id, parent_resource_ctx);
+            [race, empty_blocks = std::move(empty_blocks), file_path, file_sz, is_doris,
+             candidates = std::move(candidates), tablet_id, resource_id = _storage_resource_id,
+             parent_resource_ctx]() mutable {
+                run_peer_race(race, std::move(empty_blocks), file_path, file_sz, is_doris,
+                              std::move(candidates), tablet_id, std::move(resource_id),
+                              parent_resource_ctx);
             },
             /*init_thread_ctx=*/true);
 
@@ -869,7 +887,13 @@ Status CachedRemoteFileReader::_read_remote_blocks_into_cache(
             st = block->finalize();
         }
         if (!st.ok()) {
-            LOG_EVERY_N(WARNING, 100) << "Write data to file cache failed. err=" << st.msg();
+            LOG(WARNING) << "write data to file cache failed, source="
+                         << (stats.from_peer_cache ? "peer" : "remote")
+                         << ", path=" << path().native() << ", tablet_id=" << _tablet_id
+                         << ", file_size=" << size() << ", cache_hash=" << _cache_hash.to_string()
+                         << ", write_block_size=" << block_size
+                         << ", block=" << block->get_info_for_log()
+                         << ", cache_file=" << block->get_cache_file() << ", err=" << st;
         } else {
             _insert_file_reader(block);
             stats.bytes_write_into_file_cache += block_size;

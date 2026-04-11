@@ -304,6 +304,7 @@ private:
 
     bool _is_doris_table = false;
     int64_t _tablet_id = -1;
+    std::string _storage_resource_id;
     FileReaderSPtr _remote_file_reader;
     UInt128Wrapper _cache_hash;
     BlockFileCache* _cache = nullptr;

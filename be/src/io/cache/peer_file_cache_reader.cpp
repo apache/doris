@@ -155,8 +155,8 @@ PeerFileCacheReader::~PeerFileCacheReader() {
 
 Status PeerFileCacheReader::fetch_blocks(const std::vector<FileBlockSPtr>& blocks,
                                          PeerFetchResult* result, size_t file_size,
-                                         const IOContext* ctx, bool request_fill,
-                                         int64_t tablet_id) {
+                                         const IOContext* ctx, bool request_fill, int64_t tablet_id,
+                                         std::string remote_path, std::string resource_id) {
     (void)ctx;
     if (result == nullptr) {
         return Status::InvalidArgument("peer cache fetch requires non-null result");
@@ -179,10 +179,11 @@ Status PeerFileCacheReader::fetch_blocks(const std::vector<FileBlockSPtr>& block
         // Only set for cross-CG reads targeting the designated fill compute group
         // (peer_cache_fill_compute_group_id). Server still gates with enable_peer_server_cache_fill.
         req.set_request_cache_fill(true);
-        // Send tablet_id instead of the raw remote path so the server can look up its own tablet
-        // metadata and reconstruct the correct remote path. This keeps the server authoritative
-        // over its own path layout and avoids coupling client path knowledge into the protocol.
+        // Send the resolved remote object path and storage resource id directly so the peer can
+        // fill without syncing/scanning tablet rowsets. Keep tablet_id for logging/metrics.
         req.set_fill_tablet_id(tablet_id);
+        req.set_fill_remote_path(std::move(remote_path));
+        req.set_fill_resource_id(std::move(resource_id));
     }
     // Always advertise attachment support. Older peers can still reply in protobuf mode.
     req.set_support_attachment(true);

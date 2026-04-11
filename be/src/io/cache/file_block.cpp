@@ -119,7 +119,8 @@ void FileBlock::reset_downloader_impl(std::lock_guard<std::mutex>& block_lock) {
     if (_downloaded_size == range().size()) {
         Status st = set_downloaded(block_lock);
         if (!st.ok()) {
-            LOG(WARNING) << "reset downloader error" << st;
+            LOG(WARNING) << "reset downloader failed, err=" << st
+                         << ", block=" << get_info_for_log_impl(block_lock);
         }
     } else {
         _downloaded_size = 0;
@@ -128,11 +129,13 @@ void FileBlock::reset_downloader_impl(std::lock_guard<std::mutex>& block_lock) {
     }
 }
 
-Status FileBlock::set_downloaded(std::lock_guard<std::mutex>& /* block_lock */) {
+Status FileBlock::set_downloaded(std::lock_guard<std::mutex>& block_lock) {
     DCHECK(_download_state != State::DOWNLOADED);
     if (_downloaded_size == 0) {
         _download_state = State::EMPTY;
         _downloader_id = 0;
+        LOG(WARNING) << "set file cache block downloaded failed: empty block, block="
+                     << get_info_for_log_impl(block_lock);
         return Status::InternalError("Try to set empty block {} as downloaded",
                                      _block_range.to_string());
     }
@@ -141,10 +144,9 @@ Status FileBlock::set_downloaded(std::lock_guard<std::mutex>& /* block_lock */) 
         _download_state = State::DOWNLOADED;
     } else {
         auto abort_st = abort_pending_cache_write(_mgr->_storage.get(), _key);
-        if (!abort_st.ok()) {
-            LOG(WARNING) << "abort file cache finalize failed, err=" << abort_st
-                         << ", origin_err=" << status;
-        }
+        LOG(WARNING) << "finalize file cache block failed, err=" << status
+                     << ", abort_status=" << abort_st
+                     << ", block=" << get_info_for_log_impl(block_lock);
         _download_state = State::EMPTY;
         _downloaded_size = 0;
     }
@@ -179,10 +181,9 @@ Status FileBlock::appendv(const Slice* data, size_t data_cnt) {
     auto st = _mgr->_storage->appendv(_key, data, data_cnt);
     if (!st.ok()) {
         auto abort_st = abort_pending_cache_write(_mgr->_storage.get(), _key);
-        if (!abort_st.ok()) {
-            LOG(WARNING) << "abort file cache appendv failed, err=" << abort_st
-                         << ", origin_err=" << st;
-        }
+        LOG(WARNING) << "appendv file cache block failed, append_size=" << appended_size
+                     << ", slice_count=" << data_cnt << ", err=" << st
+                     << ", abort_status=" << abort_st << ", block=" << get_info_for_log();
         return st;
     }
     _downloaded_size += appended_size;
@@ -195,10 +196,9 @@ Status FileBlock::append_iobuf(const butil::IOBuf& data) {
     auto st = _mgr->_storage->append_iobuf(_key, data);
     if (!st.ok()) {
         auto abort_st = abort_pending_cache_write(_mgr->_storage.get(), _key);
-        if (!abort_st.ok()) {
-            LOG(WARNING) << "abort file cache append_iobuf failed, err=" << abort_st
-                         << ", origin_err=" << st;
-        }
+        LOG(WARNING) << "append_iobuf file cache block failed, append_size=" << appended_size
+                     << ", err=" << st << ", abort_status=" << abort_st
+                     << ", block=" << get_info_for_log();
         return st;
     }
     _downloaded_size += appended_size;
@@ -211,6 +211,8 @@ Status FileBlock::finalize() {
         _download_state = State::EMPTY;
         _downloader_id = 0;
         _cv.notify_all();
+        LOG(WARNING) << "finalize file cache block failed: empty block, block="
+                     << get_info_for_log_impl(block_lock);
         return Status::InternalError("Try to finalize an empty file block {}",
                                      _block_range.to_string());
     }
@@ -288,10 +290,19 @@ std::string FileBlock::get_info_for_log() const {
 std::string FileBlock::get_info_for_log_impl(std::lock_guard<std::mutex>& block_lock) const {
     std::stringstream info;
     info << "File block: " << range().to_string() << ", ";
+    info << "hash: " << _key.hash.to_string() << ", ";
+    info << "cache_type: " << cache_type_to_string(_key.meta.type) << ", ";
     info << "state: " << state_to_string(_download_state) << ", ";
     info << "size: " << _block_range.size() << ", ";
+    info << "downloaded_size: " << _downloaded_size << ", ";
     info << "downloader id: " << _downloader_id << ", ";
-    info << "caller id: " << get_caller_id();
+    info << "caller id: " << get_caller_id() << ", ";
+
+    std::string cache_file = "<unknown>";
+    if (_mgr != nullptr && _mgr->_storage != nullptr) {
+        cache_file = _mgr->_storage->get_local_file(_key);
+    }
+    info << "cache_file: " << cache_file;
 
     return info.str();
 }

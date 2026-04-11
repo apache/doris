@@ -64,6 +64,9 @@ struct FileReaderOptions {
     int64_t mtime = 0;
     // Used to query the location of the file cache
     int64_t tablet_id = -1;
+    // Storage resource id of the remote file system. Used by peer fill to reconstruct
+    // the source file system without scanning tablet rowsets on the peer.
+    std::string storage_resource_id;
 
     static const FileReaderOptions DEFAULT;
 };

@@ -1149,11 +1149,15 @@ message PFetchPeerDataRequest {
     // Server only executes fill when this is true AND enable_peer_server_cache_fill config is true.
     // Only set for the designated fill compute group (peer_cache_fill_compute_group_id).
     optional bool request_cache_fill = 7 [default = false];
-    // Tablet id used by the server to look up its own storage resource and reconstruct the full
-    // remote path for S3 fill.  Sending tablet_id (rather than the raw remote path) keeps the
-    // server authoritative over its own path layout and avoids coupling client path knowledge into
-    // the protocol.  Only meaningful when request_cache_fill is true.
+    // Tablet id used for logging/metrics only. Fill source resolution uses
+    // fill_remote_path/fill_resource_id exclusively.
     optional int64 fill_tablet_id = 8;
+    // Full remote object path used by the peer to fill its local cache directly from remote
+    // storage without scanning tablet rowsets. Only meaningful when request_cache_fill is true.
+    optional string fill_remote_path = 9;
+    // Storage resource id used to resolve the remote FileSystem for fill_remote_path.
+    // Only meaningful when request_cache_fill is true.
+    optional string fill_resource_id = 10;
 }
 
 message CacheBlockPB {

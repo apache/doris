@@ -88,7 +88,8 @@ public:
      */
     Status fetch_blocks(const std::vector<FileBlockSPtr>& blocks, PeerFetchResult* result,
                         size_t file_size, const IOContext* ctx, bool request_fill = false,
-                        int64_t tablet_id = 0);
+                        int64_t tablet_id = 0, std::string remote_path = {},
+                        std::string resource_id = {});
 
 private:
     io::Path _path;

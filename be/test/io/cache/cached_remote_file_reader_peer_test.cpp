@@ -25,6 +25,7 @@
 #include <atomic>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <utility>
@@ -209,6 +210,15 @@ public:
         ++rpc_count;
         request_block_count = request->cache_req_size();
         support_attachment = request->has_support_attachment() && request->support_attachment();
+        request_fill = request->has_request_cache_fill() && request->request_cache_fill();
+        last_fill_tablet_id = request->has_fill_tablet_id() ? request->fill_tablet_id() : -1;
+        {
+            std::lock_guard lock(_request_mu);
+            last_fill_remote_path =
+                    request->has_fill_remote_path() ? request->fill_remote_path() : "";
+            last_fill_resource_id =
+                    request->has_fill_resource_id() ? request->fill_resource_id() : "";
+        }
 
         if (_options.fail_status) {
             response->mutable_status()->set_status_code(TStatusCode::INTERNAL_ERROR);
@@ -304,10 +314,23 @@ public:
     std::atomic<int> rpc_count {0};
     std::atomic<int> request_block_count {0};
     std::atomic<bool> support_attachment {false};
+    std::atomic<bool> request_fill {false};
+    std::atomic<int64_t> last_fill_tablet_id {-1};
+    std::string get_last_fill_remote_path() const {
+        std::lock_guard lock(_request_mu);
+        return last_fill_remote_path;
+    }
+    std::string get_last_fill_resource_id() const {
+        std::lock_guard lock(_request_mu);
+        return last_fill_resource_id;
+    }
 
 private:
     std::string _content;
     MockPeerCacheServiceOptions _options;
+    mutable std::mutex _request_mu;
+    std::string last_fill_remote_path;
+    std::string last_fill_resource_id;
 };
 
 class InspectingRemoteFileReader final : public FileReader {
@@ -422,6 +445,31 @@ public:
     std::atomic<int> rpc_count {0};
     std::atomic<int> request_block_count {0};
     std::atomic<bool> support_attachment {false};
+};
+
+class SlowFailingPeerCacheService : public PBackendService {
+public:
+    explicit SlowFailingPeerCacheService(int delay_ms) : _delay_ms(delay_ms) {}
+
+    void fetch_peer_data(google::protobuf::RpcController* /*controller*/,
+                         const PFetchPeerDataRequest* request, PFetchPeerDataResponse* response,
+                         google::protobuf::Closure* done) override {
+        brpc::ClosureGuard done_guard(done);
+        ++rpc_count;
+        request_block_count = request->cache_req_size();
+        started.store(true, std::memory_order_release);
+        std::this_thread::sleep_for(std::chrono::milliseconds(_delay_ms));
+        response->mutable_status()->set_status_code(TStatusCode::INTERNAL_ERROR);
+        finished.store(true, std::memory_order_release);
+    }
+
+    std::atomic<int> rpc_count {0};
+    std::atomic<int> request_block_count {0};
+    std::atomic<bool> started {false};
+    std::atomic<bool> finished {false};
+
+private:
+    int _delay_ms;
 };
 
 class CachedRemoteFileReaderPeerTest : public BlockFileCacheTest {
@@ -660,6 +708,244 @@ TEST_F(CachedRemoteFileReaderPeerTest, read_at_warmup_skips_peer_attempt) {
     EXPECT_EQ(cache_stats.bytes_read_from_peer, 0);
     EXPECT_EQ(cache_stats.num_remote_io_total, 1);
     EXPECT_EQ(cache_stats.bytes_read_from_remote, 10);
+}
+
+TEST_F(CachedRemoteFileReaderPeerTest, read_at_bypass_peer_skips_peer_attempt) {
+    const std::string content = "abcdefghijklmnop";
+    const fs::path file_path =
+            create_peer_test_file("cached_remote_reader_bypass_peer.dat", content);
+    Defer cleanup_file {[&]() {
+        std::error_code ec;
+        fs::remove(file_path, ec);
+    }};
+
+    const fs::path cache_path = caches_dir / "cached_remote_reader_bypass_peer_cache";
+    Defer cleanup_cache {[&]() {
+        std::error_code ec;
+        fs::remove_all(cache_path, ec);
+    }};
+
+    clear_cached_remote_reader_factory();
+    create_peer_test_cache(cache_path, kPeerTestBlockSize);
+
+    MockPeerCacheService service(content);
+    brpc::Server server;
+    auto addr = start_peer_test_server(&server, &service);
+    Defer stop_server {[&]() { stop_peer_test_server(&server); }};
+
+    DebugPoints::instance()->add_with_params(
+            "PeerFileCacheReader::_fetch_from_peer_cache_blocks",
+            {{"host", "127.0.0.1"}, {"port", std::to_string(addr.port)}});
+
+    FileReaderSPtr local_reader;
+    ASSERT_TRUE(global_local_filesystem()->open_file(file_path.string(), &local_reader).ok());
+
+    FileReaderOptions opts;
+    opts.cache_type = FileCachePolicy::FILE_BLOCK_CACHE;
+    opts.is_doris_table = true;
+    opts.tablet_id = kCrossTabletId;
+    opts.mtime = 1;
+    CachedRemoteFileReader reader(local_reader, opts);
+
+    std::string buffer(10, '#');
+    size_t bytes_read = 0;
+    IOContext io_ctx;
+    io_ctx.bypass_peer_read = true;
+    FileCacheStatistics cache_stats;
+    io_ctx.file_cache_stats = &cache_stats;
+
+    ASSERT_TRUE(reader.read_at(1, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx).ok());
+
+    EXPECT_EQ(buffer, content.substr(1, 10));
+    EXPECT_EQ(bytes_read, 10);
+    EXPECT_EQ(service.rpc_count.load(), 0);
+    EXPECT_EQ(cache_stats.num_peer_io_total, 0);
+    EXPECT_EQ(cache_stats.bytes_read_from_peer, 0);
+    EXPECT_EQ(cache_stats.num_remote_io_total, 1);
+    EXPECT_EQ(cache_stats.bytes_read_from_remote, 10);
+}
+
+TEST_F(CachedRemoteFileReaderPeerTest,
+       peer_fill_request_waits_for_concurrent_download_beyond_block_wait_timeout) {
+    const bool old_enable_file_cache = config::enable_file_cache;
+    const int64_t old_block_wait_timeout_ms = config::block_cache_wait_timeout_ms;
+    const int32_t old_peer_fill_timeout_ms = config::peer_server_cache_fill_timeout_ms;
+    const bool old_enable_peer_server_cache_fill = config::enable_peer_server_cache_fill;
+    Defer restore_config {[&]() {
+        config::enable_file_cache = old_enable_file_cache;
+        config::block_cache_wait_timeout_ms = old_block_wait_timeout_ms;
+        config::peer_server_cache_fill_timeout_ms = old_peer_fill_timeout_ms;
+        config::enable_peer_server_cache_fill = old_enable_peer_server_cache_fill;
+    }};
+    config::enable_file_cache = true;
+    config::block_cache_wait_timeout_ms = 100;
+    config::peer_server_cache_fill_timeout_ms = 1500;
+    config::enable_peer_server_cache_fill = true;
+
+    const std::string content = "abcdefghijklmnop";
+    const fs::path file_path =
+            create_peer_test_file("cached_remote_reader_peer_waits_for_downloading.dat", content);
+    Defer cleanup_file {[&]() {
+        std::error_code ec;
+        fs::remove(file_path, ec);
+    }};
+
+    const fs::path cache_path =
+            caches_dir / "cached_remote_reader_peer_waits_for_downloading_cache";
+    Defer cleanup_cache {[&]() {
+        std::error_code ec;
+        fs::remove_all(cache_path, ec);
+    }};
+
+    clear_cached_remote_reader_factory();
+    BlockFileCache* cache = create_peer_test_cache(cache_path, kPeerTestBlockSize);
+
+    ReadStatistics stats;
+    CacheContext context;
+    context.stats = &stats;
+    auto hash = BlockFileCache::hash(file_path.filename().native());
+    auto holder = cache->get_or_set(hash, 0, kPeerTestBlockSize, context);
+    auto cached_blocks = fromHolder(holder);
+    ASSERT_EQ(cached_blocks.size(), 1);
+    ASSERT_EQ(cached_blocks[0]->state(), FileBlock::State::EMPTY);
+    ASSERT_EQ(cached_blocks[0]->get_or_set_downloader(), FileBlock::get_caller_id());
+
+    PFetchPeerDataRequest request;
+    request.set_type(PFetchPeerDataRequest_Type_PEER_FILE_CACHE_BLOCK);
+    request.set_path(file_path.filename().native());
+    request.set_file_size(static_cast<int64_t>(content.size()));
+    request.set_support_attachment(false);
+    request.set_request_cache_fill(true);
+    request.set_fill_tablet_id(kCrossTabletId);
+    request.set_fill_remote_path(file_path.string());
+    request.set_fill_resource_id("peer_fill_resource");
+    auto* cache_req = request.add_cache_req();
+    cache_req->set_block_offset(0);
+    cache_req->set_block_size(kPeerTestBlockSize);
+
+    PFetchPeerDataResponse response;
+    brpc::Controller cntl;
+    Status request_status = Status::OK();
+    std::thread request_thread([&]() {
+        request_status =
+                doris::test_handle_peer_file_cache_block_request(&request, &response, &cntl);
+    });
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    ASSERT_TRUE(cached_blocks[0]->append(Slice(content.data(), kPeerTestBlockSize)).ok());
+    ASSERT_TRUE(cached_blocks[0]->finalize().ok());
+
+    request_thread.join();
+
+    ASSERT_TRUE(request_status.ok()) << request_status;
+    ASSERT_EQ(response.datas_size(), 1);
+    EXPECT_EQ(response.datas(0).block_offset(), 0);
+    EXPECT_EQ(response.datas(0).data(), content.substr(0, kPeerTestBlockSize));
+}
+
+TEST_F(CachedRemoteFileReaderPeerTest,
+       peer_file_cache_reader_fill_request_includes_remote_path_and_resource_id) {
+    const std::string content = "abcdefghijklmnop";
+    const fs::path file_path =
+            create_peer_test_file("cached_remote_reader_peer_fill_request_fields.dat", content);
+    Defer cleanup_file {[&]() {
+        std::error_code ec;
+        fs::remove(file_path, ec);
+    }};
+
+    const fs::path cache_path = caches_dir / "cached_remote_reader_peer_fill_request_fields_cache";
+    Defer cleanup_cache {[&]() {
+        std::error_code ec;
+        fs::remove_all(cache_path, ec);
+    }};
+
+    clear_cached_remote_reader_factory();
+    create_peer_test_cache(cache_path, kPeerTestBlockSize);
+    std::vector<FileBlockSPtr> blocks {
+            create_manual_peer_test_block(file_path, 0, kPeerTestBlockSize)};
+
+    MockPeerCacheService service(content);
+    brpc::Server server;
+    auto addr = start_peer_test_server(&server, &service);
+    Defer stop_server {[&]() { stop_peer_test_server(&server); }};
+
+    PeerFileCacheReader peer_reader(Path(file_path.string()), true, "127.0.0.1", addr.port);
+    PeerFetchResult result;
+    IOContext io_ctx;
+    const std::string remote_path = "s3://bucket/data/12345/rowset_0.dat";
+    const std::string resource_id = "peer_fill_resource";
+
+    ASSERT_TRUE(peer_reader
+                        .fetch_blocks(blocks, &result, content.size(), &io_ctx,
+                                      /*request_fill=*/true, kCrossTabletId, remote_path,
+                                      resource_id)
+                        .ok());
+    EXPECT_EQ(service.rpc_count.load(), 1);
+    EXPECT_TRUE(service.request_fill.load());
+    EXPECT_EQ(service.last_fill_tablet_id.load(), kCrossTabletId);
+    EXPECT_EQ(service.get_last_fill_remote_path(), remote_path);
+    EXPECT_EQ(service.get_last_fill_resource_id(), resource_id);
+}
+
+TEST_F(CachedRemoteFileReaderPeerTest,
+       peer_fill_returns_not_found_when_resource_id_is_unknown_without_tablet_lookup) {
+    const bool old_enable_file_cache = config::enable_file_cache;
+    const bool old_enable_peer_server_cache_fill = config::enable_peer_server_cache_fill;
+    Defer restore_config {[&]() {
+        config::enable_file_cache = old_enable_file_cache;
+        config::enable_peer_server_cache_fill = old_enable_peer_server_cache_fill;
+    }};
+    config::enable_file_cache = true;
+    config::enable_peer_server_cache_fill = true;
+
+    const std::string content = "abcdefghijklmnop";
+    const fs::path file_path =
+            create_peer_test_file("cached_remote_reader_peer_fill_unknown_resource.dat", content);
+    Defer cleanup_file {[&]() {
+        std::error_code ec;
+        fs::remove(file_path, ec);
+    }};
+
+    const fs::path cache_path =
+            caches_dir / "cached_remote_reader_peer_fill_unknown_resource_cache";
+    Defer cleanup_cache {[&]() {
+        std::error_code ec;
+        fs::remove_all(cache_path, ec);
+    }};
+
+    clear_cached_remote_reader_factory();
+    BlockFileCache* cache = create_peer_test_cache(cache_path, kPeerTestBlockSize);
+
+    ReadStatistics stats;
+    CacheContext context;
+    context.stats = &stats;
+    auto hash = BlockFileCache::hash(file_path.filename().native());
+    auto holder = cache->get_or_set(hash, 0, kPeerTestBlockSize, context);
+    auto cached_blocks = fromHolder(holder);
+    ASSERT_EQ(cached_blocks.size(), 1);
+    ASSERT_EQ(cached_blocks[0]->state(), FileBlock::State::EMPTY);
+
+    PFetchPeerDataRequest request;
+    request.set_type(PFetchPeerDataRequest_Type_PEER_FILE_CACHE_BLOCK);
+    request.set_path(file_path.filename().native());
+    request.set_file_size(static_cast<int64_t>(content.size()));
+    request.set_support_attachment(false);
+    request.set_request_cache_fill(true);
+    request.set_fill_remote_path("s3://bucket/data/12345/rowset_0.dat");
+    request.set_fill_resource_id("missing_peer_fill_resource");
+    auto* cache_req = request.add_cache_req();
+    cache_req->set_block_offset(0);
+    cache_req->set_block_size(kPeerTestBlockSize);
+
+    PFetchPeerDataResponse response;
+    brpc::Controller cntl;
+    auto st = doris::test_handle_peer_file_cache_block_request(&request, &response, &cntl);
+    ASSERT_FALSE(st.ok());
+    EXPECT_TRUE(st.is<ErrorCode::NOT_FOUND>());
+    EXPECT_EQ(response.status().status_code(), TStatusCode::NOT_FOUND);
+    ASSERT_GE(response.status().error_msgs_size(), 1);
+    EXPECT_NE(response.status().error_msgs(0).find("storage resource not found"),
+              std::string::npos);
 }
 
 TEST_F(CachedRemoteFileReaderPeerTest, peer_file_cache_reader_clips_tail_block_by_file_size) {
@@ -2296,6 +2582,146 @@ TEST_F(CrossCGWinnerRaceTest, cross_cg_s3_wins_when_peer_fails) {
     // S3 won the race.
     EXPECT_EQ(cache_stats.num_peer_race_s3_win, 1);
     EXPECT_EQ(cache_stats.num_cross_cg_peer_io_total, 0);
+}
+
+TEST_F(CrossCGWinnerRaceTest, cross_cg_s3_win_does_not_wait_for_peer_done) {
+    const int delay_ms = 1500;
+    const int32_t old_hedge_delay_ms = config::peer_race_hedge_delay_ms;
+    Defer restore_hedge_delay {[&]() { config::peer_race_hedge_delay_ms = old_hedge_delay_ms; }};
+    config::peer_race_hedge_delay_ms = 0;
+
+    const std::string content = "abcdefghijklmnop";
+    const fs::path file_path = create_cross_cg_test_file("s3_no_wait_peer_done_0.dat", content);
+    Defer cleanup_file {[&]() {
+        std::error_code ec;
+        fs::remove(file_path, ec);
+    }};
+
+    const fs::path cache_path = caches_dir / "cross_cg_s3_no_wait_peer_done_cache";
+    Defer cleanup_cache {[&]() {
+        std::error_code ec;
+        fs::remove_all(cache_path, ec);
+    }};
+
+    clear_cached_remote_reader_factory();
+    create_peer_test_cache(cache_path, kPeerTestBlockSize);
+
+    SlowFailingPeerCacheService slow_service(delay_ms);
+    brpc::Server server;
+    auto addr = start_peer_test_server(&server, &slow_service);
+    Defer stop_server {[&]() { stop_peer_test_server(&server); }};
+
+    register_cross_cg_candidate("127.0.0.1", addr.port);
+
+    FileReaderSPtr local_reader;
+    ASSERT_TRUE(global_local_filesystem()->open_file(file_path.string(), &local_reader).ok());
+
+    FileReaderOptions opts;
+    opts.cache_type = FileCachePolicy::FILE_BLOCK_CACHE;
+    opts.is_doris_table = true;
+    opts.mtime = 1;
+    opts.tablet_id = kCrossTabletId;
+    auto reader = std::make_shared<CachedRemoteFileReader>(local_reader, opts);
+
+    std::string buffer(10, '#');
+    size_t bytes_read = 0;
+    IOContext io_ctx;
+    FileCacheStatistics cache_stats;
+    io_ctx.file_cache_stats = &cache_stats;
+
+    MonotonicStopWatch sw;
+    sw.start();
+    ASSERT_TRUE(reader->read_at(1, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx).ok());
+    const int64_t elapsed_ms = sw.elapsed_time() / 1000000;
+
+    EXPECT_EQ(buffer, content.substr(1, 10));
+    EXPECT_EQ(bytes_read, 10);
+    EXPECT_EQ(cache_stats.num_peer_race_s3_win, 1);
+    EXPECT_LT(elapsed_ms, delay_ms / 2);
+
+    for (int i = 0; i < 40 && !slow_service.finished.load(std::memory_order_acquire); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    EXPECT_TRUE(slow_service.started.load(std::memory_order_acquire));
+    EXPECT_TRUE(slow_service.finished.load(std::memory_order_acquire));
+}
+
+TEST_F(CrossCGWinnerRaceTest, fill_not_found_does_not_retry_same_compute_group_candidates) {
+    const int32_t old_hedge_delay_ms = config::peer_race_hedge_delay_ms;
+    const std::string old_fill_cg = config::peer_cache_fill_compute_group_id;
+    Defer restore_config {[&]() {
+        config::peer_race_hedge_delay_ms = old_hedge_delay_ms;
+        config::peer_cache_fill_compute_group_id = old_fill_cg;
+    }};
+    config::peer_race_hedge_delay_ms = 500;
+    config::peer_cache_fill_compute_group_id = "cg_fill";
+
+    const std::string content = "abcdefghijklmnop";
+    const fs::path file_path = create_cross_cg_test_file("fill_not_found_no_retry_0.dat", content);
+    Defer cleanup_file {[&]() {
+        std::error_code ec;
+        fs::remove(file_path, ec);
+    }};
+
+    const fs::path cache_path = caches_dir / "fill_not_found_no_retry_cache";
+    Defer cleanup_cache {[&]() {
+        std::error_code ec;
+        fs::remove_all(cache_path, ec);
+    }};
+
+    clear_cached_remote_reader_factory();
+    create_peer_test_cache(cache_path, kPeerTestBlockSize);
+
+    MockPeerCacheServiceOptions miss_opts;
+    miss_opts.cache_miss_status = true;
+    MockPeerCacheService miss_service1(content, miss_opts);
+    MockPeerCacheService miss_service2(content, miss_opts);
+
+    brpc::Server server1, server2;
+    auto addr1 = start_peer_test_server(&server1, &miss_service1);
+    auto addr2 = start_peer_test_server(&server2, &miss_service2);
+    Defer stop_servers {[&]() {
+        stop_peer_test_server(&server1);
+        stop_peer_test_server(&server2);
+    }};
+
+    TabletPeerCandidates candidates;
+    candidates.candidates = {
+            PeerCandidate {
+                    .host = "127.0.0.1", .brpc_port = addr1.port, .compute_group_id = "cg_fill"},
+            PeerCandidate {
+                    .host = "127.0.0.1", .brpc_port = addr2.port, .compute_group_id = "cg_fill"}};
+    ExecEnv::GetInstance()
+            ->storage_engine()
+            .to_cloud()
+            .cloud_warm_up_manager()
+            .set_tablet_peer_candidates(kCrossTabletId, std::move(candidates));
+
+    FileReaderSPtr local_reader;
+    ASSERT_TRUE(global_local_filesystem()->open_file(file_path.string(), &local_reader).ok());
+
+    FileReaderOptions opts;
+    opts.cache_type = FileCachePolicy::FILE_BLOCK_CACHE;
+    opts.is_doris_table = true;
+    opts.mtime = 1;
+    opts.tablet_id = kCrossTabletId;
+    opts.storage_resource_id = "peer_fill_test_resource";
+    auto reader = std::make_shared<CachedRemoteFileReader>(local_reader, opts);
+
+    std::string buffer(10, '#');
+    size_t bytes_read = 0;
+    IOContext io_ctx;
+    FileCacheStatistics cache_stats;
+    io_ctx.file_cache_stats = &cache_stats;
+
+    ASSERT_TRUE(reader->read_at(1, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx).ok());
+
+    EXPECT_EQ(buffer, content.substr(1, 10));
+    EXPECT_EQ(bytes_read, 10);
+    EXPECT_TRUE(miss_service1.request_fill.load());
+    EXPECT_EQ(miss_service1.rpc_count.load(), 1);
+    EXPECT_EQ(miss_service2.rpc_count.load(), 0);
+    EXPECT_EQ(cache_stats.num_peer_race_s3_win, 1);
 }
 
 // ----------------------------------------------------------------

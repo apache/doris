@@ -17,10 +17,10 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
+
 #include <set>
 #include <string>
-
-#include <gen_cpp/Types_types.h>
 
 namespace doris {
 
@@ -186,6 +186,8 @@ struct IOContext {
     // output filtering already records its own unselected rows; this counter carries the rows that
     // were filtered before the block returned to Scanner.
     int64_t predicate_filtered_rows = 0;
+    // if true, bypass peer read / peer-vs-S3 race and read directly from remote storage
+    bool bypass_peer_read {false};
 };
 
 } // namespace io
