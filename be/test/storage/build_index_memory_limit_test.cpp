@@ -36,8 +36,7 @@ public:
         _saved_high_pct = config::build_index_memory_high_watermark_pct;
         _saved_low_pct = config::build_index_memory_low_watermark_pct;
         _saved_soft_mem_limit = MemInfo::_s_soft_mem_limit.load();
-        _saved_memory_growth =
-                GlobalMemoryArbitrator::refresh_interval_memory_growth.load();
+        _saved_memory_growth = GlobalMemoryArbitrator::refresh_interval_memory_growth.load();
 
         GlobalMemoryArbitrator::refresh_interval_memory_growth.store(0);
     }
@@ -48,8 +47,7 @@ public:
         config::build_index_memory_high_watermark_pct = _saved_high_pct;
         config::build_index_memory_low_watermark_pct = _saved_low_pct;
         MemInfo::_s_soft_mem_limit.store(_saved_soft_mem_limit);
-        GlobalMemoryArbitrator::refresh_interval_memory_growth.store(
-                _saved_memory_growth);
+        GlobalMemoryArbitrator::refresh_interval_memory_growth.store(_saved_memory_growth);
     }
 
     std::unique_ptr<StorageEngine> _engine;
@@ -98,8 +96,7 @@ TEST_F(BuildIndexMemoryLimitTest, RemainingMemoryCap) {
     config::build_index_memory_high_watermark_pct = 100;
     config::build_index_memory_low_watermark_pct = 100;
 
-    GlobalMemoryArbitrator::refresh_interval_memory_growth.store(
-            soft_limit * 80 / 100);
+    GlobalMemoryArbitrator::refresh_interval_memory_growth.store(soft_limit * 80 / 100);
 
     int64_t limit = _engine->memory_limitation_bytes_for_build_index();
     int64_t remaining = soft_limit - soft_limit * 80 / 100;
@@ -114,8 +111,7 @@ TEST_F(BuildIndexMemoryLimitTest, MinBytesFloor) {
     config::build_index_memory_high_watermark_pct = 100;
     config::build_index_memory_low_watermark_pct = 100;
 
-    GlobalMemoryArbitrator::refresh_interval_memory_growth.store(
-            soft_limit * 99 / 100);
+    GlobalMemoryArbitrator::refresh_interval_memory_growth.store(soft_limit * 99 / 100);
 
     int64_t limit = _engine->memory_limitation_bytes_for_build_index();
     EXPECT_EQ(limit, 2LL * 1024 * 1024 * 1024);
@@ -129,8 +125,7 @@ TEST_F(BuildIndexMemoryLimitTest, HighWatermarkThrottling) {
     config::build_index_memory_high_watermark_pct = 85;
     config::build_index_memory_low_watermark_pct = 75;
 
-    GlobalMemoryArbitrator::refresh_interval_memory_growth.store(
-            soft_limit * 90 / 100);
+    GlobalMemoryArbitrator::refresh_interval_memory_growth.store(soft_limit * 90 / 100);
 
     int64_t limit = _engine->memory_limitation_bytes_for_build_index();
     EXPECT_EQ(limit, 1LL * 1024 * 1024 * 1024);
@@ -144,8 +139,7 @@ TEST_F(BuildIndexMemoryLimitTest, LowWatermarkThrottling) {
     config::build_index_memory_high_watermark_pct = 90;
     config::build_index_memory_low_watermark_pct = 75;
 
-    GlobalMemoryArbitrator::refresh_interval_memory_growth.store(
-            soft_limit * 80 / 100);
+    GlobalMemoryArbitrator::refresh_interval_memory_growth.store(soft_limit * 80 / 100);
 
     int64_t remaining = soft_limit - soft_limit * 80 / 100;
     int64_t limit = _engine->memory_limitation_bytes_for_build_index();

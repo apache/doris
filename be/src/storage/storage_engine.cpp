@@ -158,8 +158,8 @@ int64_t BaseStorageEngine::memory_limitation_bytes_for_build_index() const {
     int64_t min_limit = config::build_index_min_memory_per_task_bytes;
     int64_t soft_mem_limit = MemInfo::soft_mem_limit();
 
-    int64_t limit = static_cast<int64_t>(
-            static_cast<double>(soft_mem_limit) * config::build_index_mem_limit_frac);
+    int64_t limit = static_cast<int64_t>(static_cast<double>(soft_mem_limit) *
+                                         config::build_index_mem_limit_frac);
 
     int64_t process_memory_usage = GlobalMemoryArbitrator::process_memory_usage();
     int64_t remaining = soft_mem_limit - process_memory_usage;
@@ -167,10 +167,8 @@ int64_t BaseStorageEngine::memory_limitation_bytes_for_build_index() const {
         limit = std::max(remaining, min_limit);
     }
 
-    int64_t high_watermark =
-            soft_mem_limit * config::build_index_memory_high_watermark_pct / 100;
-    int64_t low_watermark =
-            soft_mem_limit * config::build_index_memory_low_watermark_pct / 100;
+    int64_t high_watermark = soft_mem_limit * config::build_index_memory_high_watermark_pct / 100;
+    int64_t low_watermark = soft_mem_limit * config::build_index_memory_low_watermark_pct / 100;
 
     if (process_memory_usage >= high_watermark) {
         limit = min_limit;
