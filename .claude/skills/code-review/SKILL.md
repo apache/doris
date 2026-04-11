@@ -101,6 +101,7 @@ After checking all the above items with code. Use the remaining parts of this sk
 #### 1.3.3 Memory Safety (High Priority)
 
 - [ ] **Reservation**: `try_reserve()` before large allocations, with guaranteed release on every exit path
+- [ ] **Allocator-aware ownership**: In BE code, for memory-owning containers or buffers that should be tracked by Doris memory accounting, prefer allocator-aware types from `be/src/core/custom_allocator.h` such as `DorisVector`, `DorisMap`, and `DorisUniqueBufferPtr` instead of `std::vector`, `std::map`, and `std::unique_ptr`
 - [ ] **Ownership**: See `be/src/runtime/AGENTS.md` for cache-handle, shared_ptr-cycle, and factory-creator rules
 
 #### 1.3.4 Data Correctness (High Priority)

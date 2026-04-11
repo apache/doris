@@ -1,5 +1,13 @@
 # BE Core Module — Review Guide
 
+## Allocator-Aware Containers
+
+Types in `be/src/core/custom_allocator.h` exist to route owned memory through Doris allocation and tracking paths.
+
+### Checkpoints
+
+- [ ] For BE-owned buffers or containers whose memory should be tracked, prefer `DorisVector`, `DorisMap`, `DorisUniqueBufferPtr`, and related allocator-aware wrappers instead of the corresponding standard library ownership types
+
 ## COW Column Semantics
 
 Vectorized columns (`IColumn`) use intrusive-reference-counted copy-on-write.
