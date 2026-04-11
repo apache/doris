@@ -235,6 +235,7 @@ Status RowsetBuilder::init() {
     context.tablet_id = _req.tablet_id;
     context.index_id = _req.index_id;
     context.tablet = _tablet;
+    context.enable_segcompaction = true;
     context.write_type = DataWriteType::TYPE_DIRECT;
     context.mow_context = mow_context;
     context.write_file_cache = _req.write_file_cache;
