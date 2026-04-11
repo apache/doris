@@ -21,22 +21,24 @@
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
 #include "storage/storage_engine.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
 EngineIndexChangeTask::EngineIndexChangeTask(
         StorageEngine& engine, const TAlterInvertedIndexReq& alter_inverted_index_request)
-        : _engine(engine), _alter_inverted_index_req(alter_inverted_index_request) {
-    _mem_tracker = MemTrackerLimiter::create_shared(
-            MemTrackerLimiter::Type::SCHEMA_CHANGE,
-            fmt::format("EngineIndexChangeTask#tabletId={}",
-                        std::to_string(_alter_inverted_index_req.tablet_id)),
-            engine.memory_limitation_bytes_per_thread_for_schema_change());
-}
+        : _engine(engine), _alter_inverted_index_req(alter_inverted_index_request) {}
 
 EngineIndexChangeTask::~EngineIndexChangeTask() = default;
 
 Status EngineIndexChangeTask::execute() {
+    _engine.notify_build_index_task_begin();
+    Defer defer {[this]() { _engine.notify_build_index_task_end(); }};
+    _mem_tracker = MemTrackerLimiter::create_shared(
+            MemTrackerLimiter::Type::SCHEMA_CHANGE,
+            fmt::format("EngineIndexChangeTask#tabletId={}",
+                        std::to_string(_alter_inverted_index_req.tablet_id)),
+            _engine.memory_limitation_bytes_for_build_index());
     DorisMetrics::instance()->alter_inverted_index_requests_total->increment(1);
     uint64_t start = std::chrono::duration_cast<std::chrono::milliseconds>(
                              std::chrono::system_clock::now().time_since_epoch())

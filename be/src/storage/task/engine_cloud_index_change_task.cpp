@@ -21,6 +21,7 @@
 #include "cloud/cloud_tablet_mgr.h"
 #include "cpp/sync_point.h"
 #include "storage/tablet/tablet_manager.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
@@ -30,12 +31,7 @@ EngineCloudIndexChangeTask::EngineCloudIndexChangeTask(CloudStorageEngine& engin
           _index_list(request.indexes_desc),
           _columns(request.columns),
           _tablet_id(request.tablet_id),
-          _schema_version(request.schema_version) {
-    _mem_tracker = MemTrackerLimiter::create_shared(
-            MemTrackerLimiter::Type::SCHEMA_CHANGE,
-            fmt::format("EngineCloudIndexChangeTask#tabletId={}", std::to_string(_tablet_id)),
-            engine.memory_limitation_bytes_per_thread_for_schema_change());
-}
+          _schema_version(request.schema_version) {}
 
 EngineCloudIndexChangeTask::~EngineCloudIndexChangeTask() = default;
 
@@ -46,6 +42,12 @@ Result<std::shared_ptr<CloudTablet>> EngineCloudIndexChangeTask::_get_tablet() {
 }
 
 Status EngineCloudIndexChangeTask::execute() {
+    _engine.notify_build_index_task_begin();
+    Defer task_count_guard {[this]() { _engine.notify_build_index_task_end(); }};
+    _mem_tracker = MemTrackerLimiter::create_shared(
+            MemTrackerLimiter::Type::SCHEMA_CHANGE,
+            fmt::format("EngineCloudIndexChangeTask#tabletId={}", std::to_string(_tablet_id)),
+            _engine.memory_limitation_bytes_for_build_index());
     int64_t begin_time = MonotonicSeconds();
     std::string tablet_id_str = " tableid:" + std::to_string(_tablet_id);
     // get tablet

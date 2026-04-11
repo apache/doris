@@ -60,6 +60,7 @@
 #include "load/memtable/memtable_flush_executor.h"
 #include "load/stream_load/stream_load_recorder.h"
 #include "runtime/exec_env.h"
+#include "runtime/memory/global_memory_arbitrator.h"
 #include "storage/binlog.h"
 #include "storage/cache/schema_cache.h"
 #include "storage/compaction/single_replica_compaction.h"
@@ -138,6 +139,46 @@ CloudStorageEngine& BaseStorageEngine::to_cloud() {
 int64_t BaseStorageEngine::memory_limitation_bytes_per_thread_for_schema_change() const {
     return std::max(_memory_limitation_bytes_for_schema_change / config::alter_tablet_worker_count,
                     config::memory_limitation_per_thread_for_schema_change_bytes);
+}
+
+void BaseStorageEngine::notify_build_index_task_begin() {
+    _running_build_index_tasks.fetch_add(1, std::memory_order_relaxed);
+}
+
+void BaseStorageEngine::notify_build_index_task_end() {
+    auto old_value = _running_build_index_tasks.fetch_sub(1, std::memory_order_relaxed);
+    DCHECK_GT(old_value, 0);
+}
+
+int32_t BaseStorageEngine::running_build_index_tasks() const {
+    return std::max(1, _running_build_index_tasks.load(std::memory_order_relaxed));
+}
+
+int64_t BaseStorageEngine::memory_limitation_bytes_for_build_index() const {
+    int64_t min_limit = config::build_index_min_memory_per_task_bytes;
+    int64_t soft_mem_limit = MemInfo::soft_mem_limit();
+
+    int64_t limit = static_cast<int64_t>(
+            static_cast<double>(soft_mem_limit) * config::build_index_mem_limit_frac);
+
+    int64_t process_memory_usage = GlobalMemoryArbitrator::process_memory_usage();
+    int64_t remaining = soft_mem_limit - process_memory_usage;
+    if (remaining < limit) {
+        limit = std::max(remaining, min_limit);
+    }
+
+    int64_t high_watermark =
+            soft_mem_limit * config::build_index_memory_high_watermark_pct / 100;
+    int64_t low_watermark =
+            soft_mem_limit * config::build_index_memory_low_watermark_pct / 100;
+
+    if (process_memory_usage >= high_watermark) {
+        limit = min_limit;
+    } else if (process_memory_usage >= low_watermark) {
+        limit = std::max(limit / 2, min_limit);
+    }
+
+    return limit;
 }
 
 void BaseStorageEngine::_start_adaptive_thread_controller() {

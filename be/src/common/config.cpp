@@ -133,6 +133,15 @@ DEFINE_mDouble(cache_capacity_reduce_mem_limit_frac, "0.7");
 // Schema change memory limit as a fraction of soft memory limit.
 DEFINE_Double(schema_change_mem_limit_frac, "0.6");
 
+// Build index memory limit as a fraction of soft memory limit.
+DEFINE_mDouble(build_index_mem_limit_frac, "0.6");
+// Minimum memory limit in bytes for each build index task.
+DEFINE_mInt64(build_index_min_memory_per_task_bytes, "2147483648");
+// High watermark percentage of soft memory limit for build index memory throttling.
+DEFINE_mInt32(build_index_memory_high_watermark_pct, "85");
+// Low watermark percentage of soft memory limit for build index memory throttling.
+DEFINE_mInt32(build_index_memory_low_watermark_pct, "75");
+
 // Many modern allocators (for example, tcmalloc) do not do a mremap for
 // realloc, even in case of large enough chunks of memory. Although this allows
 // you to increase performance and reduce memory consumption during realloc.
