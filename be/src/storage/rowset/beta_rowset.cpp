@@ -279,18 +279,18 @@ Status BetaRowset::load_segment(int64_t seg_id, OlapReaderStatistics* stats,
     constexpr int retry_times = 3;
     constexpr int retry_interval = 300; // 300ms sleep between retries
     Status s;
-    for (int i = 0; i < retry_times; i++ ) {
+    for (int i = 0; i < retry_times; i++) {
         s = segment_v2::Segment::open(
-             fs, seg_path, _rowset_meta->tablet_id(), static_cast<uint32_t>(seg_id), rowset_id(),
-             _schema, reader_options, segment,
-             _rowset_meta->inverted_index_file_info(static_cast<int>(seg_id)), stats);
+                fs, seg_path, _rowset_meta->tablet_id(), static_cast<uint32_t>(seg_id), rowset_id(),
+                _schema, reader_options, segment,
+                _rowset_meta->inverted_index_file_info(static_cast<int>(seg_id)), stats);
         if (s.ok()) {
             return Status::OK();
         }
         if (s.code() != TStatusCode::NOT_FOUND) {
             break;
         }
-        LOG(WARNING) << "Retrying to open segment (NOT FOUND), attempt " << (i+1)
+        LOG(WARNING) << "Retrying to open segment (NOT FOUND), attempt " << (i + 1)
                      << ", path=" << seg_path << ", rowset_id=" << rowset_id()
                      << ", error=" << s.to_string();
         SleepForMs(retry_interval);
