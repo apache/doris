@@ -219,7 +219,7 @@ Status LocalFileSystem::directory_size(const Path& dir_path, size_t* dir_size) {
 Status LocalFileSystem::list_impl(const Path& dir, bool only_file, std::vector<FileInfo>* files,
                                   bool* exists) {
     RETURN_IF_ERROR(exists_impl(dir, exists));
-    if (!exists) {
+    if (!(*exists)) {
         return Status::OK();
     }
     std::error_code ec;
