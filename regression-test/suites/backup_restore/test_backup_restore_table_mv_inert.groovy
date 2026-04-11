@@ -53,7 +53,7 @@ suite("test_backup_restore_table_mv_inert", "backup_restore") {
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
         AS
-        SELECT id, sum(item) FROM ${dbName}.${tableName} GROUP BY id;
+        SELECT id as col_a, sum(item) FROM ${dbName}.${tableName} GROUP BY id;
     """
 
     def alter_finished = false
