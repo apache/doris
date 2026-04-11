@@ -431,6 +431,17 @@ void SystemMetrics::_update_cpu_metrics() {
         char buf[64];
         LOG(WARNING) << "open /proc/stat failed, errno=" << errno
                      << ", message=" << strerror_r(errno, buf, 64);
+        if (errno == 24) {
+            _file_handle_deplenish_counter++;
+        } else {
+            _file_handle_deplenish_counter = 0;
+        }
+        // Threshold of the number of consecutive failures
+        if (_file_handle_deplenish_counter >= config::file_handles_deplenish_frequency_times) {
+            LOG(FATAL) << "The system file handles are insufficient, causing service exceptions, BE will exit. "
+                       << "please check the configs 'soft nofile' and 'hard nofile' of /etc/security/limits.conf ";
+            exit(-1);
+        }
         return;
     }
 
