@@ -24,7 +24,7 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
+import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
@@ -59,9 +59,9 @@ public class RuntimeFilterContext {
     public class RuntimeFilterIdentity {
         final Expression expr;
         final TRuntimeFilterType type;
-        final AbstractPhysicalJoin join;
+        final AbstractPhysicalPlan join;
 
-        public RuntimeFilterIdentity(Expression expr, TRuntimeFilterType type, AbstractPhysicalJoin join) {
+        public RuntimeFilterIdentity(Expression expr, TRuntimeFilterType type, AbstractPhysicalPlan join) {
             this.expr = expr;
             this.type = type;
             this.join = join;
@@ -124,7 +124,7 @@ public class RuntimeFilterContext {
      * info about expand rf by inner join
      */
     public static class ExpandRF {
-        public AbstractPhysicalJoin buildNode;
+        public AbstractPhysicalPlan buildNode;
 
         public PhysicalRelation srcNode;
         public PhysicalRelation target1;
@@ -133,7 +133,7 @@ public class RuntimeFilterContext {
 
         public EqualPredicate equal;
 
-        public ExpandRF(AbstractPhysicalJoin buildNode, PhysicalRelation srcNode,
+        public ExpandRF(AbstractPhysicalPlan buildNode, PhysicalRelation srcNode,
                         PhysicalRelation target1, PhysicalRelation target2, EqualPredicate equal) {
             this.buildNode = buildNode;
             this.srcNode = srcNode;
@@ -233,12 +233,12 @@ public class RuntimeFilterContext {
     }
 
     public RuntimeFilter getRuntimeFilterBySrcAndType(Expression src,
-                                                      TRuntimeFilterType type, AbstractPhysicalJoin join) {
+                                                      TRuntimeFilterType type, AbstractPhysicalPlan join) {
         return runtimeFilterIdentityToFilter.get(new RuntimeFilterIdentity(src, type, join));
     }
 
     public void setRuntimeFilterIdentityToFilter(Expression src, TRuntimeFilterType type,
-                                                 AbstractPhysicalJoin join, RuntimeFilter rf) {
+                                                 AbstractPhysicalPlan join, RuntimeFilter rf) {
         runtimeFilterIdentityToFilter.put(new RuntimeFilterIdentity(src, type, join), rf);
     }
 
@@ -310,18 +310,18 @@ public class RuntimeFilterContext {
         return targetNullCount;
     }
 
-    public void addJoinToTargetMap(AbstractPhysicalJoin join, ExprId exprId) {
+    public void addJoinToTargetMap(AbstractPhysicalPlan join, ExprId exprId) {
         joinToTargetExprId.computeIfAbsent(join, k -> Lists.newArrayList()).add(exprId);
     }
 
-    public List<ExprId> getTargetExprIdByFilterJoin(AbstractPhysicalJoin join) {
+    public List<ExprId> getTargetExprIdByFilterJoin(AbstractPhysicalPlan join) {
         return joinToTargetExprId.getOrDefault(join, Lists.newArrayList());
     }
 
     /**
      * return the info about expand_runtime_filter_by_inner_join
      */
-    public ExpandRF getExpandRfByJoin(AbstractPhysicalJoin join) {
+    public ExpandRF getExpandRfByJoin(AbstractPhysicalPlan join) {
         if (join instanceof PhysicalHashJoin) {
             for (ExpandRF expand : expandedRF) {
                 if (expand.buildNode.equals(join)) {

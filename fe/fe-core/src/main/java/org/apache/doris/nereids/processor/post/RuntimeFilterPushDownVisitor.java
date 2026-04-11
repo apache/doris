@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
+import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
@@ -68,7 +69,7 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
         final RuntimeFilterContext rfContext;
         final IdGenerator<RuntimeFilterId> rfIdGen;
         final TRuntimeFilterType type;
-        final AbstractPhysicalJoin<? extends Plan, ? extends Plan> builderNode;
+        final AbstractPhysicalPlan builderNode;
         final boolean hasUnknownColStats;
         final long buildSideNdv;
         final int exprOrder;
@@ -79,7 +80,7 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
 
         private PushDownContext(Expression srcExpr, Expression probeExpr, RuntimeFilterContext rfContext,
                 IdGenerator<RuntimeFilterId> rfIdGen, TRuntimeFilterType type,
-                AbstractPhysicalJoin<? extends Plan, ? extends Plan> builderNode,
+                AbstractPhysicalPlan builderNode,
                 boolean hasUnknownColStats, long buildSideNdv, int exprOrder, boolean isNot,
                 TMinMaxRuntimeFilterType singleSideMinMax) {
             this.probeExpr = probeExpr;
@@ -99,7 +100,7 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
         public static PushDownContext createPushDownContextForBitMapFilter(Expression srcExpr, Expression probeExpr,
                 RuntimeFilterContext rfContext,
                 IdGenerator<RuntimeFilterId> rfIdGen,
-                AbstractPhysicalJoin<? extends Plan, ? extends Plan> builderNode,
+                AbstractPhysicalPlan builderNode,
                 long buildSideNdv, int exprOrder, boolean isNot) {
             return new PushDownContext(srcExpr, probeExpr, rfContext, rfIdGen, TRuntimeFilterType.BITMAP, builderNode,
                     false, buildSideNdv,
@@ -110,7 +111,7 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
         public static PushDownContext createPushDownContextForNljMinMaxFilter(Expression srcExpr, Expression probeExpr,
                 RuntimeFilterContext rfContext,
                 IdGenerator<RuntimeFilterId> rfIdGen,
-                AbstractPhysicalJoin<? extends Plan, ? extends Plan> builderNode,
+                AbstractPhysicalPlan builderNode,
                 int exprOrder,
                 TMinMaxRuntimeFilterType singleSideMinMax) {
             return new PushDownContext(srcExpr, probeExpr, rfContext, rfIdGen, TRuntimeFilterType.MIN_MAX, builderNode,
@@ -121,7 +122,7 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
         public static PushDownContext createPushDownContextForHashJoin(Expression srcExpr, Expression probeExpr,
                 RuntimeFilterContext rfContext,
                 IdGenerator<RuntimeFilterId> rfIdGen, TRuntimeFilterType type,
-                AbstractPhysicalJoin<? extends Plan, ? extends Plan> builderNode,
+                AbstractPhysicalPlan builderNode,
                 boolean hasUnknownColStats, long buildSideNdv, int exprOrder) {
             return new PushDownContext(srcExpr, probeExpr, rfContext, rfIdGen, type, builderNode,
                     hasUnknownColStats, buildSideNdv,
@@ -208,9 +209,20 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
 
         // NullSafeEqual cannot be pushed through outer joins
         if (ctx.builderNode instanceof PhysicalHashJoin) {
-            EqualPredicate equal = (EqualPredicate) ctx.builderNode.getHashJoinConjuncts().get(ctx.exprOrder);
-            if (equal instanceof NullSafeEqual && join.getJoinType().isOuterJoin()) {
-                return false;
+            /*
+             hashJoin( t1.A <=> t2.A )
+                +---->left outer Join(t1.B=T3.B)
+                            +--->t1
+                            +--->t3
+                +---->t2
+             RF(t1.A <=> t2.A) cannot be pushed down through left outer join
+             */
+            EqualPredicate equal = (EqualPredicate) ((AbstractPhysicalJoin<?, ?>) ctx.builderNode)
+                    .getHashJoinConjuncts().get(ctx.exprOrder);
+            if (equal instanceof NullSafeEqual) {
+                if (join.getJoinType().isOuterJoin()) {
+                    return false;
+                }
             }
         }
 
@@ -260,7 +272,16 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
             return false;
         }
         if (ctx.builderNode instanceof PhysicalHashJoin) {
-            EqualPredicate equal = (EqualPredicate) ctx.builderNode.getHashJoinConjuncts().get(ctx.exprOrder);
+            /*
+             hashJoin( t1.A <=> t2.A )
+                +---->left outer Join(t1.B=T3.B)
+                            +--->t1
+                            +--->t3
+                +---->t2
+             RF(t1.A <=> t2.A) cannot be pushed down through left outer join
+             */
+            EqualPredicate equal = (EqualPredicate) ((AbstractPhysicalJoin<?, ?>) ctx.builderNode)
+                    .getHashJoinConjuncts().get(ctx.exprOrder);
             if (equal instanceof NullSafeEqual) {
                 if (join.getJoinType().isOuterJoin()) {
                     return false;

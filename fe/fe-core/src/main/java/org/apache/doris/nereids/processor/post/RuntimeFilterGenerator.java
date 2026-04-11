@@ -39,9 +39,12 @@ import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalExcept;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
@@ -51,11 +54,14 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.Statistics;
 import org.apache.doris.thrift.TMinMaxRuntimeFilterType;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -477,6 +483,142 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
     public PhysicalSetOperation visitPhysicalSetOperation(PhysicalSetOperation setOperation, CascadesContext context) {
         setOperation.children().forEach(child -> child.accept(this, context));
         return setOperation;
+    }
+
+    @Override
+    public Plan visitPhysicalIntersect(PhysicalIntersect intersect, CascadesContext context) {
+        visitPhysicalSetOperation(intersect, context);
+        generateRuntimeFilterForSetOperation(intersect, context);
+        return intersect;
+    }
+
+    @Override
+    public Plan visitPhysicalExcept(PhysicalExcept except, CascadesContext context) {
+        visitPhysicalSetOperation(except, context);
+        generateRuntimeFilterForSetOperation(except, context);
+        return except;
+    }
+
+    private void generateRuntimeFilterForSetOperation(PhysicalSetOperation setOp, CascadesContext context) {
+        AbstractPlan child0 = (AbstractPlan) setOp.child(0);
+        if (child0.getStats() == null
+                || ConnectContext.get() == null
+                || ConnectContext.get().getSessionVariable() == null
+                || child0.getStats().getRowCount()
+                    >= ConnectContext.get().getSessionVariable().runtimeFilterMaxBuildRowCount) {
+            return;
+        }
+        RuntimeFilterContext ctx = context.getRuntimeFilterContext();
+        List<TRuntimeFilterType> legalTypes = Arrays.stream(TRuntimeFilterType.values())
+                .filter(type -> ctx.getSessionVariable().allowedRuntimeFilterType(type))
+                .filter(type -> type != TRuntimeFilterType.BITMAP)
+                .collect(Collectors.toList());
+
+        boolean hasUnknownColStats = context.getStatementContext().isHasUnknownColStats();
+        for (int slotIdx : chooseSourceSlotsForSetOp(setOp)) {
+            Expression sourceExpression = setOp.getRegularChildrenOutputs().get(0).get(slotIdx);
+            long buildNdvOrRowCount = computeBuildNdvOrRowCount(child0, sourceExpression);
+            for (int childId = 1; childId < setOp.children().size(); childId++) {
+                Expression targetExpression = setOp.getRegularChildrenOutputs().get(childId).get(slotIdx);
+                pushDownSetOpRuntimeFilter(setOp.child(childId), targetExpression,
+                        sourceExpression, setOp, ctx, legalTypes,
+                        buildNdvOrRowCount, slotIdx, hasUnknownColStats);
+            }
+        }
+    }
+
+    /**
+     * Push down runtime filter for set operations (INTERSECT/EXCEPT) by tree traversal.
+     * Unlike join RF push-down which uses aliasTransferMap, this method rewrites the target
+     * expression through projects and resolves to scans directly.
+     */
+    private boolean pushDownSetOpRuntimeFilter(Plan plan, Expression targetExpr,
+            Expression srcExpr, PhysicalSetOperation setOp, RuntimeFilterContext ctx,
+            List<TRuntimeFilterType> legalTypes, long buildNdvOrRowCount, int exprOrder,
+            boolean hasUnknownColStats) {
+        if (plan instanceof PhysicalRelation) {
+            PhysicalRelation relation = (PhysicalRelation) plan;
+            if (relation instanceof PhysicalSchemaScan) {
+                return false;
+            }
+            if (targetExpr.getInputSlots().size() != 1) {
+                return false;
+            }
+            Slot targetSlot = targetExpr.getInputSlots().iterator().next();
+            if (!relation.getOutputSet().contains(targetSlot)) {
+                return false;
+            }
+            for (TRuntimeFilterType type : legalTypes) {
+                RuntimeFilter filter = ctx.getRuntimeFilterBySrcAndType(srcExpr, type, setOp);
+                if (filter != null) {
+                    if (!filter.hasTargetScan(relation)) {
+                        relation.addAppliedRuntimeFilter(filter);
+                        filter.addTargetSlot(targetSlot, targetExpr, relation);
+                        ctx.addJoinToTargetMap(setOp, targetSlot.getExprId());
+                        ctx.setTargetExprIdToFilter(targetSlot.getExprId(), filter);
+                        ctx.setTargetsOnScanNode(relation, targetSlot);
+                    }
+                } else {
+                    filter = new RuntimeFilter(ctx.getRuntimeFilterIdGen().getNextId(),
+                            srcExpr, ImmutableList.of(targetSlot), ImmutableList.of(targetExpr),
+                            type, exprOrder, setOp, false, buildNdvOrRowCount,
+                            !hasUnknownColStats, TMinMaxRuntimeFilterType.MIN_MAX, relation);
+                    relation.addAppliedRuntimeFilter(filter);
+                    ctx.addJoinToTargetMap(setOp, targetSlot.getExprId());
+                    ctx.setTargetExprIdToFilter(targetSlot.getExprId(), filter);
+                    ctx.setTargetsOnScanNode(relation, targetSlot);
+                    ctx.setRuntimeFilterIdentityToFilter(srcExpr, type, setOp, filter);
+                }
+            }
+            return true;
+        }
+        if (plan instanceof PhysicalProject) {
+            PhysicalProject<?> project = (PhysicalProject<?>) plan;
+            if (!project.getOutputSet().containsAll(targetExpr.getInputSlots())) {
+                return false;
+            }
+            Map<Slot, Expression> replaceMap = ExpressionUtils.generateReplaceMap(project.getProjects());
+            Expression newTarget = targetExpr.rewriteDownShortCircuit(
+                    e -> replaceMap.getOrDefault(e, e));
+            if (newTarget.getInputSlots().size() == 1) {
+                return pushDownSetOpRuntimeFilter(project.child(), newTarget,
+                        srcExpr, setOp, ctx, legalTypes, buildNdvOrRowCount, exprOrder, hasUnknownColStats);
+            }
+            return false;
+        }
+        // For other nodes (aggregate, filter, etc.), recurse into children
+        boolean pushed = false;
+        for (Plan child : plan.children()) {
+            if (child.getOutputSet().containsAll(targetExpr.getInputSlots())) {
+                pushed |= pushDownSetOpRuntimeFilter(child, targetExpr,
+                        srcExpr, setOp, ctx, legalTypes, buildNdvOrRowCount, exprOrder, hasUnknownColStats);
+            }
+        }
+        return pushed;
+    }
+
+    private List<Integer> chooseSourceSlotsForSetOp(PhysicalSetOperation setOp) {
+        List<Slot> output = setOp.getOutput();
+        for (int i = 0; i < output.size(); i++) {
+            if (!output.get(i).getDataType().isOnlyMetricType()
+                    && !setOp.getLogicalProperties().getTrait().getUniformValue(output.get(i)).isPresent()) {
+                return ImmutableList.of(i);
+            }
+        }
+        return ImmutableList.of();
+    }
+
+    private long computeBuildNdvOrRowCount(AbstractPlan child0, Expression sourceExpression) {
+        Statistics stats = child0.getStats();
+        if (stats == null) {
+            return -1L;
+        }
+        long buildNdvOrRowCount = (long) stats.getRowCount();
+        ColumnStatistic colStats = stats.findColumnStatistics(sourceExpression);
+        if (colStats != null && !colStats.isUnKnown) {
+            buildNdvOrRowCount = Math.max(1, (long) colStats.ndv);
+        }
+        return buildNdvOrRowCount;
     }
 
     // runtime filter build side ndv

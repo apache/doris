@@ -37,7 +37,6 @@ import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
 import org.apache.doris.nereids.processor.post.TopnFilterContext;
-import org.apache.doris.nereids.processor.post.runtimefilterv2.RuntimeFilterContextV2;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleSet;
@@ -104,7 +103,6 @@ public class CascadesContext implements ScheduleContext {
     // subqueryExprIsAnalyzed: whether the subquery has been analyzed.
     private final Map<SubqueryExpr, Boolean> subqueryExprIsAnalyzed;
     private final RuntimeFilterContext runtimeFilterContext;
-    private final RuntimeFilterContextV2 runtimeFilterV2Context;
     private final TopnFilterContext topnFilterContext = new TopnFilterContext();
     private Optional<Scope> outerScope = Optional.empty();
 
@@ -159,7 +157,6 @@ public class CascadesContext implements ScheduleContext {
         IdGenerator<RuntimeFilterId> runtimeFilterIdGen = RuntimeFilterId.createGenerator();
         this.runtimeFilterContext = new RuntimeFilterContext(getConnectContext().getSessionVariable(),
                 runtimeFilterIdGen);
-        this.runtimeFilterV2Context = new RuntimeFilterContextV2(runtimeFilterIdGen);
         this.materializationContexts = new HashMap<>();
         if (statementContext.getConnectContext() != null) {
             ConnectContext connectContext = statementContext.getConnectContext();
@@ -608,9 +605,5 @@ public class CascadesContext implements ScheduleContext {
 
     public boolean rewritePlanContainsTypes(Class<?>... types) {
         return getRewritePlan().containsType(types);
-    }
-
-    public RuntimeFilterContextV2 getRuntimeFilterV2Context() {
-        return runtimeFilterV2Context;
     }
 }

@@ -73,7 +73,6 @@ import org.apache.doris.info.BaseTableRefInfo;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.processor.post.runtimefilterv2.RuntimeFilterV2;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecAllSingleton;
 import org.apache.doris.nereids.properties.DistributionSpecAny;
@@ -810,14 +809,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                         expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, esScanNode, context)
                 )
         );
-        // translate rf v2 target
-        List<RuntimeFilterV2> rfV2s = context.getRuntimeFilterV2Context()
-                .getRuntimeFilterV2ByTargetPlan(esScan);
-        for (RuntimeFilterV2 rfV2 : rfV2s) {
-            Expr targetExpr = rfV2.getTargetExpression().accept(ExpressionTranslator.INSTANCE, context);
-            rfV2.setLegacyTargetNode(esScanNode);
-            rfV2.setLegacyTargetExpr(targetExpr);
-        }
         context.getTopnFilterContext().translateTarget(esScan, esScanNode, context);
         DataPartition dataPartition = DataPartition.RANDOM;
         PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), esScanNode, dataPartition);
@@ -1039,14 +1030,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
         }
 
-        // translate rf v2 target
-        List<RuntimeFilterV2> rfV2s = context.getRuntimeFilterV2Context()
-                .getRuntimeFilterV2ByTargetPlan(physicalRelation);
-        for (RuntimeFilterV2 rfV2 : rfV2s) {
-            Expr targetExpr = rfV2.getTargetExpression().accept(ExpressionTranslator.INSTANCE, context);
-            rfV2.setLegacyTargetNode(scanNode);
-            rfV2.setLegacyTargetExpr(targetExpr);
-        }
         context.getTopnFilterContext().translateTarget(physicalRelation, scanNode, context);
     }
 
@@ -2460,22 +2443,20 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     @Override
     public PlanFragment visitPhysicalIntersect(PhysicalIntersect intersect, PlanTranslatorContext context) {
         PlanFragment fragment = visitPhysicalSetOperation(intersect, context);
-        RunTimeFilterTranslatorV2.INSTANCE.createLegacyRuntimeFilters(
-                fragment.getPlanRoot(),
-                intersect.getRuntimeFiltersV2(),
-                context);
-
+        context.getRuntimeTranslator().ifPresent(runtimeFilterTranslator ->
+                intersect.getRuntimeFilters().forEach(filter ->
+                        runtimeFilterTranslator.createLegacyRuntimeFilter(
+                                filter, fragment.getPlanRoot(), context)));
         return fragment;
     }
 
     @Override
     public PlanFragment visitPhysicalExcept(PhysicalExcept except, PlanTranslatorContext context) {
         PlanFragment fragment = visitPhysicalSetOperation(except, context);
-        RunTimeFilterTranslatorV2.INSTANCE.createLegacyRuntimeFilters(
-                fragment.getPlanRoot(),
-                except.getRuntimeFiltersV2(),
-                context);
-
+        context.getRuntimeTranslator().ifPresent(runtimeFilterTranslator ->
+                except.getRuntimeFilters().forEach(filter ->
+                        runtimeFilterTranslator.createLegacyRuntimeFilter(
+                                filter, fragment.getPlanRoot(), context)));
         return fragment;
     }
 

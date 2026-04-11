@@ -33,7 +33,7 @@ import org.apache.doris.planner.CTEScanNode;
 import org.apache.doris.planner.DataStreamSink;
 import org.apache.doris.planner.DistributionMode;
 import org.apache.doris.planner.HashJoinNode;
-import org.apache.doris.planner.JoinNodeBase;
+import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.RuntimeFilter.RuntimeFilterTarget;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
@@ -95,7 +95,7 @@ public class RuntimeFilterTranslator {
      * @param node hash join node
      * @param ctx plan translator context
      */
-    public void createLegacyRuntimeFilter(RuntimeFilter filter, JoinNodeBase node, PlanTranslatorContext ctx) {
+    public void createLegacyRuntimeFilter(RuntimeFilter filter, PlanNode node, PlanTranslatorContext ctx) {
         if (ConnectContext.get() != null
                 && ConnectContext.get().getSessionVariable()
                 .getIgnoredRuntimeFilterIds().contains(filter.getId().asInt())) {

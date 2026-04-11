@@ -42,7 +42,7 @@ public class RuntimeFilter {
     private final List<Expression> targetExpressions;
     private final List<Slot> targetSlots;
     private final int exprOrder;
-    private final AbstractPhysicalJoin builderNode;
+    private final AbstractPhysicalPlan builderNode;
 
     private final boolean bitmapFilterNotIn;
 
@@ -58,7 +58,7 @@ public class RuntimeFilter {
      * constructor
      */
     public RuntimeFilter(RuntimeFilterId id, Expression src, List<Slot> targets, List<Expression> targetExpressions,
-                         TRuntimeFilterType type, int exprOrder, AbstractPhysicalJoin builderNode, long buildSideNdv,
+                         TRuntimeFilterType type, int exprOrder, AbstractPhysicalPlan builderNode, long buildSideNdv,
                          boolean bloomFilterSizeCalculatedByNdv, TMinMaxRuntimeFilterType tMinMaxType,
                          PhysicalRelation scan) {
         this(id, src, targets, targetExpressions, type, exprOrder,
@@ -67,7 +67,7 @@ public class RuntimeFilter {
     }
 
     public RuntimeFilter(RuntimeFilterId id, Expression src, List<Slot> targets, List<Expression> targetExpressions,
-                         TRuntimeFilterType type, int exprOrder, AbstractPhysicalJoin builderNode,
+                         TRuntimeFilterType type, int exprOrder, AbstractPhysicalPlan builderNode,
                          boolean bitmapFilterNotIn, long buildSideNdv, boolean bloomFilterSizeCalculatedByNdv,
                          PhysicalRelation scan) {
         this(id, src, targets, targetExpressions, type, exprOrder,
@@ -79,7 +79,7 @@ public class RuntimeFilter {
      * constructor
      */
     public RuntimeFilter(RuntimeFilterId id, Expression src, List<Slot> targets, List<Expression> targetExpressions,
-                         TRuntimeFilterType type, int exprOrder, AbstractPhysicalJoin builderNode,
+                         TRuntimeFilterType type, int exprOrder, AbstractPhysicalPlan builderNode,
                          boolean bitmapFilterNotIn, long buildSideNdv, boolean bloomFilterSizeCalculatedByNdv,
                          TMinMaxRuntimeFilterType tMinMaxType,
                          PhysicalRelation scan) {
@@ -118,7 +118,7 @@ public class RuntimeFilter {
         return exprOrder;
     }
 
-    public AbstractPhysicalJoin getBuilderNode() {
+    public AbstractPhysicalPlan getBuilderNode() {
         return builderNode;
     }
 

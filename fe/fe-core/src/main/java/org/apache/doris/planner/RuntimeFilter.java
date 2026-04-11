@@ -184,7 +184,7 @@ public final class RuntimeFilter {
     // only for nereids planner
     public static RuntimeFilter fromNereidsRuntimeFilter(
             org.apache.doris.nereids.trees.plans.physical.RuntimeFilter nereidsFilter,
-            JoinNodeBase node, Expr srcExpr, List<Expr> origTargetExprs,
+            PlanNode node, Expr srcExpr, List<Expr> origTargetExprs,
             List<Map<TupleId, List<SlotId>>> targetSlots,
             RuntimeFilterGenerator.FilterSizeLimits filterSizeLimits) {
         return new RuntimeFilter(nereidsFilter.getId(), node, srcExpr, nereidsFilter.getExprOrder(), origTargetExprs,

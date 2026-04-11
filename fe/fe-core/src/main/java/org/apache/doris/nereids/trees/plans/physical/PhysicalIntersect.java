@@ -82,8 +82,7 @@ public class PhysicalIntersect extends PhysicalSetOperation implements Intersect
                 "qualifier", qualifier,
                 "outputs", outputs,
                 "regularChildrenOutputs", regularChildrenOutputs,
-                "stats", statistics,
-                "RFV2", runtimeFiltersV2
+                "stats", statistics
         );
     }
 

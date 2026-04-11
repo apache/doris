@@ -1108,10 +1108,7 @@ public class NereidsPlanner extends Planner {
 
     @Override
     public List<RuntimeFilter> getRuntimeFilters() {
-        ArrayList<RuntimeFilter> runtimeFilters = new ArrayList<>();
-        runtimeFilters.addAll(cascadesContext.getRuntimeFilterContext().getLegacyFilters());
-        runtimeFilters.addAll(cascadesContext.getRuntimeFilterV2Context().getLegacyFilters());
-        return runtimeFilters;
+        return new ArrayList<>(cascadesContext.getRuntimeFilterContext().getLegacyFilters());
     }
 
     @Override
