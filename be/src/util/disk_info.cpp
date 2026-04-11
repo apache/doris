@@ -197,7 +197,7 @@ std::set<std::string> DiskInfo::get_lvm_physical_disks(const std::string dm_name
         if (pf.good()) {
             std::string current_link = "/sys/class/block/" + slave_name;
             char current_path[256];
-            ssize_t len = readlink(current_link.c_str(), current_path, sizeof(current_path)-1);
+            ssize_t len = readlink(current_link.c_str(), current_path, sizeof(current_path) - 1);
  
             string parent_path_str = "";
             parent_path_str.append("/sys/class/block/").append(current_path).append("/..");
@@ -206,7 +206,8 @@ std::set<std::string> DiskInfo::get_lvm_physical_disks(const std::string dm_name
             if (len != -1) {
                 std::string parent_str(parent_path);
                 size_t pos = parent_str.find_last_of('/');
-                std::string parent_dev = (pos != std::string::npos) ? parent_str.substr(pos+1) : parent_str;
+                std::string parent_dev = 
+                        (pos != std::string::npos) ? parent_str.substr(pos+1) : parent_str;
                 disks.insert(parent_dev);
             }
         } else {
@@ -274,7 +275,8 @@ Status DiskInfo::get_disk_devices(const std::vector<std::string>& paths,
                 std::string dm_name = real_dm_path.substr(pos + 1);
                 std::set<std::string> disk_devs = get_lvm_physical_disks(dm_name);
                 if (disk_devs.size() != 1) {
-                    LOG(WARNING) << "more than one disk device is found in " << dm_name << "." << "size: " << disk_devs.size();
+                    LOG(WARNING) << "more than one disk device is found in " << dm_name << "."
+                                 << "size: " << disk_devs.size();
                     if (disk_devs.size() == 0) {
                         continue;
                     }
