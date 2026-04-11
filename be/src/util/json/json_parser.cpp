@@ -34,7 +34,6 @@
 #include "util/json/simd_json_parser.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 template <typename ParserImpl>
 std::optional<ParseResult> JSONDataParser<ParserImpl>::parse(const char* begin, size_t length,
@@ -382,8 +381,6 @@ StringRef JSONDataParser<ParserImpl>::getNameOfNested(const PathInData::Parts& p
     }
     return {};
 }
-
-#include "common/compile_check_end.h"
 
 template class JSONDataParser<SimdJSONParser>;
 } // namespace doris

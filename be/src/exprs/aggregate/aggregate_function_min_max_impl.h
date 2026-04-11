@@ -26,7 +26,6 @@
 #include "exprs/aggregate/helpers.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 /// min, max, any — shared template definition
 template <template <typename> class Data>
@@ -144,4 +143,3 @@ AggregateFunctionPtr create_aggregate_function_single_value(const String& name,
 }
 
 } // namespace doris
-#include "common/compile_check_end.h"

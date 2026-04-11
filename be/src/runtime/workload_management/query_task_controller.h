@@ -21,7 +21,6 @@
 #include "runtime/workload_management/task_controller.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class QueryContext;
 
@@ -53,5 +52,4 @@ protected:
     const std::weak_ptr<QueryContext> query_ctx_;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

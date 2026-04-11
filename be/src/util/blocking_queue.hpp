@@ -31,7 +31,6 @@
 #include "util/stopwatch.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 // Fixed capacity FIFO queue, where both BlockingGet and BlockingPut operations block
 // if the queue is empty or full, respectively.
 template <typename T>
@@ -176,5 +175,4 @@ private:
     size_t _get_waiting;
     size_t _put_waiting;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

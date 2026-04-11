@@ -33,7 +33,6 @@
 #include "util/string_parser.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 // NOLINTBEGIN(readability-function-size)
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 /**
@@ -730,5 +729,4 @@ inline bool CastToDateV2::from_string_non_strict_mode_impl(const StringRef& str,
 
 // NOLINTEND(readability-function-cognitive-complexity)
 // NOLINTEND(readability-function-size)
-#include "common/compile_check_end.h"
 } // namespace doris

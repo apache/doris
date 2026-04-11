@@ -56,8 +56,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
-
 #define RETURN_IF_PUSH_DOWN(stmt, status)    \
     if (pdt == PushDownType::UNACCEPTABLE) { \
         status = stmt;                       \

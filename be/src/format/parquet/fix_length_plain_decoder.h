@@ -29,7 +29,6 @@ class ColumnSelectVector;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class FixLengthPlainDecoder final : public Decoder {
 public:
@@ -83,7 +82,5 @@ public:
 
     Status skip_values(size_t num_values) override;
 };
-
-#include "common/compile_check_end.h"
 
 } // namespace doris

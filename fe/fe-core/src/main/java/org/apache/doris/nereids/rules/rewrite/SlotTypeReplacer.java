@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.analysis.ColumnAccessPath;
+import org.apache.doris.analysis.ColumnAccessPathType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
@@ -65,10 +67,6 @@ import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.NestedColumnPrunable;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.util.MoreFieldsThread;
-import org.apache.doris.thrift.TAccessPathType;
-import org.apache.doris.thrift.TColumnAccessPath;
-import org.apache.doris.thrift.TDataAccessPath;
-import org.apache.doris.thrift.TMetaAccessPath;
 
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
@@ -420,13 +418,13 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
                         continue;
                     }
                     SlotReference slotReference = (SlotReference) slot;
-                    Optional<List<TColumnAccessPath>> allAccessPaths = slotReference.getAllAccessPaths();
+                    Optional<List<ColumnAccessPath>> allAccessPaths = slotReference.getAllAccessPaths();
                     if (!allAccessPaths.isPresent() || !slotReference.getOriginalColumn().isPresent()) {
                         continue;
                     }
-                    List<TColumnAccessPath> allAccessPathsWithId
+                    List<ColumnAccessPath> allAccessPathsWithId
                             = replaceIcebergAccessPathToId(allAccessPaths.get(), slotReference);
-                    List<TColumnAccessPath> predicateAccessPathsWithId = replaceIcebergAccessPathToId(
+                    List<ColumnAccessPath> predicateAccessPathsWithId = replaceIcebergAccessPathToId(
                             slotReference.getPredicateAccessPaths().get(), slotReference);
                     replaceSlots.set(i, ((SlotReference) slot).withAccessPaths(
                             allAccessPathsWithId,
@@ -645,38 +643,28 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
         DataType newType = cast.getDataType();
         if (cast.getDataType() instanceof NestedColumnPrunable
                 && newChild.getDataType() instanceof NestedColumnPrunable) {
-            DataTypeAccessTree originTree = DataTypeAccessTree.of(cast.child().getDataType(), TAccessPathType.DATA);
-            DataTypeAccessTree prunedTree = DataTypeAccessTree.of(newChild.getDataType(), TAccessPathType.DATA);
-            DataTypeAccessTree castTree = DataTypeAccessTree.of(cast.getDataType(), TAccessPathType.DATA);
+            DataTypeAccessTree originTree = DataTypeAccessTree.of(
+                    cast.child().getDataType(), ColumnAccessPathType.DATA);
+            DataTypeAccessTree prunedTree = DataTypeAccessTree.of(
+                    newChild.getDataType(), ColumnAccessPathType.DATA);
+            DataTypeAccessTree castTree = DataTypeAccessTree.of(
+                    cast.getDataType(), ColumnAccessPathType.DATA);
             newType = prunedTree.pruneCastType(originTree, castTree);
         }
 
         return new Cast(newChild, newType);
     }
 
-    private List<TColumnAccessPath> replaceIcebergAccessPathToId(
-            List<TColumnAccessPath> originAccessPaths, SlotReference slotReference) {
+    private List<ColumnAccessPath> replaceIcebergAccessPathToId(
+            List<ColumnAccessPath> originAccessPaths, SlotReference slotReference) {
         Column column = slotReference.getOriginalColumn().get();
-        List<TColumnAccessPath> replacedAccessPaths = new ArrayList<>();
-        for (TColumnAccessPath accessPath : originAccessPaths) {
-            List<String> icebergColumnAccessPath = new ArrayList<>();
-            if (accessPath.type == TAccessPathType.DATA) {
-                icebergColumnAccessPath.addAll(accessPath.data_access_path.path);
-                replaceIcebergAccessPathToId(
-                        icebergColumnAccessPath, 0, slotReference.getDataType(), column
-                );
-                TColumnAccessPath newAccessPath = new TColumnAccessPath(TAccessPathType.DATA);
-                newAccessPath.data_access_path = new TDataAccessPath(icebergColumnAccessPath);
-                replacedAccessPaths.add(newAccessPath);
-            } else {
-                icebergColumnAccessPath.addAll(accessPath.meta_access_path.path);
-                replaceIcebergAccessPathToId(
-                        icebergColumnAccessPath, 0, slotReference.getDataType(), column
-                );
-                TColumnAccessPath newAccessPath = new TColumnAccessPath(TAccessPathType.META);
-                newAccessPath.meta_access_path = new TMetaAccessPath(icebergColumnAccessPath);
-                replacedAccessPaths.add(newAccessPath);
-            }
+        List<ColumnAccessPath> replacedAccessPaths = new ArrayList<>();
+        for (ColumnAccessPath accessPath : originAccessPaths) {
+            List<String> icebergColumnAccessPath = new ArrayList<>(accessPath.getPath());
+            replaceIcebergAccessPathToId(
+                    icebergColumnAccessPath, 0, slotReference.getDataType(), column
+            );
+            replacedAccessPaths.add(new ColumnAccessPath(accessPath.getType(), icebergColumnAccessPath));
         }
         return replacedAccessPaths;
     }

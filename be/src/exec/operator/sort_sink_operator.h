@@ -23,7 +23,6 @@
 #include "exec/operator/operator.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class SortSinkOperatorX;
 
@@ -129,5 +128,4 @@ private:
     const int64_t _max_buffered_bytes;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

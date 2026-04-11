@@ -23,7 +23,6 @@
 #include "format/table/iceberg/partition_spec.h"
 
 namespace doris::iceberg {
-#include "common/compile_check_begin.h"
 
 struct UnboundPartitionField {
     std::string _transform;
@@ -70,5 +69,4 @@ private:
     std::vector<UnboundPartitionField> _fields;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris::iceberg

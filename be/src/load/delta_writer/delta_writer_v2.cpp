@@ -61,7 +61,6 @@
 #include "util/time.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 DeltaWriterV2::DeltaWriterV2(WriteRequest* req,
@@ -248,5 +247,4 @@ Status DeltaWriterV2::_build_current_tablet_schema(int64_t index_id,
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -30,7 +30,6 @@
 #include "exprs/function/cast/cast_base.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 // NOLINTBEGIN(readability-function-size)
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
@@ -127,7 +126,9 @@ struct CastToTimeV2 {
             return false;
         }
 
+#include "common/compile_check_avoid_begin.h"
         int ms_part_7 = (float_value - (double)int_part) * common::exp10_i32(7);
+#include "common/compile_check_avoid_end.h"
         if (!init_microsecond<ParseMode>(ms_part_7, 7, val, to_scale, params)) {
             return false; // status set in init_microsecond
         }
@@ -641,5 +642,4 @@ inline bool CastToTimeV2::from_string_non_strict_mode_impl(const StringRef& str,
 
 // NOLINTEND(readability-function-cognitive-complexity)
 // NOLINTEND(readability-function-size)
-#include "common/compile_check_end.h"
 } // namespace doris

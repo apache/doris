@@ -27,7 +27,6 @@
 #include "common/status.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class ObjectPool;
 
@@ -56,5 +55,4 @@ private:
         }
     }
 };
-#include "common/compile_check_end.h"
 } // namespace doris

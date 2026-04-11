@@ -28,7 +28,6 @@
 #include "runtime/runtime_state.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 // this class used in set sink node
 class RuntimeFilterProducerHelperSet : public RuntimeFilterProducerHelper {
 public:
@@ -54,5 +53,4 @@ public:
         return Status::OK();
     }
 };
-#include "common/compile_check_end.h"
 } // namespace doris

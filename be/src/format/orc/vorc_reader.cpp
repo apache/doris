@@ -112,7 +112,6 @@ enum class FileCachePolicy : uint8_t;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 namespace {
 Status build_iceberg_rowid_column(const DataTypePtr& type, const std::string& file_path,
@@ -3570,5 +3569,4 @@ void OrcReader::_execute_filter_position_delete_rowids(IColumn::Filter& filter, 
     }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -23,7 +23,6 @@
 #include "exec/runtime_filter/runtime_filter_wrapper.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 void RuntimeFilterProducerHelper::_init_expr(
         const VExprContextSPtrs& build_expr_ctxs,
         const std::vector<TRuntimeFilterDesc>& runtime_filter_descs) {

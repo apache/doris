@@ -49,7 +49,6 @@
 #include "util/uid_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 TaskScheduler::~TaskScheduler() {
     stop();
     LOG(INFO) << "Task scheduler " << _name << " shutdown";

@@ -41,7 +41,6 @@
 #include "util/uid_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 MultiCastBlock::MultiCastBlock(Block* block, int un_finish_copy, size_t mem_size)
         : _un_finish_copy(un_finish_copy), _mem_size(mem_size) {
     _block = Block::create_unique(block->get_columns_with_type_and_name());

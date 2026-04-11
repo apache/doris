@@ -44,7 +44,6 @@
 #include "util/simd/bits.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 uint64_t VerticalBlockReader::nextId = 1;
@@ -726,5 +725,4 @@ void VerticalBlockReader::_process_sparse_column(ColumnNullable* nullable_dst,
     }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

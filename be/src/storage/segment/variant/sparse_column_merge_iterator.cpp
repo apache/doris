@@ -34,8 +34,6 @@
 
 namespace doris::segment_v2 {
 
-#include "common/compile_check_begin.h"
-
 Status SparseColumnMergeIterator::seek_to_ordinal(ordinal_t ord) {
     RETURN_IF_ERROR(_sparse_column_cache->seek_to_ordinal(ord));
     for (auto& entry : _src_subcolumns_for_sparse) {
@@ -164,7 +162,5 @@ void SparseColumnMergeIterator::_merge_to(MutableColumnPtr& dst) {
         dst_sparse_column_offsets.push_back(dst_sparse_column_paths.size());
     }
 }
-
-#include "common/compile_check_end.h"
 
 } // namespace doris::segment_v2

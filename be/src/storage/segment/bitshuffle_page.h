@@ -46,7 +46,6 @@
 
 namespace doris {
 namespace segment_v2 {
-#include "common/compile_check_begin.h"
 
 enum { BITSHUFFLE_PAGE_HEADER_SIZE = 16 };
 
@@ -491,6 +490,5 @@ private:
     friend class BinaryDictPageDecoder;
 };
 
-#include "common/compile_check_end.h"
 } // namespace segment_v2
 } // namespace doris

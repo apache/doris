@@ -27,7 +27,6 @@
 #include "util/thrift_rpc_helper.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 std::vector<SchemaScanner::ColumnDesc> SchemaCatalogMetaCacheStatsScanner::_s_tbls_columns = {
         {"FE_HOST", TYPE_STRING, sizeof(StringRef), true},

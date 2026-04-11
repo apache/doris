@@ -53,8 +53,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
-
 const static int MAX_MEMORY_PERCENT_DEFAULT_VALUE = 100;
 const static int MAX_CPU_PERCENT_DEFAULT_VALUE = 100;
 
@@ -791,7 +789,5 @@ void WorkloadGroup::update_memtable_flush_threads() {
     static_cast<void>(_memtable_flush_pool->set_max_threads(max_threads));
     static_cast<void>(_memtable_flush_pool->set_min_threads(min_threads));
 }
-
-#include "common/compile_check_end.h"
 
 } // namespace doris

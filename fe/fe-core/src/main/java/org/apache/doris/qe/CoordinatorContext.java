@@ -18,6 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.DescriptorTable;
+import org.apache.doris.analysis.DescriptorToThriftConverter;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
@@ -277,7 +278,7 @@ public class CoordinatorContext {
         ConnectContext connectContext = planner.getCascadesContext().getConnectContext();
         TQueryOptions queryOptions = initQueryOptions(connectContext);
         TQueryGlobals queryGlobals = createQueryGlobals(connectContext);
-        TDescriptorTable descriptorTable = planner.getDescTable().toThrift();
+        TDescriptorTable descriptorTable = DescriptorToThriftConverter.toThrift(planner.getDescTable());
 
         ExecutionProfile executionProfile = new ExecutionProfile(
                 connectContext.queryId,
@@ -323,7 +324,7 @@ public class CoordinatorContext {
         );
 
         return new CoordinatorContext(coordinator, jobId, fragments, distributedPlans,
-                scanNodes, queryId, queryOptions, queryGlobals, descTable.toThrift(),
+                scanNodes, queryId, queryOptions, queryGlobals, DescriptorToThriftConverter.toThrift(descTable),
                 executionProfile);
     }
 

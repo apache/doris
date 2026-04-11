@@ -30,7 +30,6 @@
 #include "util/io_helper.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 // binary: const flag| row num | real saved num | size array | bitmap array
 // <size array>:   bitmap1 size | bitmap2 size | ...
 // <bitmap array>: bitmap1 | bitmap2 | ...

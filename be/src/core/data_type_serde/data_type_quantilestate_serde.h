@@ -35,7 +35,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
 class DataTypeQuantileStateSerDe : public DataTypeSerDe {
 public:
     DataTypeQuantileStateSerDe(int nesting_level = 1) : DataTypeSerDe(nesting_level) {};
@@ -193,5 +192,4 @@ protected:
     Status from_olap_string(const std::string& str, Field& field,
                             const FormatOptions& options) const override;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -29,7 +29,6 @@
 #include "core/types.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class VExprContext;
 
@@ -61,5 +60,4 @@ Status VInfoFunc::execute_column(VExprContext* context, const Block* block, Sele
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

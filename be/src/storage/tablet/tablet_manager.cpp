@@ -76,7 +76,6 @@ using std::string;
 using std::vector;
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 bvar::Adder<int64_t> g_tablet_meta_schema_columns_count("tablet_meta_schema_columns_count");
@@ -1842,5 +1841,4 @@ void TabletManager::get_topn_tablet_delete_bitmap_score(
               << max_base_rowset_delete_bitmap_score_tablet_id << ", tablets=[" << ss.str() << "]";
 }
 
-#include "common/compile_check_end.h"
 } // end namespace doris

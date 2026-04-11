@@ -48,7 +48,6 @@ class IOBufAsZeroCopyInputStream;
 }
 
 namespace doris {
-#include "common/compile_check_begin.h"
 extern bvar::Adder<uint64_t> g_fragment_executing_count;
 extern bvar::Status<uint64_t> g_fragment_last_active_time;
 
@@ -271,5 +270,4 @@ private:
 
 uint64_t get_fragment_executing_count();
 uint64_t get_fragment_last_active_time();
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -51,7 +51,6 @@
 #include "util/uid_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class DeltaWriterV2;
 class RuntimeProfile;
@@ -106,5 +105,3 @@ private:
 };
 
 } // namespace doris
-
-#include "common/compile_check_end.h"

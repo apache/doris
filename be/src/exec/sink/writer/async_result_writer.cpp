@@ -31,8 +31,6 @@ class ObjectPool;
 class RowDescriptor;
 class TExpr;
 
-#include "common/compile_check_begin.h"
-
 AsyncResultWriter::AsyncResultWriter(const doris::VExprContextSPtrs& output_expr_ctxs,
                                      std::shared_ptr<Dependency> dep,
                                      std::shared_ptr<Dependency> fin_dep)

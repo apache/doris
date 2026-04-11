@@ -26,7 +26,6 @@
 #include "util/debug_points.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 namespace {
 
@@ -637,5 +636,4 @@ void register_function_match(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMatchRegexp>();
     factory.register_function<FunctionMatchPhraseEdge>();
 }
-#include "common/compile_check_end.h"
 } // namespace doris

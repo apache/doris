@@ -24,7 +24,6 @@
 #include "storage/index/inverted/token_filter/token_filter.h"
 
 namespace doris::segment_v2::inverted_index {
-#include "common/compile_check_begin.h"
 
 WordDelimiterFilter::WordDelimiterFilter(const TokenStreamPtr& in,
                                          std::vector<char> char_type_table,
@@ -247,5 +246,4 @@ bool WordDelimiterFilter::should_generate_parts(int32_t word_type) {
            (has(GENERATE_NUMBER_PARTS) && is_digit(word_type));
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

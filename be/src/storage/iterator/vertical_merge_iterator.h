@@ -39,7 +39,6 @@
 #pragma once
 
 namespace doris {
-#include "common/compile_check_begin.h"
 enum KeysType : int;
 
 // Row source represent row location in multi-segments
@@ -461,5 +460,4 @@ std::shared_ptr<RowwiseIterator> new_vertical_mask_merge_iterator(
         std::vector<RowwiseIteratorUPtr>&& inputs, size_t ori_return_cols,
         RowSourcesBuffer* row_sources_buf);
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -31,7 +31,6 @@
 #include "common/logging.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 std::string StreamLoadContext::to_json() const {
@@ -378,5 +377,4 @@ bool StreamLoadContext::is_mow_table() const {
            put_result.pipeline_params.is_mow_table;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

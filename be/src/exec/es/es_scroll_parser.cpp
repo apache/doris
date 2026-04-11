@@ -54,7 +54,6 @@
 #include "util/string_parser.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 static const char* FIELD_SCROLL_ID = "_scroll_id";
 static const char* FIELD_HITS = "hits";
@@ -914,5 +913,4 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
     *line_eof = false;
     return Status::OK();
 }
-#include "common/compile_check_end.h"
 } // namespace doris

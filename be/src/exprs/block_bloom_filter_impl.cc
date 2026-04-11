@@ -36,7 +36,6 @@
 #include "util/sse_util.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 constexpr uint32_t BlockBloomFilter::kRehash[8] __attribute__((aligned(32)));
 // constexpr data member requires initialization in the class declaration.
@@ -263,4 +262,3 @@ Status BlockBloomFilter::merge(const BlockBloomFilter& other) {
 }
 
 } // namespace doris
-#include "common/compile_check_end.h"

@@ -33,7 +33,6 @@
 #include "runtime/runtime_profile.h"
 
 namespace google {
-#include "common/compile_check_begin.h"
 namespace protobuf {
 class Closure;
 }
@@ -94,5 +93,3 @@ private:
     uint32_t get_hash_value(const TUniqueId& fragment_instance_id, PlanNodeId node_id);
 };
 } // namespace doris
-
-#include "common/compile_check_end.h"

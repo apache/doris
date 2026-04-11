@@ -24,7 +24,6 @@
 #include "exec/common/string_searcher.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class StringSearch {
 public:
@@ -76,5 +75,4 @@ private:
     const StringRef* _pattern;
     std::unique_ptr<ASCIICaseSensitiveStringSearcher> _str_searcher;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

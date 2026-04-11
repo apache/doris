@@ -32,7 +32,6 @@
 #include "core/allocator_fwd.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class faststring;
 
 /// @brief A wrapper around externally allocated data.
@@ -376,4 +375,3 @@ private:
 };
 
 } // namespace doris
-#include "common/compile_check_end.h"

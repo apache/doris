@@ -33,7 +33,6 @@
 #include "runtime/fragment_mgr.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 SpillSortLocalState::SpillSortLocalState(RuntimeState* state, OperatorXBase* parent)
         : Base(state, parent) {}
 
@@ -263,5 +262,4 @@ Status SpillSortSourceOperatorX::get_block(RuntimeState* state, Block* block, bo
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

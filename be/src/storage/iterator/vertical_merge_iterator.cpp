@@ -39,7 +39,6 @@
 #include "storage/olap_common.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 // --------------  row source  ---------------//
@@ -974,5 +973,4 @@ std::shared_ptr<RowwiseIterator> new_vertical_mask_merge_iterator(
                                                        row_sources);
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

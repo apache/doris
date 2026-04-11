@@ -23,7 +23,6 @@
 #include "util/string_parser.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 int64_t ParseUtil::parse_mem_spec(const std::string& mem_spec_str, int64_t parent_limit,
                                   int64_t physical_mem, bool* is_percent) {
     if (mem_spec_str.empty()) {

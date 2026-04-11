@@ -53,7 +53,6 @@
 #include "util/mysql_global.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 void GetResultBatchCtx::on_failure(const Status& status) {
     DCHECK(!status.ok()) << "status is ok, errmsg=" << status;

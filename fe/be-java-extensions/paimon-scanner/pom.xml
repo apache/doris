@@ -60,10 +60,6 @@ under the License.
             <groupId>org.apache.paimon</groupId>
             <artifactId>paimon-format</artifactId>
         </dependency>
-        <dependency>
-            <groupId>org.apache.paimon</groupId>
-            <artifactId>paimon-jindo</artifactId>
-        </dependency>
 
     </dependencies>
 

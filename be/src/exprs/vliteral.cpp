@@ -34,7 +34,6 @@
 #include "exprs/aggregate/aggregate_function.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class VExprContext;
 
@@ -110,5 +109,4 @@ uint64_t VLiteral::get_digest(uint64_t seed) const {
     return seed;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

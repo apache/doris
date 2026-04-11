@@ -22,7 +22,6 @@
 #include "common/exception.h"
 
 namespace doris::iceberg {
-#include "common/compile_check_begin.h"
 const char* PartitionSpecParser::SPEC_ID = "spec-id";
 const char* PartitionSpecParser::FIELDS = "fields";
 const char* PartitionSpecParser::SOURCE_ID = "source-id";
@@ -63,5 +62,4 @@ void PartitionSpecParser::_build_from_json_fields(UnboundPartitionSpec::Builder&
     }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris::iceberg

@@ -67,7 +67,6 @@
 #include "util/stopwatch.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class TabletSchema;
 class LoadStreamStub;
 
@@ -359,5 +358,3 @@ private:
 };
 
 } // namespace doris
-
-#include "common/compile_check_end.h"

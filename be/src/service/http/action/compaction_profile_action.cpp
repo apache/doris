@@ -34,8 +34,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
-
 namespace {
 
 // Format millisecond timestamp to "YYYY-MM-DD HH:MM:SS" string.
@@ -265,6 +263,4 @@ void CompactionProfileAction::handle(HttpRequest* req) {
 
     HttpChannel::send_reply(req, HttpStatus::OK, str_buf.GetString());
 }
-
-#include "common/compile_check_end.h"
 } // namespace doris

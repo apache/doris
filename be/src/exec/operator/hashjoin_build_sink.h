@@ -22,7 +22,6 @@
 #include "exec/runtime_filter/runtime_filter_producer_helper.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class HashJoinBuildSinkOperatorX;
 
 class HashJoinBuildSinkLocalState MOCK_REMOVE(final)
@@ -276,4 +275,3 @@ private:
 };
 
 } // namespace doris
-#include "common/compile_check_end.h"

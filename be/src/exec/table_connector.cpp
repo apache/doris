@@ -43,7 +43,6 @@
 #include "core/value/vdatetime_value.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class TupleDescriptor;
 
@@ -99,5 +98,4 @@ std::u16string TableConnector::utf8_to_u16string(const char* first, const char* 
     return result;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

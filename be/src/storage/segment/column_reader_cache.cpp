@@ -28,8 +28,6 @@ bvar::Adder<int64_t> g_segment_column_cache_evict_count("segment_column_cache_ev
 
 namespace doris::segment_v2 {
 
-#include "common/compile_check_begin.h"
-
 ColumnReaderCache::ColumnReaderCache(
         ColumnMetaAccessor* accessor, TabletSchemaSPtr tablet_schema,
         io::FileReaderSPtr file_reader, uint64_t num_rows,
@@ -194,7 +192,5 @@ Status ColumnReaderCache::get_path_column_reader(int32_t col_uid, PathInData rel
     *column_reader = std::move(path_reader);
     return Status::OK();
 }
-
-#include "common/compile_check_end.h"
 
 } // namespace doris::segment_v2

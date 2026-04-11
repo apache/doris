@@ -38,7 +38,6 @@
 #include "storage/index/inverted/inverted_index_reader.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace doris::segment_v2::inverted_index;
 
 Status parse(const std::string& str, std::map<std::string, std::string>& result) {
@@ -208,5 +207,4 @@ void register_function_tokenize(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionTokenize>();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -33,7 +33,6 @@
 
 namespace doris {
 namespace segment_v2 {
-#include "common/compile_check_begin.h"
 
 // IndexPage is the building block for IndexedColumn's ordinal index and value index.
 // It is used to guide searching for a particular key to the data page containing it.
@@ -158,6 +157,5 @@ private:
     size_t _pos;
 };
 
-#include "common/compile_check_end.h"
 } // namespace segment_v2
 } // namespace doris

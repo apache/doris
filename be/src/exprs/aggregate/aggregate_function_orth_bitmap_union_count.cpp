@@ -20,7 +20,6 @@
 #include "exprs/aggregate/helpers.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 AggregateFunctionPtr create_aggregate_function_orth_bitmap_union_count(
         const std::string& name, const DataTypes& argument_types, const DataTypePtr& result_type,

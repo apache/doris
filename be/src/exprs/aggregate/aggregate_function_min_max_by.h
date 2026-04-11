@@ -29,7 +29,6 @@
 #include "exprs/aggregate/helpers.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 struct MaxMinValueBase {
     virtual ~MaxMinValueBase() = default;
@@ -406,5 +405,3 @@ AggregateFunctionPtr create_aggregate_function_min_max_by(const String& name,
 }
 
 } // namespace doris
-
-#include "common/compile_check_end.h"

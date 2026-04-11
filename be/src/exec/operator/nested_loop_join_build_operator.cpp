@@ -23,7 +23,6 @@
 #include "exec/runtime_filter/runtime_filter_producer_helper_cross.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 NestedLoopJoinBuildSinkLocalState::NestedLoopJoinBuildSinkLocalState(DataSinkOperatorXBase* parent,
                                                                      RuntimeState* state)

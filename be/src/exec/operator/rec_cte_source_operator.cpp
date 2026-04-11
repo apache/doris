@@ -18,7 +18,6 @@
 #include "exec/operator/rec_cte_source_operator.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 RecCTESourceLocalState::RecCTESourceLocalState(RuntimeState* state, OperatorXBase* parent)
         : Base(state, parent) {}

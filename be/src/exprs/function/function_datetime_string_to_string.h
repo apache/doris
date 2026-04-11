@@ -49,7 +49,6 @@
 #include "runtime/runtime_state.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class FunctionContext;
 } // namespace doris
 
@@ -250,5 +249,3 @@ public:
 };
 
 } // namespace doris
-
-#include "common/compile_check_end.h"

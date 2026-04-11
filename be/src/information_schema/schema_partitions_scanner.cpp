@@ -31,7 +31,6 @@
 #include "util/thrift_rpc_helper.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class RuntimeState;
 class Block;

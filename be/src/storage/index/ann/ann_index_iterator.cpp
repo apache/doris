@@ -22,7 +22,6 @@
 #include "storage/index/ann/ann_search_params.h"
 
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 AnnIndexIterator::AnnIndexIterator(const IndexReaderPtr& reader) : IndexIterator() {
     _ann_reader = std::dynamic_pointer_cast<AnnIndexReader>(reader);
 }
@@ -64,5 +63,4 @@ Status AnnIndexIterator::range_search(const AnnRangeSearchParams& params,
     io::IOContext* io_ctx = (_context != nullptr) ? _context->io_ctx : nullptr;
     return _ann_reader->range_search(params, custom_params, result, stats, io_ctx);
 }
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

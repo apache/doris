@@ -80,7 +80,6 @@ class Block;
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
 ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                              const TFileRangeDesc& range, size_t batch_size,
                              const cctz::time_zone* ctz, io::IOContext* io_ctx, RuntimeState* state,
@@ -1470,5 +1469,4 @@ void ParquetReader::_collect_profile_before_close() {
     _collect_profile();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

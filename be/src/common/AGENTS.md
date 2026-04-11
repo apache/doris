@@ -20,10 +20,11 @@
 
 ## compile_check Mechanism
 
-`compile_check_begin.h` / `compile_check_end.h` raise conversion warnings to errors.
+Conversion warnings are raised to errors globally. Only
+`compile_check_avoid_begin.h` / `compile_check_avoid_end.h` remain for the
+small number of legacy code blocks that still need a local bypass.
 
 ### Checkpoints
 
-- [ ] New declaration-heavy headers use paired `compile_check_begin.h` / `compile_check_end.h` matching neighbors?
 - [ ] Narrowing conversions avoided (`int64_t→int32_t`, `size_t→int`, `uint64_t→int64_t`)?
-- [ ] Third-party bypass uses `compile_check_avoid_begin.h` / `compile_check_avoid_end.h`, not local weakening?
+- [ ] Local bypasses stay minimal and use paired `compile_check_avoid_begin.h` / `compile_check_avoid_end.h` instead of weakening warnings more broadly?

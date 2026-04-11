@@ -26,7 +26,6 @@
 #include "storage/tablet/tablet_schema.h"
 #include "util/once.h"
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 
 struct AnnTopNParam;
 struct AnnRangeSearchParams;
@@ -85,5 +84,4 @@ private:
 };
 
 using AnnIndexReaderPtr = std::shared_ptr<AnnIndexReader>;
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

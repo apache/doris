@@ -22,7 +22,6 @@
 #include "format/table/iceberg/schema.h"
 
 namespace doris::iceberg {
-#include "common/compile_check_begin.h"
 
 class ArrowSchemaUtil {
 public:
@@ -39,5 +38,4 @@ private:
                              const std::string& timezone);
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris::iceberg

@@ -33,7 +33,6 @@
 #include "util/stack_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class MultiFileSplitter {
 public:
     MultiFileSplitter(std::string local_dir, std::unordered_set<std::string> expected_files)
@@ -636,5 +635,4 @@ Status HttpClient::_escape_url(const std::string& url, std::string* escaped_url)
     *escaped_url = url.substr(0, query_pos + 1) + encoded_query + fragment;
     return Status::OK();
 }
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -24,7 +24,6 @@
 #include "exprs/table_function/table_function.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class Block;
 
 // json_each('{"a":"foo","b":123}') →
@@ -70,5 +69,4 @@ private:
 using VJsonEachTableFn = VJsonEachTableFunction<false>;
 using VJsonEachTextTableFn = VJsonEachTableFunction<true>;
 
-#include "common/compile_check_end.h"
 } // namespace doris

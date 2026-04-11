@@ -20,7 +20,6 @@
 #include "storage/index/inverted/query/query_helper.h"
 
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 
 TermQuery::TermQuery(SearcherPtr searcher, IndexQueryContextPtr context)
         : _searcher(std::move(searcher)), _context(std::move(context)) {}
@@ -60,5 +59,4 @@ void TermQuery::search(roaring::Roaring& roaring) {
     }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

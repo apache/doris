@@ -35,7 +35,6 @@
 #include "exprs/aggregate/aggregate_function_distinct.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 template <typename NestFunction, bool result_is_nullable, typename Derived>
 class AggregateFunctionNullBaseInlineV2 : public IAggregateFunctionHelper<Derived> {
@@ -596,5 +595,3 @@ public:
 };
 
 } // namespace doris
-
-#include "common/compile_check_end.h"

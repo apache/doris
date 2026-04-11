@@ -35,7 +35,6 @@ namespace doris {
 template <PrimitiveType T>
 class ColumnDecimal;
 class Arena;
-#include "common/compile_check_begin.h"
 
 template <PrimitiveType T>
 class DataTypeDecimalSerDe : public DataTypeSerDe {
@@ -187,5 +186,4 @@ Status DataTypeDecimalSerDe<T>::read_column_from_pb(IColumn& column, const PValu
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

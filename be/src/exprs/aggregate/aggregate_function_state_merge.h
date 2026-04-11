@@ -20,7 +20,6 @@
 #include "exprs/aggregate/aggregate_function_state_union.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 const static std::string AGG_MERGE_SUFFIX = "_merge";
 
 class AggregateStateMerge : public AggregateStateUnion {
@@ -56,5 +55,3 @@ public:
 };
 
 } // namespace doris
-
-#include "common/compile_check_end.h"

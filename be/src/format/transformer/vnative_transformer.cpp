@@ -30,8 +30,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
-
 namespace {
 
 // Map high-level TFileCompressType to low-level segment_v2::CompressionTypePB.
@@ -127,7 +125,5 @@ Status VNativeTransformer::close() {
 int64_t VNativeTransformer::written_len() {
     return _written_len;
 }
-
-#include "common/compile_check_end.h"
 
 } // namespace doris

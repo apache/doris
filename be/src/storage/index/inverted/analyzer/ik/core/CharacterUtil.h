@@ -27,7 +27,6 @@
 #include "CLucene/analysis/jieba/Unicode.hpp"
 
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 
 class CharacterUtil {
 public:
@@ -88,5 +87,4 @@ public:
     static void regularizeString(std::string& input, bool use_lowercase = true);
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

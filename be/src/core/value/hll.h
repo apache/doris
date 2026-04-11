@@ -26,7 +26,6 @@
 #include "exec/common/hash_table/phmap_fwd_decl.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 struct Slice;
 
 inline const int HLL_COLUMN_PRECISION = 14;
@@ -288,5 +287,4 @@ private:
     // it only when it is really needed.
     uint8_t* _registers = nullptr;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -40,7 +40,6 @@
 #include "core/types.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 Field DataTypeVarbinary::get_default() const {
     return Field::create_field<TYPE_VARBINARY>(StringView());

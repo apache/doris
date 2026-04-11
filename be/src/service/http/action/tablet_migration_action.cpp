@@ -34,7 +34,6 @@
 #include "storage/task/engine_storage_migration_task.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 const static std::string HEADER_JSON = "application/json";
 
 void TabletMigrationAction::_init_migration_action() {
@@ -237,5 +236,4 @@ Status TabletMigrationAction::_execute_tablet_migration(TabletSharedPtr tablet,
     }
     return res;
 }
-#include "common/compile_check_end.h"
 } // namespace doris

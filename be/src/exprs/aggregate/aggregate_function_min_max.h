@@ -49,7 +49,6 @@
 #include "util/io_helper.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class Arena;
 template <PrimitiveType T>
 class ColumnDecimal;
@@ -990,5 +989,3 @@ AggregateFunctionPtr create_aggregate_function_single_value_any_value_function(
         const String& name, const DataTypes& argument_types, const DataTypePtr& result_type,
         const bool result_is_nullable, const AggregateFunctionAttr& attr = {});
 } // namespace doris
-
-#include "common/compile_check_end.h"

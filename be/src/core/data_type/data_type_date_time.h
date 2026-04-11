@@ -40,8 +40,6 @@ class IColumn;
 class DataTypeDate;
 class DataTypeDateV2;
 
-#include "common/compile_check_begin.h"
-
 /** DateTime stores time as unix timestamp.
 	* The value itself is independent of time zone.
 	*
@@ -136,5 +134,4 @@ template <typename DataType>
 constexpr bool IsDatelikeTypes =
         IsDatelikeV1Types<DataType> || IsDatelikeV2Types<DataType> || IsTimeV2Type<DataType>;
 
-#include "common/compile_check_end.h"
 } // namespace doris

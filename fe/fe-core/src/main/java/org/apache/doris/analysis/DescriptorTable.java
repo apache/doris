@@ -20,14 +20,12 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.IdGenerator;
-import org.apache.doris.thrift.TDescriptorTable;
 
 import com.google.common.collect.Maps;
 
+import java.util.Collection;
 import java.util.HashMap;
-import java.util.Map;
 
 /**
  * Repository for tuple (and slot) descriptors.
@@ -39,7 +37,6 @@ public class DescriptorTable {
     private final IdGenerator<TupleId> tupleIdGenerator = TupleId.createGenerator();
     private final IdGenerator<SlotId> slotIdGenerator = SlotId.createGenerator();
     private final HashMap<SlotId, SlotDescriptor> slotDescs = Maps.newHashMap();
-    private TDescriptorTable thriftDescTable = null; // serialized version of this
 
     public DescriptorTable() {
     }
@@ -61,33 +58,8 @@ public class DescriptorTable {
         return tupleDescs.get(id);
     }
 
-    public TDescriptorTable toThrift() {
-        if (thriftDescTable != null) {
-            return thriftDescTable;
-        }
-
-        TDescriptorTable result = new TDescriptorTable();
-        Map<Long, TableIf> referencedTbls = Maps.newHashMap();
-        for (TupleDescriptor tupleD : tupleDescs.values()) {
-            // inline view of a non-constant select has a non-materialized tuple descriptor
-            // in the descriptor table just for type checking, which we need to skip
-            result.addToTupleDescriptors(tupleD.toThrift());
-            // an inline view of a constant select has a materialized tuple
-            // but its table has no id
-            if (tupleD.getTable() != null
-                    && tupleD.getTable().getId() >= 0) {
-                referencedTbls.put(tupleD.getTable().getId(), tupleD.getTable());
-            }
-            for (SlotDescriptor slotD : tupleD.getSlots()) {
-                result.addToSlotDescriptors(slotD.toThrift());
-            }
-        }
-
-        for (TableIf tbl : referencedTbls.values()) {
-            result.addToTableDescriptors(tbl.toThrift());
-        }
-        thriftDescTable = result;
-        return result;
+    public Collection<TupleDescriptor> getTupleDescs() {
+        return tupleDescs.values();
     }
 
     public String getExplainString() {

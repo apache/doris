@@ -38,7 +38,6 @@ class RuntimeState;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 VCaseExpr::VCaseExpr(const TExprNode& node)
         : VExpr(node), _has_else_expr(node.case_expr.has_else_expr) {}
@@ -146,5 +145,4 @@ std::string VCaseExpr::debug_string() const {
     return out.str();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -83,7 +83,6 @@ class JsonbWriterT;
 
 using JsonbWriter = JsonbWriterT<JsonbOutStream>;
 
-#include "common/compile_check_begin.h"
 class IColumn;
 class Arena;
 class IDataType;
@@ -577,5 +576,4 @@ inline const JsonbValue* DataTypeSerDe::handle_jsonb_value(const StringRef& val)
 DataTypeSerDeSPtrs create_data_type_serdes(
         const std::vector<std::shared_ptr<const IDataType>>& types);
 DataTypeSerDeSPtrs create_data_type_serdes(const std::vector<SlotDescriptor*>& slots);
-#include "common/compile_check_end.h"
 } // namespace doris

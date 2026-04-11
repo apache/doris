@@ -27,7 +27,6 @@ class IColumn;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 struct ColumnArrayMutableData {
 public:
@@ -98,5 +97,4 @@ void slice_array(ColumnArrayMutableData& dst, ColumnArrayExecutionData& src,
                  const IColumn& offset_column, const IColumn* length_column);
 
 using ColumnArrayExecutionDatas = std::vector<ColumnArrayExecutionData>;
-#include "common/compile_check_end.h"
 } // namespace doris

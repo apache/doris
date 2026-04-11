@@ -28,7 +28,6 @@
 #include "exec/sort/sort_block.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 ColumnNullable::ColumnNullable(MutableColumnPtr&& nested_column_, MutableColumnPtr&& null_map_)
         : _nested_column(std::move(nested_column_)), _null_map(std::move(null_map_)) {

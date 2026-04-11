@@ -21,7 +21,6 @@
 #include "core/column/column_vector.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 void CollectionSimilarity::collect(segment_v2::rowid_t row_id, float score) {
     _bm25_scores[row_id] += score;
@@ -166,5 +165,4 @@ void CollectionSimilarity::find_top_k_scores(const roaring::Roaring* row_bitmap,
     }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -32,7 +32,6 @@
 #include "runtime/runtime_profile.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class RowDescriptor;
 class RuntimeState;
@@ -191,5 +190,4 @@ Status VRuntimeFilterWrapper::execute_filter(VExprContext* context, const Block*
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

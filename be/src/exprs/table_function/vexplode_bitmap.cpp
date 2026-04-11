@@ -34,7 +34,6 @@
 #include "exprs/vexpr_context.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 VExplodeBitmapTableFunction::VExplodeBitmapTableFunction() {
     _fn_name = "vexplode_bitmap";
@@ -132,5 +131,4 @@ int VExplodeBitmapTableFunction::get_value(MutableColumnPtr& column, int max_ste
     TableFunction::forward(max_step);
     return max_step;
 }
-#include "common/compile_check_end.h"
 } // namespace doris

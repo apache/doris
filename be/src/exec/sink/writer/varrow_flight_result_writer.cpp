@@ -28,7 +28,6 @@
 #include "runtime/thread_context.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 void GetArrowResultBatchCtx::on_failure(const Status& status) {
     DCHECK(!status.ok()) << "status is ok, errmsg=" << status;

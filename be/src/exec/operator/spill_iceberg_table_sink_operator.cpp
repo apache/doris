@@ -24,7 +24,6 @@
 #include "exec/sink/writer/iceberg/viceberg_table_writer.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 SpillIcebergTableSinkLocalState::SpillIcebergTableSinkLocalState(DataSinkOperatorXBase* parent,
                                                                  RuntimeState* state)
@@ -174,5 +173,4 @@ void SpillIcebergTableSinkLocalState::_init_spill_counters() {
     ADD_COUNTER_WITH_LEVEL(profile, "SpillWriteFileCurrentCount", TUnit::UNIT, 1);
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

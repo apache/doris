@@ -21,7 +21,6 @@
 #include "runtime/runtime_profile.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class TExpr;
 
 DeltaWriterV2Map::DeltaWriterV2Map(UniqueId load_id, int num_use, DeltaWriterV2Pool* pool)

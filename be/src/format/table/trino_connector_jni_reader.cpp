@@ -32,7 +32,6 @@ class Block;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 const std::string TrinoConnectorJniReader::TRINO_CONNECTOR_OPTION_PREFIX = "trino.";
 
 TrinoConnectorJniReader::TrinoConnectorJniReader(
@@ -117,5 +116,4 @@ Status TrinoConnectorJniReader::_set_spi_plugins_dir() {
             .call();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

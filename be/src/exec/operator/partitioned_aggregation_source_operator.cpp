@@ -37,8 +37,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
-
 PartitionedAggLocalState::PartitionedAggLocalState(RuntimeState* state, OperatorXBase* parent)
         : Base(state, parent) {}
 
@@ -556,5 +554,4 @@ bool PartitionedAggLocalState::is_blockable() const {
     return _shared_state->_is_spilled;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

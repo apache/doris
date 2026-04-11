@@ -31,7 +31,6 @@
 #include "util/jni-util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeProfile;
 class RuntimeState;
 
@@ -380,5 +379,4 @@ Status MockJniReader::init_reader() {
     return open(_state, _profile);
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

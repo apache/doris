@@ -27,7 +27,6 @@
 #include "exprs/aggregate/helpers.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 template <template <PrimitiveType> class ImplNumericData, typename ImplStringData>
 inline AggregateFunctionPtr create_aggregate_function_group_array_impl(
@@ -113,4 +112,3 @@ inline AggregateFunctionPtr create_aggregate_function_group_array_impl(
 }
 
 } // namespace doris
-#include "common/compile_check_end.h"

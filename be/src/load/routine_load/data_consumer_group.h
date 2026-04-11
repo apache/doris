@@ -37,7 +37,6 @@ class Message;
 } // namespace RdKafka
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class StreamLoadContext;
 
 // data consumer group saves a group of data consumers.
@@ -106,6 +105,5 @@ private:
     // blocking queue to receive msgs from all consumers
     BlockingQueue<RdKafka::Message*> _queue;
 };
-#include "common/compile_check_end.h"
 
 } // end namespace doris

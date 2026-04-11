@@ -23,7 +23,6 @@
 #include "exprs/function/cast/cast_base.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 struct CastToIPv4 {
     static bool from_string(const StringRef& from, IPv4& to, CastParameters&);
@@ -104,5 +103,4 @@ public:
         return Status::OK();
     }
 };
-#include "common/compile_check_end.h"
 } // namespace doris

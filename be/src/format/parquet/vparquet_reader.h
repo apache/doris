@@ -68,7 +68,6 @@ struct RowLineageColumns;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class ParquetReader : public GenericReader {
     ENABLE_FACTORY_CREATOR(ParquetReader);
 
@@ -388,6 +387,5 @@ protected:
     std::vector<std::unique_ptr<MutilColumnBlockPredicate>> _push_down_predicates;
     Arena _arena;
 };
-#include "common/compile_check_end.h"
 
 } // namespace doris

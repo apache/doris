@@ -25,7 +25,6 @@
 #include "exprs/aggregate/helpers.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 template <template <PrimitiveType> typename AggregateFunction>
 AggregateFunctionPtr create_aggregate_function_sequence_base(const std::string& name,

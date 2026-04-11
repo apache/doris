@@ -34,7 +34,6 @@
 #include "storage/index/ann/ann_index.h"
 
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 struct IndexSearchParameters;
 struct IndexSearchResult;
 /**
@@ -303,5 +302,4 @@ private:
     FaissBuildParameter _params;           ///< Build parameters for the index
     std::string _ivfdata_cache_key_prefix; ///< Cache key prefix for ivfdata blocks
 };
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

@@ -46,7 +46,6 @@
 #include "util/stopwatch.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class TRuntimeProfileNode;
 class TRuntimeProfileTree;
 class RuntimeProfileCounterTreeNode;
@@ -822,5 +821,4 @@ private:
     T _sw;
     C* _counter = nullptr;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

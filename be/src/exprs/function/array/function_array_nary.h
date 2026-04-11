@@ -25,7 +25,6 @@
 #include "exprs/function/function_helpers.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 // Functions with more than two arrays of the same element type.
 template <typename Impl, typename Name>
@@ -79,5 +78,4 @@ public:
     }
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

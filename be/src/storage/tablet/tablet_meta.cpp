@@ -63,7 +63,6 @@ using std::unordered_map;
 using std::vector;
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 bvar::Adder<uint64_t> g_contains_agg_with_cache_if_eligible_total(
@@ -1841,5 +1840,4 @@ std::string tablet_state_name(TabletState state) {
     }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

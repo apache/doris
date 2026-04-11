@@ -30,7 +30,6 @@
 #include "exprs/function/function.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class FunctionSubBinary : public IFunction {
 public:
@@ -49,5 +48,4 @@ public:
     }
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

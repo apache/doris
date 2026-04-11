@@ -65,7 +65,6 @@ using std::stringstream;
 using std::vector;
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 LocalSnapshotLockGuard LocalSnapshotLock::acquire(const std::string& path) {
@@ -849,5 +848,4 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
 
     return res;
 }
-#include "common/compile_check_end.h"
 } // namespace doris

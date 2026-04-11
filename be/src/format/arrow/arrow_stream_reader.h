@@ -38,8 +38,6 @@ class FileSystem;
 struct IOContext;
 } // namespace io
 
-#include "common/compile_check_begin.h"
-
 struct ScannerCounter;
 class Block;
 
@@ -69,5 +67,4 @@ private:
     std::unique_ptr<doris::ArrowPipInputStream> _pip_stream;
     cctz::time_zone _ctzz;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

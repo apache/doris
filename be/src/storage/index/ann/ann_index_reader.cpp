@@ -35,7 +35,6 @@
 #include "util/once.h"
 
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 void AnnIndexReader::update_result(const IndexSearchResult& search_result,
                                    std::vector<float>& distance, roaring::Roaring& roaring) {
     DCHECK(search_result.distances != nullptr);

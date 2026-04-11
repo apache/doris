@@ -29,7 +29,6 @@ namespace doris {
 static constexpr uint64_t SEED_GEN = 217728422;
 
 namespace segment_v2 {
-#include "common/compile_check_begin.h"
 enum HashStrategyPB : int;
 
 class NGramBloomFilter : public BloomFilter {
@@ -64,4 +63,3 @@ private:
 
 } // namespace segment_v2
 } // namespace doris
-#include "common/compile_check_end.h"

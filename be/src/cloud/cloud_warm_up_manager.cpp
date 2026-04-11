@@ -46,7 +46,6 @@
 #include "util/time.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 bvar::Adder<uint64_t> g_file_cache_event_driven_warm_up_skipped_rowset_num(
         "file_cache_event_driven_warm_up_skipped_rowset_num");
@@ -908,5 +907,4 @@ CloudWarmUpManager::get_all_balanced_tablets() const {
     return result;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -29,7 +29,6 @@
 #include "exprs/function/simple_function_factory.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 struct Match {
     std::string::size_type offset;

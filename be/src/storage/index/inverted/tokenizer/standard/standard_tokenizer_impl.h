@@ -27,7 +27,6 @@
 #include "storage/index/inverted/util/reader.h"
 
 namespace doris::segment_v2::inverted_index {
-#include "common/compile_check_begin.h"
 
 class StandardTokenizerImpl {
 public:
@@ -297,5 +296,4 @@ private:
 };
 using StandardTokenizerImplPtr = std::unique_ptr<StandardTokenizerImpl>;
 
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

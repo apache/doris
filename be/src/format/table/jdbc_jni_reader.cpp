@@ -30,7 +30,6 @@
 #include "util/jdbc_utils.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 JdbcJniReader::JdbcJniReader(const std::vector<SlotDescriptor*>& file_slot_descs,
                              RuntimeState* state, RuntimeProfile* profile,
@@ -220,5 +219,4 @@ Status JdbcJniReader::_cast_string_to_special_type(const SlotDescriptor* slot_de
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -30,7 +30,6 @@
 #include "core/types.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 char* DataTypeFixedLengthObject::serialize(const IColumn& column, char* buf,
                                            int be_exec_version) const {

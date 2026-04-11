@@ -40,7 +40,6 @@
 
 namespace doris {
 namespace segment_v2 {
-#include "common/compile_check_begin.h"
 
 template <FieldType Type>
 class BinaryPlainPageV2Builder : public PageBuilderHelper<BinaryPlainPageV2Builder<Type>> {
@@ -207,6 +206,5 @@ public:
             : BinaryPlainPageDecoder<Type>(data, options) {}
 };
 
-#include "common/compile_check_end.h"
 } // namespace segment_v2
 } // namespace doris
