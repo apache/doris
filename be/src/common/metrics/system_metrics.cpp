@@ -439,8 +439,9 @@ void SystemMetrics::_update_cpu_metrics() {
         }
         // Threshold of the number of consecutive failures
         if (_file_handle_deplenish_counter >= config::file_handles_deplenish_frequency_times) {
-            LOG(FATAL) << "The system file handles are insufficient, causing service exceptions, BE will exit. "
-                       << "please check the configs 'soft nofile' and 'hard nofile' of /etc/security/limits.conf ";
+            LOG(FATAL) << "The system file handles are insufficient, causing service exceptions"
+                       << ", BE will exit. please check the configs 'soft nofile'" 
+                       << " and 'hard nofile' of /etc/security/limits.conf ";
             exit(-1);
         }
         return;
