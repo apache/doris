@@ -26,10 +26,10 @@
 #include <utility>
 
 #include "common/cast_set.h"
+#include "common/config.h"
 #include "runtime/memory/jemalloc_control.h"
 #include "util/cgroup_util.h"
 #include "util/perf_counters.h"
-#include "common/config.h"
 
 namespace doris {
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(avail_cpu_num, MetricUnit::NOUNIT);
@@ -440,7 +440,7 @@ void SystemMetrics::_update_cpu_metrics() {
         // Threshold of the number of consecutive failures
         if (_file_handle_deplenish_counter >= config::file_handles_deplenish_frequency_times) {
             LOG(FATAL) << "The system file handles are insufficient, causing service exceptions"
-                       << ", BE will exit. please check the configs 'soft nofile'" 
+                       << ", BE will exit. please check the configs 'soft nofile'"
                        << " and 'hard nofile' of /etc/security/limits.conf ";
             exit(-1);
         }
