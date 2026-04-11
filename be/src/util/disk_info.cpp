@@ -207,7 +207,7 @@ std::set<std::string> DiskInfo::get_lvm_physical_disks(const std::string dm_name
                 std::string parent_str(parent_path);
                 size_t pos = parent_str.find_last_of('/');
                 std::string parent_dev = 
-                        (pos != std::string::npos) ? parent_str.substr(pos+1) : parent_str;
+                        (pos != std::string::npos) ? parent_str.substr(pos + 1) : parent_str;
                 disks.insert(parent_dev);
             }
         } else {
