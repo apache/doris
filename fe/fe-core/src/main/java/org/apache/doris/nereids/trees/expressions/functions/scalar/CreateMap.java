@@ -22,9 +22,6 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
-import org.apache.doris.nereids.trees.expressions.functions.SearchSignature;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
@@ -32,12 +29,10 @@ import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.stream.Collectors;
 
 /**
  * ScalarFunction 'map'.
@@ -115,95 +110,39 @@ public class CreateMap extends ScalarFunction
         if (arity() == 0) {
             return SIGNATURES;
         } else {
-            // split children into keys and values
-            List<Expression> keyExpressions = new ArrayList<>();
-            List<Expression> valueExpressions = new ArrayList<>();
-            for (int i = 0; i < children.size(); i++) {
+            List<Expression> keys = Lists.newArrayList();
+            List<Expression> values = Lists.newArrayList();
+            for (int i = 0; i < arity(); i++) {
                 if (i % 2 == 0) {
-                    keyExpressions.add(children.get(i));
+                    keys.add(child(i));
                 } else {
-                    valueExpressions.add(children.get(i));
+                    values.add(child(i));
                 }
             }
-
-            // find common key type
-            Map<Boolean, List<Expression>> keyPartitioned = keyExpressions.stream()
-                    .collect(Collectors.partitioningBy(
-                            e -> (e instanceof Literal && ((Literal) e).isStringLikeLiteral())));
-            List<DataType> keyForFindCommon = keyPartitioned.get(false).stream()
-                    .map(ExpressionTrait::getDataType).collect(Collectors.toList());
-            Optional<DataType> commonKeyType = TypeCoercionUtils.findWiderCommonTypeByVariable(
-                    keyForFindCommon, false, true);
-            if (!commonKeyType.isPresent()) {
-                SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
-            } else {
-                // Consider all string-like literals when widening the common key type.
-                // Stopping at the first widening makes inference depend on literal order.
-                for (Expression stringLiteral : keyPartitioned.get(true)) {
-                    Optional<Expression> optLiteral = TypeCoercionUtils.characterLiteralTypeCoercion(
-                            ((Literal) stringLiteral).getStringValue(), commonKeyType.get());
-                    if (optLiteral.isPresent()) {
-                        DataType parsedType = optLiteral.get().getDataType();
-                        Optional<DataType> widened = TypeCoercionUtils.findWiderTypeForTwo(
-                                commonKeyType.get(), parsedType, false, true);
-                        if (!widened.isPresent()) {
-                            SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
-                        }
-                        commonKeyType = widened;
-                    } else {
-                        Optional<DataType> widened = TypeCoercionUtils.findWiderTypeForTwo(
-                                commonKeyType.get(), stringLiteral.getDataType(), false, true);
-                        if (!widened.isPresent()) {
-                            SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
-                        }
-                        commonKeyType = widened;
-                    }
+            // TODO: use the find common type to get key and value type after we redefine type coercion in Doris.
+            Array keyArray = new Array(keys.toArray(new Expression[0]));
+            Array valueArray = new Array(values.toArray(new Expression[0]));
+            keyArray = (Array) TypeCoercionUtils.implicitCastInputTypes(keyArray, keyArray.expectedInputTypes());
+            valueArray = (Array) TypeCoercionUtils.implicitCastInputTypes(valueArray, valueArray.expectedInputTypes());
+            DataType keyType = ((ArrayType) (keyArray.getDataType())).getItemType();
+            DataType valueType = ((ArrayType) (valueArray.getDataType())).getItemType();
+            ImmutableList.Builder<DataType> childTypes = ImmutableList.builder();
+            for (int i = 0; i < arity(); i++) {
+                if (i % 2 == 0) {
+                    childTypes.add(keyType);
+                } else {
+                    childTypes.add(valueType);
                 }
             }
-
-            // find common value type
-            Map<Boolean, List<Expression>> valuePartitioned = valueExpressions.stream()
-                    .collect(Collectors.partitioningBy(
-                            e -> (e instanceof Literal && ((Literal) e).isStringLikeLiteral())));
-            List<DataType> valueForFindCommon = valuePartitioned.get(false).stream()
-                    .map(ExpressionTrait::getDataType).collect(Collectors.toList());
-            Optional<DataType> commonValueType = TypeCoercionUtils.findWiderCommonTypeByVariable(
-                    valueForFindCommon, false, true);
-            if (!commonValueType.isPresent()) {
-                SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
-            } else {
-                // Consider all string-like literals when widening the common value type.
-                for (Expression stringLiteral : valuePartitioned.get(true)) {
-                    Optional<Expression> optLiteral = TypeCoercionUtils.characterLiteralTypeCoercion(
-                            ((Literal) stringLiteral).getStringValue(), commonValueType.get());
-                    if (optLiteral.isPresent()) {
-                        DataType parsedType = optLiteral.get().getDataType();
-                        Optional<DataType> widened = TypeCoercionUtils.findWiderTypeForTwo(
-                                commonValueType.get(), parsedType, false, true);
-                        if (!widened.isPresent()) {
-                            SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
-                        }
-                        commonValueType = widened;
-                    } else {
-                        Optional<DataType> widened = TypeCoercionUtils.findWiderTypeForTwo(
-                                commonValueType.get(), stringLiteral.getDataType(), false, true);
-                        if (!widened.isPresent()) {
-                            SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
-                        }
-                        commonValueType = widened;
-                    }
-                }
-            }
-
-            // build argument types: alternating keyType, valueType
-            ImmutableList.Builder<DataType> argsTypes = ImmutableList.builder();
-            for (int i = 0; i < children.size() / 2; i++) {
-                argsTypes.add(commonKeyType.get());
-                argsTypes.add(commonValueType.get());
-            }
-
-            return ImmutableList.of(FunctionSignature.of(MapType.of(commonKeyType.get(),
-                    commonValueType.get()), argsTypes.build()));
+            return ImmutableList.of(FunctionSignature.of(
+                    getDataType(),
+                    childTypes.build())
+            );
         }
+    }
+
+    @Override
+    public FunctionSignature computeSignature(FunctionSignature signature) {
+        return signature;
     }
 }
