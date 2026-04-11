@@ -223,5 +223,4 @@ std::string QueryTaskController::get_user() {
     return "";
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris
