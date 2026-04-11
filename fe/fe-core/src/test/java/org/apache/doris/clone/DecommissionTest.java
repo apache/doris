@@ -144,7 +144,7 @@ public class DecommissionTest {
         // test colocate tablet repair
         String createStr = "create table test.tbl1\n"
                 + "(k1 date, k2 int)\n"
-                + "distributed by hash(k2) buckets 2400\n"
+                + "distributed by hash(k2) buckets 64\n"
                 + "properties\n"
                 + "(\n"
                 + "    \"replication_num\" = \"1\"\n"
