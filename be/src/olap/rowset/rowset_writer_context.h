@@ -99,7 +99,7 @@ struct RowsetWriterContext {
     /// end file cache opts
 
     // segcompaction for this RowsetWriter, disable it for some transient writers
-    bool enable_segcompaction = true;
+    bool enable_segcompaction = false;
 
     std::shared_ptr<PartialUpdateInfo> partial_update_info;
 
