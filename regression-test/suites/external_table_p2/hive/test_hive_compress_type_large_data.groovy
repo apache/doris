@@ -25,12 +25,11 @@ suite("test_hive_compress_type_large_data", "p2,external") {
     def backends = sql """show backends"""
     def backendNum = backends.size()
     logger.info("get backendNum: ${backendNum}")
-    // `parallel_fragment_exec_instance_num` may be displayed as
-    // `deprecated_parallel_fragment_exec_instance_num` in newer branches.
-    def parallelExecInstanceRows = sql("show variables like '%parallel_fragment_exec_instance_num%'")
-    assertTrue(parallelExecInstanceRows.size() > 0)
-    def parallelExecInstanceNum = (parallelExecInstanceRows[0][1] as String).toInteger()
-    logger.info("get ${parallelExecInstanceRows[0][0]}: ${parallelExecInstanceNum}")
+
+    // Set parallel_pipeline_task_num explicitly so getParallelExecInstanceNum() returns
+    // a known value, regardless of fuzzy mode randomization or BE core count.
+    def parallelExecInstanceNum = 8
+    sql """set parallel_pipeline_task_num = ${parallelExecInstanceNum}"""
 
     for (String hivePrefix : ["hive3"]) {
         String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
