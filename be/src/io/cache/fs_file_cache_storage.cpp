@@ -216,7 +216,13 @@ Status FSFileCacheStorage::finalize(const FileCacheKey& key, const size_t size) 
         std::lock_guard lock(_mtx);
         auto file_writer_map_key = std::make_pair(key.hash, key.offset);
         auto iter = _key_to_writer.find(file_writer_map_key);
-        DCHECK(iter != _key_to_writer.end());
+        if (iter == _key_to_writer.end()) {
+            return Status::InternalError(
+                    "file cache finalize missing writer, hash={}, offset={}, type={}, "
+                    "expiration={}",
+                    key.hash.to_string(), key.offset, cache_type_to_string(key.meta.type),
+                    key.meta.expiration_time);
+        }
         file_writer = std::move(iter->second);
         _key_to_writer.erase(iter);
     }
