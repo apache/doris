@@ -121,6 +121,7 @@ private:
     IntGauge* max_disk_io_util_percent = nullptr;
     IntGauge* max_network_send_bytes_rate = nullptr;
     IntGauge* max_network_receive_bytes_rate = nullptr;
+    int _file_handle_deplenish_counter = 0;
 };
 
 } // namespace doris
