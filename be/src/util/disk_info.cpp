@@ -19,6 +19,7 @@
 
 // IWYU pragma: no_include <bthread/errno.h>
 #include <absl/strings/str_split.h>
+#include <dirent.h>
 #include <errno.h> // IWYU pragma: keep
 #include <stdio.h>
 #include <stdlib.h>
@@ -35,8 +36,6 @@
 #include <iterator>
 #include <memory>
 #include <utility>
-#include <dirent.h>
-#include <fstream>
 
 #include "common/cast_set.h"
 #include "io/fs/local_file_system.h"
@@ -176,21 +175,21 @@ std::set<std::string> DiskInfo::get_lvm_physical_disks(const std::string dm_name
     if (!dir) {
         return disks;
     }
- 
+
     dirent* entry;
     while ((entry = readdir(dir)) != nullptr) {
         std::string slave_name = entry->d_name;
         if (slave_name == "." || slave_name == "..") {
             continue;
         }
- 
+
         // If the subdirectory is still of the LVM type, recursive processing is performed.
         if (slave_name.find("dm-") == 0) {
             auto sub_disks = get_lvm_physical_disks(slave_name);
             disks.insert(sub_disks.begin(), sub_disks.end());
             continue;
         }
- 
+
         // if it is, get parent device.
         std::string partition_path = "/sys/class/block/" + slave_name + "/partition";
         std::ifstream pf(partition_path);
@@ -198,7 +197,6 @@ std::set<std::string> DiskInfo::get_lvm_physical_disks(const std::string dm_name
             std::string current_link = "/sys/class/block/" + slave_name;
             char current_path[256];
             ssize_t len = readlink(current_link.c_str(), current_path, sizeof(current_path) - 1);
- 
             string parent_path_str = "";
             parent_path_str.append("/sys/class/block/").append(current_path).append("/..");
             char parent_path[parent_path_str.length() + 1];
