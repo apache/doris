@@ -18,6 +18,7 @@
 package org.apache.doris.httpv2.util.streamresponse;
 
 import org.apache.doris.httpv2.rest.RestApiStatusCode;
+import org.apache.doris.httpv2.util.ResultSetTypeHelper;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -153,9 +154,11 @@ public class JsonStreamResponse extends StreamResponseInf {
             // index start from 1
             for (int i = 1; i <= colNum; ++i) {
                 String type = rs.getMetaData().getColumnTypeName(i);
-                if ("DATE".equalsIgnoreCase(type) || "DATETIME".equalsIgnoreCase(type)
-                        || "DATEV2".equalsIgnoreCase(type) || "DATETIMEV2".equalsIgnoreCase(type)) {
+                if (ResultSetTypeHelper.isDateTimeType(type) || ResultSetTypeHelper.isBitType(type)) {
                     row.add(rs.getString(i));
+                } else if (ResultSetTypeHelper.isNumericType(type)) {
+                    Object obj = rs.getObject(i);
+                    row.add(obj != null ? obj.toString() : null);
                 } else {
                     row.add(rs.getObject(i));
                 }
