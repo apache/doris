@@ -173,4 +173,77 @@ suite("test_ivm_agg_mtmv") {
     order_qt_scalar_after_final_complete """
         SELECT total_cnt, total_sum, avg_v1, cnt_v1 FROM test_ivm_agg_mtmv_scalar_mv
     """
+
+    // =========================================================
+    // Part 3: MIN / MAX aggregate MV (grouped)
+    // =========================================================
+
+    sql """drop materialized view if exists test_ivm_agg_mtmv_minmax_mv;"""
+    sql """drop table if exists test_ivm_agg_mtmv_minmax_base;"""
+
+    sql """
+        CREATE TABLE test_ivm_agg_mtmv_minmax_base (
+            k1 INT,
+            v1 INT
+        )
+        UNIQUE KEY(k1)
+        DISTRIBUTED BY HASH(k1) BUCKETS 2
+        PROPERTIES (
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "true"
+        );
+    """
+
+    sql """
+        INSERT INTO test_ivm_agg_mtmv_minmax_base VALUES
+            (1, 10),
+            (1, 10),
+            (2, 20),
+            (3, 30);
+    """
+
+    // MV: GROUP BY k1, MIN(v1), MAX(v1)
+    sql """
+        CREATE MATERIALIZED VIEW test_ivm_agg_mtmv_minmax_mv
+        BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
+        DISTRIBUTED BY HASH(k1) BUCKETS 2
+        PROPERTIES (
+            'replication_num' = '1'
+        )
+        AS SELECT k1, MIN(v1) AS min_v1, MAX(v1) AS max_v1
+           FROM test_ivm_agg_mtmv_minmax_base
+           GROUP BY k1;
+    """
+
+    def minmaxMvInfos = sql """select State from mv_infos('database'='${context.dbName}') where Name = 'test_ivm_agg_mtmv_minmax_mv'"""
+    assertTrue(minmaxMvInfos.toString().contains("INIT"))
+
+    // Verify schema includes hidden MIN/MAX columns
+    def minmaxDescResult = sql """desc test_ivm_agg_mtmv_minmax_mv all"""
+    assertTrue(minmaxDescResult.toString().contains("UNIQUE_KEYS"))
+
+    // First COMPLETE refresh: k1=1 → min=10,max=10; k1=2 → min=20,max=20; k1=3 → min=30,max=30
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_minmax_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_minmax_mv")
+
+    order_qt_minmax_after_first_complete """
+        SELECT k1, min_v1, max_v1 FROM test_ivm_agg_mtmv_minmax_mv ORDER BY k1
+    """
+
+    // Safe INCREMENTAL: upsert k1=1 with v1=5 (new min) and insert k1=4 (v1=40)
+    // Deleting min/max is NOT tested here; only inserts/upserts that don't remove current extreme.
+    sql """INSERT INTO test_ivm_agg_mtmv_minmax_base VALUES (1, 5);"""
+    sql """INSERT INTO test_ivm_agg_mtmv_minmax_base VALUES (4, 40);"""
+
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_minmax_mv INCREMENTAL"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_minmax_mv")
+
+    // Final COMPLETE refresh to get ground truth
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_minmax_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_minmax_mv")
+
+    // k1=1 → v1=5 (MOW upsert); k1=2 → v1=20; k1=3 → v1=30; k1=4 → v1=40
+    order_qt_minmax_after_final_complete """
+        SELECT k1, min_v1, max_v1 FROM test_ivm_agg_mtmv_minmax_mv ORDER BY k1
+    """
 }
