@@ -24,7 +24,6 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.util.ExecutionResultSet;
 import org.apache.doris.httpv2.util.StatementSubmitter;
-import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -91,9 +90,9 @@ public class StmtExecutionAction extends RestBaseController {
         }
 
         ActionAuthorizationInfo authInfo = checkWithCookie(request, response, false);
+        String fullDbName = getFullDbName(dbName);
         if (Config.enable_all_http_auth) {
-            checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), dbName, PrivPredicate.ADMIN);
-        }
+            checkAdminAuth(authInfo.userIdentity);
         }
 
         if (ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
