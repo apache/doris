@@ -29,6 +29,7 @@ import org.apache.doris.nereids.rules.exploration.mv.RelatedTableInfo.RelatedTab
 import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.CTEId;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -93,7 +94,8 @@ public class PartitionIncrementMaintainer {
             DefaultPlanVisitor<Void, PartitionIncrementCheckContext> {
         public static final PartitionIncrementChecker INSTANCE = new PartitionIncrementChecker();
         public static final Set<Class<? extends Expression>> SUPPORT_EXPRESSION_TYPES =
-                ImmutableSet.of(DateTrunc.class, HoursAdd.class, HoursSub.class, SlotReference.class, Literal.class);
+                ImmutableSet.of(Cast.class, DateTrunc.class, HoursAdd.class, HoursSub.class, SlotReference.class,
+                        Literal.class);
 
         @Override
         public Void visitLogicalProject(LogicalProject<? extends Plan> project,
