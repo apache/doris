@@ -38,7 +38,7 @@ public class IvmRefreshResult {
     public static IvmRefreshResult fallback(IvmFallbackReason fallbackReason, String detailMessage) {
         return new IvmRefreshResult(false,
                 Objects.requireNonNull(fallbackReason, "fallbackReason can not be null"),
-                Objects.requireNonNull(detailMessage, "detailMessage can not be null"));
+                detailMessage == null ? fallbackReason.name() : detailMessage);
     }
 
     public boolean isSuccess() {

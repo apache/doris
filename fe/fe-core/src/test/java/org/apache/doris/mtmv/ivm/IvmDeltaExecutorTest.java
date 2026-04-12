@@ -50,7 +50,7 @@ public class IvmDeltaExecutorTest {
     @Test
     public void testExecuteEmptyBundles(@Mocked MTMV mtmv) throws AnalysisException {
         IvmRefreshContext context = newContext(mtmv);
-        deltaExecutor.execute(context, Collections.emptyList());
+        deltaExecutor.execute(context, Collections.emptyList(), 0);
     }
 
     @Test
@@ -80,7 +80,7 @@ public class IvmDeltaExecutorTest {
 
         IvmDeltaCommandBundle bundle = new IvmDeltaCommandBundle(command);
 
-        deltaExecutor.execute(newContext(mtmv), Collections.singletonList(bundle));
+        deltaExecutor.execute(newContext(mtmv), Collections.singletonList(bundle), 0);
         Assertions.assertEquals(1, runCalled.size());
     }
 
@@ -105,7 +105,7 @@ public class IvmDeltaExecutorTest {
         IvmDeltaCommandBundle bundle = new IvmDeltaCommandBundle(command);
 
         AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
-                () -> deltaExecutor.execute(newContext(mtmv), Collections.singletonList(bundle)));
+                () -> deltaExecutor.execute(newContext(mtmv), Collections.singletonList(bundle), 0));
         Assertions.assertTrue(ex.getMessage().contains("IVM delta execution failed"));
         Assertions.assertTrue(ex.getMessage().contains("command run failed"));
     }
@@ -136,7 +136,7 @@ public class IvmDeltaExecutorTest {
         IvmDeltaCommandBundle bundle = new IvmDeltaCommandBundle(command);
 
         AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
-                () -> deltaExecutor.execute(newContext(mtmv), Collections.singletonList(bundle)));
+                () -> deltaExecutor.execute(newContext(mtmv), Collections.singletonList(bundle), 0));
         Assertions.assertTrue(ex.getMessage().contains("IVM delta execution failed"));
         Assertions.assertTrue(ex.getMessage().contains("something went wrong"));
     }
@@ -190,7 +190,7 @@ public class IvmDeltaExecutorTest {
         bundles.add(new IvmDeltaCommandBundle(thirdCommand));
 
         Assertions.assertThrows(AnalysisException.class,
-                () -> deltaExecutor.execute(newContext(mtmv), bundles));
+                () -> deltaExecutor.execute(newContext(mtmv), bundles, 0));
         Assertions.assertEquals(Arrays.asList(1, 2), executionOrder);
     }
 
