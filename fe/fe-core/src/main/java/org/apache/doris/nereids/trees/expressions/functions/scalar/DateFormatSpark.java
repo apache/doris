@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.Monotonic;
@@ -67,6 +68,16 @@ public class DateFormatSpark extends ScalarFunction
     @Override
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        if (!child(0).getDataType().isNullType()
+                && !child(0).getDataType().isDateLikeType()
+                && !child(0).getDataType().isStringLikeType()) {
+            throw new AnalysisException("date_format_spark requires the first argument to be a string/date/"
+                    + "datetime/timestamp type, but got: " + child(0).getDataType().toSql());
+        }
     }
 
     @Override

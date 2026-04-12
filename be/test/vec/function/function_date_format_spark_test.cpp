@@ -44,8 +44,8 @@ TEST(VTimestampFunctionsTest, date_format_spark_v2_test) {
                   std::string("2020-02-29-60")}}));
         static_cast<void>(check_function<DataTypeString, true>(
                 func_name, input_types,
-                {{{std::string("2022-01-03"), std::string("Q-QQQ-QQQQ-E-EEEE")},
-                  std::string("1-Q1-1st quarter-Mon-Monday")}}));
+                {{{std::string("2022-01-01"), std::string("Y-w-W-u-F")},
+                  std::string("2022-1-1-6-1")}}));
     }
 
     {
@@ -53,9 +53,10 @@ TEST(VTimestampFunctionsTest, date_format_spark_v2_test) {
                                     Consted {PrimitiveType::TYPE_VARCHAR}};
         static_cast<void>(check_function<DataTypeString, true>(
                 func_name, input_types,
-                {{{std::string("2022-01-02 03:04:05.123456"),
-                   std::string("G-y-D-d-a-K-h-k-H-m-s-S-SSSSSS-SSSSSSSS")},
-                  std::string("AD-2022-2-2-AM-3-3-3-3-4-5-1-123456-12345600")}}));
+                {{{std::string("2026-04-10 11:06:00.123456"),
+                   std::string("G-y-yyyyyy-Y-w-W-u-F-a-K-h-k-H-m-s-S-SSSS-SSSSSS")},
+                  std::string(
+                          "AD-2026-002026-2026-15-2-5-2-AM-11-11-11-11-6-0-123-0123-000123")}}));
         static_cast<void>(check_function<DataTypeString, true>(
                 func_name, input_types,
                 {{{std::string("2022-01-01 00:00:00"), std::string("yyyy''MM''dd")},
@@ -63,12 +64,11 @@ TEST(VTimestampFunctionsTest, date_format_spark_v2_test) {
         static_cast<void>(check_function<DataTypeString, true>(
                 func_name, input_types,
                 {{{std::string("2022-01-03 00:00:00"), std::string("[[yyyy]-MM]-dd")},
-                  std::string("2022-01-03")}}));
+                  std::string("[[2022]-01]-03")}}));
         static_cast<void>(check_function<DataTypeString, true>(
                 func_name, input_types,
-                {{{std::string("2022-01-01 00:00:00"),
-                   std::string("VV-z-O-OOOO-x-xx-xxx-X-XX-XXX-Z-ZZZZ-ZZZZZ")},
-                  std::string("UTC-UTC-GMT-GMT-+00-+0000-+00:00-Z-Z-Z-+0000-GMT-Z")}}));
+                {{{std::string("2026-04-10 11:06:00"), std::string("L-LL-LLL-LLLL-MMMMM-EEEEE")},
+                  std::string("4-04-Apr-April-April-Friday")}}));
         static_cast<void>(check_function<DataTypeString, true>(
                 func_name, input_types,
                 {{{std::string("2020-12-31 00:00:00"), std::string("yyyy-MM-dd-D")},
@@ -77,12 +77,18 @@ TEST(VTimestampFunctionsTest, date_format_spark_v2_test) {
                 func_name, input_types,
                 {{{std::string("2021-01-01 00:00:00"), std::string("yyyy-MM-dd-D")},
                   std::string("2021-01-01-1")}}));
+        static_cast<void>(check_function<DataTypeString, true>(
+                func_name, input_types,
+                {{{std::string("2022-01-01 00:00:00"), std::string("")}, std::string("")}}));
+        static_cast<void>(check_function<DataTypeString, true>(
+                func_name, input_types,
+                {{{std::string("2022-01-01 00:00:00"), std::string("''")}, std::string("'")}}));
     }
 
     {
         InputTypeSet input_types = {PrimitiveType::TYPE_DATETIMEV2,
                                     Consted {PrimitiveType::TYPE_VARCHAR}};
-        for (std::string_view bad_pattern : {"Y", "W", "zzzzz", "XXXXXX", "'abcd", "]yyyy["}) {
+        for (std::string_view bad_pattern : {"q", "Q", "V", "O", "x", "e", "c", "XXXX", "'abcd"}) {
             DataSet invalid_data_set = {
                     {{std::string("1970-01-01 00:00:00"), std::string(bad_pattern)},
                      std::string("")}};
@@ -94,25 +100,18 @@ TEST(VTimestampFunctionsTest, date_format_spark_v2_test) {
     {
         InputTypeSet input_types = {PrimitiveType::TYPE_DATETIMEV2,
                                     Consted {PrimitiveType::TYPE_VARCHAR}};
-        DataSet data_set = {
-                {{std::string("2022-01-01 00:00:00"), std::string("G yyyy-MM-dd")},
-                 std::string("AD 2022-01-01")},
-                {{std::string("0001-01-01 00:00:00"), std::string("G yyyy-MM-dd")},
-                 std::string("AD 0001-01-01")},
-        };
-
-        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
-    }
-
-    {
-        InputTypeSet input_types = {PrimitiveType::TYPE_DATETIMEV2,
-                                    Consted {PrimitiveType::TYPE_VARCHAR}};
-        DataSet invalid_data_set = {
-                {{std::string("2022-01-01 00:00:00"), std::string("uuuu-MM-dd")}, std::string("")},
-        };
-
-        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types,
-                                                               invalid_data_set, -1, -1, true));
+        static_cast<void>(check_function<DataTypeString, true>(
+                func_name, input_types,
+                {{{std::string("2022-01-01 00:00:00"), std::string("G yyyy-MM-dd")},
+                  std::string("AD 2022-01-01")}}));
+        static_cast<void>(check_function<DataTypeString, true>(
+                func_name, input_types,
+                {{{std::string("0001-01-01 00:00:00"), std::string("G yyyy-MM-dd")},
+                  std::string("AD 0001-01-01")}}));
+        static_cast<void>(check_function<DataTypeString, true>(
+                func_name, input_types,
+                {{{std::string("2022-01-01 00:00:00"), std::string("uuuu-MM-dd")},
+                  std::string("0006-01-01")}}));
     }
 
     {
