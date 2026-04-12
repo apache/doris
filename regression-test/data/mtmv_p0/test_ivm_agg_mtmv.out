@@ -16,3 +16,14 @@
 -- !scalar_after_final_complete --
 4	105	26.25	4
 
+-- !minmax_after_first_complete --
+1	10	10
+2	20	20
+3	30	30
+
+-- !minmax_after_final_complete --
+1	5	5
+2	20	20
+3	30	30
+4	40	40
+

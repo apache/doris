@@ -80,7 +80,7 @@ import java.util.stream.Collectors;
 public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements CustomRewriter {
 
     private static final Set<Class<? extends AggregateFunction>> SUPPORTED_AGG_FUNCTIONS =
-            ImmutableSet.of(Count.class, Sum.class, Avg.class);
+            ImmutableSet.of(Count.class, Sum.class, Avg.class, Min.class, Max.class);
 
     private final IvmNormalizeResult normalizeResult = new IvmNormalizeResult();
 
@@ -518,10 +518,6 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
             if (aggFunc.isDistinct()) {
                 throw new AnalysisException(
                         "Aggregate DISTINCT is not supported for IVM: " + aggFunc.toSql());
-            }
-            if (aggFunc instanceof Min || aggFunc instanceof Max) {
-                throw new AnalysisException(
-                        "Aggregate min/max is not yet supported for IVM: " + aggFunc.toSql());
             }
             if (!SUPPORTED_AGG_FUNCTIONS.contains(aggFunc.getClass())) {
                 throw new AnalysisException(
