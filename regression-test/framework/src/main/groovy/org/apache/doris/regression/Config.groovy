@@ -407,6 +407,10 @@ class Config {
             config.groups = ["p0"].toSet()
         }
 
+        log.info("suiteWildcard: ${config.suiteWildcard}, groups: ${config.groups}, directories: ${config.directories}, "
+                + "excludeSuiteWildcard: ${config.excludeSuiteWildcard}, excludeGroupSet: ${config.excludeGroupSet}, "
+                + "excludeDirectorySet: ${config.excludeDirectorySet}")
+
         config.feSourceThriftAddress = cmd.getOptionValue(feSourceThriftAddressOpt, config.feSourceThriftAddress)
         try {
             String host = config.feSourceThriftAddress.split(":")[0]

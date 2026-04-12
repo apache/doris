@@ -62,20 +62,24 @@ class WaitForAction implements SuiteAction {
         if (forRollUp) {
             num = 8
         }
+
+        def connInfo = context.threadLocalConn.get()
         Awaitility
                 .with().pollInSameThread()
                 .await()
                 .atMost(time, TimeUnit.SECONDS)
                 .with().pollDelay(100, TimeUnit.MILLISECONDS).and()
                 .pollInterval(100, TimeUnit.MILLISECONDS).await().until({
-            log.info("sql is :\n${sql}")
-            def (result, meta) = JdbcUtils.executeToList(context.getConnection(), sql)
-            String res = result.get(0).get(num)
-            if (res == "FINISHED" || res == "CANCELLED") {
-                Assert.assertEquals("FINISHED", res)
-                return true;
-            }
-            return false;
+            context.connect(connInfo.username, connInfo.password, connInfo.conn.getMetaData().getURL(), {
+                log.info("sql is :\n${sql}")
+                def (result, meta) = JdbcUtils.executeToList(context.getConnection(), sql)
+                String res = result.get(0).get(num)
+                if (res == "FINISHED" || res == "CANCELLED") {
+                    Assert.assertEquals("FINISHED", res)
+                    return true;
+                }
+                return false;
+            })
         });
         // In the current implementation, Doris's ALTER TABLE operation 
         // cannot ensure the table status is transitioned to NORMAL state atomically 
