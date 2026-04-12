@@ -104,6 +104,10 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
             _should_build_hash_table, p._is_broadcast_join);
     RETURN_IF_ERROR(_runtime_filter_producer_helper->init(state, _build_expr_ctxs,
                                                           p._runtime_filter_descs));
+    // Prepare/open VExprContexts for decoupled RFs (expr_order == -1, src_expr not in
+    // builder's equi-conjuncts). Uses the build child's row_desc to resolve slot refs.
+    RETURN_IF_ERROR(
+            _runtime_filter_producer_helper->prepare_decoupled_filters(state, p._child->row_desc()));
     return Status::OK();
 }
 

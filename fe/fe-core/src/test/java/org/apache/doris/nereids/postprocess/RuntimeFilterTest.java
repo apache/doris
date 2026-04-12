@@ -449,4 +449,52 @@ public class RuntimeFilterTest extends SSBTestBase {
         List<RuntimeFilter> filters = context.getNereidsRuntimeFilter();
         Assertions.assertEquals(0, filters.size());
     }
+
+    @Test
+    public void testDecoupledRuntimeFilter() {
+        connectContext.getSessionVariable().enableDecoupledRuntimeFilter = true;
+        // join1(c_custkey=s_suppkey) probe=join2(lo_custkey=c_custkey)
+        // Standard RFs: c_custkey→lo_custkey (join2), s_suppkey→c_custkey (join1)
+        // Decoupled RF: c_custkey→s_suppkey (builder=join2, pushed to supplier scan)
+        String sql = "select * "
+                + "from lineorder join customer on lo_custkey = c_custkey "
+                + "join supplier on c_custkey = s_suppkey";
+
+        PlanChecker checker = PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .implement();
+        PhysicalPlan plan = checker.getPhysicalPlan();
+        plan = new PlanPostProcessors(checker.getCascadesContext()).process(plan);
+        new PhysicalPlanTranslator(new PlanTranslatorContext(checker.getCascadesContext())).translatePlan(plan);
+        RuntimeFilterContext rfCtx = checker.getCascadesContext().getRuntimeFilterContext();
+        List<RuntimeFilter> filters = rfCtx.getNereidsRuntimeFilter();
+
+        List<RuntimeFilter> decoupledRFs = filters.stream()
+                .filter(f -> f.getExprOrder() == -1)
+                .collect(Collectors.toList());
+        Assertions.assertFalse(decoupledRFs.isEmpty(),
+                "Expected at least one decoupled RF with exprOrder == -1");
+
+        RuntimeFilter decoupled = decoupledRFs.get(0);
+        // Decoupled RF should target the build side of the condition join
+        Assertions.assertTrue(decoupled.getTargetSlots().stream()
+                        .anyMatch(s -> s.getName().equals("s_suppkey")),
+                "Decoupled RF target should include s_suppkey");
+
+        // In mock catalog (no stats, no filters), the circular-wait fix should make
+        // decoupled RF non-blocking (both standard and decoupled are kept)
+        Assertions.assertTrue(decoupled.isNonBlocking(),
+                "Decoupled RF should be non-blocking when stats are unknown and no filters present");
+
+        // Standard RF s_suppkey→c_custkey should still exist (not removed)
+        List<RuntimeFilter> standardRFs = filters.stream()
+                .filter(f -> f.getExprOrder() >= 0)
+                .collect(Collectors.toList());
+        Assertions.assertFalse(standardRFs.isEmpty(),
+                "Standard RFs should still be present alongside non-blocking decoupled RF");
+
+        connectContext.getSessionVariable().enableDecoupledRuntimeFilter = false;
+    }
+
 }

@@ -227,6 +227,35 @@ public class RuntimeFilterContext {
         }
     }
 
+    /**
+     * Fully remove a runtime filter: remove all its targets, clean up from builder node,
+     * targetExprIdToFilter, and joinToTargetExprId maps.
+     */
+    public void removeRuntimeFilter(RuntimeFilter rf) {
+        // Remove from each target scan
+        for (int i = 0; i < rf.getTargetScans().size(); i++) {
+            rf.getTargetScans().get(i).removeAppliedRuntimeFilter(rf);
+        }
+        // Remove from targetExprIdToFilter
+        for (Slot slot : rf.getTargetSlots()) {
+            List<RuntimeFilter> filters = targetExprIdToFilter.get(slot.getExprId());
+            if (filters != null) {
+                filters.remove(rf);
+            }
+        }
+        // Remove from builder node
+        rf.getBuilderNode().getRuntimeFilters().remove(rf);
+        // Remove from joinToTargetExprId: remove target ExprIds that only belonged to this RF
+        for (Slot slot : rf.getTargetSlots()) {
+            for (Map.Entry<Plan, List<ExprId>> entry : joinToTargetExprId.entrySet()) {
+                if (entry.getKey().equals(rf.getBuilderNode())) {
+                    entry.getValue().remove(slot.getExprId());
+                }
+            }
+        }
+        prunedRF.add(rf);
+    }
+
     public void setTargetsOnScanNode(PhysicalRelation relation, Slot slot) {
         this.targetOnOlapScanNodeMap.computeIfAbsent(relation, k -> Lists.newArrayList()).add(slot);
     }

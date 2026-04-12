@@ -165,6 +165,9 @@ public class RuntimeFilterTranslator {
                 }
                 origFilter.setBitmapFilterNotIn(filter.isBitmapFilterNotIn());
                 origFilter.setBloomFilterSizeCalculatedByNdv(filter.isBloomFilterSizeCalculatedByNdv());
+                if (filter.isNonBlocking()) {
+                    origFilter.setWaitTimeMs(0);
+                }
                 org.apache.doris.planner.RuntimeFilter finalizedFilter = finalize(origFilter);
                 scanNodeList.stream().filter(CTEScanNode.class::isInstance)
                         .forEach(f -> {

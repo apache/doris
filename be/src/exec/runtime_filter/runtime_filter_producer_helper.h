@@ -26,6 +26,7 @@
 #include "exec/runtime_filter/runtime_filter_mgr.h"
 #include "exec/runtime_filter/runtime_filter_producer.h"
 #include "exprs/vexpr_context.h"
+#include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 
 namespace doris {
@@ -50,6 +51,10 @@ public:
     Status init(RuntimeState* state, const VExprContextSPtrs& build_expr_ctxs,
                 const std::vector<TRuntimeFilterDesc>& runtime_filter_descs);
 
+    // Prepare and open VExprContexts for decoupled RF (expr_order == -1).
+    // Must be called after init() if there are decoupled RFs.
+    Status prepare_decoupled_filters(RuntimeState* state, const RowDescriptor& row_desc);
+
     // send local size to remote to sync global rf size if needed
     MOCK_FUNCTION Status
     send_filter_size(RuntimeState* state, uint64_t hash_table_size,
@@ -59,7 +64,7 @@ public:
     MOCK_FUNCTION Status skip_process(RuntimeState* state);
 
     // build rf
-    Status build(RuntimeState* state, const Block* block, bool use_shared_table,
+    Status build(RuntimeState* state, Block* block, bool use_shared_table,
                  std::map<int, std::shared_ptr<RuntimeFilterWrapper>>& runtime_filters);
 
     // publish rf
@@ -89,6 +94,9 @@ protected:
     const bool _is_broadcast_join;
 
     std::vector<std::shared_ptr<VExprContext>> _filter_expr_contexts;
+    // Indices of _filter_expr_contexts that correspond to decoupled RFs (expr_order == -1).
+    // These need explicit evaluate on the build block before _insert().
+    std::vector<size_t> _decoupled_filter_indices;
 };
 #include "common/compile_check_end.h"
 } // namespace doris

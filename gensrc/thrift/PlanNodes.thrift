@@ -1452,6 +1452,10 @@ struct TRuntimeFilterDesc {
   16: optional bool sync_filter_size; // Deprecated
   
   17: optional bool build_bf_by_runtime_size;
+
+  // Per-filter wait time in ms. When set, overrides query-level runtime_filter_wait_time_ms.
+  // 0 means non-blocking (don't wait for this filter).
+  18: optional i32 wait_time_ms;
 }
 
 

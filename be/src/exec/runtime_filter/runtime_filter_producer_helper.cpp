@@ -21,6 +21,7 @@
 
 #include "exec/pipeline/pipeline_task.h"
 #include "exec/runtime_filter/runtime_filter_wrapper.h"
+#include "exprs/vexpr.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -29,7 +30,17 @@ void RuntimeFilterProducerHelper::_init_expr(
         const std::vector<TRuntimeFilterDesc>& runtime_filter_descs) {
     _filter_expr_contexts.resize(runtime_filter_descs.size());
     for (size_t i = 0; i < runtime_filter_descs.size(); i++) {
-        _filter_expr_contexts[i] = build_expr_ctxs[runtime_filter_descs[i].expr_order];
+        if (runtime_filter_descs[i].expr_order >= 0) {
+            _filter_expr_contexts[i] = build_expr_ctxs[runtime_filter_descs[i].expr_order];
+        } else {
+            // Decoupled RF: srcExpr is not in the builder's equi-conjuncts.
+            // Create a new VExprContext from the src_expr in the thrift descriptor.
+            VExprContextSPtr ctx;
+            auto st = VExpr::create_expr_tree(runtime_filter_descs[i].src_expr, ctx);
+            DCHECK(st.ok()) << "Failed to create decoupled RF expr: " << st.to_string();
+            _filter_expr_contexts[i] = std::move(ctx);
+            _decoupled_filter_indices.push_back(i);
+        }
     }
 }
 
@@ -42,6 +53,15 @@ Status RuntimeFilterProducerHelper::init(
                 state->register_producer_runtime_filter(runtime_filter_descs[i], &_producers[i]));
     }
     _init_expr(build_expr_ctxs, runtime_filter_descs);
+    return Status::OK();
+}
+
+Status RuntimeFilterProducerHelper::prepare_decoupled_filters(
+        RuntimeState* state, const RowDescriptor& row_desc) {
+    for (size_t idx : _decoupled_filter_indices) {
+        RETURN_IF_ERROR(_filter_expr_contexts[idx]->prepare(state, row_desc));
+        RETURN_IF_ERROR(_filter_expr_contexts[idx]->open(state));
+    }
     return Status::OK();
 }
 
@@ -93,7 +113,7 @@ Status RuntimeFilterProducerHelper::_publish(RuntimeState* state) {
 }
 
 Status RuntimeFilterProducerHelper::build(
-        RuntimeState* state, const Block* block, bool use_shared_table,
+        RuntimeState* state, Block* block, bool use_shared_table,
         std::map<int, std::shared_ptr<RuntimeFilterWrapper>>& runtime_filters) {
     if (_skip_runtime_filters_process) {
         return Status::OK();
@@ -104,6 +124,12 @@ Status RuntimeFilterProducerHelper::build(
         uint64_t hash_table_size = block ? block->rows() : 0;
         RETURN_IF_ERROR(_init_filters(state, hash_table_size));
         if (hash_table_size > 1) {
+            // Evaluate decoupled RF expressions on the block before insert.
+            // Standard RF exprs are already evaluated during hash table building.
+            for (size_t idx : _decoupled_filter_indices) {
+                int result_column_id = -1;
+                RETURN_IF_ERROR(_filter_expr_contexts[idx]->execute(block, &result_column_id));
+            }
             constexpr int HASH_JOIN_INSERT_OFFSET = 1; // the first row is mocked on hash join sink
             RETURN_IF_ERROR(_insert(block, HASH_JOIN_INSERT_OFFSET));
         }

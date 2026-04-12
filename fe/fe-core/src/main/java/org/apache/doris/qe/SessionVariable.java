@@ -639,6 +639,12 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String EXPAND_RUNTIME_FILTER_BY_INNER_JION = "expand_runtime_filter_by_inner_join";
 
+    public static final String ENABLE_DECOUPLED_RUNTIME_FILTER = "enable_decoupled_runtime_filter";
+
+    public static final String DECOUPLED_RF_NDV_RATIO_THRESHOLD = "decoupled_rf_ndv_ratio_threshold";
+
+    public static final String MIN_DECOUPLED_RF_TARGET_ROWS = "min_decoupled_rf_target_rows";
+
     public static final String ENABLE_AUTO_ANALYZE = "enable_auto_analyze";
 
     public static final String FORCE_SAMPLE_ANALYZE = "force_sample_analyze";
@@ -1024,6 +1030,28 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = EXPAND_RUNTIME_FILTER_BY_INNER_JION)
     public boolean expandRuntimeFilterByInnerJoin = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_DECOUPLED_RUNTIME_FILTER,
+            description = {"启用解耦 Runtime Filter：允许 RF 的生产者和条件来源分属不同 join 节点",
+                    "Enable decoupled runtime filter: allow RF producer and predicate source "
+                    + "to be on different join nodes"})
+    public boolean enableDecoupledRuntimeFilter = false;
+
+    @VarAttrDef.VarAttr(name = DECOUPLED_RF_NDV_RATIO_THRESHOLD,
+            description = {"解耦 RF 的 NDV 比值阈值。当 probe_ndv/build_ndv < 该值时，"
+                    + "优先使用解耦 RF 并删除标准 RF；否则保留标准 RF，解耦 RF 设为非阻塞",
+                    "NDV ratio threshold for decoupled RF. When probe_ndv/build_ndv < threshold, "
+                    + "prefer decoupled RF and remove standard RF; otherwise keep standard RF "
+                    + "and make decoupled RF non-blocking"})
+    public double decoupledRfNdvRatioThreshold = 0.5;
+
+    @VarAttrDef.VarAttr(name = MIN_DECOUPLED_RF_TARGET_ROWS,
+            description = {"解耦 RF 目标扫描节点的最小行数。当目标扫描行数低于此阈值时，"
+                    + "跳过生成解耦 RF（因为小表扫描太快，RF 来不及生效）",
+                    "Minimum row count for the target scan of a decoupled RF. "
+                    + "Skip generating decoupled RF when the target scan has fewer rows "
+                    + "(small scans complete too quickly for the RF to arrive in time)"})
+    public long minDecoupledRfTargetRows = 5_000_000;
 
     @VarAttrDef.VarAttr(name = "enable_aggregate_cse", needForward = true)
     public boolean enableAggregateCse = true;
