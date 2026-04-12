@@ -57,6 +57,8 @@ private:
     bool _need_probe_null_map(Block& block, const std::vector<int>& res_col_ids);
     std::vector<uint16_t> _convert_block_to_null(Block& block);
     Status _extract_join_column(Block& block, const std::vector<int>& res_col_ids);
+    // Called lazily in pull() after build dependency is satisfied, ensuring method is valid.
+    void _ensure_probe_ctx_inited(RuntimeState* state);
     friend class HashJoinProbeOperatorX;
     template <int JoinOpType>
     friend struct ProcessHashTableProbe;
@@ -88,6 +90,10 @@ private:
     bool _need_null_map_for_probe = false;
     bool _has_set_need_null_map_for_probe = false;
     ColumnUInt8::MutablePtr _null_map_column;
+
+    // Set to true once init_probe_ctx() has been called on the hash table method.
+    // This is deferred to pull() because method is only valid after build completes.
+    bool _probe_ctx_inited = false;
 
     int _task_idx;
 

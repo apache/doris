@@ -84,11 +84,24 @@ Status HashJoinProbeLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(JoinProbeLocalState::open(state));
+    // init_probe_ctx() is deferred to pull() because method is only initialized
+    // after build's _hash_table_init() runs, which happens during sink() — potentially
+    // after this open() call. See _ensure_probe_ctx_inited().
+    return Status::OK();
+}
 
+void HashJoinProbeLocalState::_ensure_probe_ctx_inited(RuntimeState* state) {
+    if (_probe_ctx_inited) {
+        return;
+    }
     auto& vec = _shared_state->hash_table_variant_vector;
     auto* method = (vec.size() == 1 ? vec[0] : vec[_task_idx])->method.get();
+    // By the time pull() is called, the build dependency has been released, which
+    // means _hash_table_init() has already set method. A null method here indicates
+    // a bug in the build/probe dependency protocol.
+    DORIS_CHECK(method);
     method->init_probe_ctx(this, state->batch_size(), _shared_state->join_op_variants);
-    return Status::OK();
+    _probe_ctx_inited = true;
 }
 
 void HashJoinProbeLocalState::prepare_for_next() {
@@ -213,6 +226,10 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, Block* output_bl
         local_state._probe_block.clear_column_data(_child->row_desc().num_materialized_slots());
         return Status::OK();
     }
+
+    // Ensure probe context is initialized. This is deferred from open() because
+    // the hash table method is only valid after build is complete.
+    local_state._ensure_probe_ctx_inited(state);
 
     local_state._join_block.clear_column_data();
 

@@ -193,11 +193,18 @@ size_t HashJoinBuildSinkLocalState::get_reserve_mem_size(RuntimeState* state, bo
                 throw Exception(st);
             }
 
-            size_to_reserve +=
-                    _shared_state->hash_table_variant_vector.front()
-                            ->method
-                            ->estimated_size(raw_ptrs, (uint32_t)block.rows(), true, true,
-                                             bucket_size);
+            // method is null if _hash_table_init() has not yet run (e.g. first eos call
+            // arrives before any sink() has had a chance to initialize it, which can
+            // happen when get_reserve_mem_size() is called ahead of sink() by the scheduler).
+            // In that case we conservatively skip the key-serialization estimate; the
+            // reservation will be slightly under, but correctness is not affected.
+            auto* front_method =
+                    _shared_state->hash_table_variant_vector.front()->method.get();
+            if (front_method) {
+                size_to_reserve +=
+                        front_method->estimated_size(raw_ptrs, (uint32_t)block.rows(), true, true,
+                                                     bucket_size);
+            }
         }
     }
     return size_to_reserve;
