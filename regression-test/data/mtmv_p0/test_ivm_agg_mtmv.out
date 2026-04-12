@@ -10,3 +10,9 @@
 3	1	30
 4	1	40
 
+-- !scalar_after_first_complete --
+3	60	20	3
+
+-- !scalar_after_final_complete --
+4	105	26.25	4
+
