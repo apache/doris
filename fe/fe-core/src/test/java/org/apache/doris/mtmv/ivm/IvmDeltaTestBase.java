@@ -50,6 +50,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
@@ -199,6 +200,14 @@ abstract class IvmDeltaTestBase {
         Slot nameSlot = scan.getOutput().get(1);
         Alias maxAlias = new Alias(new Max(nameSlot), "mx");
         return new LogicalAggregate<>(ImmutableList.of(idSlot), ImmutableList.of(idSlot, maxAlias),
+                true, Optional.empty(), scan);
+    }
+
+    protected LogicalAggregate<LogicalOlapScan> buildMinAgg(LogicalOlapScan scan) {
+        Slot idSlot = scan.getOutput().get(0);
+        Slot nameSlot = scan.getOutput().get(1);
+        Alias minAlias = new Alias(new Min(nameSlot), "mn");
+        return new LogicalAggregate<>(ImmutableList.of(idSlot), ImmutableList.of(idSlot, minAlias),
                 true, Optional.empty(), scan);
     }
 

@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
@@ -94,11 +95,65 @@ class IvmAggDeltaStrategyTest extends IvmDeltaTestBase {
     }
 
     @Test
-    void testAggWithMaxThrows() {
-        LogicalOlapScan scan = buildScan();
-        AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
-                () -> normalizeAggPlan(buildMaxAgg(scan)));
-        Assertions.assertTrue(ex.getMessage().contains("min/max"));
+    void testAggWithMaxProducesValidPlan() {
+        AggRewriteResult result = rewriteAgg(buildMaxAgg(buildScan()));
+        Assertions.assertEquals(Column.DELETE_SIGN,
+                result.sink.getColNames().get(result.sink.getColNames().size() - 1));
+    }
+
+    @Test
+    void testAggWithMinProducesValidPlan() {
+        AggRewriteResult result = rewriteAgg(buildMinAgg(buildScan()));
+        Assertions.assertEquals(Column.DELETE_SIGN,
+                result.sink.getColNames().get(result.sink.getColNames().size() - 1));
+    }
+
+    @Test
+    void testMaxDeltaSubPlanHasDeleteExtremeSlot() {
+        AggRewriteResult result = rewriteAgg(buildMaxAgg(buildScan()));
+        LogicalAggregate<?> deltaAgg = (LogicalAggregate<?>) getDeltaTopProject(result).child();
+        // Expected: [group_key, delta_group_count, delta_max, delta_del_max, delta_count]
+        List<String> outputNames = deltaAgg.getOutput().stream().map(Slot::getName).collect(Collectors.toList());
+        Assertions.assertTrue(outputNames.stream().anyMatch(n -> n.contains("DELMAX") || n.contains("transient")));
+        Assertions.assertTrue(outputNames.stream().anyMatch(n -> n.contains("MAX")));
+    }
+
+    @Test
+    void testMinDeltaSubPlanHasDeleteExtremeSlot() {
+        AggRewriteResult result = rewriteAgg(buildMinAgg(buildScan()));
+        LogicalAggregate<?> deltaAgg = (LogicalAggregate<?>) getDeltaTopProject(result).child();
+        List<String> outputNames = deltaAgg.getOutput().stream().map(Slot::getName).collect(Collectors.toList());
+        Assertions.assertTrue(outputNames.stream().anyMatch(n -> n.contains("DELMIN") || n.contains("transient")));
+        Assertions.assertTrue(outputNames.stream().anyMatch(n -> n.contains("MIN")));
+    }
+
+    @Test
+    void testMaxApplyPlanContainsAssertTrueGuard() {
+        AggRewriteResult result = rewriteAgg(buildMaxAgg(buildScan()));
+        // The final project should contain an AssertTrue expression nested in an If for the guard
+        boolean hasAssertTrue = result.finalProject.getProjects().stream()
+                .anyMatch(expr -> containsAssertTrue(expr));
+        Assertions.assertTrue(hasAssertTrue, "Expected assert_true guard in MAX apply plan");
+    }
+
+    @Test
+    void testMinApplyPlanContainsAssertTrueGuard() {
+        AggRewriteResult result = rewriteAgg(buildMinAgg(buildScan()));
+        boolean hasAssertTrue = result.finalProject.getProjects().stream()
+                .anyMatch(expr -> containsAssertTrue(expr));
+        Assertions.assertTrue(hasAssertTrue, "Expected assert_true guard in MIN apply plan");
+    }
+
+    private boolean containsAssertTrue(org.apache.doris.nereids.trees.expressions.Expression expr) {
+        if (expr instanceof AssertTrue) {
+            return true;
+        }
+        for (org.apache.doris.nereids.trees.expressions.Expression child : expr.children()) {
+            if (containsAssertTrue(child)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Test
