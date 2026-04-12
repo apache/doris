@@ -24,6 +24,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.analysis.TimestampArithmeticExpr;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.common.Pair;
@@ -47,6 +48,8 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursSub;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 
 import com.google.common.collect.Lists;
@@ -180,6 +183,10 @@ public class MTMVPartitionDefinition {
     private static Pair<Integer, Expr> convertToLegacyRecursion(Expression expression) {
         if (expression instanceof Slot) {
             return Pair.of(1, new SlotRef(null, ((Slot) expression).getName()));
+        } else if (expression instanceof HoursAdd) {
+            return Pair.of(1, convertDateAddSubToLegacy((HoursAdd) expression, "date_add"));
+        } else if (expression instanceof HoursSub) {
+            return Pair.of(1, convertDateAddSubToLegacy((HoursSub) expression, "date_sub"));
         } else if (expression instanceof Literal) {
             return Pair.of(2, new StringLiteral(((Literal) expression).getStringValue()));
         } else if (expression instanceof Cast) {
@@ -188,6 +195,18 @@ public class MTMVPartitionDefinition {
         } else {
             throw new AnalysisException("unsupported argument " + expression.toString());
         }
+    }
+
+    private static TimestampArithmeticExpr convertDateAddSubToLegacy(Expression expression, String funcName) {
+        Pair<Integer, Expr> timeExprPair = convertToLegacyRecursion(expression.child(0));
+        if (timeExprPair.key() != 1) {
+            throw new AnalysisException("unsupported date arithmetic argument " + expression.toString());
+        }
+        if (!(expression.child(1) instanceof Literal)) {
+            throw new AnalysisException("date arithmetic offset should be literal " + expression.toString());
+        }
+        Expr amountExpr = ((Literal) expression.child(1)).toLegacyLiteral();
+        return new TimestampArithmeticExpr(funcName, timeExprPair.value(), amountExpr, "HOUR");
     }
 
     public MTMVPartitionType getPartitionType() {

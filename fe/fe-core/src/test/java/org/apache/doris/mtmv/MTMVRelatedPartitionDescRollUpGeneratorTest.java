@@ -18,10 +18,12 @@
 package org.apache.doris.mtmv;
 
 import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.analysis.TimestampArithmeticExpr;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
@@ -139,6 +141,112 @@ public class MTMVRelatedPartitionDescRollUpGeneratorTest {
         Assert.assertEquals(2, res.size());
         Assert.assertEquals(Sets.newHashSet("name1", "name2"), res.get(expectDesc202001));
         Assert.assertEquals(Sets.newHashSet("name3"), res.get(expectDesc202002));
+    }
+
+    @Test
+    public void testRollUpRangeDateAddHour() throws AnalysisException {
+        FunctionCallExpr expr = new FunctionCallExpr("date_trunc",
+                Lists.newArrayList(
+                        new TimestampArithmeticExpr("date_add", new SlotRef(null, null), new IntLiteral(3), "HOUR"),
+                        new StringLiteral("day")),
+                true);
+        new Expectations() {
+            {
+                mtmvPartitionUtil.getPartitionColumnType((MTMVRelatedTableIf) any, (String) any);
+                minTimes = 0;
+                result = Type.DATETIMEV2;
+
+                mtmvPartitionInfo.getRelatedTable();
+                minTimes = 0;
+                result = null;
+
+                mtmvPartitionInfo.getExpr();
+                minTimes = 0;
+                result = null;
+
+                mtmvPartitionInfo.getPartitionType();
+                minTimes = 0;
+                result = MTMVPartitionType.EXPR;
+
+                mtmvPartitionInfo.getExpr();
+                minTimes = 0;
+                result = expr;
+            }
+        };
+        MTMVRelatedPartitionDescRollUpGenerator generator = new MTMVRelatedPartitionDescRollUpGenerator();
+        Map<PartitionKeyDesc, Set<String>> relatedPartitionDescs = Maps.newHashMap();
+        PartitionKeyDesc desc20250724 = PartitionKeyDesc.createFixed(
+                Lists.newArrayList(new PartitionValue("2025-07-24 21:00:00")),
+                Lists.newArrayList(new PartitionValue("2025-07-25 21:00:00")));
+        PartitionKeyDesc desc20250725 = PartitionKeyDesc.createFixed(
+                Lists.newArrayList(new PartitionValue("2025-07-25 21:00:00")),
+                Lists.newArrayList(new PartitionValue("2025-07-26 21:00:00")));
+        relatedPartitionDescs.put(desc20250724, Sets.newHashSet("name1"));
+        relatedPartitionDescs.put(desc20250725, Sets.newHashSet("name2"));
+        Map<PartitionKeyDesc, Set<String>> res = generator.rollUpRange(relatedPartitionDescs, mtmvPartitionInfo, null);
+
+        PartitionKeyDesc expectDesc20250725 = PartitionKeyDesc.createFixed(
+                Lists.newArrayList(new PartitionValue("2025-07-25 00:00:00")),
+                Lists.newArrayList(new PartitionValue("2025-07-26 00:00:00")));
+        PartitionKeyDesc expectDesc20250726 = PartitionKeyDesc.createFixed(
+                Lists.newArrayList(new PartitionValue("2025-07-26 00:00:00")),
+                Lists.newArrayList(new PartitionValue("2025-07-27 00:00:00")));
+        Assert.assertEquals(2, res.size());
+        Assert.assertEquals(Sets.newHashSet("name1"), res.get(expectDesc20250725));
+        Assert.assertEquals(Sets.newHashSet("name2"), res.get(expectDesc20250726));
+    }
+
+    @Test
+    public void testRollUpRangeDateSubHour() throws AnalysisException {
+        FunctionCallExpr expr = new FunctionCallExpr("date_trunc",
+                Lists.newArrayList(
+                        new TimestampArithmeticExpr("date_sub", new SlotRef(null, null), new IntLiteral(3), "HOUR"),
+                        new StringLiteral("day")),
+                true);
+        new Expectations() {
+            {
+                mtmvPartitionUtil.getPartitionColumnType((MTMVRelatedTableIf) any, (String) any);
+                minTimes = 0;
+                result = Type.DATETIMEV2;
+
+                mtmvPartitionInfo.getRelatedTable();
+                minTimes = 0;
+                result = null;
+
+                mtmvPartitionInfo.getExpr();
+                minTimes = 0;
+                result = null;
+
+                mtmvPartitionInfo.getPartitionType();
+                minTimes = 0;
+                result = MTMVPartitionType.EXPR;
+
+                mtmvPartitionInfo.getExpr();
+                minTimes = 0;
+                result = expr;
+            }
+        };
+        MTMVRelatedPartitionDescRollUpGenerator generator = new MTMVRelatedPartitionDescRollUpGenerator();
+        Map<PartitionKeyDesc, Set<String>> relatedPartitionDescs = Maps.newHashMap();
+        PartitionKeyDesc desc20250725 = PartitionKeyDesc.createFixed(
+                Lists.newArrayList(new PartitionValue("2025-07-25 03:00:00")),
+                Lists.newArrayList(new PartitionValue("2025-07-26 03:00:00")));
+        PartitionKeyDesc desc20250726 = PartitionKeyDesc.createFixed(
+                Lists.newArrayList(new PartitionValue("2025-07-26 03:00:00")),
+                Lists.newArrayList(new PartitionValue("2025-07-27 03:00:00")));
+        relatedPartitionDescs.put(desc20250725, Sets.newHashSet("name1"));
+        relatedPartitionDescs.put(desc20250726, Sets.newHashSet("name2"));
+        Map<PartitionKeyDesc, Set<String>> res = generator.rollUpRange(relatedPartitionDescs, mtmvPartitionInfo, null);
+
+        PartitionKeyDesc expectDesc20250725 = PartitionKeyDesc.createFixed(
+                Lists.newArrayList(new PartitionValue("2025-07-25 00:00:00")),
+                Lists.newArrayList(new PartitionValue("2025-07-26 00:00:00")));
+        PartitionKeyDesc expectDesc20250726 = PartitionKeyDesc.createFixed(
+                Lists.newArrayList(new PartitionValue("2025-07-26 00:00:00")),
+                Lists.newArrayList(new PartitionValue("2025-07-27 00:00:00")));
+        Assert.assertEquals(2, res.size());
+        Assert.assertEquals(Sets.newHashSet("name1"), res.get(expectDesc20250725));
+        Assert.assertEquals(Sets.newHashSet("name2"), res.get(expectDesc20250726));
     }
 
     private PartitionKeyDesc generateInDesc(String... values) {
