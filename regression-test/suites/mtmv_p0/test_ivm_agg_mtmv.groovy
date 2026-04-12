@@ -96,4 +96,81 @@ suite("test_ivm_agg_mtmv") {
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_mv")
 
     order_qt_agg_after_complete """SELECT k1, cnt, sum_v1 FROM test_ivm_agg_mtmv_mv"""
+
+    // =========================================================
+    // Part 2: Scalar aggregate MV (no GROUP BY)
+    // =========================================================
+
+    sql """drop materialized view if exists test_ivm_agg_mtmv_scalar_mv;"""
+    sql """drop table if exists test_ivm_agg_mtmv_scalar_base;"""
+
+    sql """
+        CREATE TABLE test_ivm_agg_mtmv_scalar_base (
+            k1 INT,
+            v1 INT
+        )
+        UNIQUE KEY(k1)
+        DISTRIBUTED BY HASH(k1) BUCKETS 2
+        PROPERTIES (
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "true"
+        );
+    """
+
+    sql """
+        INSERT INTO test_ivm_agg_mtmv_scalar_base VALUES
+            (1, 10),
+            (2, 20),
+            (3, 30);
+    """
+
+    // Scalar agg MV: COUNT(*), SUM, AVG, COUNT(expr) over the whole table
+    sql """
+        CREATE MATERIALIZED VIEW test_ivm_agg_mtmv_scalar_mv
+        BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES (
+            'replication_num' = '1'
+        )
+        AS SELECT COUNT(*) AS total_cnt, SUM(v1) AS total_sum, AVG(v1) AS avg_v1, COUNT(v1) AS cnt_v1
+           FROM test_ivm_agg_mtmv_scalar_base;
+    """
+
+    def scalarMvInfos = sql """select State from mv_infos('database'='${context.dbName}') where Name = 'test_ivm_agg_mtmv_scalar_mv'"""
+    assertTrue(scalarMvInfos.toString().contains("INIT"))
+
+    def scalarDescResult = sql """desc test_ivm_agg_mtmv_scalar_mv all"""
+    assertTrue(scalarDescResult.toString().contains("UNIQUE_KEYS"))
+
+    // First COMPLETE refresh: 3 rows, total_cnt=3, total_sum=60, avg=20, cnt_v1=3
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_scalar_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_scalar_mv")
+
+    order_qt_scalar_after_first_complete """
+        SELECT total_cnt, total_sum, avg_v1, cnt_v1 FROM test_ivm_agg_mtmv_scalar_mv
+    """
+
+    // Upsert k1=1 (v1: 10 → 15)
+    sql """INSERT INTO test_ivm_agg_mtmv_scalar_base VALUES (1, 15);"""
+
+    // INCREMENTAL refresh — only asserts SUCCESS (no crash / type-mismatch),
+    // since mock IVM reads the full base table so scalar agg values may not be correct.
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_scalar_mv INCREMENTAL"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_scalar_mv")
+
+    // Insert new row k1=4
+    sql """INSERT INTO test_ivm_agg_mtmv_scalar_base VALUES (4, 40);"""
+
+    // Second INCREMENTAL refresh — also assert no error
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_scalar_mv INCREMENTAL"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_scalar_mv")
+
+    // Final COMPLETE refresh: k1=1(15),2(20),3(30),4(40)
+    // total_cnt=4, total_sum=105, avg=26.25, cnt_v1=4
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_scalar_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_scalar_mv")
+
+    order_qt_scalar_after_final_complete """
+        SELECT total_cnt, total_sum, avg_v1, cnt_v1 FROM test_ivm_agg_mtmv_scalar_mv
+    """
 }
