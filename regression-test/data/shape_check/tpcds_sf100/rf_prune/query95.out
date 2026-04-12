@@ -5,9 +5,9 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----PhysicalProject
 ------hashJoin[INNER_JOIN shuffle] hashCondition=((ws1.ws_order_number = ws2.ws_order_number)) otherCondition=(( not (ws_warehouse_sk = ws_warehouse_sk))) build RFs:RF0 ws_order_number->[ws_order_number]
 --------PhysicalProject
-----------PhysicalOlapScan[web_sales(ws1)] apply RFs: RF0 RF7
+----------PhysicalOlapScan[web_sales(ws1)] apply RFs: RF0 RF4
 --------PhysicalProject
-----------PhysicalOlapScan[web_sales(ws2)] apply RFs: RF7
+----------PhysicalOlapScan[web_sales(ws2)] apply RFs: RF4
 --PhysicalResultSink
 ----PhysicalLimit[GLOBAL]
 ------PhysicalLimit[LOCAL]
@@ -18,11 +18,11 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------hashAgg[LOCAL]
 ------------------hashJoin[RIGHT_SEMI_JOIN colocated] hashCondition=((ws1.ws_order_number = web_returns.wr_order_number)) otherCondition=() build RFs:RF6 ws_order_number->[wr_order_number,ws_order_number]
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN shuffle] hashCondition=((web_returns.wr_order_number = ws_wh.ws_order_number)) otherCondition=()
-------------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF6
+----------------------hashJoin[INNER_JOIN shuffle] hashCondition=((web_returns.wr_order_number = ws_wh.ws_order_number)) otherCondition=() build RFs:RF5 wr_order_number->[ws_order_number]
+------------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF5 RF6
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[web_returns] apply RFs: RF6
---------------------hashJoin[RIGHT_SEMI_JOIN shuffle] hashCondition=((ws1.ws_order_number = ws_wh.ws_order_number)) otherCondition=() build RFs:RF7 ws_order_number->[ws_order_number,ws_order_number]
+--------------------hashJoin[RIGHT_SEMI_JOIN shuffle] hashCondition=((ws1.ws_order_number = ws_wh.ws_order_number)) otherCondition=() build RFs:RF4 ws_order_number->[ws_order_number,ws_order_number]
 ----------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ----------------------PhysicalProject
 ------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((ws1.ws_web_site_sk = web_site.web_site_sk)) otherCondition=() build RFs:RF3 web_site_sk->[ws_web_site_sk]

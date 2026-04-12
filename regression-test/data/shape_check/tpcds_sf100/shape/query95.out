@@ -5,9 +5,9 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----PhysicalProject
 ------hashJoin[INNER_JOIN shuffle] hashCondition=((ws1.ws_order_number = ws2.ws_order_number)) otherCondition=(( not (ws_warehouse_sk = ws_warehouse_sk))) build RFs:RF0 ws_order_number->[ws_order_number];RF1 ws_order_number->[ws_order_number]
 --------PhysicalProject
-----------PhysicalOlapScan[web_sales(ws1)] apply RFs: RF0 RF1 RF14 RF15
+----------PhysicalOlapScan[web_sales(ws1)] apply RFs: RF0 RF1 RF8 RF9
 --------PhysicalProject
-----------PhysicalOlapScan[web_sales(ws2)] apply RFs: RF14 RF15
+----------PhysicalOlapScan[web_sales(ws2)] apply RFs: RF8 RF9
 --PhysicalResultSink
 ----PhysicalLimit[GLOBAL]
 ------PhysicalLimit[LOCAL]
@@ -22,7 +22,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF10 RF11 RF12 RF13
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[web_returns] apply RFs: RF12 RF13
---------------------hashJoin[RIGHT_SEMI_JOIN shuffle] hashCondition=((ws1.ws_order_number = ws_wh.ws_order_number)) otherCondition=() build RFs:RF14 ws_order_number->[ws_order_number,ws_order_number];RF15 ws_order_number->[ws_order_number,ws_order_number]
+--------------------hashJoin[RIGHT_SEMI_JOIN shuffle] hashCondition=((ws1.ws_order_number = ws_wh.ws_order_number)) otherCondition=() build RFs:RF8 ws_order_number->[ws_order_number,ws_order_number];RF9 ws_order_number->[ws_order_number,ws_order_number]
 ----------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ----------------------PhysicalProject
 ------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((ws1.ws_web_site_sk = web_site.web_site_sk)) otherCondition=() build RFs:RF6 web_site_sk->[ws_web_site_sk];RF7 web_site_sk->[ws_web_site_sk]
