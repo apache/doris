@@ -8,9 +8,9 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN broadcast] hashCondition=((nation.n_regionkey = region.r_regionkey)) otherCondition=() build RFs:RF6 r_regionkey->n_regionkey
+----------------hashJoin[INNER_JOIN broadcast] hashCondition=((nation.n_regionkey = region.r_regionkey)) otherCondition=() build RFs:RF7 r_regionkey->n_regionkey
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF4 n_nationkey->s_nationkey;RF5 n_nationkey->c_nationkey
+--------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF5 n_nationkey->s_nationkey;RF6 n_nationkey->c_nationkey
 ----------------------PhysicalProject
 ------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer.c_nationkey = supplier.s_nationkey) and (lineitem.l_suppkey = supplier.s_suppkey)) otherCondition=() build RFs:RF2 s_suppkey->l_suppkey;RF3 s_nationkey->c_nationkey
 --------------------------PhysicalProject
@@ -18,16 +18,16 @@ PhysicalResultSink
 ------------------------------PhysicalProject
 --------------------------------PhysicalOlapScan[lineitem] apply RFs: RF1 RF2
 ------------------------------PhysicalProject
---------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((customer.c_custkey = orders.o_custkey)) otherCondition=() build RFs:RF0 c_custkey->o_custkey
+--------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((customer.c_custkey = orders.o_custkey)) otherCondition=() build RFs:RF0 c_custkey->o_custkey;RF4 c_nationkey->s_nationkey
 ----------------------------------PhysicalProject
 ------------------------------------filter((orders.o_orderdate < '1995-01-01') and (orders.o_orderdate >= '1994-01-01'))
 --------------------------------------PhysicalOlapScan[orders] apply RFs: RF0
 ----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[customer] apply RFs: RF3 RF5
+------------------------------------PhysicalOlapScan[customer] apply RFs: RF3 RF6
 --------------------------PhysicalProject
-----------------------------PhysicalOlapScan[supplier] apply RFs: RF4
+----------------------------PhysicalOlapScan[supplier] apply RFs: RF4 RF5
 ----------------------PhysicalProject
-------------------------PhysicalOlapScan[nation] apply RFs: RF6
+------------------------PhysicalOlapScan[nation] apply RFs: RF7
 ------------------PhysicalProject
 --------------------filter((region.r_name = 'ASIA'))
 ----------------------PhysicalOlapScan[region]

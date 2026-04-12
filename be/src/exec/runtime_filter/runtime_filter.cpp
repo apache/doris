@@ -79,6 +79,9 @@ Status RuntimeFilter::_init_with_desc(const TRuntimeFilterDesc* desc,
                                       const TQueryOptions* options) {
     VExprContextSPtr build_ctx;
     RETURN_IF_ERROR(VExpr::create_expr_tree(desc->src_expr, build_ctx));
+    if (build_ctx == nullptr) {
+        return Status::InternalError("runtime filter {} has empty src_expr", desc->filter_id);
+    }
 
     RuntimeFilterParams params;
     params.filter_id = desc->filter_id;

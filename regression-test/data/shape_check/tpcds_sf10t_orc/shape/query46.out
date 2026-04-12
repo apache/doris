@@ -7,7 +7,7 @@ PhysicalResultSink
 --------PhysicalProject
 ----------hashJoin[INNER_JOIN shuffle] hashCondition=((customer.c_current_addr_sk = current_addr.ca_address_sk)) otherCondition=(( not (ca_city = bought_city))) build RFs:RF5 ca_address_sk->c_current_addr_sk
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN shuffle] hashCondition=((dn.ss_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF4 c_customer_sk->ss_customer_sk
+--------------hashJoin[INNER_JOIN shuffle] hashCondition=((dn.ss_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF4 c_customer_sk->ss_customer_sk;RF6 c_current_addr_sk->ca_address_sk
 ----------------PhysicalProject
 ------------------hashAgg[GLOBAL]
 --------------------PhysicalProject
@@ -34,5 +34,5 @@ PhysicalResultSink
 ----------------PhysicalProject
 ------------------PhysicalOlapScan[customer] apply RFs: RF5
 ------------PhysicalProject
---------------PhysicalOlapScan[customer_address(current_addr)]
+--------------PhysicalOlapScan[customer_address(current_addr)] apply RFs: RF6
 

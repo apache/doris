@@ -317,6 +317,23 @@ public class RuntimeFilterTranslator {
                 }
                 origFilter.setBitmapFilterNotIn(filter.isBitmapFilterNotIn());
                 origFilter.setBloomFilterSizeCalculatedByNdv(filter.isBloomFilterSizeCalculatedByNdv());
+                if (filter.isNonBlocking()) {
+                    origFilter.setWaitTimeMs(0);
+                } else {
+                    if (ConnectContext.get() != null) {
+                        SessionVariable sessionVar = ConnectContext.get().getSessionVariable();
+                        if (sessionVar.runtimeFilterWaitInfinitely
+                                || origFilter.getType() == TRuntimeFilterType.BITMAP
+                                || !origFilter.hasRemoteTargets()) {
+                            // wait infinitely
+                            origFilter.setWaitTimeMs(sessionVar.getQueryTimeoutS() * 1000);
+                        } else {
+                            origFilter.setWaitTimeMs(sessionVar.getRuntimeFilterWaitTimeMs());
+                        }
+                    } else {
+                        origFilter.setWaitTimeMs(1000);
+                    }
+                }
                 org.apache.doris.planner.RuntimeFilter finalizedFilter = finalize(origFilter);
                 scanNodeList.stream().filter(CTEScanNode.class::isInstance)
                         .forEach(f -> {
