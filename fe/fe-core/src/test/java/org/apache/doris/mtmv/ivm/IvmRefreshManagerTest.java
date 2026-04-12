@@ -194,7 +194,8 @@ public class IvmRefreshManagerTest {
         private List<IvmDeltaCommandBundle> lastBundles;
 
         @Override
-        public void execute(IvmRefreshContext context, List<IvmDeltaCommandBundle> bundles) throws AnalysisException {
+        public void execute(IvmRefreshContext context, List<IvmDeltaCommandBundle> bundles,
+                int exprIdStart) throws AnalysisException {
             executeCalled = true;
             lastBundles = bundles;
             if (throwOnExecute) {

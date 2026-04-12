@@ -115,9 +115,11 @@ public class IvmRefreshManager {
         try {
             bundles = analyzeDeltaCommandBundles(context);
         } catch (Exception e) {
+            String detail = e.getMessage() != null ? e.getMessage()
+                    : e.getClass().getName() + " (no message)";
             IvmRefreshResult result = IvmRefreshResult.fallback(
-                    IvmFallbackReason.PLAN_PATTERN_UNSUPPORTED, e.getMessage());
-            LOG.warn("IVM plan analysis failed for mv={}, result={}", context.getMtmv().getName(), result);
+                    IvmFallbackReason.PLAN_PATTERN_UNSUPPORTED, detail);
+            LOG.warn("IVM plan analysis failed for mv={}, result={}", context.getMtmv().getName(), result, e);
             return result;
         }
 
@@ -128,12 +130,24 @@ public class IvmRefreshManager {
             return result;
         }
 
+        // Consume one ExprId from the analysis StatementContext to obtain the next safe start
+        // value for execution. This prevents ExprId collisions between plan-embedded ExprIds
+        // (allocated during analyzeDeltaCommandBundles) and new ExprIds allocated during
+        // bundle execution (in a fresh StatementContext). See: apache/doris#58494.
+        // StatementContext may be null in unit-test paths where analyzeDeltaCommandBundles is mocked out;
+        // in that case start from 0 (safe because no real plan ExprIds exist).
+        org.apache.doris.nereids.StatementContext analysisStmtCtx =
+                context.getConnectContext().getStatementContext();
+        int exprIdStart = analysisStmtCtx != null
+                ? analysisStmtCtx.getNextExprId().asInt() : 0;
         try {
-            deltaExecutor.execute(context, bundles);
+            deltaExecutor.execute(context, bundles, exprIdStart);
             return IvmRefreshResult.success();
         } catch (Exception e) {
+            String detail = e.getMessage() != null ? e.getMessage()
+                    : e.getClass().getName() + " (no message)";
             IvmRefreshResult result = IvmRefreshResult.fallback(
-                    IvmFallbackReason.INCREMENTAL_EXECUTION_FAILED, e.getMessage());
+                    IvmFallbackReason.INCREMENTAL_EXECUTION_FAILED, detail);
             LOG.warn("IVM execution failed for mv={}, result={}", context.getMtmv().getName(), result, e);
             return result;
         }
