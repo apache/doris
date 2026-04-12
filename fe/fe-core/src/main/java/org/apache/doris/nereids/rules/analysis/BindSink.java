@@ -46,6 +46,7 @@ import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.dictionary.Dictionary;
+import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.Scope;
@@ -1240,7 +1241,7 @@ public class BindSink implements AnalysisRuleFactory {
                 .map(NamedExpression::getName)
                 .collect(Collectors.toCollection(() -> Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER)));
         return sinkColumns.stream()
-                .filter(Column::isIvmHiddenColumn)
+                .filter(IvmUtil::isIvmHiddenColumn)
                 .filter(columnName -> !childOutputNames.contains(columnName))
                 .collect(Collectors.toCollection(() -> Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER)));
     }

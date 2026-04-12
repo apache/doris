@@ -161,6 +161,7 @@ import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVService;
 import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mtmv.MTMVUtil;
+import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.mysql.authenticate.AuthenticateType;
 import org.apache.doris.mysql.authenticate.AuthenticatorManager;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
@@ -3920,7 +3921,7 @@ public class Env {
         boolean first = true;
         for (int i = 0; i < columns.size(); i++) {
             Column column = columns.get(i);
-            if (filterIvmHiddenCols && column.getName().startsWith("__DORIS_IVM_")) {
+            if (filterIvmHiddenCols && IvmUtil.isIvmHiddenColumn(column.getName())) {
                 continue;
             }
             if (!first) {

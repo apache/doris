@@ -275,9 +275,6 @@ public class Column implements GsonPostProcessable {
                 false, null, null,  Sets.newHashSet(), null);
     }
 
-    public static boolean isIvmHiddenColumn(String columnName) {
-        return StringUtils.startsWith(columnName, IVM_HIDDEN_COLUMN_PREFIX);
-    }
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
                   String defaultValue, String comment, boolean visible, int colUniqueId) {
