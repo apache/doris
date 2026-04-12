@@ -605,6 +605,94 @@ public class CreateMTMVCommandTest extends TestWithFeService {
     }
 
     @Test
+    public void testIvmMvRandomDistributionForcedToHashOnRowId() throws Exception {
+        // IVM MV with RANDOM distribution should be overridden to HASH(__DORIS_IVM_ROW_ID_COL__)
+        createTable("create table test.ivm_dist_random_base (k1 int, v1 int)\n"
+                + "duplicate key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1');");
+
+        CreateMTMVInfo info = getPartitionTableInfo(
+                "CREATE MATERIALIZED VIEW ivm_dist_random_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 3\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS\n"
+                + " SELECT k1, v1 FROM ivm_dist_random_base;");
+
+        // Distribution should be forced to HASH
+        Assertions.assertTrue(info.getDistribution().isHash(),
+                "IVM MV distribution should be HASH, not RANDOM");
+        // Distribution column should be __DORIS_IVM_ROW_ID_COL__
+        Assertions.assertEquals(1, info.getDistribution().getCols().size());
+        Assertions.assertEquals(Column.IVM_ROW_ID_COL, info.getDistribution().getCols().get(0));
+    }
+
+    @Test
+    public void testIvmMvHashDistributionForcedToRowId() throws Exception {
+        // IVM MV with HASH(k1) distribution should also be overridden to HASH(__DORIS_IVM_ROW_ID_COL__)
+        createTable("create table test.ivm_dist_hash_base (k1 int, v1 int)\n"
+                + "duplicate key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1');");
+
+        CreateMTMVInfo info = getPartitionTableInfo(
+                "CREATE MATERIALIZED VIEW ivm_dist_hash_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY HASH(k1) BUCKETS 4\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS\n"
+                + " SELECT k1, v1 FROM ivm_dist_hash_base;");
+
+        Assertions.assertTrue(info.getDistribution().isHash());
+        Assertions.assertEquals(1, info.getDistribution().getCols().size());
+        Assertions.assertEquals(Column.IVM_ROW_ID_COL, info.getDistribution().getCols().get(0));
+    }
+
+    @Test
+    public void testNonIvmMvRandomDistributionPreserved() throws Exception {
+        // Non-IVM (AUTO refresh) MV with RANDOM distribution should remain RANDOM
+        createTable("create table test.non_ivm_dist_base (k1 int, v1 int)\n"
+                + "duplicate key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1');");
+
+        CreateMTMVInfo info = getPartitionTableInfo(
+                "CREATE MATERIALIZED VIEW non_ivm_dist_mv\n"
+                + " BUILD DEFERRED REFRESH AUTO ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 3\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS\n"
+                + " SELECT k1, v1 FROM non_ivm_dist_base;");
+
+        // Distribution should remain RANDOM (not overridden)
+        Assertions.assertFalse(info.getDistribution().isHash(),
+                "Non-IVM MV distribution should remain RANDOM");
+    }
+
+    @Test
+    public void testIvmMvBucketCountPreserved() throws Exception {
+        // Verify that the user-specified bucket count is preserved after distribution override
+        createTable("create table test.ivm_dist_bucket_base (k1 int, v1 int)\n"
+                + "duplicate key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1');");
+
+        CreateMTMVInfo info = getPartitionTableInfo(
+                "CREATE MATERIALIZED VIEW ivm_dist_bucket_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 7\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS\n"
+                + " SELECT k1, v1 FROM ivm_dist_bucket_base;");
+
+        Assertions.assertTrue(info.getDistribution().isHash());
+        Assertions.assertEquals(Column.IVM_ROW_ID_COL, info.getDistribution().getCols().get(0));
+        // Bucket count should be preserved from the user's specification
+        Assertions.assertEquals(7, info.getDistribution().translateToCatalogStyle().getBuckets());
+    }
+
+    @Test
     public void testCreateAggImmvWithMinMax() throws Exception {
         createTable("create table test.agg_minmax_base (k1 int, v1 int, v2 bigint)\n"
                 + "duplicate key(k1)\n"
