@@ -391,7 +391,6 @@ class IvmNormalizeMtmvTest {
         Slot idSlot = scan.getOutput().get(0);
         Slot nameSlot = scan.getOutput().get(1);
         // SELECT id, COUNT(*), SUM(name), AVG(name) GROUP BY id
-        // NOTE: MIN/MAX are not yet supported for IVM and would throw AnalysisException.
         Alias countStarAlias = new Alias(new Count(), "cnt");
         Alias sumAlias = new Alias(new Sum(nameSlot), "s");
         Alias avgAlias = new Alias(new Avg(nameSlot), "a");
@@ -489,7 +488,7 @@ class IvmNormalizeMtmvTest {
     }
 
     @Test
-    void testMinAggThrows() {
+    void testMinAggProducesMinAndCountHiddenColumns() {
         Slot idSlot = scan.getOutput().get(0);
         Slot nameSlot = scan.getOutput().get(1);
         Alias minAlias = new Alias(new Min(nameSlot), "mn");
@@ -498,12 +497,28 @@ class IvmNormalizeMtmvTest {
         LogicalAggregate<Plan> agg = new LogicalAggregate<>(
                 groupBy, outputs, true, java.util.Optional.empty(), scan);
 
-        Assertions.assertThrows(AnalysisException.class,
-                () -> new IvmNormalizeMtmv().rewriteRoot(agg, newJobContextForRoot(agg, true)));
+        JobContext jobContext = newJobContextForRoot(agg, true);
+        Plan result = new IvmNormalizeMtmv().rewriteRoot(agg, jobContext);
+
+        // Normalization should succeed and produce hidden MIN + COUNT columns
+        Assertions.assertInstanceOf(LogicalProject.class, result);
+        IvmAggMeta aggMeta = jobContext.getCascadesContext().getIvmNormalizeResult().get().getAggMeta();
+        Assertions.assertNotNull(aggMeta);
+        Assertions.assertEquals(1, aggMeta.getAggTargets().size());
+        AggTarget target = aggMeta.getAggTargets().get(0);
+        Assertions.assertEquals(AggType.MIN, target.getAggType());
+        Assertions.assertNotNull(target.getHiddenStateSlot("MIN"));
+        Assertions.assertNotNull(target.getHiddenStateSlot("COUNT"));
+
+        LogicalProject<?> topProject = (LogicalProject<?>) result;
+        Set<String> outputNames = topProject.getOutput().stream()
+                .map(Slot::getName).collect(Collectors.toSet());
+        Assertions.assertTrue(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(0, "MIN")));
+        Assertions.assertTrue(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(0, "COUNT")));
     }
 
     @Test
-    void testMaxAggThrows() {
+    void testMaxAggProducesMaxAndCountHiddenColumns() {
         Slot idSlot = scan.getOutput().get(0);
         Slot nameSlot = scan.getOutput().get(1);
         Alias maxAlias = new Alias(new Max(nameSlot), "mx");
@@ -512,8 +527,23 @@ class IvmNormalizeMtmvTest {
         LogicalAggregate<Plan> agg = new LogicalAggregate<>(
                 groupBy, outputs, true, java.util.Optional.empty(), scan);
 
-        Assertions.assertThrows(AnalysisException.class,
-                () -> new IvmNormalizeMtmv().rewriteRoot(agg, newJobContextForRoot(agg, true)));
+        JobContext jobContext = newJobContextForRoot(agg, true);
+        Plan result = new IvmNormalizeMtmv().rewriteRoot(agg, jobContext);
+
+        Assertions.assertInstanceOf(LogicalProject.class, result);
+        IvmAggMeta aggMeta = jobContext.getCascadesContext().getIvmNormalizeResult().get().getAggMeta();
+        Assertions.assertNotNull(aggMeta);
+        Assertions.assertEquals(1, aggMeta.getAggTargets().size());
+        AggTarget target = aggMeta.getAggTargets().get(0);
+        Assertions.assertEquals(AggType.MAX, target.getAggType());
+        Assertions.assertNotNull(target.getHiddenStateSlot("MAX"));
+        Assertions.assertNotNull(target.getHiddenStateSlot("COUNT"));
+
+        LogicalProject<?> topProject = (LogicalProject<?>) result;
+        Set<String> outputNames = topProject.getOutput().stream()
+                .map(Slot::getName).collect(Collectors.toSet());
+        Assertions.assertTrue(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(0, "MAX")));
+        Assertions.assertTrue(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(0, "COUNT")));
     }
 
     @Test
