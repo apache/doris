@@ -28,16 +28,24 @@ import java.util.List;
  */
 public class IvmDeltaExecutor {
 
-    public void execute(IvmRefreshContext context, List<IvmDeltaCommandBundle> bundles)
+    /**
+     * Executes all delta bundles.
+     *
+     * @param exprIdStart the next ExprId value produced by the plan analysis StatementContext.
+     *                    Each bundle execution creates a fresh StatementContext initialised from
+     *                    this value so that ExprIds assigned during execution never collide with
+     *                    ExprIds already embedded in the pre-built plan trees.
+     */
+    public void execute(IvmRefreshContext context, List<IvmDeltaCommandBundle> bundles, int exprIdStart)
             throws AnalysisException {
         for (IvmDeltaCommandBundle bundle : bundles) {
-            executeBundle(context, bundle);
+            executeBundle(context, bundle, exprIdStart);
         }
     }
 
-    private void executeBundle(IvmRefreshContext context, IvmDeltaCommandBundle bundle)
+    private void executeBundle(IvmRefreshContext context, IvmDeltaCommandBundle bundle, int exprIdStart)
             throws AnalysisException {
-        StatementContext stmtCtx = new StatementContext();
+        StatementContext stmtCtx = new StatementContext(exprIdStart);
         String auditStmt = String.format("IVM delta refresh, mvName: %s, bundle: %s",
                 context.getMtmv().getName(), bundle);
         try {
