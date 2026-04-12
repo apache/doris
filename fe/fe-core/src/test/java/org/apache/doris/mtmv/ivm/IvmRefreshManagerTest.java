@@ -18,25 +18,16 @@
 package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.catalog.MTMV;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.mtmv.BaseTableInfo;
-import org.apache.doris.mtmv.MTMVRelation;
-import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.collect.Sets;
 import mockit.Expectations;
-import mockit.Mock;
-import mockit.MockUp;
 import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 
 public class IvmRefreshManagerTest {
@@ -138,19 +129,17 @@ public class IvmRefreshManagerTest {
     }
 
     @Test
-    public void testManagerReturnsStreamUnsupportedWithoutBinding(@Mocked MTMV mtmv,
-            @Mocked MTMVRelation relation, @Mocked OlapTable olapTable) {
+    public void testManagerPrecheckPassesWithoutStreamCheck(@Mocked MTMV mtmv) {
+        // checkStreamSupport is currently disabled (stream/binlog not ready),
+        // so precheck only checks binlogBroken.  With binlogBroken=false the
+        // precheck passes and the manager proceeds to analyze, which returns
+        // empty bundles → PLAN_PATTERN_UNSUPPORTED.
         IvmInfo ivmInfo = new IvmInfo();
-        BaseTableInfo baseTableInfo = new BaseTableInfo(olapTable, 2L);
         new Expectations() {
             {
                 mtmv.getIvmInfo();
                 result = ivmInfo;
                 minTimes = 1;
-                mtmv.getRelation();
-                result = relation;
-                relation.getBaseTablesOneLevelAndFromView();
-                result = Sets.newHashSet(baseTableInfo);
             }
         };
 
@@ -162,42 +151,21 @@ public class IvmRefreshManagerTest {
         IvmRefreshResult result = manager.doRefresh(mtmv);
 
         Assertions.assertFalse(result.isSuccess());
-        Assertions.assertEquals(IvmFallbackReason.STREAM_UNSUPPORTED, result.getFallbackReason());
+        Assertions.assertEquals(IvmFallbackReason.PLAN_PATTERN_UNSUPPORTED, result.getFallbackReason());
         Assertions.assertFalse(executor.executeCalled);
     }
 
     @Test
     public void testManagerPassesHealthyPrecheckAndExecutes(@Mocked MTMV mtmv,
-            @Mocked MTMVRelation relation, @Mocked OlapTable olapTable, @Mocked Command deltaWriteCommand) {
+            @Mocked Command deltaWriteCommand) {
+        // With checkStreamSupport disabled, precheck only verifies binlogBroken.
+        // No relation/table mocking is needed.
         IvmInfo ivmInfo = new IvmInfo();
-        new Expectations() {
-            {
-                olapTable.getId();
-                result = 1L;
-                olapTable.getName();
-                result = "t1";
-                olapTable.getDBName();
-                result = "db1";
-            }
-        };
-        BaseTableInfo baseTableInfo = new BaseTableInfo(olapTable, 2L);
-        ivmInfo.setBaseTableStreams(new HashMap<>());
-        ivmInfo.getBaseTableStreams().put(baseTableInfo, new IvmStreamRef(StreamType.OLAP, null, null));
-        new MockUp<MTMVUtil>() {
-            @Mock
-            public TableIf getTable(BaseTableInfo input) {
-                return olapTable;
-            }
-        };
         new Expectations() {
             {
                 mtmv.getIvmInfo();
                 result = ivmInfo;
                 minTimes = 1;
-                mtmv.getRelation();
-                result = relation;
-                relation.getBaseTablesOneLevelAndFromView();
-                result = Sets.newHashSet(baseTableInfo);
             }
         };
 

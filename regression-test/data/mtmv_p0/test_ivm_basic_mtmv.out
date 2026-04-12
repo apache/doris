@@ -11,3 +11,17 @@
 4	40	ddd
 5	50	eee
 
+-- !after_third_refresh --
+1	10	aaa
+2	22	bbb_updated
+3	33	ccc_updated
+4	40	ddd
+5	50	eee
+
+-- !after_complete_refresh --
+1	10	aaa
+2	22	bbb_updated
+3	33	ccc_updated
+4	40	ddd
+5	50	eee
+

@@ -26,6 +26,8 @@ import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.LargeIntType;
+import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 
 import java.math.BigInteger;
 import java.util.List;
@@ -56,8 +58,16 @@ public class IvmUtil {
         if (keyExprs.isEmpty()) {
             return new LargeIntLiteral(BigInteger.ZERO);
         }
-        Expression first = keyExprs.get(0);
-        Expression[] rest = keyExprs.subList(1, keyExprs.size()).toArray(new Expression[0]);
+        // murmur_hash3_64 only accepts VARCHAR/STRING arguments.  If every key is already a
+        // CharacterType (VARCHAR or STRING) the cast is unnecessary; otherwise cast to VARCHAR
+        // because this expression is constructed after type-coercion has already completed.
+        boolean allCharacter = keyExprs.stream()
+                .allMatch(e -> e.getDataType() instanceof CharacterType);
+        Expression first = allCharacter ? keyExprs.get(0)
+                : new Cast(keyExprs.get(0), VarcharType.SYSTEM_DEFAULT);
+        Expression[] rest = keyExprs.subList(1, keyExprs.size()).stream()
+                .map(e -> allCharacter ? e : (Expression) new Cast(e, VarcharType.SYSTEM_DEFAULT))
+                .toArray(Expression[]::new);
         return new Cast(new MurmurHash364(first, rest), LargeIntType.INSTANCE);
     }
 

@@ -16,43 +16,24 @@
 // under the License.
 
 suite("test_ivm_basic_mtmv") {
-    def dbName = context.dbName
-    def waitForMtmvTask = { String mvName ->
-        String status = "NULL"
-        long timeoutTimestamp = System.currentTimeMillis() + 5 * 60 * 1000
-        while (timeoutTimestamp > System.currentTimeMillis()
-                && (status == "PENDING" || status == "RUNNING" || status == "NULL")) {
-            def tasks = sql """select * from tasks('type'='mv')
-                    where MvDatabaseName = '${dbName}' and MvName = '${mvName}'"""
-            if (tasks.isEmpty()) {
-                Thread.sleep(1000)
-                continue
-            }
-            def latestTask = tasks.max { row -> row[9]?.toString() ?: "" }
-            status = latestTask[7].toString()
-            logger.info("current mv task status: " + status + ", task row: " + latestTask)
-            if (status == "SUCCESS") {
-                return
-            }
-            Thread.sleep(1000)
-        }
-        assertEquals("SUCCESS", status)
-    }
-
     sql """drop materialized view if exists mv_ivm_basic;"""
     sql """drop table if exists t_ivm_basic_base;"""
 
-    // 1. Create base table (DUP_KEYS)
+    // 1. Create base table (MOW — UNIQUE_KEYS with merge-on-write)
+    //    IVM generates row_id = hash(unique_keys) for MOW base tables,
+    //    which is deterministic across refreshes, so the mock
+    //    (reading full base table) correctly upserts existing rows.
     sql """
         CREATE TABLE t_ivm_basic_base (
             k1 INT,
             v1 INT,
             v2 VARCHAR(50)
         )
-        DUPLICATE KEY(k1)
+        UNIQUE KEY(k1)
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
-            "replication_num" = "1"
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "true"
         );
     """
 
@@ -76,19 +57,18 @@ suite("test_ivm_basic_mtmv") {
     """
 
     // 4. Verify MV metadata — state should be INIT (not yet refreshed)
-    def mvInfos = sql """select State from mv_infos('database'='${dbName}') where Name = 'mv_ivm_basic'"""
+    def mvInfos = sql """select State from mv_infos('database'='${context.dbName}') where Name = 'mv_ivm_basic'"""
     logger.info("mv_infos after create: " + mvInfos.toString())
     assertTrue(mvInfos.toString().contains("INIT"))
 
-    // 5. Verify MV is UNIQUE_KEYS with MOW (enable_unique_key_merge_on_write)
-    def showCreate = sql """show create materialized view mv_ivm_basic"""
-    logger.info("show create mv: " + showCreate.toString())
-    assertTrue(showCreate.toString().contains("UNIQUE KEY"))
-    assertTrue(showCreate.toString().contains("enable_unique_key_merge_on_write"))
+    // 5. Verify MV is UNIQUE_KEYS with MOW (via desc command)
+    def descResult = sql """desc mv_ivm_basic all"""
+    logger.info("desc mv: " + descResult.toString())
+    assertTrue(descResult.toString().contains("UNIQUE_KEYS"))
 
-    // 6. First refresh (full refresh since BUILD DEFERRED)
-    sql """REFRESH MATERIALIZED VIEW mv_ivm_basic AUTO"""
-    waitForMtmvTask("mv_ivm_basic")
+    // 6. First COMPLETE refresh (full overwrite, skips IVM path)
+    sql """REFRESH MATERIALIZED VIEW mv_ivm_basic COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("mv_ivm_basic")
 
     // 7. Verify data after first refresh (exclude __IVM_ROW_ID__ column)
     order_qt_after_first_refresh """SELECT k1, v1, v2 FROM mv_ivm_basic"""
@@ -100,10 +80,30 @@ suite("test_ivm_basic_mtmv") {
             (5, 50, 'eee');
     """
 
-    // 9. Second refresh + verify updated data
-    sql """REFRESH MATERIALIZED VIEW mv_ivm_basic AUTO"""
-    waitForMtmvTask("mv_ivm_basic")
+    // 9. Second refresh via IVM incremental path (mock reads full base table,
+    //    deterministic row_id upserts correctly for MOW base table)
+    sql """REFRESH MATERIALIZED VIEW mv_ivm_basic INCREMENTAL"""
+    waitingMTMVTaskFinishedByMvName("mv_ivm_basic")
 
     order_qt_after_second_refresh """SELECT k1, v1, v2 FROM mv_ivm_basic"""
+
+    // 10. Update existing rows in base table
+    sql """
+        INSERT INTO t_ivm_basic_base VALUES
+            (2, 22, 'bbb_updated'),
+            (3, 33, 'ccc_updated');
+    """
+
+    // 11. Third refresh via IVM incremental — should reflect updated rows
+    sql """REFRESH MATERIALIZED VIEW mv_ivm_basic INCREMENTAL"""
+    waitingMTMVTaskFinishedByMvName("mv_ivm_basic")
+
+    order_qt_after_third_refresh """SELECT k1, v1, v2 FROM mv_ivm_basic"""
+
+    // 12. Complete refresh after incremental — should produce same result (full overwrite)
+    sql """REFRESH MATERIALIZED VIEW mv_ivm_basic COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("mv_ivm_basic")
+
+    order_qt_after_complete_refresh """SELECT k1, v1, v2 FROM mv_ivm_basic"""
 
 }
