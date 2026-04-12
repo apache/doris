@@ -163,13 +163,25 @@ public class CreateMTMVInfo extends CreateTableInfo {
             properties = Maps.newHashMap();
         }
 
+        // IVM MVs are UNIQUE_KEYS (MOW) tables keyed on __DORIS_IVM_ROW_ID_COL__.
+        // MOW dedup only works within the same tablet, so the distribution MUST be
+        // HASH on the row-id column; RANDOM distribution would allow the same key
+        // to land in different tablets across successive INSERTs, breaking dedup.
+        if (isEnableIvm()) {
+            int bucketNum = distribution.translateToCatalogStyle().getBuckets();
+            distribution = new DistributionDescriptor(
+                    true, distribution.isAutoBucket(), bucketNum,
+                    Lists.newArrayList(Column.IVM_ROW_ID_COL));
+        }
+
         CreateTableInfo.maybeRewriteByAutoBucket(distribution, properties);
 
         // analyze distribute
         Map<String, ColumnDefinition> columnMap = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         columns.forEach(c -> columnMap.put(c.getName(), c));
         distribution.updateCols(columns.get(0).getName());
-        distribution.validate(columnMap, KeysType.DUP_KEYS);
+        KeysType distributionKeysType = isEnableIvm() ? KeysType.UNIQUE_KEYS : KeysType.DUP_KEYS;
+        distribution.validate(columnMap, distributionKeysType);
         refreshInfo.validate();
 
         analyzeProperties();
