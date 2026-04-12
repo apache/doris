@@ -113,6 +113,11 @@ public class IvmSimpleScanDeltaStrategy extends PlanVisitor<IvmSimpleScanDeltaSt
     @Override
     public RewriteResult visitLogicalProject(LogicalProject<? extends Plan> project, Void ctx) {
         RewriteResult childResult = project.child().accept(this, ctx);
+        // If the child produced a terminal plan (e.g., aggregate apply plan),
+        // dmlFactorSlot is null — return the child result directly, skipping this project.
+        if (childResult.dmlFactorSlot == null) {
+            return childResult;
+        }
         // If this project already carries dml_factor, just update the child
         for (int i = 0; i < project.getProjects().size(); i++) {
             NamedExpression expr = project.getProjects().get(i);
