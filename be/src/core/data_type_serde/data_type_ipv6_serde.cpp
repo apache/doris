@@ -30,7 +30,6 @@
 #include "util/jsonb_writer.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 Status DataTypeIPv6SerDe::write_column_to_mysql_binary(const IColumn& column,
                                                        MysqlRowBinaryBuffer& result,

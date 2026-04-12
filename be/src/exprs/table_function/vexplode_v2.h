@@ -26,7 +26,6 @@
 #include "exprs/table_function/table_function.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class Block;
 } // namespace doris
 
@@ -65,5 +64,4 @@ private:
     bool _generate_row_index {false};
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

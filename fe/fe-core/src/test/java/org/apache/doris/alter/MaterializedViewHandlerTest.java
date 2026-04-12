@@ -220,8 +220,6 @@ public class MaterializedViewHandlerTest {
         List<MVColumnItem> list = Lists.newArrayList(mvColumnItem);
         new Expectations() {
             {
-                olapTable.getBaseColumn(columnName1);
-                result = null;
                 olapTable.hasMaterializedIndex(mvName);
                 result = false;
                 createMaterializedViewCommand.getMVName();

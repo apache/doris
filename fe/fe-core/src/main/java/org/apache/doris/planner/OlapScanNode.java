@@ -46,7 +46,6 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Tablet;
-import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -334,22 +333,10 @@ public class OlapScanNode extends ScanNode {
     }
 
 
-    private Collection<Long> partitionPrune(PartitionInfo partitionInfo,
-            PartitionNamesInfo partitionNamesInfo) throws AnalysisException {
+    private Collection<Long> partitionPrune(PartitionInfo partitionInfo) throws AnalysisException {
         PartitionPruner partitionPruner = null;
         Map<Long, PartitionItem> keyItemMap;
-        if (partitionNamesInfo != null) {
-            keyItemMap = Maps.newHashMap();
-            for (String partName : partitionNamesInfo.getPartitionNames()) {
-                Partition partition = olapTable.getPartition(partName, partitionNamesInfo.isTemp());
-                if (partition == null) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_SUCH_PARTITION, partName);
-                }
-                keyItemMap.put(partition.getId(), partitionInfo.getItem(partition.getId()));
-            }
-        } else {
-            keyItemMap = partitionInfo.getIdToItem(false);
-        }
+        keyItemMap = partitionInfo.getIdToItem(false);
         if (partitionInfo.getType() == PartitionType.RANGE) {
             if (isPointQuery() && partitionInfo.getPartitionColumns().size() == 1) {
                 // short circuit, a quick path to find partition
@@ -698,10 +685,9 @@ public class OlapScanNode extends ScanNode {
     private void computePartitionInfo() throws AnalysisException {
         long start = System.currentTimeMillis();
         // Step1: compute partition ids
-        PartitionNamesInfo partitionNames = desc.getRef().getPartitionNamesInfo();
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
         if (partitionInfo.getType() == PartitionType.RANGE || partitionInfo.getType() == PartitionType.LIST) {
-            selectedPartitionIds = partitionPrune(partitionInfo, partitionNames);
+            selectedPartitionIds = partitionPrune(partitionInfo);
         } else {
             selectedPartitionIds = olapTable.getPartitionIds();
         }

@@ -39,7 +39,6 @@
 #include "runtime/runtime_state.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class ObjectPool;
 class RowDescriptor;
 } // namespace doris
@@ -228,5 +227,4 @@ private:
     size_t _max_buffered_block_bytes = INITIAL_BUFFERED_BLOCK_BYTES;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

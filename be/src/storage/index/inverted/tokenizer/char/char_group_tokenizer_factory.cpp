@@ -24,7 +24,6 @@
 #include "storage/index/inverted/util/string_helper.h"
 
 namespace doris::segment_v2::inverted_index {
-#include "common/compile_check_begin.h"
 
 void CharGroupTokenizerFactory::initialize(const Settings& settings) {
     _max_token_length = settings.get_int("max_token_length", CharTokenizer::DEFAULT_MAX_WORD_LEN);
@@ -154,5 +153,4 @@ TokenizerPtr CharGroupTokenizerFactory::create() {
     return tokenzier;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

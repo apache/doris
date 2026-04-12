@@ -18,10 +18,8 @@
 #include "exprs/aggregate/aggregate_function_window_impl.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 CREATE_WINDOW_FUNCTION_DIRECT(create_aggregate_function_window_lead, LeadLagData,
                               WindowFunctionLeadImpl, false);
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -23,7 +23,6 @@
 #include "storage/index/inverted/util/string_helper.h"
 
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 
 ConjunctionQuery::ConjunctionQuery(SearcherPtr searcher, IndexQueryContextPtr context)
         : _searcher(std::move(searcher)),
@@ -181,5 +180,4 @@ int32_t ConjunctionQuery::do_next(int32_t doc) {
     }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

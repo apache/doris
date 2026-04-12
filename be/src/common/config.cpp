@@ -336,7 +336,7 @@ DEFINE_mInt32(thrift_connect_timeout_seconds, "3");
 DEFINE_mInt64(thrift_client_retry_interval_ms, "1000");
 // max message size of thrift request
 // default: 100 * 1024 * 1024
-DEFINE_mInt64(thrift_max_message_size, "104857600");
+DEFINE_mInt32(thrift_max_message_size, "104857600");
 // max bytes number for single scan range, used in segmentv2
 DEFINE_mInt32(doris_scan_range_max_mb, "1024");
 // single read execute fragment row number
@@ -1726,6 +1726,10 @@ DEFINE_mBool(enable_auto_clone_on_mow_publish_missing_version, "false");
 
 // The maximum csv line reader output buffer size
 DEFINE_mInt64(max_csv_line_reader_output_buffer_size, "4294967296");
+
+// The maximum bytes of a single block returned by load file readers (CsvReader, NewJsonReader,
+// ParquetReader, OrcReader). Default is 64MB. Set to 0 to disable the limit.
+DEFINE_mInt64(load_reader_max_block_bytes, "67108864");
 
 // Maximum number of OpenMP threads allowed for concurrent vector index builds.
 // -1 means auto: use 80% of the available CPU cores.

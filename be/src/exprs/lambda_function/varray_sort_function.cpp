@@ -33,7 +33,6 @@
 #include "exprs/vexpr.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class VExprContext;
 
@@ -270,5 +269,4 @@ void register_function_array_sort(doris::LambdaFunctionFactory& factory) {
     factory.register_function<ArraySortFunction>();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

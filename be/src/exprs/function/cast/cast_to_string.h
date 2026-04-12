@@ -24,7 +24,6 @@
 #include "util/mysql_global.h"
 #include "util/to_string.h"
 namespace doris {
-#include "common/compile_check_begin.h"
 struct CastToString {
     template <class SRC>
     static inline std::string from_number(const SRC& from);
@@ -570,4 +569,3 @@ inline WrapperType create_string_wrapper(const DataTypePtr& from_type) {
 
 }; // namespace CastWrapper
 } // namespace doris
-#include "common/compile_check_end.h"

@@ -95,7 +95,6 @@
 using std::string;
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using io::Path;
 
 // number of running SCHEMA-CHANGE threads
@@ -1845,5 +1844,4 @@ void StorageEngine::_check_tablet_delete_bitmap_score_callback() {
         }
     }
 }
-#include "common/compile_check_end.h"
 } // namespace doris

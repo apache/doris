@@ -31,7 +31,6 @@
 #include "util/string_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 const Status TableSchemaChangeHelper::BuildTableInfoUtil::SCHEMA_ERROR = Status::NotSupported(
         "In the parquet/orc reader, it is not possible to read scenarios where the complex column "
         "types"
@@ -670,5 +669,4 @@ std::string TableSchemaChangeHelper::debug(const std::shared_ptr<Node>& root, si
 
     return ans;
 }
-#include "common/compile_check_end.h"
 } // namespace doris

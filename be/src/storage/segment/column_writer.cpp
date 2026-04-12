@@ -52,7 +52,6 @@
 #include "util/simd/bits.h"
 
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 
 class NullBitmapBuilder {
 public:
@@ -1397,7 +1396,5 @@ Status VariantColumnWriter::append_nullable(const uint8_t* null_map, const uint8
                                             size_t num_rows) {
     return _impl->append_nullable(null_map, ptr, num_rows);
 }
-
-#include "common/compile_check_end.h"
 
 } // namespace doris::segment_v2

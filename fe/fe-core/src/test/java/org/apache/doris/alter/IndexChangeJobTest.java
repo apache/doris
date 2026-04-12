@@ -30,6 +30,8 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
@@ -805,5 +807,128 @@ public class IndexChangeJobTest {
 
         schemaChangeHandler.runAfterCatalogReady();
         Assert.assertEquals(AlterJobV2.JobState.CANCELLED, jobV2.getJobState());
+    }
+
+    @Test
+    public void testDropIndexOnPartitionValidateRejectsStarPartition() throws Exception {
+        // PARTITIONS (*) should be rejected: partitionNames is null
+        PartitionNamesInfo starPartition = new PartitionNamesInfo(true);
+        DropIndexOp dropIndexOp = new DropIndexOp("index1", false, null, true, starPartition);
+        try {
+            dropIndexOp.validate(new ConnectContext());
+            Assert.fail("Should throw AnalysisException for PARTITIONS (*)");
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("PARTITIONS (*) is not supported"));
+        }
+    }
+
+    @Test
+    public void testDropIndexOnPartitionValidateRejectsTempPartition() throws Exception {
+        // TEMPORARY PARTITION should be rejected
+        PartitionNamesInfo tempPartition = new PartitionNamesInfo(true, Lists.newArrayList("p1"));
+        DropIndexOp dropIndexOp = new DropIndexOp("index1", false, null, true, tempPartition);
+        try {
+            dropIndexOp.validate(new ConnectContext());
+            Assert.fail("Should throw AnalysisException for TEMPORARY PARTITION");
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("does not support temporary partitions"));
+        }
+    }
+
+    @Test
+    public void testDropIndexOnPartitionValidateAcceptsNormalPartition() throws Exception {
+        // Normal partition spec should pass validate
+        PartitionNamesInfo normalPartition = new PartitionNamesInfo(false, Lists.newArrayList("p1", "p2"));
+        DropIndexOp dropIndexOp = new DropIndexOp("index1", false, null, true, normalPartition);
+        // Should not throw
+        dropIndexOp.validate(new ConnectContext());
+        Assert.assertTrue(dropIndexOp.hasPartitionSpec());
+        Assert.assertEquals(2, dropIndexOp.getPartitionNames().size());
+    }
+
+    @Test
+    public void testDropIndexOnPartitionRejectsNonPartitionedTable() throws UserException {
+        // testTable1 uses SinglePartitionInfo (non-partitioned), so DROP INDEX ON PARTITION should fail
+        fakeEnv = new FakeEnv();
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
+        String indexName = "index1";
+        TableNameInfo tableName = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
+                olapTable.getName());
+        // First create an inverted index
+        IndexDefinition indexDefinition = new IndexDefinition(indexName, false,
+                Lists.newArrayList(olapTable.getBaseSchema().get(1).getName()),
+                "INVERTED",
+                Maps.newHashMap(), "balabala");
+        CreateIndexOp createIndexOp = new CreateIndexOp(tableName, indexDefinition, false);
+        ConnectContext connectContext = new ConnectContext();
+        createIndexOp.validate(connectContext);
+        alterOps.add(createIndexOp);
+        schemaChangeHandler.process(alterOps, db, olapTable);
+        Assert.assertEquals(1, olapTable.getIndexes().size());
+        alterOps.clear();
+
+        // Now try DROP INDEX ON PARTITION on this non-partitioned table
+        PartitionNamesInfo partitionNamesInfo = new PartitionNamesInfo(false, Lists.newArrayList("p1"));
+        DropIndexOp dropIndexOp = new DropIndexOp(indexName, false, tableName, false, partitionNamesInfo);
+        dropIndexOp.validate(connectContext);
+        alterOps.add(dropIndexOp);
+        try {
+            schemaChangeHandler.process(alterOps, db, olapTable);
+            Assert.fail("Should throw DdlException for non-partitioned table");
+        } catch (DdlException e) {
+            Assert.assertTrue(e.getMessage().contains("is not partitioned"));
+        }
+        // Index definition should still exist
+        Assert.assertEquals(1, olapTable.getIndexes().size());
+    }
+
+    @Test
+    public void testDropIndexOnPartitionRejectsNonExistentIndex() throws UserException {
+        fakeEnv = new FakeEnv();
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
+        TableNameInfo tableName = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
+                olapTable.getName());
+
+        PartitionNamesInfo partitionNamesInfo = new PartitionNamesInfo(false, Lists.newArrayList("p1"));
+        DropIndexOp dropIndexOp = new DropIndexOp("non_existent_index", false, tableName, false, partitionNamesInfo);
+        dropIndexOp.validate(new ConnectContext());
+        alterOps.add(dropIndexOp);
+        try {
+            schemaChangeHandler.process(alterOps, db, olapTable);
+            Assert.fail("Should throw DdlException for non-existent index");
+        } catch (DdlException e) {
+            Assert.assertTrue(e.getMessage().contains("does not exist"));
+        }
+    }
+
+    @Test
+    public void testDropIndexOnPartitionIfExistsNonExistentIndex() throws UserException {
+        // IF EXISTS with non-existent index and partition spec should silently succeed
+        fakeEnv = new FakeEnv();
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
+        TableNameInfo tableName = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
+                olapTable.getName());
+
+        PartitionNamesInfo partitionNamesInfo = new PartitionNamesInfo(false, Lists.newArrayList("p1"));
+        DropIndexOp dropIndexOp = new DropIndexOp("non_existent_index", true, tableName, false, partitionNamesInfo);
+        dropIndexOp.validate(new ConnectContext());
+        alterOps.add(dropIndexOp);
+        // Should not throw — IF EXISTS silently returns
+        schemaChangeHandler.process(alterOps, db, olapTable);
     }
 }

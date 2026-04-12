@@ -15,9 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifdef __clang__
-#pragma clang diagnostic pop
-#endif
-#undef COMPILE_CHECK
+package org.apache.doris.analysis;
 
-// #include "common/compile_check_end.h"
+/**
+ * Java equivalent of the Thrift {@code TAccessPathType} enum.
+ * Represents whether a column access path reads data or metadata.
+ */
+public enum ColumnAccessPathType {
+    DATA,
+    META
+}

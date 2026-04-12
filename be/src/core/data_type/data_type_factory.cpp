@@ -69,7 +69,6 @@
 #include "storage/olap_common.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 DataTypePtr DataTypeFactory::create_data_type(const doris::StorageField& col_desc) {
     return create_data_type(col_desc.get_desc(), col_desc.is_nullable());
 }

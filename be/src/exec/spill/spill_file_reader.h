@@ -31,7 +31,6 @@
 #include "runtime/workload_management/resource_context.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeState;
 class Block;
 
@@ -108,4 +107,3 @@ private:
 using SpillFileReaderSPtr = std::shared_ptr<SpillFileReader>;
 
 } // namespace doris
-#include "common/compile_check_end.h"

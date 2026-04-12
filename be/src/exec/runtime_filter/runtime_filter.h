@@ -27,7 +27,6 @@
 #include "runtime/query_context.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeFilterWrapper;
 class RuntimeProfile;
 
@@ -139,5 +138,4 @@ protected:
 
     std::recursive_mutex _rmtx; // lock all member function of runtime filter producer/consumer
 };
-#include "common/compile_check_end.h"
 } // namespace doris

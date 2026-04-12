@@ -37,7 +37,6 @@
 #include "util/json/path_in_data.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 template <typename T>
 class ColumnStr;
 class IColumnDummy;
@@ -587,5 +586,4 @@ inline TTypeDesc create_type_desc(PrimitiveType type, int precision = 0, int sca
     return type_desc;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

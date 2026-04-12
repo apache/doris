@@ -39,7 +39,6 @@ class Block;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class TableFormatReader : public GenericReader {
 public:
     TableFormatReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeState* state,
@@ -419,5 +418,4 @@ struct ColumnIdResult {
               filter_column_ids(std::move(filter_column_ids_)) {}
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

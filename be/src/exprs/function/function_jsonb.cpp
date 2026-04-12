@@ -65,7 +65,6 @@
 #include "util/simd/bits.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 enum class NullalbeMode { NULLABLE = 0, FOLLOW_INPUT };
 

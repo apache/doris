@@ -20,7 +20,6 @@
 #include "runtime/runtime_state.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 constexpr size_t CHECK_FRECUENCY = 65536;
 template <class HashTableContext, bool is_intersect>
 struct HashTableBuild {
@@ -56,5 +55,4 @@ private:
     ColumnRawPtrs& _build_raw_ptrs;
     RuntimeState* _state = nullptr;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

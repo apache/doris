@@ -36,7 +36,6 @@
 #include "util/url_coding.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeState;
 class Block;
 
@@ -209,5 +208,4 @@ Status SchemaEncryptionKeysScanner::_fill_block_impl(Block* block) {
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

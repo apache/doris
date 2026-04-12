@@ -55,7 +55,6 @@
 #include "util/json/path_in_data.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 FieldType TabletColumn::get_field_type_by_type(PrimitiveType primitiveType) {
     switch (primitiveType) {
     case PrimitiveType::INVALID_TYPE:
@@ -1981,5 +1980,4 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
 bool operator!=(const TabletSchema& a, const TabletSchema& b) {
     return !(a == b);
 }
-#include "common/compile_check_end.h"
 } // namespace doris

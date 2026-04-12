@@ -20,7 +20,7 @@
 #include "core/block/block.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
-#include "exprs/function/function_string.h"
+#include "exprs/function/function_string_replace.h"
 
 namespace doris {
 TEST(SubReplaceTest, test) {

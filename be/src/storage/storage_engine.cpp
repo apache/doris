@@ -94,7 +94,6 @@ using std::stringstream;
 using std::vector;
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 extern void get_round_robin_stores(int64_t curr_index, const std::vector<DirInfo>& dir_infos,
                                    std::vector<DataDir*>& stores);
@@ -1803,5 +1802,4 @@ void CreateTabletRRIdxCache::set_index(const std::string& key, int next_idx) {
     auto* lru_handle = insert(key, value, 1, sizeof(int), CachePriority::NORMAL);
     release(lru_handle);
 }
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -45,7 +45,6 @@ class SlotDescriptor;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class Block;
 
@@ -91,5 +90,4 @@ private:
     cctz::time_zone _ctzz;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

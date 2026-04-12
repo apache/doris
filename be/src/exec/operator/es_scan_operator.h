@@ -26,7 +26,6 @@
 #include "exec/operator/scan_operator.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class EsScanner;
 } // namespace doris
@@ -85,5 +84,4 @@ private:
     std::vector<std::string> _column_names;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

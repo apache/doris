@@ -113,8 +113,6 @@ namespace doris {
 using namespace ErrorCode;
 namespace segment_v2 {
 
-#include "common/compile_check_begin.h"
-
 SegmentIterator::~SegmentIterator() = default;
 
 void SegmentIterator::_init_row_bitmap_by_condition_cache() {

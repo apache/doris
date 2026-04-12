@@ -49,11 +49,9 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.ColStatsMeta;
-import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.thrift.TStorageType;
 
-import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import mockit.Mock;
 import mockit.MockUp;
@@ -62,11 +60,9 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
-import java.nio.charset.StandardCharsets;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -152,32 +148,6 @@ class StatisticsUtilTest {
         Assertions.assertTrue(StatisticsUtil.inAnalyzeTime(LocalTime.parse(now, timeFormatter)));
         now = "23:30:00";
         Assertions.assertFalse(StatisticsUtil.inAnalyzeTime(LocalTime.parse(now, timeFormatter)));
-    }
-
-
-    @Test
-    void testEncodeValue() throws Exception {
-        Assertions.assertEquals("NULL", StatisticsUtil.encodeValue(null, 0));
-
-        ResultRow row = new ResultRow(null);
-        Assertions.assertEquals("NULL", StatisticsUtil.encodeValue(row, 0));
-
-        ArrayList<String> values = Lists.newArrayList();
-        values.add("a");
-        row = new ResultRow(values);
-        Assertions.assertEquals("NULL", StatisticsUtil.encodeValue(row, 1));
-
-        values = Lists.newArrayList();
-        values.add(null);
-        row = new ResultRow(values);
-        Assertions.assertEquals("NULL", StatisticsUtil.encodeValue(row, 0));
-
-        values.add("a");
-        row = new ResultRow(values);
-        Assertions.assertEquals("NULL", StatisticsUtil.encodeValue(row, 0));
-        Assertions.assertEquals(Base64.getEncoder()
-                .encodeToString("a".getBytes(StandardCharsets.UTF_8)), StatisticsUtil.encodeValue(row, 1));
-        Assertions.assertEquals("NULL", StatisticsUtil.encodeValue(row, 2));
     }
 
     @Test

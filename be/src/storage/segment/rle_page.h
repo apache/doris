@@ -26,7 +26,6 @@
 #include "util/slice.h"                   // for OwnedSlice
 
 namespace doris {
-#include "common/compile_check_begin.h"
 namespace segment_v2 {
 
 enum { RLE_PAGE_HEADER_SIZE = 4 };
@@ -308,5 +307,4 @@ private:
 };
 
 } // namespace segment_v2
-#include "common/compile_check_end.h"
 } // namespace doris

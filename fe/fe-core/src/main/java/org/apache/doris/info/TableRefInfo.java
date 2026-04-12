@@ -55,30 +55,7 @@ public class TableRefInfo {
      * constructor
      */
     public TableRefInfo(TableNameInfo tableNameInfo, String tableAlias) {
-        this(tableNameInfo, null, tableAlias);
-    }
-
-    public TableRefInfo(TableNameInfo tableNameInfo, PartitionNamesInfo partitionNamesInfo, String tableAlias) {
-        this(tableNameInfo, partitionNamesInfo, tableAlias, new ArrayList<>());
-    }
-
-    public TableRefInfo(TableNameInfo tableNameInfo, PartitionNamesInfo partitionNamesInfo,
-                        String tableAlias, List<String> relationHints) {
-        this(tableNameInfo, partitionNamesInfo, new ArrayList<>(), tableAlias, null, relationHints);
-    }
-
-    public TableRefInfo(TableNameInfo tableNameInfo, PartitionNamesInfo partitionNamesInfo,
-                        List<Long> tabletIdList, String tableAlias,
-                        TableSample tableSample, List<String> relationHints) {
-        this(tableNameInfo, null, partitionNamesInfo, tabletIdList, tableAlias, tableSample, relationHints);
-    }
-
-    public TableRefInfo(TableNameInfo tableNameInfo, TableSnapshot tableSnapShot,
-                        PartitionNamesInfo partitionNamesInfo,
-                        List<Long> tabletIdList, String tableAlias,
-                        TableSample tableSample, List<String> relationHints) {
-        this(tableNameInfo, null, tableSnapShot, partitionNamesInfo,
-                tabletIdList, tableAlias, tableSample, relationHints);
+        this(tableNameInfo, null, null, null,  new ArrayList<>(), tableAlias, null, new ArrayList<>());
     }
 
     /**

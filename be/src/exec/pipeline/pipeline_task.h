@@ -118,7 +118,7 @@ public:
         return _op_shared_states[id].get();
     }
 
-    Status wake_up(Dependency* dep, std::unique_lock<std::mutex>& /* dep_lock */);
+    void wake_up(Dependency* dep, std::unique_lock<std::mutex>& /* dep_lock */);
 
     DataSinkOperatorPtr sink() const { return _sink; }
 

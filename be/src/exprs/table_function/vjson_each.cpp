@@ -37,7 +37,6 @@
 #include "util/jsonb_writer.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 template <bool TEXT_MODE>
 VJsonEachTableFunction<TEXT_MODE>::VJsonEachTableFunction() {
@@ -203,5 +202,4 @@ int VJsonEachTableFunction<TEXT_MODE>::get_value(MutableColumnPtr& column, int m
 template class VJsonEachTableFunction<false>; // json_each
 template class VJsonEachTableFunction<true>;  // json_each_text
 
-#include "common/compile_check_end.h"
 } // namespace doris

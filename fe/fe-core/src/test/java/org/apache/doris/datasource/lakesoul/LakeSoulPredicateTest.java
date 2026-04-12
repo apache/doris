@@ -83,8 +83,8 @@ public class LakeSoulPredicateTest {
     public void testBinaryPredicate() throws AnalysisException, IOException {
         List<LiteralExpr> literalList = new ArrayList<LiteralExpr>() {{
                 add(new BoolLiteral(true));
-                add(new DateLiteral("2023-01-02", Type.DATEV2));
-                add(new DateLiteral("2024-01-02 12:34:56.123456", Type.DATETIMEV2));
+                add(new DateLiteral(2023, 1, 2, Type.DATEV2));
+                add(new DateLiteral(2024, 1, 2, 12, 34, 56, 123456, Type.DATETIMEV2));
                 add(new DecimalLiteral(new BigDecimal("1.23"), ScalarType.createDecimalV3Type(3, 2)));
                 add(new FloatLiteral(1.23, Type.FLOAT));
                 add(new FloatLiteral(3.456, Type.DOUBLE));

@@ -67,7 +67,6 @@
 #include "util/time.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 using namespace std::literals;
 
@@ -1454,5 +1453,4 @@ Status CloudStorageEngine::set_cluster_id(int32_t cluster_id) {
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

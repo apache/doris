@@ -33,7 +33,6 @@
 #include "util/defer_op.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeState;
 
 Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
@@ -200,5 +199,4 @@ Status UnionSourceLocalState::close(RuntimeState* state) {
     return Base::close(state);
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

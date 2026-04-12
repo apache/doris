@@ -20,6 +20,7 @@ package org.apache.doris.mysql.authenticate.ldap;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.mysql.authenticate.AuthenticateRequest;
 import org.apache.doris.mysql.authenticate.AuthenticateResponse;
+import org.apache.doris.mysql.authenticate.TestLogAppender;
 import org.apache.doris.mysql.authenticate.password.ClearPassword;
 import org.apache.doris.mysql.authenticate.password.ClearPasswordResolver;
 import org.apache.doris.mysql.privilege.Auth;
@@ -27,6 +28,7 @@ import org.apache.doris.mysql.privilege.Auth;
 import com.google.common.collect.Lists;
 import mockit.Expectations;
 import mockit.Mocked;
+import org.apache.logging.log4j.Level;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -112,6 +114,20 @@ public class LdapAuthenticatorTest {
     }
 
     @Test
+    public void testAuthenticateLogsInfoWithoutThreshold() throws IOException {
+        setCheckPassword(true);
+        setGetUserInDoris(true);
+        try (TestLogAppender appender = TestLogAppender.attach(LdapAuthenticator.class)) {
+            AuthenticateResponse response = ldapAuthenticator.authenticate(request);
+            Assert.assertTrue(response.isSuccess());
+            Assert.assertTrue(appender.contains(Level.DEBUG,
+                    "LdapAuthenticator.authenticate: user=user, success=true, elapsed="));
+            Assert.assertFalse(appender.contains(Level.WARN,
+                    "LdapAuthenticator.authenticate slow: user=user"));
+        }
+    }
+
+    @Test
     public void testAuthenticateWithCheckPasswordException() throws IOException {
         setCheckPasswordException();
         setGetUserInDoris(true);
@@ -137,6 +153,18 @@ public class LdapAuthenticatorTest {
         Assert.assertTrue(ldapAuthenticator.canDeal("ss"));
         setLdapUserExist(false);
         Assert.assertFalse(ldapAuthenticator.canDeal("ss"));
+    }
+
+    @Test
+    public void testCanDealLogsInfoWithoutThreshold() {
+        setLdapUserExist(true);
+        try (TestLogAppender appender = TestLogAppender.attach(LdapAuthenticator.class)) {
+            Assert.assertTrue(ldapAuthenticator.canDeal("ss"));
+            Assert.assertTrue(appender.contains(Level.DEBUG,
+                    "LdapAuthenticator.canDeal: user=ss, result=true, elapsed="));
+            Assert.assertFalse(appender.contains(Level.WARN,
+                    "LdapAuthenticator.canDeal slow: user=ss"));
+        }
     }
 
     @Test

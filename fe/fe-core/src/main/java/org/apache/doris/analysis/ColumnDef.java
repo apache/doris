@@ -411,7 +411,7 @@ public class ColumnDef {
             case DATE:
             case DATEV2:
                 if (defaultValueExprDef == null) {
-                    new DateLiteral(defaultValue, scalarType);
+                    DateLiteralUtils.createDateLiteral(defaultValue, scalarType);
                 } else {
                     if (defaultValueExprDef.getExprName().equalsIgnoreCase(DefaultValue.CURRENT_DATE)) {
                         break;
@@ -424,7 +424,7 @@ public class ColumnDef {
             case DATETIMEV2:
             case TIMESTAMPTZ:
                 if (defaultValueExprDef == null) {
-                    new DateLiteral(defaultValue, scalarType);
+                    DateLiteralUtils.createDateLiteral(defaultValue, scalarType);
                 } else {
                     if (defaultValueExprDef.getExprName().equals(DefaultValue.NOW)) {
                         if (defaultValueExprDef.getPrecision() != null) {

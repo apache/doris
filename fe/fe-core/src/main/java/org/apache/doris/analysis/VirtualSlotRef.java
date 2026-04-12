@@ -17,9 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import java.util.Map;
-import java.util.Set;
-
 /**
  * It like a SlotRef except that it is not a real column exist in table.
  */
@@ -28,10 +25,6 @@ public class VirtualSlotRef extends SlotRef {
 
     protected VirtualSlotRef(VirtualSlotRef other) {
         super(other);
-    }
-
-    @Override
-    public void getTableIdToColumnNames(Map<Long, Set<String>> tableIdToColumnNames) {
     }
 
     @Override

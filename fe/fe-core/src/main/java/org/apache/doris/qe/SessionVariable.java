@@ -577,6 +577,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_CTE_MATERIALIZE = "enable_cte_materialize";
 
+    public static final String CTE_INLINE_MODE = "cte_inline_mode";
+
     public static final String ENABLE_ANALYZE_COMPLEX_TYPE_COLUMN = "enable_analyze_complex_type_column";
 
     public static final String EXTERNAL_TABLE_ANALYZE_PART_NUM = "external_table_analyze_part_num";
@@ -2535,6 +2537,13 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = ENABLE_ORDERED_SCAN_RANGE_LOCATIONS)
     public boolean enableOrderedScanRangeLocations = false;
+
+    @VarAttrDef.VarAttr(name = CTE_INLINE_MODE, alias = "cbo_cte_inline_mode", description = {
+            "CTE内联模式。<0:禁用; =0:仅当CTE体含UNION ALL且filter可消除部分分支时内联; >=1:CBO比较物化与内联",
+            "CTE inline mode. <0: disable; =0: only inline when CTE body contains UNION ALL "
+                    + "and consumer filters can eliminate some union branches; "
+                    + ">=1: both materialized and inlined alternatives are added to Memo for CBO." })
+    public int cteInlineMode = 0;
 
     @VarAttrDef.VarAttr(name = ENABLE_ANALYZE_COMPLEX_TYPE_COLUMN)
     public boolean enableAnalyzeComplexTypeColumn = false;

@@ -26,7 +26,6 @@
 #include "format/table/table_format_reader.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 struct FieldSchema;
 
@@ -37,5 +36,4 @@ public:
                                           std::set<uint64_t>& column_ids);
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

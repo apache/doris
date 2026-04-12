@@ -50,7 +50,6 @@
 #include "util/string_parser.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 DataTypePtr get_data_type_with_default_argument(DataTypePtr type) {
     auto transform = [&](DataTypePtr t) -> DataTypePtr {

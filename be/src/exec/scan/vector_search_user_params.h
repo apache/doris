@@ -20,7 +20,6 @@
 #include <string>
 
 namespace doris {
-#include "common/compile_check_begin.h"
 // Constructed from session variables.
 struct VectorSearchUserParams {
     int hnsw_ef_search = 32;
@@ -32,5 +31,4 @@ struct VectorSearchUserParams {
 
     std::string to_string() const;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

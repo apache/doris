@@ -18,7 +18,6 @@
 #include "exprs/aggregate/aggregate_function_window_impl.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 // nth_value always has 2 args (column, N) from FE.
 // WindowFunctionNthValueImpl does not implement ignore-null logic,
@@ -26,5 +25,4 @@ namespace doris {
 CREATE_WINDOW_FUNCTION_DIRECT(create_aggregate_function_window_nth_value, NthValueData,
                               WindowFunctionNthValueImpl, false);
 
-#include "common/compile_check_end.h"
 } // namespace doris

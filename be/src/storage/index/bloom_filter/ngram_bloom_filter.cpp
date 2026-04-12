@@ -24,7 +24,6 @@
 #include "util/hash/city.h"
 
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 NGramBloomFilter::NGramBloomFilter(size_t size)
         : _size(size),
           words((size + sizeof(UnderType) - 1) / sizeof(UnderType)),
@@ -70,4 +69,3 @@ bool NGramBloomFilter::contains(const BloomFilter& bf_) const {
     return true;
 }
 } // namespace doris::segment_v2
-#include "common/compile_check_end.h"

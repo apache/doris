@@ -377,7 +377,7 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
         if (loadPlanInfo.destTuple.getSlots().isEmpty()) {
             List<Slot> slotList = outputs.stream().map(NamedExpression::toSlot).collect(Collectors.toList());
             for (Slot slot : slotList) {
-                context.createSlotDesc(loadPlanInfo.destTuple, (SlotReference) slot, destTable);
+                context.createSlotDesc(loadPlanInfo.destTuple, (SlotReference) slot);
             }
         }
         logicalPostProject.child().accept(this, context);
@@ -464,7 +464,7 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
         TupleDescriptor tupleDescriptor = context.generateTupleDesc();
         tupleDescriptor.setTable(table);
         for (Slot slot : slotList) {
-            context.createSlotDesc(tupleDescriptor, (SlotReference) slot, table);
+            context.createSlotDesc(tupleDescriptor, (SlotReference) slot);
         }
         return tupleDescriptor;
     }

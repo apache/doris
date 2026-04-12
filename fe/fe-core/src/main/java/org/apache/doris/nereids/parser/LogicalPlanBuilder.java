@@ -6407,14 +6407,26 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public Command visitDropIndex(DropIndexContext ctx) {
         String name = ctx.name.getText();
         TableNameInfo tableName = new TableNameInfo(visitMultipartIdentifier(ctx.tableName));
+        PartitionNamesInfo partitionNamesInfo = null;
+        if (ctx.partitionSpec() != null) {
+            Pair<Boolean, List<String>> partitionSpec = visitPartitionSpec(ctx.partitionSpec());
+            partitionNamesInfo = new PartitionNamesInfo(partitionSpec.first, partitionSpec.second);
+        }
         List<AlterTableOp> alterTableOps = Lists
-                .newArrayList(new DropIndexOp(name, ctx.EXISTS() != null, tableName, false));
+                .newArrayList(new DropIndexOp(name, ctx.EXISTS() != null, tableName, false,
+                        partitionNamesInfo));
         return new AlterTableCommand(tableName, alterTableOps);
     }
 
     @Override
     public AlterTableOp visitDropIndexClause(DropIndexClauseContext ctx) {
-        return new DropIndexOp(ctx.name.getText(), ctx.EXISTS() != null, null, true);
+        PartitionNamesInfo partitionNamesInfo = null;
+        if (ctx.partitionSpec() != null) {
+            Pair<Boolean, List<String>> partitionSpec = visitPartitionSpec(ctx.partitionSpec());
+            partitionNamesInfo = new PartitionNamesInfo(partitionSpec.first, partitionSpec.second);
+        }
+        return new DropIndexOp(ctx.name.getText(), ctx.EXISTS() != null, null, true,
+                partitionNamesInfo);
     }
 
     @Override

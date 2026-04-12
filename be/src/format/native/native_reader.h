@@ -40,8 +40,6 @@ struct IOContext;
 namespace doris {
 class Block;
 
-#include "common/compile_check_begin.h"
-
 // Doris Native format reader.
 // it will read a sequence of Blocks encoded in Doris Native binary format.
 //
@@ -104,5 +102,4 @@ private:
     Status _init_schema_from_pblock(const PBlock& pblock);
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

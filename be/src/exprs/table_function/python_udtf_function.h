@@ -28,7 +28,6 @@
 #include "udf/python/python_udtf_client.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 /**
  * PythonUDTFFunction - Python User-Defined Table Function
@@ -93,5 +92,4 @@ private:
     int64_t _array_offset = 0;                     // Offset into array for current row
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

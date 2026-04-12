@@ -22,6 +22,7 @@ import hashlib
 import jsonpickle
 import os
 import os.path
+import uuid
 import utils
 import time
 
@@ -841,7 +842,13 @@ class MS(CLOUD):
         envs["INSTANCE_ID"] = self.cluster.instance_id
         for key, value in self.cluster.cloud_store_config.items():
             envs[key] = value
-        envs['DORIS_CLOUD_PREFIX'] = 'doris_docker_env_' + self.cluster.name
+        prefix = 'doris_docker_env_{}_{}_{}'.format(
+            self.cluster.name,
+            time.strftime("%Y%m%d_%H%M%S"),
+            uuid.uuid4().hex[:8],
+        )
+        envs['DORIS_CLOUD_PREFIX'] = prefix
+        LOG.info(f"Set DORIS_CLOUD_PREFIX to {prefix}")
         return envs
 
 

@@ -17,8 +17,6 @@
 
 package org.apache.doris.load.routineload;
 
-import org.apache.doris.analysis.ParseNode;
-import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -64,7 +62,6 @@ import org.junit.Assert;
 import org.junit.Test;
 
 import java.lang.reflect.Field;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -86,9 +83,6 @@ public class RoutineLoadManagerTest {
         String dbName = "db1";
         LabelNameInfo labelNameInfo = new LabelNameInfo(dbName, jobName);
         String tableNameString = "table1";
-        List<ParseNode> loadPropertyList = new ArrayList<>();
-        Separator columnSeparator = new Separator(",");
-        loadPropertyList.add(columnSeparator);
         Map<String, String> properties = Maps.newHashMap();
         properties.put(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY, "2");
         String typeName = LoadDataSourceType.KAFKA.name();

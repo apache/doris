@@ -36,7 +36,6 @@
 #include "exprs/aggregate/aggregate_function.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class Arena;
 class BufferReadable;
 class BufferWritable;
@@ -315,5 +314,3 @@ template <PrimitiveType T>
 using AggregateFunctionSumSimpleReader = typename SumSimpleForAggReader<T>::Function;
 
 } // namespace doris
-
-#include "common/compile_check_end.h"

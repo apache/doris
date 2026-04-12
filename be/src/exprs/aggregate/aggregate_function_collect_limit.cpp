@@ -18,7 +18,6 @@
 #include "exprs/aggregate/aggregate_function_collect_impl.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 AggregateFunctionPtr create_aggregate_function_collect_with_limit(
         const std::string& name, const DataTypes& argument_types, const bool result_is_nullable,

@@ -927,7 +927,9 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
     // Only build from available bes, exclude colocate tables
     @Override
     public Map<TStorageMedium, TreeMultimap<Long, PartitionBalanceInfo>> buildPartitionInfoBySkew(
-            List<Long> availableBeIds, Map<Long, Pair<TabletMove, Long>> movesInProgress) {
+            List<Long> availableBeIds,
+            Map<TStorageMedium, List<Long>> availableBeIdsByMedium,
+            Map<Long, Pair<TabletMove, Long>> movesInProgress) {
         Set<Long> dbIds = Sets.newHashSet();
         Set<Long> tableIds = Sets.newHashSet();
         Set<Long> partitionIds = Sets.newHashSet();
@@ -988,11 +990,14 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
                     Map<Long, Long> countMap = partitionReplicasInfo.get(
                             tabletMeta.getPartitionId(), tabletMeta.getIndexId());
                     if (countMap == null) {
-                        // If one be doesn't have any replica of one partition, it should be counted too.
-                        countMap = availableBeIds.stream().collect(Collectors.toMap(i -> i, i -> 0L));
+                        // If one be doesn't have any replica of one partition,
+                        // it should be counted too.
+                        List<Long> availableBeIdsForMedium = availableBeIdsByMedium.getOrDefault(
+                                medium, Lists.newArrayList());
+                        countMap = availableBeIdsForMedium.stream().collect(Collectors.toMap(i -> i, i -> 0L));
                     }
 
-                    Long count = countMap.get(beId);
+                    Long count = countMap.getOrDefault(beId, 0L);
                     countMap.put(beId, count + 1L);
                     partitionReplicasInfo.put(tabletMeta.getPartitionId(), tabletMeta.getIndexId(), countMap);
                     partitionReplicasInfoMaps.put(medium, partitionReplicasInfo);

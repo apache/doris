@@ -19,7 +19,6 @@
 #include "exprs/function/simple_function_factory.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class FunctionToJson : public IFunction {
 public:

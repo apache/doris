@@ -41,6 +41,7 @@ public class StreamingJobProperties implements JobProperties {
     public static final String S3_MAX_BATCH_FILES_PROPERTY = "s3.max_batch_files";
     public static final String S3_MAX_BATCH_BYTES_PROPERTY = "s3.max_batch_bytes";
     public static final String SESSION_VAR_PREFIX = "session.";
+    public static final String INTERNAL_KEY_PREFIX = "__";
     public static final String OFFSET_PROPERTY = "offset";
     public static final List<String> SUPPORT_STREAM_JOB_PROPS = Arrays.asList(MAX_INTERVAL_SECOND_PROPERTY,
             S3_MAX_BATCH_FILES_PROPERTY, S3_MAX_BATCH_BYTES_PROPERTY, OFFSET_PROPERTY);
@@ -69,6 +70,12 @@ public class StreamingJobProperties implements JobProperties {
     public void validate() throws AnalysisException {
         List<String> invalidProps = new ArrayList<>();
         for (String key : properties.keySet()) {
+            // Keys starting with "__" are internal pass-through properties
+            // that are stored as-is without validation, allowing users
+            // to attach custom metadata.
+            if (key.startsWith(INTERNAL_KEY_PREFIX)) {
+                continue;
+            }
             if (!SUPPORT_STREAM_JOB_PROPS.contains(key) && !key.startsWith(SESSION_VAR_PREFIX)) {
                 invalidProps.add(key);
             }

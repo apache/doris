@@ -45,7 +45,6 @@ struct IOContext;
 } // namespace doris::io
 
 namespace doris {
-#include "common/compile_check_begin.h"
 struct FieldSchema;
 template <typename T>
 class ColumnStr;
@@ -533,7 +532,5 @@ public:
 
     void reset_filter_map_index() override { _filter_map_index = 0; }
 };
-
-#include "common/compile_check_end.h"
 
 }; // namespace doris

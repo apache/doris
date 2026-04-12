@@ -21,7 +21,6 @@
 #include "exec/runtime_filter/runtime_filter_producer_helper_set.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 template <class HashTableContext, bool is_intersected>
 struct HashTableBuild;
@@ -142,6 +141,5 @@ private:
 
     const std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
 };
-#include "common/compile_check_end.h"
 
 } // namespace doris

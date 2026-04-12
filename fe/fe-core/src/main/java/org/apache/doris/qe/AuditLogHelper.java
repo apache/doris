@@ -185,7 +185,7 @@ public class AuditLogHelper {
         }
         Charset utf8Charset = Charset.forName("UTF-8");
         CharsetDecoder decoder = utf8Charset.newDecoder();
-        byte[] sb = str.getBytes();
+        byte[] sb = str.getBytes(utf8Charset);
         ByteBuffer buffer = ByteBuffer.wrap(sb, 0, maxLen);
         CharBuffer charBuffer = CharBuffer.allocate(maxLen);
         decoder.onMalformedInput(CodingErrorAction.IGNORE);
@@ -374,7 +374,7 @@ public class AuditLogHelper {
             }
         } else {
             if (!ctx.getState().isQuery() && (parsedStmt != null && parsedStmt.needAuditEncryption())) {
-                encryptSql = parsedStmt.toSql();
+                encryptSql = "";
             }
         }
         auditEventBuilder.setStmt(handleStmt(encryptSql, parsedStmt));

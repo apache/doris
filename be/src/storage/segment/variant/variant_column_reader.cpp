@@ -58,8 +58,6 @@
 
 namespace doris::segment_v2 {
 
-#include "common/compile_check_begin.h"
-
 namespace {
 
 bool is_compaction_or_checksum_reader(const StorageReadOptions* opts) {
@@ -1560,7 +1558,5 @@ VariantColumnReader::collect_nested_group_chain(const std::string& path) const {
     auto res = find_in_nested_groups(_nested_group_readers, path, true);
     return {res.found, std::move(res.chain), std::move(res.child_path)};
 }
-
-#include "common/compile_check_end.h"
 
 } // namespace doris::segment_v2

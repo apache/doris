@@ -140,7 +140,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
 class PBackendService_Stub;
 class PFunctionService_Stub;
 

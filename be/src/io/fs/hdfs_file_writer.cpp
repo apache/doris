@@ -45,7 +45,6 @@
 #include "util/jni-util.h"
 
 namespace doris::io {
-#include "common/compile_check_begin.h"
 
 bvar::Adder<uint64_t> hdfs_file_writer_total("hdfs_file_writer_total_num");
 bvar::Adder<uint64_t> hdfs_bytes_written_total("hdfs_file_writer_bytes_written");
@@ -469,6 +468,5 @@ Result<FileWriterPtr> HdfsFileWriter::create(Path full_path, std::shared_ptr<Hdf
     inflight_hdfs_file_writer << 1;
     return std::make_unique<HdfsFileWriter>(std::move(path), handler, hdfs_file, fs_name, opts);
 }
-#include "common/compile_check_end.h"
 
 } // namespace doris::io

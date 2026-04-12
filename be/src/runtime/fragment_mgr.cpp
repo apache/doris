@@ -93,7 +93,6 @@
 #include "util/uid_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(fragment_instance_count, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(timeout_canceled_fragment_count, MetricUnit::NOUNIT);
@@ -765,9 +764,16 @@ Status FragmentMgr::_get_or_create_query_ctx(const TPipelineFragmentParams& para
 
                         // This may be a first fragment request of the query.
                         // Create the query fragments context.
-                        query_ctx = QueryContext::create(query_id, _exec_env, params.query_options,
-                                                         params.coord, params.is_nereids,
-                                                         params.current_connect_fe, query_source);
+                        // Cross-cluster query: coordinator FE may not belong to local cluster.
+                        // In that case, cancel_worker() should not cancel it based on local FE liveness.
+                        QuerySource actual_query_source = query_source;
+                        if (query_source == QuerySource::INTERNAL_FRONTEND &&
+                            !_exec_env->get_running_frontends().contains(params.coord)) {
+                            actual_query_source = QuerySource::EXTERNAL_FRONTEND;
+                        }
+                        query_ctx = QueryContext::create(
+                                query_id, _exec_env, params.query_options, params.coord,
+                                params.is_nereids, params.current_connect_fe, actual_query_source);
                         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_ctx->query_mem_tracker());
                         RETURN_IF_ERROR(DescriptorTbl::create(
                                 &(query_ctx->obj_pool), params.desc_tbl, &(query_ctx->desc_tbl)));
@@ -1128,6 +1134,11 @@ void FragmentMgr::_collect_invalid_queries(
                                  -> Status {
         for (const auto& it : map) {
             if (auto q_ctx = it.second.lock()) {
+                // Cross-cluster query: coordinator FE is not in local `running_fes`,
+                // we should not cancel it based on local coordinator liveness.
+                if (q_ctx->get_query_source() == QuerySource::EXTERNAL_FRONTEND) {
+                    continue;
+                }
                 q_contexts.push_back(q_ctx);
                 const int64_t fe_process_uuid = q_ctx->get_fe_process_uuid();
 
@@ -1618,7 +1629,5 @@ Status FragmentMgr::reset_global_rf(const TUniqueId& query_id,
                 print_id(query_id));
     }
 }
-
-#include "common/compile_check_end.h"
 
 } // namespace doris

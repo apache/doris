@@ -111,7 +111,13 @@ public:
     }
 
     void check_mem_used(bool* is_low_watermark, bool* is_high_watermark) const {
-        auto realtime_total_mem_used = _total_mem_used + _wg_refresh_interval_memory_growth.load();
+        check_mem_used(0, is_low_watermark, is_high_watermark);
+    }
+
+    void check_mem_used(size_t reserved_size, bool* is_low_watermark,
+                        bool* is_high_watermark) const {
+        auto realtime_total_mem_used = _total_mem_used + _wg_refresh_interval_memory_growth.load() +
+                                       static_cast<int64_t>(reserved_size);
         *is_low_watermark = (realtime_total_mem_used >
                              ((double)_memory_limit *
                               _memory_low_watermark.load(std::memory_order_relaxed) / 100));

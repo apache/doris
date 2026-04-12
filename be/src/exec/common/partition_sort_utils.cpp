@@ -18,7 +18,6 @@
 #include "exec/common/partition_sort_utils.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 Status PartitionBlocks::append_block_by_selector(const Block* input_block, bool eos) {
     auto selector_rows = _selector.size();
@@ -91,5 +90,4 @@ Status PartitionBlocks::do_partition_topn_sort() {
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -66,12 +66,13 @@ suite("build_ann_index_test") {
     }
 
     sql "set enable_common_expr_pushdown=true;"
-    sql "drop table if exists table_build_ann_index_test;"
-    def tableName = "table_build_ann_index_test"
 
     // case 1: create table -- insert data -- create index -- build index
+    def tableName = "table_build_ann_index_test"
+    sql "drop table if exists ${tableName};"
+
     sql """
-    CREATE TABLE `table_build_ann_index_test` (
+    CREATE TABLE `${tableName}` (
       `id` int NOT NULL COMMENT "",
       `embedding` array<float> NOT NULL COMMENT ""
     ) ENGINE=OLAP
@@ -83,7 +84,7 @@ suite("build_ann_index_test") {
     """
 
     sql """
-    INSERT INTO table_build_ann_index_test (id, embedding) VALUES
+    INSERT INTO ${tableName} (id, embedding) VALUES
         (0, [39.906116, 10.495334, 54.08394, 88.67262, 55.243687, 10.162686, 36.335983, 38.684258]),
         (1, [62.759315, 97.15586, 25.832521, 39.604908, 88.76715, 72.64085, 9.688437, 17.721428]),
         (2, [15.447449, 59.7771, 65.54516, 12.973712, 99.685135, 72.080734, 85.71118, 99.35976]),
@@ -98,7 +99,7 @@ suite("build_ann_index_test") {
 
     // CREATE INDEX
     sql """
-    CREATE INDEX idx_test_ann ON table_build_ann_index_test(`embedding`) USING ANN PROPERTIES(
+    CREATE INDEX idx_test_ann ON ${tableName}(`embedding`) USING ANN PROPERTIES(
         "index_type"="hnsw",
         "metric_type"="l2_distance",
         "dim"="8"
@@ -107,6 +108,52 @@ suite("build_ann_index_test") {
     wait_for_latest_op_on_table_finish(tableName, timeout)
 
     // BUILD INDEX
-    sql "BUILD INDEX idx_test_ann ON table_build_ann_index_test;"
+    sql "BUILD INDEX idx_test_ann ON ${tableName};"
     wait_for_last_build_index_on_table_finish(tableName, timeout)
+
+
+    // case 2: create and build ann index on mow table
+    def mowTable = "table_build_ann_index_on_mow"
+    sql "drop table if exists ${mowTable};"
+
+    sql """
+    CREATE TABLE `${mowTable}` (
+      `id` int NOT NULL COMMENT "",
+      `embedding` array<float> NOT NULL COMMENT ""
+    ) ENGINE=OLAP
+    UNIQUE KEY(`id`) COMMENT "OLAP"
+    DISTRIBUTED BY HASH(`id`) BUCKETS 2
+    PROPERTIES (
+      "replication_num" = "1",
+      "enable_unique_key_merge_on_write" = "true"
+    );
+    """
+
+    sql """
+    INSERT INTO ${mowTable} (id, embedding) VALUES
+        (0, [39.906116, 10.495334, 54.08394, 88.67262, 55.243687, 10.162686, 36.335983, 38.684258]),
+        (1, [62.759315, 97.15586, 25.832521, 39.604908, 88.76715, 72.64085, 9.688437, 17.721428]),
+        (2, [15.447449, 59.7771, 65.54516, 12.973712, 99.685135, 72.080734, 85.71118, 99.35976]),
+        (3, [72.26747, 46.42257, 32.368374, 80.50209, 5.777631, 98.803314, 7.0915947, 68.62693]),
+        (4, [22.098177, 74.10027, 63.634556, 4.710955, 12.405106, 79.39356, 63.014366, 68.67834]),
+        (5, [27.53003, 72.1106, 50.891026, 38.459953, 68.30715, 20.610682, 94.806274, 45.181377]),
+        (6, [77.73215, 64.42907, 71.50025, 43.85641, 94.42648, 50.04773, 65.12575, 68.58207]),
+        (7, [2.1537063, 82.667885, 16.171143, 71.126656, 5.335274, 40.286068, 11.943586, 3.69409]),
+        (8, [54.435013, 56.800594, 59.335514, 55.829235, 85.46627, 33.388138, 11.076194, 20.480877]),
+        (9, [76.197945, 60.623528, 84.229805, 31.652937, 71.82595, 48.04684, 71.29212, 30.282396]);
+    """
+
+    // CREATE INDEX
+    sql """
+    CREATE INDEX idx_test_ann ON ${mowTable}(`embedding`) USING ANN PROPERTIES(
+        "index_type"="hnsw",
+        "metric_type"="l2_distance",
+        "dim"="8"
+    );
+    """
+    wait_for_latest_op_on_table_finish(mowTable, timeout)
+
+    // BUILD INDEX
+    sql "BUILD INDEX idx_test_ann ON ${mowTable};"
+    wait_for_last_build_index_on_table_finish(mowTable, timeout)
 }

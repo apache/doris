@@ -37,7 +37,6 @@
 #include "service/backend_options.h"
 
 namespace doris::io {
-#include "common/compile_check_begin.h"
 
 bvar::Adder<uint64_t> hdfs_bytes_read_total("hdfs_file_reader", "bytes_read");
 bvar::LatencyRecorder hdfs_bytes_per_read("hdfs_file_reader", "bytes_per_read"); // also QPS
@@ -290,6 +289,5 @@ void HdfsFileReader::_collect_profile_before_close() {
 #endif
     }
 }
-#include "common/compile_check_end.h"
 
 } // namespace doris::io

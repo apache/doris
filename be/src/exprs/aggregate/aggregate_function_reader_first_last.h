@@ -22,7 +22,6 @@
 #include "core/column/column_nullable.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 template <bool arg_is_nullable>
 struct Value {
@@ -168,4 +167,3 @@ protected:
 };
 
 } // namespace doris
-#include "common/compile_check_end.h"

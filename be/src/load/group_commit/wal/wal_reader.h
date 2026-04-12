@@ -21,7 +21,6 @@
 #include "runtime/descriptors.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 struct ScannerCounter;
 class WalReader : public GenericReader {
     ENABLE_FACTORY_CREATOR(WalReader);
@@ -52,5 +51,4 @@ private:
     int64_t _column_id_count;
     uint32_t _version = 0;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -104,7 +104,6 @@
 #include "util/trace.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 namespace {
@@ -1775,7 +1774,9 @@ void create_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req)
     Defer defer = [&] {
         auto elapsed_time = static_cast<double>(watch.elapsed_time());
         if (elapsed_time / 1e9 > config::agent_task_trace_threshold_sec) {
+#include "common/compile_check_avoid_begin.h"
             COUNTER_UPDATE(profile->total_time_counter(), elapsed_time);
+#include "common/compile_check_avoid_end.h"
             std::stringstream ss;
             profile->pretty_print(&ss);
             LOG(WARNING) << "create tablet cost(s) " << elapsed_time / 1e9 << std::endl << ss.str();
@@ -2527,5 +2528,4 @@ void report_index_policy_callback(const ClusterInfo* cluster_info) {
     }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

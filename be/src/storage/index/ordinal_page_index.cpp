@@ -34,7 +34,6 @@
 #include "util/slice.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 namespace segment_v2 {
 
@@ -159,5 +158,4 @@ OrdinalPageIndexIterator OrdinalIndexReader::seek_at_or_before(ordinal_t ordinal
 OrdinalIndexReader::~OrdinalIndexReader() = default;
 
 } // namespace segment_v2
-#include "common/compile_check_end.h"
 } // namespace doris

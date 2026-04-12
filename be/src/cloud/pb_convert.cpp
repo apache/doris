@@ -24,7 +24,6 @@
 #include "common/logging.h"
 
 namespace doris::cloud {
-#include "common/compile_check_begin.h"
 
 RowsetMetaCloudPB doris_rowset_meta_to_cloud(const RowsetMetaPB& in) {
     RowsetMetaCloudPB out;
@@ -918,6 +917,5 @@ void cloud_tablet_meta_to_doris(TabletMetaPB* out, TabletMetaCloudPB&& in) {
         out->set_encryption_algorithm(in.encryption_algorithm());
     }
 }
-#include "common/compile_check_end.h"
 
 } // namespace doris::cloud
