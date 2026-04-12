@@ -1615,7 +1615,10 @@ public class InternalCatalog implements CatalogIf<Database> {
             partitionInfo.createAndCheckPartitionItem(singlePartitionDesc, isTempPartition);
 
             // get distributionInfo
-            List<Column> baseSchema = olapTable.getBaseSchema();
+            // Use full schema (including hidden columns) so that distribution columns
+            // such as __DORIS_IVM_ROW_ID_COL__ (hidden but used as hash distribution key
+            // for IVM materialized views) can be resolved correctly.
+            List<Column> baseSchema = olapTable.getBaseSchema(true);
             DistributionInfo defaultDistributionInfo = olapTable.getDefaultDistributionInfo();
             if (distributionDesc != null) {
                 distributionInfo = distributionDesc.toDistributionInfo(baseSchema);

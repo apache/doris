@@ -62,6 +62,7 @@ import org.apache.doris.mtmv.ivm.IvmRefreshManager;
 import org.apache.doris.mtmv.ivm.IvmRefreshResult;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo.RefreshMode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.SystemInfoService;
@@ -247,10 +248,12 @@ public class MTMVTask extends AbstractTask {
             if (refreshMode == MTMVTaskRefreshMode.NOT_REFRESH) {
                 return;
             }
-            // Attempt IVM refresh for incremental MVs and fall back when the plan is unsupported.
-            // FIXME: need check manual method here, user may manual refresh ivm complete or partitions,
-            //        then should not ivm refresh.
-            if (mtmv.isIvm()) {
+            // Attempt IVM refresh only when refresh mode is AUTO (scheduled) or INCREMENTAL (manual).
+            // COMPLETE and PARTITIONS always skip IVM and go straight to partition-based refresh.
+            RefreshMode currentRefreshMode = taskContext.getRefreshMode();
+            if (mtmv.isIvm()
+                    && (currentRefreshMode == RefreshMode.AUTO
+                        || currentRefreshMode == RefreshMode.INCREMENTAL)) {
                 IvmRefreshManager ivmRefreshManager = new IvmRefreshManager();
                 IvmRefreshResult ivmResult = ivmRefreshManager.doRefresh(mtmv);
                 if (ivmResult.isSuccess()) {
@@ -258,11 +261,17 @@ public class MTMVTask extends AbstractTask {
                             mtmv.getName(), getTaskId());
                     return;
                 }
+                // INCREMENTAL was explicitly requested; do not fall back to full refresh.
+                if (currentRefreshMode == RefreshMode.INCREMENTAL) {
+                    throw new JobException(
+                            "IVM incremental refresh failed for mv=" + mtmv.getName()
+                            + ", reason=" + ivmResult.getFallbackReason()
+                            + ", detail=" + ivmResult.getDetailMessage());
+                }
                 LOG.warn("IVM refresh fell back for mv={}, reason={}, detail={}, taskId={}. "
                         + "Continuing with partition-based refresh.",
                         mtmv.getName(), ivmResult.getFallbackReason(),
                         ivmResult.getDetailMessage(), getTaskId());
-                // TODO: it may cause too many full refresh, need limit full refresh here
             }
             Map<TableIf, String> tableWithPartKey = getIncrementalTableMap();
             this.completedPartitions = Lists.newCopyOnWriteArrayList();
