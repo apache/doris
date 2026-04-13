@@ -77,8 +77,9 @@ import java.util.Optional;
 /**
  * Aggregate delta rewrite strategy for IVM.
  *
- * <p>Handles single-table aggregate MVs with count/sum/avg.
- * Min/max are rejected explicitly until boundary handling is implemented.
+ * <p>Handles single-table aggregate MVs with count/sum/avg/min/max.
+ * Min/max use an assert_true guard: if a deleted row matches the current extreme,
+ * execution fails and IvmRefreshManager falls back to COMPLETE refresh.
  *
  * <h3>Overall flow</h3>
  * <ol>
