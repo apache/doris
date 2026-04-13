@@ -21,6 +21,12 @@
 2	20	20
 3	30	30
 
+-- !minmax_after_incremental --
+1	5	10
+2	20	20
+3	30	30
+4	40	40
+
 -- !minmax_after_final_complete --
 1	5	5
 2	20	20
