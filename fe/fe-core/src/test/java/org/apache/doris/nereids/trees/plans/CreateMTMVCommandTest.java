@@ -699,16 +699,17 @@ public class CreateMTMVCommandTest extends TestWithFeService {
                 + "distributed by hash(k1) buckets 1\n"
                 + "properties('replication_num' = '1');");
 
-        org.apache.doris.nereids.exceptions.AnalysisException ex = Assertions.assertThrows(
-                org.apache.doris.nereids.exceptions.AnalysisException.class,
-                () -> getPartitionTableInfo(
-                        "CREATE MATERIALIZED VIEW agg_minmax_mv\n"
-                        + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
-                        + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
-                        + " PROPERTIES ('replication_num' = '1')\n"
-                        + " AS\n"
-                        + " SELECT k1, MIN(v1), MAX(v2) FROM agg_minmax_base GROUP BY k1;"));
-        Assertions.assertTrue(ex.getMessage().contains("min/max is not yet supported"),
-                "unexpected message: " + ex.getMessage());
+        // MIN/MAX are now supported for IVM; creation should succeed.
+        CreateMTMVInfo info = getPartitionTableInfo(
+                "CREATE MATERIALIZED VIEW agg_minmax_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS\n"
+                + " SELECT k1, MIN(v1), MAX(v2) FROM agg_minmax_base GROUP BY k1;");
+        Assertions.assertNotNull(info, "CreateMTMVInfo should not be null for MIN/MAX IVM");
+        // IVM overrides distribution to HASH on row-id column
+        Assertions.assertTrue(info.getDistribution().isHash());
+        Assertions.assertEquals(Column.IVM_ROW_ID_COL, info.getDistribution().getCols().get(0));
     }
 }
