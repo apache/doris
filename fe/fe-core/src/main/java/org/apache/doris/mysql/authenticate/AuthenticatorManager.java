@@ -305,7 +305,9 @@ public class AuthenticatorManager {
     }
 
     private boolean isOidcAuthenticateRequest(AuthenticateRequest request) {
-        if (CredentialType.OIDC_ID_TOKEN.equals(request.getCredentialType())) {
+        if (CredentialType.OIDC_ID_TOKEN.equals(request.getCredentialType())
+                || CredentialType.OAUTH_TOKEN.equals(request.getCredentialType())
+                || CredentialType.JWT_TOKEN.equals(request.getCredentialType())) {
             return true;
         }
         if (!(request.getPassword() instanceof ClearPassword)) {
@@ -355,7 +357,7 @@ public class AuthenticatorManager {
                 .remoteHost(primaryRequest.getRemoteHost())
                 .remotePort(primaryRequest.getRemotePort())
                 .clientType(primaryRequest.getClientType())
-                .credentialType(CredentialType.OIDC_ID_TOKEN)
+                .credentialType(CredentialType.OAUTH_TOKEN)
                 .credential(clearPassword.getPassword().getBytes(StandardCharsets.UTF_8))
                 .properties(primaryRequest.getProperties())
                 .build();

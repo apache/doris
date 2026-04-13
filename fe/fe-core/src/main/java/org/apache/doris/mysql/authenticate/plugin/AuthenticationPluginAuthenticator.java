@@ -29,6 +29,7 @@ import org.apache.doris.authentication.handler.AuthenticationPluginManager;
 import org.apache.doris.authentication.spi.AuthenticationPlugin;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.ClassLoaderUtils;
 import org.apache.doris.mysql.authenticate.AuthenticateRequest;
 import org.apache.doris.mysql.authenticate.AuthenticateResponse;
 import org.apache.doris.mysql.authenticate.AuthenticationFailureSummary;
@@ -49,8 +50,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -202,8 +201,9 @@ public class AuthenticationPluginAuthenticator implements Authenticator {
             return;
         }
         try {
-            Path pluginRoot = Paths.get(Config.authentication_plugins_dir);
-            pluginManager.loadAll(Collections.singletonList(pluginRoot), getClass().getClassLoader());
+            pluginManager.loadAll(
+                    ClassLoaderUtils.parsePluginRootDirectories(Config.authentication_plugins_dir),
+                    getClass().getClassLoader());
         } catch (AuthenticationException e) {
             throw new AuthenticationException(
                     "Failed to load authentication plugin for type '" + pluginType + "': " + e.getMessage(),
@@ -228,10 +228,12 @@ public class AuthenticationPluginAuthenticator implements Authenticator {
             return "";
         }
         String detailMessage = Strings.nullToEmpty(exception.getMessage());
-        if (detailMessage.startsWith("OIDC token signature validation failed")) {
-            return "OIDC token signature validation failed";
+        if (detailMessage.startsWith("OIDC access token signature validation failed")) {
+            return "OIDC access token signature validation failed";
         }
-        if (detailMessage.startsWith("OIDC token ")
+        if (detailMessage.startsWith("OIDC access token ")
+                || detailMessage.startsWith("OIDC token ")
+                || "Authentication request username does not match OIDC access token username".equals(detailMessage)
                 || "Authentication request username does not match OIDC token username".equals(detailMessage)) {
             return detailMessage;
         }

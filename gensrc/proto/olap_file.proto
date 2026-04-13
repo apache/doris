@@ -630,7 +630,7 @@ message TabletMetaPB {
     optional BinlogConfigPB binlog_config = 27;
     optional string compaction_policy = 28 [default = "size_based"];
     optional int64 time_series_compaction_goal_size_mbytes = 29 [default = 1024];
-    optional int64 time_series_compaction_file_count_threshold = 30 [default = 2000];
+    optional int64 time_series_compaction_file_count_threshold = 30 [default = 1000];
     optional int64 time_series_compaction_time_threshold_seconds = 31 [default = 3600];
     optional int64 time_series_compaction_empty_rowsets_threshold = 32 [default = 5];
     optional int64 time_series_compaction_level_threshold = 33 [default = 1];
@@ -686,7 +686,7 @@ message TabletMetaCloudPB {
     optional BinlogConfigPB binlog_config = 30;
     optional string compaction_policy = 31 [default = "size_based"];
     optional int64 time_series_compaction_goal_size_mbytes = 32 [default = 1024];
-    optional int64 time_series_compaction_file_count_threshold = 33 [default = 2000];
+    optional int64 time_series_compaction_file_count_threshold = 33 [default = 1000];
     optional int64 time_series_compaction_time_threshold_seconds = 34 [default = 3600];
     reserved 35; // deprecated group_commit_interval_ms
     reserved 36; // deprecated group_commit_data_bytes
