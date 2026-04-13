@@ -21,7 +21,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.thrift.TTupleDescriptor;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
@@ -95,14 +94,6 @@ public class TupleDescriptor {
 
     public void setTable(TableIf tbl) {
         table = tbl;
-    }
-
-    public TTupleDescriptor toThrift() {
-        TTupleDescriptor tTupleDesc = new TTupleDescriptor(id.asInt(), 0, 0);
-        if (table != null && table.getId() >= 0) {
-            tTupleDesc.setTableId((int) table.getId());
-        }
-        return tTupleDesc;
     }
 
     @Override

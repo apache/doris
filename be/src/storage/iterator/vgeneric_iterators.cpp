@@ -26,7 +26,6 @@
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
 #include "core/data_type/data_type.h"
-#include "storage/cache/schema_cache.h"
 #include "storage/field.h"
 #include "storage/iterators.h"
 #include "storage/olap_common.h"

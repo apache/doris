@@ -17,6 +17,7 @@
 
 package org.apache.doris.httpv2.rest;
 
+import org.apache.doris.analysis.DescriptorToThriftConverter;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -297,7 +298,7 @@ public class TableQueryPlanAction extends RestBaseController {
             tPlanFragment.output_sink = tDataSink;
 
             tQueryPlanInfo.plan_fragment = tPlanFragment;
-            tQueryPlanInfo.desc_tbl = planner.getDescTable().toThrift();
+            tQueryPlanInfo.desc_tbl = DescriptorToThriftConverter.toThrift(planner.getDescTable());
             // set query_id
             tQueryPlanInfo.query_id = queryId;
 

@@ -27,10 +27,13 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -43,15 +46,18 @@ import java.util.Set;
 class AuthenticationIntegrationRuntimeTest {
     private static final String CREATE_USER = "creator";
     private MockedStatic<Env> envMockedStatic;
+    private String originalAuthenticationPluginsDir;
 
     @BeforeEach
     void setUp() {
         envMockedStatic = Mockito.mockStatic(Env.class);
         envMockedStatic.when(Env::getCurrentEnv).thenReturn(null);
+        originalAuthenticationPluginsDir = org.apache.doris.common.Config.authentication_plugins_dir;
     }
 
     @AfterEach
     void tearDown() {
+        org.apache.doris.common.Config.authentication_plugins_dir = originalAuthenticationPluginsDir;
         if (envMockedStatic != null) {
             envMockedStatic.close();
         }
@@ -270,6 +276,25 @@ class AuthenticationIntegrationRuntimeTest {
         Assertions.assertEquals(Arrays.asList("old", "new"), initializedMarkers);
         Assertions.assertEquals(AuthenticationIntegrationRuntime.RuntimeState.AVAILABLE,
                 runtime.getRuntimeState("corp"));
+    }
+
+    @Test
+    void testPrepareAuthenticationIntegrationLoadsPluginFactoriesFromMultipleRoots() throws Exception {
+        org.apache.doris.common.Config.authentication_plugins_dir = "/tmp/auth-root-a, /tmp/auth-root-b";
+        AuthenticationPluginManager pluginManager = Mockito.mock(AuthenticationPluginManager.class);
+        AuthenticationPlugin plugin = Mockito.mock(AuthenticationPlugin.class);
+        Mockito.when(pluginManager.hasFactory("multi-root")).thenReturn(false, true);
+        Mockito.when(pluginManager.createPlugin(Mockito.any())).thenReturn(plugin);
+
+        AuthenticationIntegrationRuntime runtime = new AuthenticationIntegrationRuntime(pluginManager);
+        runtime.prepareAuthenticationIntegration(meta("corp", "multi-root", Collections.emptyMap()));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<Path>> pluginRootsCaptor = ArgumentCaptor.forClass((Class) List.class);
+        Mockito.verify(pluginManager).loadAll(pluginRootsCaptor.capture(), Mockito.any());
+        Assertions.assertEquals(
+                Arrays.asList(Paths.get("/tmp/auth-root-a"), Paths.get("/tmp/auth-root-b")),
+                pluginRootsCaptor.getValue());
     }
 
     private static AuthenticationIntegrationMeta meta(String name, String type, Map<String, String> properties)

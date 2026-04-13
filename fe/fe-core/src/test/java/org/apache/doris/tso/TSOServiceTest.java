@@ -26,12 +26,11 @@ import org.apache.doris.metric.LongCounterMetric;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.EditLog;
 
-import mockit.Mock;
-import mockit.MockUp;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.io.ByteArrayInputStream;
@@ -41,7 +40,6 @@ import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Unit tests for TSOService class.
@@ -50,6 +48,7 @@ public class TSOServiceTest {
 
     private TSOService tsoService;
     private Env env;
+    private MockedStatic<Env> mockedEnv;
 
     private int originalMaxGetTSORetryCount;
     private int originalMaxUpdateRetryCount;
@@ -59,7 +58,7 @@ public class TSOServiceTest {
 
     @Before
     public void setUp() {
-        new EnvMockUp();
+        mockedEnv = Mockito.mockStatic(Env.class);
 
         originalMaxGetTSORetryCount = Config.tso_max_get_retry_count;
         originalMaxUpdateRetryCount = Config.tso_max_update_retry_count;
@@ -74,14 +73,14 @@ public class TSOServiceTest {
         Config.tso_clock_backward_startup_threshold_ms = 30L * 60 * 1000;
 
         env = Mockito.mock(Env.class);
-        EnvMockUp.CURRENT_ENV.set(env);
+        mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
 
         tsoService = new TSOService();
     }
 
     @After
     public void tearDown() {
-        EnvMockUp.CURRENT_ENV.set(null);
+        mockedEnv.close();
         Config.tso_max_get_retry_count = originalMaxGetTSORetryCount;
         Config.tso_max_update_retry_count = originalMaxUpdateRetryCount;
         Config.tso_service_update_interval_ms = originalUpdateIntervalMs;
@@ -552,12 +551,4 @@ public class TSOServiceTest {
         return out.toByteArray();
     }
 
-    private static final class EnvMockUp extends MockUp<Env> {
-        private static final AtomicReference<Env> CURRENT_ENV = new AtomicReference<>();
-
-        @Mock
-        public static Env getCurrentEnv() {
-            return CURRENT_ENV.get();
-        }
-    }
 }

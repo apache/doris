@@ -32,35 +32,26 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 /**
  * Test for UserAuthentication privilege checks.
  */
 public class UserAuthenticationTest {
-    @Mocked
-    private Env env;
-    @Mocked
-    private ConnectContext connectContext;
-    @Mocked
-    private AccessControllerManager accessControllerManager;
-    @Mocked
-    private SessionVariable sessionVariable;
-    @Mocked
-    private TableIf table;
-    @Mocked
-    private DatabaseIf db;
-    @Mocked
-    private CatalogIf catalog;
-    @Mocked
-    private IcebergSysExternalTable icebergSysTable;
-    @Mocked
-    private IcebergExternalTable icebergSourceTable;
+    private Env env = Mockito.mock(Env.class);
+    private ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+    private AccessControllerManager accessControllerManager = Mockito.mock(AccessControllerManager.class);
+    private SessionVariable sessionVariable = Mockito.mock(SessionVariable.class);
+    private TableIf table = Mockito.mock(TableIf.class);
+    private DatabaseIf db = Mockito.mock(DatabaseIf.class);
+    private CatalogIf catalog = Mockito.mock(CatalogIf.class);
+    private IcebergSysExternalTable icebergSysTable = Mockito.mock(IcebergSysExternalTable.class);
+    private IcebergExternalTable icebergSourceTable = Mockito.mock(IcebergExternalTable.class);
 
     private String originalMinPrivilege;
 
@@ -87,59 +78,18 @@ public class UserAuthenticationTest {
         UserIdentity normalUser = new UserIdentity("normal_user", "%");
         normalUser.setIsAnalyzed();
 
-        new Expectations() {
-            {
-                // Table setup - same name as cluster snapshot table but in a normal database
-                table.getName();
-                minTimes = 0;
-                result = "cluster_snapshots";  // Same name as the special table
-
-                table.getDatabase();
-                minTimes = 0;
-                result = db;
-
-                // Database is NOT information_schema, it's a normal user database
-                db.getFullName();
-                minTimes = 0;
-                result = "mydb";  // Normal database, not information_schema
-
-                db.getCatalog();
-                minTimes = 0;
-                result = catalog;
-
-                catalog.getName();
-                minTimes = 0;
-                result = "internal";
-
-                // ConnectContext setup
-                connectContext.getSessionVariable();
-                minTimes = 0;
-                result = sessionVariable;
-
-                sessionVariable.isPlayNereidsDump();
-                minTimes = 0;
-                result = false;
-
-                connectContext.getEnv();
-                minTimes = 0;
-                result = env;
-
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessControllerManager;
-
-                // Normal SELECT privilege check should be called (not special root check)
-                // and should return true to allow access
-                accessControllerManager.checkTblPriv(connectContext, "internal", "mydb",
-                        "cluster_snapshots", PrivPredicate.SELECT);
-                minTimes = 1;  // This MUST be called, proving we're using normal privilege check
-                result = true;
-
-                connectContext.getCurrentUserIdentity();
-                minTimes = 0;
-                result = normalUser;
-            }
-        };
+        Mockito.when(table.getName()).thenReturn("cluster_snapshots");
+        Mockito.when(table.getDatabase()).thenReturn(db);
+        Mockito.when(db.getFullName()).thenReturn("mydb");
+        Mockito.when(db.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getName()).thenReturn("internal");
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(sessionVariable.isPlayNereidsDump()).thenReturn(false);
+        Mockito.when(connectContext.getEnv()).thenReturn(env);
+        Mockito.when(env.getAccessManager()).thenReturn(accessControllerManager);
+        Mockito.when(accessControllerManager.checkTblPriv(connectContext, "internal", "mydb",
+                "cluster_snapshots", PrivPredicate.SELECT)).thenReturn(true);
+        Mockito.when(connectContext.getCurrentUserIdentity()).thenReturn(normalUser);
 
         // Should NOT throw exception - normal user can access mydb.cluster_snapshots
         // because it's not the special information_schema table
@@ -158,54 +108,18 @@ public class UserAuthenticationTest {
         UserIdentity normalUser = new UserIdentity("normal_user", "%");
         normalUser.setIsAnalyzed();
 
-        new Expectations() {
-            {
-                table.getName();
-                minTimes = 0;
-                result = "cluster_snapshot_properties";
-
-                table.getDatabase();
-                minTimes = 0;
-                result = db;
-
-                db.getFullName();
-                minTimes = 0;
-                result = "user_database";
-
-                db.getCatalog();
-                minTimes = 0;
-                result = catalog;
-
-                catalog.getName();
-                minTimes = 0;
-                result = "internal";
-
-                connectContext.getSessionVariable();
-                minTimes = 0;
-                result = sessionVariable;
-
-                sessionVariable.isPlayNereidsDump();
-                minTimes = 0;
-                result = false;
-
-                connectContext.getEnv();
-                minTimes = 0;
-                result = env;
-
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessControllerManager;
-
-                accessControllerManager.checkTblPriv(connectContext, "internal", "user_database",
-                        "cluster_snapshot_properties", PrivPredicate.SELECT);
-                minTimes = 1;
-                result = true;
-
-                connectContext.getCurrentUserIdentity();
-                minTimes = 0;
-                result = normalUser;
-            }
-        };
+        Mockito.when(table.getName()).thenReturn("cluster_snapshot_properties");
+        Mockito.when(table.getDatabase()).thenReturn(db);
+        Mockito.when(db.getFullName()).thenReturn("user_database");
+        Mockito.when(db.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getName()).thenReturn("internal");
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(sessionVariable.isPlayNereidsDump()).thenReturn(false);
+        Mockito.when(connectContext.getEnv()).thenReturn(env);
+        Mockito.when(env.getAccessManager()).thenReturn(accessControllerManager);
+        Mockito.when(accessControllerManager.checkTblPriv(connectContext, "internal", "user_database",
+                "cluster_snapshot_properties", PrivPredicate.SELECT)).thenReturn(true);
+        Mockito.when(connectContext.getCurrentUserIdentity()).thenReturn(normalUser);
 
         Assertions.assertDoesNotThrow(() ->
                 UserAuthentication.checkPermission(table, connectContext, null));
@@ -222,34 +136,12 @@ public class UserAuthenticationTest {
         UserIdentity normalUser = new UserIdentity("normal_user", "%");
         normalUser.setIsAnalyzed();
 
-        new Expectations() {
-            {
-                table.getName();
-                minTimes = 0;
-                result = "cluster_snapshots";
-
-                table.getDatabase();
-                minTimes = 0;
-                result = db;
-
-                // This IS information_schema
-                db.getFullName();
-                minTimes = 0;
-                result = InfoSchemaDb.DATABASE_NAME;
-
-                connectContext.getSessionVariable();
-                minTimes = 0;
-                result = sessionVariable;
-
-                sessionVariable.isPlayNereidsDump();
-                minTimes = 0;
-                result = false;
-
-                connectContext.getCurrentUserIdentity();
-                minTimes = 0;
-                result = normalUser;
-            }
-        };
+        Mockito.when(table.getName()).thenReturn("cluster_snapshots");
+        Mockito.when(table.getDatabase()).thenReturn(db);
+        Mockito.when(db.getFullName()).thenReturn(InfoSchemaDb.DATABASE_NAME);
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(sessionVariable.isPlayNereidsDump()).thenReturn(false);
+        Mockito.when(connectContext.getCurrentUserIdentity()).thenReturn(normalUser);
 
         // Should throw AnalysisException because non-root user cannot access
         // information_schema.cluster_snapshots in root mode
@@ -264,33 +156,12 @@ public class UserAuthenticationTest {
     public void testInfoSchemaClusterSnapshotsAllowsRootUser() {
         Config.cluster_snapshot_min_privilege = "root";
 
-        new Expectations() {
-            {
-                table.getName();
-                minTimes = 0;
-                result = "cluster_snapshots";
-
-                table.getDatabase();
-                minTimes = 0;
-                result = db;
-
-                db.getFullName();
-                minTimes = 0;
-                result = InfoSchemaDb.DATABASE_NAME;
-
-                connectContext.getSessionVariable();
-                minTimes = 0;
-                result = sessionVariable;
-
-                sessionVariable.isPlayNereidsDump();
-                minTimes = 0;
-                result = false;
-
-                connectContext.getCurrentUserIdentity();
-                minTimes = 0;
-                result = UserIdentity.ROOT;
-            }
-        };
+        Mockito.when(table.getName()).thenReturn("cluster_snapshots");
+        Mockito.when(table.getDatabase()).thenReturn(db);
+        Mockito.when(db.getFullName()).thenReturn(InfoSchemaDb.DATABASE_NAME);
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(sessionVariable.isPlayNereidsDump()).thenReturn(false);
+        Mockito.when(connectContext.getCurrentUserIdentity()).thenReturn(UserIdentity.ROOT);
 
         // Root user should be able to access
         Assertions.assertDoesNotThrow(() ->
@@ -307,101 +178,38 @@ public class UserAuthenticationTest {
         UserIdentity adminUser = new UserIdentity("admin", "%");
         adminUser.setIsAnalyzed();
 
-        new Expectations() {
-            {
-                table.getName();
-                minTimes = 0;
-                result = "cluster_snapshots";
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
 
-                table.getDatabase();
-                minTimes = 0;
-                result = db;
+            Mockito.when(table.getName()).thenReturn("cluster_snapshots");
+            Mockito.when(table.getDatabase()).thenReturn(db);
+            Mockito.when(db.getFullName()).thenReturn(InfoSchemaDb.DATABASE_NAME);
+            Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
+            Mockito.when(sessionVariable.isPlayNereidsDump()).thenReturn(false);
+            Mockito.when(env.getAccessManager()).thenReturn(accessControllerManager);
+            Mockito.when(accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN)).thenReturn(true);
+            Mockito.when(connectContext.getCurrentUserIdentity()).thenReturn(adminUser);
 
-                db.getFullName();
-                minTimes = 0;
-                result = InfoSchemaDb.DATABASE_NAME;
-
-                connectContext.getSessionVariable();
-                minTimes = 0;
-                result = sessionVariable;
-
-                sessionVariable.isPlayNereidsDump();
-                minTimes = 0;
-                result = false;
-
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessControllerManager;
-
-                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN);
-                minTimes = 0;
-                result = true;
-
-                connectContext.getCurrentUserIdentity();
-                minTimes = 0;
-                result = adminUser;
-            }
-        };
-
-        // Admin user should be able to access in admin mode
-        Assertions.assertDoesNotThrow(() ->
-                UserAuthentication.checkPermission(table, connectContext, null));
+            // Admin user should be able to access in admin mode
+            Assertions.assertDoesNotThrow(() ->
+                    UserAuthentication.checkPermission(table, connectContext, null));
+        }
     }
 
     @Test
     public void testIcebergSysTableUsesSourceTablePrivilege() throws Exception {
-        new Expectations() {
-            {
-                icebergSysTable.getSourceTable();
-                minTimes = 0;
-                result = icebergSourceTable;
-
-                connectContext.getSessionVariable();
-                minTimes = 0;
-                result = sessionVariable;
-
-                sessionVariable.isPlayNereidsDump();
-                minTimes = 0;
-                result = false;
-
-                icebergSourceTable.getName();
-                minTimes = 0;
-                result = "source_tbl";
-
-                icebergSourceTable.getDatabase();
-                minTimes = 0;
-                result = db;
-
-                db.getFullName();
-                minTimes = 0;
-                result = "test_db";
-
-                db.getCatalog();
-                minTimes = 0;
-                result = catalog;
-
-                catalog.getName();
-                minTimes = 0;
-                result = "test_ctl";
-
-                connectContext.getEnv();
-                minTimes = 0;
-                result = env;
-
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessControllerManager;
-
-                accessControllerManager.checkTblPriv(connectContext, "test_ctl", "test_db",
-                        "source_tbl", PrivPredicate.SELECT);
-                minTimes = 1;
-                result = true;
-            }
-        };
+        Mockito.when(icebergSysTable.getSourceTable()).thenReturn(icebergSourceTable);
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(sessionVariable.isPlayNereidsDump()).thenReturn(false);
+        Mockito.when(icebergSourceTable.getName()).thenReturn("source_tbl");
+        Mockito.when(icebergSourceTable.getDatabase()).thenReturn(db);
+        Mockito.when(db.getFullName()).thenReturn("test_db");
+        Mockito.when(db.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getName()).thenReturn("test_ctl");
+        Mockito.when(connectContext.getEnv()).thenReturn(env);
+        Mockito.when(env.getAccessManager()).thenReturn(accessControllerManager);
+        Mockito.when(accessControllerManager.checkTblPriv(connectContext, "test_ctl", "test_db",
+                "source_tbl", PrivPredicate.SELECT)).thenReturn(true);
 
         Assertions.assertDoesNotThrow(() ->
                 UserAuthentication.checkPermission(icebergSysTable, connectContext, null));

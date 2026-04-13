@@ -28,60 +28,63 @@ import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryState;
 
-import mockit.Expectations;
-import mockit.Mocked;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 public class ShowTableStatusCommandTest {
     private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
 
-    @Mocked
     private Env env;
-    @Mocked
     private AccessControllerManager accessManager;
-    @Mocked
     private ConnectContext ctx;
-    @Mocked
     private InternalCatalog catalog;
-    @Mocked
     private CatalogMgr catalogMgr;
+    private MockedStatic<Env> envMockedStatic;
+    private MockedStatic<ConnectContext> ctxMockedStatic;
+
+    @BeforeEach
+    public void setUp() {
+        env = Mockito.mock(Env.class);
+        accessManager = Mockito.mock(AccessControllerManager.class);
+        ctx = Mockito.mock(ConnectContext.class);
+        catalog = Mockito.mock(InternalCatalog.class);
+        catalogMgr = Mockito.mock(CatalogMgr.class);
+
+        envMockedStatic = Mockito.mockStatic(Env.class);
+        ctxMockedStatic = Mockito.mockStatic(ConnectContext.class);
+        envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
+        ctxMockedStatic.when(ConnectContext::get).thenReturn(ctx);
+
+        Mockito.when(ctx.isSkipAuth()).thenReturn(true);
+        Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(catalogMgr.getCatalog(Mockito.anyString())).thenReturn(catalog);
+        Mockito.when(ctx.getState()).thenReturn(new QueryState());
+    }
+
+    @AfterEach
+    public void tearDown() {
+        if (envMockedStatic != null) {
+            envMockedStatic.close();
+        }
+        if (ctxMockedStatic != null) {
+            ctxMockedStatic.close();
+        }
+    }
 
     @Test
     void testValidate() {
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
+        Mockito.when(accessManager.checkDbPriv(Mockito.nullable(ConnectContext.class),
+                Mockito.eq(InternalCatalog.INTERNAL_CATALOG_NAME),
+                Mockito.eq(CatalogMocker.TEST_DB_NAME),
+                Mockito.eq(PrivPredicate.SHOW))).thenReturn(true);
 
-                ConnectContext.get();
-                minTimes = 0;
-                result = ctx;
-
-                ctx.isSkipAuth();
-                minTimes = 0;
-                result = true;
-
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessManager;
-
-                env.getCatalogMgr();
-                minTimes = 0;
-                result = catalogMgr;
-
-                catalogMgr.getCatalog(anyString);
-                minTimes = 0;
-                result = catalog;
-
-                accessManager.checkDbPriv(ctx, InternalCatalog.INTERNAL_CATALOG_NAME, CatalogMocker.TEST_DB_NAME,
-                        PrivPredicate.SHOW);
-                minTimes = 0;
-                result = true;
-            }
-        };
         EqualTo equalTo = new EqualTo(new UnboundSlot("name"),
                 new StringLiteral(CatalogMocker.TEST_DB_NAME));
 
@@ -96,38 +99,11 @@ public class ShowTableStatusCommandTest {
 
     @Test
     void testInvalidate() {
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
+        Mockito.when(accessManager.checkDbPriv(Mockito.nullable(ConnectContext.class),
+                Mockito.eq(InternalCatalog.INTERNAL_CATALOG_NAME),
+                Mockito.eq(CatalogMocker.TEST_DB_NAME),
+                Mockito.eq(PrivPredicate.SHOW))).thenReturn(false);
 
-                ConnectContext.get();
-                minTimes = 0;
-                result = ctx;
-
-                ctx.isSkipAuth();
-                minTimes = 0;
-                result = true;
-
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessManager;
-
-                env.getCatalogMgr();
-                minTimes = 0;
-                result = catalogMgr;
-
-                catalogMgr.getCatalog(anyString);
-                minTimes = 0;
-                result = catalog;
-
-                accessManager.checkDbPriv(ctx, InternalCatalog.INTERNAL_CATALOG_NAME, CatalogMocker.TEST_DB_NAME,
-                        PrivPredicate.SHOW);
-                minTimes = 0;
-                result = false;
-            }
-        };
         EqualTo equalTo = new EqualTo(new UnboundSlot("name"),
                 new StringLiteral(CatalogMocker.TEST_DB_NAME));
 

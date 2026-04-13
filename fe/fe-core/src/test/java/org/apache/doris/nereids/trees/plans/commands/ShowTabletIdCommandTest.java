@@ -23,44 +23,51 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryState;
 
-import mockit.Expectations;
-import mockit.Mocked;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 public class ShowTabletIdCommandTest {
-    @Mocked
     private Env env;
-    @Mocked
     private AccessControllerManager manager;
-    @Mocked
     private ConnectContext ctx;
+    private MockedStatic<Env> envMockedStatic;
+    private MockedStatic<ConnectContext> ctxMockedStatic;
+
+    @BeforeEach
+    public void setUp() {
+        env = Mockito.mock(Env.class);
+        manager = Mockito.mock(AccessControllerManager.class);
+        ctx = Mockito.mock(ConnectContext.class);
+
+        envMockedStatic = Mockito.mockStatic(Env.class);
+        ctxMockedStatic = Mockito.mockStatic(ConnectContext.class);
+        envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
+        ctxMockedStatic.when(ConnectContext::get).thenReturn(ctx);
+
+        Mockito.when(env.getAccessManager()).thenReturn(manager);
+        Mockito.when(ctx.getState()).thenReturn(new QueryState());
+    }
+
+    @AfterEach
+    public void tearDown() {
+        if (envMockedStatic != null) {
+            envMockedStatic.close();
+        }
+        if (ctxMockedStatic != null) {
+            ctxMockedStatic.close();
+        }
+    }
 
     void runBefore(String dbName, boolean hasGlobalPriv) {
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                ctx.getDatabase();
-                minTimes = 0;
-                result = dbName;
-
-                env.getAccessManager();
-                minTimes = 0;
-                result = manager;
-
-                ConnectContext.get();
-                minTimes = 0;
-                result = ctx;
-
-                manager.checkGlobalPriv(ctx, PrivPredicate.ADMIN);
-                minTimes = 0;
-                result = hasGlobalPriv;
-            }
-        };
+        Mockito.when(ctx.getDatabase()).thenReturn(dbName);
+        Mockito.when(manager.checkGlobalPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN))).thenReturn(hasGlobalPriv);
     }
 
     @Test

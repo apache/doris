@@ -23,11 +23,10 @@ import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.filesystem.FileSystem;
 
 import com.google.common.collect.Maps;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.io.IOException;
 import java.lang.reflect.Field;
@@ -45,8 +44,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public class SpiSwitchingFileSystemTest {
 
-    @Mocked
-    private FileSystem mockDelegate;
+    private final FileSystem mockDelegate = Mockito.mock(FileSystem.class);
 
     /**
      * H2: When {@link FileSystemFactory#getFileSystem(StorageProperties)} throws {@link IOException},
@@ -60,36 +58,36 @@ public class SpiSwitchingFileSystemTest {
      */
     @Test
     public void testForPathPropagatesIOExceptionNotRuntimeException() {
-        // Mock LocationPath.of() so it returns a LocationPath with a non-null StorageProperties,
-        // allowing execution to reach FileSystemFactory.getFileSystem().
-        // JMockit @Mock does not use the 'static' keyword — it mirrors the target signature without it.
         BrokerProperties bp = BrokerProperties.of("test-broker", Maps.newHashMap());
-        new MockUp<LocationPath>() {
-            @Mock
-            public LocationPath of(String location,
-                    Map<StorageProperties.Type, StorageProperties> storagePropertiesMap) {
-                return LocationPath.ofDirect(location, "broker", "broker://", bp);
-            }
-        };
-
-        // Mock FileSystemFactory to throw IOException — this is the scenario under test.
         IOException rootCause = new IOException("simulated connection failure");
-        new MockUp<FileSystemFactory>() {
-            @Mock
-            public FileSystem getFileSystem(StorageProperties storageProperties) throws IOException {
-                throw rootCause;
-            }
-        };
 
-        SpiSwitchingFileSystem spiFs = new SpiSwitchingFileSystem(Collections.emptyMap());
-        try {
-            spiFs.forPath("broker://host/path");
-            Assert.fail("Expected IOException but no exception was thrown");
-        } catch (IOException e) {
-            // Correct: IOException propagated as-is.
-            Assert.assertSame("forPath() must rethrow the original IOException", rootCause, e);
-        } catch (RuntimeException e) {
-            Assert.fail("forPath() wrapped IOException in RuntimeException: " + e.getClass().getName());
+        try (MockedStatic<LocationPath> mockedLocationPath = Mockito.mockStatic(LocationPath.class, Mockito.CALLS_REAL_METHODS);
+                MockedStatic<FileSystemFactory> mockedFactory =
+                        Mockito.mockStatic(FileSystemFactory.class)) {
+            // Mock LocationPath.of() so it returns a LocationPath with a non-null StorageProperties,
+            // allowing execution to reach FileSystemFactory.getFileSystem().
+            mockedLocationPath.when(() -> LocationPath.of(Mockito.anyString(), Mockito.anyMap()))
+                    .thenAnswer(inv -> {
+                        String location = inv.getArgument(0);
+                        return LocationPath.ofDirect(location, "broker", "broker://", bp);
+                    });
+
+            // Mock FileSystemFactory to throw IOException — this is the scenario under test.
+            mockedFactory.when(() -> FileSystemFactory.getFileSystem(
+                            Mockito.any(StorageProperties.class)))
+                    .thenThrow(rootCause);
+
+            SpiSwitchingFileSystem spiFs = new SpiSwitchingFileSystem(Collections.emptyMap());
+            try {
+                spiFs.forPath("broker://host/path");
+                Assert.fail("Expected IOException but no exception was thrown");
+            } catch (IOException e) {
+                // Correct: IOException propagated as-is.
+                Assert.assertSame("forPath() must rethrow the original IOException", rootCause, e);
+            } catch (RuntimeException e) {
+                Assert.fail("forPath() wrapped IOException in RuntimeException: "
+                        + e.getClass().getName());
+            }
         }
     }
 

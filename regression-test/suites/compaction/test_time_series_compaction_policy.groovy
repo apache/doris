@@ -46,6 +46,48 @@ suite("test_time_series_compaction_polciy", "p0") {
         ) ENGINE=OLAP
         DUPLICATE KEY(`id`)
         COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`id`) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1",
+            "disable_auto_compaction" = "true",
+            "compaction_policy" = "time_series"
+        );
+    """
+
+    for (int i = 0; i < 1005; i++) {
+        sql """ INSERT INTO ${tableName} VALUES (${i}, "andy", "andy love apple", 100); """
+    }
+    
+    def triggered_tablets = sql_return_maparray """show tablets from ${tableName}"""
+    for (tablet in triggered_tablets) {
+        def be_host = backendId_to_backendIP["${tablet.BackendId}"]
+        def be_port = backendId_to_backendHttpPort["${tablet.BackendId}"]
+        curl("POST", "http://${be_host}:${be_port}/api/compaction/run?tablet_id=${tablet.TabletId}&compact_type=cumulative")
+    }
+
+    Thread.sleep(10000)
+    for (tablet in triggered_tablets) {
+        def be_host = backendId_to_backendIP["${tablet.BackendId}"]
+        def be_port = backendId_to_backendHttpPort["${tablet.BackendId}"]
+
+        def (exit_code, stdout, stderr) = be_get_compaction_status(be_host, be_port, tablet.TabletId)
+        assert exit_code == 0: "get compaction status failed, exit code: ${exit_code}, stdout: ${stdout}, stderr: ${stderr}"
+        def compactionStatus = parseJson(stdout.trim())
+        logger.info("compaction status: ${compactionStatus}")
+        assert compactionStatus.status.toLowerCase() == "success": "compaction failed, be host: ${be_host}, tablet id: ${tablet.TabletId}, status: ${compactionStatus.status}"
+    }
+    tableName = "test_time_series_compaction_polciy_2"
+
+    sql """ DROP TABLE IF EXISTS ${tableName}; """
+    sql """
+        CREATE TABLE ${tableName} (
+            `id` int(11) NULL,
+            `name` varchar(255) NULL,
+            `hobbies` text NULL,
+            `score` int(11) NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`id`)
+        COMMENT 'OLAP'
         DISTRIBUTED BY HASH(`id`) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",

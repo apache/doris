@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.analysis.ColumnAccessPath;
+import org.apache.doris.analysis.ColumnAccessPathType;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -37,10 +39,6 @@ import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.thrift.TAccessPathType;
-import org.apache.doris.thrift.TColumnAccessPath;
-import org.apache.doris.thrift.TDataAccessPath;
-import org.apache.doris.thrift.TMetaAccessPath;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
@@ -172,12 +170,12 @@ public class NestedColumnPruning implements CustomRewriter {
         Map<Slot, DataTypeAccessTree> slotIdToPredicateAccessTree = new LinkedHashMap<>();
         Map<Slot, DataType> variantSlots = new LinkedHashMap<>();
 
-        Comparator<Pair<TAccessPathType, List<String>>> pathComparator = Comparator.comparing(
+        Comparator<Pair<ColumnAccessPathType, List<String>>> pathComparator = Comparator.comparing(
                 l -> StringUtils.join(l.second, "."));
 
-        Multimap<Integer, Pair<TAccessPathType, List<String>>> allAccessPaths = TreeMultimap.create(
+        Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> allAccessPaths = TreeMultimap.create(
                 Comparator.naturalOrder(), pathComparator);
-        Multimap<Integer, Pair<TAccessPathType, List<String>>> predicateAccessPaths = TreeMultimap.create(
+        Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> predicateAccessPaths = TreeMultimap.create(
                 Comparator.naturalOrder(), pathComparator);
 
         // first: build access data type tree
@@ -188,7 +186,7 @@ public class NestedColumnPruning implements CustomRewriter {
                 variantSlots.put(slot, slot.getDataType());
                 for (CollectAccessPathResult collectAccessPathResult : collectAccessPathResults) {
                     List<String> path = collectAccessPathResult.getPath();
-                    TAccessPathType pathType = collectAccessPathResult.getType();
+                    ColumnAccessPathType pathType = collectAccessPathResult.getType();
                     allAccessPaths.put(slot.getExprId().asInt(), Pair.of(pathType, path));
                     if (collectAccessPathResult.isPredicate()) {
                         predicateAccessPaths.put(
@@ -200,7 +198,7 @@ public class NestedColumnPruning implements CustomRewriter {
             }
             for (CollectAccessPathResult collectAccessPathResult : collectAccessPathResults) {
                 List<String> path = collectAccessPathResult.getPath();
-                TAccessPathType pathType = collectAccessPathResult.getType();
+                ColumnAccessPathType pathType = collectAccessPathResult.getType();
                 DataTypeAccessTree allAccessTree = slotIdToAllAccessTree.computeIfAbsent(
                         slot, i -> DataTypeAccessTree.ofRoot(slot, pathType)
                 );
@@ -229,7 +227,7 @@ public class NestedColumnPruning implements CustomRewriter {
                 if (accessTree.hasStringOffsetOnlyAccess()) {
                     // Offset-only access (e.g. length(str_col)): type stays varchar,
                     // but we must still send the access path to BE so it skips the char data.
-                    List<TColumnAccessPath> allPaths = buildColumnAccessPaths(slot, allAccessPaths);
+                    List<ColumnAccessPath> allPaths = buildColumnAccessPaths(slot, allAccessPaths);
                     result.put(slot.getExprId().asInt(),
                             new AccessPathInfo(slot.getDataType(), allPaths, new ArrayList<>()));
                 }
@@ -241,7 +239,7 @@ public class NestedColumnPruning implements CustomRewriter {
                     && accessTree.hasStringOffsetOnlyAccess()) {
                 // Offset-only access (e.g. length(arr_col) / length(map_col)): type stays unchanged,
                 // but we must send the OFFSET access path to BE so it skips element/key-value data.
-                List<TColumnAccessPath> allPaths = buildColumnAccessPaths(slot, allAccessPaths);
+                List<ColumnAccessPath> allPaths = buildColumnAccessPaths(slot, allAccessPaths);
                 result.put(slot.getExprId().asInt(),
                         new AccessPathInfo(slot.getDataType(), allPaths, new ArrayList<>()));
                 continue;
@@ -252,17 +250,12 @@ public class NestedColumnPruning implements CustomRewriter {
                 // Emit [col, KEYS] and [col, VALUES, OFFSET] directly instead of the collected
                 // [col, *, OFFSET] path which the BE cannot interpret for split key/value access.
                 String colName = slot.getName().toLowerCase();
-                TDataAccessPath keysDataPath = new TDataAccessPath();
-                keysDataPath.setPath(
+                ColumnAccessPath keysColumnPath = ColumnAccessPath.data(
                         new ArrayList<>(ImmutableList.of(colName, AccessPathInfo.ACCESS_MAP_KEYS)));
-                TColumnAccessPath keysColumnPath = new TColumnAccessPath(TAccessPathType.DATA);
-                keysColumnPath.setDataAccessPath(keysDataPath);
 
-                TDataAccessPath valsOffsetDataPath = new TDataAccessPath();
-                valsOffsetDataPath.setPath(new ArrayList<>(ImmutableList.of(
-                        colName, AccessPathInfo.ACCESS_MAP_VALUES, AccessPathInfo.ACCESS_STRING_OFFSET)));
-                TColumnAccessPath valsOffsetColumnPath = new TColumnAccessPath(TAccessPathType.DATA);
-                valsOffsetColumnPath.setDataAccessPath(valsOffsetDataPath);
+                ColumnAccessPath valsOffsetColumnPath = ColumnAccessPath.data(
+                        new ArrayList<>(ImmutableList.of(colName, AccessPathInfo.ACCESS_MAP_VALUES,
+                                AccessPathInfo.ACCESS_STRING_OFFSET)));
 
                 result.put(slot.getExprId().asInt(), new AccessPathInfo(
                         slot.getDataType(),
@@ -293,14 +286,14 @@ public class NestedColumnPruning implements CustomRewriter {
                     });
                 }
             }
-            List<TColumnAccessPath> allPaths = buildColumnAccessPaths(slot, allAccessPaths);
+            List<ColumnAccessPath> allPaths = buildColumnAccessPaths(slot, allAccessPaths);
             result.put(slot.getExprId().asInt(),
                     new AccessPathInfo(prunedDataType, allPaths, new ArrayList<>()));
         }
 
         for (Entry<Slot, DataType> kv : variantSlots.entrySet()) {
             Slot slot = kv.getKey();
-            List<TColumnAccessPath> allPaths = buildColumnAccessPaths(slot, allAccessPaths);
+            List<ColumnAccessPath> allPaths = buildColumnAccessPaths(slot, allAccessPaths);
             result.put(slot.getExprId().asInt(),
                     new AccessPathInfo(slot.getDataType(), allPaths, new ArrayList<>()));
         }
@@ -309,7 +302,7 @@ public class NestedColumnPruning implements CustomRewriter {
         for (Entry<Slot, DataTypeAccessTree> kv : slotIdToPredicateAccessTree.entrySet()) {
             Slot slot = kv.getKey();
 
-            List<TColumnAccessPath> predicatePaths =
+            List<ColumnAccessPath> predicatePaths =
                     buildColumnAccessPaths(slot, predicateAccessPaths);
             AccessPathInfo accessPathInfo = result.get(slot.getExprId().asInt());
             if (accessPathInfo != null) {
@@ -319,7 +312,7 @@ public class NestedColumnPruning implements CustomRewriter {
 
         for (Entry<Slot, DataType> kv : variantSlots.entrySet()) {
             Slot slot = kv.getKey();
-            List<TColumnAccessPath> predicatePaths =
+            List<ColumnAccessPath> predicatePaths =
                     buildColumnAccessPaths(slot, predicateAccessPaths);
             AccessPathInfo accessPathInfo = result.get(slot.getExprId().asInt());
             if (accessPathInfo != null) {
@@ -330,48 +323,30 @@ public class NestedColumnPruning implements CustomRewriter {
         return result;
     }
 
-    private static List<TColumnAccessPath> buildColumnAccessPaths(
-            Slot slot, Multimap<Integer, Pair<TAccessPathType, List<String>>> accessPaths) {
-        List<TColumnAccessPath> paths = new ArrayList<>();
+    private static List<ColumnAccessPath> buildColumnAccessPaths(
+            Slot slot, Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> accessPaths) {
+        List<ColumnAccessPath> paths = new ArrayList<>();
         boolean accessWholeColumn = false;
-        TAccessPathType accessWholeColumnType = TAccessPathType.META;
-        for (Pair<TAccessPathType, List<String>> pathInfo : accessPaths.get(slot.getExprId().asInt())) {
+        ColumnAccessPathType accessWholeColumnType = ColumnAccessPathType.META;
+        for (Pair<ColumnAccessPathType, List<String>> pathInfo : accessPaths.get(slot.getExprId().asInt())) {
             if (pathInfo == null) {
                 throw new AnalysisException("This is a bug, please report this");
             }
-            if (pathInfo.first == TAccessPathType.DATA) {
-                TDataAccessPath dataAccessPath = new TDataAccessPath();
-                dataAccessPath.setPath(new ArrayList<>(pathInfo.second));
-                TColumnAccessPath accessPath = new TColumnAccessPath(TAccessPathType.DATA);
-                accessPath.setDataAccessPath(dataAccessPath);
-                paths.add(accessPath);
-            } else {
-                TMetaAccessPath dataAccessPath = new TMetaAccessPath();
-                dataAccessPath.setPath(new ArrayList<>(pathInfo.second));
-                TColumnAccessPath accessPath = new TColumnAccessPath(TAccessPathType.META);
-                accessPath.setMetaAccessPath(dataAccessPath);
-                paths.add(accessPath);
-            }
+            paths.add(new ColumnAccessPath(pathInfo.first, new ArrayList<>(pathInfo.second)));
             // only retain access the whole root
             if (pathInfo.second.size() == 1) {
                 accessWholeColumn = true;
-                if (pathInfo.first == TAccessPathType.DATA) {
-                    accessWholeColumnType = TAccessPathType.DATA;
+                if (pathInfo.first == ColumnAccessPathType.DATA) {
+                    accessWholeColumnType = ColumnAccessPathType.DATA;
                 }
             } else {
-                accessWholeColumnType = TAccessPathType.DATA;
+                accessWholeColumnType = ColumnAccessPathType.DATA;
             }
         }
         if (accessWholeColumn) {
-            TColumnAccessPath accessPath = new TColumnAccessPath(accessWholeColumnType);
             SlotReference slotReference = (SlotReference) slot;
             String wholeColumnName = slotReference.getOriginalColumn().get().getName();
-            if (accessWholeColumnType == TAccessPathType.DATA) {
-                accessPath.setDataAccessPath(new TDataAccessPath(ImmutableList.of(wholeColumnName)));
-            } else {
-                accessPath.setMetaAccessPath(new TMetaAccessPath(ImmutableList.of(wholeColumnName)));
-            }
-            return ImmutableList.of(accessPath);
+            return ImmutableList.of(new ColumnAccessPath(accessWholeColumnType, ImmutableList.of(wholeColumnName)));
         }
         return paths;
     }
@@ -392,16 +367,16 @@ public class NestedColumnPruning implements CustomRewriter {
         private boolean isStringOffsetOnly;
         // for the future, only access the meta of the column,
         // e.g. `is not null` can only access the column's offset, not need to read the data
-        private TAccessPathType pathType;
+        private ColumnAccessPathType pathType;
         // the children of the column, for example, column s is `struct<a:int, b:int>`,
         // then node 's' has two children: 'a' and 'b', and the key is the column name
         private Map<String, DataTypeAccessTree> children = new LinkedHashMap<>();
 
-        public DataTypeAccessTree(DataType type, TAccessPathType pathType) {
+        public DataTypeAccessTree(DataType type, ColumnAccessPathType pathType) {
             this(false, type, pathType);
         }
 
-        public DataTypeAccessTree(boolean isRoot, DataType type, TAccessPathType pathType) {
+        public DataTypeAccessTree(boolean isRoot, DataType type, ColumnAccessPathType pathType) {
             this.isRoot = isRoot;
             this.type = type;
             this.pathType = pathType;
@@ -423,7 +398,7 @@ public class NestedColumnPruning implements CustomRewriter {
             return accessAll;
         }
 
-        public TAccessPathType getPathType() {
+        public ColumnAccessPathType getPathType() {
             return pathType;
         }
 
@@ -579,7 +554,7 @@ public class NestedColumnPruning implements CustomRewriter {
         }
 
         /** setAccessByPath */
-        public void setAccessByPath(List<String> path, int accessIndex, TAccessPathType pathType) {
+        public void setAccessByPath(List<String> path, int accessIndex, ColumnAccessPathType pathType) {
             if (accessIndex >= path.size()) {
                 accessAll = true;
                 return;
@@ -587,8 +562,8 @@ public class NestedColumnPruning implements CustomRewriter {
                 accessPartialChild = true;
             }
 
-            if (pathType == TAccessPathType.DATA) {
-                this.pathType = TAccessPathType.DATA;
+            if (pathType == ColumnAccessPathType.DATA) {
+                this.pathType = ColumnAccessPathType.DATA;
             }
 
             if (this.type.isStructType()) {
@@ -659,7 +634,7 @@ public class NestedColumnPruning implements CustomRewriter {
             throw new AnalysisException("unsupported data type: " + this.type);
         }
 
-        public static DataTypeAccessTree ofRoot(Slot slot, TAccessPathType pathType) {
+        public static DataTypeAccessTree ofRoot(Slot slot, ColumnAccessPathType pathType) {
             DataTypeAccessTree child = of(slot.getDataType(), pathType);
             DataTypeAccessTree root = new DataTypeAccessTree(true, NullType.INSTANCE, pathType);
             root.children.put(slot.getName().toLowerCase(), child);
@@ -667,7 +642,7 @@ public class NestedColumnPruning implements CustomRewriter {
         }
 
         /** of */
-        public static DataTypeAccessTree of(DataType type, TAccessPathType pathType) {
+        public static DataTypeAccessTree of(DataType type, ColumnAccessPathType pathType) {
             DataTypeAccessTree root = new DataTypeAccessTree(type, pathType);
             if (type instanceof StructType) {
                 StructType structType = (StructType) type;

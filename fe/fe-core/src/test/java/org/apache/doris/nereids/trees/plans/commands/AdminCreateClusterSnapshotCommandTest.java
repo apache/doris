@@ -25,14 +25,15 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryState;
 
 import com.google.common.collect.ImmutableMap;
-import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -40,51 +41,47 @@ import java.util.List;
 import java.util.Map;
 
 public class AdminCreateClusterSnapshotCommandTest {
-    @Mocked
     private Env env;
-    @Mocked
     private ConnectContext connectContext;
-    @Mocked
     private AccessControllerManager accessControllerManager;
+    private MockedStatic<Env> envMockedStatic;
+    private MockedStatic<ConnectContext> ctxMockedStatic;
 
     private String originalMinPrivilege;
 
     @BeforeEach
     public void setUp() {
         originalMinPrivilege = Config.cluster_snapshot_min_privilege;
+
+        env = Mockito.mock(Env.class);
+        connectContext = Mockito.mock(ConnectContext.class);
+        accessControllerManager = Mockito.mock(AccessControllerManager.class);
+
+        envMockedStatic = Mockito.mockStatic(Env.class);
+        ctxMockedStatic = Mockito.mockStatic(ConnectContext.class);
+        envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
+        ctxMockedStatic.when(ConnectContext::get).thenReturn(connectContext);
+
+        Mockito.when(env.getAccessManager()).thenReturn(accessControllerManager);
+        Mockito.when(connectContext.getState()).thenReturn(new QueryState());
     }
 
     @AfterEach
     public void tearDown() {
         Config.cluster_snapshot_min_privilege = originalMinPrivilege;
-    }
-
-    private void runBefore() throws Exception {
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                ConnectContext.get();
-                minTimes = 0;
-                result = connectContext;
-
-                connectContext.isSkipAuth();
-                minTimes = 0;
-                result = true;
-
-                // Mock root user for privilege check
-                connectContext.getCurrentUserIdentity();
-                minTimes = 0;
-                result = UserIdentity.ROOT;
-            }
-        };
+        if (envMockedStatic != null) {
+            envMockedStatic.close();
+        }
+        if (ctxMockedStatic != null) {
+            ctxMockedStatic.close();
+        }
     }
 
     @Test
     public void testValidateNormal() throws Exception {
-        runBefore();
+        Mockito.when(connectContext.isSkipAuth()).thenReturn(true);
+        Mockito.when(connectContext.getCurrentUserIdentity()).thenReturn(UserIdentity.ROOT);
+
         Config.deploy_mode = "";
         AdminCreateClusterSnapshotCommand command = new AdminCreateClusterSnapshotCommand(new HashMap<>());
         Assertions.assertThrows(AnalysisException.class, () -> command.validate(connectContext),
@@ -124,17 +121,8 @@ public class AdminCreateClusterSnapshotCommandTest {
         UserIdentity nonRootUser = new UserIdentity("admin", "%");
         nonRootUser.setIsAnalyzed();
 
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
+        Mockito.when(connectContext.getCurrentUserIdentity()).thenReturn(nonRootUser);
 
-                connectContext.getCurrentUserIdentity();
-                minTimes = 0;
-                result = nonRootUser;
-            }
-        };
         Config.deploy_mode = "cloud";
 
         Map<String, String> properties = new HashMap<>();
@@ -151,25 +139,10 @@ public class AdminCreateClusterSnapshotCommandTest {
         UserIdentity adminUser = new UserIdentity("admin", "%");
         adminUser.setIsAnalyzed();
 
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
+        Mockito.when(accessControllerManager.checkGlobalPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN))).thenReturn(true);
+        Mockito.when(connectContext.getCurrentUserIdentity()).thenReturn(adminUser);
 
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessControllerManager;
-
-                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN);
-                minTimes = 0;
-                result = true;
-
-                connectContext.getCurrentUserIdentity();
-                minTimes = 0;
-                result = adminUser;
-            }
-        };
         Config.deploy_mode = "cloud";
 
         Map<String, String> properties = ImmutableMap.of("ttl", "3600", "label", "test");
@@ -185,25 +158,10 @@ public class AdminCreateClusterSnapshotCommandTest {
         UserIdentity normalUser = new UserIdentity("normal_user", "%");
         normalUser.setIsAnalyzed();
 
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
+        Mockito.when(accessControllerManager.checkGlobalPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN))).thenReturn(false);
+        Mockito.when(connectContext.getCurrentUserIdentity()).thenReturn(normalUser);
 
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessControllerManager;
-
-                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN);
-                minTimes = 0;
-                result = false;
-
-                connectContext.getCurrentUserIdentity();
-                minTimes = 0;
-                result = normalUser;
-            }
-        };
         Config.deploy_mode = "cloud";
 
         Map<String, String> properties = new HashMap<>();

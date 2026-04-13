@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
@@ -25,9 +26,9 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
 
-import mockit.Expectations;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.io.IOException;
 
@@ -46,17 +47,10 @@ public class CleanQueryStatsCommandTest extends TestWithFeService {
     @Test
     public void testAllNormal() throws IOException {
         runBefore();
-        new Expectations() {
-            {
-                connectContext.isSkipAuth();
-                minTimes = 0;
-                result = true;
-
-                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN);
-                minTimes = 0;
-                result = true;
-            }
-        };
+        connectContext.setSkipAuth(true);
+        AccessControllerManager spyAcm = Mockito.spy(accessControllerManager);
+        Mockito.doReturn(true).when(spyAcm).checkGlobalPriv(Mockito.nullable(ConnectContext.class), Mockito.any(PrivPredicate.class));
+        Deencapsulation.setField(env, "accessManager", spyAcm);
         CleanQueryStatsCommand command = new CleanQueryStatsCommand();
         Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
     }
@@ -65,18 +59,10 @@ public class CleanQueryStatsCommandTest extends TestWithFeService {
     public void testDB() throws Exception {
         runBefore();
         connectContext.setDatabase("test_db");
-        //normal
-        new Expectations() {
-            {
-                connectContext.isSkipAuth();
-                minTimes = 0;
-                result = true;
-
-                accessControllerManager.checkDbPriv(connectContext, internalCtl, "test_db", PrivPredicate.ALTER);
-                minTimes = 0;
-                result = true;
-            }
-        };
+        connectContext.setSkipAuth(true);
+        AccessControllerManager spyAcm = Mockito.spy(accessControllerManager);
+        Mockito.doReturn(true).when(spyAcm).checkDbPriv(Mockito.nullable(ConnectContext.class), Mockito.anyString(), Mockito.anyString(), Mockito.any(PrivPredicate.class));
+        Deencapsulation.setField(env, "accessManager", spyAcm);
         CleanQueryStatsCommand command = new CleanQueryStatsCommand("test_db");
         Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
     }
@@ -90,18 +76,10 @@ public class CleanQueryStatsCommandTest extends TestWithFeService {
                 + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1'); ");
         TableNameInfo tableNameInfo = new TableNameInfo("test_db", "test_tbl");
         connectContext.setDatabase("test_db");
-        //normal
-        new Expectations() {
-            {
-                connectContext.isSkipAuth();
-                minTimes = 0;
-                result = true;
-
-                accessControllerManager.checkTblPriv(connectContext, tableNameInfo, PrivPredicate.ALTER);
-                minTimes = 0;
-                result = true;
-            }
-        };
+        connectContext.setSkipAuth(true);
+        AccessControllerManager spyAcm = Mockito.spy(accessControllerManager);
+        Mockito.doReturn(true).when(spyAcm).checkTblPriv(Mockito.nullable(ConnectContext.class), Mockito.any(TableNameInfo.class), Mockito.any(PrivPredicate.class));
+        Deencapsulation.setField(env, "accessManager", spyAcm);
         CleanQueryStatsCommand command = new CleanQueryStatsCommand(tableNameInfo);
         Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
     }

@@ -358,6 +358,12 @@ suite("hive_on_hms_and_dlf", "p2,external") {
               'oss.secret_key' = '${oss_sk}',
               'oss.endpoint' = '${oss_endpoint}'
     """
+    String oss_bucket_endpoint_storage_properties = """
+              'oss.access_key' = '${oss_ak}',
+              'oss.secret_key' = '${oss_sk}',
+              'oss.endpoint' = '${oss_endpoint}',
+              'oss.force_parsing_by_standard_uri' = 'true'
+    """
     /****************COS*******************/
     String cos_ak = context.config.otherConfigs.get("txYunAk")
     String cos_sk = context.config.otherConfigs.get("txYunSk")
@@ -536,7 +542,8 @@ suite("hive_on_hms_and_dlf", "p2,external") {
     testPartitionTableInsert(hms_properties + oss_region_param + oss_storage_properties, "hive_hms_oss_bucket_endpoint_partition_test_region", db_location)
     //OSS - Insert overwrite tests
     db_location = "oss://${oss_bucket_endpoint_parent_path}/hive/hms/bucket_endpoint/overwrite/" + System.currentTimeMillis()
-    testInsertOverwrite(hms_properties + oss_storage_properties, "hive_hms_oss_bucket_endpoint_overwrite_test", db_location)
+    testInsertOverwrite(hms_properties + oss_bucket_endpoint_storage_properties,
+            "hive_hms_oss_bucket_endpoint_overwrite_test", db_location)
 
     //s3
     db_location = "s3a://${s3_parent_path}/hive/hms/"+System.currentTimeMillis()

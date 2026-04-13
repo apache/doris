@@ -761,15 +761,24 @@ bool WorkloadGroupMgr::handle_single_query_(const std::shared_ptr<ResourceContex
             return true;
         }
     } else if (paused_reason.is<ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED>()) {
-        if (!wg->exceed_limit()) {
+        bool exceed_low_watermark = false;
+        bool exceed_high_watermark = false;
+        wg->check_mem_used(size_to_reserve, &exceed_low_watermark, &exceed_high_watermark);
+        if (!exceed_high_watermark) {
             LOG(INFO) << "Query: " << query_id
                       << " paused caused by WORKLOAD_GROUP_MEMORY_EXCEEDED, now resume it.";
             requestor->task_controller()->set_memory_sufficient(true);
             return true;
+        } else if (memory_usage <= limit) {
+            LOG(INFO) << "Query: " << query_id
+                      << " paused caused by WORKLOAD_GROUP_MEMORY_EXCEEDED, keep it paused. "
+                      << "Reserve size: " << PrettyPrinter::print_bytes(size_to_reserve)
+                      << ", wg info: " << wg->memory_debug_string();
+            return false;
         } else {
             Status error_status = Status::MemoryLimitExceeded(
-                    "Query {} workload group memory is exceeded"
-                    ", and there is no cache now. And could not find task to spill, "
+                    "Query {} memory limit is exceeded while handling workload group memory "
+                    "pressure, and there is no cache now. And could not find task to spill, "
                     "try to cancel query. "
                     "Query memory usage: {}, limit: {}, reserved "
                     "size: {}, try to reserve: {}, wg info: {}."

@@ -17,8 +17,8 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.analysis.ColumnAccessPath;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.thrift.TColumnAccessPath;
 
 import java.util.List;
 
@@ -37,11 +37,11 @@ public class AccessPathInfo {
     // e.g. select element_at(s, 'name') from tbl where element_at(s, 'id') = 1
     //      the allAccessPaths is: ["s.name", "s.id"]
     //      the predicateAccessPaths is: ["s.id"]
-    private List<TColumnAccessPath> allAccessPaths;
-    private List<TColumnAccessPath> predicateAccessPaths;
+    private List<ColumnAccessPath> allAccessPaths;
+    private List<ColumnAccessPath> predicateAccessPaths;
 
-    public AccessPathInfo(DataType prunedType, List<TColumnAccessPath> allAccessPaths,
-            List<TColumnAccessPath> predicateAccessPaths) {
+    public AccessPathInfo(DataType prunedType, List<ColumnAccessPath> allAccessPaths,
+            List<ColumnAccessPath> predicateAccessPaths) {
         this.prunedType = prunedType;
         this.allAccessPaths = allAccessPaths;
         this.predicateAccessPaths = predicateAccessPaths;
@@ -55,19 +55,19 @@ public class AccessPathInfo {
         this.prunedType = prunedType;
     }
 
-    public List<TColumnAccessPath> getAllAccessPaths() {
+    public List<ColumnAccessPath> getAllAccessPaths() {
         return allAccessPaths;
     }
 
-    public void setAllAccessPaths(List<TColumnAccessPath> allAccessPaths) {
+    public void setAllAccessPaths(List<ColumnAccessPath> allAccessPaths) {
         this.allAccessPaths = allAccessPaths;
     }
 
-    public List<TColumnAccessPath> getPredicateAccessPaths() {
+    public List<ColumnAccessPath> getPredicateAccessPaths() {
         return predicateAccessPaths;
     }
 
-    public void setPredicateAccessPaths(List<TColumnAccessPath> predicateAccessPaths) {
+    public void setPredicateAccessPaths(List<ColumnAccessPath> predicateAccessPaths) {
         this.predicateAccessPaths = predicateAccessPaths;
     }
 }

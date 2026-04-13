@@ -23,22 +23,18 @@ import org.apache.doris.proto.InternalService;
 
 import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.FutureCallback;
-import mockit.Delegate;
-import mockit.Expectations;
-import mockit.Injectable;
 import org.apache.thrift.TException;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
+import org.mockito.ArgumentMatchers;
+import org.mockito.Mockito;
 
 public class ResultReceiverConsumerTest {
 
-    @Injectable
-    private ResultReceiver receiver1;
-    @Injectable
-    private ResultReceiver receiver2;
-    @Injectable
-    private ResultReceiver receiver3;
+    private ResultReceiver receiver1 = Mockito.mock(ResultReceiver.class);
+    private ResultReceiver receiver2 = Mockito.mock(ResultReceiver.class);
+    private ResultReceiver receiver3 = Mockito.mock(ResultReceiver.class);
 
     @Test
     public void testEosHandling() throws Exception {
@@ -59,38 +55,26 @@ public class ResultReceiverConsumerTest {
         RowBatch eosBatch3 = new RowBatch();
         eosBatch3.setEos(true);
 
-        new Expectations() {
-            {
-                receiver1.createFuture((FutureCallback<InternalService.PFetchDataResult>) any);
-                result = new Delegate() {
-                    void delegate(FutureCallback<InternalService.PFetchDataResult> callback) {
-                        callback.onSuccess(null);
-                    }
-                };
-                receiver2.createFuture((FutureCallback<InternalService.PFetchDataResult>) any);
-                result = new Delegate() {
-                    void delegate(FutureCallback<InternalService.PFetchDataResult> callback) {
-                        callback.onSuccess(null);
-                    }
-                };
-                receiver3.createFuture((FutureCallback<InternalService.PFetchDataResult>) any);
-                result = new Delegate() {
-                    void delegate(FutureCallback<InternalService.PFetchDataResult> callback) {
-                        callback.onSuccess(null);
-                    }
-                };
+        Mockito.doAnswer(inv -> {
+            FutureCallback<InternalService.PFetchDataResult> callback = inv.getArgument(0);
+            callback.onSuccess(null);
+            return null;
+        }).when(receiver1).createFuture(ArgumentMatchers.any());
+        Mockito.doAnswer(inv -> {
+            FutureCallback<InternalService.PFetchDataResult> callback = inv.getArgument(0);
+            callback.onSuccess(null);
+            return null;
+        }).when(receiver2).createFuture(ArgumentMatchers.any());
+        Mockito.doAnswer(inv -> {
+            FutureCallback<InternalService.PFetchDataResult> callback = inv.getArgument(0);
+            callback.onSuccess(null);
+            return null;
+        }).when(receiver3).createFuture(ArgumentMatchers.any());
 
-                receiver1.getNext((Status) any);
-                result = normalBatch1;
-                result = eosBatch1;
-                receiver2.getNext((Status) any);
-                result = normalBatch2;
-                result = eosBatch2;
-                receiver3.getNext((Status) any);
-                result = normalBatch3;
-                result = eosBatch3;
-            }
-        };
+        Mockito.when(receiver1.getNext(ArgumentMatchers.any(Status.class))).thenReturn(normalBatch1).thenReturn(eosBatch1);
+        Mockito.when(receiver2.getNext(ArgumentMatchers.any(Status.class))).thenReturn(normalBatch2).thenReturn(eosBatch2);
+        Mockito.when(receiver3.getNext(ArgumentMatchers.any(Status.class))).thenReturn(normalBatch3).thenReturn(eosBatch3);
+
         for (int i = 0; i < 5; i++) {
             RowBatch batch = consumer.getNext(status);
             Assert.assertFalse(consumer.isEos());
@@ -100,7 +84,6 @@ public class ResultReceiverConsumerTest {
         RowBatch batch = consumer.getNext(status);
         Assert.assertTrue(consumer.isEos());
         Assert.assertTrue(batch.isEos());
-
     }
 
     @Test
@@ -112,34 +95,25 @@ public class ResultReceiverConsumerTest {
         RowBatch normalBatch1 = new RowBatch();
         normalBatch1.setEos(false);
 
-        new Expectations() {
-            {
-                receiver1.createFuture((FutureCallback<InternalService.PFetchDataResult>) any);
-                result = new Delegate() {
-                    void delegate(FutureCallback<InternalService.PFetchDataResult> callback) {
-                        callback.onSuccess(null);
-                    }
-                };
-                receiver2.createFuture((FutureCallback<InternalService.PFetchDataResult>) any);
-                result = new Delegate() {
-                    void delegate(FutureCallback<InternalService.PFetchDataResult> callback) {
-                        callback.onSuccess(null);
-                    }
-                };
-                receiver3.createFuture((FutureCallback<InternalService.PFetchDataResult>) any);
-                result = new Delegate() {
-                    void delegate(FutureCallback<InternalService.PFetchDataResult> callback) {
-                        callback.onSuccess(null);
-                    }
-                };
+        Mockito.doAnswer(inv -> {
+            FutureCallback<InternalService.PFetchDataResult> callback = inv.getArgument(0);
+            callback.onSuccess(null);
+            return null;
+        }).when(receiver1).createFuture(ArgumentMatchers.any());
+        Mockito.doAnswer(inv -> {
+            FutureCallback<InternalService.PFetchDataResult> callback = inv.getArgument(0);
+            callback.onSuccess(null);
+            return null;
+        }).when(receiver2).createFuture(ArgumentMatchers.any());
+        Mockito.doAnswer(inv -> {
+            FutureCallback<InternalService.PFetchDataResult> callback = inv.getArgument(0);
+            callback.onSuccess(null);
+            return null;
+        }).when(receiver3).createFuture(ArgumentMatchers.any());
 
-                receiver1.getNext((Status) any);
-                result = normalBatch1;
+        Mockito.when(receiver1.getNext(ArgumentMatchers.any(Status.class))).thenReturn(normalBatch1);
+        Mockito.when(receiver2.getNext(ArgumentMatchers.any(Status.class))).thenThrow(new TException("Network error"));
 
-                receiver2.getNext((Status) any);
-                result = new TException("Network error");
-            }
-        };
         RowBatch batch = consumer.getNext(status);
         Assert.assertFalse(batch.isEos());
         Assertions.assertThrows(TException.class, () -> consumer.getNext(status));
@@ -151,22 +125,15 @@ public class ResultReceiverConsumerTest {
                 Lists.newArrayList(receiver1, receiver2, receiver3), System.currentTimeMillis() + 3600);
         Status status = new Status();
 
-        new Expectations() {
-            {
-                receiver1.createFuture((FutureCallback<InternalService.PFetchDataResult>) any);
-                result = new Delegate() {
-                    void delegate(FutureCallback<InternalService.PFetchDataResult> callback) {
-                        callback.onSuccess(null);
-                    }
-                };
-                receiver2.createFuture((FutureCallback<InternalService.PFetchDataResult>) any);
-                result = new Delegate() {
-                    void delegate(FutureCallback<InternalService.PFetchDataResult> callback) throws UserException {
-                        throw new UserException("User error");
-                    }
-                };
-            }
-        };
+        Mockito.doAnswer(inv -> {
+            FutureCallback<InternalService.PFetchDataResult> callback = inv.getArgument(0);
+            callback.onSuccess(null);
+            return null;
+        }).when(receiver1).createFuture(ArgumentMatchers.any());
+        Mockito.doAnswer(inv -> {
+            throw new UserException("User error");
+        }).when(receiver2).createFuture(ArgumentMatchers.any());
+
         Assertions.assertThrows(UserException.class, () -> consumer.getNext(status));
     }
 }

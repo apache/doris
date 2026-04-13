@@ -39,10 +39,9 @@ import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import mockit.Mock;
-import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.ArrayList;
@@ -75,48 +74,47 @@ public class StatisticsAutoCollectorTest {
         manager.lowPriorityJobs.get(low1).add(Pair.of("index1", "col6"));
         manager.lowPriorityJobs.get(low1).add(Pair.of("index1", "col7"));
 
+        Env mockEnv = Mockito.mock(Env.class);
+        Mockito.when(mockEnv.getAnalysisManager()).thenReturn(manager);
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(mockEnv);
+            envStatic.when(Env::getServingEnv).thenReturn(mockEnv);
+            StatisticsAutoCollector collector = new StatisticsAutoCollector();
+            Pair<Entry<TableNameInfo, Set<Pair<String, String>>>, JobPriority> job = collector.getJob();
+            Assertions.assertEquals(high1, job.first.getKey());
+            Assertions.assertEquals(2, job.first.getValue().size());
+            Assertions.assertTrue(job.first.getValue().contains(Pair.of("index1", "col1")));
+            Assertions.assertTrue(job.first.getValue().contains(Pair.of("index1", "col2")));
+            Assertions.assertEquals(JobPriority.HIGH, job.second);
 
-        new MockUp<Env>() {
-            @Mock
-            public AnalysisManager getAnalysisManager() {
-                return manager;
-            }
-        };
-        StatisticsAutoCollector collector = new StatisticsAutoCollector();
-        Pair<Entry<TableNameInfo, Set<Pair<String, String>>>, JobPriority> job = collector.getJob();
-        Assertions.assertEquals(high1, job.first.getKey());
-        Assertions.assertEquals(2, job.first.getValue().size());
-        Assertions.assertTrue(job.first.getValue().contains(Pair.of("index1", "col1")));
-        Assertions.assertTrue(job.first.getValue().contains(Pair.of("index1", "col2")));
-        Assertions.assertEquals(JobPriority.HIGH, job.second);
+            job = collector.getJob();
+            Assertions.assertEquals(high2, job.first.getKey());
+            Assertions.assertEquals(1, job.first.getValue().size());
+            Assertions.assertTrue(job.first.getValue().contains(Pair.of("index1", "col3")));
+            Assertions.assertEquals(JobPriority.HIGH, job.second);
 
-        job = collector.getJob();
-        Assertions.assertEquals(high2, job.first.getKey());
-        Assertions.assertEquals(1, job.first.getValue().size());
-        Assertions.assertTrue(job.first.getValue().contains(Pair.of("index1", "col3")));
-        Assertions.assertEquals(JobPriority.HIGH, job.second);
+            job = collector.getJob();
+            Assertions.assertEquals(mid1, job.first.getKey());
+            Assertions.assertEquals(1, job.first.getValue().size());
+            Assertions.assertTrue(job.first.getValue().contains(Pair.of("index1", "col4")));
+            Assertions.assertEquals(JobPriority.MID, job.second);
 
-        job = collector.getJob();
-        Assertions.assertEquals(mid1, job.first.getKey());
-        Assertions.assertEquals(1, job.first.getValue().size());
-        Assertions.assertTrue(job.first.getValue().contains(Pair.of("index1", "col4")));
-        Assertions.assertEquals(JobPriority.MID, job.second);
+            job = collector.getJob();
+            Assertions.assertEquals(mid2, job.first.getKey());
+            Assertions.assertEquals(1, job.first.getValue().size());
+            Assertions.assertTrue(job.first.getValue().contains(Pair.of("index1", "col5")));
+            Assertions.assertEquals(JobPriority.MID, job.second);
 
-        job = collector.getJob();
-        Assertions.assertEquals(mid2, job.first.getKey());
-        Assertions.assertEquals(1, job.first.getValue().size());
-        Assertions.assertTrue(job.first.getValue().contains(Pair.of("index1", "col5")));
-        Assertions.assertEquals(JobPriority.MID, job.second);
+            job = collector.getJob();
+            Assertions.assertEquals(low1, job.first.getKey());
+            Assertions.assertEquals(2, job.first.getValue().size());
+            Assertions.assertTrue(job.first.getValue().contains(Pair.of("index1", "col6")));
+            Assertions.assertTrue(job.first.getValue().contains(Pair.of("index1", "col7")));
+            Assertions.assertEquals(JobPriority.LOW, job.second);
 
-        job = collector.getJob();
-        Assertions.assertEquals(low1, job.first.getKey());
-        Assertions.assertEquals(2, job.first.getValue().size());
-        Assertions.assertTrue(job.first.getValue().contains(Pair.of("index1", "col6")));
-        Assertions.assertTrue(job.first.getValue().contains(Pair.of("index1", "col7")));
-        Assertions.assertEquals(JobPriority.LOW, job.second);
-
-        job = collector.getJob();
-        Assertions.assertNull(job);
+            job = collector.getJob();
+            Assertions.assertNull(job);
+        }
     }
 
     @Test
@@ -135,25 +133,17 @@ public class StatisticsAutoCollectorTest {
                 jdbcExternalDatabase);
         Assertions.assertFalse(collector.supportAutoAnalyze(externalTable));
 
-        new MockUp<HMSExternalTable>() {
-            @Mock
-            public DLAType getDlaType() {
-                return DLAType.ICEBERG;
-            }
-        };
         HMSExternalDatabase hmsExternalDatabase = new HMSExternalDatabase(null, 1L, "hmsDb", "hmsDb");
         HMSExternalCatalog hmsCatalog = new HMSExternalCatalog(0, "jdbc_ctl", null, Maps.newHashMap(), "");
-        ExternalTable icebergExternalTable = new HMSExternalTable(1, "hmsTable", "hmsDb", hmsCatalog,
+        HMSExternalTable icebergRaw = new HMSExternalTable(1, "hmsTable", "hmsDb", hmsCatalog,
                 hmsExternalDatabase);
+        ExternalTable icebergExternalTable = Mockito.spy(icebergRaw);
+        Mockito.doReturn(DLAType.ICEBERG).when((HMSExternalTable) icebergExternalTable).getDlaType();
         Assertions.assertTrue(collector.supportAutoAnalyze(icebergExternalTable));
 
-        new MockUp<HMSExternalTable>() {
-            @Mock
-            public DLAType getDlaType() {
-                return DLAType.HIVE;
-            }
-        };
-        ExternalTable hiveExternalTable = new HMSExternalTable(1, "hmsTable", "hmsDb", hmsCatalog, hmsExternalDatabase);
+        HMSExternalTable hiveRaw = new HMSExternalTable(1, "hmsTable", "hmsDb", hmsCatalog, hmsExternalDatabase);
+        ExternalTable hiveExternalTable = Mockito.spy(hiveRaw);
+        Mockito.doReturn(DLAType.HIVE).when((HMSExternalTable) hiveExternalTable).getDlaType();
         Assertions.assertTrue(collector.supportAutoAnalyze(hiveExternalTable));
     }
 

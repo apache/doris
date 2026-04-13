@@ -21,6 +21,7 @@ import org.apache.doris.backup.CatalogMocker;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.NameSpaceContext;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.SinglePartitionInfo;
@@ -34,12 +35,15 @@ import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryState;
 
 import com.google.common.collect.ImmutableList;
-import mockit.Expectations;
-import mockit.Mocked;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.HashMap;
 import java.util.List;
@@ -55,51 +59,47 @@ public class ShowDataCommandTest {
             KeysType.AGG_KEYS,
             new SinglePartitionInfo(),
             new RandomDistributionInfo(32));
-    @Mocked
-    private Env env;
-    @Mocked
-    private InternalCatalog catalog;
-    @Mocked
-    private AccessControllerManager accessControllerManager;
-    @Mocked
-    private ConnectContext connectContext;
-    @Mocked
-    private Database database;
+
+    private Env env = Mockito.mock(Env.class);
+    private InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+    private AccessControllerManager accessControllerManager = Mockito.mock(AccessControllerManager.class);
+    private ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+    private Database database = Mockito.mock(Database.class);
+    private NameSpaceContext nameSpaceContext = Mockito.mock(NameSpaceContext.class);
+
+    private MockedStatic<Env> mockedEnv;
+    private MockedStatic<ConnectContext> mockedConnectContext;
+
+    @BeforeEach
+    public void setUp() {
+        mockedEnv = Mockito.mockStatic(Env.class);
+        mockedConnectContext = Mockito.mockStatic(ConnectContext.class);
+
+        mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+        mockedEnv.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+        mockedConnectContext.when(ConnectContext::get).thenReturn(connectContext);
+
+        Mockito.when(env.getAccessManager()).thenReturn(accessControllerManager);
+        Mockito.when(connectContext.getNameSpaceContext()).thenReturn(nameSpaceContext);
+        Mockito.when(nameSpaceContext.getDefaultCatalog()).thenReturn(InternalCatalog.INTERNAL_CATALOG_NAME);
+        Mockito.when(connectContext.getState()).thenReturn(new QueryState());
+    }
+
+    @AfterEach
+    public void tearDown() {
+        mockedConnectContext.close();
+        mockedEnv.close();
+    }
 
     @Test
     public void testValidateNormal() throws Exception {
-        Database db = CatalogMocker.mockDb();
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                catalog.getDb(anyString);
-                minTimes = 0;
-                result = db;
-
-                database.getTableOrMetaException(tableNameInfo.getTbl(), TableIf.TableType.OLAP);
-                minTimes = 0;
-                result = olapTable;
-
-                ConnectContext.get();
-                minTimes = 0;
-                result = connectContext;
-
-                connectContext.isSkipAuth();
-                minTimes = 0;
-                result = true;
-
-                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.SHOW);
-                minTimes = 0;
-                result = true;
-
-                accessControllerManager.checkTblPriv(connectContext, tableNameInfo, PrivPredicate.SHOW);
-                minTimes = 0;
-                result = true;
-            }
-        };
+        Mockito.doReturn(database).when(catalog).getDbOrAnalysisException(Mockito.anyString());
+        Mockito.doReturn(olapTable).when(database).getTableOrMetaException(
+                Mockito.anyString(), Mockito.any(TableIf.TableType.class));
+        Mockito.when(accessControllerManager.checkTblPriv(
+                Mockito.nullable(ConnectContext.class),
+                Mockito.any(TableNameInfo.class),
+                Mockito.any(PrivPredicate.class))).thenReturn(true);
 
         SlotReference tableName = new SlotReference("TableName", IntegerType.INSTANCE);
         List<OrderKey> keys = ImmutableList.of(
@@ -116,38 +116,9 @@ public class ShowDataCommandTest {
 
     @Test
     void testValidateNoPrivilege() throws Exception {
-        Database db = CatalogMocker.mockDb();
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                catalog.getDb(anyString);
-                minTimes = 0;
-                result = db;
-
-                database.getTableOrMetaException(tableNameInfo.getTbl(), TableIf.TableType.OLAP);
-                minTimes = 0;
-                result = olapTable;
-
-                ConnectContext.get();
-                minTimes = 0;
-                result = connectContext;
-
-                connectContext.isSkipAuth();
-                minTimes = 0;
-                result = true;
-
-                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.SHOW);
-                minTimes = 0;
-                result = true;
-
-                accessControllerManager.checkTblPriv(connectContext, tableNameInfo, PrivPredicate.SHOW);
-                minTimes = 0;
-                result = false;
-            }
-        };
+        Mockito.doReturn(database).when(catalog).getDbOrAnalysisException(Mockito.anyString());
+        Mockito.doReturn(olapTable).when(database).getTableOrMetaException(
+                Mockito.anyString(), Mockito.any(TableIf.TableType.class));
 
         SlotReference tableName = new SlotReference("TableName", IntegerType.INSTANCE);
         List<OrderKey> keys = ImmutableList.of(

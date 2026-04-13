@@ -30,11 +30,10 @@ import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.qe.OriginStatement;
 
 import com.google.common.collect.Maps;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -57,50 +56,46 @@ public class LoadJobV2PersistTest {
     }
 
     @Test
-    public void testBrokerLoadJob(@Mocked Env env, @Mocked InternalCatalog catalog, @Injectable Database database,
-            @Injectable Table table) throws Exception {
+    public void testBrokerLoadJob() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Database database = Mockito.mock(Database.class);
+        Table table = Mockito.mock(Table.class);
 
-        new Expectations() {
-            {
-                env.getInternalCatalog();
-                minTimes = 0;
-                result = catalog;
-                catalog.getDbNullable(anyLong);
-                minTimes = 0;
-                result = database;
-                database.getTableNullable(anyLong);
-                minTimes = 0;
-                result = table;
-                table.getName();
-                minTimes = 0;
-                result = "tablename";
-                Env.getCurrentEnvJournalVersion();
-                minTimes = 0;
-                result = FeMetaVersion.VERSION_CURRENT;
-            }
-        };
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            envStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+            envStatic.when(Env::getCurrentEnvJournalVersion).thenReturn(FeMetaVersion.VERSION_CURRENT);
 
-        // 1. Write objects to file
-        File file = new File("./testBrokerLoadJob");
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+            Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+            Mockito.when(catalog.getDbNullable(Mockito.anyLong())).thenReturn(database);
+            Mockito.when(catalog.getDbOrMetaException(Mockito.anyLong())).thenReturn(database);
+            Mockito.when(database.getTableNullable(Mockito.anyLong())).thenReturn(table);
+            Mockito.when(database.getFullName()).thenReturn("testDb");
+            Mockito.when(table.getName()).thenReturn("tablename");
 
-        BrokerLoadJob job = createJob();
-        Assert.assertEquals(5, job.getLoadParallelism());
-        job.write(dos);
+            // 1. Write objects to file
+            File file = new File("./testBrokerLoadJob");
+            file.createNewFile();
+            DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
 
-        dos.flush();
-        dos.close();
+            BrokerLoadJob job = createJob();
+            Assert.assertEquals(5, job.getLoadParallelism());
+            job.write(dos);
 
-        // 2. Read objects from file
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+            dos.flush();
+            dos.close();
 
-        BrokerLoadJob rJob = (BrokerLoadJob)  BrokerLoadJob.read(dis);
-        Assert.assertEquals(5, rJob.getLoadParallelism());
-        Assert.assertEquals(EtlJobType.BROKER, rJob.getJobType());
+            // 2. Read objects from file
+            DataInputStream dis = new DataInputStream(new FileInputStream(file));
 
-        // 3. delete files
-        dis.close();
-        file.delete();
+            BrokerLoadJob rJob = (BrokerLoadJob) BrokerLoadJob.read(dis);
+            Assert.assertEquals(5, rJob.getLoadParallelism());
+            Assert.assertEquals(EtlJobType.BROKER, rJob.getJobType());
+
+            // 3. delete files
+            dis.close();
+            file.delete();
+        }
     }
 }

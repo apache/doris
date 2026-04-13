@@ -24,7 +24,6 @@ import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.FakeEditLog;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.LocalReplica;
@@ -65,7 +64,7 @@ import org.apache.doris.thrift.TStorageType;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
-import mockit.Expectations;
+import org.mockito.Mockito;
 
 import java.util.List;
 import java.util.Map;
@@ -207,22 +206,13 @@ public class CatalogMocker {
     }
 
     private static AccessControllerManager fetchAdminAccess() {
-        AccessControllerManager accessManager = new AccessControllerManager(new Auth());
-        new Expectations(accessManager) {
-            {
-                accessManager.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
-                minTimes = 0;
-                result = true;
-
-                accessManager.checkDbPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
-                minTimes = 0;
-                result = true;
-
-                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, anyString, (PrivPredicate) any);
-                minTimes = 0;
-                result = true;
-            }
-        };
+        AccessControllerManager accessManager = Mockito.spy(new AccessControllerManager(new Auth()));
+        Mockito.doReturn(true).when(accessManager).checkGlobalPriv(Mockito.nullable(ConnectContext.class),
+                Mockito.any(PrivPredicate.class));
+        Mockito.doReturn(true).when(accessManager).checkDbPriv(Mockito.nullable(ConnectContext.class),
+                Mockito.anyString(), Mockito.anyString(), Mockito.any(PrivPredicate.class));
+        Mockito.doReturn(true).when(accessManager).checkTblPriv(Mockito.nullable(ConnectContext.class),
+                Mockito.anyString(), Mockito.anyString(), Mockito.anyString(), Mockito.any(PrivPredicate.class));
         return accessManager;
     }
 
@@ -395,60 +385,26 @@ public class CatalogMocker {
 
     public static Env fetchAdminCatalog() {
         try {
-            FakeEditLog fakeEditLog = new FakeEditLog(); // CHECKSTYLE IGNORE THIS LINE
-
-            Env env = Deencapsulation.newInstance(Env.class);
-            InternalCatalog catalog = Deencapsulation.newInstance(InternalCatalog.class);
+            Env env = Mockito.spy(Deencapsulation.newInstance(Env.class));
+            InternalCatalog catalog = Mockito.spy(Deencapsulation.newInstance(InternalCatalog.class));
 
             Database db = new Database();
             AccessControllerManager accessManager = fetchAdminAccess();
 
-            new Expectations(env, catalog) {
-                {
-                    env.getAccessManager();
-                    minTimes = 0;
-                    result = accessManager;
+            Mockito.doReturn(accessManager).when(env).getAccessManager();
+            Mockito.doReturn(catalog).when(env).getInternalCatalog();
+            Mockito.doReturn(catalog).when(env).getCurrentCatalog();
 
-                    env.getInternalCatalog();
-                    minTimes = 0;
-                    result = catalog;
+            Mockito.doReturn(db).when(catalog).getDbNullable(TEST_DB_ID);
+            Mockito.doReturn(new Database()).when(catalog).getDbNullable(Mockito.anyString());
+            Mockito.doReturn(db).when(catalog).getDbNullable(TEST_DB_NAME);
+            Mockito.doReturn(null).when(catalog).getDbNullable(WRONG_DB);
+            Mockito.doReturn(Lists.newArrayList(TEST_DB_NAME)).when(catalog).getDbNames();
 
-                    env.getCurrentCatalog();
-                    minTimes = 0;
-                    result = catalog;
-
-                    catalog.getDbNullable(TEST_DB_NAME);
-                    minTimes = 0;
-                    result = db;
-
-                    catalog.getDbNullable(WRONG_DB);
-                    minTimes = 0;
-                    result = null;
-
-                    catalog.getDbNullable(TEST_DB_ID);
-                    minTimes = 0;
-                    result = db;
-
-                    catalog.getDbNullable(anyString);
-                    minTimes = 0;
-                    result = new Database();
-
-                    catalog.getDbNames();
-                    minTimes = 0;
-                    result = Lists.newArrayList(TEST_DB_NAME);
-
-                    env.getEditLog();
-                    minTimes = 0;
-                    result = new EditLog("name");
-
-                    env.changeDb((ConnectContext) any, WRONG_DB);
-                    minTimes = 0;
-                    result = new DdlException("failed");
-
-                    env.changeDb((ConnectContext) any, anyString);
-                    minTimes = 0;
-                }
-            };
+            Mockito.doReturn(new EditLog("name")).when(env).getEditLog();
+            Mockito.doNothing().when(env).changeDb(Mockito.nullable(ConnectContext.class), Mockito.anyString());
+            Mockito.doThrow(new DdlException("failed")).when(env).changeDb(Mockito.nullable(ConnectContext.class),
+                    Mockito.eq(WRONG_DB));
             return env;
         } catch (DdlException e) {
             return null;

@@ -149,8 +149,8 @@ public:
         }
     }
 
-    inline static std::vector<CacheType> MetadataCache {
-            CacheType::SEGMENT_CACHE, CacheType::SCHEMA_CACHE, CacheType::TABLET_SCHEMA_CACHE};
+    inline static std::vector<CacheType> MetadataCache {CacheType::SEGMENT_CACHE,
+                                                        CacheType::TABLET_SCHEMA_CACHE};
 
     CachePolicy(CacheType type, size_t capacity, uint32_t stale_sweep_time_s, bool enable_prune);
     virtual ~CachePolicy();

@@ -21,7 +21,6 @@ import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.IdGenerator;
-import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -43,11 +42,9 @@ import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.SortPhase;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
-import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
@@ -60,7 +57,6 @@ import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
@@ -68,13 +64,12 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -98,29 +93,32 @@ class ChildOutputPropertyDeriverTest {
             )
     );
 
-    @Mocked
-    LogicalProperties logicalProperties;
+    LogicalProperties logicalProperties = Mockito.mock(LogicalProperties.class);
 
-    @Injectable
-    ColocateTableIndex colocateTableIndex;
+    ColocateTableIndex colocateTableIndex = Mockito.mock(ColocateTableIndex.class);
+
+    private MockedStatic<Env> mockedEnv;
+    private MockedStatic<ConnectContext> mockedConnectContext;
 
     @BeforeEach
     public void setUp() {
         FeConstants.runningUnitTest = true;
 
-        new MockUp<Env>() {
-            @Mock
-            ColocateTableIndex getCurrentColocateIndex() {
-                return colocateTableIndex;
-            }
-        };
+        mockedEnv = Mockito.mockStatic(Env.class, Mockito.CALLS_REAL_METHODS);
+        mockedEnv.when(Env::getCurrentColocateIndex).thenReturn(colocateTableIndex);
 
-        new MockUp<ConnectContext>() {
-            @Mock
-            ConnectContext get() {
-                return new ConnectContext();
-            }
-        };
+        mockedConnectContext = Mockito.mockStatic(ConnectContext.class, Mockito.CALLS_REAL_METHODS);
+        mockedConnectContext.when(ConnectContext::get).thenReturn(new ConnectContext());
+    }
+
+    @AfterEach
+    public void tearDown() {
+        if (mockedConnectContext != null) {
+            mockedConnectContext.close();
+        }
+        if (mockedEnv != null) {
+            mockedEnv.close();
+        }
     }
 
     @Test
@@ -576,7 +574,7 @@ class ChildOutputPropertyDeriverTest {
     }
 
     @Test
-    void testBroadcastJoin(@Injectable LogicalProperties p1, @Injectable GroupPlan p2) {
+    void testBroadcastJoin() {
         SlotReference leftSlot = new SlotReference(new ExprId(0), "left", IntegerType.INSTANCE, false, Collections.emptyList());
         SlotReference rightSlot = new SlotReference(new ExprId(2), "right", IntegerType.INSTANCE, false, Collections.emptyList());
         List<Slot> leftOutput = new ArrayList<>();
@@ -628,14 +626,6 @@ class ChildOutputPropertyDeriverTest {
 
     @Test
     void testShuffleJoin() {
-        new MockUp<JoinUtils>() {
-            @Mock
-            Pair<List<ExprId>, List<ExprId>> getOnClauseUsedSlots(
-                    AbstractPhysicalJoin<? extends Plan, ? extends Plan> join) {
-                return Pair.of(Lists.newArrayList(new ExprId(0)), Lists.newArrayList(new ExprId(2)));
-            }
-        };
-
         PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.INNER_JOIN,
                 Lists.newArrayList(new EqualTo(
                         new SlotReference(new ExprId(0), "left", IntegerType.INSTANCE, false, Collections.emptyList()),

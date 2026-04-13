@@ -23,16 +23,15 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.LabelAlreadyUsedException;
-import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.kafka.KafkaUtil;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.loadv2.LoadTask;
@@ -44,26 +43,20 @@ import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadProperty;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadSeparator;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TResourceInfo;
-import org.apache.doris.transaction.BeginTransactionException;
-import org.apache.doris.transaction.GlobalTransactionMgr;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
-import mockit.Verifications;
 import org.apache.kafka.common.PartitionInfo;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -89,48 +82,36 @@ public class KafkaRoutineLoadJobTest {
 
     private ImportSequenceStmt sequenceStmt = new ImportSequenceStmt("source_sequence");
 
-    @Mocked
-    ConnectContext connectContext;
-    @Mocked
-    TResourceInfo tResourceInfo;
+    ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+    TResourceInfo tResourceInfo = Mockito.mock(TResourceInfo.class);
+
+    private MockedStatic<ConnectContext> connectContextStatic;
 
     @Before
     public void init() {
-        MockedAuth.mockedConnectContext(connectContext, "root", "192.168.1.1");
+        connectContextStatic = MockedAuth.mockedConnectContext(connectContext, "root", "192.168.1.1");
 
         List<String> partitionNameList = Lists.newArrayList();
         partitionNameList.add("p1");
         partitionNames = new PartitionNamesInfo(false, partitionNameList);
     }
 
+    @After
+    public void tearDown() {
+        if (connectContextStatic != null) {
+            connectContextStatic.close();
+        }
+    }
+
     @Test
-    public void testRoutineLoadTaskConcurrentNum(@Injectable PartitionInfo partitionInfo1,
-                             @Injectable PartitionInfo partitionInfo2,
-                             @Mocked Env env,
-                             @Mocked SystemInfoService systemInfoService,
-                             @Mocked Database database,
-                             @Mocked RoutineLoadDesc routineLoadDesc) throws MetaNotFoundException {
+    public void testRoutineLoadTaskConcurrentNum() throws MetaNotFoundException {
+        Config.max_routine_load_task_concurrent_num = 6;
+
         List<Integer> partitionList1 = Lists.newArrayList(1, 2);
         List<Integer> partitionList2 = Lists.newArrayList(1, 2, 3);
         List<Integer> partitionList3 = Lists.newArrayList(1, 2, 3, 4);
         List<Integer> partitionList4 = Lists.newArrayList(1, 2, 3, 4, 5, 6, 7);
-        List<Long> beIds1 = Lists.newArrayList(1L);
-        List<Long> beIds2 = Lists.newArrayList(1L, 2L, 3L, 4L);
 
-        new Expectations() {
-            {
-                Env.getCurrentSystemInfo();
-                minTimes = 0;
-                result = systemInfoService;
-                systemInfoService.getAllBackendIds(true);
-                minTimes = 0;
-                result = beIds1;
-                systemInfoService.getAllBackendIds(true);
-                result = beIds2;
-                minTimes = 0;
-            }
-        };
-        Config.max_routine_load_task_concurrent_num = 6;
         // 2 partitions, 1 be
         RoutineLoadJob routineLoadJob =
                 new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
@@ -157,166 +138,147 @@ public class KafkaRoutineLoadJobTest {
         Assert.assertEquals(6, routineLoadJob.calculateCurrentConcurrentTaskNum());
     }
 
-
     @Test
-    public void testDivideRoutineLoadJob(@Injectable RoutineLoadManager routineLoadManager,
-                                         @Mocked RoutineLoadDesc routineLoadDesc)
-            throws UserException {
+    public void testDivideRoutineLoadJob() throws UserException {
+        RoutineLoadManager routineLoadManager = Mockito.mock(RoutineLoadManager.class);
+        Env env = Mockito.mock(Env.class);
+        RoutineLoadTaskScheduler routineLoadTaskScheduler = Mockito.mock(RoutineLoadTaskScheduler.class);
 
-        Env env = Deencapsulation.newInstance(Env.class);
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getRoutineLoadManager()).thenReturn(routineLoadManager);
+            Mockito.when(env.getRoutineLoadTaskScheduler()).thenReturn(routineLoadTaskScheduler);
 
-        RoutineLoadJob routineLoadJob =
-                new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
-                        1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+            RoutineLoadJob routineLoadJob =
+                    new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
+                            1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
 
-        new Expectations(env) {
-            {
-                env.getRoutineLoadManager();
-                minTimes = 0;
-                result = routineLoadManager;
-            }
-        };
+            Deencapsulation.setField(routineLoadJob, "currentKafkaPartitions", Arrays.asList(1, 4, 6));
 
-        RoutineLoadTaskScheduler routineLoadTaskScheduler = new RoutineLoadTaskScheduler(routineLoadManager);
-        Deencapsulation.setField(env, "routineLoadTaskScheduler", routineLoadTaskScheduler);
+            routineLoadJob.divideRoutineLoadJob(2);
 
-        Deencapsulation.setField(routineLoadJob, "currentKafkaPartitions", Arrays.asList(1, 4, 6));
-
-        routineLoadJob.divideRoutineLoadJob(2);
-
-        // todo(ml): assert
-        List<RoutineLoadTaskInfo> routineLoadTaskInfoList = Deencapsulation.getField(routineLoadJob, "routineLoadTaskInfoList");
-        Assert.assertEquals(2, routineLoadTaskInfoList.size());
-        for (RoutineLoadTaskInfo routineLoadTaskInfo : routineLoadTaskInfoList) {
-            KafkaTaskInfo kafkaTaskInfo = (KafkaTaskInfo) routineLoadTaskInfo;
-            Assert.assertEquals(false, kafkaTaskInfo.isRunning());
-            if (kafkaTaskInfo.getPartitions().size() == 2) {
-                Assert.assertTrue(kafkaTaskInfo.getPartitions().contains(1));
-                Assert.assertTrue(kafkaTaskInfo.getPartitions().contains(6));
-            } else if (kafkaTaskInfo.getPartitions().size() == 1) {
-                Assert.assertTrue(kafkaTaskInfo.getPartitions().contains(4));
-            } else {
-                Assert.fail();
+            // todo(ml): assert
+            List<RoutineLoadTaskInfo> routineLoadTaskInfoList = Deencapsulation.getField(routineLoadJob, "routineLoadTaskInfoList");
+            Assert.assertEquals(2, routineLoadTaskInfoList.size());
+            for (RoutineLoadTaskInfo routineLoadTaskInfo : routineLoadTaskInfoList) {
+                KafkaTaskInfo kafkaTaskInfo = (KafkaTaskInfo) routineLoadTaskInfo;
+                Assert.assertEquals(false, kafkaTaskInfo.isRunning());
+                if (kafkaTaskInfo.getPartitions().size() == 2) {
+                    Assert.assertTrue(kafkaTaskInfo.getPartitions().contains(1));
+                    Assert.assertTrue(kafkaTaskInfo.getPartitions().contains(6));
+                } else if (kafkaTaskInfo.getPartitions().size() == 1) {
+                    Assert.assertTrue(kafkaTaskInfo.getPartitions().contains(4));
+                } else {
+                    Assert.fail();
+                }
             }
         }
     }
 
     @Test
-    public void testProcessTimeOutTasks(@Injectable GlobalTransactionMgr globalTransactionMgr,
-                                        @Injectable RoutineLoadManager routineLoadManager,
-                                        @Mocked RoutineLoadDesc routineLoadDesc)
-            throws AnalysisException, LabelAlreadyUsedException,
-            BeginTransactionException {
+    public void testProcessTimeOutTasks() throws Exception {
+        RoutineLoadManager routineLoadManager = Mockito.mock(RoutineLoadManager.class);
+        Env env = Mockito.mock(Env.class);
+        RoutineLoadTaskScheduler routineLoadTaskScheduler = Mockito.mock(RoutineLoadTaskScheduler.class);
 
-        Env env = Deencapsulation.newInstance(Env.class);
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getRoutineLoadManager()).thenReturn(routineLoadManager);
+            Mockito.when(env.getRoutineLoadTaskScheduler()).thenReturn(routineLoadTaskScheduler);
 
-        RoutineLoadJob routineLoadJob =
-                new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
-                        1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
-        long maxBatchIntervalS = 10;
-        Deencapsulation.setField(routineLoadJob, "maxBatchIntervalS", maxBatchIntervalS);
-        new Expectations() {
-            {
-                env.getRoutineLoadManager();
-                minTimes = 0;
-                result = routineLoadManager;
-            }
-        };
+            RoutineLoadJob routineLoadJob =
+                    new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
+                            1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+            long maxBatchIntervalS = 10;
+            Deencapsulation.setField(routineLoadJob, "maxBatchIntervalS", maxBatchIntervalS);
 
-        List<RoutineLoadTaskInfo> routineLoadTaskInfoList = new ArrayList<>();
-        Map<Integer, Long> partitionIdsToOffset = Maps.newHashMap();
-        partitionIdsToOffset.put(100, 0L);
-        KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(new UUID(1, 1), 1L,
-                maxBatchIntervalS * 2 * 1000, partitionIdsToOffset, false, -1, false);
-        kafkaTaskInfo.setExecuteStartTimeMs(System.currentTimeMillis() - maxBatchIntervalS * 2 * 1000 - 1);
-        routineLoadTaskInfoList.add(kafkaTaskInfo);
+            List<RoutineLoadTaskInfo> routineLoadTaskInfoList = new ArrayList<>();
+            Map<Integer, Long> partitionIdsToOffset = Maps.newHashMap();
+            partitionIdsToOffset.put(100, 0L);
+            KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(new UUID(1, 1), 1L,
+                    maxBatchIntervalS * 2 * 1000, partitionIdsToOffset, false, -1, false);
+            kafkaTaskInfo.setExecuteStartTimeMs(System.currentTimeMillis() - maxBatchIntervalS * 2 * 1000 - 1);
+            routineLoadTaskInfoList.add(kafkaTaskInfo);
 
-        Deencapsulation.setField(routineLoadJob, "routineLoadTaskInfoList", routineLoadTaskInfoList);
+            Deencapsulation.setField(routineLoadJob, "routineLoadTaskInfoList", routineLoadTaskInfoList);
 
-        routineLoadJob.processTimeoutTasks();
-        new Verifications() {
-            {
-                List<RoutineLoadTaskInfo> idToRoutineLoadTask =
-                        Deencapsulation.getField(routineLoadJob, "routineLoadTaskInfoList");
-                Assert.assertNotEquals("1", idToRoutineLoadTask.get(0).getId());
-                Assert.assertEquals(1, idToRoutineLoadTask.size());
-            }
-        };
+            routineLoadJob.processTimeoutTasks();
+
+            List<RoutineLoadTaskInfo> idToRoutineLoadTask =
+                    Deencapsulation.getField(routineLoadJob, "routineLoadTaskInfoList");
+            Assert.assertNotEquals("1", idToRoutineLoadTask.get(0).getId());
+            Assert.assertEquals(1, idToRoutineLoadTask.size());
+        }
     }
 
     @Test
-    public void testFromCreateStmt(@Mocked Env env,
-                                   @Injectable Database database,
-            @Injectable OlapTable table) throws UserException {
-        CreateRoutineLoadInfo createRoutineLoadInfo = initCreateRoutineLoadInfo();
-        createRoutineLoadInfo.validate(connectContext);
-        RoutineLoadDesc routineLoadDesc = new RoutineLoadDesc(columnSeparator, null, null, null, null, partitionNames, null,
-                LoadTask.MergeType.APPEND, sequenceStmt.getSequenceColName());
-        Deencapsulation.setField(createRoutineLoadInfo, "routineLoadDesc", routineLoadDesc);
-        List<Pair<Integer, Long>> partitionIdToOffset = Lists.newArrayList();
-        List<PartitionInfo> kafkaPartitionInfoList = Lists.newArrayList();
-        for (String s : kafkaPartitionString.split(",")) {
-            partitionIdToOffset.add(Pair.of(Integer.valueOf(s), 0L));
-            PartitionInfo partitionInfo = new PartitionInfo(topicName, Integer.valueOf(s), null, null, null);
-            kafkaPartitionInfoList.add(partitionInfo);
+    public void testFromCreateStmt() throws UserException {
+        Env env = Mockito.mock(Env.class);
+        Database database = Mockito.mock(Database.class);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        InternalCatalog internalCatalog = Mockito.mock(InternalCatalog.class);
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedStatic<KafkaUtil> kafkaUtilStatic = Mockito.mockStatic(KafkaUtil.class)) {
+
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            envStatic.when(Env::getCurrentInternalCatalog).thenReturn(internalCatalog);
+
+            long dbId = 1L;
+            long tableId = 2L;
+
+            Mockito.doReturn(database).when(internalCatalog).getDbOrDdlException(dbName);
+            Mockito.doReturn(database).when(internalCatalog).getDbOrAnalysisException(dbName);
+            Mockito.doReturn(table).when(database).getOlapTableOrDdlException(tableNameString);
+            Mockito.doReturn(table).when(database).getTableOrAnalysisException(tableNameString);
+            Mockito.when(database.getId()).thenReturn(dbId);
+            Mockito.when(table.getId()).thenReturn(tableId);
+            Mockito.when(table.getType()).thenReturn(Table.TableType.OLAP);
+            Mockito.doReturn(Mockito.mock(Partition.class)).when(table)
+                    .getPartition(Mockito.anyString(), Mockito.anyBoolean());
+
+            kafkaUtilStatic.when(() -> KafkaUtil.getAllKafkaPartitions(
+                    Mockito.anyString(), Mockito.anyString(), Mockito.anyMap()))
+                    .thenReturn(Lists.newArrayList(1, 2, 3));
+
+            kafkaUtilStatic.when(() -> KafkaUtil.getRealOffsets(
+                    Mockito.anyString(), Mockito.anyString(), Mockito.anyMap(), Mockito.anyList()))
+                    .thenAnswer(invocation -> {
+                        List<Pair<Integer, Long>> pairList = new ArrayList<>();
+                        pairList.add(Pair.of(1, 0L));
+                        pairList.add(Pair.of(2, 0L));
+                        pairList.add(Pair.of(3, 0L));
+                        return pairList;
+                    });
+
+            CreateRoutineLoadInfo createRoutineLoadInfo = initCreateRoutineLoadInfo();
+            createRoutineLoadInfo.validate(connectContext);
+            RoutineLoadDesc routineLoadDesc = new RoutineLoadDesc(columnSeparator, null, null, null, null, partitionNames, null,
+                    LoadTask.MergeType.APPEND, sequenceStmt.getSequenceColName());
+            Deencapsulation.setField(createRoutineLoadInfo, "routineLoadDesc", routineLoadDesc);
+            List<Pair<Integer, Long>> partitionIdToOffset = Lists.newArrayList();
+            List<PartitionInfo> kafkaPartitionInfoList = Lists.newArrayList();
+            for (String s : kafkaPartitionString.split(",")) {
+                partitionIdToOffset.add(Pair.of(Integer.valueOf(s), 0L));
+                PartitionInfo partitionInfo = new PartitionInfo(topicName, Integer.valueOf(s), null, null, null);
+                kafkaPartitionInfoList.add(partitionInfo);
+            }
+            KafkaDataSourceProperties dsProperties = new KafkaDataSourceProperties(null);
+            dsProperties.setKafkaPartitionOffsets(partitionIdToOffset);
+            Deencapsulation.setField(dsProperties, "brokerList", serverAddress);
+            Deencapsulation.setField(dsProperties, "topic", topicName);
+            Deencapsulation.setField(createRoutineLoadInfo, "dataSourceProperties", dsProperties);
+
+            KafkaRoutineLoadJob kafkaRoutineLoadJob = KafkaRoutineLoadJob.fromCreateInfo(createRoutineLoadInfo, connectContext);
+            Assert.assertEquals(jobName, kafkaRoutineLoadJob.getName());
+            Assert.assertEquals(dbId, kafkaRoutineLoadJob.getDbId());
+            Assert.assertEquals(tableId, kafkaRoutineLoadJob.getTableId());
+            Assert.assertEquals(serverAddress, Deencapsulation.getField(kafkaRoutineLoadJob, "brokerList"));
+            Assert.assertEquals(topicName, Deencapsulation.getField(kafkaRoutineLoadJob, "topic"));
+            List<Integer> kafkaPartitionResult = Deencapsulation.getField(kafkaRoutineLoadJob, "customKafkaPartitions");
+            Assert.assertEquals(kafkaPartitionString, Joiner.on(",").join(kafkaPartitionResult));
+            Assert.assertEquals(sequenceStmt.getSequenceColName(), kafkaRoutineLoadJob.getSequenceCol());
         }
-        KafkaDataSourceProperties dsProperties = new KafkaDataSourceProperties(null);
-        dsProperties.setKafkaPartitionOffsets(partitionIdToOffset);
-        Deencapsulation.setField(dsProperties, "brokerList", serverAddress);
-        Deencapsulation.setField(dsProperties, "topic", topicName);
-        Deencapsulation.setField(createRoutineLoadInfo, "dataSourceProperties", dsProperties);
-
-        long dbId = 1L;
-        long tableId = 2L;
-
-        new Expectations() {
-            {
-                database.getTableNullable(tableNameString);
-                minTimes = 0;
-                result = table;
-                database.getId();
-                minTimes = 0;
-                result = dbId;
-                table.getId();
-                minTimes = 0;
-                result = tableId;
-                table.getType();
-                minTimes = 0;
-                result = Table.TableType.OLAP;
-            }
-        };
-
-        new MockUp<KafkaUtil>() {
-            @Mock
-            public List<Integer> getAllKafkaPartitions(String brokerList, String topic,
-                    Map<String, String> convertedCustomProperties) throws UserException {
-                return Lists.newArrayList(1, 2, 3);
-            }
-        };
-
-        new MockUp<KafkaUtil>() {
-            @Mock
-            public List<Pair<Integer, Long>> getRealOffsets(String brokerList, String topic,
-                                                             Map<String, String> convertedCustomProperties,
-                                                             List<Pair<Integer, Long>> offsetFlags)
-                                                             throws LoadException {
-                List<Pair<Integer, Long>> pairList = new ArrayList<>();
-                pairList.add(Pair.of(1, 0L));
-                pairList.add(Pair.of(2, 0L));
-                pairList.add(Pair.of(3, 0L));
-                return pairList;
-            }
-        };
-
-        KafkaRoutineLoadJob kafkaRoutineLoadJob = KafkaRoutineLoadJob.fromCreateInfo(createRoutineLoadInfo, connectContext);
-        Assert.assertEquals(jobName, kafkaRoutineLoadJob.getName());
-        Assert.assertEquals(dbId, kafkaRoutineLoadJob.getDbId());
-        Assert.assertEquals(tableId, kafkaRoutineLoadJob.getTableId());
-        Assert.assertEquals(serverAddress, Deencapsulation.getField(kafkaRoutineLoadJob, "brokerList"));
-        Assert.assertEquals(topicName, Deencapsulation.getField(kafkaRoutineLoadJob, "topic"));
-        List<Integer> kafkaPartitionResult = Deencapsulation.getField(kafkaRoutineLoadJob, "customKafkaPartitions");
-        Assert.assertEquals(kafkaPartitionString, Joiner.on(",").join(kafkaPartitionResult));
-        Assert.assertEquals(sequenceStmt.getSequenceColName(), kafkaRoutineLoadJob.getSequenceCol());
     }
 
     private CreateRoutineLoadInfo initCreateRoutineLoadInfo() {

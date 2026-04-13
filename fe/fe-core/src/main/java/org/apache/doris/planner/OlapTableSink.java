@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.analysis.DescriptorToThriftConverter;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.ExprToThriftVisitor;
@@ -400,9 +401,9 @@ public class OlapTableSink extends DataSink {
         schemaParam.setVersion(table.getIndexMetaByIndexId(table.getBaseIndexId()).getSchemaVersion());
         schemaParam.setIsStrictMode(isStrictMode);
 
-        schemaParam.tuple_desc = tupleDescriptor.toThrift();
+        schemaParam.tuple_desc = DescriptorToThriftConverter.toThrift(tupleDescriptor);
         for (SlotDescriptor slotDesc : tupleDescriptor.getSlots()) {
-            schemaParam.addToSlotDescs(slotDesc.toThrift());
+            schemaParam.addToSlotDescs(DescriptorToThriftConverter.toThrift(slotDesc));
         }
 
         for (Map.Entry<Long, MaterializedIndexMeta> pair : table.getIndexIdToMeta().entrySet()) {
