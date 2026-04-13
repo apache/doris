@@ -1231,6 +1231,7 @@ TEST_F(SpillSortSourceOperatorTest, SpillDataDirThreadSafety) {
 }
 
 TEST_F(SpillSortSourceOperatorTest, SpillWriterMemoryTracking) {
+<<<<<<< HEAD
     // Test the accuracy of memory tracking in SpillWriter (Bug 2)
     SpillStreamSPtr spill_stream;
     auto st = ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
@@ -1238,6 +1239,16 @@ TEST_F(SpillSortSourceOperatorTest, SpillWriterMemoryTracking) {
             "SpillWriterTest", 0, std::numeric_limits<int32_t>::max(),
             std::numeric_limits<int32_t>::max(), _helper.operator_profile.get());
     ASSERT_TRUE(st.ok()) << "register_spill_stream failed: " << st.to_string();
+=======
+    // Test the accuracy of memory tracking in SpillFileWriter (Bug 2)
+    SpillFileSPtr spill_file;
+    auto st = ExecEnv::GetInstance()->spill_file_mgr()->create_spill_file("SpillWriterTest", spill_file);
+    ASSERT_TRUE(st.ok()) << "create_spill_file failed: " << st.to_string();
+
+    SpillFileWriterSPtr writer;
+    st = spill_file->create_writer(_helper.runtime_state.get(), _helper.operator_profile.get(), writer);
+    ASSERT_TRUE(st.ok());
+>>>>>>> fc1f0e6ab9 (code format)
 
     auto* memory_used_counter = _helper.common_profile->get_counter("MemoryUsage");
     ASSERT_TRUE(memory_used_counter != nullptr);
@@ -1249,21 +1260,27 @@ TEST_F(SpillSortSourceOperatorTest, SpillWriterMemoryTracking) {
     std::iota(data.begin(), data.end(), 0);
     auto block = ColumnHelper::create_block<DataTypeInt32>(data);
 
-    // After spill_block, the memory usage should return to initial_memory
+    // After write_block, the memory usage should return to initial_memory
     // because the Defer block should have decremented it.
-    st = spill_stream->spill_block(_helper.runtime_state.get(), block, false);
+    st = writer->write_block(_helper.runtime_state.get(), block);
     ASSERT_TRUE(st.ok());
 
     int64_t after_write_memory = hw_counter->current_value();
+<<<<<<< HEAD
     ASSERT_EQ(after_write_memory, initial_memory)
             << "Memory should be properly decremented after spill_block";
 
+=======
+    ASSERT_EQ(after_write_memory, initial_memory) 
+        << "Memory should be properly decremented after write_block";
+        
+>>>>>>> fc1f0e6ab9 (code format)
     // Also verify that the peak memory actually increased during the write
     int64_t peak_memory = hw_counter->value();
     ASSERT_GT(peak_memory, initial_memory)
             << "Peak memory should be greater than initial memory, proving it was incremented";
 
-    spill_stream->gc();
+    writer->close();
 }
 
 } // namespace doris
