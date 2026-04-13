@@ -44,6 +44,11 @@ public:
         return Status::OK();
     }
 
+    // SLOT_REF is not a constant — without this override, VExpr::is_constant()
+    // returns true for a leaf node (no children), causing get_const_col() to
+    // DCHECK-fail on the second open() call.
+    bool is_constant() const override { return false; }
+
 private:
     static TExprNode make_texpr_node() {
         return TExprNodeBuilder(TExprNodeType::SLOT_REF,
