@@ -1423,27 +1423,23 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
     }
     if (cell->file_block.get() != file_block.get()) {
         auto* cell_file_block = cell->file_block.get();
-        LOG(WARNING) << "remove skipped because cache cell points to a different file block. hash="
-                     << hash.to_string() << " offset=" << offset
-                     << " size=" << file_block->range().size()
-                     << " type=" << cache_type_to_string(type)
-                     << " state=" << FileBlock::state_to_string(file_block->state_unsafe())
-                     << " expiration_time=" << expiration_time << " sync=" << sync
-                     << " cell_block_hash="
-                     << (cell_file_block ? cell_file_block->get_hash_value().to_string()
-                                         : "<null>")
-                     << " cell_block_offset="
-                     << (cell_file_block ? std::to_string(cell_file_block->offset()) : "<null>")
-                     << " cell_block_size="
-                     << (cell_file_block ? std::to_string(cell_file_block->range().size())
-                                         : "<null>")
-                     << " cell_block_type="
-                     << (cell_file_block ? cache_type_to_string(cell_file_block->cache_type())
-                                         : "<null>")
-                     << " cell_block_state="
-                     << (cell_file_block
-                                 ? FileBlock::state_to_string(cell_file_block->state_unsafe())
-                                 : "<null>");
+        LOG(WARNING)
+                << "remove skipped because cache cell points to a different file block. hash="
+                << hash.to_string() << " offset=" << offset
+                << " size=" << file_block->range().size() << " type=" << cache_type_to_string(type)
+                << " state=" << FileBlock::state_to_string(file_block->state_unsafe())
+                << " expiration_time=" << expiration_time << " sync=" << sync << " cell_block_hash="
+                << (cell_file_block ? cell_file_block->get_hash_value().to_string() : "<null>")
+                << " cell_block_offset="
+                << (cell_file_block ? std::to_string(cell_file_block->offset()) : "<null>")
+                << " cell_block_size="
+                << (cell_file_block ? std::to_string(cell_file_block->range().size()) : "<null>")
+                << " cell_block_type="
+                << (cell_file_block ? cache_type_to_string(cell_file_block->cache_type())
+                                    : "<null>")
+                << " cell_block_state="
+                << (cell_file_block ? FileBlock::state_to_string(cell_file_block->state_unsafe())
+                                    : "<null>");
         return;
     }
     DCHECK(cell->queue_iterator);
