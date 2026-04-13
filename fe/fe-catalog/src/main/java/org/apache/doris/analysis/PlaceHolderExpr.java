@@ -20,7 +20,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.MysqlColType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
 
 import com.google.common.base.Preconditions;
 
@@ -44,11 +43,6 @@ public class PlaceHolderExpr extends LiteralExpr {
 
     public LiteralExpr getLiteral() {
         return lExpr;
-    }
-
-    public static PlaceHolderExpr create(String value, Type type) throws AnalysisException {
-        Preconditions.checkArgument(!type.equals(Type.INVALID));
-        return new PlaceHolderExpr(LiteralExpr.create(value, type));
     }
 
     /*
@@ -95,16 +89,7 @@ public class PlaceHolderExpr extends LiteralExpr {
     }
 
     public ByteBuffer getHashValue(PrimitiveType colType) {
-        if (colType != type.getPrimitiveType()) {
-            try {
-                LiteralExpr castLiteral = LiteralExpr.create(getStringValue(), Type.fromPrimitiveType(colType));
-                return castLiteral.getHashValue(colType);
-            } catch (AnalysisException e) {
-                // Could not reach this position
-                Preconditions.checkState(false);
-            }
-        }
-        return lExpr.getHashValue(colType);
+        throw new RuntimeException("call getHashValue on PlaceHolderExpr");
     }
 
     @Override

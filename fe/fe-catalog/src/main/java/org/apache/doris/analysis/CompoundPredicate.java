@@ -109,11 +109,11 @@ public class CompoundPredicate extends Predicate {
     public String toString() {
         if (getChildren().size() == 1) {
             Preconditions.checkState(getOp() == Operator.NOT);
-            return "NOT " + getChild(0).accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE);
+            return "NOT " + getChild(0);
         } else {
-            return "(" + getChild(0).accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)
+            return "(" + getChild(0)
                     + " " + getOp().toString()
-                    + " " + getChild(1).accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE) + ")";
+                    + " " + getChild(1) + ")";
         }
     }
 }

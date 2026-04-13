@@ -21,8 +21,6 @@ import org.apache.doris.common.util.URI;
 import org.apache.doris.thrift.TDictFunction;
 
 import com.google.gson.annotations.SerializedName;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -34,7 +32,6 @@ import java.util.List;
  * Internal representation of a scalar function.
  */
 public class ScalarFunction extends Function {
-    private static final Logger LOG = LogManager.getLogger(ScalarFunction.class);
     // The name inside the binary at location_ that contains this particular
     // function. e.g. org.example.MyUdf.class.
     @SerializedName("sn")

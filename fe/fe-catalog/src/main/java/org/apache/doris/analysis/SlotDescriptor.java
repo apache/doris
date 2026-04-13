@@ -188,6 +188,18 @@ public class SlotDescriptor {
         this.virtualColumn = virtualColumn;
     }
 
+    public String getCaption() {
+        return caption;
+    }
+
+    public List<String> getSubColPath() {
+        return subColPath;
+    }
+
+    public boolean isNullable() {
+        return isNullable;
+    }
+
     private String normalizeCaption(String caption) {
         int maxLength = 15;
         if (caption == null || caption.length() <= maxLength) {
@@ -226,30 +238,11 @@ public class SlotDescriptor {
         return MoreObjects.toStringHelper(this).add("id", id.asInt()).add("parent", parentTupleId).add("col", caption)
                 .add("type", typeStr).add("nullable", getIsNullable())
                 .add("isAutoIncrement", isAutoInc).add("subColPath", subColPath)
-                .add("virtualColumn",
-                        virtualColumn == null ? null
-                                : virtualColumn.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)).toString();
+                .add("virtualColumn", virtualColumn).toString();
     }
 
     @Override
     public String toString() {
         return debugString();
-    }
-
-    public String getExplainString(String prefix) {
-        return new StringBuilder()
-                .append(prefix).append("SlotDescriptor{")
-                .append("id=").append(id)
-                .append(", col=").append(caption)
-                .append(", colUniqueId=").append(column == null ? "null" : column.getUniqueId())
-                .append(", type=").append(type == null ? "null" : type.toSql())
-                .append(", nullable=").append(isNullable)
-                .append(", isAutoIncrement=").append(isAutoInc)
-                .append(", subColPath=").append(subColPath)
-                .append(", virtualColumn=")
-                        .append(virtualColumn == null
-                                ? null : virtualColumn.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE))
-                .append("}")
-                .toString();
     }
 }

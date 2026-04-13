@@ -18,10 +18,9 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/TableName.java
 // and modified by Doris
 
-package org.apache.doris.info;
+package org.apache.doris.catalog.info;
 
 import org.apache.doris.catalog.NameSpaceContext;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.base.Preconditions;
@@ -133,12 +132,12 @@ public class TableNameInfo {
         if (Strings.isNullOrEmpty(db)) {
             db = ctx.getCurrentDb();
             if (Strings.isNullOrEmpty(db)) {
-                throw new AnalysisException("No database selected");
+                throw new RuntimeException("No database selected");
             }
         }
 
         if (Strings.isNullOrEmpty(tbl)) {
-            throw new AnalysisException("Table name is null");
+            throw new RuntimeException("Table name is null");
         }
     }
 

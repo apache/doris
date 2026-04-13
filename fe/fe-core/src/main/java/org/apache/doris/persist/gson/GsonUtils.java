@@ -54,10 +54,14 @@ import org.apache.doris.analysis.MaxLiteral;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.NumericLiteralExpr;
 import org.apache.doris.analysis.PlaceHolderExpr;
+import org.apache.doris.analysis.SearchPredicate;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.StructLiteral;
+import org.apache.doris.analysis.TimeV2Literal;
 import org.apache.doris.analysis.TimestampArithmeticExpr;
+import org.apache.doris.analysis.TryCastExpr;
+import org.apache.doris.analysis.VarBinaryLiteral;
 import org.apache.doris.analysis.VirtualSlotRef;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.RestoreJob;
@@ -128,7 +132,6 @@ import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.load.CloudBrokerLoadJob;
 import org.apache.doris.cloud.load.CopyJob;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalDatabase;
@@ -205,6 +208,15 @@ import org.apache.doris.mtmv.MTMVSnapshotIdSnapshot;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVTimestampSnapshot;
 import org.apache.doris.mtmv.MTMVVersionSnapshot;
+import org.apache.doris.persist.gson.GsonUtilsBase.AtomicBooleanAdapter;
+import org.apache.doris.persist.gson.GsonUtilsBase.GuavaMultimapAdapter;
+import org.apache.doris.persist.gson.GsonUtilsBase.GuavaTableAdapter;
+import org.apache.doris.persist.gson.GsonUtilsBase.HiddenAnnotationExclusionStrategy;
+import org.apache.doris.persist.gson.GsonUtilsBase.ImmutableListDeserializer;
+import org.apache.doris.persist.gson.GsonUtilsBase.ImmutableMapDeserializer;
+import org.apache.doris.persist.gson.GsonUtilsBase.PostProcessTypeAdapterFactory;
+import org.apache.doris.persist.gson.GsonUtilsBase.PreProcessTypeAdapterFactory;
+import org.apache.doris.persist.gson.GsonUtilsBase.SkipClassExclusionStrategy;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.RowPolicy;
 import org.apache.doris.policy.StoragePolicy;
@@ -214,59 +226,17 @@ import org.apache.doris.system.FrontendHbResponse;
 import org.apache.doris.system.HeartbeatResponse;
 import org.apache.doris.transaction.TxnCommitAttachment;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.ArrayListMultimap;
-import com.google.common.collect.HashBasedTable;
-import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.LinkedHashMultimap;
-import com.google.common.collect.LinkedListMultimap;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Range;
 import com.google.common.collect.Table;
-import com.google.gson.ExclusionStrategy;
-import com.google.gson.FieldAttributes;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import com.google.gson.JsonArray;
-import com.google.gson.JsonDeserializationContext;
-import com.google.gson.JsonDeserializer;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParseException;
-import com.google.gson.JsonSerializationContext;
-import com.google.gson.JsonSerializer;
 import com.google.gson.ReflectionAccessFilter;
 import com.google.gson.ToNumberPolicy;
-import com.google.gson.TypeAdapter;
-import com.google.gson.TypeAdapterFactory;
-import com.google.gson.annotations.SerializedName;
-import com.google.gson.reflect.TypeToken;
-import com.google.gson.stream.JsonReader;
-import com.google.gson.stream.JsonWriter;
-import com.google.protobuf.MessageLite;
-import org.apache.commons.lang3.reflect.TypeUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.OutputStreamWriter;
-import java.lang.reflect.Method;
-import java.lang.reflect.ParameterizedType;
-import java.lang.reflect.Type;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.zip.GZIPInputStream;
-import java.util.zip.GZIPOutputStream;
 
 /*
  * Some utilities about Gson.
@@ -284,7 +254,6 @@ import java.util.zip.GZIPOutputStream;
  * See the following "GuavaTableAdapter" and "GuavaMultimapAdapter" for example.
  */
 public class GsonUtils {
-    private static final Logger LOG = LogManager.getLogger(GsonUtils.class);
 
     // runtime adapter for class "Type"
     private static RuntimeTypeAdapterFactory<org.apache.doris.catalog.Type> columnTypeAdapterFactory
@@ -309,12 +278,14 @@ public class GsonUtils {
             .registerSubtype(FunctionCallExpr.class, FunctionCallExpr.class.getSimpleName())
             .registerSubtype(LambdaFunctionCallExpr.class, LambdaFunctionCallExpr.class.getSimpleName())
             .registerSubtype(CastExpr.class, CastExpr.class.getSimpleName())
+            .registerSubtype(TryCastExpr.class, TryCastExpr.class.getSimpleName())
             .registerSubtype(TimestampArithmeticExpr.class, TimestampArithmeticExpr.class.getSimpleName())
             .registerSubtype(IsNullPredicate.class, IsNullPredicate.class.getSimpleName())
             .registerSubtype(BetweenPredicate.class, BetweenPredicate.class.getSimpleName())
             .registerSubtype(BinaryPredicate.class, BinaryPredicate.class.getSimpleName())
             .registerSubtype(LikePredicate.class, LikePredicate.class.getSimpleName())
             .registerSubtype(MatchPredicate.class, MatchPredicate.class.getSimpleName())
+            .registerSubtype(SearchPredicate.class, SearchPredicate.class.getSimpleName())
             .registerSubtype(InPredicate.class, InPredicate.class.getSimpleName())
             .registerSubtype(CompoundPredicate.class, CompoundPredicate.class.getSimpleName())
             .registerSubtype(BoolLiteral.class, BoolLiteral.class.getSimpleName())
@@ -326,10 +297,12 @@ public class GsonUtils {
             .registerSubtype(DecimalLiteral.class, DecimalLiteral.class.getSimpleName())
             .registerSubtype(FloatLiteral.class, FloatLiteral.class.getSimpleName())
             .registerSubtype(NullLiteral.class, NullLiteral.class.getSimpleName())
+            .registerSubtype(VarBinaryLiteral.class, VarBinaryLiteral.class.getSimpleName())
             .registerSubtype(MapLiteral.class, MapLiteral.class.getSimpleName())
             .registerSubtype(DateLiteral.class, DateLiteral.class.getSimpleName())
             .registerSubtype(IPv6Literal.class, IPv6Literal.class.getSimpleName())
             .registerSubtype(IPv4Literal.class, IPv4Literal.class.getSimpleName())
+            .registerSubtype(TimeV2Literal.class, TimeV2Literal.class.getSimpleName())
             .registerSubtype(JsonLiteral.class, JsonLiteral.class.getSimpleName())
             .registerSubtype(ArrayLiteral.class, ArrayLiteral.class.getSimpleName())
             .registerSubtype(StructLiteral.class, StructLiteral.class.getSimpleName())
@@ -605,14 +578,18 @@ public class GsonUtils {
     // register them in reverse priority order.
     private static final GsonBuilder GSON_BUILDER = new GsonBuilder()
             .setObjectToNumberStrategy(ToNumberPolicy.LONG_OR_DOUBLE)
-            .addSerializationExclusionStrategy(
-                    new HiddenAnnotationExclusionStrategy()).serializeSpecialFloatingPointValues()
+            .setExclusionStrategies(new SkipClassExclusionStrategy())
+            .addSerializationExclusionStrategy(new HiddenAnnotationExclusionStrategy())
+            .serializeSpecialFloatingPointValues()
             .enableComplexMapKeySerialization()
             .addReflectionAccessFilter(ReflectionAccessFilter.BLOCK_INACCESSIBLE_JAVA)
-            .registerTypeHierarchyAdapter(Table.class, new GuavaTableAdapter())
-            .registerTypeHierarchyAdapter(Multimap.class, new GuavaMultimapAdapter())
+            .registerTypeHierarchyAdapter(Table.class, new GuavaTableAdapter<>())
+            .registerTypeHierarchyAdapter(Multimap.class, new GuavaMultimapAdapter<>())
             .registerTypeAdapterFactory(new PostProcessTypeAdapterFactory())
             .registerTypeAdapterFactory(new PreProcessTypeAdapterFactory())
+            .registerTypeAdapter(ImmutableMap.class, new ImmutableMapDeserializer())
+            .registerTypeAdapter(ImmutableList.class, new ImmutableListDeserializer())
+            .registerTypeAdapter(AtomicBoolean.class, new AtomicBooleanAdapter())
             .registerTypeAdapterFactory(exprAdapterFactory)
             .registerTypeAdapterFactory(columnTypeAdapterFactory)
             .registerTypeAdapterFactory(distributionInfoTypeAdapterFactory)
@@ -637,28 +614,8 @@ public class GsonUtils {
             .registerTypeAdapterFactory(jobBackupTypeAdapterFactory)
             .registerTypeAdapterFactory(loadJobTypeAdapterFactory)
             .registerTypeAdapterFactory(partitionItemTypeAdapterFactory)
-            .registerTypeAdapter(ImmutableMap.class, new ImmutableMapDeserializer())
-            .registerTypeAdapter(ImmutableList.class, new ImmutableListDeserializer())
-            .registerTypeAdapter(AtomicBoolean.class, new AtomicBooleanAdapter())
             .registerTypeAdapter(PartitionKey.class, new PartitionKey.PartitionKeySerializer())
-            .registerTypeAdapter(Range.class, new RangeUtils.RangeSerializer()).setExclusionStrategies(
-                    new ExclusionStrategy() {
-                        @Override
-                        public boolean shouldSkipField(FieldAttributes f) {
-                            return false;
-                        }
-
-                        @Override
-                        public boolean shouldSkipClass(Class<?> clazz) {
-                            /* due to java.lang.IllegalArgumentException: com.lmax.disruptor.RingBuffer
-                            <org.apache.doris.scheduler.disruptor.TimerTaskEvent> declares multiple
-                            JSON fields named p1 */
-                            return clazz.getName().startsWith("com.lmax.disruptor.RingBuffer")
-                                    // Protobuf 4 builders expose duplicate internal fields such as
-                                    // "meAsParent". They are runtime-only and must not enter FE metadata.
-                                    || MessageLite.Builder.class.isAssignableFrom(clazz);
-                        }
-                    });
+            .registerTypeAdapter(Range.class, new RangeUtils.RangeSerializer());
 
 
     // this instance is thread-safe.
@@ -667,314 +624,4 @@ public class GsonUtils {
     // ATTN: the order between creating GSON and GSON_PRETTY_PRINTING is very important.
     private static final GsonBuilder GSON_BUILDER_PRETTY_PRINTING = GSON_BUILDER.setPrettyPrinting();
     public static final Gson GSON_PRETTY_PRINTING = GSON_BUILDER_PRETTY_PRINTING.create();
-
-    /*
-     * The exclusion strategy of GSON serialization.
-     * Any fields without "@SerializedName" annotation with be ignore with
-     * serializing and deserializing.
-     */
-    public static class HiddenAnnotationExclusionStrategy implements ExclusionStrategy {
-        public boolean shouldSkipField(FieldAttributes f) {
-            return f.getAnnotation(SerializedName.class) == null;
-        }
-
-        @Override
-        public boolean shouldSkipClass(Class<?> clazz) {
-            return false;
-        }
-    }
-
-    /*
-     *
-     * The json adapter for Guava Table.
-     * Current support:
-     * 1. HashBasedTable
-     *
-     * The RowKey, ColumnKey and Value classes in Table should also be serializable.
-     *
-     * What is Adapter and Why we should implement it?
-     *
-     * Adapter is mainly used to provide serialization and deserialization methods for some complex classes.
-     * Complex classes here usually refer to classes that are complex and cannot be modified.
-     * These classes mainly include third-party library classes or some inherited classes.
-     */
-    private static class GuavaTableAdapter<R, C, V>
-            implements JsonSerializer<Table<R, C, V>>, JsonDeserializer<Table<R, C, V>> {
-        /*
-         * serialize Table<R, C, V> as:
-         * {
-         * "rowKeys": [ "rowKey1", "rowKey2", ...],
-         * "columnKeys": [ "colKey1", "colKey2", ...],
-         * "cells" : [[0, 0, value1], [0, 1, value2], ...]
-         * }
-         *
-         * the [0, 0] .. in cells are the indexes of rowKeys array and columnKeys array.
-         * This serialization method can reduce the size of json string because it
-         * replace the same row key
-         * and column key to integer.
-         */
-        @Override
-        public JsonElement serialize(Table<R, C, V> src, Type typeOfSrc, JsonSerializationContext context) {
-            JsonArray rowKeysJsonArray = new JsonArray();
-            Map<R, Integer> rowKeyToIndex = new HashMap<>();
-            for (R rowKey : src.rowKeySet()) {
-                rowKeyToIndex.put(rowKey, rowKeyToIndex.size());
-                rowKeysJsonArray.add(context.serialize(rowKey));
-            }
-            JsonArray columnKeysJsonArray = new JsonArray();
-            Map<C, Integer> columnKeyToIndex = new HashMap<>();
-            for (C columnKey : src.columnKeySet()) {
-                columnKeyToIndex.put(columnKey, columnKeyToIndex.size());
-                columnKeysJsonArray.add(context.serialize(columnKey));
-            }
-            JsonArray cellsJsonArray = new JsonArray();
-            for (Table.Cell<R, C, V> cell : src.cellSet()) {
-                int rowIndex = rowKeyToIndex.get(cell.getRowKey());
-                int columnIndex = columnKeyToIndex.get(cell.getColumnKey());
-                cellsJsonArray.add(rowIndex);
-                cellsJsonArray.add(columnIndex);
-                cellsJsonArray.add(context.serialize(cell.getValue()));
-            }
-            JsonObject tableJsonObject = new JsonObject();
-            tableJsonObject.addProperty("clazz", src.getClass().getSimpleName());
-            tableJsonObject.add("rowKeys", rowKeysJsonArray);
-            tableJsonObject.add("columnKeys", columnKeysJsonArray);
-            tableJsonObject.add("cells", cellsJsonArray);
-            return tableJsonObject;
-        }
-
-        @Override
-        public Table<R, C, V> deserialize(JsonElement json, Type typeOfT, JsonDeserializationContext context) {
-            Type typeOfR;
-            Type typeOfC;
-            Type typeOfV;
-            { // CHECKSTYLE IGNORE THIS LINE
-                ParameterizedType parameterizedType = (ParameterizedType) typeOfT;
-                Type[] actualTypeArguments = parameterizedType.getActualTypeArguments();
-                typeOfR = actualTypeArguments[0];
-                typeOfC = actualTypeArguments[1];
-                typeOfV = actualTypeArguments[2];
-            } // CHECKSTYLE IGNORE THIS LINE
-            JsonObject tableJsonObject = json.getAsJsonObject();
-            String tableClazz = tableJsonObject.get("clazz").getAsString();
-            JsonArray rowKeysJsonArray = tableJsonObject.getAsJsonArray("rowKeys");
-            Map<Integer, R> rowIndexToKey = new HashMap<>();
-            for (JsonElement jsonElement : rowKeysJsonArray) {
-                R rowKey = context.deserialize(jsonElement, typeOfR);
-                rowIndexToKey.put(rowIndexToKey.size(), rowKey);
-            }
-            JsonArray columnKeysJsonArray = tableJsonObject.getAsJsonArray("columnKeys");
-            Map<Integer, C> columnIndexToKey = new HashMap<>();
-            for (JsonElement jsonElement : columnKeysJsonArray) {
-                C columnKey = context.deserialize(jsonElement, typeOfC);
-                columnIndexToKey.put(columnIndexToKey.size(), columnKey);
-            }
-            JsonArray cellsJsonArray = tableJsonObject.getAsJsonArray("cells");
-            Table<R, C, V> table = null;
-            switch (tableClazz) {
-                case "HashBasedTable":
-                    table = HashBasedTable.create();
-                    break;
-                default:
-                    Preconditions.checkState(false, "unknown guava table class: " + tableClazz);
-                    break;
-            }
-            for (int i = 0; i < cellsJsonArray.size(); i = i + 3) {
-                // format is [rowIndex, columnIndex, value]
-                int rowIndex = cellsJsonArray.get(i).getAsInt();
-                int columnIndex = cellsJsonArray.get(i + 1).getAsInt();
-                R rowKey = rowIndexToKey.get(rowIndex);
-                C columnKey = columnIndexToKey.get(columnIndex);
-                V value = context.deserialize(cellsJsonArray.get(i + 2), typeOfV);
-                table.put(rowKey, columnKey, value);
-            }
-            return table;
-        }
-    }
-
-    /*
-     * The json adapter for Guava Multimap.
-     * Current support:
-     * 1. ArrayListMultimap
-     * 2. HashMultimap
-     * 3. LinkedListMultimap
-     * 4. LinkedHashMultimap
-     *
-     * The key and value classes of multi map should also be json serializable.
-     */
-    private static class GuavaMultimapAdapter<K, V>
-            implements JsonSerializer<Multimap<K, V>>, JsonDeserializer<Multimap<K, V>> {
-
-        private static final Type asMapReturnType = getAsMapMethod().getGenericReturnType();
-
-        private static Type asMapType(Type multimapType) {
-            return com.google.common.reflect.TypeToken.of(multimapType).resolveType(asMapReturnType).getType();
-        }
-
-        private static Method getAsMapMethod() {
-            try {
-                return Multimap.class.getDeclaredMethod("asMap");
-            } catch (NoSuchMethodException e) {
-                throw new AssertionError(e);
-            }
-        }
-
-        @Override
-        public JsonElement serialize(Multimap<K, V> map, Type typeOfSrc, JsonSerializationContext context) {
-            JsonObject jsonObject = new JsonObject();
-            jsonObject.addProperty("clazz", map.getClass().getSimpleName());
-            Map<K, Collection<V>> asMap = map.asMap();
-            Type type = asMapType(typeOfSrc);
-            JsonElement jsonElement = context.serialize(asMap, type);
-            jsonObject.add("map", jsonElement);
-            return jsonObject;
-        }
-
-        @Override
-        public Multimap<K, V> deserialize(JsonElement json, Type typeOfT, JsonDeserializationContext context)
-                throws JsonParseException {
-            JsonObject jsonObject = json.getAsJsonObject();
-            String clazz = jsonObject.get("clazz").getAsString();
-
-            JsonElement mapElement = jsonObject.get("map");
-            Map<K, Collection<V>> asMap = context.deserialize(mapElement, asMapType(typeOfT));
-
-            Multimap<K, V> map = null;
-            switch (clazz) {
-                case "ArrayListMultimap":
-                    map = ArrayListMultimap.create();
-                    break;
-                case "HashMultimap":
-                    map = HashMultimap.create();
-                    break;
-                case "LinkedListMultimap":
-                    map = LinkedListMultimap.create();
-                    break;
-                case "LinkedHashMultimap":
-                    map = LinkedHashMultimap.create();
-                    break;
-                default:
-                    Preconditions.checkState(false, "unknown guava multi map class: " + clazz);
-                    break;
-            }
-
-            for (Map.Entry<K, Collection<V>> entry : asMap.entrySet()) {
-                map.putAll(entry.getKey(), entry.getValue());
-            }
-            return map;
-        }
-    }
-
-    private static class AtomicBooleanAdapter
-            implements JsonSerializer<AtomicBoolean>, JsonDeserializer<AtomicBoolean> {
-
-        @Override
-        public AtomicBoolean deserialize(JsonElement jsonElement, Type type,
-                JsonDeserializationContext jsonDeserializationContext)
-                throws JsonParseException {
-            JsonObject jsonObject = jsonElement.getAsJsonObject();
-            boolean value = jsonObject.get("boolean").getAsBoolean();
-            return new AtomicBoolean(value);
-        }
-
-        @Override
-        public JsonElement serialize(AtomicBoolean atomicBoolean, Type type,
-                JsonSerializationContext jsonSerializationContext) {
-            JsonObject jsonObject = new JsonObject();
-            jsonObject.addProperty("boolean", atomicBoolean.get());
-            return jsonObject;
-        }
-    }
-
-    public static final class ImmutableMapDeserializer implements JsonDeserializer<ImmutableMap<?, ?>> {
-        @Override
-        public ImmutableMap<?, ?> deserialize(final JsonElement json, final Type type,
-                final JsonDeserializationContext context) throws JsonParseException {
-            final Type type2 = TypeUtils.parameterize(Map.class, ((ParameterizedType) type).getActualTypeArguments());
-            final Map<?, ?> map = context.deserialize(json, type2);
-            return ImmutableMap.copyOf(map);
-        }
-    }
-
-    public static final class ImmutableListDeserializer implements JsonDeserializer<ImmutableList<?>> {
-        @Override
-        public ImmutableList<?> deserialize(final JsonElement json, final Type type,
-                final JsonDeserializationContext context) throws JsonParseException {
-            final Type type2 = TypeUtils.parameterize(List.class, ((ParameterizedType) type).getActualTypeArguments());
-            final List<?> list = context.deserialize(json, type2);
-            return ImmutableList.copyOf(list);
-        }
-    }
-
-    public static class PreProcessTypeAdapterFactory implements TypeAdapterFactory {
-
-        public PreProcessTypeAdapterFactory() {
-        }
-
-        @Override
-        public <T> TypeAdapter<T> create(Gson gson, TypeToken<T> type) {
-            TypeAdapter<T> delegate = gson.getDelegateAdapter(this, type);
-
-            return new TypeAdapter<T>() {
-                public void write(JsonWriter out, T value) throws IOException {
-                    if (value instanceof GsonPreProcessable) {
-                        ((GsonPreProcessable) value).gsonPreProcess();
-                    }
-                    delegate.write(out, value);
-                }
-
-                public T read(JsonReader reader) throws IOException {
-                    return delegate.read(reader);
-                }
-            };
-        }
-    }
-
-    public static class PostProcessTypeAdapterFactory implements TypeAdapterFactory {
-
-        public PostProcessTypeAdapterFactory() {
-        }
-
-        @Override
-        public <T> TypeAdapter<T> create(Gson gson, TypeToken<T> type) {
-            TypeAdapter<T> delegate = gson.getDelegateAdapter(this, type);
-
-            return new TypeAdapter<T>() {
-                public void write(JsonWriter out, T value) throws IOException {
-                    delegate.write(out, value);
-                }
-
-                public T read(JsonReader reader) throws IOException {
-                    T obj = delegate.read(reader);
-                    if (obj instanceof GsonPostProcessable) {
-                        ((GsonPostProcessable) obj).gsonPostProcess();
-                    }
-                    return obj;
-                }
-            };
-        }
-    }
-
-    public static void toJsonCompressed(DataOutput out, Object src) throws IOException {
-        ByteArrayOutputStream byteStream = new ByteArrayOutputStream();
-        try (GZIPOutputStream gzipStream = new GZIPOutputStream(byteStream)) {
-            try (OutputStreamWriter writer = new OutputStreamWriter(gzipStream)) {
-                GsonUtils.GSON.toJson(src, writer);
-            }
-        }
-        Text text = new Text(byteStream.toByteArray());
-        text.write(out);
-    }
-
-    public static <T> T fromJsonCompressed(DataInput in, Class<T> clazz) throws IOException {
-        Text text = new Text();
-        text.readFields(in);
-
-        ByteArrayInputStream byteStream = new ByteArrayInputStream(text.getBytes());
-        try (GZIPInputStream gzipStream = new GZIPInputStream(byteStream)) {
-            try (InputStreamReader reader = new InputStreamReader(gzipStream)) {
-                return GsonUtils.GSON.fromJson(reader, clazz);
-            }
-        }
-    }
 }

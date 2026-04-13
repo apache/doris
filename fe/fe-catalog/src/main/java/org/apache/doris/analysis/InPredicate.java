@@ -121,10 +121,10 @@ public class InPredicate extends Predicate {
     public String toString() {
         StringBuilder strBuilder = new StringBuilder();
         String notStr = isNotIn ? "NOT " : "";
-        strBuilder.append(getChild(0).accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE))
+        strBuilder.append(getChild(0))
                 .append(" ").append(notStr).append("IN (");
         for (int i = 1; i < getChildren().size(); ++i) {
-            strBuilder.append(getChild(i).accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
+            strBuilder.append(getChild(i));
             strBuilder.append((i + 1 != getChildren().size()) ? ", " : "");
         }
         strBuilder.append(")");

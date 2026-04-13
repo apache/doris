@@ -19,7 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.persist.gson.GsonUtilsCatalog;
 
 import com.google.common.base.Preconditions;
 
@@ -326,10 +326,10 @@ public abstract class ColumnType {
         Preconditions.checkArgument(type.isScalarType() || type.isAggStateType()
                         || type.isArrayType() || type.isMapType() || type.isStructType(),
                 "not support serialize this type " + type.toSql());
-        Text.writeString(out, GsonUtils.GSON.toJson(type));
+        Text.writeString(out, GsonUtilsCatalog.GSON.toJson(type));
     }
 
     public static Type read(DataInput in) throws IOException {
-        return GsonUtils.GSON.fromJson(Text.readString(in), Type.class);
+        return GsonUtilsCatalog.GSON.fromJson(Text.readString(in), Type.class);
     }
 }

@@ -17,8 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.thrift.TAggregationType;
-
 import com.google.common.collect.Lists;
 
 import java.util.EnumMap;
@@ -169,31 +167,6 @@ public enum AggregateType {
                 return true;
             default:
                 return false;
-        }
-    }
-
-    public TAggregationType toThrift() {
-        switch (this) {
-            case SUM:
-                return TAggregationType.SUM;
-            case MAX:
-                return TAggregationType.MAX;
-            case MIN:
-                return TAggregationType.MIN;
-            case REPLACE:
-                return TAggregationType.REPLACE;
-            case REPLACE_IF_NOT_NULL:
-                return TAggregationType.REPLACE_IF_NOT_NULL;
-            case NONE:
-                return TAggregationType.NONE;
-            case HLL_UNION:
-                return TAggregationType.HLL_UNION;
-            case BITMAP_UNION:
-                return TAggregationType.BITMAP_UNION;
-            case QUANTILE_UNION:
-                return TAggregationType.QUANTILE_UNION;
-            default:
-                return null;
         }
     }
 

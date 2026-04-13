@@ -185,8 +185,7 @@ public class DecimalLiteral extends NumericLiteralExpr {
                 BigDecimal otherValue = new BigDecimal(expr.getStringValue());
                 return this.value.compareTo(otherValue);
             } catch (NumberFormatException e) {
-                throw new ClassCastException("Those two values cannot be compared: " + value
-                        + " and " + expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
+                throw new ClassCastException("Those two values cannot be compared: " + value + " and " + expr);
             }
         }
     }

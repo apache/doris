@@ -19,7 +19,6 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 
 public class TimeV2Literal extends LiteralExpr {
     public static final TimeV2Literal MIN_VALUE = new TimeV2Literal(838, 59, 59, 999999, 6, true);
@@ -45,8 +44,7 @@ public class TimeV2Literal extends LiteralExpr {
     }
 
     // for -00:... so we need explicite negative
-    public TimeV2Literal(int hour, int minute, int second, int microsecond, int scale, boolean negative)
-            throws AnalysisException {
+    public TimeV2Literal(int hour, int minute, int second, int microsecond, int scale, boolean negative) {
         super();
         this.type = ScalarType.createTimeV2Type(scale);
         this.hour = hour;
@@ -55,7 +53,7 @@ public class TimeV2Literal extends LiteralExpr {
         this.microsecond = microsecond / (int) Math.pow(10, 6 - scale) * (int) Math.pow(10, 6 - scale);
         this.negative = negative;
         if (checkRange(this.hour, this.minute, this.second, this.microsecond) || scale > 6 || scale < 0) {
-            throw new AnalysisException("time literal is out of range [-838:59:59.999999, 838:59:59.999999]");
+            throw new RuntimeException("time literal is out of range [-838:59:59.999999, 838:59:59.999999]");
         }
         this.nullable = false;
     }

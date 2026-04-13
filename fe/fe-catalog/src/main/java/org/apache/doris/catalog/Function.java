@@ -21,7 +21,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.URI;
-import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.persist.gson.GsonUtilsCatalog;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -340,11 +340,11 @@ public class Function implements Writable {
 
     @Override
     public void write(DataOutput output) throws IOException {
-        Text.writeString(output, GsonUtils.GSON.toJson(this));
+        Text.writeString(output, GsonUtilsCatalog.GSON.toJson(this));
     }
 
     public static Function read(DataInput input) throws IOException {
-        return GsonUtils.GSON.fromJson(Text.readString(input), Function.class);
+        return GsonUtilsCatalog.GSON.fromJson(Text.readString(input), Function.class);
     }
 
     public void setNullableMode(NullableMode nullableMode) {

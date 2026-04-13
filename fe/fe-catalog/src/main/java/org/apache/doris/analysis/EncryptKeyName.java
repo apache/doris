@@ -18,10 +18,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.FeNameFormat;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
@@ -51,12 +47,11 @@ public class EncryptKeyName {
     public void analyze() throws AnalysisException {
     }
 
-    public void analyze(ConnectContext ctx) throws AnalysisException {
-        FeNameFormat.checkCommonName("EncryptKey", keyName);
+    public void analyze(String defaultDb) throws AnalysisException {
         if (db == null) {
-            db = ctx.getDatabase();
+            db = defaultDb;
             if (Strings.isNullOrEmpty(db)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
+                throw new AnalysisException("No database selected");
             }
         }
     }

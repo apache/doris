@@ -22,8 +22,6 @@ import org.apache.doris.persist.gson.GsonPostProcessable;
 
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -36,15 +34,11 @@ import java.util.Objects;
  * Internal representation of an alias function.
  */
 public class AliasFunction extends Function implements GsonPostProcessable {
-    private static final Logger LOG = LogManager.getLogger(AliasFunction.class);
-
-    private static final String DIGITAL_MASKING = "digital_masking";
 
     @SerializedName("of")
     private Expr originFunction;
     @SerializedName("pm")
     private List<String> parameters = new ArrayList<>();
-    private List<String> typeDefParams = new ArrayList<>();
     @SerializedName("sv")
     private Map<String, String> sessionVariables;
 

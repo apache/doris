@@ -22,7 +22,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.catalog.info.TableNameInfo;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
@@ -79,9 +79,7 @@ public class SlotRef extends Expr {
         super();
         // tuple id and slot id is meaningless here, nereids just use type and nullable
         // to build the TAggregateExpr.param_types
-        TupleDescriptor tupleDescriptor = new TupleDescriptor(new TupleId(-1));
-        desc = new SlotDescriptor(new SlotId(-1), tupleDescriptor.getId());
-        tupleDescriptor.addSlot(desc);
+        desc = new SlotDescriptor(new SlotId(-1), new TupleId(-1));
         desc.setIsNullable(nullable);
         this.nullable = nullable;
         desc.setType(type);

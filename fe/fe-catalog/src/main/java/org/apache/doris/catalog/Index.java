@@ -25,10 +25,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.foundation.util.BasicPrintableMap;
-import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.proto.OlapFile;
-import org.apache.doris.thrift.TIndexType;
-import org.apache.doris.thrift.TOlapTableIndex;
+import org.apache.doris.persist.gson.GsonUtilsCatalog;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -209,12 +206,12 @@ public class Index implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        Text.writeString(out, GsonUtils.GSON.toJson(this));
+        Text.writeString(out, GsonUtilsCatalog.GSON.toJson(this));
     }
 
     public static Index read(DataInput in) throws IOException {
         String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, Index.class);
+        return GsonUtilsCatalog.GSON.fromJson(json, Index.class);
     }
 
     @Override
@@ -273,64 +270,6 @@ public class Index implements Writable {
             }
         }
         return columnUniqueIds;
-    }
-
-    public TOlapTableIndex toThrift(List<Integer> indexColumnUniqueIds) {
-        TOlapTableIndex tIndex = new TOlapTableIndex();
-        tIndex.setIndexId(indexId);
-        tIndex.setIndexName(indexName);
-        tIndex.setColumns(columns);
-        tIndex.setIndexType(TIndexType.valueOf(indexType.toString()));
-        if (properties != null) {
-            tIndex.setProperties(properties);
-        }
-        tIndex.setColumnUniqueIds(indexColumnUniqueIds);
-        return tIndex;
-    }
-
-    public OlapFile.TabletIndexPB toPb(Map<Integer, Column> columnMap, List<Integer> indexColumnUniqueIds) {
-        OlapFile.TabletIndexPB.Builder builder = OlapFile.TabletIndexPB.newBuilder();
-        builder.setIndexId(indexId);
-        builder.setIndexName(indexName);
-
-        for (Integer columnUniqueId : indexColumnUniqueIds) {
-            Column column = columnMap.get(columnUniqueId);
-            if (column != null) {
-                builder.addColUniqueId(column.getUniqueId());
-            }
-        }
-
-        switch (indexType) {
-            case BITMAP:
-                builder.setIndexType(OlapFile.IndexType.BITMAP);
-                break;
-
-            case INVERTED:
-                builder.setIndexType(OlapFile.IndexType.INVERTED);
-                break;
-
-            case NGRAM_BF:
-                builder.setIndexType(OlapFile.IndexType.NGRAM_BF);
-                break;
-
-            case BLOOMFILTER:
-                builder.setIndexType(OlapFile.IndexType.BLOOMFILTER);
-                break;
-
-            case ANN:
-                builder.setIndexType(OlapFile.IndexType.ANN);
-                break;
-
-            default:
-                throw new RuntimeException("indexType " + indexType + " is not processed in toPb");
-        }
-
-        if (properties != null) {
-            builder.putAllProperties(properties);
-        }
-
-        OlapFile.TabletIndexPB index = builder.build();
-        return index;
     }
 
     public static void checkConflict(Collection<Index> indices, Set<String> bloomFilters) throws AnalysisException {
