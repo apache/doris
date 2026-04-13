@@ -69,6 +69,7 @@ suite("test_cte_privilege_check","p0,auth") {
     sql """insert into ${dbName}.${tableName2} values (3, 'charlie'), (4, 'dave')"""
 
     // Grant select only on tableName1, NOT on tableName2
+    sql """grant select_priv on regression_test to ${user}"""
     sql """grant select_priv on ${dbName}.${tableName1} to ${user}"""
 
     // Case 1: CTE references unauthorized table -> should fail

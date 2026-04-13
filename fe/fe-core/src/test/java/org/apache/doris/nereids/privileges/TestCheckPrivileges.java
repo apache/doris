@@ -254,43 +254,47 @@ public class TestCheckPrivileges extends TestWithFeService implements GeneratedM
         addUser(user, true);
         useUser(user);
 
-        List<MakeTablePrivileges> privileges = ImmutableList.of(
-                MakePrivileges.table("internal", cteDb, "allowed_tbl").allowSelectTable(user)
-        );
-
-        AccessControllerManager accessManager = Env.getCurrentEnv().getAccessManager();
-        CatalogAccessController catalogAccessController = accessManager.getAccessControllerOrDefault(catalog);
-        new Expectations(accessManager) {
-            {
-                accessManager.getAccessControllerOrDefault("internal");
-                minTimes = 0;
-                result = catalogAccessController;
-            }
-        };
-
-        withPrivileges(privileges, () -> {
-            // CTE with authorized table should succeed
-            query("with cte as (select * from allowed_tbl) select * from cte");
-
-            // CTE with unauthorized table should fail (this was the bug:
-            // consumer was checked first, setting privChecked=true on shared StatementContext,
-            // so producer's CheckPrivileges was skipped)
-            Assertions.assertThrows(AnalysisException.class, () ->
-                    query("with cte as (select * from denied_tbl) select * from cte")
+        try {
+            List<MakeTablePrivileges> privileges = ImmutableList.of(
+                    MakePrivileges.table("internal", cteDb, "allowed_tbl").allowSelectTable(user)
             );
 
-            // CTE referenced twice forces no-inline path through RewriteCteChildren
-            Assertions.assertThrows(AnalysisException.class, () ->
-                    query("with cte as (select * from denied_tbl) "
-                            + "select * from cte union all select * from cte")
-            );
+            AccessControllerManager accessManager = Env.getCurrentEnv().getAccessManager();
+            CatalogAccessController catalogAccessController = accessManager.getAccessControllerOrDefault(catalog);
+            new Expectations(accessManager) {
+                {
+                    accessManager.getAccessControllerOrDefault("internal");
+                    minTimes = 0;
+                    result = catalogAccessController;
+                }
+            };
 
-            // CTE authorized + direct unauthorized table should fail
-            Assertions.assertThrows(AnalysisException.class, () ->
-                    query("with cte as (select * from allowed_tbl) "
-                            + "select * from cte union all select * from denied_tbl")
-            );
-        });
+            withPrivileges(privileges, () -> {
+                // CTE with authorized table should succeed
+                query("with cte as (select * from allowed_tbl) select * from cte");
+
+                // CTE with unauthorized table should fail (this was the bug:
+                // consumer was checked first, setting privChecked=true on shared StatementContext,
+                // so producer's CheckPrivileges was skipped)
+                Assertions.assertThrows(AnalysisException.class, () ->
+                        query("with cte as (select * from denied_tbl) select * from cte")
+                );
+
+                // CTE referenced twice forces no-inline path through RewriteCteChildren
+                Assertions.assertThrows(AnalysisException.class, () ->
+                        query("with cte as (select * from denied_tbl) "
+                                + "select * from cte union all select * from cte")
+                );
+
+                // CTE authorized + direct unauthorized table should fail
+                Assertions.assertThrows(AnalysisException.class, () ->
+                        query("with cte as (select * from allowed_tbl) "
+                                + "select * from cte union all select * from denied_tbl")
+                );
+            });
+        } finally {
+            useUser("root");
+        }
     }
 
     private void query(String sql) {
