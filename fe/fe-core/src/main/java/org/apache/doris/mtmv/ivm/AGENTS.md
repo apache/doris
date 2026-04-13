@@ -34,6 +34,27 @@ The binlog/stream-based incremental data capture is **not yet implemented**. Dur
 - Real incremental behavior (capturing only inserted/deleted rows since last refresh) will require binlog/stream integration in the future
 - All current regression and unit tests operate under this mock-full-scan assumption
 
+## DML Factor from binlog_op
+
+The `dml_factor` column (+1 for inserts, −1 for deletes) drives all delta computations. It is derived in `IvmSimpleScanDeltaStrategy.visitLogicalOlapScan()`:
+
+- **binlog_op present**: If the base table has a column named `binlog_op` (`Column.BINLOG_OPERATION_COL`), its value follows the delete-sign convention (TinyInt: 0 = insert, 1 = delete). The dml_factor expression is `IF(binlog_op = 0, 1, -1)`.
+- **binlog_op absent (fallback)**: When the column does not exist (e.g., normal tables without binlog), dml_factor falls back to the literal `1` (insert-only assumption).
+
+Since `IvmAggDeltaStrategy` inherits `visitLogicalOlapScan()` without overriding, both simple-scan and aggregate MVs automatically use binlog_op-based dml_factor when available.
+
+See `IvmSimpleScanDeltaStrategy.buildDmlFactorExpr()` for the implementation.
+
+## Row ID Generation
+
+The `__DORIS_IVM_ROW_ID_COL__` column uniquely identifies each row/group in the MV. It is used as the join key when merging deltas into the MV's current state.
+
+- **Simple (non-aggregate) MV**: row_id is injected during normalize (`IvmNormalizeMtmv`) as a hidden column. It is typically a monotonically increasing sequence or hash depending on the scan source.
+- **Aggregate MV (grouped)**: row_id is `CAST(murmur_hash3_64(group_key_1, group_key_2, ...) AS LARGEINT)`. Non-character group keys are first cast to VARCHAR before hashing.
+- **Aggregate MV (scalar, no GROUP BY)**: row_id is the literal `0` (only one output row).
+
+The same `IvmUtil.buildRowIdHash()` function is used by both the normalize phase and the delta rewrite phase to ensure identical row_id derivation.
+
 ## Backward Compatibility
 
 IVM is not publicly available until July 2026. Before that date, there is no need to maintain backward compatibility with existing IVM materialized views. Breaking changes to IVM metadata, DDL format, or internal storage layout are acceptable without migration support.
