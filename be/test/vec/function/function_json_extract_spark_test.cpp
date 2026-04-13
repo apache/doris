@@ -179,8 +179,59 @@ TEST(FunctionJsonExtractSparkTest, EdgeCases) {
             // Array index out of bounds
             {{STRING(R"({"arr": [1,2,3]})"), STRING("$.arr[10]")}, Null()},
 
-            // Negative array index (not supported in standard JSONPath)
+            // Negative array index (not supported in Spark)
             {{STRING(R"({"arr": [1,2,3]})"), STRING("$.arr[-1]")}, Null()},
+    };
+
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+}
+
+TEST(FunctionJsonExtractSparkTest, SparkPathValidation) {
+    std::string func_name = "json_extract_spark";
+    InputTypeSet input_types = {Nullable {PrimitiveType::TYPE_VARCHAR},
+                                Nullable {PrimitiveType::TYPE_VARCHAR}};
+
+    DataSet data_set = {
+            // Path not starting with $ — Spark returns NULL
+            {{STRING(R"({"name": "John"})"), STRING("name")}, Null()},
+
+            // Empty path — Spark returns NULL
+            {{STRING(R"({"name": "John"})"), STRING("")}, Null()},
+
+            // Path starting with '.' instead of '$' — Spark returns NULL
+            {{STRING(R"({"a": 1})"), STRING(".a")}, Null()},
+
+            // Recursive descent (double dots) — Spark returns NULL
+            {{STRING(R"({"a": {"b": 1}})"), STRING("$.a..b")}, Null()},
+
+            // Leading whitespace — Spark returns NULL
+            {{STRING(R"({"name": "John", "age": 30})"), STRING(" $.name")}, Null()},
+
+            // Trailing whitespace — Spark returns NULL
+            {{STRING(R"({"name": "John", "age": 30})"), STRING("$.name ")}, Null()},
+
+            // Double-quoted field names — Spark returns NULL
+            {{STRING(R"({"field name": "value"})"), STRING(R"($."field name")")}, Null()},
+            {{STRING(R"({"a.b": "value"})"), STRING(R"($."a.b")")}, Null()},
+
+            // Array slicing — Spark returns NULL
+            {{STRING(R"({"items": [1,2,3]})"), STRING("$.items[0:2]")}, Null()},
+
+            // Filter expressions — Spark returns NULL
+            {{STRING(R"({"items": [{"id": 1}, {"id": 2}]})"), STRING("$.items[?(@.id > 1)]")},
+             Null()},
+
+            // Trailing dot — Spark returns NULL
+            {{STRING(R"({"a": 1})"), STRING("$.a.")}, Null()},
+
+            // Negative array index in bracket — Spark returns NULL
+            {{STRING(R"({"arr": [1,2,3]})"), STRING("$.arr[-1]")}, Null()},
+
+            // Valid paths should still work correctly
+            {{STRING(R"({"name": "John"})"), STRING("$.name")}, STRING("John")},
+            {{STRING(R"({"a": {"b": 1}})"), STRING("$.a.b")}, STRING("1")},
+            {{STRING(R"({"items": [1,2,3]})"), STRING("$.items[0]")}, STRING("1")},
+            {{STRING(R"({"k": "v"})"), STRING("$")}, STRING(R"({"k":"v"})")},
     };
 
     static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));

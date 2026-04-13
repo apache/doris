@@ -3261,6 +3261,11 @@ private:
 // 2. Returns NULL for paths with negative array indices (not supported in Spark)
 // 3. JSON null values return SQL NULL (not string "null")
 // 4. Strictly 2 arguments (no multi-path support)
+// 5. Strict path validation matching Spark's JsonPathParser grammar:
+//    - Path must start with '$' (no leading/trailing whitespace)
+//    - No recursive descent '..'
+//    - No double-quoted field names (only unquoted dot notation or single-quoted bracket notation)
+//    - Array subscripts only accept [*] or [non-negative integer] (no slicing, no filters)
 class FunctionJsonExtractSpark : public IFunction {
 public:
     static constexpr auto name = "json_extract_spark";
@@ -3323,10 +3328,15 @@ public:
         // Parse const path once if applicable
         JsonbPath const_parsed_path;
         bool const_path_has_super_wildcard = false;
+        bool const_path_invalid = false;
         if (path_const) {
             StringRef path_ref = path_col->get_data_at(0);
-            const_parsed_path.seek(path_ref.data, path_ref.size);
-            const_path_has_super_wildcard = const_parsed_path.is_supper_wildcard();
+            if (!_is_valid_spark_path(path_ref.data, path_ref.size) ||
+                !const_parsed_path.seek(path_ref.data, path_ref.size)) {
+                const_path_invalid = true;
+            } else {
+                const_path_has_super_wildcard = const_parsed_path.is_supper_wildcard();
+            }
         }
 
         auto writer = std::make_unique<JsonbWriter>();
@@ -3348,13 +3358,23 @@ public:
                 continue;
             }
 
+            // For const path that failed validation, return NULL for all rows
+            if (path_const && const_path_invalid) {
+                StringOP::push_null_string(i, res_data, res_offsets, res_null_map);
+                continue;
+            }
+
             // Parse path if not const
             JsonbPath* path_ptr = &const_parsed_path;
             JsonbPath row_path;
             bool has_super_wildcard = const_path_has_super_wildcard;
             if (!path_const) {
                 StringRef path_ref = path_col->get_data_at(path_idx);
-                row_path.seek(path_ref.data, path_ref.size);
+                if (!_is_valid_spark_path(path_ref.data, path_ref.size) ||
+                    !row_path.seek(path_ref.data, path_ref.size)) {
+                    StringOP::push_null_string(i, res_data, res_offsets, res_null_map);
+                    continue;
+                }
                 path_ptr = &row_path;
                 has_super_wildcard = row_path.is_supper_wildcard();
             }
@@ -3405,6 +3425,121 @@ public:
     }
 
 private:
+    // Validate that a path string conforms to Spark's get_json_object JSONPath grammar.
+    // Spark's grammar (from JsonPathParser):
+    //   root       = '$'
+    //   long       = \d+                          (non-negative integers only)
+    //   subscript  = '[' ~> ('*' | long) <~ ']'
+    //   named      = '.' ~> [^.\[]+ | "['" ~> [^'?]+ <~ "']"
+    //   wildcard   = ".*" | "['*']"
+    //   node       = wildcard | named | subscript
+    //   expression = phrase(root ~> rep(node))
+    //
+    // Key restrictions vs Doris's permissive parser:
+    //   - No leading/trailing whitespace
+    //   - No double-quoted field names ($."name")
+    //   - No recursive descent ($..a)
+    //   - No array slicing ([0:2]) or filter expressions ([?(...)])
+    //   - Entire path must be consumed (no trailing garbage)
+    static bool _is_valid_spark_path(const char* path, size_t len) {
+        if (!path || len == 0) {
+            return false;
+        }
+
+        // Spark's phrase() requires exact match — no leading/trailing whitespace
+        if (std::isspace(static_cast<unsigned char>(path[0])) ||
+            std::isspace(static_cast<unsigned char>(path[len - 1]))) {
+            return false;
+        }
+
+        // Must start with '$'
+        if (path[0] != '$') {
+            return false;
+        }
+
+        size_t pos = 1;
+        while (pos < len) {
+            if (path[pos] == '.') {
+                // Dot notation
+                pos++;
+                if (pos >= len) {
+                    return false; // trailing dot
+                }
+
+                if (path[pos] == '*') {
+                    // Wildcard: .*
+                    pos++;
+                    continue;
+                }
+
+                if (path[pos] == '.' || path[pos] == '[') {
+                    // Consecutive dots (..) or dot-bracket (.[) without member name
+                    return false;
+                }
+
+                // Named member: .[^.\[]+
+                // Reject double-quoted field names
+                if (path[pos] == '"') {
+                    return false;
+                }
+
+                // Consume member name: everything until '.', '[', or end
+                while (pos < len && path[pos] != '.' && path[pos] != '[') {
+                    pos++;
+                }
+            } else if (path[pos] == '[') {
+                pos++;
+                if (pos >= len) {
+                    return false; // unclosed bracket
+                }
+
+                if (path[pos] == '\'') {
+                    // Bracket notation with single quotes: ['name']
+                    pos++;
+                    // Consume until closing single quote — reject '?' (Spark excludes it)
+                    while (pos < len && path[pos] != '\'') {
+                        if (path[pos] == '?') {
+                            return false;
+                        }
+                        pos++;
+                    }
+                    if (pos >= len || path[pos] != '\'') {
+                        return false; // unclosed quote
+                    }
+                    pos++; // skip closing quote
+                    if (pos >= len || path[pos] != ']') {
+                        return false; // missing closing bracket
+                    }
+                    pos++; // skip ']'
+                } else if (path[pos] == '*') {
+                    // Array wildcard: [*]
+                    pos++;
+                    if (pos >= len || path[pos] != ']') {
+                        return false;
+                    }
+                    pos++; // skip ']'
+                } else if (std::isdigit(static_cast<unsigned char>(path[pos]))) {
+                    // Array index: [\d+]
+                    while (pos < len && std::isdigit(static_cast<unsigned char>(path[pos]))) {
+                        pos++;
+                    }
+                    if (pos >= len || path[pos] != ']') {
+                        return false; // non-digit in index or unclosed bracket
+                    }
+                    pos++; // skip ']'
+                } else {
+                    // Invalid subscript content (e.g., [?, [-, etc.)
+                    return false;
+                }
+            } else {
+                // Unexpected character after '$' or after a valid node
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     // Check if path contains negative array indices (not supported in Spark)
     static bool _has_negative_array_index(const JsonbPath& path) {
         for (size_t i = 0; i < path.get_leg_vector_size(); ++i) {
