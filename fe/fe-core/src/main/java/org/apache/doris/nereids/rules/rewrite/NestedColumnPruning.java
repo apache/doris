@@ -666,8 +666,7 @@ public class NestedColumnPruning implements CustomRewriter {
                 return Optional.of(type);
             } else if (isStringOffsetOnly) {
                 // Only the offset array is accessed (e.g. length(str_col)).
-                // The slot type stays unchanged (varchar); the access path tells BE to skip char data.
-                return Optional.empty();
+                return Optional.of(type);
             } else if (!accessPartialChild) {
                 return Optional.empty();
             }
