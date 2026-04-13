@@ -143,7 +143,9 @@ public abstract class BaseExecutor {
                 classLoader = cache.classLoader;
             }
         }
-        if (cache == null) {
+        // Rebuild if cache is missing or if the cached classLoader was closed by a concurrent
+        // ExpiringMap expiration (cache != null but classLoader == null).
+        if (cache == null || cache.classLoader == null) {
             ClassLoader loader;
             if (Strings.isNullOrEmpty(jarPath)) {
                 // if jarPath is empty, which means the UDF jar is located in custom_lib

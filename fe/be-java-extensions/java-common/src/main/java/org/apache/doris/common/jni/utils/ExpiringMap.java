@@ -42,11 +42,14 @@ public class ExpiringMap<K, V> {
         map.put(key, value);
         expirationMap.put(key, expirationTime);
         ttlMap.put(key, expirationTimeMs);
+        LOG.info("ExpiringMap put key=" + key + ", ttlMs=" + expirationTimeMs
+                + ", thread=" + Thread.currentThread().getName());
     }
 
     public V get(K key) {
         Long expirationTime = expirationMap.get(key);
         if (expirationTime == null || System.currentTimeMillis() > expirationTime) {
+            LOG.info("ExpiringMap expired key=" + key + ", thread=" + Thread.currentThread().getName());
             remove(key);
             return null;
         }
@@ -54,6 +57,9 @@ public class ExpiringMap<K, V> {
         long ttl = ttlMap.get(key);
         long newExpirationTime = System.currentTimeMillis() + ttl;
         expirationMap.put(key, newExpirationTime);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("ExpiringMap hit key=" + key + ", thread=" + Thread.currentThread().getName());
+        }
         return map.get(key);
     }
 
@@ -65,7 +71,7 @@ public class ExpiringMap<K, V> {
                     remove(key);
                 }
             }
-        }, DEFAULT_INTERVAL_TIME, DEFAULT_INTERVAL_TIME, TimeUnit.MINUTES);
+        }, DEFAULT_INTERVAL_TIME, DEFAULT_INTERVAL_TIME, TimeUnit.MILLISECONDS);
     }
 
     public void remove(K key) {
@@ -73,6 +79,8 @@ public class ExpiringMap<K, V> {
         expirationMap.remove(key);
         ttlMap.remove(key);
 
+        LOG.info("ExpiringMap remove key=" + key + ", hasValue=" + (value != null)
+                + ", thread=" + Thread.currentThread().getName());
         // Uniformly release resources for any AutoCloseable value,
         if (value instanceof AutoCloseable) {
             try {
