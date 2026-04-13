@@ -671,6 +671,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         this.jobStatistic.setFileSize(this.jobStatistic.getFileSize() + attachment.getFileBytes());
         Offset endOffset = offsetProvider.deserializeOffset(attachment.getOffset());
         offsetProvider.updateOffset(endOffset);
+        // Keep offsetProviderPersist in sync so checkpoint image contains the latest offset.
+        this.offsetProviderPersist = offsetProvider.getPersistInfo();
         if (!isReplay) {
             offsetProvider.onTaskCommitted(attachment.getScannedRows(), attachment.getLoadBytes());
             if (runningStreamTask != null) {

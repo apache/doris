@@ -25,6 +25,8 @@ import org.apache.doris.filesystem.GlobListing;
 import org.apache.doris.filesystem.Location;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.job.extensions.insert.streaming.StreamingJobProperties;
+import org.apache.doris.job.exception.JobException;
+import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.job.offset.Offset;
 import org.apache.doris.job.offset.SourceOffsetProvider;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
@@ -183,6 +185,23 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
             return true;
         }
         return false;
+    }
+
+    @Override
+    public String getPersistInfo() {
+        if (currentOffset == null) {
+            return null;
+        }
+        return currentOffset.toSerializedJson();
+    }
+
+    @Override
+    public void replayIfNeed(StreamingInsertJob job) {
+        String persist = job.getOffsetProviderPersist();
+        if (persist != null) {
+            this.currentOffset = GsonUtils.GSON.fromJson(persist, S3Offset.class);
+            log.info("Restored S3 offset for job {}: endFile={}", job.getJobId(), currentOffset.getEndFile());
+        }
     }
 
     @Override
