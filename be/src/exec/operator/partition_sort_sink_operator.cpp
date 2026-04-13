@@ -211,73 +211,73 @@ Status PartitionSortSinkOperatorX::_emplace_into_hash_table(
         const ColumnRawPtrs& key_columns, Block* input_block,
         PartitionSortSinkLocalState& local_state, bool eos) {
     return std::visit(
-            Overload {[&](std::monostate& arg) -> Status {
-                          return Status::InternalError("Unit hash table");
-                      },
-                      [&](auto& agg_method) -> Status {
-                          SCOPED_TIMER(local_state._build_timer);
-                          using HashMethodType = std::decay_t<decltype(agg_method)>;
-                          using AggState = typename HashMethodType::State;
+            Overload {
+                    [&](std::monostate& arg) -> Status {
+                        return Status::InternalError("Unit hash table");
+                    },
+                    [&](auto& agg_method) -> Status {
+                        SCOPED_TIMER(local_state._build_timer);
+                        using HashMethodType = std::decay_t<decltype(agg_method)>;
+                        using AggState = typename HashMethodType::State;
 
-                          AggState state(key_columns);
-                          uint32_t num_rows = (uint32_t)input_block->rows();
-                          agg_method.init_serialized_keys(key_columns, num_rows);
+                        AggState state(key_columns);
+                        uint32_t num_rows = (uint32_t)input_block->rows();
+                        agg_method.init_serialized_keys(key_columns, num_rows);
 
-                          auto creator = [&](const auto& ctor, auto& key, auto& origin) {
-                              HashMethodType::try_presis_key(key, origin,
-                                                             *local_state._agg_arena_pool);
-                              auto* aggregate_data = _pool->add(
-                                      new PartitionBlocks(local_state._partition_sort_info,
-                                                          local_state._value_places.empty()));
-                              local_state._value_places.push_back(aggregate_data);
-                              ctor(key, aggregate_data);
-                              local_state._num_partition++;
-                          };
-                          auto creator_for_null_key = [&](auto& mapped) {
-                              mapped = _pool->add(
-                                      new PartitionBlocks(local_state._partition_sort_info,
-                                                          local_state._value_places.empty()));
-                              local_state._value_places.push_back(mapped);
-                              local_state._num_partition++;
-                          };
+                        auto creator = [&](const auto& ctor, auto& key, auto& origin) {
+                            HashMethodType::try_presis_key(key, origin,
+                                                           *local_state._agg_arena_pool);
+                            auto* aggregate_data = _pool->add(
+                                    new PartitionBlocks(local_state._partition_sort_info,
+                                                        local_state._value_places.empty()));
+                            local_state._value_places.push_back(aggregate_data);
+                            ctor(key, aggregate_data);
+                            local_state._num_partition++;
+                        };
+                        auto creator_for_null_key = [&](auto& mapped) {
+                            mapped = _pool->add(
+                                    new PartitionBlocks(local_state._partition_sort_info,
+                                                        local_state._value_places.empty()));
+                            local_state._value_places.push_back(mapped);
+                            local_state._num_partition++;
+                        };
 
-                          SCOPED_TIMER(local_state._emplace_key_timer);
-                          int64_t row = num_rows;
-                          for (row = row - 1; row >= 0 && !local_state._is_need_passthrough;
-                               --row) {
-                              auto& mapped = *agg_method.lazy_emplace(state, row, creator,
-                                                                      creator_for_null_key);
-                              mapped->add_row_idx(row);
-                              local_state._sorted_partition_input_rows++;
-                              local_state._is_need_passthrough =
-                                      local_state.check_whether_need_passthrough();
-                          }
-                          for (auto* place : local_state._value_places) {
-                              SCOPED_TIMER(local_state._selector_block_timer);
-                              RETURN_IF_ERROR(place->append_block_by_selector(input_block, eos));
-                          }
-                          //Perform passthrough for the range [0, row] of input_block
-                          if (local_state._is_need_passthrough && row >= 0) {
-                              {
-                                  COUNTER_UPDATE(local_state._passthrough_rows_counter,
-                                                 (int64_t)(row + 1));
-                                  std::lock_guard<std::mutex> lock(
-                                          local_state._shared_state->buffer_mutex);
-                                  // have emplace (num_rows - row) to hashtable, and now have row remaining needed in block;
-                                  // set_num_rows(x) retains the range [0, x - 1], so row + 1 is needed here.
-                                  input_block->set_num_rows(row + 1);
-                                  local_state._shared_state->blocks_buffer.push(
-                                          std::move(*input_block));
-                                  // buffer have data, source could read this.
-                                  local_state._dependency->set_ready_to_read();
-                              }
-                          }
-                          local_state._serialize_key_arena_memory_usage->set(
-                                  (int64_t)local_state._agg_arena_pool->size());
-                          COUNTER_SET(local_state._hash_table_memory_usage,
-                                      (int64_t)agg_method.hash_table->get_buffer_size_in_bytes());
-                          return Status::OK();
-                      }},
+                        SCOPED_TIMER(local_state._emplace_key_timer);
+                        int64_t row = num_rows;
+                        for (row = row - 1; row >= 0 && !local_state._is_need_passthrough; --row) {
+                            auto& mapped = *agg_method.lazy_emplace(state, row, creator,
+                                                                    creator_for_null_key);
+                            mapped->add_row_idx(row);
+                            local_state._sorted_partition_input_rows++;
+                            local_state._is_need_passthrough =
+                                    local_state.check_whether_need_passthrough();
+                        }
+                        for (auto* place : local_state._value_places) {
+                            SCOPED_TIMER(local_state._selector_block_timer);
+                            RETURN_IF_ERROR(place->append_block_by_selector(input_block, eos));
+                        }
+                        //Perform passthrough for the range [0, row] of input_block
+                        if (local_state._is_need_passthrough && row >= 0) {
+                            {
+                                COUNTER_UPDATE(local_state._passthrough_rows_counter,
+                                               (int64_t)(row + 1));
+                                std::lock_guard<std::mutex> lock(
+                                        local_state._shared_state->buffer_mutex);
+                                // have emplace (num_rows - row) to hashtable, and now have row remaining needed in block;
+                                // set_num_rows(x) retains the range [0, x - 1], so row + 1 is needed here.
+                                input_block->set_num_rows(row + 1);
+                                local_state._shared_state->blocks_buffer.push(
+                                        std::move(*input_block));
+                                // buffer have data, source could read this.
+                                local_state._dependency->set_ready_to_read();
+                            }
+                        }
+                        local_state._serialize_key_arena_memory_usage->set(
+                                (int64_t)local_state._agg_arena_pool->size());
+                        COUNTER_SET(local_state._hash_table_memory_usage,
+                                    (int64_t)agg_method.hash_table->get_buffer_size_in_bytes());
+                        return Status::OK();
+                    }},
             local_state._partitioned_data->method_variant);
 }
 
