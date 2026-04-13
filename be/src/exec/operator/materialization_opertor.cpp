@@ -200,8 +200,7 @@ void MaterializationSharedState::_update_profile_info(int64_t backend_id,
     update_profile_info_key(FileScanner::FileReadTimeProfile);
 }
 
-Status MaterializationSharedState::create_muiltget_result(const Columns& columns, bool child_eos,
-                                                          bool gc_id_map) {
+Status MaterializationSharedState::create_muiltget_result(const Columns& columns, bool child_eos) {
     const auto rows = columns.empty() ? 0 : columns[0]->size();
     block_order_results.resize(columns.size());
 
@@ -254,11 +253,6 @@ Status MaterializationSharedState::create_muiltget_result(const Columns& columns
     }
 
     eos = child_eos;
-    if (eos && gc_id_map) {
-        for (auto& [_, rpc_struct] : rpc_struct_map) {
-            rpc_struct.request.set_gc_id_map(true);
-        }
-    }
     need_merge_block = rows > 0;
 
     return Status::OK();
@@ -331,7 +325,6 @@ Status MaterializationOperator::init(const doris::TPlanNode& tnode, doris::Runti
     RETURN_IF_ERROR(OperatorXBase::init(tnode, state));
     DCHECK(tnode.__isset.materialization_node);
     _materialization_node = tnode.materialization_node;
-    _gc_id_map = tnode.materialization_node.gc_id_map;
     // Create result_expr_ctx_lists_ from thrift exprs.
     const auto& fetch_expr_lists = tnode.materialization_node.fetch_expr_lists;
     RETURN_IF_ERROR(VExpr::create_expr_trees(fetch_expr_lists, _rowid_exprs));
@@ -398,8 +391,7 @@ Status MaterializationOperator::push(RuntimeState* state, Block* in_block, bool 
             }
             local_state._materialization_state.origin_block.swap(*in_block);
         }
-        RETURN_IF_ERROR(local_state._materialization_state.create_muiltget_result(columns, eos,
-                                                                                  _gc_id_map));
+        RETURN_IF_ERROR(local_state._materialization_state.create_muiltget_result(columns, eos));
 
         auto size = local_state._materialization_state.rpc_struct_map.size();
         bthread::CountdownEvent counter(static_cast<int>(size));

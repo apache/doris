@@ -25,7 +25,6 @@
 #include "format/table/table_format_reader.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class PaimonReader : public TableFormatReader, public TableSchemaChangeHelper {
 public:
     PaimonReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
@@ -133,5 +132,4 @@ public:
                                            slot_id_to_filter_conjuncts, table_info_node_ptr);
     }
 };
-#include "common/compile_check_end.h"
 } // namespace doris

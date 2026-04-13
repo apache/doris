@@ -26,7 +26,6 @@
 #include "exec/operator/partition_sort_source_operator.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 Status PartitionSortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(PipelineXSinkLocalState<PartitionSortNodeSharedState>::init(state, info));
@@ -300,5 +299,4 @@ bool PartitionSortSinkLocalState::check_whether_need_passthrough() {
 }
 // NOLINTEND(readability-simplify-boolean-expr)
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -19,17 +19,18 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateUserInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 public class CreateUserCommandTest extends TestWithFeService {
     @Override
@@ -43,13 +44,12 @@ public class CreateUserCommandTest extends TestWithFeService {
     }
 
     @Test
-    public void testValidateNormal(@Mocked AccessControllerManager accessManager) {
-        new Expectations() {
-            {
-                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.GRANT);
-                result = true;
-            }
-        };
+    public void testValidateNormal() {
+        Env env = Env.getCurrentEnv();
+        AccessControllerManager spyAcm = Mockito.spy(env.getAccessManager());
+        Mockito.doReturn(true).when(spyAcm).checkGlobalPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.GRANT));
+        Deencapsulation.setField(env, "accessManager", spyAcm);
 
         CreateUserCommand command = new CreateUserCommand(new CreateUserInfo(new UserDesc(new UserIdentity("user", "%"), "passwd", true)));
         CreateUserInfo info = command.getInfo();

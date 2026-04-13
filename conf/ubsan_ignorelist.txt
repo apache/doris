@@ -1,4 +1,10 @@
 src:*/rapidjson/*
+# OpenBLAS blas_server_omp.c:exec_threads calls inner_thread through a
+# function pointer whose signature doesn't match the actual definition
+# (level3_thread.c:219).  This is a known upstream issue in OpenBLAS and
+# is harmless on x86_64 (compatible calling convention), but triggers
+# UBSan's -fsanitize=function check.
+src:*/contrib/openblas/*
 src:*/storage/key_coder.h
 src:*/storage/types.h
 src:*/storage/field.h

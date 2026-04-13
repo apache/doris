@@ -24,7 +24,6 @@
 #include "exec/pipeline/dependency.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeState;
 
 // The LocalMergeSortSourceOperatorX is an operator that performs merge sort locally.
@@ -110,5 +109,4 @@ private:
     std::vector<std::shared_ptr<Sorter>> _sorters;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

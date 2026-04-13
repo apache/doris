@@ -40,7 +40,6 @@ class TExprNode;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class VExprContext;
 
@@ -130,5 +129,4 @@ void VBitmapPredicate::set_filter(std::shared_ptr<BitmapFilterFuncBase> filter) 
     _filter = filter;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

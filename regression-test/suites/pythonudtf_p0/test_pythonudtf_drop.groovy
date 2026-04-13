@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_pythonudtf_drop") {
-    def runtime_version = "3.8.10"
+    def runtime_version = getPythonUdfRuntimeVersion()
     def zipA = """${context.file.parent}/udtf_scripts/python_udtf_drop_a/python_udtf_drop_test.zip"""
     def zipB = """${context.file.parent}/udtf_scripts/python_udtf_drop_b/python_udtf_drop_test.zip"""
 

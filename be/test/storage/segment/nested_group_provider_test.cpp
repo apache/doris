@@ -58,7 +58,7 @@ TEST(NestedGroupProviderTest, DefaultWriteProviderIsNoOp) {
         GTEST_SKIP() << "EE build: write provider has real implementation";
     }
 
-    auto column_variant = ColumnVariant::create(0);
+    auto column_variant = ColumnVariant::create(0, false);
     ColumnWriterOptions opts;
     VariantStatistics statistics;
 

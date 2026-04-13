@@ -60,7 +60,7 @@ if [[ -z "${DORIS_HOME}" ]]; then
 fi
 
 if [[ -z "${DORIS_TEST_BINARY_DIR}" ]]; then
-    if [[ -e "${DORIS_HOME}/fe/fe-core/target/generated-sources/build/org/apache/doris/common/Version.java" && -e "${DORIS_HOME}/gensrc/build/gen_cpp/version.h" && -e "${DORIS_HOME}/gensrc/build/gen_cpp/cloud_version.h" ]]; then
+    if [[ -e "${DORIS_HOME}/fe/fe-common/target/generated-sources/build/org/apache/doris/common/Version.java" && -e "${DORIS_HOME}/gensrc/build/gen_cpp/version.h" && -e "${DORIS_HOME}/gensrc/build/gen_cpp/cloud_version.h" ]]; then
         exit
     fi
 fi
@@ -101,7 +101,7 @@ java_version_str="$("${java_cmd}" -fullversion 2>&1 | sed -e 's/"/\\"/g')"
 echo "get java cmd: ${java_cmd}"
 echo "get java version: ${java_version_str}"
 
-VERSION_PACKAGE="${DORIS_HOME}/fe/fe-core/target/generated-sources/build/org/apache/doris/common"
+VERSION_PACKAGE="${DORIS_HOME}/fe/fe-common/target/generated-sources/build/org/apache/doris/common"
 mkdir -p "${VERSION_PACKAGE}"
 cat >"${VERSION_PACKAGE}/Version.java" <<EOF
 // Licensed to the Apache Software Foundation (ASF) under one

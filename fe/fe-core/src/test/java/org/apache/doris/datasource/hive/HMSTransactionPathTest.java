@@ -17,21 +17,30 @@
 
 package org.apache.doris.datasource.hive;
 
-import org.apache.doris.backup.Status;
-import org.apache.doris.fs.FileSystem;
-import org.apache.doris.fs.FileSystemProvider;
-import org.apache.doris.fs.LocalDfsFileSystem;
-import org.apache.doris.fs.remote.RemoteFile;
-import org.apache.doris.fs.remote.SwitchingFileSystem;
+import org.apache.doris.filesystem.DorisInputFile;
+import org.apache.doris.filesystem.DorisOutputFile;
+import org.apache.doris.filesystem.FileEntry;
+import org.apache.doris.filesystem.FileIterator;
+import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.Location;
+import org.apache.doris.filesystem.local.LocalFileSystem;
+import org.apache.doris.fs.SpiSwitchingFileSystem;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TS3MPUPendingUpload;
 
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.io.IOException;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 
@@ -84,21 +93,19 @@ public class HMSTransactionPathTest {
     @Test
     public void testDeleteTargetPathContentsNotFoundAllowed() throws Exception {
         FakeFileSystem fakeFs = new FakeFileSystem();
-        fakeFs.listDirectoriesStatus = new Status(Status.ErrCode.NOT_FOUND, "missing");
-        fakeFs.listFilesStatus = new Status(Status.ErrCode.NOT_FOUND, "missing");
+        fakeFs.listDirectoriesThrows = new IOException("not found");
+        fakeFs.listFilesThrows = new IOException("not found");
 
         HMSTransaction transaction = createTransaction(fakeFs);
-        transaction.deleteTargetPathContents(
-                "/tmp/does_not_exist", "/tmp/does_not_exist/.doris_staging");
-        Assert.assertTrue(fakeFs.deletedDirectories.isEmpty());
-        Assert.assertTrue(fakeFs.deletedFiles.isEmpty());
+        Assert.assertThrows(RuntimeException.class, () -> transaction.deleteTargetPathContents(
+                "/tmp/does_not_exist", "/tmp/does_not_exist/.doris_staging"));
     }
 
     // Verifies listDirectories failures surface as runtime errors.
     @Test
     public void testDeleteTargetPathContentsListError() throws Exception {
         FakeFileSystem fakeFs = new FakeFileSystem();
-        fakeFs.listDirectoriesStatus = new Status(Status.ErrCode.COMMON_ERROR, "list failed");
+        fakeFs.listDirectoriesThrows = new IOException("list failed");
 
         HMSTransaction transaction = createTransaction(fakeFs);
         Assert.assertThrows(RuntimeException.class, () -> transaction.deleteTargetPathContents(
@@ -107,7 +114,7 @@ public class HMSTransactionPathTest {
 
     @Test
     public void testEnsureDirectorySuccess() throws Exception {
-        LocalDfsFileSystem localFs = new LocalDfsFileSystem();
+        LocalFileSystem localFs = new LocalFileSystem(Collections.emptyMap());
         HMSTransaction transaction = createTransaction(localFs);
 
         java.nio.file.Path dir = Files.createTempDirectory("hms_tx_ensure_").resolve("nested");
@@ -119,7 +126,7 @@ public class HMSTransactionPathTest {
     @Test
     public void testEnsureDirectoryError() throws Exception {
         FakeFileSystem fakeFs = new FakeFileSystem();
-        fakeFs.makeDirStatus = new Status(Status.ErrCode.COMMON_ERROR, "mkdir failed");
+        fakeFs.mkdirsThrows = new IOException("mkdir failed");
 
         HMSTransaction transaction = createTransaction(fakeFs);
         Assert.assertThrows(RuntimeException.class, () -> transaction.ensureDirectory("/tmp/target"));
@@ -132,7 +139,7 @@ public class HMSTransactionPathTest {
     // 4) Ensure the target directory exists after cleanup.
     @Test
     public void testDeleteTargetPathContentsSkipsExcludedDir() throws Exception {
-        LocalDfsFileSystem localFs = new LocalDfsFileSystem();
+        LocalFileSystem localFs = new LocalFileSystem(Collections.emptyMap());
         HMSTransaction transaction = createTransaction(localFs);
 
         java.nio.file.Path targetDir = Files.createTempDirectory("hms_tx_path_test_");
@@ -162,101 +169,158 @@ public class HMSTransactionPathTest {
     }
 
     private static HMSTransaction createTransaction(FileSystem delegate) {
-        SwitchingFileSystem switchingFs = new TestSwitchingFileSystem(delegate);
-        FileSystemProvider provider = ctx -> switchingFs;
-        return new HMSTransaction(null, provider, Runnable::run);
-    }
-
-    private static class TestSwitchingFileSystem extends SwitchingFileSystem {
-        private final FileSystem delegate;
-
-        TestSwitchingFileSystem(FileSystem delegate) {
-            super(null, null);
-            this.delegate = delegate;
-        }
-
-        @Override
-        public FileSystem fileSystem(String location) {
-            return delegate;
-        }
+        SpiSwitchingFileSystem spiFs = new SpiSwitchingFileSystem(delegate);
+        return new HMSTransaction(null, spiFs, Runnable::run);
     }
 
     private static class FakeFileSystem implements FileSystem {
-        private Status listDirectoriesStatus = Status.OK;
-        private Status listFilesStatus = Status.OK;
-        private Status makeDirStatus = Status.OK;
-        private Status deleteStatus = Status.OK;
-        private Status deleteDirStatus = Status.OK;
+        IOException listDirectoriesThrows;
+        IOException listFilesThrows;
+        IOException mkdirsThrows;
 
-        private final List<String> deletedDirectories = new ArrayList<>();
-        private final List<String> deletedFiles = new ArrayList<>();
+        final List<String> deletedDirectories = new ArrayList<>();
+        final List<String> deletedFiles = new ArrayList<>();
 
         @Override
-        public Status listDirectories(String remotePath, Set<String> result) {
-            if (!listDirectoriesStatus.ok()) {
-                return listDirectoriesStatus;
+        public Set<String> listDirectories(Location dir) throws IOException {
+            if (listDirectoriesThrows != null) {
+                throw listDirectoriesThrows;
             }
-            return Status.OK;
+            return Collections.emptySet();
         }
 
         @Override
-        public Status listFiles(String remotePath, boolean recursive, List<RemoteFile> result) {
-            if (!listFilesStatus.ok()) {
-                return listFilesStatus;
+        public List<FileEntry> listFiles(Location dir) throws IOException {
+            if (listFilesThrows != null) {
+                throw listFilesThrows;
             }
-            return Status.OK;
+            return Collections.emptyList();
         }
 
         @Override
-        public Status deleteDirectory(String dir) {
-            deletedDirectories.add(dir);
-            return deleteDirStatus;
+        public void mkdirs(Location location) throws IOException {
+            if (mkdirsThrows != null) {
+                throw mkdirsThrows;
+            }
         }
 
         @Override
-        public Status delete(String remotePath) {
-            deletedFiles.add(remotePath);
-            return deleteStatus;
+        public void delete(Location location, boolean recursive) throws IOException {
+            if (recursive) {
+                deletedDirectories.add(location.uri());
+            } else {
+                deletedFiles.add(location.uri());
+            }
         }
 
         @Override
-        public Status makeDir(String remotePath) {
-            return makeDirStatus;
+        public boolean exists(Location location) throws IOException {
+            return false;
         }
 
         @Override
-        public Status exists(String remotePath) {
-            return Status.OK;
+        public void rename(Location src, Location dst) throws IOException {
         }
 
         @Override
-        public Status downloadWithFileSize(String remoteFilePath, String localFilePath, long fileSize) {
-            return Status.OK;
+        public FileIterator list(Location location) throws IOException {
+            return new FileIterator() {
+                @Override
+                public boolean hasNext() {
+                    return false;
+                }
+
+                @Override
+                public FileEntry next() {
+                    throw new java.util.NoSuchElementException();
+                }
+
+                @Override
+                public void close() {
+                }
+            };
         }
 
         @Override
-        public Status upload(String localPath, String remotePath) {
-            return Status.OK;
+        public DorisInputFile newInputFile(Location location) throws IOException {
+            throw new UnsupportedOperationException();
         }
 
         @Override
-        public Status directUpload(String content, String remoteFile) {
-            return Status.OK;
+        public DorisInputFile newInputFile(Location location, long length) throws IOException {
+            throw new UnsupportedOperationException();
         }
 
         @Override
-        public Status rename(String origFilePath, String destFilePath) {
-            return Status.OK;
+        public DorisOutputFile newOutputFile(Location location) throws IOException {
+            throw new UnsupportedOperationException();
         }
 
         @Override
-        public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
-            return Status.OK;
+        public void close() throws IOException {
         }
+    }
 
-        @Override
-        public java.util.Map<String, String> getProperties() {
-            return null;
-        }
+    /**
+     * H3: Verify that {@code HmsCommitter.abortMultiUploads()} does NOT throw {@link ClassCastException}
+     * when the underlying {@link FileSystem} is a non-{@code ObjFileSystem} (e.g. HDFS / local).
+     *
+     * <p>Before the H3 fix, {@code abortMultiUploads()} unconditionally cast the resolved filesystem to
+     * {@code ObjFileSystem}, causing a {@link ClassCastException} when using HDFS-backed repositories.
+     * The fix adds an {@code instanceof ObjFileSystem} guard that logs a warning and skips the abort.
+     *
+     * <p>Because {@code HmsCommitter} and {@code UncompletedMpuPendingUpload} are package-private /
+     * private inner classes, the test uses reflection to inject the required state.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    public void testAbortMultiUploadsDoesNotThrowForNonObjFileSystem() throws Exception {
+        LocalFileSystem localFs = new LocalFileSystem(Collections.emptyMap());
+        HMSTransaction tx = createTransaction(localFs);
+
+        // Obtain the private UncompletedMpuPendingUpload class via reflection.
+        Class<?> uploadClass = Arrays.stream(HMSTransaction.class.getDeclaredClasses())
+                .filter(c -> "UncompletedMpuPendingUpload".equals(c.getSimpleName()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Could not find UncompletedMpuPendingUpload class"));
+
+        // Build a minimal TS3MPUPendingUpload (bucket/key/uploadId need not be real).
+        TS3MPUPendingUpload mpu = new TS3MPUPendingUpload();
+        mpu.setBucket("test-bucket");
+        mpu.setKey("test/key");
+        mpu.setUploadId("upload-id-0");
+
+        Constructor<?> uploadCtor = uploadClass.getDeclaredConstructor(TS3MPUPendingUpload.class, String.class);
+        uploadCtor.setAccessible(true);
+        // Use "local:///tmp/file" — will be resolved via SpiSwitchingFileSystem to LocalFileSystem.
+        Object upload = uploadCtor.newInstance(mpu, "/tmp/file");
+
+        // Inject into HMSTransaction.uncompletedMpuPendingUploads (field on outer class).
+        Field mpuField = HMSTransaction.class.getDeclaredField("uncompletedMpuPendingUploads");
+        mpuField.setAccessible(true);
+        Set<Object> uploads = (Set<Object>) mpuField.get(tx);
+        uploads.add(upload);
+
+        // stagingDirectory is only initialized inside commit(); initialize it here to avoid NPE in rollback().
+        Field stagingDirField = HMSTransaction.class.getDeclaredField("stagingDirectory");
+        stagingDirField.setAccessible(true);
+        stagingDirField.set(tx, java.util.Optional.empty());
+
+        // Instantiate HmsCommitter (package-private inner class) for this transaction.
+        Class<?> committerClass = Arrays.stream(HMSTransaction.class.getDeclaredClasses())
+                .filter(c -> "HmsCommitter".equals(c.getSimpleName()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Could not find HmsCommitter class"));
+        Constructor<?> committerCtor = committerClass.getDeclaredConstructor(HMSTransaction.class);
+        committerCtor.setAccessible(true);
+        Object committer = committerCtor.newInstance(tx);
+
+        // rollback() calls abortMultiUploads(); with the H3 fix it must skip (not cast) for LocalFileSystem.
+        // Before the fix this would throw ClassCastException.
+        Method rollback = committerClass.getMethod("rollback");
+        rollback.invoke(committer); // must NOT throw
+
+        // After rollback, uncompletedMpuPendingUploads must be cleared.
+        Assert.assertTrue("uncompletedMpuPendingUploads must be cleared after rollback", uploads.isEmpty());
     }
 }

@@ -20,6 +20,7 @@ package org.apache.doris.datasource.property.storage;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.storage.exception.AzureAuthType;
+import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 import org.apache.doris.foundation.property.ConnectorProperty;
 import org.apache.doris.foundation.property.ParamRules;
 
@@ -136,6 +137,13 @@ public class AzureProperties extends StorageProperties {
 
     public AzureProperties(Map<String, String> origProps) {
         super(Type.AZURE, origProps);
+    }
+
+    public static AzureProperties of(Map<String, String> properties) {
+        AzureProperties propertiesObj = new AzureProperties(properties);
+        ConnectorPropertiesUtils.bindConnectorProperties(propertiesObj, properties);
+        propertiesObj.initNormalizeAndCheckProps();
+        return propertiesObj;
     }
 
     @Override

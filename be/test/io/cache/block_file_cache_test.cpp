@@ -3334,6 +3334,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader) {
     io::FileReaderOptions opts;
     opts.cache_type = io::cache_type_from_string("file_block_cache");
     opts.is_doris_table = true;
+    opts.tablet_id = 10086;
     CachedRemoteFileReader reader(local_reader, opts);
     auto key = io::BlockFileCache::hash("tmp_file");
     EXPECT_EQ(reader._cache_hash, key);
@@ -3447,6 +3448,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_tail) {
     io::FileReaderOptions opts;
     opts.cache_type = io::cache_type_from_string("file_block_cache");
     opts.is_doris_table = true;
+    opts.tablet_id = 10086;
     CachedRemoteFileReader reader(local_reader, opts);
     {
         std::string buffer;
@@ -3520,6 +3522,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_error_handle) {
     io::FileReaderOptions opts;
     opts.cache_type = io::cache_type_from_string("file_block_cache");
     opts.is_doris_table = true;
+    opts.tablet_id = 10086;
     CachedRemoteFileReader reader(local_reader, opts);
     auto sp = SyncPoint::get_instance();
     sp->enable_processing();
@@ -3605,6 +3608,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_self_heal_on_downloaded_not
     io::FileReaderOptions opts;
     opts.cache_type = io::cache_type_from_string("file_block_cache");
     opts.is_doris_table = true;
+    opts.tablet_id = 10086;
     CachedRemoteFileReader reader(local_reader, opts);
 
     uint64_t before_self_heal = g_read_cache_self_heal_on_not_found.get_value();
@@ -3701,6 +3705,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_no_self_heal_on_non_not_fou
     io::FileReaderOptions opts;
     opts.cache_type = io::cache_type_from_string("file_block_cache");
     opts.is_doris_table = true;
+    opts.tablet_id = 10086;
     CachedRemoteFileReader reader(local_reader, opts);
 
     std::string buffer(64_kb, '\0');
@@ -3849,6 +3854,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_concurrent) {
     io::FileReaderOptions opts;
     opts.cache_type = io::cache_type_from_string("file_block_cache");
     opts.is_doris_table = true;
+    opts.tablet_id = 10086;
     bool flag1 = false;
     auto reader = std::make_shared<CachedRemoteFileReader>(local_reader, opts);
     auto sp = SyncPoint::get_instance();
@@ -3933,6 +3939,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_concurrent_2) {
     io::FileReaderOptions opts;
     opts.cache_type = io::cache_type_from_string("file_block_cache");
     opts.is_doris_table = true;
+    opts.tablet_id = 10086;
     auto reader = std::make_shared<CachedRemoteFileReader>(local_reader, opts);
     auto sp = SyncPoint::get_instance();
     sp->enable_processing();
@@ -4455,6 +4462,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_opt_lock) {
     io::FileReaderOptions opts;
     opts.cache_type = FileCachePolicy::FILE_BLOCK_CACHE;
     opts.is_doris_table = true;
+    opts.tablet_id = 10086;
     {
         FileReaderSPtr local_reader;
         ASSERT_TRUE(global_local_filesystem()->open_file(tmp_file, &local_reader).ok());
@@ -7055,6 +7063,7 @@ TEST_F(BlockFileCacheTest, reader_dryrun_when_download_file_cache) {
     io::FileReaderOptions opts;
     opts.cache_type = io::cache_type_from_string("file_block_cache");
     opts.is_doris_table = true;
+    opts.tablet_id = 10086;
     CachedRemoteFileReader reader(local_reader, opts);
     auto key = io::BlockFileCache::hash("tmp_file");
     EXPECT_EQ(reader._cache_hash, key);
@@ -7550,6 +7559,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_ttl_index) {
     io::FileReaderOptions opts;
     opts.cache_type = io::cache_type_from_string("file_block_cache");
     opts.is_doris_table = true;
+    opts.tablet_id = 10086;
     CachedRemoteFileReader reader(local_reader, opts);
     auto key = io::BlockFileCache::hash("tmp_file");
     EXPECT_EQ(reader._cache_hash, key);
@@ -7631,6 +7641,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_normal_index) {
     io::FileReaderOptions opts;
     opts.cache_type = io::cache_type_from_string("file_block_cache");
     opts.is_doris_table = true;
+    opts.tablet_id = 10086;
     CachedRemoteFileReader reader(local_reader, opts);
     auto key = io::BlockFileCache::hash("tmp_file");
     EXPECT_EQ(reader._cache_hash, key);
@@ -7786,6 +7797,7 @@ TEST_F(BlockFileCacheTest, DISABLE_cached_remote_file_reader_direct_read_and_evi
     io::FileReaderOptions opts;
     opts.cache_type = io::cache_type_from_string("file_block_cache");
     opts.is_doris_table = true;
+    opts.tablet_id = 10086;
     auto reader = std::make_shared<CachedRemoteFileReader>(local_reader, opts);
 
     std::string buffer;
@@ -7878,6 +7890,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_direct_read_bytes_check) {
     io::FileReaderOptions opts;
     opts.cache_type = io::cache_type_from_string("file_block_cache");
     opts.is_doris_table = true;
+    opts.tablet_id = 10086;
     auto reader = std::make_shared<CachedRemoteFileReader>(local_reader, opts);
 
     std::string buffer;

@@ -58,7 +58,7 @@ public class CreateStreamInfo {
      * validate create table stream info.
      */
     public void validate(ConnectContext ctx) throws UserException {
-        tableStreamName.analyze(ctx);
+        tableStreamName.analyze(ctx.getNameSpaceContext());
         FeNameFormat.checkTableName(tableStreamName.getTbl());
 
         // disallow external catalog
@@ -72,7 +72,7 @@ public class CreateStreamInfo {
         }
 
         // check base table
-        baseTableName.analyze(ctx);
+        baseTableName.analyze(ctx.getNameSpaceContext());
         if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx,
                 baseTableName.getCtl(), baseTableName.getDb(), baseTableName.getTbl(),
                 PrivPredicate.SELECT)) {

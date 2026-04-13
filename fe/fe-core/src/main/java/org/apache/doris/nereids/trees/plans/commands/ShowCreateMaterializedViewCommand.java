@@ -61,7 +61,7 @@ public class ShowCreateMaterializedViewCommand extends ShowCommand {
     }
 
     private void validate(ConnectContext ctx) throws AnalysisException {
-        tblNameInfo.analyze(ctx);
+        tblNameInfo.analyze(ctx.getNameSpaceContext());
 
         // disallow external catalog
         Util.prohibitExternalCatalog(tblNameInfo.getCtl(), this.getClass().getSimpleName());

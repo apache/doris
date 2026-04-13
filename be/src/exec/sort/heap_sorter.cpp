@@ -24,7 +24,6 @@
 #include "runtime/runtime_state.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 HeapSorter::HeapSorter(VSortExecExprs& vsort_exec_exprs, RuntimeState* state, int64_t limit,
                        int64_t offset, ObjectPool* pool, std::vector<bool>& is_asc_order,
@@ -136,5 +135,4 @@ void HeapSorter::_do_filter(MergeSortCursorImpl& block_cursor, size_t num_rows) 
     block_cursor.filter_block(filter);
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -63,7 +63,7 @@ public class AdminSetTableStatusCommand extends Command implements ForwardWithSy
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
 
-        tableNameInfo.analyze(ctx);
+        tableNameInfo.analyze(ctx.getNameSpaceContext());
         Util.prohibitExternalCatalog(tableNameInfo.getCtl(), this.getClass().getSimpleName());
 
         checkProperties();

@@ -50,7 +50,6 @@
 #include "util/string_parser.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 DataTypePtr get_data_type_with_default_argument(DataTypePtr type) {
     auto transform = [&](DataTypePtr t) -> DataTypePtr {
@@ -70,8 +69,7 @@ DataTypePtr get_data_type_with_default_argument(DataTypePtr type) {
             DCHECK_EQ(res->get_scale(), BeConsts::MAX_DECIMALV2_SCALE);
 
             return res;
-        } else if (t->get_primitive_type() == PrimitiveType::TYPE_BINARY ||
-                   t->get_primitive_type() == PrimitiveType::TYPE_LAMBDA_FUNCTION) {
+        } else if (t->get_primitive_type() == PrimitiveType::TYPE_BINARY) {
             return DataTypeFactory::instance().create_data_type(TYPE_STRING, t->is_nullable());
         } else {
             return t;

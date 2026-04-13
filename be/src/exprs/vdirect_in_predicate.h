@@ -25,7 +25,6 @@
 #include "exprs/vslot_ref.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class VDirectInPredicate final : public VExpr {
     ENABLE_FACTORY_CREATOR(VDirectInPredicate);
@@ -155,5 +154,4 @@ private:
     std::string _expr_name;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

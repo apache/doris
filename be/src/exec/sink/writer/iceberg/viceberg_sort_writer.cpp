@@ -24,7 +24,6 @@
 #include "runtime/runtime_state.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 Status VIcebergSortWriter::open(RuntimeState* state, RuntimeProfile* profile,
                                 const RowDescriptor* row_desc) {
@@ -377,5 +376,4 @@ void VIcebergSortWriter::_cleanup_spill_streams() {
     _current_merging_spill_files.clear();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

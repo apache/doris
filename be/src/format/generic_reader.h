@@ -30,7 +30,6 @@ class ColumnPredicate;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class Block;
 class VSlotRef;
@@ -135,5 +134,4 @@ protected:
     FileMetaCache* _meta_cache = nullptr;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -34,7 +34,6 @@ class IColumn;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 Field DataTypeJsonb::get_default() const {
     std::string default_json = "null";
     // convert default_json to binary

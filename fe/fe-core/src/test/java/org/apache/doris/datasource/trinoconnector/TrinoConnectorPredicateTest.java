@@ -31,6 +31,7 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.trinoconnector.source.TrinoConnectorPredicateConverter;
@@ -693,18 +694,18 @@ public class TrinoConnectorPredicateTest {
                 .add(new FloatLiteral(1.23, Type.FLOAT)) // Real type
                 .add(new FloatLiteral(3.1415926456, Type.DOUBLE))
 
-                .add(new DecimalLiteral(new BigDecimal("123456.23")))
-                .add(new DecimalLiteral(new BigDecimal("12345678901234567890123.123")))
+                .add(new DecimalLiteral(new BigDecimal("123456.23"), ScalarType.createDecimalV3Type(8, 2)))
+                .add(new DecimalLiteral(new BigDecimal("12345678901234567890123.123"), ScalarType.createDecimalV3Type(26, 3)))
 
                 .add(new StringLiteral("trino connector char test"))
                 .add(new StringLiteral("trino connector varchar test"))
                 .add(new StringLiteral("trino connector varbinary test"))
 
-                .add(new DateLiteral("1969-12-31", Type.DATEV2))
-                .add(new DateLiteral("1970-01-01 00:00:01.000001", Type.DATETIMEV2))
-                // .add(new DateLiteral("1970-01-01 00:00:00.000000", Type.DATETIMEV2))
-                .add(new DateLiteral("1970-01-01 00:00:01.000001", Type.DATETIMEV2))
-                .add(new DateLiteral("1970-01-01 08:00:01.000001", Type.DATETIMEV2))
+                .add(new DateLiteral(1969, 12, 31, Type.DATEV2))
+                .add(new DateLiteral(1970, 1, 1, 0, 0, 1, 1, Type.DATETIMEV2))
+                // .add(new DateLiteral(1970, 1, 1, 0, 0, 0, 0, Type.DATETIMEV2))
+                .add(new DateLiteral(1970, 1, 1, 0, 0, 1, 1, Type.DATETIMEV2))
+                .add(new DateLiteral(1970, 1, 1, 8, 0, 1, 1, Type.DATETIMEV2))
                 .build();
     }
 

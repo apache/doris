@@ -37,7 +37,6 @@
 #include "util/defer_op.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class Arena;
 class IColumn;
@@ -676,5 +675,3 @@ struct MultiExpression {};   // Must have multiple parameters (more than 1)
 struct VarargsExpression {}; // Uncertain number of parameters
 
 } // namespace doris
-
-#include "common/compile_check_end.h"

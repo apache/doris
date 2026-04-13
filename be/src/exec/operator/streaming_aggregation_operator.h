@@ -27,7 +27,6 @@
 #include "runtime/runtime_profile.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeState;
 
 class StreamingAggOperatorX;
@@ -281,5 +280,4 @@ private:
     std::vector<TExpr> _partition_exprs;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -355,7 +355,6 @@ suite("test_array_functions") {
     1.array_range function with datetimev2 type
     2.sequence function(alias of array_range) with int and datetimev2 type
    */
-    sql "SET enable_nereids_planner=true"
     def tableName5 = "tbl_test_sequence"
     sql """drop TABLE if EXISTS ${tableName5};"""
     sql """

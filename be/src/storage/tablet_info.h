@@ -47,7 +47,6 @@
 #include "util/raw_value.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class MemTracker;
 class SlotDescriptor;
 class TExprNode;
@@ -445,5 +444,4 @@ private:
     std::unordered_map<int64_t, NodeInfo> _nodes;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

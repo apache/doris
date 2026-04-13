@@ -39,7 +39,6 @@ namespace doris {
 // reduces the CPU cache working set when dealing with short strings.
 
 class StringView {
-#include "common/compile_check_begin.h"
 public:
     using value_type = char;
     static constexpr size_t kPrefixSize = 4 * sizeof(char);
@@ -154,5 +153,4 @@ private:
         const char* data;
     } value_;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

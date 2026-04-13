@@ -29,9 +29,19 @@ under the License.
     <artifactId>fe-foundation</artifactId>
     <packaging>jar</packaging>
     <name>Doris FE Foundation</name>
-    <description>Zero-dependency foundation utilities for Doris FE modules and SPI plugins</description>
+    <description>Foundation utilities for Doris FE modules and SPI plugins</description>
 
-    <!-- Intentionally NO dependencies. This module depends only on JDK. -->
+    <dependencies>
+        <dependency>
+            <groupId>it.unimi.dsi</groupId>
+            <artifactId>fastutil-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.google.code.gson</groupId>
+            <artifactId>gson</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
 
     <build>
         <finalName>doris-fe-foundation</finalName>

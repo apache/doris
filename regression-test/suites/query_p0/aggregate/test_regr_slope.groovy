@@ -21,8 +21,6 @@ suite("test_regr_slope") {
     sql """ DROP TABLE IF EXISTS test_regr_slope_nullable_col """
 
 
-    sql """ SET enable_nereids_planner=true """
-    sql """ SET enable_fallback_to_original_planner=false """
 
     sql """
         CREATE TABLE test_regr_slope_int (

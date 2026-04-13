@@ -24,6 +24,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.RelationUtil;
@@ -69,7 +70,8 @@ public class ShowConstraintsCommand extends ShowCommand {
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         TableIf tableIf = RelationUtil.getDbAndTable(
                 RelationUtil.getQualifierName(ctx, nameParts), ctx.getEnv(), Optional.empty()).value();
-        TableNameInfo tableNameInfo = new TableNameInfo(tableIf);
+        TableNameInfo tableNameInfo = TableNameInfoUtils.fromCatalogDb(
+                tableIf.getDatabase().getCatalog(), tableIf.getDatabase(), tableIf);
         Map<String, Constraint> constraints = Env.getCurrentEnv().getConstraintManager()
                 .getConstraints(tableNameInfo);
         List<List<String>> res = constraints.entrySet().stream()

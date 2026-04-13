@@ -35,7 +35,6 @@
 #include "util/slice.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 // A Field is used to represent a column in memory format.
 // User can use this class to access or deal with column data in memory.
 class StorageField {
@@ -400,5 +399,4 @@ public:
         return create(column);
     }
 };
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -42,6 +42,7 @@
 #include "exec/runtime_filter/runtime_filter_consumer.h"
 #include "exec/runtime_filter/runtime_filter_mgr.h"
 #include "exec/runtime_filter/runtime_filter_producer.h"
+#include "exprs/function/cast/cast_to_date_or_datetime_impl.hpp"
 #include "io/fs/s3_file_system.h"
 #include "load/load_path_mgr.h"
 #include "runtime/exec_env.h"
@@ -55,7 +56,6 @@
 #include "util/uid_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
@@ -214,7 +214,11 @@ Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOpt
     } else if (!query_globals.now_string.empty()) {
         _timezone = TimezoneUtils::default_time_zone;
         VecDateTimeValue dt;
-        dt.from_date_str(query_globals.now_string.c_str(), query_globals.now_string.size());
+        CastParameters params;
+        DORIS_CHECK((CastToDateOrDatetime::from_string_strict_mode<DatelikeParseMode::STRICT,
+                                                                   DatelikeTargetType::DATE_TIME>(
+                {query_globals.now_string.c_str(), query_globals.now_string.size()}, dt, nullptr,
+                params)));
         int64_t timestamp;
         dt.unix_timestamp(&timestamp, _timezone);
         _timestamp_ms = timestamp * 1000;
@@ -561,5 +565,4 @@ bool RuntimeState::low_memory_mode() const {
 void RuntimeState::set_id_file_map() {
     _id_file_map = _exec_env->get_id_manager()->add_id_file_map(_query_id, execution_timeout());
 }
-#include "common/compile_check_end.h"
 } // end namespace doris

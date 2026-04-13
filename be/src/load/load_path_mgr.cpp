@@ -45,8 +45,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
-
 using namespace ErrorCode;
 
 static const uint32_t MAX_SHARD_NUM = 1024;
@@ -330,7 +328,5 @@ void LoadPathMgr::clean_error_log() {
         }
     }
 }
-
-#include "common/compile_check_end.h"
 
 } // namespace doris

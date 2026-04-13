@@ -41,8 +41,6 @@ class ColumnVariant;
 class OlapBlockDataConvertor;
 namespace segment_v2 {
 
-#include "common/compile_check_begin.h"
-
 class ColumnWriter;
 class ScalarColumnWriter;
 
@@ -284,6 +282,7 @@ private:
     const TabletColumn* _tablet_column = nullptr;
     ColumnWriterOptions _opts;
     bool _is_finalized = false;
+    bool _data_written = false;
     std::unique_ptr<ColumnWriter> _doc_value_column_writer;
     std::vector<std::unique_ptr<ColumnWriter>> _subcolumn_writers;
     std::vector<TabletIndexes> _subcolumns_indexes;
@@ -292,8 +291,6 @@ private:
 
 void _init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column,
                        CompressionTypePB compression_type);
-
-#include "common/compile_check_end.h"
 
 } // namespace segment_v2
 } // namespace doris

@@ -24,7 +24,6 @@
 #include "runtime/runtime_profile.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 // this class used in ScanNode or MultiCastDataStreamSource
 /**
  * init -> acquire_runtime_filter -> try_append_late_arrival_runtime_filter
@@ -72,5 +71,4 @@ private:
     std::unique_ptr<RuntimeProfile::Counter> _acquire_runtime_filter_timer =
             std::make_unique<RuntimeProfile::Counter>(TUnit::TIME_NS, 0);
 };
-#include "common/compile_check_end.h"
 } // namespace doris

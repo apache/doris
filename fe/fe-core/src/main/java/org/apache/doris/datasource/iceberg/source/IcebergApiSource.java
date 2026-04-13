@@ -21,7 +21,9 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.planner.ColumnRange;
 
@@ -34,26 +36,25 @@ import java.util.Map;
  */
 public class IcebergApiSource implements IcebergSource {
 
-    private final IcebergExternalTable icebergExtTable;
+    private final ExternalTable targetTable;
     private final Table originTable;
-
     private final TupleDescriptor desc;
 
-    public IcebergApiSource(IcebergExternalTable table, TupleDescriptor desc,
+    public IcebergApiSource(ExternalTable table, TupleDescriptor desc,
                             Map<String, ColumnRange> columnNameToRange) {
-        // Theoretically, the IcebergScanNode is responsible for scanning data from physical tables.
-        // Views should not reach this point.
-        // By adding this validation, we aim to ensure that if a view query does end up here, it indicates a bug.
-        // This helps us identify issues promptly.
-
-        // when use legacy planner, query an iceberg view will enter this
-        // we should set enable_fallback_to_original_planner=false
-        // so that it will throw exception by first planner
-        if (table.isView()) {
-            throw new UnsupportedOperationException("IcebergApiSource does not support view");
+        if (table instanceof IcebergExternalTable) {
+            IcebergExternalTable icebergExtTable = (IcebergExternalTable) table;
+            if (icebergExtTable.isView()) {
+                throw new UnsupportedOperationException("IcebergApiSource does not support view");
+            }
+            this.originTable = IcebergUtils.getIcebergTable(icebergExtTable);
+        } else if (table instanceof IcebergSysExternalTable) {
+            this.originTable = ((IcebergSysExternalTable) table).getSysIcebergTable();
+        } else {
+            throw new IllegalArgumentException(
+                    "Expected Iceberg table but got " + table.getClass().getSimpleName());
         }
-        this.icebergExtTable = table;
-        this.originTable = IcebergUtils.getIcebergTable(icebergExtTable);
+        this.targetTable = table;
         this.desc = desc;
     }
 
@@ -74,12 +75,12 @@ public class IcebergApiSource implements IcebergSource {
 
     @Override
     public TableIf getTargetTable() {
-        return icebergExtTable;
+        return targetTable;
     }
 
     @Override
     public ExternalCatalog getCatalog() {
-        return icebergExtTable.getCatalog();
+        return targetTable.getCatalog();
     }
 
 }

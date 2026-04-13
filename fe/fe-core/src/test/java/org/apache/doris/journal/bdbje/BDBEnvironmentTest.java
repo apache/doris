@@ -36,9 +36,6 @@ import com.sleepycat.je.rep.InsufficientAcksException;
 import com.sleepycat.je.rep.ReplicatedEnvironment;
 import com.sleepycat.je.rep.impl.RepImpl;
 import com.sleepycat.je.rep.util.ReplicationGroupAdmin;
-import mockit.Expectations;
-import mockit.Mock;
-import mockit.MockUp;
 import org.apache.commons.io.FileUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -46,6 +43,8 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.RepeatedTest;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.io.File;
 import java.io.IOException;
@@ -177,27 +176,29 @@ public class BDBEnvironmentTest {
         Assertions.assertEquals(OperationStatus.SUCCESS, epochDb.get(null, key, readValue2, LockMode.DEFAULT));
         Assertions.assertEquals(new String(value.getData()), new String(readValue2.getData()));
 
-        new MockUp<Env>() {
-            int i = 0;
-            @Mock
-            public List<Frontend> getFrontends(FrontendNodeType nodeType) {
-                ArrayList<Frontend> frontends = new ArrayList<Frontend>();
-                if (i == 0) {
-                    i++;
-                    return frontends;
-                }
-                Frontend frontend = new Frontend(FrontendNodeType.FOLLOWER, selfNodeName,
-                        "127.0.0.1", port);
-                frontend.setIsAlive(true);
-                frontends.add(frontend);
+        Env mockEnv = Mockito.mock(Env.class);
+        java.util.concurrent.atomic.AtomicInteger callCounter = new java.util.concurrent.atomic.AtomicInteger(0);
+        Mockito.when(mockEnv.getFrontends(Mockito.any())).thenAnswer(inv -> {
+            ArrayList<Frontend> frontends = new ArrayList<Frontend>();
+            if (callCounter.getAndIncrement() == 0) {
                 return frontends;
             }
-        };
+            Frontend frontend = new Frontend(FrontendNodeType.FOLLOWER, selfNodeName,
+                    "127.0.0.1", port);
+            frontend.setIsAlive(true);
+            frontends.add(frontend);
+            return frontends;
+        });
 
-        ReplicationGroupAdmin replicationGroupAdmin = bdbEnvironment.getReplicationGroupAdmin();
-        Assertions.assertNull(replicationGroupAdmin);
-        replicationGroupAdmin = bdbEnvironment.getReplicationGroupAdmin();
-        Assertions.assertNotNull(replicationGroupAdmin);
+        try (MockedStatic<Env> mockedEnvStatic = Mockito.mockStatic(Env.class)) {
+            mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(mockEnv);
+            mockedEnvStatic.when(Env::getCurrentEnvJournalVersion).thenCallRealMethod();
+
+            ReplicationGroupAdmin replicationGroupAdmin = bdbEnvironment.getReplicationGroupAdmin();
+            Assertions.assertNull(replicationGroupAdmin);
+            replicationGroupAdmin = bdbEnvironment.getReplicationGroupAdmin();
+            Assertions.assertNotNull(replicationGroupAdmin);
+        }
 
         bdbEnvironment.close();
         exception = Assertions.assertThrows(IllegalStateException.class, () -> {
@@ -696,18 +697,19 @@ public class BDBEnvironmentTest {
                 Assertions.assertEquals(new String(value.getData()), new String(readValue.getData()));
             }
 
+            ReplicatedEnvironment replicatedEnvironment = masterPair.first.getReplicatedEnvironment();
             Field envImplField = ReplicatedEnvironment.class.getDeclaredField("repEnvironmentImpl");
             envImplField.setAccessible(true);
-            RepImpl impl = (RepImpl) envImplField.get(masterPair.first.getReplicatedEnvironment());
+            RepImpl impl = (RepImpl) envImplField.get(replicatedEnvironment);
             Assertions.assertNotNull(impl);
 
-            new Expectations(impl) {{
-                    // Below method will replicate log item to followers.
-                    impl.registerVLSN(withNotNull());
-                    // Below method will wait until the logs are replicated.
-                    impl.postLogCommitHook(withNotNull(), withNotNull());
-                    result = new InsufficientAcksException("mocked");
-                }};
+            Field environmentImplField = com.sleepycat.je.Environment.class.getDeclaredField("environmentImpl");
+            environmentImplField.setAccessible(true);
+            RepImpl implSpy = Mockito.spy(impl);
+            envImplField.set(replicatedEnvironment, implSpy);
+            environmentImplField.set(replicatedEnvironment, implSpy);
+            Mockito.doThrow(new InsufficientAcksException("mocked"))
+                    .when(implSpy).postLogCommitHook(Mockito.any(), Mockito.any());
 
             long count = masterDb.count();
             final Database oldMasterDb = masterDb;

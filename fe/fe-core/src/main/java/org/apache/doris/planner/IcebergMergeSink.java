@@ -32,6 +32,7 @@ import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TIcebergMergeSink;
+import org.apache.doris.thrift.TIcebergRewritableDeleteFileSet;
 import org.apache.doris.thrift.TSortField;
 
 import com.google.common.collect.ImmutableList;
@@ -39,6 +40,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import org.apache.iceberg.NullOrder;
 import org.apache.iceberg.PartitionSpecParser;
+import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.SortDirection;
 import org.apache.iceberg.SortField;
@@ -46,8 +48,10 @@ import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.types.Types;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -60,6 +64,7 @@ public class IcebergMergeSink extends BaseExternalTableDataSink {
 
     private final IcebergExternalTable targetTable;
     private final DeleteCommandContext deleteContext;
+    private List<TIcebergRewritableDeleteFileSet> rewritableDeleteFileSets = Collections.emptyList();
 
     private static final HashSet<TFileFormatType> supportedTypes = new HashSet<TFileFormatType>() {{
             add(TFileFormatType.FORMAT_PARQUET);
@@ -82,6 +87,13 @@ public class IcebergMergeSink extends BaseExternalTableDataSink {
                 catalog.getCatalogProperty().getMetastoreProperties(),
                 catalog.getCatalogProperty().getStoragePropertiesMap(),
                 targetTable.getIcebergTable());
+    }
+
+    public void setRewritableDeleteFileSets(List<TIcebergRewritableDeleteFileSet> deleteFileSets) {
+        rewritableDeleteFileSets = deleteFileSets != null ? deleteFileSets : Collections.emptyList();
+        if (tDataSink != null && tDataSink.isSetIcebergMergeSink()) {
+            tDataSink.getIcebergMergeSink().setRewritableDeleteFileSets(rewritableDeleteFileSets);
+        }
     }
 
     @Override
@@ -112,8 +124,13 @@ public class IcebergMergeSink extends BaseExternalTableDataSink {
         tSink.setDbName(targetTable.getDbName());
         tSink.setTbName(targetTable.getName());
 
-        // schema
-        tSink.setSchemaJson(SchemaParser.toJson(icebergTable.schema()));
+        Schema schema = icebergTable.schema();
+        int formatVersion = IcebergUtils.getFormatVersion(icebergTable);
+        if (formatVersion >= 3) {
+            schema = IcebergUtils.appendRowLineageFieldsForV3(schema);
+        }
+        tSink.setFormatVersion(formatVersion);
+        tSink.setSchemaJson(SchemaParser.toJson(schema));
 
         // partition spec
         if (icebergTable.spec().isPartitioned()) {
@@ -173,6 +190,9 @@ public class IcebergMergeSink extends BaseExternalTableDataSink {
             tSink.setPartitionSpecIdForDelete(icebergTable.spec().specId());
         }
 
+        if (formatVersion >= 3 && !rewritableDeleteFileSets.isEmpty()) {
+            tSink.setRewritableDeleteFileSets(rewritableDeleteFileSets);
+        }
         tDataSink = new TDataSink(TDataSinkType.ICEBERG_MERGE_SINK);
         tDataSink.setIcebergMergeSink(tSink);
     }

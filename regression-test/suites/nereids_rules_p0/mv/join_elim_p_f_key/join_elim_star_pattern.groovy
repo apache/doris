@@ -44,7 +44,7 @@ suite("join_elim_star_pattern") {
     DUPLICATE KEY(`o_orderkey`)
     COMMENT 'OLAP'
     auto partition by range (date_trunc(`o_orderdate`, 'day')) ()
-    DISTRIBUTED BY HASH(`o_orderkey`) BUCKETS 96
+    DISTRIBUTED BY HASH(`o_orderkey`) BUCKETS 2
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
     );"""
@@ -74,7 +74,7 @@ suite("join_elim_star_pattern") {
     DUPLICATE KEY(l_orderkey)
     COMMENT 'OLAP'
     auto partition by range (date_trunc(`l_shipdate`, 'day')) ()
-    DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 96
+    DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 2
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
     );"""
@@ -92,7 +92,7 @@ suite("join_elim_star_pattern") {
     ) ENGINE=OLAP
     DUPLICATE KEY(`ps_partkey`)
     COMMENT 'OLAP'
-    DISTRIBUTED BY HASH(`ps_partkey`) BUCKETS 24
+    DISTRIBUTED BY HASH(`ps_partkey`) BUCKETS 2
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
     );"""
@@ -151,10 +151,20 @@ suite("join_elim_star_pattern") {
     sql """alter table partsupp_1 modify column ps_comment set stats ('row_count'='10');"""
 
 
+    def baselineResultCache = [:]
+    def getBaselineRes = { def stmt, int orderByColumns ->
+        def cacheKey = "${orderByColumns}:${stmt}"
+        if (!baselineResultCache.containsKey(cacheKey)) {
+            sql "SET enable_materialized_view_rewrite=false"
+            def orderStmt = " order by " + (1..orderByColumns).join(", ")
+            baselineResultCache[cacheKey] = sql stmt + orderStmt
+        }
+        return baselineResultCache[cacheKey]
+    }
+
     def compare_res = { def stmt, int orderByColumns = 1 ->
-        sql "SET enable_materialized_view_rewrite=false"
         def orderStmt = " order by " + (1..orderByColumns).join(", ")
-        def origin_res = sql stmt + orderStmt
+        def origin_res = getBaselineRes(stmt, orderByColumns)
         logger.info("origin_res: " + origin_res)
         sql "SET enable_materialized_view_rewrite=true"
         def mv_origin_res = sql stmt + orderStmt

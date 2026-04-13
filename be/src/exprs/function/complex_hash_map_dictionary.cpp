@@ -26,7 +26,6 @@
 #include "exprs/function/dictionary.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 ComplexHashMapDictionary::~ComplexHashMapDictionary() {
     if (_mem_tracker) {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
@@ -229,5 +228,4 @@ ColumnPtr ComplexHashMapDictionary::get_single_value_column(
 
     return ColumnNullable::create(std::move(res_column), std::move(res_null));
 }
-#include "common/compile_check_end.h"
 } // namespace doris

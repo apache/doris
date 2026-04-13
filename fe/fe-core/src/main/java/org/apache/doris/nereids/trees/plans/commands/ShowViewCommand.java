@@ -82,7 +82,7 @@ public class ShowViewCommand extends ShowCommand {
             // this act same as in MySQL
             tbl.setDb(db);
         }
-        tbl.analyze(ctx);
+        tbl.analyze(ctx.getNameSpaceContext());
         // disallow external catalog
         Util.prohibitExternalCatalog(tbl.getCtl(), this.getClass().getSimpleName());
 
@@ -102,7 +102,7 @@ public class ShowViewCommand extends ShowCommand {
             // get table refs instead of get tables because it don't need to check table's validity
             List<TableNameInfo> tableNameInfos = getTableNames(ctx, view.getInlineViewDef());
             for (TableNameInfo tableNameInfo : tableNameInfos) {
-                tableNameInfo.analyze(ctx);
+                tableNameInfo.analyze(ctx.getNameSpaceContext());
                 if (tableNameInfo.equals(tbl)) {
                     matchViews.add(view);
                 }

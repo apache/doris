@@ -29,8 +29,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
-
 bool DataTypeIPv4::equals(const IDataType& rhs) const {
     return typeid(rhs) == typeid(*this);
 }
@@ -42,7 +40,5 @@ MutableColumnPtr DataTypeIPv4::create_column() const {
 Field DataTypeIPv4::get_field(const TExprNode& node) const {
     return Field::create_field<TYPE_IPV4>(cast_set<const unsigned int>(node.ipv4_literal.value));
 }
-
-#include "common/compile_check_end.h"
 
 } // namespace doris

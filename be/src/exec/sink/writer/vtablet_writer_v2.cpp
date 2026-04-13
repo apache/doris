@@ -55,7 +55,6 @@
 #include "exec/sink/vtablet_finder.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 extern bvar::Adder<int64_t> g_sink_load_back_pressure_version_time_ms;
 

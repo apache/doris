@@ -25,7 +25,6 @@
 #include "format/transformer/writer_assigner.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class MergePartitioner final : public PartitionerBase {
 public:
@@ -67,5 +66,4 @@ private:
     mutable uint32_t _rr_offset = 0;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

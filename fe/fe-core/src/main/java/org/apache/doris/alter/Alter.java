@@ -49,6 +49,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
@@ -756,8 +757,8 @@ public class Alter {
         String newTblName = newTbl.getName();
 
         // Handle constraints for table replacement
-        TableNameInfo origTableInfo = new TableNameInfo(origTable);
-        TableNameInfo newTableInfo = new TableNameInfo(newTbl);
+        TableNameInfo origTableInfo = TableNameInfoUtils.fromDb(db, origTable.getName());
+        TableNameInfo newTableInfo = TableNameInfoUtils.fromDb(db, newTbl.getName());
         if (swapTable) {
             Env.getCurrentEnv().getConstraintManager().swapTableConstraints(origTableInfo, newTableInfo);
         } else {

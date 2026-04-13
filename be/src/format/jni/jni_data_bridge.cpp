@@ -40,7 +40,6 @@
 #include "core/value/decimalv2_value.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 #define FOR_FIXED_LENGTH_TYPES(M)                                  \
     M(PrimitiveType::TYPE_TINYINT, ColumnInt8, Int8)               \
@@ -632,5 +631,4 @@ std::pair<std::string, std::string> JniDataBridge::parse_table_schema(Block* blo
     return parse_table_schema(block, arguments, true);
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

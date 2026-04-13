@@ -76,7 +76,7 @@ private:
 
 TEST_F(ArrowResultBlockBufferTest, TestArrowResultBlockBuffer) {
     MockRuntimeState state;
-    state.batsh_size = 1;
+    state._batch_size = 1;
     int buffer_size = 16;
     auto dep = Dependency::create_shared(0, 0, "Test", true);
     auto ins_id = TUniqueId();
@@ -203,7 +203,7 @@ TEST_F(ArrowResultBlockBufferTest, TestArrowResultBlockBuffer) {
 
 TEST_F(ArrowResultBlockBufferTest, TestCancelArrowResultBlockBuffer) {
     MockRuntimeState state;
-    state.batsh_size = 1;
+    state._batch_size = 1;
     int buffer_size = 16;
     auto dep = Dependency::create_shared(0, 0, "Test", true);
     auto ins_id = TUniqueId();
@@ -277,7 +277,7 @@ TEST_F(ArrowResultBlockBufferTest, TestCancelArrowResultBlockBuffer) {
 
 TEST_F(ArrowResultBlockBufferTest, TestErrorClose) {
     MockRuntimeState state;
-    state.batsh_size = 1;
+    state._batch_size = 1;
     int buffer_size = 16;
     auto dep = Dependency::create_shared(0, 0, "Test", true);
     auto ins_id = TUniqueId();
@@ -340,7 +340,7 @@ TEST_F(ArrowResultBlockBufferTest, TestErrorClose) {
 
 TEST_F(ArrowResultBlockBufferTest, TestArrowResultSerializeFailure) {
     MockRuntimeState state;
-    state.batsh_size = 1;
+    state._batch_size = 1;
     int buffer_size = 16;
     auto dep = Dependency::create_shared(0, 0, "Test", true);
     auto ins_id = TUniqueId();

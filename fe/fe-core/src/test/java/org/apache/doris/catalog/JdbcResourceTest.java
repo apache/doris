@@ -24,17 +24,17 @@ import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateResourceInfo;
+import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.Map;
 
@@ -58,34 +58,35 @@ public class JdbcResourceTest {
     }
 
     @Test
-    public void testJdbcResourceCreateWithDefaultProperties(@Mocked Env env,
-            @Injectable AccessControllerManager accessManager)
-            throws UserException {
-        new Expectations() {
-            {
-                env.getAccessManager();
-                result = accessManager;
-                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
-                result = true;
-            }
-        };
+    public void testJdbcResourceCreateWithDefaultProperties() throws UserException {
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            Env env = Mockito.mock(Env.class);
+            EditLog editLog = Mockito.mock(EditLog.class);
+            AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
+            Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+            Mockito.when(accessManager.checkGlobalPriv(Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN)))
+                    .thenReturn(true);
 
-        jdbcProperties.remove("checksum");
+            jdbcProperties.remove("checksum");
 
-        CreateResourceCommand createResourceCommand = new CreateResourceCommand(new CreateResourceInfo(true, false, "jdbc_resource_pg_14", ImmutableMap.copyOf(jdbcProperties)));
-        createResourceCommand.getInfo().validate();
-        resourceMgr.createResource(createResourceCommand);
+            CreateResourceCommand createResourceCommand = new CreateResourceCommand(
+                    new CreateResourceInfo(true, false, "jdbc_resource_pg_14",
+                            ImmutableMap.copyOf(jdbcProperties)));
+            createResourceCommand.getInfo().validate();
+            resourceMgr.createResource(createResourceCommand);
 
-        JdbcResource jdbcResource = (JdbcResource) resourceMgr.getResource("jdbc_resource_pg_14");
+            JdbcResource jdbcResource = (JdbcResource) resourceMgr.getResource("jdbc_resource_pg_14");
 
-
-        // Verify the default properties were applied during the replay
-        Map<String, String> properties = jdbcResource.getCopiedProperties();
-        Assert.assertEquals("1", properties.get("connection_pool_min_size"));
-        Assert.assertEquals("30", properties.get("connection_pool_max_size"));
-        Assert.assertEquals("1800000", properties.get("connection_pool_max_life_time"));
-        Assert.assertEquals("5000", properties.get("connection_pool_max_wait_time"));
-        Assert.assertEquals("false", properties.get("connection_pool_keep_alive"));
+            // Verify the default properties were applied during the replay
+            Map<String, String> properties = jdbcResource.getCopiedProperties();
+            Assert.assertEquals("1", properties.get("connection_pool_min_size"));
+            Assert.assertEquals("30", properties.get("connection_pool_max_size"));
+            Assert.assertEquals("1800000", properties.get("connection_pool_max_life_time"));
+            Assert.assertEquals("5000", properties.get("connection_pool_max_wait_time"));
+            Assert.assertEquals("false", properties.get("connection_pool_keep_alive"));
+        }
     }
 
     @Test

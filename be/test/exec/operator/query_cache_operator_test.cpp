@@ -50,7 +50,7 @@ private:
 struct QueryCacheOperatorTest : public ::testing::Test {
     void SetUp() override {
         state = std::make_shared<MockRuntimeState>();
-        state->batsh_size = 10;
+        state->_batch_size = 10;
         child_op = std::make_unique<QueryCacheMockChildOperator>();
         query_cache_uptr.reset(QueryCache::create_global_cache(1024 * 1024 * 1024));
         query_cache = query_cache_uptr.get();

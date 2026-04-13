@@ -27,11 +27,12 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.Sets;
-import mockit.Expectations;
-import mockit.Mocked;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -48,8 +49,9 @@ public class TabletTest {
     private TabletInvertedIndex invertedIndex;
     private SystemInfoService  infoService;
 
-    @Mocked
-    private Env env;
+    private Env env = Mockito.mock(Env.class);
+
+    private MockedStatic<Env> mockedEnvStatic;
 
     @Before
     public void makeTablet() {
@@ -60,25 +62,12 @@ public class TabletTest {
             be.setAlive(true);
             infoService.addBackend(be);
         }
-        new Expectations(env) {
-            {
-                Env.getCurrentEnvJournalVersion();
-                minTimes = 0;
-                result = FeConstants.meta_version;
 
-                Env.getCurrentInvertedIndex();
-                minTimes = 0;
-                result = invertedIndex;
-
-                Env.getCurrentSystemInfo();
-                minTimes = 0;
-                result = infoService;
-
-                Env.isCheckpointThread();
-                minTimes = 0;
-                result = false;
-            }
-        };
+        mockedEnvStatic = Mockito.mockStatic(Env.class);
+        mockedEnvStatic.when(Env::getCurrentEnvJournalVersion).thenReturn(FeConstants.meta_version);
+        mockedEnvStatic.when(Env::getCurrentInvertedIndex).thenReturn(invertedIndex);
+        mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(infoService);
+        mockedEnvStatic.when(Env::isCheckpointThread).thenReturn(false);
 
         tablet = new LocalTablet(1);
         TabletMeta tabletMeta = new TabletMeta(10, 20, 30, 40, 1, TStorageMedium.HDD);
@@ -89,6 +78,11 @@ public class TabletTest {
         tablet.addReplica(replica1);
         tablet.addReplica(replica2);
         tablet.addReplica(replica3);
+    }
+
+    @After
+    public void tearDown() {
+        mockedEnvStatic.close();
     }
 
     @Test

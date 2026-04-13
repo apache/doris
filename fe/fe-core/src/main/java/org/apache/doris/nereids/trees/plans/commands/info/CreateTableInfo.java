@@ -1224,13 +1224,6 @@ public class CreateTableInfo {
 
         // expand expr
         GeneratedColumnUtil.rewriteColumns(exprAndNames);
-        for (ExprAndName exprAndname : exprAndNames) {
-            if (nameToColumnDefinition.containsKey(exprAndname.getName())) {
-                ColumnDefinition columnDefinition = nameToColumnDefinition.get(exprAndname.getName());
-                Optional<GeneratedColumnDesc> info = columnDefinition.getGeneratedColumnDesc();
-                info.ifPresent(genCol -> genCol.setExpandExprForLoad(exprAndname.getExpr()));
-            }
-        }
     }
 
     private static class SlotReplacer extends DefaultExpressionRewriter<Map<String, Slot>> {

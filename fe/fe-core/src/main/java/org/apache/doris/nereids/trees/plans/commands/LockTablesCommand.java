@@ -48,7 +48,7 @@ public class LockTablesCommand extends Command implements NoForward {
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         for (LockTableInfo lockTable : lockTables) {
             TableNameInfo tableNameInfo = lockTable.getTableNameInfo();
-            tableNameInfo.analyze(ctx);
+            tableNameInfo.analyze(ctx.getNameSpaceContext());
             Database db = ctx.getEnv().getInternalCatalog().getDbOrAnalysisException(tableNameInfo.getDb());
             db.getTableOrAnalysisException(tableNameInfo.getTbl());
 

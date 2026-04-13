@@ -23,7 +23,6 @@
 #include "exec/operator/operator.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeState;
 
 class RepeatOperatorX;
@@ -91,5 +90,4 @@ private:
     VExprContextSPtrs _expr_ctxs;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

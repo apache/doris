@@ -27,7 +27,6 @@
 #include "runtime/runtime_state.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 WalReader::WalReader(RuntimeState* state) : _state(state) {
     _wal_id = state->wal_id();
 }
@@ -120,5 +119,4 @@ Status WalReader::get_columns(std::unordered_map<std::string, DataTypePtr>* name
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

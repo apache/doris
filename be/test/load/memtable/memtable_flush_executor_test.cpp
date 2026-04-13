@@ -82,12 +82,16 @@ TEST(MemTableFlushExecutorTest, TestDynamicThreadPoolUpdate) {
     int32_t original_high_priority_flush_thread_num =
             config::high_priority_flush_thread_num_per_store;
     int32_t original_max_flush_thread_num = config::max_flush_thread_num_per_cpu;
+    bool original_adaptive = config::enable_adaptive_flush_threads;
 
     // Test 1: Get initial thread pool sizes
     int initial_max_threads = flush_executor->flush_pool()->max_threads();
     int initial_min_threads = flush_executor->flush_pool()->min_threads();
     EXPECT_GT(initial_max_threads, 0);
     EXPECT_GT(initial_min_threads, 0);
+
+    // Disable adaptive mode so flush_thread_num_per_store takes effect
+    config::enable_adaptive_flush_threads = false;
 
     // Test 2: Update flush_thread_num_per_store and verify thread pool updates
     config::flush_thread_num_per_store = 10;
@@ -126,6 +130,7 @@ TEST(MemTableFlushExecutorTest, TestDynamicThreadPoolUpdate) {
     config::flush_thread_num_per_store = original_flush_thread_num;
     config::high_priority_flush_thread_num_per_store = original_high_priority_flush_thread_num;
     config::max_flush_thread_num_per_cpu = original_max_flush_thread_num;
+    config::enable_adaptive_flush_threads = original_adaptive;
     flush_executor->update_memtable_flush_threads();
 
     // Cleanup
@@ -141,6 +146,11 @@ TEST(MemTableFlushExecutorTest, TestConfigUpdateTrigger) {
 
     // Store original config values
     int32_t original_flush_thread_num = config::flush_thread_num_per_store;
+    bool original_adaptive = config::enable_adaptive_flush_threads;
+
+    // Disable adaptive mode so flush_thread_num_per_store takes effect
+    config::enable_adaptive_flush_threads = false;
+    flush_executor->update_memtable_flush_threads();
 
     // Get initial thread pool size
     int initial_min_threads = flush_executor->flush_pool()->min_threads();
@@ -154,8 +164,9 @@ TEST(MemTableFlushExecutorTest, TestConfigUpdateTrigger) {
     EXPECT_EQ(updated_min_threads, 15);
     EXPECT_NE(updated_min_threads, initial_min_threads);
 
-    // Restore original config value
+    // Restore original config values
     config::flush_thread_num_per_store = original_flush_thread_num;
+    config::enable_adaptive_flush_threads = original_adaptive;
     flush_executor->update_memtable_flush_threads();
 
     // Cleanup
@@ -172,6 +183,10 @@ TEST(MemTableFlushExecutorTest, TestThreadPoolMinMaxRelationship) {
     // Store original config values
     int32_t original_flush_thread_num = config::flush_thread_num_per_store;
     int32_t original_max_flush_thread_num = config::max_flush_thread_num_per_cpu;
+    bool original_adaptive = config::enable_adaptive_flush_threads;
+
+    // Disable adaptive mode so flush_thread_num_per_store takes effect
+    config::enable_adaptive_flush_threads = false;
 
     // Test: Ensure min_threads <= max_threads always
     config::flush_thread_num_per_store = 20;
@@ -185,6 +200,7 @@ TEST(MemTableFlushExecutorTest, TestThreadPoolMinMaxRelationship) {
     // Restore original config values
     config::flush_thread_num_per_store = original_flush_thread_num;
     config::max_flush_thread_num_per_cpu = original_max_flush_thread_num;
+    config::enable_adaptive_flush_threads = original_adaptive;
     flush_executor->update_memtable_flush_threads();
 
     // Cleanup

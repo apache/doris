@@ -22,21 +22,16 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.thrift.TColumnAccessPath;
-import org.apache.doris.thrift.TSlotDescriptor;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.collect.Lists;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.Collections;
 import java.util.List;
 
 public class SlotDescriptor {
-    private static final Logger LOG = LogManager.getLogger(SlotDescriptor.class);
     private final SlotId id;
-    private final TupleDescriptor parent;
+    private final TupleId parentId;
     private Type type;
     private Column column;  // underlying column, if there is one
 
@@ -61,25 +56,15 @@ public class SlotDescriptor {
 
     private boolean isAutoInc = false;
     private Expr virtualColumn = null;
-    private List<TColumnAccessPath> allAccessPaths;
-    private List<TColumnAccessPath> predicateAccessPaths;
-    private List<TColumnAccessPath> displayAllAccessPaths;
-    private List<TColumnAccessPath> displayPredicateAccessPaths;
+    private List<ColumnAccessPath> allAccessPaths;
+    private List<ColumnAccessPath> predicateAccessPaths;
+    private List<ColumnAccessPath> displayAllAccessPaths;
+    private List<ColumnAccessPath> displayPredicateAccessPaths;
 
-    public SlotDescriptor(SlotId id, TupleDescriptor parent) {
-
+    public SlotDescriptor(SlotId id, TupleId parentId) {
         this.id = id;
-        this.parent = parent;
+        this.parentId = parentId;
         this.isNullable = true;
-    }
-
-    public SlotDescriptor(SlotId id, TupleDescriptor parent, SlotDescriptor src) {
-        this.id = id;
-        this.parent = parent;
-        this.column = src.column;
-        this.isNullable = src.isNullable;
-        this.type = src.type;
-        this.sourceExprs.add(new SlotRef(src));
     }
 
     public SlotId getId() {
@@ -94,40 +79,40 @@ public class SlotDescriptor {
         return this.subColPath;
     }
 
-    public List<TColumnAccessPath> getAllAccessPaths() {
+    public List<ColumnAccessPath> getAllAccessPaths() {
         return allAccessPaths;
     }
 
-    public void setAllAccessPaths(List<TColumnAccessPath> allAccessPaths) {
+    public void setAllAccessPaths(List<ColumnAccessPath> allAccessPaths) {
         this.allAccessPaths = allAccessPaths;
     }
 
-    public List<TColumnAccessPath> getPredicateAccessPaths() {
+    public List<ColumnAccessPath> getPredicateAccessPaths() {
         return predicateAccessPaths;
     }
 
-    public void setPredicateAccessPaths(List<TColumnAccessPath> predicateAccessPaths) {
+    public void setPredicateAccessPaths(List<ColumnAccessPath> predicateAccessPaths) {
         this.predicateAccessPaths = predicateAccessPaths;
     }
 
-    public List<TColumnAccessPath> getDisplayAllAccessPaths() {
+    public List<ColumnAccessPath> getDisplayAllAccessPaths() {
         return displayAllAccessPaths;
     }
 
-    public void setDisplayAllAccessPaths(List<TColumnAccessPath> displayAllAccessPaths) {
+    public void setDisplayAllAccessPaths(List<ColumnAccessPath> displayAllAccessPaths) {
         this.displayAllAccessPaths = displayAllAccessPaths;
     }
 
-    public List<TColumnAccessPath> getDisplayPredicateAccessPaths() {
+    public List<ColumnAccessPath> getDisplayPredicateAccessPaths() {
         return displayPredicateAccessPaths;
     }
 
-    public void setDisplayPredicateAccessPaths(List<TColumnAccessPath> displayPredicateAccessPaths) {
+    public void setDisplayPredicateAccessPaths(List<ColumnAccessPath> displayPredicateAccessPaths) {
         this.displayPredicateAccessPaths = displayPredicateAccessPaths;
     }
 
-    public TupleDescriptor getParent() {
-        return parent;
+    public TupleId getParentId() {
+        return parentId;
     }
 
     public Type getType() {
@@ -168,6 +153,10 @@ public class SlotDescriptor {
         this.materializedColumnName = name;
     }
 
+    public String getMaterializedColumnName() {
+        return materializedColumnName;
+    }
+
     public String getLabel() {
         return label;
     }
@@ -197,38 +186,6 @@ public class SlotDescriptor {
 
     public void setVirtualColumn(Expr virtualColumn) {
         this.virtualColumn = virtualColumn;
-    }
-
-    public TSlotDescriptor toThrift() {
-        // Non-nullable slots will have 0 for the byte offset and -1 for the bit mask
-        String colName = materializedColumnName != null ? materializedColumnName :
-                                     ((column != null) ? column.getNonShadowName() : "");
-        TSlotDescriptor tSlotDescriptor = new TSlotDescriptor(id.asInt(), parent.getId().asInt(), type.toThrift(), -1,
-                0, 0, getIsNullable() ? 0 : -1, colName, -1,
-                true);
-        tSlotDescriptor.setIsAutoIncrement(isAutoInc);
-        if (column != null) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("column name:{}, column unique id:{}", column.getNonShadowName(), column.getUniqueId());
-            }
-            tSlotDescriptor.setColUniqueId(column.getUniqueId());
-            tSlotDescriptor.setPrimitiveType(column.getDataType().toThrift());
-            tSlotDescriptor.setIsKey(column.isKey());
-            tSlotDescriptor.setColDefaultValue(column.getDefaultValue());
-        }
-        if (subColPath != null) {
-            tSlotDescriptor.setColumnPaths(subColPath);
-        }
-        if (virtualColumn != null) {
-            tSlotDescriptor.setVirtualColumnExpr(ExprToThriftVisitor.treeToThrift(virtualColumn));
-        }
-        if (allAccessPaths != null) {
-            tSlotDescriptor.setAllAccessPaths(allAccessPaths);
-        }
-        if (predicateAccessPaths != null) {
-            tSlotDescriptor.setPredicateAccessPaths(predicateAccessPaths);
-        }
-        return tSlotDescriptor;
     }
 
     private String normalizeCaption(String caption) {
@@ -265,7 +222,7 @@ public class SlotDescriptor {
 
     public String debugString() {
         String typeStr = (type == null ? "null" : type.toString());
-        String parentTupleId = (parent == null) ? "null" : parent.getId().toString();
+        String parentTupleId = (parentId == null) ? "null" : parentId.toString();
         return MoreObjects.toStringHelper(this).add("id", id.asInt()).add("parent", parentTupleId).add("col", caption)
                 .add("type", typeStr).add("nullable", getIsNullable())
                 .add("isAutoIncrement", isAutoInc).add("subColPath", subColPath)

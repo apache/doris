@@ -20,16 +20,15 @@ package org.apache.doris.statistics;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TQueryColumn;
 
-import mockit.Mock;
-import mockit.MockUp;
 import org.eclipse.jetty.util.BlockingArrayQueue;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.Collections;
 import java.util.Queue;
@@ -39,50 +38,38 @@ public class FollowerColumnSenderTest {
 
     @Test
     public void testGetNeedAnalyzeColumns() {
-        new MockUp<OlapTable>() {
-            @Mock
-            public Column getColumn(String name) {
-                return new Column("col", PrimitiveType.INT);
-            }
+        OlapTable mockTable = Mockito.mock(OlapTable.class);
+        Mockito.when(mockTable.getColumn(Mockito.anyString()))
+                .thenReturn(new Column("col", PrimitiveType.INT));
+        Mockito.when(mockTable.getColumnIndexPairs(Mockito.any()))
+                .thenReturn(Collections.singleton(Pair.of("mockIndex", "mockCol")));
 
-            @Mock
-            public Set<Pair<String, String>> getColumnIndexPairs(Set<String> columns) {
-                return Collections.singleton(Pair.of("mockIndex", "mockCol"));
-            }
-        };
+        try (MockedStatic<StatisticsUtil> statisticsUtilStatic = Mockito.mockStatic(StatisticsUtil.class)) {
+            statisticsUtilStatic.when(() -> StatisticsUtil.needAnalyzeColumn(Mockito.any(), Mockito.any()))
+                    .thenReturn(false, true, false, true, true);
+            statisticsUtilStatic.when(() -> StatisticsUtil.findTable(Mockito.anyLong(), Mockito.anyLong(), Mockito.anyLong()))
+                    .thenReturn(mockTable);
 
-        new MockUp<StatisticsUtil>() {
-            boolean[] result = {false, true, false, true, true};
-            int i = 0;
-            @Mock
-            public boolean needAnalyzeColumn(TableIf table, Pair<String, String> column) {
-                return result[i++];
-            }
+            QueryColumn column1 = new QueryColumn(1, 2, 3, "col1");
+            QueryColumn column2 = new QueryColumn(1, 2, 3, "col2");
+            QueryColumn column3 = new QueryColumn(1, 2, 3, "col3");
+            QueryColumn column4 = new QueryColumn(1, 2, 3, "col4");
+            Queue<QueryColumn> queue = new BlockingArrayQueue<>();
+            queue.add(column1);
+            queue.add(column2);
+            queue.add(column3);
+            queue.add(column4);
+            queue.add(column4);
+            Assertions.assertEquals(5, queue.size());
 
-            @Mock
-            public TableIf findTable(long catalogId, long dbId, long tblId) {
-                return new OlapTable();
-            }
-        };
-        QueryColumn column1 = new QueryColumn(1, 2, 3, "col1");
-        QueryColumn column2 = new QueryColumn(1, 2, 3, "col2");
-        QueryColumn column3 = new QueryColumn(1, 2, 3, "col3");
-        QueryColumn column4 = new QueryColumn(1, 2, 3, "col4");
-        Queue<QueryColumn> queue = new BlockingArrayQueue<>();
-        queue.add(column1);
-        queue.add(column2);
-        queue.add(column3);
-        queue.add(column4);
-        queue.add(column4);
-        Assertions.assertEquals(5, queue.size());
-
-        FollowerColumnSender sender = new FollowerColumnSender();
-        Set<TQueryColumn> needAnalyzeColumns = sender.getNeedAnalyzeColumns(queue);
-        Assertions.assertEquals(2, needAnalyzeColumns.size());
-        Assertions.assertFalse(needAnalyzeColumns.contains(column1.toThrift()));
-        Assertions.assertTrue(needAnalyzeColumns.contains(column2.toThrift()));
-        Assertions.assertFalse(needAnalyzeColumns.contains(column3.toThrift()));
-        Assertions.assertTrue(needAnalyzeColumns.contains(column4.toThrift()));
+            FollowerColumnSender sender = new FollowerColumnSender();
+            Set<TQueryColumn> needAnalyzeColumns = sender.getNeedAnalyzeColumns(queue);
+            Assertions.assertEquals(2, needAnalyzeColumns.size());
+            Assertions.assertFalse(needAnalyzeColumns.contains(column1.toThrift()));
+            Assertions.assertTrue(needAnalyzeColumns.contains(column2.toThrift()));
+            Assertions.assertFalse(needAnalyzeColumns.contains(column3.toThrift()));
+            Assertions.assertTrue(needAnalyzeColumns.contains(column4.toThrift()));
+        }
     }
 
 }

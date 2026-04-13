@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.DescriptorToThriftConverter;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.Queriable;
@@ -83,7 +84,7 @@ public class ShortCircuitQueryContext {
     public ShortCircuitQueryContext(Planner planner, Queriable analzyedQuery) throws TException {
         this.planner = planner;
         this.serializedDescTable = ByteString.copyFrom(
-                new TSerializer().serialize(planner.getDescTable().toThrift()));
+                new TSerializer().serialize(DescriptorToThriftConverter.toThrift(planner.getDescTable())));
         TQueryOptions options = planner.getQueryOptions() != null ? planner.getQueryOptions() : new TQueryOptions();
         this.serializedQueryOptions = ByteString.copyFrom(
                 new TSerializer().serialize(options));

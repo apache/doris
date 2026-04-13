@@ -23,7 +23,6 @@
 #include "format/parquet/vparquet_reader.h"
 #include "format/table/table_format_reader.h"
 namespace doris {
-#include "common/compile_check_begin.h"
 
 // By holding a parquet/orc reader, used to read the parquet/orc table of hive.
 class HiveReader : public TableFormatReader, public TableSchemaChangeHelper {
@@ -103,5 +102,4 @@ private:
     static ColumnIdResult _create_column_ids_by_top_level_col_index(
             const FieldDescriptor* field_desc, const TupleDescriptor* tuple_descriptor);
 };
-#include "common/compile_check_end.h"
 } // namespace doris

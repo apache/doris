@@ -42,7 +42,6 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
-import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TStorageMedium;
@@ -652,9 +651,6 @@ public class DynamicPartitionUtil {
                 LOG.warn("Dynamic partition count {} is approaching limit {} (>80%)."
                         + " Consider increasing max_dynamic_partition_num.",
                         expectCreatePartitionNum, dynamicPartitionLimit);
-                if (MetricRepo.isInit) {
-                    MetricRepo.COUNTER_DYNAMIC_PARTITION_NEAR_LIMIT.increase(1L);
-                }
             }
         }
 

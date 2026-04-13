@@ -102,7 +102,7 @@ public class ShowQueryStatsCommand extends ShowCommand {
             return;
         }
         if (tableNameInfo != null) {
-            tableNameInfo.analyze(ctx);
+            tableNameInfo.analyze(ctx.getNameSpaceContext());
             dbName = tableNameInfo.getDb();
         }
         DatabaseIf db = Env.getCurrentEnv().getCurrentCatalog().getDbOrDdlException(dbName);

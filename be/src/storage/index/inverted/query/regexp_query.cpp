@@ -25,7 +25,6 @@
 #include "util/debug_points.h"
 
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 
 RegexpQuery::RegexpQuery(SearcherPtr searcher, IndexQueryContextPtr context)
         : _searcher(std::move(searcher)),
@@ -175,5 +174,4 @@ void RegexpQuery::collect_matching_terms(const std::wstring& field_name,
     })
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

@@ -21,7 +21,6 @@
 #include "storage/index/inverted/inverted_index_writer.h"
 
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 
 bool IndexColumnWriter::check_support_inverted_index(const TabletColumn& column) {
     // bellow types are not supported in inverted index for extracted columns
@@ -140,5 +139,4 @@ Status IndexColumnWriter::create(const StorageField* field, std::unique_ptr<Inde
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

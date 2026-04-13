@@ -20,61 +20,51 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.backup.CatalogMocker;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.utframe.TestWithFeService;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
-public class ShowQueryStatsCommandTest {
+public class ShowQueryStatsCommandTest extends TestWithFeService {
     private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
-    @Mocked
-    private Env env;
-    @Mocked
-    private AccessControllerManager accessControllerManager;
-    @Mocked
+    private static boolean dbInitialized = false;
+
     private ConnectContext connectContext;
+    private Env env;
+    private AccessControllerManager accessControllerManager;
 
     private void runBefore() throws Exception {
-        TableNameInfo tableNameInfo = new TableNameInfo(internalCtl, CatalogMocker.TEST_DB_NAME,
-                CatalogMocker.TEST_TBL_NAME);
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessControllerManager;
-
-                ConnectContext.get();
-                minTimes = 0;
-                result = connectContext;
-
-                connectContext.isSkipAuth();
-                minTimes = 0;
-                result = true;
-
-                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN);
-                minTimes = 0;
-                result = true;
-
-                accessControllerManager.checkTblPriv(connectContext, tableNameInfo, PrivPredicate.SHOW);
-                minTimes = 0;
-                result = true;
-            }
-        };
+        connectContext = createDefaultCtx();
+        env = Env.getCurrentEnv();
+        accessControllerManager = env.getAccessManager();
+        if (!dbInitialized) {
+            createDatabaseWithSql("CREATE DATABASE IF NOT EXISTS " + CatalogMocker.TEST_DB_NAME);
+            createTable("CREATE TABLE IF NOT EXISTS " + CatalogMocker.TEST_DB_NAME + "." + CatalogMocker.TEST_TBL_NAME
+                    + " (k1 INT, k2 INT) DISTRIBUTED BY HASH(k1) BUCKETS 1"
+                    + " PROPERTIES ('replication_num' = '1')");
+            dbInitialized = true;
+        }
     }
 
     @Test
     public void testValidateWithPrivilege() throws Exception {
         runBefore();
+        connectContext.setSkipAuth(true);
+        AccessControllerManager spyAcm = Mockito.spy(accessControllerManager);
+        Mockito.doReturn(true).when(spyAcm).checkGlobalPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN));
+        Mockito.doReturn(true).when(spyAcm).checkTblPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.any(TableNameInfo.class),
+                Mockito.eq(PrivPredicate.SHOW));
+        Deencapsulation.setField(env, "accessManager", spyAcm);
+
         TableNameInfo tableNameInfo =
                 new TableNameInfo(CatalogMocker.TEST_DB_NAME, CatalogMocker.TEST_TBL_NAME);
 
@@ -85,27 +75,15 @@ public class ShowQueryStatsCommandTest {
     }
 
     @Test
-    void testValidateNoPrivilege() {
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessControllerManager;
-
-                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN);
-                minTimes = 0;
-                result = false;
-
-                accessControllerManager.checkTblPriv(connectContext, internalCtl, CatalogMocker.TEST_DB_NAME,
-                        CatalogMocker.TEST_TBL2_NAME, PrivPredicate.SHOW);
-                minTimes = 0;
-                result = false;
-            }
-        };
+    void testValidateNoPrivilege() throws Exception {
+        runBefore();
+        AccessControllerManager spyAcm = Mockito.spy(accessControllerManager);
+        Mockito.doReturn(false).when(spyAcm).checkGlobalPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN));
+        Mockito.doReturn(false).when(spyAcm).checkTblPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.anyString(),
+                Mockito.anyString(), Mockito.anyString(), Mockito.eq(PrivPredicate.SHOW));
+        Deencapsulation.setField(env, "accessManager", spyAcm);
 
         TableNameInfo tableNameInfo =
                 new TableNameInfo(CatalogMocker.TEST_DB_NAME, CatalogMocker.TEST_TBL_NAME);

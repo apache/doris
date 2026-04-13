@@ -68,7 +68,7 @@ public class DropCachedStatsCommand extends Command implements NoForward {
                 + " in your FE conf file");
         }
 
-        tableNameInfo.analyze(ctx);
+        tableNameInfo.analyze(ctx.getNameSpaceContext());
         String catalogName = tableNameInfo.getCtl();
         String dbName = tableNameInfo.getDb();
         String tblName = tableNameInfo.getTbl();

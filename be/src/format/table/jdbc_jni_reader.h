@@ -36,8 +36,6 @@ class SlotDescriptor;
 class TupleDescriptor;
 class Block;
 
-#include "common/compile_check_begin.h"
-
 /**
  * JdbcJniReader reads data from JDBC data sources via the unified JniReader
  * framework. It delegates scanning to Java-side JdbcJniScanner (extends JniScanner).
@@ -97,5 +95,4 @@ private:
                                         int column_index, int num_rows);
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

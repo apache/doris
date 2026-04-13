@@ -47,7 +47,6 @@
 #include "runtime/runtime_state.h"
 
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 struct AnnIndexStats;
 class AnnIndexIterator;
 
@@ -167,5 +166,4 @@ private:
     IColumn::Ptr _query_array;                  ///< Query vector data (contiguous float buffer)
     doris::VectorSearchUserParams _user_params; ///< User-defined search parameters
 };
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

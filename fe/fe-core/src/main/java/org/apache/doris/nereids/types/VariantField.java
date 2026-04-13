@@ -17,9 +17,9 @@
 
 package org.apache.doris.nereids.types;
 
+import org.apache.doris.catalog.PatternType;
 import org.apache.doris.common.GlobRegexUtil;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.thrift.TPatternType;
 
 import com.google.re2j.Pattern;
 import com.google.re2j.PatternSyntaxException;
@@ -33,10 +33,10 @@ public class VariantField {
     private final String pattern;
     private final DataType dataType;
     private final String comment;
-    private final TPatternType patternType;
+    private final PatternType patternType;
 
     public VariantField(String pattern, DataType dataType, String comment) {
-        this(pattern, dataType, comment, TPatternType.MATCH_NAME_GLOB.name());
+        this(pattern, dataType, comment, PatternType.MATCH_NAME_GLOB.name());
     }
 
     /**
@@ -50,11 +50,11 @@ public class VariantField {
         this.pattern = Objects.requireNonNull(pattern, "pattern should not be null");
         this.dataType = Objects.requireNonNull(dataType, "dataType should not be null");
         this.comment = Objects.requireNonNull(comment, "comment should not be null");
-        TPatternType type;
-        if (TPatternType.MATCH_NAME.name().equalsIgnoreCase(patternType)) {
-            type = TPatternType.MATCH_NAME;
+        PatternType type;
+        if (PatternType.MATCH_NAME.name().equalsIgnoreCase(patternType)) {
+            type = PatternType.MATCH_NAME;
         } else {
-            type = TPatternType.MATCH_NAME_GLOB;
+            type = PatternType.MATCH_NAME_GLOB;
         }
         this.patternType = Objects.requireNonNull(type, "patternType should not be null");
     }
@@ -86,10 +86,10 @@ public class VariantField {
      * @return true if the field name matches the pattern
      */
     public boolean matches(String fieldName) {
-        if (patternType == TPatternType.MATCH_NAME) {
+        if (patternType == PatternType.MATCH_NAME) {
             return pattern.equals(fieldName);
         }
-        if (patternType != TPatternType.MATCH_NAME_GLOB) {
+        if (patternType != PatternType.MATCH_NAME_GLOB) {
             return false;
         }
         try {
@@ -111,7 +111,7 @@ public class VariantField {
      */
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        if (patternType == TPatternType.MATCH_NAME) {
+        if (patternType == PatternType.MATCH_NAME) {
             sb.append(patternType.toString()).append(" ");
         }
 

@@ -102,11 +102,9 @@ public class ArithmeticExpr extends Expr {
     @Override
     public String toString() {
         if (children.size() == 1) {
-            return op.toString() + " " + getChild(0).accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE);
+            return op.toString() + " " + getChild(0);
         } else {
-            return "(" + getChild(0).accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)
-                    + " " + op.toString()
-                    + " " + getChild(1).accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE) + ")";
+            return "(" + getChild(0) + " " + op.toString() + " " + getChild(1) + ")";
         }
     }
 

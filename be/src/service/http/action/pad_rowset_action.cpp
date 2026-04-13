@@ -110,7 +110,7 @@ Status PadRowsetAction::_pad_rowset(Tablet* tablet, const Version& version) {
     auto writer = DORIS_TRY(tablet->create_rowset_writer(ctx, false));
     RowsetSharedPtr rowset;
     RETURN_IF_ERROR(writer->build(rowset));
-    rowset->make_visible(version);
+    rowset->make_visible(version, -1);
 
     std::vector<RowsetSharedPtr> to_add {rowset};
     std::vector<RowsetSharedPtr> to_delete;

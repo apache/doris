@@ -34,7 +34,6 @@
 #include "io/io_common.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_profile.h"
-#include "storage/cache/schema_cache.h"
 #include "storage/delete/delete_handler.h"
 #include "storage/iterator/vgeneric_iterators.h"
 #include "storage/olap_define.h"
@@ -50,7 +49,6 @@
 #include "storage/tablet/tablet_schema.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 BetaRowsetReader::BetaRowsetReader(BetaRowsetSharedPtr rowset)
@@ -363,5 +361,4 @@ bool BetaRowsetReader::_should_push_down_value_predicates() const {
             _read_context->enable_unique_key_merge_on_write ||
             _read_context->enable_mor_value_predicate_pushdown);
 }
-#include "common/compile_check_end.h"
 } // namespace doris

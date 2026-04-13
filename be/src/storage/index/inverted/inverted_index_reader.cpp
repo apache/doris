@@ -59,7 +59,6 @@
 #include "util/faststring.h"
 
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 
 std::string InvertedIndexReader::get_index_file_path() {
     return _index_file_reader->get_index_file_path(&_index_meta);
@@ -1163,4 +1162,3 @@ template class InvertedIndexVisitor<InvertedIndexQueryType::GREATER_THAN_QUERY>;
 template class InvertedIndexVisitor<InvertedIndexQueryType::GREATER_EQUAL_QUERY>;
 
 } // namespace doris::segment_v2
-#include "common/compile_check_end.h"

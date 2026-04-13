@@ -36,7 +36,6 @@
 #include "util/faststring.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 static const unsigned char bom[] = {0xEF, 0xBB, 0xBF};
 

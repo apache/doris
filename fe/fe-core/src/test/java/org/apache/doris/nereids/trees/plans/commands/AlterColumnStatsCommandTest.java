@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
@@ -31,9 +32,9 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
-import mockit.Expectations;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.io.IOException;
 import java.util.HashMap;
@@ -55,18 +56,11 @@ public class AlterColumnStatsCommandTest extends TestWithFeService {
     @Test
     public void testValidateNormal() throws Exception {
         runBefore();
-        new Expectations() {
-            {
-                connectContext.isSkipAuth();
-                minTimes = 0;
-                result = true;
-
-                accessControllerManager.checkTblPriv(connectContext, internalCtl, CatalogMocker.TEST_DB_NAME, CatalogMocker.TEST_TBL_NAME,
-                        PrivPredicate.ALTER);
-                minTimes = 0;
-                result = true;
-            }
-        };
+        connectContext.setSkipAuth(true);
+        AccessControllerManager spyAcm = Mockito.spy(accessControllerManager);
+        Mockito.doReturn(true).when(spyAcm).checkTblPriv(Mockito.nullable(ConnectContext.class), Mockito.anyString(), Mockito.anyString(), Mockito.anyString(),
+                Mockito.any(PrivPredicate.class));
+        Deencapsulation.setField(env, "accessManager", spyAcm);
 
         //test normal
         connectContext.getSessionVariable().enableStats = true;
@@ -133,22 +127,10 @@ public class AlterColumnStatsCommandTest extends TestWithFeService {
     @Test
     void testValidateNoPrivilege() throws IOException {
         runBefore();
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessControllerManager;
-
-                accessControllerManager.checkTblPriv(connectContext, internalCtl, CatalogMocker.TEST_DB_NAME, CatalogMocker.TEST_TBL2_NAME,
-                        PrivPredicate.ALTER);
-                minTimes = 0;
-                result = false;
-            }
-        };
+        AccessControllerManager spyAcm = Mockito.spy(accessControllerManager);
+        Mockito.doReturn(false).when(spyAcm).checkTblPriv(Mockito.nullable(ConnectContext.class), Mockito.anyString(), Mockito.anyString(), Mockito.anyString(),
+                Mockito.any(PrivPredicate.class));
+        Deencapsulation.setField(env, "accessManager", spyAcm);
 
         TableNameInfo tableNameInfo =
                     new TableNameInfo(CatalogMocker.TEST_DB_NAME, CatalogMocker.TEST_TBL2_NAME);

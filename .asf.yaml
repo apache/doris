@@ -47,6 +47,7 @@ github:
         strict: false
         contexts:
           - License Check
+          - Check for secrets
           - Clang Formatter
           - CheckStyle
           - P0 Regression (Doris Regression)

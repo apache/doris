@@ -28,7 +28,6 @@
 #include "runtime/runtime_state.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 Status UnionSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
@@ -141,5 +140,4 @@ Status UnionSinkOperatorX::sink(RuntimeState* state, Block* in_block, bool eos) 
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -21,7 +21,6 @@
 #include "exec/sink/writer/vtablet_writer.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class OlapTableSinkOperatorX;
 
@@ -76,5 +75,4 @@ private:
     ObjectPool* _pool = nullptr;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

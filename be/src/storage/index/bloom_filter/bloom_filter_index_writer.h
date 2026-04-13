@@ -69,12 +69,8 @@ private:
 // `BloomFilterIndexWriterImpl`, so vector can be used to accelerate.
 class PrimaryKeyBloomFilterIndexWriterImpl : public BloomFilterIndexWriter {
 public:
-    explicit PrimaryKeyBloomFilterIndexWriterImpl(const BloomFilterOptions& bf_options,
-                                                  const TypeInfo* type_info)
-            : _bf_options(bf_options),
-              _type_info(type_info),
-              _has_null(false),
-              _bf_buffer_size(0) {}
+    explicit PrimaryKeyBloomFilterIndexWriterImpl(const BloomFilterOptions& bf_options)
+            : _bf_options(bf_options), _has_null(false), _bf_buffer_size(0) {}
 
     ~PrimaryKeyBloomFilterIndexWriterImpl() override {
         for (auto& bf : _bfs) {
@@ -101,7 +97,6 @@ public:
 
 private:
     BloomFilterOptions _bf_options;
-    const TypeInfo* _type_info = nullptr;
     Arena _arena;
     bool _has_null;
     uint64_t _bf_buffer_size;

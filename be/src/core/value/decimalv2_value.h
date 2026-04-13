@@ -33,7 +33,6 @@
 #include "util/hash_util.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 typedef __int128_t int128_t;
 
@@ -330,7 +329,6 @@ std::istream& operator>>(std::istream& ism, DecimalV2Value& decimal_value);
 
 std::size_t hash_value(DecimalV2Value const& value);
 
-#include "common/compile_check_end.h"
 } // end namespace doris
 
 template <>

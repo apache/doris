@@ -48,7 +48,7 @@ public class RefreshTableCommand extends Command implements ForwardWithSync {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        tableNameInfo.analyze(ctx);
+        tableNameInfo.analyze(ctx.getNameSpaceContext());
         checkRefreshTableAccess();
         // refresh table execute logic
         Env.getCurrentEnv().getRefreshManager()

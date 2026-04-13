@@ -21,42 +21,40 @@ package org.apache.doris.mysql;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.qe.ConnectContext;
 
-import mockit.Delegate;
-import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.ArgumentMatchers;
+import org.mockito.Mockito;
 import org.xnio.StreamConnection;
+import org.xnio.conduits.ConduitStreamSinkChannel;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
 
 public class MysqlChannelTest {
 
-    @Mocked
-    StreamConnection streamConnection;
+    StreamConnection streamConnection = Mockito.mock(StreamConnection.class);
 
     @Test
     public void testSendAfterException() throws IOException {
-        // Mock.
-        new Expectations() {
-            {
-                streamConnection.getSinkChannel().write((ByteBuffer) any);
-                // The first call to `write()` throws IOException.
-                result = new IOException();
-                // The second call to `write()` executes normally.
-                result = new Delegate() {
-                    int fakeRead(ByteBuffer buffer) {
-                        int writeLen = buffer.remaining();
-                        buffer.position(buffer.limit());
-                        return writeLen;
-                    }
-                };
+        // Mock StreamConnection.getPeerAddress() to avoid NPE in MysqlChannel constructor
+        Mockito.when(streamConnection.getPeerAddress())
+                .thenReturn(new java.net.InetSocketAddress("127.0.0.1", 12345));
 
-                streamConnection.getSinkChannel().flush();
-                result = true;
-            }
-        };
+        // Mock.
+        ConduitStreamSinkChannel mockSinkChannel = Mockito.mock(ConduitStreamSinkChannel.class);
+        Mockito.when(streamConnection.getSinkChannel()).thenReturn(mockSinkChannel);
+        Mockito.when(mockSinkChannel.write(ArgumentMatchers.any(ByteBuffer.class)))
+                // The first call to `write()` throws IOException.
+                .thenThrow(new IOException())
+                // The second call to `write()` executes normally.
+                .thenAnswer(inv -> {
+                    ByteBuffer buffer = inv.getArgument(0);
+                    int writeLen = buffer.remaining();
+                    buffer.position(buffer.limit());
+                    return writeLen;
+                });
+        Mockito.when(mockSinkChannel.flush()).thenReturn(true);
 
         ConnectContext ctx = new ConnectContext(streamConnection);
         MysqlChannel mysqlChannel = new MysqlChannel(streamConnection, ctx);

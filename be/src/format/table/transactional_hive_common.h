@@ -24,7 +24,6 @@
 #include "core/data_type/define_primitive_type.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 struct TransactionalHive {
     static const std::string OPERATION;
     static const std::string ORIGINAL_TRANSACTION;
@@ -55,5 +54,4 @@ struct TransactionalHive {
 
     static const std::unordered_map<std::string, uint32_t> DELETE_COL_NAME_TO_BLOCK_IDX;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

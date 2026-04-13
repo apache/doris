@@ -48,7 +48,6 @@ class object;
 } // namespace simdjson::fallback::ondemand
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class SlotDescriptor;
 class RuntimeState;
 class TFileRangeDesc;
@@ -298,5 +297,4 @@ private:
     DataTypeSerDe::FormatOptions _serde_options;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

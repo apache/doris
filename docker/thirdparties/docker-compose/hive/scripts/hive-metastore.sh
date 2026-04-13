@@ -18,6 +18,9 @@
 
 set -e -x
 
+. /mnt/scripts/bootstrap/bootstrap-groups.sh
+BOOTSTRAP_GROUPS="$(bootstrap_normalize_groups "${HIVE_BOOTSTRAP_GROUPS:-}")"
+echo "Load hive data with bootstrap groups: ${BOOTSTRAP_GROUPS}"
 
 AUX_LIB="/mnt/scripts/auxlib"
 for file in "${AUX_LIB}"/*.tar.gz; do
@@ -73,68 +76,99 @@ fi
 hadoop fs -mkdir -p /user/doris/suites/
 
 DATA_DIR="/mnt/scripts/data/"
-find "${DATA_DIR}" -type f -name "run.sh" -print0 | xargs -0 -n 1 -P "${LOAD_PARALLEL}" -I {} bash -ec '
-    START_TIME=$(date +%s)
-    bash -e "{}" || (echo "Failed to executing script: {}" && exit 1)
-    END_TIME=$(date +%s)
-    EXECUTION_TIME=$((END_TIME - START_TIME))
-    echo "Script: {} executed in $EXECUTION_TIME seconds"
-'
+run_scripts=()
+while IFS= read -r -d '' run_script; do
+    relative_run_script="${run_script#/mnt/scripts/}"
+    if bootstrap_item_selected "${BOOTSTRAP_GROUPS}" "run_sh" "${relative_run_script}"; then
+        run_scripts+=("${run_script}")
+    fi
+done < <(find "${DATA_DIR}" -type f -name "run.sh" -print0)
+
+if (( ${#run_scripts[@]} > 0 )); then
+    printf '%s\0' "${run_scripts[@]}" | xargs -0 -P "${LOAD_PARALLEL}" -I {} bash -ec '
+        START_TIME=$(date +%s)
+        bash -e "{}" || (echo "Failed to executing script: {}" && exit 1)
+        END_TIME=$(date +%s)
+        EXECUTION_TIME=$((END_TIME - START_TIME))
+        echo "Script: {} executed in $EXECUTION_TIME seconds"
+    '
+fi
 
 # put data file
 hadoop_put_pids=()
+hadoop_put_paths=()
 hadoop fs -mkdir -p /user/doris/
+
+copy_to_hdfs_if_selected() {
+    local relative_path="$1"
+    local local_path="/mnt/scripts/${relative_path}"
+
+    if ! bootstrap_item_selected "${BOOTSTRAP_GROUPS}" "hdfs_dir" "${relative_path}"; then
+        return
+    fi
+
+    if [[ ! -e "${local_path}" ]]; then
+        echo "${local_path} does not exist"
+        exit 1
+    fi
+
+    if [[ -d "${local_path}" && -z "$(ls "${local_path}")" ]]; then
+        echo "${local_path} does not exist"
+        exit 1
+    fi
+
+    hadoop fs -copyFromLocal -f "${local_path}" /user/doris/ &
+    hadoop_put_pids+=($!)
+    hadoop_put_paths+=("${relative_path}")
+}
 
 
 ## put tpch1
-if [[ -z "$(ls /mnt/scripts/tpch1.db)" ]]; then
-    echo "tpch1.db does not exist"
-    exit 1
-fi
-hadoop fs -copyFromLocal -f /mnt/scripts/tpch1.db /user/doris/ &
-hadoop_put_pids+=($!)
+copy_to_hdfs_if_selected "tpch1.db"
 
 ## put paimon1
-hadoop fs -copyFromLocal -f /mnt/scripts/paimon1 /user/doris/ &
-hadoop_put_pids+=($!)
+copy_to_hdfs_if_selected "paimon1"
 
 
 ## put tvf_data
-if [[ -z "$(ls /mnt/scripts/tvf_data)" ]]; then
-    echo "tvf_data does not exist"
-    exit 1
-fi
-hadoop fs -copyFromLocal -f /mnt/scripts/tvf_data /user/doris/ &
-hadoop_put_pids+=($!)
+copy_to_hdfs_if_selected "tvf_data"
 
 ## put other preinstalled data
-hadoop fs -copyFromLocal -f /mnt/scripts/preinstalled_data /user/doris/ &
-hadoop_put_pids+=($!)
+copy_to_hdfs_if_selected "preinstalled_data"
 
 
 # wait put finish
-wait "${hadoop_put_pids[@]}"
-if [[ -z "$(hadoop fs -ls /user/doris/paimon1)" ]]; then
-    echo "paimon1 put failed"
-    exit 1
-fi
-if [[ -z "$(hadoop fs -ls /user/doris/tpch1.db)" ]]; then
-    echo "tpch1.db put failed"
-    exit 1
-fi
-if [[ -z "$(hadoop fs -ls /user/doris/tvf_data)" ]]; then
-    echo "tvf_data put failed"
-    exit 1
+if (( ${#hadoop_put_pids[@]} > 0 )); then
+    wait "${hadoop_put_pids[@]}"
 fi
 
+for relative_path in "${hadoop_put_paths[@]}"; do
+    if ! hadoop fs -test -e "/user/doris/${relative_path}"; then
+        echo "${relative_path} put failed"
+        exit 1
+    fi
+done
+
 # create tables
-ls /mnt/scripts/create_preinstalled_scripts/*.hql | xargs -n 1 -P "${LOAD_PARALLEL}" -I {} bash -ec '
-    START_TIME=$(date +%s)
-    hive -f {} || (echo "Failed to executing hql: {}" && exit 1)
-    END_TIME=$(date +%s)
-    EXECUTION_TIME=$((END_TIME - START_TIME))
-    echo "Script: {} executed in $EXECUTION_TIME seconds"
-'
+shopt -s nullglob
+preinstalled_hqls=()
+for hql_path in /mnt/scripts/create_preinstalled_scripts/*.hql; do
+    relative_hql_path="${hql_path#/mnt/scripts/}"
+    if bootstrap_item_selected "${BOOTSTRAP_GROUPS}" "preinstalled_hql" "${relative_hql_path}"; then
+        preinstalled_hqls+=("${hql_path}")
+    fi
+done
+shopt -u nullglob
+
+if (( ${#preinstalled_hqls[@]} > 0 )); then
+    printf '%s\0' "${preinstalled_hqls[@]}" | xargs -0 -P "${LOAD_PARALLEL}" -I {} bash -ec '
+        START_TIME=$(date +%s)
+        hive -f {} || (echo "Failed to executing hql: {}" && exit 1)
+        END_TIME=$(date +%s)
+        EXECUTION_TIME=$((END_TIME - START_TIME))
+        echo "Script: {} executed in $EXECUTION_TIME seconds"
+    '
+fi
 
 # create view
 START_TIME=$(date +%s)

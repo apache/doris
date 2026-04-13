@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <random>
 
 #include "core/block/block.h"
 #include "exec/operator/repeat_operator.h"
@@ -50,7 +51,7 @@ private:
 struct SortOperatorTest : public ::testing::Test {
     void SetUp() override {
         state = std::make_shared<MockRuntimeState>();
-        state->batsh_size = 10;
+        state->_batch_size = 10;
         _child_op = std::make_unique<MockOperator>();
     }
 
@@ -225,7 +226,7 @@ TEST_F(SortOperatorTest, test_sort_type) {
         for (int i = 0; i < 100; i++) {
             vec.push_back(i);
         }
-        std::random_shuffle(vec.begin(), vec.end());
+        std::shuffle(vec.begin(), vec.end(), std::mt19937 {std::random_device {}()});
 
         {
             Block block = ColumnHelper::create_block<DataTypeInt64>(vec);

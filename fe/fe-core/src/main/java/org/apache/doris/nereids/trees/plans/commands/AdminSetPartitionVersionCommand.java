@@ -75,7 +75,7 @@ public class AdminSetPartitionVersionCommand extends Command implements ForwardW
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
 
-        tableName.analyze(ctx);
+        tableName.analyze(ctx.getNameSpaceContext());
         Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
 
         checkProperties();

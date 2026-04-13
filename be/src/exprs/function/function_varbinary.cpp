@@ -40,7 +40,6 @@
 #include "util/url_coding.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class FunctionToBinary : public IFunction {
 public:
@@ -261,5 +260,4 @@ void register_function_binary(SimpleFunctionFactory& factory) {
     factory.register_alias("to_binary", "to_hex");
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

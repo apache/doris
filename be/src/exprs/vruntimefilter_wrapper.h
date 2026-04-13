@@ -41,7 +41,6 @@ double get_bloom_filter_ignore_thredhold();
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class Block;
 class VExprContext;
@@ -130,5 +129,4 @@ private:
 
 using VRuntimeFilterPtr = std::shared_ptr<VRuntimeFilterWrapper>;
 
-#include "common/compile_check_end.h"
 } // namespace doris

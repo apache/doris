@@ -47,6 +47,7 @@
 #include "storage/compaction/cumulative_compaction_policy.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
 #include "storage/compaction/full_compaction.h"
+#include "storage/compaction_task_tracker.h"
 #include "storage/olap_define.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_manager.h"
@@ -166,12 +167,13 @@ Status CloudCompactionAction::_handle_run_compaction(HttpRequest* req, std::stri
 
     LOG(INFO) << "manual submit compaction task, tablet id: " << tablet_id
               << " table id: " << table_id;
-    // 3. submit compaction task
+    // 3. submit compaction task (trigger_method=1 for MANUAL)
     RETURN_IF_ERROR(_engine.submit_compaction_task(
-            tablet, compaction_type == PARAM_COMPACTION_BASE ? CompactionType::BASE_COMPACTION
-                    : compaction_type == PARAM_COMPACTION_CUMULATIVE
-                            ? CompactionType::CUMULATIVE_COMPACTION
-                            : CompactionType::FULL_COMPACTION));
+            tablet,
+            compaction_type == PARAM_COMPACTION_BASE         ? CompactionType::BASE_COMPACTION
+            : compaction_type == PARAM_COMPACTION_CUMULATIVE ? CompactionType::CUMULATIVE_COMPACTION
+                                                             : CompactionType::FULL_COMPACTION,
+            /*trigger_method=*/1));
 
     LOG(INFO) << "Manual compaction task is successfully triggered, tablet id: " << tablet_id
               << " table id: " << table_id;

@@ -30,6 +30,10 @@ under the License.
             <glob>{*.java,*.g4,*.xml,*.properties}</glob>
             <includes>
                 <include>src/</include>
+                <!-- Checkstyle configuration files affect all modules' style checks.
+                     Include them globally so any change to checkstyle rules invalidates
+                     all cached checkstyle results. -->
+                <include glob="{*.xml,*.txt}" recursive="true">check/checkstyle</include>
                 <!-- External source directories under gensrc/ are referenced by plugins via
                      Maven properties (e.g. ${project.parent.basedir}/../gensrc/thrift).
                      The cache extension's tagScanConfig cannot resolve these Maven properties,
@@ -44,4 +48,16 @@ under the License.
             </includes>
         </global>
     </input>
+    <executionControl>
+        <runAlways>
+            <!-- Checkstyle is a quality gate that must always execute; never use a cached result. -->
+            <executions>
+                <execution artifactId="maven-checkstyle-plugin">
+                    <execIds>
+                        <execId>validate</execId>
+                    </execIds>
+                </execution>
+            </executions>
+        </runAlways>
+    </executionControl>
 </cache>

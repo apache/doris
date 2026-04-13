@@ -28,6 +28,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -126,8 +127,8 @@ public class StatisticsJobAppender extends MasterDaemon {
             if (columnIndexPairs.isEmpty()) {
                 continue;
             }
-            TableNameInfo tableName = new TableNameInfo(table.getDatabase().getCatalog().getName(),
-                    table.getDatabase().getFullName(), table.getName());
+            TableNameInfo tableName = TableNameInfoUtils.fromCatalogDb(table.getDatabase().getCatalog(),
+                    table.getDatabase(), table);
             synchronized (jobs) {
                 // If job map reach the upper limit, stop putting new jobs.
                 if (!jobs.containsKey(tableName) && jobs.size() >= JOB_MAP_SIZE) {
@@ -176,8 +177,8 @@ public class StatisticsJobAppender extends MasterDaemon {
                 Set<String> columns = t.getSchemaAllIndexes(false).stream()
                         .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
                         .map(Column::getName).collect(Collectors.toSet());
-                TableNameInfo tableName = new TableNameInfo(t.getDatabase().getCatalog().getName(),
-                        t.getDatabase().getFullName(), t.getName());
+                TableNameInfo tableName = TableNameInfoUtils.fromCatalogDb(t.getDatabase().getCatalog(),
+                        t.getDatabase(), t);
                 boolean appended = false;
                 long version = Config.isCloudMode() ? 0 : StatisticsUtil.getOlapTableVersion((OlapTable) t);
                 for (Pair<String, String> p : t.getColumnIndexPairs(columns)) {

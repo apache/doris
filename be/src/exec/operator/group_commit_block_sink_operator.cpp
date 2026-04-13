@@ -23,7 +23,6 @@
 #include "load/group_commit/group_commit_mgr.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 GroupCommitBlockSinkLocalState::~GroupCommitBlockSinkLocalState() {
     if (_load_block_queue) {
         _remove_estimated_wal_bytes();

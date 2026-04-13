@@ -17,108 +17,54 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.alter.AlterJobV2;
-import org.apache.doris.alter.BatchAlterJobPersistInfo;
-import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.persist.BatchRemoveTransactionsOperationV2;
 import org.apache.doris.persist.EditLog;
-import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.OperationType;
-import org.apache.doris.persist.RoutineLoadOperation;
-import org.apache.doris.persist.TableInfo;
-import org.apache.doris.system.Backend;
 import org.apache.doris.transaction.TransactionState;
 
-import mockit.Mock;
-import mockit.MockUp;
+import org.mockito.MockedConstruction;
+import org.mockito.Mockito;
 
 import java.util.HashMap;
 import java.util.Map;
 
-public class FakeEditLog extends MockUp<EditLog> {
+public class FakeEditLog implements AutoCloseable {
 
     private Map<Long, TransactionState> allTransactionState = new HashMap<>();
+    private MockedConstruction<EditLog> mockedConstruction;
 
-    @Mock
-    public void $init(String nodeName) { // CHECKSTYLE IGNORE THIS LINE
-        // do nothing
+    public FakeEditLog() {
+        mockedConstruction = Mockito.mockConstruction(EditLog.class,
+            (mock, context) -> {
+                Mockito.when(mock.getNumEditStreams()).thenReturn(1);
+                Mockito.doAnswer(inv -> {
+                    TransactionState ts = inv.getArgument(0);
+                    System.out.println("insert transaction manager is called");
+                    allTransactionState.put(ts.getTransactionId(), ts);
+                    return null;
+                }).when(mock).logInsertTransactionState(Mockito.any(TransactionState.class));
+                Mockito.doAnswer(inv -> {
+                    short op = inv.getArgument(0);
+                    Writable writable = inv.getArgument(1);
+                    if (writable instanceof TransactionState) {
+                        TransactionState ts = (TransactionState) writable;
+                        if (op == OperationType.OP_UPSERT_TRANSACTION_STATE) {
+                            allTransactionState.put(ts.getTransactionId(), ts);
+                        } else if (op == OperationType.OP_DELETE_TRANSACTION_STATE) {
+                            allTransactionState.remove(ts.getTransactionId());
+                        }
+                    }
+                    return null;
+                }).when(mock).submitEdit(Mockito.anyShort(), Mockito.any(Writable.class));
+            });
     }
 
-    @Mock
-    public void logInsertTransactionState(TransactionState transactionState) {
-        // do nothing
-        System.out.println("insert transaction manager is called");
-        allTransactionState.put(transactionState.getTransactionId(), transactionState);
-    }
-
-    @Mock
-    public void logDeleteTransactionState(TransactionState transactionState) {
-        // do nothing
-        System.out.println("delete transaction state is deleted");
-        allTransactionState.remove(transactionState.getTransactionId());
-    }
-
-    @Mock
-    public void logSaveNextId(long nextId) {
-        // do nothing
-    }
-
-    @Mock
-    public void logCreateCluster(Cluster cluster) {
-        // do nothing
-    }
-
-    @Mock
-    public void logOpRoutineLoadJob(RoutineLoadOperation operation) {
-    }
-
-    @Mock
-    public void logBackendStateChange(Backend be) {
-    }
-
-    @Mock
-    public void logAlterJob(AlterJobV2 alterJob) {
-
-    }
-
-    @Mock
-    public void logBatchAlterJob(BatchAlterJobPersistInfo batchAlterJobV2) {
-
-    }
-
-    @Mock
-    public void logDynamicPartition(ModifyTablePropertyOperationLog info) {
-
-    }
-
-    @Mock
-    public void logBatchRemoveTransactions(BatchRemoveTransactionsOperationV2 info) {
-
-    }
-
-    @Mock
-    public void logModifyDistributionType(TableInfo tableInfo) {
-
-    }
-
-    @Mock
-    public void logAddBackend(Backend be) {
-        // do nothing for test
-    }
-
-    @Mock
-    public int getNumEditStreams() {
-        return 1; // fake that we have streams
-    }
-
-    @Mock
-    public EditLog.EditLogItem submitEdit(short op, Writable writable) {
-        if (op == OperationType.OP_UPSERT_TRANSACTION_STATE && writable instanceof TransactionState) {
-            TransactionState transactionState = (TransactionState) writable;
-            allTransactionState.put(transactionState.getTransactionId(), transactionState);
+    @Override
+    public void close() {
+        if (mockedConstruction != null) {
+            mockedConstruction.close();
+            mockedConstruction = null;
         }
-        return null;
     }
 
     public TransactionState getTransaction(long transactionId) {

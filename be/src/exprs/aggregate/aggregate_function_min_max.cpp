@@ -23,7 +23,6 @@
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 // Template definition lives in aggregate_function_min_max_impl.h
 // Explicit instantiations provided by:

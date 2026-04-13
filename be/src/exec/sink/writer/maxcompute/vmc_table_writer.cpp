@@ -26,7 +26,6 @@
 #include "util/uid_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 VMCTableWriter::VMCTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_expr_ctxs,
                                std::shared_ptr<Dependency> dep, std::shared_ptr<Dependency> fin_dep)
