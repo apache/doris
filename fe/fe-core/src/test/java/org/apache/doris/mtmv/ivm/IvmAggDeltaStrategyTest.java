@@ -262,6 +262,150 @@ class IvmAggDeltaStrategyTest extends IvmDeltaTestBase {
                 .anyMatch(alias -> alias.child() instanceof Coalesce));
     }
 
+    // ---- B1: Scalar MIN / MAX plan structure ----
+
+    @Test
+    void testScalarMinAggSkipsNetZeroFilterAndHasGuard() {
+        AggRewriteResult result = rewriteAgg(buildScalarMinAgg(buildScan()));
+
+        // Scalar agg: no net-zero filter — join is direct child of finalProject
+        Assertions.assertInstanceOf(LogicalJoin.class, result.finalProject.child(),
+                "Scalar MIN should have no net-zero filter");
+        // Delete sign must be constant 0 for scalar
+        NamedExpression lastExpr = result.finalProject.getProjects()
+                .get(result.finalProject.getProjects().size() - 1);
+        Assertions.assertEquals(Column.DELETE_SIGN, lastExpr.getName());
+        Assertions.assertInstanceOf(Alias.class, lastExpr);
+        Assertions.assertInstanceOf(TinyIntLiteral.class, ((Alias) lastExpr).child());
+        // Must contain assert_true guard for MIN boundary protection
+        boolean hasAssertTrue = result.finalProject.getProjects().stream()
+                .anyMatch(this::containsAssertTrue);
+        Assertions.assertTrue(hasAssertTrue, "Scalar MIN should have assert_true guard");
+    }
+
+    @Test
+    void testScalarMaxAggSkipsNetZeroFilterAndHasGuard() {
+        AggRewriteResult result = rewriteAgg(buildScalarMaxAgg(buildScan()));
+
+        Assertions.assertInstanceOf(LogicalJoin.class, result.finalProject.child(),
+                "Scalar MAX should have no net-zero filter");
+        NamedExpression lastExpr = result.finalProject.getProjects()
+                .get(result.finalProject.getProjects().size() - 1);
+        Assertions.assertEquals(Column.DELETE_SIGN, lastExpr.getName());
+        Assertions.assertInstanceOf(Alias.class, lastExpr);
+        Assertions.assertInstanceOf(TinyIntLiteral.class, ((Alias) lastExpr).child());
+        boolean hasAssertTrue = result.finalProject.getProjects().stream()
+                .anyMatch(this::containsAssertTrue);
+        Assertions.assertTrue(hasAssertTrue, "Scalar MAX should have assert_true guard");
+    }
+
+    // ---- B2: Combined MIN+MAX in single MV ----
+
+    @Test
+    void testCombinedMinMaxAggHasTwoAssertTrueGuards() {
+        AggRewriteResult result = rewriteAgg(buildMinMaxAgg(buildScan()));
+
+        // Count distinct assert_true-containing project expressions
+        long guardCount = result.finalProject.getProjects().stream()
+                .filter(this::containsAssertTrue).count();
+        // MIN guard + MAX guard = at least 2 expressions containing assert_true
+        // (visible value expressions also reference the guarded hidden state, so count >= 2)
+        Assertions.assertTrue(guardCount >= 2,
+                "Expected at least 2 assert_true guards (MIN + MAX), got " + guardCount);
+
+        // Net-zero filter should be present (grouped agg)
+        Assertions.assertInstanceOf(LogicalFilter.class, result.finalProject.child(),
+                "Combined MIN+MAX grouped agg should have net-zero filter");
+    }
+
+    // ---- B3: Assert_true predicate semantics ----
+
+    @Test
+    void testAssertTrueGuardPredicateIsCompoundOrExpression() {
+        AggRewriteResult result = rewriteAgg(buildMinAgg(buildScan()));
+
+        // Find the boundary guard AssertTrue — the one whose condition is an Or expression.
+        // (assertNonNegative also uses AssertTrue but with GreaterThanEqual; skip those)
+        List<AssertTrue> allAssertTrue = new ArrayList<>();
+        for (NamedExpression expr : result.finalProject.getProjects()) {
+            collectAssertTrue(expr, allAssertTrue);
+        }
+        Assertions.assertFalse(allAssertTrue.isEmpty(), "Should find AssertTrue expressions in final project");
+
+        AssertTrue boundaryGuard = null;
+        for (AssertTrue at : allAssertTrue) {
+            if (at.child(0) instanceof org.apache.doris.nereids.trees.expressions.Or) {
+                boundaryGuard = at;
+                break;
+            }
+        }
+        Assertions.assertNotNull(boundaryGuard,
+                "Should find a boundary guard AssertTrue with Or condition. Found "
+                + allAssertTrue.size() + " AssertTrue(s) with conditions: "
+                + allAssertTrue.stream().map(at -> at.child(0).getClass().getSimpleName())
+                        .collect(Collectors.joining(", ")));
+
+        // Guard should be: OR(IS_NULL(deltaDel), OR(IS_NULL(old), deltaDel > old))
+        Expression guardCondition = boundaryGuard.child(0);
+        Assertions.assertInstanceOf(org.apache.doris.nereids.trees.expressions.Or.class, guardCondition,
+                "Guard predicate should be a compound Or expression");
+        // The second child of AssertTrue should be the error message (StringLiteral)
+        Assertions.assertInstanceOf(
+                org.apache.doris.nereids.trees.expressions.literal.StringLiteral.class,
+                boundaryGuard.child(1),
+                "AssertTrue second argument should be error message StringLiteral");
+        // Verify the message mentions MIN
+        String msg = ((org.apache.doris.nereids.trees.expressions.literal.StringLiteral)
+                boundaryGuard.child(1)).getStringValue();
+        Assertions.assertTrue(msg.contains("MIN"),
+                "Guard message should mention MIN, got: " + msg);
+    }
+
+    private void collectAssertTrue(Expression expr, List<AssertTrue> result) {
+        if (expr instanceof AssertTrue) {
+            result.add((AssertTrue) expr);
+        }
+        for (Expression child : expr.children()) {
+            collectAssertTrue(child, result);
+        }
+    }
+
+    // ---- B4: Composite group keys ----
+
+    @Test
+    void testCompositeGroupKeysAggPlan() {
+        AggRewriteResult result = rewriteAgg(buildCompositeGroupAgg(buildScan()));
+
+        // Should have net-zero filter (grouped agg)
+        Assertions.assertInstanceOf(LogicalFilter.class, result.finalProject.child(),
+                "Composite group agg should have net-zero filter");
+
+        LogicalJoin<?, ?> join = getJoin(result);
+        Assertions.assertEquals(JoinType.RIGHT_OUTER_JOIN, join.getJoinType());
+
+        // Join condition should use row_id (which is hash of composite keys)
+        Assertions.assertFalse(join.getHashJoinConjuncts().isEmpty());
+        Expression joinCondition = join.getHashJoinConjuncts().get(0);
+        Assertions.assertInstanceOf(EqualTo.class, joinCondition);
+        Assertions.assertTrue(joinCondition.toSql().contains(Column.IVM_ROW_ID_COL),
+                "Join should be on row_id column");
+
+        // Delta sub-plan aggregate should have both group keys
+        LogicalAggregate<?> deltaAgg = (LogicalAggregate<?>) getDeltaTopProject(result).child();
+        // Group keys: k1, k2; agg outputs: delta_group_count, delta_sum_count, delta_sum
+        // Total: 2 (group keys) + 4 (delta_group_count + count_star_hidden_count + sum_hidden_sum + sum_hidden_count) = 6
+        Assertions.assertTrue(deltaAgg.getGroupByExpressions().size() >= 2,
+                "Expected at least 2 group-by keys, got " + deltaAgg.getGroupByExpressions().size());
+
+        // Verify delete sign is IF expression (grouped, not scalar)
+        NamedExpression lastExpr = result.finalProject.getProjects()
+                .get(result.finalProject.getProjects().size() - 1);
+        Assertions.assertEquals(Column.DELETE_SIGN, lastExpr.getName());
+        Assertions.assertInstanceOf(Alias.class, lastExpr);
+        Assertions.assertInstanceOf(If.class, ((Alias) lastExpr).child(),
+                "Grouped agg delete sign should be IF expression");
+    }
+
     private static final class AggRewriteResult {
         private final PlanBundle bundle;
         private final MTMV mtmv;

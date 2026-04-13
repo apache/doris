@@ -229,6 +229,44 @@ abstract class IvmDeltaTestBase {
                 true, Optional.empty(), scan);
     }
 
+    /** Scalar MIN — no group-by keys. */
+    protected LogicalAggregate<LogicalOlapScan> buildScalarMinAgg(LogicalOlapScan scan) {
+        Slot idSlot = scan.getOutput().get(0);
+        Alias minAlias = new Alias(new Min(idSlot), "mn");
+        return new LogicalAggregate<>(ImmutableList.of(), ImmutableList.of(minAlias),
+                true, Optional.empty(), scan);
+    }
+
+    /** Scalar MAX — no group-by keys. */
+    protected LogicalAggregate<LogicalOlapScan> buildScalarMaxAgg(LogicalOlapScan scan) {
+        Slot idSlot = scan.getOutput().get(0);
+        Alias maxAlias = new Alias(new Max(idSlot), "mx");
+        return new LogicalAggregate<>(ImmutableList.of(), ImmutableList.of(maxAlias),
+                true, Optional.empty(), scan);
+    }
+
+    /** Combined MIN + MAX on same column with group-by. */
+    protected LogicalAggregate<LogicalOlapScan> buildMinMaxAgg(LogicalOlapScan scan) {
+        Slot idSlot = scan.getOutput().get(0);
+        Slot nameSlot = scan.getOutput().get(1);
+        Alias minAlias = new Alias(new Min(nameSlot), "mn");
+        Alias maxAlias = new Alias(new Max(nameSlot), "mx");
+        return new LogicalAggregate<>(ImmutableList.of(idSlot),
+                ImmutableList.of(idSlot, minAlias, maxAlias),
+                true, Optional.empty(), scan);
+    }
+
+    /** GROUP BY k1, k2 (composite keys) with SUM + COUNT. */
+    protected LogicalAggregate<LogicalOlapScan> buildCompositeGroupAgg(LogicalOlapScan scan) {
+        Slot idSlot = scan.getOutput().get(0);
+        Slot nameSlot = scan.getOutput().get(1);
+        Alias countAlias = new Alias(new Count(), "cnt");
+        Alias sumAlias = new Alias(new Sum(idSlot), "sum_id");
+        return new LogicalAggregate<>(ImmutableList.of(idSlot, nameSlot),
+                ImmutableList.of(idSlot, nameSlot, countAlias, sumAlias),
+                true, Optional.empty(), scan);
+    }
+
     protected UnboundTableSink<?> getSink(InsertIntoTableCommand command) {
         Assertions.assertInstanceOf(UnboundTableSink.class, command.getLogicalQuery());
         return (UnboundTableSink<?>) command.getLogicalQuery();

@@ -427,9 +427,18 @@ public class IvmAggDeltaStrategy extends IvmSimpleScanDeltaStrategy {
                 Expression newCount = buildNewCount(rawMvScan, delta, target);
                 finalByColumnName.put(target.getHiddenStateSlot("SUM").getName(), newSum);
                 finalByColumnName.put(target.getHiddenStateSlot("COUNT").getName(), newCount);
-                Expression visibleValue = target.getAggType() == AggType.SUM
-                        ? castIfNeeded(newSum, target.getVisibleSlot().getDataType())
-                        : castIfNeeded(new Divide(newSum, newCount), target.getVisibleSlot().getDataType());
+                Expression visibleValue;
+                if (target.getAggType() == AggType.SUM) {
+                    visibleValue = castIfNeeded(newSum, target.getVisibleSlot().getDataType());
+                } else {
+                    // AVG = newSum / newCount. The Divide expression requires both operands to
+                    // have the same numeric family; when newSum is DecimalV3 (e.g. SUM(DECIMAL))
+                    // but newCount is BIGINT, Divide.getDataType() would ClassCastException.
+                    // Cast newCount to the sum's type so the division is well-typed.
+                    Expression divisor = castIfNeeded(newCount, newSum.getDataType());
+                    visibleValue = castIfNeeded(new Divide(newSum, divisor),
+                            target.getVisibleSlot().getDataType());
+                }
                 finalByColumnName.put(target.getVisibleSlot().getName(),
                         new If(isPositive(newCount), visibleValue,
                                 new NullLiteral(target.getVisibleSlot().getDataType())));
