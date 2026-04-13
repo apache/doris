@@ -93,6 +93,10 @@ Status RuntimeFilterWrapper::insert(const ColumnPtr& column, size_t start) {
         if (_hybrid_set->size() > _max_in_num) [[unlikely]] {
             _hybrid_set->clear();
             set_state(State::DISABLED, fmt::format("reach max in num: {}", _max_in_num));
+            // Report an error because this indicates a logic bug in the caller:
+            // init(hash_table_size) should have disabled the filter if hash_table_size > max_in_num,
+            // and the number of unique column values cannot exceed hash_table_size. If we reach
+            // here, the caller passed an incorrect (too small) hash_table_size to init().
             return Status::InternalError(
                     "Size of in set with actual size {} should be less than the limitation {} in "
                     "runtime filter {}.",

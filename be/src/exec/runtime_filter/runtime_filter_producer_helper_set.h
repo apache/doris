@@ -53,6 +53,22 @@ public:
         RETURN_IF_ERROR(_publish(state));
         return Status::OK();
     }
+
+protected:
+    void _init_expr(const VExprContextSPtrs& build_expr_ctxs,
+                    const std::vector<TRuntimeFilterDesc>& runtime_filter_descs) override {
+        for (const auto& desc : runtime_filter_descs) {
+            // Set operators (INTERSECT/EXCEPT) always use HASH_SHUFFLE or BUCKET_HASH_SHUFFLE,
+            // never broadcast. The constructor hardcodes is_broadcast_join=false. Verify that
+            // FE agrees, otherwise the sync_filter_size logic would be incorrect.
+            if (desc.is_broadcast_join) {
+                throw Exception(ErrorCode::INTERNAL_ERROR,
+                                "Set operator runtime filter should not be broadcast, filter_id={}",
+                                desc.filter_id);
+            }
+        }
+        RuntimeFilterProducerHelper::_init_expr(build_expr_ctxs, runtime_filter_descs);
+    }
 };
 #include "common/compile_check_end.h"
 } // namespace doris

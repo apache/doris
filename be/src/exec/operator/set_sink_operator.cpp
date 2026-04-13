@@ -42,18 +42,6 @@ Status SetSinkLocalState<is_intersect>::close(RuntimeState* state, Status exec_s
         return Status::OK();
     }
 
-    if (!_terminated && _runtime_filter_producer_helper && !state->is_cancelled()) {
-        try {
-            RETURN_IF_ERROR(_runtime_filter_producer_helper->process(
-                    state, &_shared_state->build_block, _shared_state->get_hash_table_size()));
-        } catch (Exception& e) {
-            return Status::InternalError(
-                    "rf process meet error: {}, _terminated: {}, _finish_dependency: {}",
-                    e.to_string(), _terminated,
-                    _finish_dependency ? _finish_dependency->debug_string() : "null");
-        }
-    }
-
     if (_runtime_filter_producer_helper) {
         _runtime_filter_producer_helper->collect_realtime_profile(custom_profile());
     }
@@ -100,6 +88,33 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, Block* in_block
         // record hash table
         COUNTER_SET(local_state._hash_table_size, (int64_t)hash_table_size);
         COUNTER_SET(local_state._valid_element_in_hash_table, valid_element_in_hash_tbl);
+
+        // Process runtime filters BEFORE enabling the probe pipeline.
+        //
+        // For Set operators (INTERSECT/EXCEPT), the probe side can shrink the hash table
+        // via _refresh_hash_table() after set_ready() enables it. If RF processing is
+        // deferred to close(), get_hash_table_size() may return the shrunk size, causing
+        // RuntimeFilterWrapper::init() to under-estimate cardinality. This breaks the
+        // invariant (unique_column_values <= hash_table_size <= max_in_num) and triggers
+        // a spurious error in RuntimeFilterWrapper::insert().
+        //
+        // This is safe because Set operators always use non-broadcast distribution
+        // (HASH_SHUFFLE / BUCKET_HASH_SHUFFLE), so _need_sync_filter_size is effectively
+        // false — syncing global filter size across instances is not required. Processing
+        // here (before send_filter_size) simply uses local_size, which is equivalent to
+        // broadcast join behavior where each instance sizes its filter independently.
+        if (local_state._runtime_filter_producer_helper) {
+            try {
+                RETURN_IF_ERROR(local_state._runtime_filter_producer_helper->process(
+                        state, &build_block, hash_table_size));
+            } catch (Exception& e) {
+                return Status::InternalError(
+                        "rf process meet error: {}, _finish_dependency: {}", e.to_string(),
+                        local_state._finish_dependency
+                                ? local_state._finish_dependency->debug_string()
+                                : "null");
+            }
+        }
 
         local_state._shared_state->probe_finished_children_dependency[_cur_child_id + 1]
                 ->set_ready();
