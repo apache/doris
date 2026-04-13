@@ -24,7 +24,6 @@
 #include "runtime/runtime_profile.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class BucketedAggSinkOperatorX;
 
@@ -144,4 +143,3 @@ private:
 };
 
 } // namespace doris
-#include "common/compile_check_end.h"

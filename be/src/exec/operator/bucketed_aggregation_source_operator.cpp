@@ -30,7 +30,6 @@
 #include "runtime/thread_context.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 // Helper to set/get null key data on hash tables that support it (DataWithNullKey).
 // For hash tables without nullable key support (PHHashMap), these are no-ops.

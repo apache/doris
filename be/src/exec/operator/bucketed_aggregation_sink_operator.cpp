@@ -28,7 +28,6 @@
 #include "runtime/thread_context.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 BucketedAggSinkLocalState::BucketedAggSinkLocalState(DataSinkOperatorXBase* parent,
                                                      RuntimeState* state)

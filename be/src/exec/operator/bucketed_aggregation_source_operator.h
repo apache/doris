@@ -25,8 +25,6 @@
 #include "exec/operator/operator.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
-
 class BucketedAggSourceOperatorX;
 
 /// Source-side local state for bucketed hash aggregation.
@@ -121,4 +119,3 @@ private:
 };
 
 } // namespace doris
-#include "common/compile_check_end.h"
