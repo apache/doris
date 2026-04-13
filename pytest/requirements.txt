@@ -27,7 +27,7 @@ pexpect==4.8.0
 ptyprocess==0.7.0
 pycurl==7.45.2
 PyMySQL==1.0.3
-pytest==7.4.0
+pytest==9.0.3
 pytest-html==3.2.0
 pytest-metadata==3.0.0
 pytest-timeout==2.1.0
