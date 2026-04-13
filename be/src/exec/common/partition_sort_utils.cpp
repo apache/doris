@@ -54,7 +54,7 @@ void PartitionBlocks::create_or_reset_sorter_state() {
     if (_partition_topn_sorter == nullptr) {
         _previous_row = std::make_unique<SortCursorCmp>();
         _partition_topn_sorter = PartitionSorter::create_unique(
-                *_partition_sort_info->_vsort_exec_exprs, _partition_sort_info->_limit,
+                *_partition_sort_info->_ordering_expr_ctxs, _partition_sort_info->_limit,
                 _partition_sort_info->_offset, _partition_sort_info->_pool,
                 _partition_sort_info->_is_asc_order, _partition_sort_info->_nulls_first,
                 _partition_sort_info->_row_desc, _partition_sort_info->_runtime_state,

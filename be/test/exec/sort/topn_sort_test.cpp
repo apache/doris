@@ -32,7 +32,7 @@
 #include "exec/sort/heap_sorter.h"
 #include "exec/sort/sorter.h"
 #include "exec/sort/topn_sorter.h"
-#include "exec/sort/vsort_exec_exprs.h"
+#include "exprs/vexpr_fwd.h"
 #include "runtime/runtime_state.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_descriptors.h"
@@ -45,15 +45,7 @@ struct TopNSorterTest : public testing::Test {
     void SetUp() override {
         row_desc.reset(new MockRowDescriptor({std::make_shared<DataTypeInt64>()}, &pool));
 
-        sort_exec_exprs._sort_tuple_slot_expr_ctxs =
-                MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
-
-        sort_exec_exprs._materialize_tuple = false;
-
-        sort_exec_exprs._ordering_expr_ctxs =
-                MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
-
-        sort_exec_exprs._sort_tuple_slot_expr_ctxs =
+        ordering_expr_ctxs =
                 MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
     }
     MockRuntimeState _state;
@@ -65,14 +57,14 @@ struct TopNSorterTest : public testing::Test {
 
     ObjectPool pool;
 
-    VSortExecExprs sort_exec_exprs;
+    VExprContextSPtrs ordering_expr_ctxs;
 
     std::vector<bool> is_asc_order {true};
     std::vector<bool> nulls_first {false};
 };
 
 TEST_F(TopNSorterTest, test_topn_sorter1) {
-    sorter = TopNSorter::create_unique(sort_exec_exprs, 3, 3, &pool, is_asc_order, nulls_first,
+    sorter = TopNSorter::create_unique(ordering_expr_ctxs, 3, 3, &pool, is_asc_order, nulls_first,
                                        *row_desc, &_state, nullptr);
     sorter->init_profile(&_profile);
     {
@@ -93,7 +85,7 @@ TEST_F(TopNSorterTest, test_topn_sorter1) {
 }
 
 TEST_F(TopNSorterTest, test_topn_sorter2) {
-    sorter = TopNSorter::create_unique(sort_exec_exprs, -1, 3, &pool, is_asc_order, nulls_first,
+    sorter = TopNSorter::create_unique(ordering_expr_ctxs, -1, 3, &pool, is_asc_order, nulls_first,
                                        *row_desc, &_state, nullptr);
     sorter->init_profile(&_profile);
     {

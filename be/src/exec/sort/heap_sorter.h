@@ -25,9 +25,10 @@ class HeapSorter final : public Sorter {
     ENABLE_FACTORY_CREATOR(HeapSorter);
 
 public:
-    HeapSorter(VSortExecExprs& vsort_exec_exprs, RuntimeState* state, int64_t limit, int64_t offset,
-               ObjectPool* pool, std::vector<bool>& is_asc_order, std::vector<bool>& nulls_first,
-               const RowDescriptor& row_desc, bool have_runtime_predicate = true);
+    HeapSorter(const VExprContextSPtrs& ordering_expr_ctxs, RuntimeState* state, int64_t limit,
+               int64_t offset, ObjectPool* pool, std::vector<bool>& is_asc_order,
+               std::vector<bool>& nulls_first, const RowDescriptor& row_desc,
+               bool have_runtime_predicate = true);
 
     ~HeapSorter() override = default;
 
