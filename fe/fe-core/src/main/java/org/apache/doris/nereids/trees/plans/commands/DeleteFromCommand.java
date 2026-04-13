@@ -207,8 +207,14 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
             }
         } catch (Exception e) {
             try {
-                new DeleteFromUsingCommand(nameParts, tableAlias, isTempPart, partitions,
-                        logicalQuery, Optional.empty(), false).run(ctx, executor);
+                // delete not need select priv, skip auth for the fallback planner
+                ctx.setSkipAuth(true);
+                try {
+                    new DeleteFromUsingCommand(nameParts, tableAlias, isTempPart, partitions,
+                            logicalQuery, Optional.empty(), false).run(ctx, executor);
+                } finally {
+                    ctx.setSkipAuth(originalIsSkipAuth);
+                }
                 return;
             } catch (Exception e2) {
                 LOG.warn("delete from command failed", e2);
@@ -219,8 +225,14 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
         // if table's enable_mow_light_delete is false, use `DeleteFromUsingCommand`
         if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()
                 && !olapTable.getEnableMowLightDelete()) {
-            new DeleteFromUsingCommand(nameParts, tableAlias, isTempPart, partitions, logicalQuery,
-                    Optional.empty(), false).run(ctx, executor);
+            // delete not need select priv, skip auth for the fallback planner
+            ctx.setSkipAuth(true);
+            try {
+                new DeleteFromUsingCommand(nameParts, tableAlias, isTempPart, partitions, logicalQuery,
+                        Optional.empty(), false).run(ctx, executor);
+            } finally {
+                ctx.setSkipAuth(originalIsSkipAuth);
+            }
             return;
         }
 
