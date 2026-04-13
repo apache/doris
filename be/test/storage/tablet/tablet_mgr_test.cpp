@@ -382,6 +382,116 @@ TEST_F(TabletMgrTest, DropTabletForce_DiffPath) {
     EXPECT_TRUE(drop_st == Status::OK());
 }
 
+TEST_F(TabletMgrTest, DropTabletForce_DeleteFail) {
+    RuntimeProfile profile("CreateTablet");
+    TColumnType col_type;
+    col_type.__set_type(TPrimitiveType::SMALLINT);
+    TColumn col1;
+    col1.__set_column_name("col1");
+    col1.__set_column_type(col_type);
+    col1.__set_is_key(true);
+    std::vector<TColumn> cols;
+    cols.push_back(col1);
+    TTabletSchema tablet_schema;
+    tablet_schema.__set_short_key_column_count(1);
+    tablet_schema.__set_schema_hash(3333);
+    tablet_schema.__set_keys_type(TKeysType::AGG_KEYS);
+    tablet_schema.__set_storage_type(TStorageType::COLUMN);
+    tablet_schema.__set_columns(cols);
+    TCreateTabletReq create_tablet_req;
+    create_tablet_req.__set_tablet_schema(tablet_schema);
+    create_tablet_req.__set_tablet_id(111);
+    create_tablet_req.__set_version(2);
+    std::vector<DataDir*> data_dirs;
+    data_dirs.push_back(_data_dir);
+    Status create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs, &profile);
+    EXPECT_TRUE(create_st == Status::OK());
+    TabletSharedPtr tablet = _tablet_mgr->get_tablet(111);
+    EXPECT_TRUE(tablet != nullptr);
+
+    // drop exist tablet with force=true
+    Status drop_st = _tablet_mgr->drop_tablet(111, create_tablet_req.replica_id, false, true);
+    EXPECT_TRUE(drop_st == Status::OK());
+
+    std::string tablet_path = tablet->tablet_path();
+    tablet.reset();
+
+    // Replace the tablet directory with a regular file to make delete_directory fail
+    Status st = io::global_local_filesystem()->delete_directory(tablet_path);
+    EXPECT_TRUE(st.ok());
+    io::FileWriterPtr file_writer;
+    st = io::global_local_filesystem()->create_file(tablet_path, &file_writer);
+    EXPECT_TRUE(st.ok());
+    st = file_writer->close();
+    EXPECT_TRUE(st.ok());
+
+    Status trash_st = _tablet_mgr->start_trash_sweep();
+    EXPECT_TRUE(trash_st == Status::OK());
+
+    // Clean up the file
+    st = io::global_local_filesystem()->delete_file(tablet_path);
+    EXPECT_TRUE(st.ok());
+}
+
+TEST_F(TabletMgrTest, DropTabletForce_DiffPath_DeleteFail) {
+    RuntimeProfile profile("CreateTablet");
+    TColumnType col_type;
+    col_type.__set_type(TPrimitiveType::SMALLINT);
+    TColumn col1;
+    col1.__set_column_name("col1");
+    col1.__set_column_type(col_type);
+    col1.__set_is_key(true);
+    std::vector<TColumn> cols;
+    cols.push_back(col1);
+    TTabletSchema tablet_schema;
+    tablet_schema.__set_short_key_column_count(1);
+    tablet_schema.__set_schema_hash(3333);
+    tablet_schema.__set_keys_type(TKeysType::AGG_KEYS);
+    tablet_schema.__set_storage_type(TStorageType::COLUMN);
+    tablet_schema.__set_columns(cols);
+    TCreateTabletReq create_tablet_req;
+    create_tablet_req.__set_tablet_schema(tablet_schema);
+    create_tablet_req.__set_tablet_id(111);
+    create_tablet_req.__set_version(2);
+    std::vector<DataDir*> data_dirs;
+    data_dirs.push_back(_data_dir);
+
+    // 1. Create first tablet
+    Status create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs, &profile);
+    EXPECT_TRUE(create_st == Status::OK());
+    TabletSharedPtr tablet1 = _tablet_mgr->get_tablet(111);
+    EXPECT_TRUE(tablet1 != nullptr);
+    std::string tablet1_path = tablet1->tablet_path();
+
+    // 2. Drop it with force=true
+    Status drop_st = _tablet_mgr->drop_tablet(111, create_tablet_req.replica_id, false, true);
+    EXPECT_TRUE(drop_st == Status::OK());
+    tablet1.reset();
+
+    // 3. Create it again (this will have a different path)
+    create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs, &profile);
+    EXPECT_TRUE(create_st == Status::OK());
+
+    // 4. Replace the old tablet's directory with a file to cause delete_directory to fail
+    Status st = io::global_local_filesystem()->delete_directory(tablet1_path);
+    EXPECT_TRUE(st.ok());
+    io::FileWriterPtr file_writer;
+    st = io::global_local_filesystem()->create_file(tablet1_path, &file_writer);
+    EXPECT_TRUE(st.ok());
+    st = file_writer->close();
+    EXPECT_TRUE(st.ok());
+
+    // 5. Trigger trash sweep.
+    Status trash_st = _tablet_mgr->start_trash_sweep();
+    EXPECT_TRUE(trash_st == Status::OK());
+
+    // Clean up
+    st = io::global_local_filesystem()->delete_file(tablet1_path);
+    EXPECT_TRUE(st.ok());
+    drop_st = _tablet_mgr->drop_tablet(111, create_tablet_req.replica_id, false, true);
+    EXPECT_TRUE(drop_st == Status::OK());
+}
+
 TEST_F(TabletMgrTest, GetRowsetId) {
     // normal case
     {
