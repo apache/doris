@@ -48,18 +48,13 @@ import org.apache.doris.thrift.TJdbcTable;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TOdbcTableType;
 import org.apache.doris.thrift.TStatusCode;
-import org.apache.doris.thrift.TTableDescriptor;
-import org.apache.doris.thrift.TTableType;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
-import com.google.protobuf.ByteString;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.thrift.TException;
-import org.apache.thrift.TSerializer;
 
 import java.io.IOException;
 import java.util.List;
@@ -408,12 +403,8 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         }
         TNetworkAddress address = new TNetworkAddress(aliveBe.getHost(), aliveBe.getBrpcPort());
         try {
-            TTableDescriptor testThrift = buildTestConnectionThrift();
             TOdbcTableType tableType = JdbcExternalTable.parseJdbcType(testClient.getDbType());
-            PJdbcTestConnectionRequest request = InternalService.PJdbcTestConnectionRequest.newBuilder()
-                    .setJdbcTable(ByteString.copyFrom(new TSerializer().serialize(testThrift)))
-                    .setJdbcTableType(tableType.getValue())
-                    .setQueryStr(testClient.getTestQuery()).build();
+            PJdbcTestConnectionRequest request = buildTestConnectionRequest(tableType);
             InternalService.PJdbcTestConnectionResult result = null;
             Future<PJdbcTestConnectionResult> future = BackendServiceProxy.getInstance()
                     .testJdbcConnection(address, request);
@@ -422,12 +413,19 @@ public class JdbcExternalCatalog extends ExternalCatalog {
             if (code != TStatusCode.OK) {
                 throw new DdlException("Test BE Connection to JDBC Failed: " + result.getStatus().getErrorMsgs(0));
             }
-        } catch (TException | RpcException | ExecutionException | InterruptedException e) {
+        } catch (RpcException | ExecutionException | InterruptedException e) {
             throw new RuntimeException(e);
         }
     }
 
-    private TTableDescriptor buildTestConnectionThrift() throws DdlException {
+    public PJdbcTestConnectionRequest buildTestConnectionRequest(TOdbcTableType tableType) {
+        return InternalService.PJdbcTestConnectionRequest.newBuilder()
+                .setCatalogId(getId())
+                .setJdbcTableType(tableType.getValue())
+                .build();
+    }
+
+    public TJdbcTable buildTrustedJdbcTable() throws DdlException {
         TJdbcTable tJdbcTable = new TJdbcTable();
         tJdbcTable.setCatalogId(this.getId());
         tJdbcTable.setJdbcUrl(getJdbcUrl());
@@ -437,16 +435,16 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         tJdbcTable.setJdbcDriverClass(getDriverClass());
         tJdbcTable.setJdbcDriverUrl(getDriverUrl());
         tJdbcTable.setJdbcResourceName("");
-        tJdbcTable.setJdbcDriverChecksum(JdbcResource.computeObjectChecksum(getDriverUrl()));
+        String driverChecksum = Strings.isNullOrEmpty(getCheckSum())
+                ? JdbcResource.computeObjectChecksum(getDriverUrl())
+                : getCheckSum();
+        tJdbcTable.setJdbcDriverChecksum(driverChecksum);
         tJdbcTable.setConnectionPoolMinSize(getConnectionPoolMinSize());
         tJdbcTable.setConnectionPoolMaxSize(getConnectionPoolMaxSize());
         tJdbcTable.setConnectionPoolMaxWaitTime(getConnectionPoolMaxWaitTime());
         tJdbcTable.setConnectionPoolMaxLifeTime(getConnectionPoolMaxLifeTime());
         tJdbcTable.setConnectionPoolKeepAlive(isConnectionPoolKeepAlive());
-        TTableDescriptor tTableDescriptor = new TTableDescriptor(0, TTableType.JDBC_TABLE, 0, 0,
-                "test_jdbc_connection", "");
-        tTableDescriptor.setJdbcTable(tJdbcTable);
-        return tTableDescriptor;
+        return tJdbcTable;
     }
 
     public ExternalFunctionRules getFunctionRules() {

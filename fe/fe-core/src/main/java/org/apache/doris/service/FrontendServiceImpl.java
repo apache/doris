@@ -82,6 +82,7 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.SplitSource;
+import org.apache.doris.datasource.jdbc.JdbcExternalCatalog;
 import org.apache.doris.encryption.EncryptionKey;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.info.TableRefInfo;
@@ -194,6 +195,8 @@ import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
 import org.apache.doris.thrift.TGetEncryptionKeysRequest;
 import org.apache.doris.thrift.TGetEncryptionKeysResult;
+import org.apache.doris.thrift.TGetJdbcTestConnectionInfoRequest;
+import org.apache.doris.thrift.TGetJdbcTestConnectionInfoResult;
 import org.apache.doris.thrift.TGetMasterTokenRequest;
 import org.apache.doris.thrift.TGetMasterTokenResult;
 import org.apache.doris.thrift.TGetMetaDB;
@@ -221,6 +224,7 @@ import org.apache.doris.thrift.TInsertOverwriteRegisterResult;
 import org.apache.doris.thrift.TInsertOverwriteTaskRequest;
 import org.apache.doris.thrift.TInsertOverwriteTaskResult;
 import org.apache.doris.thrift.TInvalidateFollowerStatsCacheRequest;
+import org.apache.doris.thrift.TJdbcTable;
 import org.apache.doris.thrift.TListPrivilegesResult;
 import org.apache.doris.thrift.TListTableMetadataNameIdsResult;
 import org.apache.doris.thrift.TListTableStatusResult;
@@ -3194,6 +3198,36 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } catch (Throwable t) {
             LOG.warn("init database failed. catalog.database: {}", catalog.getName(), db.getFullName(), t);
             result.setStatus(Util.getRootCauseMessage(t));
+        }
+        return result;
+    }
+
+    @Override
+    public TGetJdbcTestConnectionInfoResult getJdbcTestConnectionInfo(TGetJdbcTestConnectionInfoRequest request)
+            throws TException {
+        TGetJdbcTestConnectionInfoResult result = new TGetJdbcTestConnectionInfoResult();
+        TStatus status = new TStatus(TStatusCode.OK);
+        result.setStatus(status);
+
+        if (!request.isSetCatalogId()) {
+            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs("catalog id is not set");
+            return result;
+        }
+
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(request.getCatalogId());
+        if (!(catalog instanceof JdbcExternalCatalog)) {
+            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs("catalog is not a JDBC external catalog: " + request.getCatalogId());
+            return result;
+        }
+
+        try {
+            TJdbcTable jdbcTable = ((JdbcExternalCatalog) catalog).buildTrustedJdbcTable();
+            result.setJdbcTable(jdbcTable);
+        } catch (DdlException e) {
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
         }
         return result;
     }

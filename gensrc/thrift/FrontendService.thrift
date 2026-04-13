@@ -855,6 +855,15 @@ struct TInitExternalCtlMetaResult {
     2: optional string status;
 }
 
+struct TGetJdbcTestConnectionInfoRequest {
+    1: optional i64 catalogId
+}
+
+struct TGetJdbcTestConnectionInfoResult {
+    1: required Status.TStatus status
+    2: optional Descriptors.TJdbcTable jdbcTable
+}
+
 enum TSchemaTableName {
   // BACKENDS = 0,
   METADATA_TABLE = 1, // tvf
@@ -1933,6 +1942,8 @@ service FrontendService {
     Status.TStatus syncCloudVersion(1: TFrontendSyncCloudVersionRequest request)
 
     TInitExternalCtlMetaResult initExternalCtlMeta(1: TInitExternalCtlMetaRequest request)
+
+    TGetJdbcTestConnectionInfoResult getJdbcTestConnectionInfo(1: TGetJdbcTestConnectionInfoRequest request)
 
     TFetchSchemaTableDataResult fetchSchemaTableData(1: TFetchSchemaTableDataRequest request)
 

@@ -27,6 +27,7 @@
 #include <fcntl.h>
 #include <fmt/core.h>
 #include <gen_cpp/DataSinks_types.h>
+#include <gen_cpp/FrontendService.h>
 #include <gen_cpp/MasterService_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
@@ -127,6 +128,7 @@
 #include "util/proto_util.h"
 #include "util/stopwatch.hpp"
 #include "util/string_util.h"
+#include "util/thrift_rpc_helper.h"
 #include "util/thrift_util.h"
 #include "util/time.h"
 #include "util/uid_util.h"
@@ -142,6 +144,37 @@ namespace doris {
 using namespace ErrorCode;
 
 const uint32_t DOWNLOAD_FILE_MAX_RETRY = 3;
+
+namespace {
+
+Status fetch_trusted_jdbc_table(ExecEnv* exec_env, int64_t catalog_id, TJdbcTable* jdbc_table) {
+    if (catalog_id <= 0) {
+        return Status::InvalidArgument("catalog id is not set for jdbc connection test");
+    }
+
+    TNetworkAddress master_addr = exec_env->cluster_info()->master_fe_addr;
+    if (master_addr.hostname.empty() || master_addr.port == 0) {
+        return Status::RpcError("master fe is not available for jdbc connection test");
+    }
+
+    TGetJdbcTestConnectionInfoRequest request;
+    request.__set_catalogId(catalog_id);
+    TGetJdbcTestConnectionInfoResult result;
+    RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
+            master_addr.hostname, master_addr.port,
+            [&request, &result](FrontendServiceConnection& client) {
+                client->getJdbcTestConnectionInfo(result, request);
+            }));
+    RETURN_IF_ERROR(Status::create(result.status));
+    if (!result.__isset.jdbcTable) {
+        return Status::InternalError("frontend did not return jdbc table for catalog {}",
+                                     catalog_id);
+    }
+    *jdbc_table = result.jdbcTable;
+    return Status::OK();
+}
+
+} // namespace
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(heavy_work_pool_queue_size, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(light_work_pool_queue_size, MetricUnit::NOUNIT);
@@ -977,26 +1010,21 @@ void PInternalService::test_jdbc_connection(google::protobuf::RpcController* con
                                             const PJdbcTestConnectionRequest* request,
                                             PJdbcTestConnectionResult* result,
                                             google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([request, result, done]() {
+    bool ret = _heavy_work_pool.try_offer([this, request, result, done]() {
         VLOG_RPC << "test jdbc connection";
         brpc::ClosureGuard closure_guard(done);
         std::shared_ptr<MemTrackerLimiter> mem_tracker = MemTrackerLimiter::create_shared(
                 MemTrackerLimiter::Type::OTHER,
                 fmt::format("InternalService::test_jdbc_connection"));
         SCOPED_ATTACH_TASK(mem_tracker);
-        TTableDescriptor table_desc;
+        TJdbcTable jdbc_table;
         Status st = Status::OK();
-        {
-            const uint8_t* buf = (const uint8_t*)request->jdbc_table().data();
-            uint32_t len = request->jdbc_table().size();
-            st = deserialize_thrift_msg(buf, &len, false, &table_desc);
-            if (!st.ok()) {
-                LOG(WARNING) << "test jdbc connection failed, errmsg=" << st;
-                st.to_protobuf(result->mutable_status());
-                return;
-            }
+        st = fetch_trusted_jdbc_table(_exec_env, request->catalog_id(), &jdbc_table);
+        if (!st.ok()) {
+            LOG(WARNING) << "test jdbc connection failed, errmsg=" << st;
+            st.to_protobuf(result->mutable_status());
+            return;
         }
-        TJdbcTable jdbc_table = (table_desc.jdbcTable);
 
         // Resolve driver URL to absolute file:// path
         std::string driver_url;
@@ -1013,7 +1041,7 @@ void PInternalService::test_jdbc_connection(google::protobuf::RpcController* con
         params["jdbc_password"] = jdbc_table.jdbc_password;
         params["jdbc_driver_class"] = jdbc_table.jdbc_driver_class;
         params["jdbc_driver_url"] = driver_url;
-        params["query_sql"] = request->query_str();
+        params["jdbc_driver_checksum"] = jdbc_table.jdbc_driver_checksum;
         params["catalog_id"] = std::to_string(jdbc_table.catalog_id);
         params["connection_pool_min_size"] = std::to_string(jdbc_table.connection_pool_min_size);
         params["connection_pool_max_size"] = std::to_string(jdbc_table.connection_pool_max_size);
