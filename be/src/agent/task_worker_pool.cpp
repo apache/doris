@@ -104,7 +104,6 @@
 #include "util/trace.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 namespace {
@@ -1334,12 +1333,14 @@ void download_callback(StorageEngine& engine, ExecEnv* env, const TAgentTaskRequ
     if (download_request.__isset.remote_tablet_snapshots) {
         std::unique_ptr<SnapshotLoader> loader = std::make_unique<SnapshotLoader>(
                 engine, env, download_request.job_id, req.signature);
+        SCOPED_ATTACH_TASK(loader->resource_ctx());
         status = loader->remote_http_download(download_request.remote_tablet_snapshots,
                                               &downloaded_tablet_ids);
     } else {
         std::unique_ptr<SnapshotLoader> loader = std::make_unique<SnapshotLoader>(
                 engine, env, download_request.job_id, req.signature, download_request.broker_addr,
                 download_request.broker_prop);
+        SCOPED_ATTACH_TASK(loader->resource_ctx());
         status = loader->init(download_request.__isset.storage_backend
                                       ? download_request.storage_backend
                                       : TStorageBackendType::type::BROKER,
@@ -1387,6 +1388,7 @@ void download_callback(CloudStorageEngine& engine, ExecEnv* env, const TAgentTas
         std::unique_ptr<CloudSnapshotLoader> loader = std::make_unique<CloudSnapshotLoader>(
                 engine, env, download_request.job_id, req.signature, download_request.broker_addr,
                 download_request.broker_prop);
+        SCOPED_ATTACH_TASK(loader->resource_ctx());
         status = loader->init(download_request.__isset.storage_backend
                                       ? download_request.storage_backend
                                       : TStorageBackendType::type::BROKER,
@@ -1540,6 +1542,7 @@ void move_dir_callback(StorageEngine& engine, ExecEnv* env, const TAgentTaskRequ
         status = Status::InvalidArgument("Could not find tablet");
     } else {
         SnapshotLoader loader(engine, env, move_dir_req.job_id, move_dir_req.tablet_id);
+        SCOPED_ATTACH_TASK(loader.resource_ctx());
         status = loader.move(move_dir_req.src, tablet, true);
     }
 
@@ -1775,7 +1778,9 @@ void create_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req)
     Defer defer = [&] {
         auto elapsed_time = static_cast<double>(watch.elapsed_time());
         if (elapsed_time / 1e9 > config::agent_task_trace_threshold_sec) {
+#include "common/compile_check_avoid_begin.h"
             COUNTER_UPDATE(profile->total_time_counter(), elapsed_time);
+#include "common/compile_check_avoid_end.h"
             std::stringstream ss;
             profile->pretty_print(&ss);
             LOG(WARNING) << "create tablet cost(s) " << elapsed_time / 1e9 << std::endl << ss.str();
@@ -2040,8 +2045,8 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
 
     std::set<TTabletId> error_tablet_ids;
     std::map<TTabletId, TVersion> succ_tablets;
-    // partition_id, tablet_id, publish_version
-    std::vector<std::tuple<int64_t, int64_t, int64_t>> discontinuous_version_tablets;
+    // partition_id, tablet_id, publish_version, commit_tso
+    std::vector<DiscontinuousVersionTablet> discontinuous_version_tablets;
     std::map<TTableId, std::map<TTabletId, int64_t>> table_id_to_tablet_id_to_num_delta_rows;
     uint32_t retry_time = 0;
     Status status;
@@ -2098,8 +2103,8 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
     }
 
     for (auto& item : discontinuous_version_tablets) {
-        _engine.add_async_publish_task(std::get<0>(item), std::get<1>(item), std::get<2>(item),
-                                       publish_version_req.transaction_id, false);
+        _engine.add_async_publish_task(item.partition_id, item.tablet_id, item.publish_version,
+                                       publish_version_req.transaction_id, false, item.commit_tso);
     }
     TFinishTaskRequest finish_task_request;
     if (!status.ok()) [[unlikely]] {
@@ -2527,5 +2532,4 @@ void report_index_policy_callback(const ClusterInfo* cluster_info) {
     }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

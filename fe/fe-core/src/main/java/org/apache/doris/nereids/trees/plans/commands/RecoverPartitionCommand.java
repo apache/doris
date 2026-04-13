@@ -52,7 +52,7 @@ public class RecoverPartitionCommand extends RecoverCommand {
 
     @Override
     public void doRun(ConnectContext ctx, StmtExecutor executor) throws UserException {
-        dbTblName.analyze(ctx);
+        dbTblName.analyze(ctx.getNameSpaceContext());
 
         // disallow external catalog
         Util.prohibitExternalCatalog(dbTblName.getCtl(), this.getClass().getSimpleName());

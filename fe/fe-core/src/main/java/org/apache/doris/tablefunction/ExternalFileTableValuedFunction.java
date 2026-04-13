@@ -38,7 +38,6 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
-import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.NetUtils;
@@ -50,6 +49,9 @@ import org.apache.doris.datasource.property.fileformat.TextFileFormatProperties;
 import org.apache.doris.datasource.property.storage.ObjectStorageProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.datasource.tvf.source.TVFScanNode;
+import org.apache.doris.filesystem.FileEntry;
+import org.apache.doris.filesystem.Location;
+import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.planner.PlanNodeId;
@@ -89,6 +91,7 @@ import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 import org.apache.thrift.TSerializer;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -157,13 +160,28 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         String path = getFilePath();
         BrokerDesc brokerDesc = getBrokerDesc();
         try {
-            if (brokerDesc.getFileType() != null && brokerDesc.getFileType().equals(TFileType.FILE_S3)
-                    && brokerDesc.getStorageProperties() instanceof ObjectStorageProperties) {
-                ObjectStorageProperties storageProperties = (ObjectStorageProperties) brokerDesc.getStorageProperties();
-                String endpoint = storageProperties.getEndpoint();
-                S3Util.validateAndTestEndpoint(endpoint);
+            StorageProperties sp = brokerDesc.getStorageProperties();
+            if (sp instanceof ObjectStorageProperties) {
+                S3Util.validateAndTestEndpoint(((ObjectStorageProperties) sp).getEndpoint());
             }
-            BrokerUtil.parseFile(path, brokerDesc, fileStatuses);
+            try (org.apache.doris.filesystem.FileSystem fs = FileSystemFactory.getFileSystem(brokerDesc)) {
+                List<FileEntry> entries;
+                // Always prefer glob semantics: for exact paths it ensures precise matching
+                // (prevents S3 prefix-based listing from including unintended files like
+                // "file.csv.bz2" when listing "file.csv"). Fall back to listFiles only
+                // when the filesystem does not support glob.
+                try {
+                    entries = fs.globListWithLimit(Location.of(path), "", 0, 0).getFiles();
+                } catch (UnsupportedOperationException ex) {
+                    entries = fs.listFiles(Location.of(path));
+                }
+                for (FileEntry e : entries) {
+                    fileStatuses.add(new TBrokerFileStatus(
+                            e.location().uri(), e.isDirectory(), e.length(), !e.isDirectory()));
+                }
+            } catch (IOException e) {
+                throw new UserException("list files failed for path " + path + ": " + e.getMessage(), e);
+            }
         } catch (UserException e) {
             throw new AnalysisException("parse file failed, err: " + e.getMessage(), e);
         } finally {
@@ -173,6 +191,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             }
         }
     }
+
 
     // The keys in properties map need to be lowercase.
     protected Map<String, String> parseCommonProperties(Map<String, String> properties) throws AnalysisException {

@@ -77,7 +77,6 @@ struct IOContext;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 namespace {
 Status build_iceberg_rowid_column(const DataTypePtr& type, const std::string& file_path,
@@ -1479,6 +1478,5 @@ ParquetColumnReader::ColumnStatistics RowGroupReader::merged_column_statistics()
     }
     return st;
 }
-#include "common/compile_check_end.h"
 
 } // namespace doris

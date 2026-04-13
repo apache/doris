@@ -29,7 +29,7 @@
 #include "core/data_type/define_primitive_type.h"
 #include "core/types.h"
 #include "core/value/decimalv2_value.h"
-#include "exprs/function/function_string.h"
+#include "exprs/function/function_string_format.h"
 #include "exprs/function/function_test_util.h"
 #include "runtime/runtime_state.h"
 

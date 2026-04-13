@@ -25,7 +25,6 @@
 #include "runtime/query_context.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 Status SortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
@@ -191,5 +190,4 @@ Status SortSinkOperatorX::reset(RuntimeState* state) {
     local_state._shared_state->sorter->reset();
     return Status::OK();
 }
-#include "common/compile_check_end.h"
 } // namespace doris

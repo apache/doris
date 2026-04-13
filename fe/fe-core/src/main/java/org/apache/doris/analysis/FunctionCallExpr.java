@@ -23,7 +23,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionName;
-import org.apache.doris.common.NameFormatUtils;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
@@ -33,7 +32,6 @@ import com.google.gson.annotations.SerializedName;
 
 import java.text.StringCharacterIterator;
 import java.util.List;
-import java.util.Optional;
 
 // TODO: for aggregations, we need to unify the code paths for builtins and UDAs.
 public class FunctionCallExpr extends Expr {
@@ -98,15 +96,6 @@ public class FunctionCallExpr extends Expr {
     // only used restore from readFields.
     protected FunctionCallExpr() {
         super();
-    }
-
-    @Override
-    public String getExprName() {
-        if (!this.exprName.isPresent()) {
-            this.exprName = Optional.of(
-                    NameFormatUtils.normalizeName(this.getFnName().getFunction(), DEFAULT_EXPR_NAME));
-        }
-        return this.exprName.get();
     }
 
     public FunctionCallExpr(String functionName, List<Expr> params, boolean nullable) {

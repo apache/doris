@@ -20,7 +20,6 @@
 #include "common/status.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 Status TVFTableSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));

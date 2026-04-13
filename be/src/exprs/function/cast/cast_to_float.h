@@ -25,7 +25,6 @@
 #include "exprs/function/cast/cast_to_basic_number_common.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 // cast bool, integer, float to double, will not overflow
 template <CastModeType CastMode, typename FromDataType, typename ToDataType>
     requires(IsDataTypeFloat<ToDataType> && IsDataTypeNumber<FromDataType>)
@@ -96,5 +95,4 @@ public:
                                                                  input_rows_count);
     }
 };
-#include "common/compile_check_end.h"
 } // namespace doris

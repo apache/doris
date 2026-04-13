@@ -317,7 +317,12 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
             // It's still pending, waiting for scheduling.
             return false;
         }
-        return (System.currentTimeMillis() - startTimeMs) > timeoutMs;
+        long elapsed = System.currentTimeMillis() - startTimeMs;
+        if (elapsed > timeoutMs) {
+            log.info("Task {} timeout detected: elapsed={}ms, timeoutMs={}ms", taskId, elapsed, timeoutMs);
+            return true;
+        }
+        return false;
     }
 
     /**

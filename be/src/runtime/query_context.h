@@ -71,7 +71,8 @@ enum class QuerySource {
     STREAM_LOAD,
     GROUP_COMMIT_LOAD,
     ROUTINE_LOAD,
-    EXTERNAL_CONNECTOR
+    EXTERNAL_CONNECTOR,
+    EXTERNAL_FRONTEND
 };
 
 const std::string toString(QuerySource query_source);

@@ -31,7 +31,6 @@
 #include "exprs/vexpr_context.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 /** Cursor allows to compare rows in different blocks (and parts).
   * Cursor moves inside single block.
   * It is used in priority queue.
@@ -437,5 +436,4 @@ private:
     }
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

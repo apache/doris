@@ -20,18 +20,13 @@
 
 package org.apache.doris.info;
 
-import org.apache.doris.catalog.DatabaseIf;
-import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.catalog.NameSpaceContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
-import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Objects;
@@ -52,6 +47,7 @@ public class TableNameInfo {
 
     }
 
+
     /**
      * TableNameInfo
      * @param parts like [ctl1,db1,tbl1] or [db1,tbl1] or [tbl1]
@@ -61,7 +57,7 @@ public class TableNameInfo {
         int size = parts.size();
         Preconditions.checkArgument(size > 0, "table name can't be empty");
         tbl = parts.get(size - 1);
-        if (Env.isStoredTableNamesLowerCase() && !Strings.isNullOrEmpty(tbl)) {
+        if (GlobalVariable.isStoredTableNamesLowerCase() && !Strings.isNullOrEmpty(tbl)) {
             tbl = tbl.toLowerCase();
         }
         if (size >= 2) {
@@ -80,9 +76,9 @@ public class TableNameInfo {
     public TableNameInfo(String db, String tbl) {
         Objects.requireNonNull(tbl, "require tbl object");
         Objects.requireNonNull(db, "require db object");
-        this.ctl = InternalCatalog.INTERNAL_CATALOG_NAME;
+        this.ctl = NameSpaceContext.INTERNAL_CATALOG_NAME;
         this.tbl = tbl;
-        if (Env.isStoredTableNamesLowerCase()) {
+        if (GlobalVariable.isStoredTableNamesLowerCase()) {
             this.tbl = tbl.toLowerCase();
         }
         this.db = db;
@@ -98,7 +94,7 @@ public class TableNameInfo {
         Objects.requireNonNull(tbl, "require tbl object");
         this.ctl = ctl;
         this.tbl = tbl;
-        if (Env.isStoredTableNamesLowerCase()) {
+        if (GlobalVariable.isStoredTableNamesLowerCase()) {
             this.tbl = tbl.toLowerCase();
         }
         this.db = db;
@@ -112,7 +108,7 @@ public class TableNameInfo {
         String[] parts = alias.split("\\.");
         Preconditions.checkArgument(parts.length > 0, "table name can't be empty");
         tbl = parts[parts.length - 1];
-        if (Env.isStoredTableNamesLowerCase() && !Strings.isNullOrEmpty(tbl)) {
+        if (GlobalVariable.isStoredTableNamesLowerCase() && !Strings.isNullOrEmpty(tbl)) {
             tbl = tbl.toLowerCase();
         }
         if (parts.length >= 2) {
@@ -124,67 +120,18 @@ public class TableNameInfo {
     }
 
     /**
-     * TableNameInfo
-     * @param tableIf tableIf
-     * @throws AnalysisException AnalysisException
-     */
-    public TableNameInfo(TableIf tableIf) throws AnalysisException {
-        String tableName = tableIf.getName();
-        if (StringUtils.isEmpty(tableName)) {
-            throw new AnalysisException("tableName is empty");
-        }
-        DatabaseIf db = tableIf.getDatabase();
-        if (db == null) {
-            throw new AnalysisException("db is null, tableName: " + tableName);
-        }
-        CatalogIf catalog = db.getCatalog();
-        if (catalog == null) {
-            throw new AnalysisException("catalog is null, dbName: " + db.getFullName());
-        }
-        if (Env.isStoredTableNamesLowerCase()) {
-            tableName = tableName.toLowerCase();
-        }
-        this.ctl = catalog.getName();
-        this.db = db.getFullName();
-        this.tbl = tableName;
-    }
-
-    /**
-     * Create TableNameInfo from a TableIf, returning null if the table
-     * lacks a database or catalog (e.g., standalone tables in unit tests).
-     */
-    public static TableNameInfo createOrNull(TableIf tableIf) {
-        if (tableIf == null || StringUtils.isEmpty(tableIf.getName())) {
-            return null;
-        }
-        DatabaseIf db = tableIf.getDatabase();
-        if (db == null) {
-            return null;
-        }
-        CatalogIf catalog = db.getCatalog();
-        if (catalog == null) {
-            return null;
-        }
-        String tableName = tableIf.getName();
-        if (Env.isStoredTableNamesLowerCase()) {
-            tableName = tableName.toLowerCase();
-        }
-        return new TableNameInfo(catalog.getName(), db.getFullName(), tableName);
-    }
-
-    /**
      * analyze tableNameInfo
      * @param ctx ctx
      */
-    public void analyze(ConnectContext ctx) {
+    public void analyze(NameSpaceContext ctx) {
         if (Strings.isNullOrEmpty(ctl)) {
             ctl = ctx.getDefaultCatalog();
             if (Strings.isNullOrEmpty(ctl)) {
-                ctl = InternalCatalog.INTERNAL_CATALOG_NAME;
+                ctl = NameSpaceContext.INTERNAL_CATALOG_NAME;
             }
         }
         if (Strings.isNullOrEmpty(db)) {
-            db = ctx.getDatabase();
+            db = ctx.getCurrentDb();
             if (Strings.isNullOrEmpty(db)) {
                 throw new AnalysisException("No database selected");
             }

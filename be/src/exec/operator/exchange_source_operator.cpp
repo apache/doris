@@ -32,7 +32,6 @@
 #include "util/defer_op.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 ExchangeLocalState::ExchangeLocalState(RuntimeState* state, OperatorXBase* parent)
         : Base(state, parent), num_rows_skipped(0), is_ready(false) {}
 

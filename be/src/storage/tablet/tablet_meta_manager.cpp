@@ -46,7 +46,6 @@ struct ReadOptions;
 struct WriteOptions;
 } // namespace rocksdb
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 // should use tablet->generate_tablet_meta_copy() method to get a copy of current tablet meta
@@ -296,5 +295,4 @@ Status TabletMetaManager::remove_old_version_delete_bitmap(DataDir* store, TTabl
     return meta->remove(META_COLUMN_FAMILY_INDEX, remove_keys);
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

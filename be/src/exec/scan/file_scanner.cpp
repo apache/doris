@@ -92,7 +92,6 @@ class ShardedKVCache;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 const std::string FileScanner::FileReadBytesProfile = "FileReadBytes";
@@ -352,7 +351,10 @@ Status FileScanner::_process_conjuncts() {
 Status FileScanner::_process_late_arrival_conjuncts() {
     if (_push_down_conjuncts.size() < _conjuncts.size()) {
         _push_down_conjuncts = _conjuncts;
-        _conjuncts.clear();
+        // Do not clear _conjuncts here!
+        // We must keep it for fallback filtering, especially when mixing
+        // Native readers (which use _push_down_conjuncts) and JNI readers (which rely on _conjuncts).
+        // _conjuncts.clear();
         RETURN_IF_ERROR(_process_conjuncts());
     }
     if (_applied_rf_num == _total_rf_num) {

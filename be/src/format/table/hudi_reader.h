@@ -22,7 +22,6 @@
 #include "format/parquet/vparquet_reader.h"
 #include "format/table/table_format_reader.h"
 namespace doris {
-#include "common/compile_check_begin.h"
 class HudiReader : public TableFormatReader, public TableSchemaChangeHelper {
 public:
     HudiReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
@@ -91,5 +90,4 @@ public:
     }
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

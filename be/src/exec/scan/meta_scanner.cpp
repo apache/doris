@@ -50,7 +50,6 @@ class VExprContext;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 MetaScanner::MetaScanner(RuntimeState* state, ScanLocalStateBase* local_state, TupleId tuple_id,
                          const TScanRangeParams& scan_range, int64_t limit, RuntimeProfile* profile,
@@ -521,5 +520,4 @@ Status MetaScanner::close(RuntimeState* state) {
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

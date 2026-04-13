@@ -37,6 +37,7 @@
 #include "core/column/column_array.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_struct.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_factory.hpp"
@@ -44,6 +45,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "format/parquet/vparquet_column_chunk_reader.h"
 #include "format/parquet/vparquet_reader.h"
 #include "io/fs/file_meta_cache.h"
 #include "io/fs/file_reader_writer_fwd.h"
@@ -56,6 +58,11 @@
 
 namespace doris {
 
+class IcebergReaderTestHelper : public IcebergTableReader {
+public:
+    using IcebergTableReader::_is_fully_dictionary_encoded;
+};
+
 class IcebergReaderTest : public ::testing::Test {
 protected:
     void SetUp() override {
@@ -67,6 +74,60 @@ protected:
     }
 
     void TearDown() override { cache.reset(); }
+
+    std::string mixed_position_delete_file() const {
+        return "./be/test/exec/test_data/iceberg_mixed_position_delete_parquet/"
+               "mixed_encoding_position_delete.parquet";
+    }
+
+    std::unique_ptr<ParquetReader> create_delete_file_parquet_reader(
+            RuntimeProfile* profile, RuntimeState* runtime_state, TFileScanRangeParams* scan_params,
+            TFileRangeDesc* scan_range, io::FileReaderSPtr* file_reader,
+            const tparquet::FileMetaData** file_meta_data) {
+        auto local_fs = io::global_local_filesystem();
+        auto st = local_fs->open_file(mixed_position_delete_file(), file_reader);
+        EXPECT_TRUE(st.ok()) << st;
+        if (!st.ok()) {
+            return nullptr;
+        }
+
+        scan_params->format_type = TFileFormatType::FORMAT_PARQUET;
+
+        scan_range->start_offset = 0;
+        scan_range->size = (*file_reader)->size();
+        scan_range->path = mixed_position_delete_file();
+
+        auto parquet_reader =
+                ParquetReader::create_unique(profile, *scan_params, *scan_range, 1024,
+                                             &timezone_obj, nullptr, runtime_state, cache.get());
+        EXPECT_NE(parquet_reader, nullptr);
+        if (parquet_reader == nullptr) {
+            return nullptr;
+        }
+
+        parquet_reader->set_file_reader(*file_reader);
+
+        phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> predicates;
+        st = parquet_reader->init_reader(delete_file_column_names,
+                                         &delete_file_col_name_to_block_idx, {}, predicates,
+                                         nullptr, nullptr, nullptr, nullptr, nullptr);
+        EXPECT_TRUE(st.ok()) << st;
+        if (!st.ok()) {
+            return nullptr;
+        }
+
+        std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
+                partition_columns;
+        std::unordered_map<std::string, VExprContextSPtr> missing_columns;
+        st = parquet_reader->set_fill_columns(partition_columns, missing_columns);
+        EXPECT_TRUE(st.ok()) << st;
+        if (!st.ok()) {
+            return nullptr;
+        }
+
+        *file_meta_data = parquet_reader->get_meta_data();
+        return parquet_reader;
+    }
 
     // Helper function to create complex struct types for testing
     void create_complex_struct_types(DataTypePtr& coordinates_struct_type,
@@ -462,7 +523,123 @@ protected:
 
     std::unique_ptr<doris::FileMetaCache> cache;
     cctz::time_zone timezone_obj;
+    std::vector<std::string> delete_file_column_names = {"file_path", "pos"};
+    std::unordered_map<std::string, uint32_t> delete_file_col_name_to_block_idx = {{"file_path", 0},
+                                                                                   {"pos", 1}};
 };
+
+TEST_F(IcebergReaderTest, detects_fully_dictionary_encoded_parquet_column) {
+    tparquet::ColumnMetaData column_metadata;
+    column_metadata.type = tparquet::Type::BYTE_ARRAY;
+    column_metadata.__isset.encoding_stats = true;
+
+    tparquet::PageEncodingStats dict_page;
+    dict_page.page_type = tparquet::PageType::DATA_PAGE;
+    dict_page.encoding = tparquet::Encoding::RLE_DICTIONARY;
+    dict_page.count = 3;
+
+    column_metadata.encoding_stats = {dict_page};
+
+    EXPECT_TRUE(IcebergReaderTestHelper::_is_fully_dictionary_encoded(column_metadata));
+}
+
+TEST_F(IcebergReaderTest, rejects_mixed_dictionary_and_plain_parquet_column) {
+    tparquet::ColumnMetaData column_metadata;
+    column_metadata.type = tparquet::Type::BYTE_ARRAY;
+    column_metadata.__isset.encoding_stats = true;
+
+    tparquet::PageEncodingStats dict_page;
+    dict_page.page_type = tparquet::PageType::DATA_PAGE;
+    dict_page.encoding = tparquet::Encoding::RLE_DICTIONARY;
+    dict_page.count = 2;
+
+    tparquet::PageEncodingStats plain_page;
+    plain_page.page_type = tparquet::PageType::DATA_PAGE;
+    plain_page.encoding = tparquet::Encoding::PLAIN;
+    plain_page.count = 1;
+
+    column_metadata.encoding_stats = {dict_page, plain_page};
+
+    EXPECT_FALSE(IcebergReaderTestHelper::_is_fully_dictionary_encoded(column_metadata));
+}
+
+TEST_F(IcebergReaderTest, rejects_mixed_dictionary_and_plain_parquet_v2_column) {
+    tparquet::ColumnMetaData column_metadata;
+    column_metadata.type = tparquet::Type::BYTE_ARRAY;
+    column_metadata.__isset.encoding_stats = true;
+
+    tparquet::PageEncodingStats dict_page;
+    dict_page.page_type = tparquet::PageType::DATA_PAGE_V2;
+    dict_page.encoding = tparquet::Encoding::RLE_DICTIONARY;
+    dict_page.count = 2;
+
+    tparquet::PageEncodingStats plain_page;
+    plain_page.page_type = tparquet::PageType::DATA_PAGE_V2;
+    plain_page.encoding = tparquet::Encoding::PLAIN;
+    plain_page.count = 1;
+
+    column_metadata.encoding_stats = {dict_page, plain_page};
+
+    EXPECT_FALSE(IcebergReaderTestHelper::_is_fully_dictionary_encoded(column_metadata));
+}
+
+TEST_F(IcebergReaderTest, rejects_non_dictionary_encoding_without_encoding_stats) {
+    tparquet::ColumnMetaData column_metadata;
+    column_metadata.type = tparquet::Type::BYTE_ARRAY;
+    column_metadata.__isset.encoding_stats = false;
+    column_metadata.encodings = {tparquet::Encoding::PLAIN_DICTIONARY, tparquet::Encoding::PLAIN,
+                                 tparquet::Encoding::RLE};
+
+    EXPECT_FALSE(IcebergReaderTestHelper::_is_fully_dictionary_encoded(column_metadata));
+}
+
+TEST_F(IcebergReaderTest, falls_back_to_encodings_when_data_page_stats_are_missing) {
+    tparquet::ColumnMetaData column_metadata;
+    column_metadata.type = tparquet::Type::BYTE_ARRAY;
+    column_metadata.__isset.encoding_stats = true;
+
+    tparquet::PageEncodingStats dict_page_header;
+    dict_page_header.page_type = tparquet::PageType::DICTIONARY_PAGE;
+    dict_page_header.encoding = tparquet::Encoding::PLAIN;
+    dict_page_header.count = 1;
+    column_metadata.encoding_stats = {dict_page_header};
+
+    column_metadata.encodings = {tparquet::Encoding::PLAIN, tparquet::Encoding::RLE,
+                                 tparquet::Encoding::RLE_DICTIONARY};
+
+    EXPECT_FALSE(IcebergReaderTestHelper::_is_fully_dictionary_encoded(column_metadata));
+}
+
+TEST_F(IcebergReaderTest, generated_position_delete_file_is_mixed_encoded) {
+    RuntimeProfile profile("test_profile");
+    RuntimeState runtime_state((TQueryOptions()), TQueryGlobals());
+    TFileScanRangeParams scan_params;
+    TFileRangeDesc scan_range;
+    io::FileReaderSPtr file_reader;
+    const tparquet::FileMetaData* file_meta_data = nullptr;
+    auto parquet_reader = create_delete_file_parquet_reader(
+            &profile, &runtime_state, &scan_params, &scan_range, &file_reader, &file_meta_data);
+    ASSERT_NE(parquet_reader, nullptr);
+    ASSERT_NE(file_meta_data, nullptr);
+    ASSERT_EQ(file_meta_data->row_groups.size(), 1);
+
+    const auto& file_path_meta = file_meta_data->row_groups[0].columns[0].meta_data;
+    EXPECT_TRUE(file_meta_data->row_groups[0].columns[0].__isset.meta_data);
+    EXPECT_TRUE(has_dict_page(file_path_meta));
+    bool has_plain_encoding = false;
+    bool has_dictionary_encoding = false;
+    for (const auto encoding : file_path_meta.encodings) {
+        if (encoding == tparquet::Encoding::PLAIN) {
+            has_plain_encoding = true;
+        }
+        if (encoding == tparquet::Encoding::PLAIN_DICTIONARY ||
+            encoding == tparquet::Encoding::RLE_DICTIONARY) {
+            has_dictionary_encoding = true;
+        }
+    }
+    EXPECT_TRUE(has_plain_encoding);
+    EXPECT_TRUE(has_dictionary_encoding);
+}
 
 // Test reading real Iceberg Parquet file using IcebergTableReader
 TEST_F(IcebergReaderTest, read_iceberg_parquet_file) {

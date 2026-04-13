@@ -34,7 +34,6 @@ class Block;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 MaxComputeJniReader::MaxComputeJniReader(const MaxComputeTableDescriptor* mc_desc,
                                          const TMaxComputeFileDesc& max_compute_params,
                                          const std::vector<SlotDescriptor*>& file_slot_descs,
@@ -88,5 +87,4 @@ MaxComputeJniReader::MaxComputeJniReader(const MaxComputeTableDescriptor* mc_des
 Status MaxComputeJniReader::init_reader() {
     return open(_state, _profile);
 }
-#include "common/compile_check_end.h"
 } // namespace doris

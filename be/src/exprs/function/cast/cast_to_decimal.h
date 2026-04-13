@@ -28,7 +28,6 @@
 #include "util/io_helper.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 #define DECIMAL_CONVERT_OVERFLOW_ERROR(value, from_type_name, precision, scale)                    \
     Status(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,                                                  \
@@ -1078,5 +1077,4 @@ public:
     }
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -21,7 +21,6 @@
 #include "exprs/function/cast/cast_base.h"
 
 namespace doris::CastWrapper {
-#include "common/compile_check_begin.h"
 //TODO(Amory) . Need support more cast for key , value for map
 WrapperType create_map_wrapper(FunctionContext* context, const DataTypePtr& from_type,
                                const DataTypeMap& to_type) {
@@ -82,5 +81,4 @@ WrapperType create_map_wrapper(FunctionContext* context, const DataTypePtr& from
         return Status::OK();
     };
 }
-#include "common/compile_check_end.h"
 } // namespace doris::CastWrapper

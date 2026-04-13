@@ -35,7 +35,6 @@
 #include "exprs/aggregate/aggregate_function.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 enum class RegrFunctionKind : uint8_t {
     regr_avgx,
@@ -532,5 +531,3 @@ public:
 };
 
 } // namespace doris
-
-#include "common/compile_check_end.h"

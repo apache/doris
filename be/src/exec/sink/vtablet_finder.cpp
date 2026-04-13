@@ -32,7 +32,6 @@
 #include "storage/tablet_info.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 Status OlapTabletFinder::find_tablets(RuntimeState* state, Block* block, int rows,
                                       std::vector<VOlapTablePartition*>& partitions,
                                       std::vector<uint32_t>& tablet_index, std::vector<bool>& skip,

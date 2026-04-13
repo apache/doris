@@ -16,6 +16,16 @@ When adding code, strictly follow existing similar code in similar contexts, inc
 
 After adding code, you must first conduct self-review and refactoring attempts to ensure good abstraction and reuse as much as possible.
 
+### Code Style Enforcement
+
+All code must pass style checks before committing. Use the corresponding skill for detailed step-by-step procedures.
+
+**BE (C++) Formatting**: Run `build-support/clang-format.sh` to auto-fix formatting. This script enforces clang-format v16; do not use other versions. Run `build-support/check-format.sh` to check without modifying files. See the `be-code-style` skill for details.
+
+**BE (C++) Static Analysis**: After building BE (which generates `compile_commands.json`), run `build-support/run-clang-tidy.sh` to check modified C++ files against the `.clang-tidy` config. The script parses `git diff` to filter warnings to changed lines where possible, reducing noise from pre-existing code (diagnostics from included headers may still appear). For Cloud C++ files, pass `--build-dir` pointing to the Cloud compilation database (e.g., `cloud/build_ASAN`). Try to fix all reported warnings; if a warning cannot be reasonably fixed, add a `// NOLINT` comment with justification and report it. See the `clang-tidy-check` skill for details.
+
+**FE (Java) Style**: Checkstyle is integrated into the Maven build (`maven-checkstyle-plugin`). Running `build.sh --fe` automatically validates style via `mvn validate`. If checkstyle fails, fix the reported issues according to `fe/check/checkstyle/checkstyle.xml`. See the `fe-code-style` skill for details.
+
 ## Code Review
 
 When conducting code review (including self-review and review tasks), it is necessary to complete the key checkpoints according to our `code-review` skill and provide conclusions for each key checkpoint (if applicable) as part of the final written description. Other content does not require individual responses; just check them during the review process.

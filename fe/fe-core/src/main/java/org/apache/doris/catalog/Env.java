@@ -31,6 +31,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.authentication.AuthenticationIntegrationMgr;
 import org.apache.doris.authentication.AuthenticationIntegrationRuntime;
+import org.apache.doris.authentication.RoleMappingMgr;
 import org.apache.doris.backup.BackupHandler;
 import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.binlog.BinlogGcer;
@@ -113,6 +114,8 @@ import org.apache.doris.encryption.KeyManagerInterface;
 import org.apache.doris.encryption.KeyManagerStore;
 import org.apache.doris.event.EventProcessor;
 import org.apache.doris.event.ReplacePartitionEvent;
+import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.fs.FileSystemPluginManager;
 import org.apache.doris.ha.BDBHA;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.ha.HAProtocol;
@@ -122,6 +125,7 @@ import org.apache.doris.httpv2.meta.MetaBaseAction;
 import org.apache.doris.httpv2.rest.RestApiStatusCode;
 import org.apache.doris.indexpolicy.IndexPolicyMgr;
 import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.insertoverwrite.InsertOverwriteManager;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
@@ -295,6 +299,7 @@ import org.apache.doris.transaction.DbUsedDataQuotaInfoCollector;
 import org.apache.doris.transaction.GlobalExternalTransactionInfoMgr;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.PublishVersionDaemon;
+import org.apache.doris.tso.TSOService;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -320,9 +325,12 @@ import java.io.File;
 import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -386,6 +394,7 @@ public class Env {
     private SqlBlockRuleMgr sqlBlockRuleMgr;
     private AuthenticationIntegrationMgr authenticationIntegrationMgr;
     private AuthenticationIntegrationRuntime authenticationIntegrationRuntime;
+    private RoleMappingMgr roleMappingMgr;
     private ExportMgr exportMgr;
     private Alter alter;
     private ConsistencyChecker consistencyChecker;
@@ -601,6 +610,8 @@ public class Env {
     private final Map<String, Supplier<MasterDaemon>> configtoThreads = ImmutableMap
             .of("dynamic_partition_check_interval_seconds", this::getDynamicPartitionScheduler);
 
+    private TSOService tsoService;
+
     public List<TFrontendInfo> getFrontendInfos() {
         List<TFrontendInfo> res = new ArrayList<>();
 
@@ -730,6 +741,7 @@ public class Env {
         this.sqlBlockRuleMgr = new SqlBlockRuleMgr();
         this.authenticationIntegrationMgr = new AuthenticationIntegrationMgr();
         this.authenticationIntegrationRuntime = new AuthenticationIntegrationRuntime();
+        this.roleMappingMgr = new RoleMappingMgr();
         this.exportMgr = new ExportMgr();
         this.alter = new Alter();
         this.consistencyChecker = new ConsistencyChecker();
@@ -869,7 +881,12 @@ public class Env {
         if (Config.agent_task_health_check_intervals_ms > 0) {
             this.agentTaskCleanupDaemon = new AgentTaskCleanupDaemon();
         }
+        this.tsoService = new TSOService();
         this.tableStreamManager = new TableStreamManager();
+    }
+
+    public static Map<String, Long> getSessionReportTimeMap() {
+        return sessionReportTimeMap;
     }
 
     public void registerTempTableAndSession(Table table) {
@@ -1194,6 +1211,9 @@ public class Env {
         pluginMgr.init();
         auditEventProcessor.start();
         lineageEventProcessor.start();
+
+        // init filesystem plugin manager (before any storage backend access)
+        initFileSystemPluginManager();
 
         cloneClusterSnapshot();
 
@@ -2011,6 +2031,7 @@ public class Env {
             keyManager.init();
         }
         agentTaskCleanupDaemon.start();
+        tsoService.start();
     }
 
     // start threads that should run on all FE
@@ -2084,6 +2105,18 @@ public class Env {
             LOG.error("failed to transfer to non-master.", e);
             System.exit(-1);
         }
+    }
+
+    private void initFileSystemPluginManager() {
+        FileSystemPluginManager fsPluginManager = new FileSystemPluginManager();
+        fsPluginManager.loadBuiltins();
+        String pluginRoot = Config.filesystem_plugin_root;
+        if (pluginRoot != null && !pluginRoot.isEmpty()) {
+            Path rootPath = Paths.get(pluginRoot);
+            fsPluginManager.loadPlugins(Collections.singletonList(rootPath));
+        }
+        FileSystemFactory.initPluginManager(fsPluginManager);
+        LOG.info("FileSystemPluginManager initialized with plugin root: {}", pluginRoot);
     }
 
     // Set global variable 'lower_case_table_names' only when the cluster is initialized.
@@ -2518,13 +2551,14 @@ public class Env {
     }
 
     public long loadAuthenticationIntegrations(DataInputStream in, long checksum) throws IOException {
-        // TODO(authentication-integration): Re-enable image persistence
-        // when authentication integration is fully integrated.
-        // Consume persisted bytes to keep image stream alignment,
-        // but do not restore into in-memory state for now.
-        AuthenticationIntegrationMgr.read(in);
-        authenticationIntegrationMgr = new AuthenticationIntegrationMgr();
-        LOG.info("skip replay authentication integrations from image temporarily");
+        authenticationIntegrationMgr = AuthenticationIntegrationMgr.read(in);
+        LOG.info("finished replay authentication integrations from image");
+        return checksum;
+    }
+
+    public long loadRoleMappings(DataInputStream in, long checksum) throws IOException {
+        roleMappingMgr = RoleMappingMgr.read(in);
+        LOG.info("finished replay role mappings from image");
         return checksum;
     }
 
@@ -2853,10 +2887,12 @@ public class Env {
     }
 
     public long saveAuthenticationIntegrations(CountingDataOutputStream out, long checksum) throws IOException {
-        // TODO(authentication-integration): Re-enable image persistence
-        // when authentication integration is fully integrated.
-        // Persist an empty manager temporarily.
-        new AuthenticationIntegrationMgr().write(out);
+        this.authenticationIntegrationMgr.write(out);
+        return checksum;
+    }
+
+    public long saveRoleMappings(CountingDataOutputStream out, long checksum) throws IOException {
+        this.roleMappingMgr.write(out);
         return checksum;
     }
 
@@ -2903,6 +2939,16 @@ public class Env {
         this.keyManagerStore.write(out);
         LOG.info("finished save KeyManager to image");
         return checksum;
+    }
+
+    // Persist TSO-related info into image for fast recovery
+    public long saveTSO(CountingDataOutputStream dos, long checksum) throws IOException {
+        return tsoService.saveTSO(dos, checksum);
+    }
+
+    // Load TSO-related info from image during checkpoint load
+    public long loadTSO(DataInputStream dis, long checksum) throws IOException {
+        return tsoService.loadTSO(dis, checksum);
     }
 
     public long saveConstraintManager(CountingDataOutputStream out, long checksum) throws IOException {
@@ -5236,6 +5282,10 @@ public class Env {
         return authenticationIntegrationMgr;
     }
 
+    public RoleMappingMgr getRoleMappingMgr() {
+        return roleMappingMgr;
+    }
+
     public AuthenticationIntegrationRuntime getAuthenticationIntegrationRuntime() {
         return authenticationIntegrationRuntime;
     }
@@ -5544,7 +5594,7 @@ public class Env {
                 }
 
                 String oldTableName = table.getName();
-                if (Env.isStoredTableNamesLowerCase() && !Strings.isNullOrEmpty(newTableName)) {
+                if (GlobalVariable.isStoredTableNamesLowerCase() && !Strings.isNullOrEmpty(newTableName)) {
                     newTableName = newTableName.toLowerCase();
                 }
                 if (oldTableName.equals(newTableName)) {
@@ -5579,10 +5629,8 @@ public class Env {
                         newTableName);
                 editLog.logTableRename(tableInfo);
                 constraintManager.renameTable(
-                        new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME,
-                                db.getFullName(), oldTableName),
-                        new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME,
-                                db.getFullName(), newTableName));
+                        TableNameInfoUtils.fromDb(db, oldTableName),
+                        TableNameInfoUtils.fromDb(db, newTableName));
                 LOG.info("rename table[{}] to {}", oldTableName, newTableName);
             } finally {
                 table.writeUnlock();
@@ -5615,10 +5663,8 @@ public class Env {
                 table.setName(newTableName);
                 db.registerTable(table);
                 constraintManager.renameTable(
-                        new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME,
-                                db.getFullName(), tableName),
-                        new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME,
-                                db.getFullName(), newTableName));
+                        TableNameInfoUtils.fromDb(db, tableName),
+                        TableNameInfoUtils.fromDb(db, newTableName));
                 LOG.info("replay rename table[{}] to {}", tableName, newTableName);
             } finally {
                 table.writeUnlock();
@@ -6194,6 +6240,7 @@ public class Env {
                 .buildSkipWriteIndexOnLoad()
                 .buildDisableAutoCompaction()
                 .buildEnableSingleReplicaCompaction()
+                .buildEnableTso()
                 .buildTimeSeriesCompactionEmptyRowsetsThreshold()
                 .buildTimeSeriesCompactionLevelThreshold()
                 .buildVerticalCompactionNumColumnsPerGroup()
@@ -7180,18 +7227,6 @@ public class Env {
         return result;
     }
 
-    public static boolean isStoredTableNamesLowerCase() {
-        return GlobalVariable.lowerCaseTableNames == 1;
-    }
-
-    public static boolean isTableNamesCaseInsensitive() {
-        return GlobalVariable.lowerCaseTableNames == 2;
-    }
-
-    public static boolean isTableNamesCaseSensitive() {
-        return GlobalVariable.lowerCaseTableNames == 0;
-    }
-
     public static int getLowerCaseTableNames(String catalogName) {
         if (catalogName == null) {
             return GlobalVariable.lowerCaseTableNames;
@@ -7549,4 +7584,13 @@ public class Env {
     protected void checkClusterSnapshot(File dir) {}
 
     protected void cloneClusterSnapshot() throws Exception {}
+
+    public TSOService getTSOService() {
+        return tsoService;
+    }
+
+    public static TSOService getCurrentTSOService() {
+        return getCurrentEnv().getTSOService();
+    }
+
 }

@@ -43,7 +43,6 @@ enum {
 
 namespace doris {
 static const int64_t micro_to_nano_second = 1000;
-#include "common/compile_check_begin.h"
 
 // NOLINTBEGIN(readability-function-size)
 // NOLINTBEGIN(readability-function-cognitive-complexity)

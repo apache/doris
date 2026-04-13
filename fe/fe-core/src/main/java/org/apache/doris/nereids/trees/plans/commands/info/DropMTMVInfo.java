@@ -44,7 +44,7 @@ public class DropMTMVInfo {
      * @param ctx ConnectContext
      */
     public void analyze(ConnectContext ctx) {
-        mvName.analyze(ctx);
+        mvName.analyze(ctx.getNameSpaceContext());
         if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, mvName.getCtl(), mvName.getDb(),
                 mvName.getTbl(), PrivPredicate.DROP)) {
             String message = ErrorCode.ERR_TABLEACCESS_DENIED_ERROR.formatErrorMsg("DROP",

@@ -42,7 +42,6 @@
 #include "runtime/runtime_profile.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 static void fill_struct_null_map(FieldSchema* field, NullMap& null_map,
                                  const std::vector<level_t>& rep_levels,
                                  const std::vector<level_t>& def_levels) {
@@ -1002,7 +1001,5 @@ template class ScalarColumnReader<true, true>;
 template class ScalarColumnReader<true, false>;
 template class ScalarColumnReader<false, true>;
 template class ScalarColumnReader<false, false>;
-
-#include "common/compile_check_end.h"
 
 }; // namespace doris

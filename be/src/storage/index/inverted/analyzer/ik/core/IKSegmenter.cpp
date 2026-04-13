@@ -18,7 +18,6 @@
 #include "storage/index/inverted/analyzer/ik/core/IKSegmenter.h"
 
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 
 IKSegmenter::IKSegmenter(std::shared_ptr<Configuration> config)
         : arena_(),
@@ -78,5 +77,4 @@ size_t IKSegmenter::getLastUselessCharNum() {
     return context_->getLastUselessCharNum();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

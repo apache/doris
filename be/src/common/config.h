@@ -395,7 +395,7 @@ DECLARE_mInt32(thrift_connect_timeout_seconds);
 DECLARE_mInt64(thrift_client_retry_interval_ms);
 // max message size of thrift request
 // default: 100 * 1024 * 1024
-DECLARE_mInt64(thrift_max_message_size);
+DECLARE_mInt32(thrift_max_message_size);
 // max bytes number for single scan range, used in segmentv2
 DECLARE_mInt32(doris_scan_range_max_mb);
 // single read execute fragment row number
@@ -614,6 +614,9 @@ DECLARE_mInt32(compaction_keep_invisible_version_max_count);
 DECLARE_mInt32(base_compaction_trace_threshold);
 DECLARE_mInt32(cumulative_compaction_trace_threshold);
 DECLARE_mBool(disable_compaction_trace_log);
+
+DECLARE_mBool(enable_compaction_task_tracker);
+DECLARE_mInt32(compaction_task_tracker_max_records);
 
 // Interval to picking rowset to compact, in seconds
 DECLARE_mInt64(pick_rowset_to_compact_interval_sec);
@@ -1343,9 +1346,6 @@ DECLARE_mInt64(file_cache_max_file_reader_cache_size);
 DECLARE_mInt64(hdfs_write_batch_buffer_size_mb);
 //enable shrink memory
 DECLARE_mBool(enable_shrink_memory);
-// enable cache for high concurrent point query work load
-DECLARE_mInt32(schema_cache_capacity);
-DECLARE_mInt32(schema_cache_sweep_time_sec);
 
 // max number of segment cache
 DECLARE_Int32(segment_cache_capacity);
@@ -1781,6 +1781,10 @@ DECLARE_String(fuzzy_test_type);
 
 // The maximum csv line reader output buffer size
 DECLARE_mInt64(max_csv_line_reader_output_buffer_size);
+
+// The maximum bytes of a single block returned by load file readers (CsvReader, NewJsonReader,
+// ParquetReader, OrcReader). Default is 200MB. Set to 0 to disable the limit.
+DECLARE_mInt64(load_reader_max_block_bytes);
 
 // Maximum number of OpenMP threads available for concurrent index builds.
 // -1 means auto: use 80% of detected CPU cores.

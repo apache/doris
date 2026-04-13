@@ -25,64 +25,32 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
+import org.mockito.Mockito;
 
 public class InsertOverwriteManagerTest {
-    @Mocked
-    private DatabaseIf db;
+    private DatabaseIf db = Mockito.mock(DatabaseIf.class);
 
-    @Mocked
-    private OlapTable table;
+    private OlapTable table = Mockito.mock(OlapTable.class);
 
-    @Mocked
-    private HMSExternalTable hmsExternalTable;
+    private HMSExternalTable hmsExternalTable = Mockito.mock(HMSExternalTable.class);
 
-    @Mocked
-    private MTMV mtmv;
+    private MTMV mtmv = Mockito.mock(MTMV.class);
 
     @Before
     public void setUp()
             throws NoSuchMethodException, SecurityException, AnalysisException, DdlException, MetaNotFoundException {
 
-        new Expectations() {
-            {
-                db.getId();
-                minTimes = 0;
-                result = 1L;
-
-                db.getFullName();
-                minTimes = 0;
-                result = "db1";
-
-                table.getId();
-                minTimes = 0;
-                result = 2L;
-
-                table.getName();
-                minTimes = 0;
-                result = "table1";
-
-                hmsExternalTable.getId();
-                minTimes = 0;
-                result = 3L;
-
-                hmsExternalTable.getName();
-                minTimes = 0;
-                result = "hmsTable";
-
-                mtmv.getId();
-                minTimes = 0;
-                result = 4L;
-
-                mtmv.getName();
-                minTimes = 0;
-                result = "mtmv1";
-            }
-        };
+        Mockito.when(db.getId()).thenReturn(1L);
+        Mockito.when(db.getFullName()).thenReturn("db1");
+        Mockito.when(table.getId()).thenReturn(2L);
+        Mockito.when(table.getName()).thenReturn("table1");
+        Mockito.when(hmsExternalTable.getId()).thenReturn(3L);
+        Mockito.when(hmsExternalTable.getName()).thenReturn("hmsTable");
+        Mockito.when(mtmv.getId()).thenReturn(4L);
+        Mockito.when(mtmv.getName()).thenReturn("mtmv1");
     }
 
     @Test

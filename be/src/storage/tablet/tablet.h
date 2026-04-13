@@ -58,7 +58,6 @@ class Adder;
 }
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class Tablet;
 class CumulativeCompactionPolicy;
@@ -766,5 +765,4 @@ inline int64_t Tablet::avg_rs_meta_serialize_size() const {
     return _tablet_meta->avg_rs_meta_serialize_size();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

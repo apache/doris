@@ -20,7 +20,6 @@
 #include <fmt/format.h>
 
 namespace doris {
-#include "common/compile_check_begin.h"
 GroupCommitOperatorX::GroupCommitOperatorX(ObjectPool* pool, const TPlanNode& tnode,
                                            int operator_id, const DescriptorTbl& descs,
                                            int parallel_tasks)

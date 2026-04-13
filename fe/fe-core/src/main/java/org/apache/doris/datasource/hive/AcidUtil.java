@@ -17,13 +17,14 @@
 
 package org.apache.doris.datasource.hive;
 
-import org.apache.doris.backup.Status;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.hive.AcidInfo.DeleteDeltaInfo;
 import org.apache.doris.datasource.hive.HiveExternalMetaCache.FileCacheValue;
 import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.fs.FileSystem;
-import org.apache.doris.fs.remote.RemoteFile;
+import org.apache.doris.filesystem.FileEntry;
+import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.FileSystemTransferUtil;
+import org.apache.doris.filesystem.Location;
 
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
@@ -135,31 +136,11 @@ public class AcidUtil {
     private static boolean isValidMetaDataFile(FileSystem fileSystem, String baseDir)
             throws IOException {
         String fileLocation = baseDir + "_metadata_acid";
-        Status status = fileSystem.exists(fileLocation);
-        if (status != Status.OK) {
+        try {
+            return fileSystem.exists(Location.of(fileLocation));
+        } catch (IOException e) {
             return false;
         }
-        //In order to save the cost of reading the file content, we only check whether the file exists.
-        // File Contents: {"thisFileVersion":"0","dataFormat":"compacted"}
-        //
-        // Map<String, String> metadata;
-        // try (var in = read(fileLocation)) {
-        //     metadata = new ObjectMapper().readValue(in, new TypeReference<>() {});
-        // }
-        // catch (IOException e) {
-        //     throw new IOException(String.format("Failed to read %s: %s", fileLocation, e.getMessage()), e);
-        // }
-        //
-        // String version = metadata.get("thisFileVersion");
-        // if (!"0".equals(version)) {
-        //     throw new IOException("Unexpected ACID metadata version: " + version);
-        // }
-        //
-        // String format = metadata.get("dataFormat");
-        // if (!"compacted".equals(format)) {
-        //     throw new IOException("Unexpected value for ACID dataFormat: " + format);
-        // }
-        return true;
     }
 
     private static boolean isValidBase(FileSystem fileSystem, String baseDir,
@@ -270,14 +251,9 @@ public class AcidUtil {
         String partitionPath = partition.getPath();
         //hdfs://xxxxx/user/hive/warehouse/username/data_id=200103
 
-        List<RemoteFile> lsPartitionPath = new ArrayList<>();
-        Status status = fileSystem.globList(partitionPath + "/*", lsPartitionPath);
+        List<FileEntry> lsPartitionPath =
+                FileSystemTransferUtil.globList(fileSystem, partitionPath + "/*", false);
         // List all files and folders, without recursion.
-        // FileStatus[] lsPartitionPath = null;
-        // fileSystem.listFileStatuses(partitionPath,lsPartitionPath);
-        if (status != Status.OK) {
-            throw new IOException(status.toString());
-        }
 
         String oldestBase = null;
         long oldestBaseWriteId = Long.MAX_VALUE;
@@ -286,9 +262,9 @@ public class AcidUtil {
         boolean haveOriginalFiles = false;
         List<ParsedDelta> workingDeltas = new ArrayList<>();
 
-        for (RemoteFile remotePath : lsPartitionPath) {
-            if (remotePath.isDirectory()) {
-                String dirName = remotePath.getName(); //dirName: base_xxx,delta_xxx,...
+        for (FileEntry entry : lsPartitionPath) {
+            if (entry.isDirectory()) {
+                String dirName = locationName(entry.location()); //dirName: base_xxx,delta_xxx,...
                 String dirPath = partitionPath + "/" + dirName;
 
                 if (dirName.startsWith("base_")) {
@@ -411,38 +387,28 @@ public class AcidUtil {
         for (ParsedDelta delta : deltas) {
             String location = delta.getPath();
 
-            List<RemoteFile> remoteFiles = new ArrayList<>();
-            status = fileSystem.listFiles(location, false, remoteFiles);
-            if (status.ok()) {
-                if (delta.isDeleteDelta()) {
-                    List<String> deleteDeltaFileNames = remoteFiles.stream()
-                            .map(RemoteFile::getName).filter(fileFilter::accept)
-                            .collect(Collectors.toList());
-                    deleteDeltas.add(new DeleteDeltaInfo(location, deleteDeltaFileNames));
-                    continue;
-                }
-                remoteFiles.stream().filter(f -> fileFilter.accept(f.getName())).forEach(file -> {
-                    LocationPath path = LocationPath.of(file.getPath().toString(), storagePropertiesMap);
-                    fileCacheValue.addFile(file, path);
-                });
-            } else {
-                throw new RuntimeException(status.getErrMsg());
+            List<FileEntry> entries = FileSystemTransferUtil.globList(fileSystem, location, false);
+            if (delta.isDeleteDelta()) {
+                List<String> deleteDeltaFileNames = entries.stream()
+                        .map(e -> locationName(e.location())).filter(fileFilter::accept)
+                        .collect(Collectors.toList());
+                deleteDeltas.add(new DeleteDeltaInfo(location, deleteDeltaFileNames));
+                continue;
             }
+            entries.stream().filter(e -> fileFilter.accept(locationName(e.location()))).forEach(entry -> {
+                LocationPath path = LocationPath.of(entry.location().uri(), storagePropertiesMap);
+                fileCacheValue.addFile(entry, path);
+            });
         }
 
         // base
         if (bestBasePath != null) {
-            List<RemoteFile> remoteFiles = new ArrayList<>();
-            status = fileSystem.listFiles(bestBasePath, false, remoteFiles);
-            if (status.ok()) {
-                remoteFiles.stream().filter(f -> fileFilter.accept(f.getName()))
-                        .forEach(file -> {
-                            LocationPath path = LocationPath.of(file.getPath().toString(), storagePropertiesMap);
-                            fileCacheValue.addFile(file, path);
-                        });
-            } else {
-                throw new RuntimeException(status.getErrMsg());
-            }
+            List<FileEntry> entries = FileSystemTransferUtil.globList(fileSystem, bestBasePath, false);
+            entries.stream().filter(e -> fileFilter.accept(locationName(e.location())))
+                    .forEach(entry -> {
+                        LocationPath path = LocationPath.of(entry.location().uri(), storagePropertiesMap);
+                        fileCacheValue.addFile(entry, path);
+                    });
         }
 
         if (isFullAcid) {
@@ -451,5 +417,11 @@ public class AcidUtil {
             throw new RuntimeException("No Hive Full Acid Table have delete_delta_* Dir.");
         }
         return fileCacheValue;
+    }
+
+    private static String locationName(org.apache.doris.filesystem.Location location) {
+        String uri = location.uri();
+        int idx = uri.lastIndexOf('/');
+        return idx >= 0 ? uri.substring(idx + 1) : uri;
     }
 }

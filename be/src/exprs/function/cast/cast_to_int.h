@@ -26,7 +26,6 @@
 #include "exprs/function/cast/cast_to_basic_number_common.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 // Types that can be cast to int: string, bool, int, float, double, decimal, date, datetime and time.
 // It's not supported to cast date to tinyint and smallint, because it will definitely overflow.
@@ -230,5 +229,4 @@ public:
                                                                  input_rows_count);
     }
 };
-#include "common/compile_check_end.h"
 } // namespace doris

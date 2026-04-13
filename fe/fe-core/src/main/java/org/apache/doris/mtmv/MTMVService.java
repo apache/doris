@@ -30,6 +30,7 @@ import org.apache.doris.event.EventException;
 import org.apache.doris.event.EventListener;
 import org.apache.doris.event.TableEvent;
 import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshTrigger;
@@ -214,10 +215,15 @@ public class MTMVService implements EventListener {
     private boolean shouldRefreshOnBaseTableDataChange(MTMV mtmv, TableIf table) {
         TableNameInfo tableName = null;
         try {
-            tableName = new TableNameInfo(table);
-        } catch (org.apache.doris.nereids.exceptions.AnalysisException e) {
+            tableName = TableNameInfoUtils.fromTableOrNull(table);
+        } catch (Exception e) {
             LOG.warn("skip refresh mtmv: {}, because get TableName failed: {}",
-                    mtmv.getName(), table.getName());
+                    mtmv.getName(), table == null ? "null" : table.getName());
+            return false;
+        }
+        if (tableName == null) {
+            LOG.warn("skip refresh mtmv: {}, because get TableName failed: {}",
+                    mtmv.getName(), table == null ? "null" : table.getName());
             return false;
         }
         if (MTMVPartitionUtil.isTableExcluded(mtmv.getExcludedTriggerTables(), tableName)) {

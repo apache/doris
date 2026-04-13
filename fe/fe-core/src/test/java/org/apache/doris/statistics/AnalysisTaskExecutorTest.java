@@ -23,9 +23,7 @@ import org.apache.doris.catalog.InternalSchemaInitializer;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
@@ -34,15 +32,12 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Sets;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
+import java.lang.reflect.Field;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -66,110 +61,79 @@ public class AnalysisTaskExecutorTest extends TestWithFeService {
     }
 
     @Test
-    public void testExpiredJobCancellation(@Mocked InternalCatalog catalog, @Mocked Database database,
-            @Mocked OlapTable olapTable) throws Exception {
-        new MockUp<StatisticsUtil>() {
+    public void testExpiredJobCancellation() throws Exception {
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Database database = Mockito.mock(Database.class);
+        OlapTable olapTable = Mockito.mock(OlapTable.class);
 
-            @Mock
-            public DBObjects convertIdToObjects(long catalogId, long dbId, long tblId) {
-                return new DBObjects(catalog, database, olapTable);
-            }
-        };
-        new MockUp<OlapTable>() {
+        try (MockedStatic<StatisticsUtil> mockedStatisticsUtil = Mockito.mockStatic(StatisticsUtil.class)) {
+            mockedStatisticsUtil.when(() -> StatisticsUtil.convertIdToObjects(
+                    Mockito.anyLong(), Mockito.anyLong(), Mockito.anyLong()))
+                    .thenReturn(new DBObjects(catalog, database, olapTable));
 
-            @Mock
-            public Column getColumn(String name) {
-                return new Column("col1", PrimitiveType.INT);
-            }
-        };
-        final AtomicBoolean cancelled = new AtomicBoolean();
-        new MockUp<AnalysisTaskWrapper>() {
+            Mockito.when(olapTable.getColumn(Mockito.anyString()))
+                    .thenReturn(new Column("col1", PrimitiveType.INT));
 
-            @Mock
-            public boolean cancel(String msg) {
+            final AtomicBoolean cancelled = new AtomicBoolean();
+
+            AnalysisInfo analysisJobInfo = new AnalysisInfoBuilder().setJobId(0).setTaskId(0)
+                    .setCatalogId(0)
+                    .setDBId(0)
+                    .setTblId(0)
+                    .setColName("col1").setJobType(JobType.MANUAL)
+                    .setAnalysisMethod(AnalysisMethod.FULL)
+                    .setAnalysisType(AnalysisType.FUNDAMENTALS)
+                    .build();
+            OlapAnalysisTask analysisJob = new OlapAnalysisTask(analysisJobInfo);
+
+            AnalysisTaskExecutor analysisTaskExecutor = new AnalysisTaskExecutor(1);
+            AnalysisTaskWrapper analysisTaskWrapper = Mockito.spy(
+                    new AnalysisTaskWrapper(analysisTaskExecutor, analysisJob));
+            Mockito.doAnswer(invocation -> {
                 cancelled.set(true);
                 return true;
-            }
-        };
-        AnalysisInfo analysisJobInfo = new AnalysisInfoBuilder().setJobId(0).setTaskId(0)
-                .setCatalogId(0)
-                .setDBId(0)
-                .setTblId(0)
-                .setColName("col1").setJobType(JobType.MANUAL)
-                .setAnalysisMethod(AnalysisMethod.FULL)
-                .setAnalysisType(AnalysisType.FUNDAMENTALS)
-                .build();
-        OlapAnalysisTask analysisJob = new OlapAnalysisTask(analysisJobInfo);
+            }).when(analysisTaskWrapper).cancel(Mockito.nullable(String.class));
 
-        AnalysisTaskExecutor analysisTaskExecutor = new AnalysisTaskExecutor(1);
-        AnalysisTaskWrapper analysisTaskWrapper = new AnalysisTaskWrapper(analysisTaskExecutor, analysisJob);
-        Deencapsulation.setField(analysisTaskWrapper, "startTime", 5);
-        analysisTaskExecutor.putJob(analysisTaskWrapper);
-        analysisTaskExecutor.tryToCancel();
-        Assertions.assertTrue(cancelled.get());
-        Assertions.assertEquals(0, analysisTaskExecutor.getTaskQueue().size());
+            Field startTimeField = AnalysisTaskWrapper.class.getDeclaredField("startTime");
+            startTimeField.setAccessible(true);
+            startTimeField.set(analysisTaskWrapper, 5L);
+
+            analysisTaskExecutor.putJob(analysisTaskWrapper);
+            analysisTaskExecutor.tryToCancel();
+            Assertions.assertTrue(cancelled.get());
+            Assertions.assertEquals(0, analysisTaskExecutor.getTaskQueue().size());
+        }
     }
 
     @Test
-    public void testTaskExecution(@Mocked InternalCatalog catalog, @Mocked Database database,
-            @Mocked OlapTable olapTable) throws Exception {
-        new MockUp<StatisticsUtil>() {
+    public void testTaskExecution() throws Exception {
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Database database = Mockito.mock(Database.class);
+        OlapTable olapTable = Mockito.mock(OlapTable.class);
 
-            @Mock
-            public DBObjects convertIdToObjects(long catalogId, long dbId, long tblId) {
-                return new DBObjects(catalog, database, olapTable);
-            }
-        };
-        new MockUp<OlapTable>() {
+        try (MockedStatic<StatisticsUtil> mockedStatisticsUtil = Mockito.mockStatic(StatisticsUtil.class)) {
+            mockedStatisticsUtil.when(() -> StatisticsUtil.convertIdToObjects(
+                    Mockito.anyLong(), Mockito.anyLong(), Mockito.anyLong()))
+                    .thenReturn(new DBObjects(catalog, database, olapTable));
 
-            @Mock
-            public Column getColumn(String name) {
-                return new Column("col1", PrimitiveType.INT);
-            }
-        };
-        new MockUp<StmtExecutor>() {
-            @Mock
-            public List<ResultRow> executeInternalQuery() {
-                return Collections.emptyList();
-            }
-        };
+            Mockito.when(olapTable.getColumn(Mockito.anyString()))
+                    .thenReturn(new Column("col1", PrimitiveType.INT));
 
-        new MockUp<OlapAnalysisTask>() {
-            @Mock
-            public void execSQLs(List<String> partitionAnalysisSQLs, Map<String, String> params) throws Exception {
-            }
+            AnalysisTaskExecutor analysisTaskExecutor = new AnalysisTaskExecutor(1);
+            Set<Pair<String, String>> columns = Sets.newHashSet();
+            columns.add(Pair.of("col1", "t1"));
+            AnalysisInfo analysisInfo = new AnalysisInfoBuilder().setJobId(0).setTaskId(0)
+                    .setCatalogId(0).setDBId(0).setTblId(0)
+                    .setColName("col1").setJobType(JobType.MANUAL)
+                    .setAnalysisMethod(AnalysisMethod.FULL)
+                    .setAnalysisType(AnalysisType.FUNDAMENTALS)
+                    .setState(AnalysisState.RUNNING)
+                    .setJobColumns(columns)
+                    .build();
+            OlapAnalysisTask task = Mockito.spy(new OlapAnalysisTask(analysisInfo));
+            Mockito.doNothing().when(task).doExecute();
 
-            @Mock
-            protected void executeWithExceptionOnFail(StmtExecutor stmtExecutor) throws Exception {
-                // DO NOTHING
-            }
-        };
-
-        new MockUp<StatisticsCache>() {
-
-            @Mock
-            public void syncLoadColStats(long tableId, long idxId, String colName) {
-            }
-        };
-
-        AnalysisTaskExecutor analysisTaskExecutor = new AnalysisTaskExecutor(1);
-        Set<Pair<String, String>> columns = Sets.newHashSet();
-        columns.add(Pair.of("col1", "t1"));
-        AnalysisInfo analysisInfo = new AnalysisInfoBuilder().setJobId(0).setTaskId(0)
-                .setCatalogId(0).setDBId(0).setTblId(0)
-                .setColName("col1").setJobType(JobType.MANUAL)
-                .setAnalysisMethod(AnalysisMethod.FULL)
-                .setAnalysisType(AnalysisType.FUNDAMENTALS)
-                .setState(AnalysisState.RUNNING)
-                .setJobColumns(columns)
-                .build();
-        OlapAnalysisTask task = new OlapAnalysisTask(analysisInfo);
-
-        new MockUp<AnalysisManager>() {
-            @Mock
-            public void updateTaskStatus(AnalysisInfo info, AnalysisState jobState, String message, long time) {}
-        };
-
-        Deencapsulation.invoke(analysisTaskExecutor, "submitTask", task);
+            analysisTaskExecutor.submitTask(task);
+        }
     }
 }

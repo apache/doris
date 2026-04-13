@@ -39,6 +39,7 @@ import org.apache.doris.datasource.mapping.JdbcIdentifierMapping;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PJdbcTestConnectionRequest;
 import org.apache.doris.proto.InternalService.PJdbcTestConnectionResult;
+import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.resource.computegroup.ComputeGroupMgr;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
@@ -87,7 +88,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         super(catalogId, name, InitCatalogLog.Type.JDBC, comment);
         this.catalogProperty = new CatalogProperty(resource, processCompatibleProperties(props));
         this.identifierMapping = new JdbcIdentifierMapping(
-                (Env.isTableNamesCaseInsensitive() || Env.isStoredTableNamesLowerCase()),
+                (GlobalVariable.isTableNamesCaseInsensitive() || GlobalVariable.isStoredTableNamesLowerCase()),
                 Boolean.parseBoolean(getLowerCaseMetaNames()),
                 getMetaNamesMapping());
     }
@@ -138,7 +139,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     public void resetToUninitialized(boolean invalidCache) {
         super.resetToUninitialized(invalidCache);
         this.identifierMapping = new JdbcIdentifierMapping(
-                (Env.isTableNamesCaseInsensitive() || Env.isStoredTableNamesLowerCase()),
+                (GlobalVariable.isTableNamesCaseInsensitive() || GlobalVariable.isStoredTableNamesLowerCase()),
                 Boolean.parseBoolean(getLowerCaseMetaNames()),
                 getMetaNamesMapping());
     }
@@ -264,7 +265,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         super.gsonPostProcess();
         if (this.identifierMapping == null) {
             identifierMapping = new JdbcIdentifierMapping(
-                    (Env.isTableNamesCaseInsensitive() || Env.isStoredTableNamesLowerCase()),
+                    (GlobalVariable.isTableNamesCaseInsensitive() || GlobalVariable.isStoredTableNamesLowerCase()),
                     Boolean.parseBoolean(getLowerCaseMetaNames()),
                     getMetaNamesMapping());
         }

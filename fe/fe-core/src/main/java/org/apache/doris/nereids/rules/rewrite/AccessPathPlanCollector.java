@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.PosExplode
 import org.apache.doris.nereids.trees.expressions.functions.generator.PosExplodeOuter;
 import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
@@ -69,7 +70,9 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
     }
 
     private boolean shouldCollectAccessPath(Slot slot) {
-        return slot.getDataType() instanceof NestedColumnPrunable || slot.getDataType().isVariantType();
+        return slot.getDataType() instanceof NestedColumnPrunable
+                || slot.getDataType().isVariantType()
+                || slot.getDataType().isStringLikeType();
     }
 
     @Override
@@ -261,6 +264,15 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
         boolean bottomFilter = filter.child().arity() == 0;
         collectByExpressions(filter, context, bottomFilter);
         return filter.child().accept(this, context);
+    }
+
+    @Override
+    public Void visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate, StatementContext context) {
+        // Collect access paths from aggregate expressions (e.g. sum(length(str_col))) before
+        // visiting children so that when the bottom project is processed next, str_col's offset
+        // path is already recorded and the direct-DATA suppression guard can fire correctly.
+        collectByExpressions(aggregate, context);
+        return aggregate.child().accept(this, context);
     }
 
     @Override

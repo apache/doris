@@ -18,6 +18,7 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TScanRangeLocations;
@@ -31,8 +32,8 @@ import java.util.List;
 public class CTEScanNode extends ScanNode {
     private static final PlanNodeId UNINITIAL_PLANNODEID = new PlanNodeId(-1);
 
-    public CTEScanNode(TupleDescriptor desc, ScanContext scanContext) {
-        super(UNINITIAL_PLANNODEID, desc, "CTEScanNode", scanContext);
+    public CTEScanNode(ScanContext scanContext) {
+        super(UNINITIAL_PLANNODEID, new TupleDescriptor(new TupleId(-1)), "CTEScanNode", scanContext);
     }
 
     public void setPlanNodeId(PlanNodeId id) {

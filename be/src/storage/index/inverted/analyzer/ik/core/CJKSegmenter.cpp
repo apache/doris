@@ -18,7 +18,6 @@
 #include "storage/index/inverted/analyzer/ik/core/CJKSegmenter.h"
 
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 
 CJKSegmenter::CJKSegmenter() = default;
 
@@ -81,5 +80,4 @@ void CJKSegmenter::reset() {
     tmp_hits_.clear();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

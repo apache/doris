@@ -25,7 +25,6 @@
 #include "exprs/aggregate/helpers.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 template <RegrFunctionKind kind>
 AggregateFunctionPtr create_aggregate_function_regr(const std::string& name,

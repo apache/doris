@@ -28,7 +28,6 @@
 
 static constexpr size_t V1_LEVEL_SIZE = 4;
 #include "common/cast_set.h"
-#include "common/compile_check_begin.h"
 
 doris::Status doris::LevelDecoder::init(doris::Slice* slice, tparquet::Encoding::type encoding,
                                         doris::level_t max_level, uint32_t num_levels) {
@@ -103,4 +102,3 @@ size_t doris::LevelDecoder::get_levels(doris::level_t* levels, size_t n) {
     }
     return 0;
 }
-#include "common/compile_check_end.h"

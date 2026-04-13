@@ -28,7 +28,6 @@
 #include "runtime/workload_group/workload_group_manager.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 std::vector<SchemaScanner::ColumnDesc> SchemaBackendWorkloadGroupResourceUsage::_s_tbls_columns = {
         //   name,       type,          size

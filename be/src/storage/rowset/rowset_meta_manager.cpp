@@ -37,7 +37,6 @@
 #include "util/debug_points.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 bool RowsetMetaManager::check_rowset_meta(OlapMeta* meta, TabletUid tablet_uid,
@@ -653,5 +652,4 @@ Status RowsetMetaManager::remove_tablet_related_partial_update_info(OlapMeta* me
     RETURN_IF_ERROR(meta->iterate(META_COLUMN_FAMILY_INDEX, prefix, get_remove_keys_func));
     return meta->remove(META_COLUMN_FAMILY_INDEX, remove_keys);
 }
-#include "common/compile_check_end.h"
 } // namespace doris

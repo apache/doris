@@ -53,7 +53,6 @@ class RuntimeState;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 using namespace doris::segment_v2;
 
@@ -223,5 +222,4 @@ std::string VMatchPredicate::debug_string() const {
     return out.str();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -56,10 +56,10 @@ import java.util.stream.Collectors;
 public class HttpUtils {
     private static final Logger LOG = LogManager.getLogger(HttpUtils.class);
 
-    static final int REQUEST_SUCCESS_CODE = 0;
+    public static final int REQUEST_SUCCESS_CODE = 0;
     static final int DEFAULT_TIME_OUT_MS = 2000;
 
-    static List<Pair<String, Integer>> getFeList() {
+    public static List<Pair<String, Integer>> getFeList() {
         return Env.getCurrentEnv().getFrontends(null)
                 .stream().filter(Frontend::isAlive).map(fe -> Pair.of(fe.getHost(), Config.http_port))
                 .collect(Collectors.toList());
@@ -70,7 +70,7 @@ public class HttpUtils {
         return hostInfo.isSame(new HostInfo(ip, port));
     }
 
-    static String concatUrl(Pair<String, Integer> ipPort, String path, Map<String, String> arguments) {
+    public static String concatUrl(Pair<String, Integer> ipPort, String path, Map<String, String> arguments) {
         StringBuilder url = new StringBuilder("http://")
                 .append(ipPort.first).append(":").append(ipPort.second).append(path);
         boolean isFirst = true;
@@ -98,7 +98,7 @@ public class HttpUtils {
         return doGet(url, headers, DEFAULT_TIME_OUT_MS);
     }
 
-    static String doPost(String url, Map<String, String> headers, Object body) throws IOException {
+    public static String doPost(String url, Map<String, String> headers, Object body) throws IOException {
         HttpPost httpPost = new HttpPost(url);
         if (Objects.nonNull(body)) {
             String jsonString = GsonUtils.GSON.toJson(body);

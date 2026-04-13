@@ -20,7 +20,7 @@ suite("test_pythonudf_module_vector") {
     
     def pyPath = """${context.file.parent}/udf_scripts/python_udf_vector_ops.zip"""
     scp_udf_file_to_all_be(pyPath)
-    def runtime_version = "3.8.10"
+    def runtime_version = getPythonUdfRuntimeVersion()
     
     log.info("Python module path: ${pyPath}".toString())
     

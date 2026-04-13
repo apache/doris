@@ -17,21 +17,19 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 public class DropMaterializedViewCommandTest {
-
-    @Mocked
-    AccessControllerManager accessManager;
 
     @Test
     public void testEmptyMVName() {
@@ -47,19 +45,22 @@ public class DropMaterializedViewCommandTest {
     public void testNoPermission() {
         ConnectContext ctx = new ConnectContext();
         TableNameInfo tableName = new TableNameInfo("internal", "db1", "t1");
-        new Expectations() {
-            {
-                accessManager.checkTblPriv(ctx, tableName.getCtl(), tableName.getDb(),
-                        tableName.getTbl(), PrivPredicate.ALTER);
-                result = false;
+
+        Env env = Mockito.mock(Env.class);
+        AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+        Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+        Mockito.when(accessManager.checkTblPriv(ctx, tableName.getCtl(), tableName.getDb(),
+                tableName.getTbl(), PrivPredicate.ALTER)).thenReturn(false);
+
+        try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class)) {
+            envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
+            DropMaterializedViewCommand command = new DropMaterializedViewCommand(tableName, false, "test");
+            try {
+                command.validate(ctx);
+                Assertions.fail();
+            } catch (UserException e) {
+                Assertions.assertTrue(e.getMessage().contains("Access denied;"));
             }
-        };
-        DropMaterializedViewCommand command = new DropMaterializedViewCommand(tableName, false, "test");
-        try {
-            command.validate(ctx);
-            Assertions.fail();
-        } catch (UserException e) {
-            Assertions.assertTrue(e.getMessage().contains("Access denied;"));
         }
 
     }

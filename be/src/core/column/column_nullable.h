@@ -36,7 +36,6 @@
 class SipHash;
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class Arena;
 class ColumnSorter;
 
@@ -183,6 +182,14 @@ public:
         }
         push_false_to_nullmap(num);
         get_nested_column().insert_many_continuous_binary_data(data, offsets, num);
+    }
+
+    void insert_offsets_from_lengths(const uint32_t* lengths, size_t num) override {
+        if (UNLIKELY(num == 0)) {
+            return;
+        }
+        push_false_to_nullmap(num);
+        get_nested_column().insert_offsets_from_lengths(lengths, num);
     }
 
     // Default value in `ColumnNullable` is null
@@ -407,4 +414,3 @@ private:
 ColumnPtr make_nullable(const ColumnPtr& column, bool is_nullable = false);
 ColumnPtr remove_nullable(const ColumnPtr& column);
 } // namespace doris
-#include "common/compile_check_end.h"

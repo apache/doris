@@ -22,7 +22,6 @@
 #include "exec/scan/es_scanner.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 // Prefer to the local host
 static std::string get_host_and_port(const std::vector<doris::TNetworkAddress>& es_hosts) {
     std::string host_port;

@@ -16,6 +16,7 @@ header:
     - ".gitattributes"
     - ".gitignore"
     - ".gitmodules"
+    - ".gitleaks.toml"
     - ".licenserc.yaml"
     - ".rat-excludes"
     - ".github/**"

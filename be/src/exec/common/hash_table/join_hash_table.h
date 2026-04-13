@@ -27,7 +27,6 @@
 #include "core/custom_allocator.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 inline uint32_t hash_join_table_calc_bucket_size(size_t num_elem) {
     size_t expect_bucket_size = num_elem + (num_elem - 1) / 7;
@@ -513,5 +512,4 @@ private:
 
 template <typename Key, typename Hash, bool DirectMapping>
 using JoinHashMap = JoinHashTable<Key, Hash, DirectMapping>;
-#include "common/compile_check_end.h"
 } // namespace doris

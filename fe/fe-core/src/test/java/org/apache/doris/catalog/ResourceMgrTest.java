@@ -28,12 +28,11 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -76,60 +75,59 @@ public class ResourceMgrTest {
     }
 
     @Test
-    public void testAddAlterDropResource(@Injectable BrokerMgr brokerMgr, @Injectable EditLog editLog,
-            @Mocked Env env, @Injectable AccessControllerManager accessManager) throws UserException {
-        new Expectations() {
-            {
-                env.getEditLog();
-                result = editLog;
-                env.getAccessManager();
-                result = accessManager;
-                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
-                result = true;
-            }
-        };
+    public void testAddAlterDropResource() throws UserException {
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            Env env = Mockito.mock(Env.class);
+            EditLog editLog = Mockito.mock(EditLog.class);
+            AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
+            Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+            Mockito.when(accessManager.checkGlobalPriv(Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN)))
+                    .thenReturn(true);
 
-        // s3 resource
-        ResourceMgr mgr = new ResourceMgr();
-        CreateResourceCommand createResourceCommand = new CreateResourceCommand(new CreateResourceInfo(true, false, s3ResName, ImmutableMap.copyOf(s3Properties)));
-        createResourceCommand.getInfo().validate();
-        Assert.assertEquals(0, mgr.getResourceNum());
-        mgr.createResource(createResourceCommand);
-        Assert.assertEquals(1, mgr.getResourceNum());
+            // s3 resource
+            ResourceMgr mgr = new ResourceMgr();
+            CreateResourceCommand createResourceCommand = new CreateResourceCommand(new CreateResourceInfo(true, false, s3ResName, ImmutableMap.copyOf(s3Properties)));
+            createResourceCommand.getInfo().validate();
+            Assert.assertEquals(0, mgr.getResourceNum());
+            mgr.createResource(createResourceCommand);
+            Assert.assertEquals(1, mgr.getResourceNum());
 
-        // alter
-        s3Region = "sh";
-        Map<String, String> copiedS3Properties = Maps.newHashMap(s3Properties);
-        copiedS3Properties.put("AWS_REGION", s3Region);
-        copiedS3Properties.remove("type");
-        // current not support modify s3 property
-        // mgr.alterResource(alterResourceStmt);
-        // Assert.assertEquals(s3Region, ((S3Resource) mgr.getResource(s3ResName)).getProperty("AWS_REGION"));
+            // alter
+            s3Region = "sh";
+            Map<String, String> copiedS3Properties = Maps.newHashMap(s3Properties);
+            copiedS3Properties.put("AWS_REGION", s3Region);
+            copiedS3Properties.remove("type");
+            // current not support modify s3 property
+            // mgr.alterResource(alterResourceStmt);
+            // Assert.assertEquals(s3Region, ((S3Resource) mgr.getResource(s3ResName)).getProperty("AWS_REGION"));
+        }
     }
 
     @Test(expected = DdlException.class)
-    public void testAddResourceExist(@Injectable BrokerMgr brokerMgr, @Mocked Env env,
-            @Injectable AccessControllerManager accessManager)
-            throws UserException {
-        new Expectations() {
-            {
-                env.getAccessManager();
-                result = accessManager;
-                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
-                result = true;
-            }
-        };
+    public void testAddResourceExist() throws UserException {
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            Env env = Mockito.mock(Env.class);
+            EditLog editLog = Mockito.mock(EditLog.class);
+            AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
+            Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+            Mockito.when(accessManager.checkGlobalPriv(Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN)))
+                    .thenReturn(true);
 
-        // add
-        ResourceMgr mgr = new ResourceMgr();
-        CreateResourceCommand createResourceCommand = new CreateResourceCommand(new CreateResourceInfo(true, false, s3ResName, ImmutableMap.copyOf(s3Properties)));
-        createResourceCommand.getInfo().validate();
+            // add
+            ResourceMgr mgr = new ResourceMgr();
+            CreateResourceCommand createResourceCommand = new CreateResourceCommand(new CreateResourceInfo(true, false, s3ResName, ImmutableMap.copyOf(s3Properties)));
+            createResourceCommand.getInfo().validate();
 
-        Assert.assertEquals(0, mgr.getResourceNum());
-        mgr.createResource(createResourceCommand);
-        Assert.assertEquals(1, mgr.getResourceNum());
+            Assert.assertEquals(0, mgr.getResourceNum());
+            mgr.createResource(createResourceCommand);
+            Assert.assertEquals(1, mgr.getResourceNum());
 
-        // add again
-        mgr.createResource(createResourceCommand);
+            // add again
+            mgr.createResource(createResourceCommand);
+        }
     }
 }

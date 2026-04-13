@@ -195,7 +195,7 @@ public class DescribeCommand extends ShowCommand {
     @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         if (dbTableName != null) {
-            dbTableName.analyze(ctx);
+            dbTableName.analyze(ctx.getNameSpaceContext());
             CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalogOrAnalysisException(dbTableName.getCtl());
             DatabaseIf db = catalog.getDbOrAnalysisException(dbTableName.getDb());
             TableIf fullTable = db.getTableNullable(dbTableName.getTbl());

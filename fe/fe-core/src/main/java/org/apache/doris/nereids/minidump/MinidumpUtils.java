@@ -40,7 +40,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.qe.VarAttrDef;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Histogram;
@@ -482,7 +482,7 @@ public class MinidumpUtils {
         JSONObject root = new JSONObject();
         try {
             for (Field field : SessionVariable.class.getDeclaredFields()) {
-                VariableMgr.VarAttr attr = field.getAnnotation(VariableMgr.VarAttr.class);
+                VarAttrDef.VarAttr attr = field.getAnnotation(VarAttrDef.VarAttr.class);
                 if (attr == null) {
                     continue;
                 }

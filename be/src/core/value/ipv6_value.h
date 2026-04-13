@@ -27,7 +27,6 @@
 #include "exec/common/format_ip.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class IPv6Value {
 public:
@@ -110,5 +109,3 @@ private:
 };
 
 } // namespace doris
-
-#include "common/compile_check_end.h"

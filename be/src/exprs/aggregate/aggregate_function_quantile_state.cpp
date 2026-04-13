@@ -23,7 +23,6 @@
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 AggregateFunctionPtr create_aggregate_function_quantile_state_union(
         const std::string& name, const DataTypes& argument_types, const DataTypePtr& result_type,

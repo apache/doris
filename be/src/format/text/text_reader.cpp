@@ -39,7 +39,6 @@
 #include "runtime/runtime_state.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 void HiveTextFieldSplitter::do_split(const Slice& line, std::vector<Slice>* splitted_values) {
     if (_value_sep_len == 1) {
@@ -182,5 +181,4 @@ Status TextReader::_deserialize_nullable_string(IColumn& column, Slice& slice) {
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

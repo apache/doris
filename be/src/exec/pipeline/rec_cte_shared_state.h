@@ -22,7 +22,6 @@
 #include "util/brpc_client_cache.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 struct RecCTESharedState : public BasicSharedState {
     std::vector<TRecCTETarget> targets;
@@ -174,5 +173,4 @@ struct RecCTESharedState : public BasicSharedState {
     }
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

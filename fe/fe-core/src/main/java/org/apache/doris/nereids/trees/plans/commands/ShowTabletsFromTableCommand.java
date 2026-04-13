@@ -105,7 +105,7 @@ public class ShowTabletsFromTableCommand extends ShowCommand {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SHOW TABLETS");
         }
 
-        dbTableName.analyze(ctx);
+        dbTableName.analyze(ctx.getNameSpaceContext());
         Util.prohibitExternalCatalog(dbTableName.getCtl(), this.getClass().getSimpleName());
 
         if (partitionNames != null) {

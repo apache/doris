@@ -102,7 +102,7 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
         if (tbl == null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_TABLES_USED);
         }
-        tbl.analyze(ctx);
+        tbl.analyze(ctx.getNameSpaceContext());
         InternalDatabaseUtil.checkDatabase(tbl.getDb(), ConnectContext.get());
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), tbl.getCtl(), tbl.getDb(), tbl.getTbl(),

@@ -44,7 +44,6 @@ namespace lucene::store {
 class Directory;
 }
 
-#include "common/compile_check_begin.h"
 namespace doris::segment_v2 {
 struct IndexSearchParameters;
 struct IndexSearchResult;
@@ -138,5 +137,4 @@ protected:
     AnnIndexMetric _metric = AnnIndexMetric::L2;   // Default metric is L2 distance
     AnnIndexType _index_type = AnnIndexType::HNSW; // Default index type is hnsw
 };
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

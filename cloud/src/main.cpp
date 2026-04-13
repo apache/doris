@@ -76,7 +76,7 @@ std::shared_ptr<int> gen_pidfile(const std::string& process_name) {
     }
     pidfile << getpid() << std::endl;
     pidfile.close();
-    std::cout << "pid=" << getpid() << " written to file=" << pid_path << std::endl;
+    std::cerr << "pid=" << getpid() << " written to file=" << pid_path << std::endl;
     return holder;
 }
 
@@ -230,18 +230,18 @@ int main(int argc, char** argv) {
     std::string msg;
     LOG(INFO) << "try to start " << process_name;
     LOG(INFO) << build_info();
-    std::cout << build_info() << std::endl;
+    std::cerr << build_info() << std::endl;
 
     // Check the local ip before starting the meta service or recycler.
     std::string ip = get_local_ip(config::priority_networks);
-    std::cout << "local ip: " << ip << std::endl;
+    std::cerr << "local ip: " << ip << std::endl;
 
     if (!args.get<bool>(ARG_META_SERVICE) && !args.get<bool>(ARG_RECYCLER)) {
         std::get<0>(args.args()[ARG_META_SERVICE]) = true;
         std::get<0>(args.args()[ARG_RECYCLER]) = true;
         LOG(INFO) << "meta_service and recycler are both not specified, "
                      "run doris_cloud as meta_service and recycler by default";
-        std::cout << "try to start meta_service, recycler" << std::endl;
+        std::cerr << "try to start meta_service, recycler" << std::endl;
     }
 
     google::SetCommandLineOption("bvar_max_dump_multi_dimension_metric_number",
@@ -299,7 +299,7 @@ int main(int argc, char** argv) {
         }
         msg = "MetaService has been started successfully";
         LOG(INFO) << msg;
-        std::cout << msg << std::endl;
+        std::cerr << msg << std::endl;
     }
     if (args.get<bool>(ARG_RECYCLER)) {
         recycler = std::make_unique<Recycler>(txn_kv);
@@ -312,7 +312,7 @@ int main(int argc, char** argv) {
         }
         msg = "Recycler has been started successfully";
         LOG(INFO) << msg;
-        std::cout << msg << std::endl;
+        std::cerr << msg << std::endl;
         auto periodiccally_log = [&]() {
             while (periodiccally_log_thread_run) {
                 std::unique_lock<std::mutex> lck {periodiccally_log_thread_lock};
@@ -358,7 +358,7 @@ int main(int argc, char** argv) {
           (internal_port > 0 ? " internal_port=" + std::to_string(internal_port) : "");
 
     LOG(INFO) << msg;
-    std::cout << msg << std::endl;
+    std::cerr << msg << std::endl;
 
     server.RunUntilAskedToQuit(); // Wait for signals
     server.ClearServices();

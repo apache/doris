@@ -51,7 +51,6 @@
 #define UNKNOWN_ID_FOR_TEST 0x7c00
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 bvar::Adder<int64_t> g_load_stream_cnt("load_stream_count");
 bvar::LatencyRecorder g_load_stream_flush_wait_ms("load_stream_flush_wait_ms");
@@ -815,5 +814,4 @@ inline std::ostream& operator<<(std::ostream& ostr, const LoadStream& load_strea
     return ostr;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

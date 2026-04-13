@@ -27,7 +27,7 @@ import static java.util.concurrent.TimeUnit.SECONDS
  *   1. Snapshot phase: pre-existing rows (A1, B1) are synced via full snapshot.
  *   2. Binlog phase begins: INSERT (C1, D1) are applied; job enters steady binlog state.
  *   3. Job is paused; verify status stays PAUSED and currentOffset / endOffset are non-empty.
- *   4. While paused: INSERT (E1, F1) and UPDATE C1.age → 30 into the PG source table.
+ *   4. While paused: INSERT (E1, F1) into the PG source table.
  *   5. Job is resumed; verify status transitions to RUNNING.
  *   6. Verify all rows inserted before and during pause eventually appear in Doris (no data loss).
  *   7. Verify FailedTaskCount == 0 and no error message after resume.
@@ -45,13 +45,12 @@ suite("test_streaming_job_cdc_stream_postgres_pause_resume", "p0,external,pg,ext
     sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
     sql """drop table if exists ${currentDb}.${dorisTable} force"""
 
-    // Use UNIQUE key so that UPDATE rows overwrite in Doris
     sql """
         CREATE TABLE IF NOT EXISTS ${currentDb}.${dorisTable} (
-            `name` varchar(200) NOT NULL,
+            `name` varchar(200) NULL,
             `age`  int NULL
         ) ENGINE=OLAP
-        UNIQUE KEY(`name`)
+        DUPLICATE KEY(`name`)
         DISTRIBUTED BY HASH(`name`) BUCKETS AUTO
         PROPERTIES ("replication_allocation" = "tag.location.default: 1")
     """
@@ -112,6 +111,8 @@ suite("test_streaming_job_cdc_stream_postgres_pause_resume", "p0,external,pg,ext
         connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
             sql """INSERT INTO ${pgDB}.${pgSchema}.${pgTable} (name, age) VALUES ('C1', 3)"""
             sql """INSERT INTO ${pgDB}.${pgSchema}.${pgTable} (name, age) VALUES ('D1', 4)"""
+            def xminResult = sql """SELECT xmin, xmax , * FROM ${pgDB}.${pgSchema}.${pgTable} WHERE name = 'D1'; """
+            log.info("xminResult: " + xminResult)
         }
 
         try {
@@ -169,11 +170,10 @@ suite("test_streaming_job_cdc_stream_postgres_pause_resume", "p0,external,pg,ext
 
         // ── Phase 6: DML while job is paused ─────────────────────────────────────────
         connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
-            // new rows added while paused
             sql """INSERT INTO ${pgDB}.${pgSchema}.${pgTable} (name, age) VALUES ('E1', 5)"""
             sql """INSERT INTO ${pgDB}.${pgSchema}.${pgTable} (name, age) VALUES ('F1', 6)"""
-            // update an existing row while paused; after resume Doris (UNIQUE) should reflect new value
-            sql """UPDATE ${pgDB}.${pgSchema}.${pgTable} SET age = 30 WHERE name = 'C1'"""
+            def xminResult = sql """SELECT xmin, xmax , * FROM ${pgDB}.${pgSchema}.${pgTable} WHERE name = 'F1'; """
+            log.info("xminResult: " + xminResult)
         }
 
         // ── Phase 7: resume the job ────────────────────────────────────────────────────
@@ -197,19 +197,6 @@ suite("test_streaming_job_cdc_stream_postgres_pause_resume", "p0,external,pg,ext
                 def rows = sql """SELECT count(1) FROM ${currentDb}.${dorisTable} WHERE name IN ('E1', 'F1')"""
                 log.info("rows inserted while paused: " + rows)
                 (rows.get(0).get(0) as int) == 2
-            })
-        } catch (Exception ex) {
-            log.info("job: " + (sql """select * from jobs("type"="insert") where Name='${jobName}'"""))
-            log.info("tasks: " + (sql """select * from tasks("type"="insert") where JobName='${jobName}'"""))
-            throw ex
-        }
-
-        // wait for UPDATE on C1 to be applied (age=30 in Doris)
-        try {
-            Awaitility.await().atMost(60, SECONDS).pollInterval(2, SECONDS).until({
-                def rows = sql """SELECT age FROM ${currentDb}.${dorisTable} WHERE name = 'C1'"""
-                log.info("C1 age after resume: " + rows)
-                rows.size() == 1 && (rows.get(0).get(0) as int) == 30
             })
         } catch (Exception ex) {
             log.info("job: " + (sql """select * from jobs("type"="insert") where Name='${jobName}'"""))

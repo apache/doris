@@ -51,7 +51,7 @@ struct MockUnionSinkOperator : public UnionSinkOperatorX {
 struct UnionOperatorTest : public ::testing::Test {
     void SetUp() override {
         state = std::make_shared<MockRuntimeState>();
-        state->batsh_size = 10;
+        state->_batch_size = 10;
         for (int i = 0; i < child_size; i++) {
             sink_state.push_back(std::make_shared<MockRuntimeState>());
             sink_ops.push_back(nullptr);
@@ -75,7 +75,7 @@ struct UnionOperatorTest : public ::testing::Test {
 };
 
 TEST_F(UnionOperatorTest, test_all_const_expr) {
-    state->batsh_size = 2;
+    state->_batch_size = 2;
     source_op.reset(new MockUnionSourceOperator {
             0,
             {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeInt64>(),
@@ -254,7 +254,7 @@ TEST_F(UnionOperatorTest, test_sink_and_source) {
 
     {
         for (int i = 0; i < child_size; i++) {
-            sink_state[i]->batsh_size = 2;
+            sink_state[i]->_batch_size = 2;
             Block block = ColumnHelper::create_block<DataTypeInt64>({1, 2}, {3, 4});
             EXPECT_TRUE(sink_ops[i]->sink(sink_state[i].get(), &block, false));
         }

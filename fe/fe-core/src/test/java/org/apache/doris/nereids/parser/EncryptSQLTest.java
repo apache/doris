@@ -18,19 +18,25 @@
 package org.apache.doris.nereids.parser;
 
 import org.apache.doris.analysis.AccessTestUtil;
+import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.profile.Profile;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.ha.FrontendNodeType;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MysqlConnectProcessor;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr;
 
-import mockit.Mock;
-import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedConstruction;
+import org.mockito.Mockito;
 
 import java.util.List;
 
@@ -45,366 +51,399 @@ public class EncryptSQLTest extends ParserTestBase {
     @Test
     public void testEncryption() throws Exception {
         ctx.setDatabase("test");
-        new MockUp<StmtExecutor>() {
-            @Mock
-            public boolean isForwardToMaster() {
-                return false;
-            }
-        };
-        ctx.setEnv(env);
-        Config.enable_nereids_load = true;
+        try (MockedConstruction<StmtExecutor> ignored = Mockito.mockConstruction(StmtExecutor.class,
+                Mockito.withSettings().defaultAnswer(Mockito.CALLS_REAL_METHODS),
+                (mock, context) -> {
+                    Mockito.doReturn(false).when(mock).isForwardToMaster();
+                    Profile profile = new Profile(false, 0, 0);
+                    Deencapsulation.setField(mock, "profile", profile);
+                    Mockito.doReturn(profile).when(mock).getProfile();
+                    Mockito.doReturn(ctx).when(mock).getContext();
+                    Mockito.doNothing().when(mock).execute();
+                    Deencapsulation.setField(mock, "context", ctx);
+                    if (context.arguments().size() >= 2
+                            && context.arguments().get(1) instanceof StatementBase) {
+                        Deencapsulation.setField(mock, "parsedStmt",
+                                context.arguments().get(1));
+                    }
+                    if (ctx.getStatementContext() == null) {
+                        ctx.setStatementContext(new StatementContext());
+                    }
+                })) {
+            ctx.setEnv(env);
+            ctx.setCurrentUserIdentity(UserIdentity.ROOT);
+            Config.enable_nereids_load = true;
 
-        String sql = "EXPORT TABLE export_table TO \"s3://abc/aaa\" "
-                + "PROPERTIES("
-                + " \"format\" = \"csv\","
-                + " \"max_file_size\" = \"2048MB\""
-                + ")"
-                + "WITH s3 ("
-                + " \"s3.endpoint\" = \"cos.ap-beijing.myqcloud.com\","
-                + " \"s3.region\" = \"ap-beijing\","
-                + " \"s3.secret_key\" = \"abc\","
-                + " \"s3.access_key\" = \"abc\""
-                + ")";
+            String sql = "EXPORT TABLE export_table TO \"s3://abc/aaa\" "
+                    + "PROPERTIES("
+                    + " \"format\" = \"csv\","
+                    + " \"max_file_size\" = \"2048MB\""
+                    + ")"
+                    + "WITH s3 ("
+                    + " \"s3.endpoint\" = \"cos.ap-beijing.myqcloud.com\","
+                    + " \"s3.region\" = \"ap-beijing\","
+                    + " \"s3.secret_key\" = \"abc\","
+                    + " \"s3.access_key\" = \"abc\""
+                    + ")";
 
-        String res = "EXPORT TABLE export_table TO \"s3://abc/aaa\" "
-                + "PROPERTIES("
-                + " \"format\" = \"csv\","
-                + " \"max_file_size\" = \"2048MB\""
-                + ")"
-                + "WITH s3 ("
-                + " \"s3.endpoint\" = \"cos.ap-beijing.myqcloud.com\","
-                + " \"s3.region\" = \"ap-beijing\","
-                + " \"s3.secret_key\" = \"*XXX\","
-                        + " \"s3.access_key\" = \"*XXX\""
-                + ")";
-        parseAndCheck(sql, res);
+            String res = "EXPORT TABLE export_table TO \"s3://abc/aaa\" "
+                    + "PROPERTIES("
+                    + " \"format\" = \"csv\","
+                    + " \"max_file_size\" = \"2048MB\""
+                    + ")"
+                    + "WITH s3 ("
+                    + " \"s3.endpoint\" = \"cos.ap-beijing.myqcloud.com\","
+                    + " \"s3.region\" = \"ap-beijing\","
+                    + " \"s3.secret_key\" = \"*XXX\","
+                            + " \"s3.access_key\" = \"*XXX\""
+                    + ")";
+            parseAndCheck(sql, res);
 
-        sql = "SELECT * FROM tbl "
-                + " INTO OUTFILE \"s3://abc/aaa\""
-                + " FORMAT AS ORC"
-                + " PROPERTIES ("
-                + " \"s3.endpoint\" = \"cos.ap-beijing.myqcloud.com\","
-                + " \"s3.region\" = \"ap-beijing\","
-                + " \"s3.secret_key\" = \"abc\","
-                + " \"s3.access_key\" = \"abc\""
-                + ")";
+            sql = "SELECT * FROM tbl "
+                    + " INTO OUTFILE \"s3://abc/aaa\""
+                    + " FORMAT AS ORC"
+                    + " PROPERTIES ("
+                    + " \"s3.endpoint\" = \"cos.ap-beijing.myqcloud.com\","
+                    + " \"s3.region\" = \"ap-beijing\","
+                    + " \"s3.secret_key\" = \"abc\","
+                    + " \"s3.access_key\" = \"abc\""
+                    + ")";
 
-        res = "SELECT * FROM tbl "
-                + " INTO OUTFILE \"s3://abc/aaa\""
-                + " FORMAT AS ORC"
-                + " PROPERTIES ("
-                + " \"s3.endpoint\" = \"cos.ap-beijing.myqcloud.com\","
-                + " \"s3.region\" = \"ap-beijing\","
-                + " \"s3.secret_key\" = \"*XXX\","
-                + " \"s3.access_key\" = \"*XXX\""
-                + ")";
-        parseAndCheck(sql, res);
+            res = "SELECT * FROM tbl "
+                    + " INTO OUTFILE \"s3://abc/aaa\""
+                    + " FORMAT AS ORC"
+                    + " PROPERTIES ("
+                    + " \"s3.endpoint\" = \"cos.ap-beijing.myqcloud.com\","
+                    + " \"s3.region\" = \"ap-beijing\","
+                    + " \"s3.secret_key\" = \"*XXX\","
+                    + " \"s3.access_key\" = \"*XXX\""
+                    + ")";
+            parseAndCheck(sql, res);
 
-        sql = "LOAD LABEL test_load_s3_orc_encrypt("
-                + " DATA INFILE(\"s3://abc/aaa\")"
-                + " INTO TABLE tbl"
-                + " FORMAT AS \"ORC\""
-                + ")"
-                + "WITH S3("
-                + " \"provider\" = \"S3\","
-                + " \"AWS_ENDPOINT\" = \"xxx\","
-                + " \"AWS_ACCESS_KEY\" = \"abc\","
-                + " \"AWS_SECRET_KEY\" = \"abc\","
-                + " \"AWS_REGION\" = \"ap-beijing\""
-                + ")";
+            sql = "LOAD LABEL test_load_s3_orc_encrypt("
+                    + " DATA INFILE(\"s3://abc/aaa\")"
+                    + " INTO TABLE tbl"
+                    + " FORMAT AS \"ORC\""
+                    + ")"
+                    + "WITH S3("
+                    + " \"provider\" = \"S3\","
+                    + " \"AWS_ENDPOINT\" = \"xxx\","
+                    + " \"AWS_ACCESS_KEY\" = \"abc\","
+                    + " \"AWS_SECRET_KEY\" = \"abc\","
+                    + " \"AWS_REGION\" = \"ap-beijing\""
+                    + ")";
 
-        res = "LOAD LABEL test_load_s3_orc_encrypt("
-                + " DATA INFILE(\"s3://abc/aaa\")"
-                + " INTO TABLE tbl"
-                + " FORMAT AS \"ORC\""
-                + ")"
-                + "WITH S3("
-                + " \"provider\" = \"S3\""
-                + ")";
-        parseAndCheck(sql, res);
+            res = "LOAD LABEL test_load_s3_orc_encrypt("
+                    + " DATA INFILE(\"s3://abc/aaa\")"
+                    + " INTO TABLE tbl"
+                    + " FORMAT AS \"ORC\""
+                    + ")"
+                    + "WITH S3("
+                    + " \"provider\" = \"S3\""
+                    + ")";
+            parseAndCheck(sql, res);
 
-        sql = "CREATE CATALOG ctl "
-                + "PROPERTIES("
-                + " \"type\" = \"iceberg\","
-                + " \"iceberg.catalog.type\" = \"hadoop\","
-                + " \"warehouse\" = \"s3://bucket/dir/key\","
-                + " \"s3.endpoint\" = \"s3.us-east-1.amazonaws.com\","
-                + " \"s3.access_key\" = \"abc\","
-                + " \"s3.secret_key\" = \"abc\""
-                + ")";
+            sql = "CREATE CATALOG ctl "
+                    + "PROPERTIES("
+                    + " \"type\" = \"iceberg\","
+                    + " \"iceberg.catalog.type\" = \"hadoop\","
+                    + " \"warehouse\" = \"s3://bucket/dir/key\","
+                    + " \"s3.endpoint\" = \"s3.us-east-1.amazonaws.com\","
+                    + " \"s3.access_key\" = \"abc\","
+                    + " \"s3.secret_key\" = \"abc\""
+                    + ")";
 
-        res = "CREATE CATALOG ctl "
-                + "PROPERTIES("
-                + " \"type\" = \"iceberg\","
-                + " \"iceberg.catalog.type\" = \"hadoop\","
-                + " \"warehouse\" = \"s3://bucket/dir/key\","
-                + " \"s3.endpoint\" = \"s3.us-east-1.amazonaws.com\","
-                + " \"s3.access_key\" = \"*XXX\","
-                + " \"s3.secret_key\" = \"*XXX\""
-                + ")";
-        parseAndCheck(sql, res);
+            res = "CREATE CATALOG ctl "
+                    + "PROPERTIES("
+                    + " \"type\" = \"iceberg\","
+                    + " \"iceberg.catalog.type\" = \"hadoop\","
+                    + " \"warehouse\" = \"s3://bucket/dir/key\","
+                    + " \"s3.endpoint\" = \"s3.us-east-1.amazonaws.com\","
+                    + " \"s3.access_key\" = \"*XXX\","
+                    + " \"s3.secret_key\" = \"*XXX\""
+                    + ")";
+            parseAndCheck(sql, res);
 
-        sql = "CREATE TABLE mysql_tbl("
-                + " k1 DATE,"
-                + " k2 INT,"
-                + " k3 SMALLINT,"
-                + " k4 VARCHAR(2048),"
-                + " k5 DATETIME"
-                + ") "
-                + "ENGINE=mysql "
-                + "PROPERTIES("
-                + " \"host\" = \"127.0.0.1\","
-                + " \"port\" = \"8234\","
-                + " \"user\" = \"abc\","
-                + " \"password\" = \"123\","
-                + " \"database\" = \"mysql_db\","
-                + " \"table\" = \"mysql_table\""
-                + ")";
+            sql = "CREATE TABLE mysql_tbl("
+                    + " k1 DATE,"
+                    + " k2 INT,"
+                    + " k3 SMALLINT,"
+                    + " k4 VARCHAR(2048),"
+                    + " k5 DATETIME"
+                    + ") "
+                    + "ENGINE=mysql "
+                    + "PROPERTIES("
+                    + " \"host\" = \"127.0.0.1\","
+                    + " \"port\" = \"8234\","
+                    + " \"user\" = \"abc\","
+                    + " \"password\" = \"123\","
+                    + " \"database\" = \"mysql_db\","
+                    + " \"table\" = \"mysql_table\""
+                    + ")";
 
-        res = "CREATE TABLE mysql_tbl("
-                + " k1 DATE,"
-                + " k2 INT,"
-                + " k3 SMALLINT,"
-                + " k4 VARCHAR(2048),"
-                + " k5 DATETIME"
-                + ") "
-                + "ENGINE=mysql "
-                + "PROPERTIES("
-                + " \"host\" = \"127.0.0.1\","
-                + " \"port\" = \"8234\","
-                + " \"user\" = \"abc\","
-                + " \"password\" = \"*XXX\","
-                + " \"database\" = \"mysql_db\","
-                + " \"table\" = \"mysql_table\""
-                + ")";
-        parseAndCheck(sql, res);
+            res = "CREATE TABLE mysql_tbl("
+                    + " k1 DATE,"
+                    + " k2 INT,"
+                    + " k3 SMALLINT,"
+                    + " k4 VARCHAR(2048),"
+                    + " k5 DATETIME"
+                    + ") "
+                    + "ENGINE=mysql "
+                    + "PROPERTIES("
+                    + " \"host\" = \"127.0.0.1\","
+                    + " \"port\" = \"8234\","
+                    + " \"user\" = \"abc\","
+                    + " \"password\" = \"*XXX\","
+                    + " \"database\" = \"mysql_db\","
+                    + " \"table\" = \"mysql_table\""
+                    + ")";
+            parseAndCheck(sql, res);
 
-        sql = "CREATE EXTERNAL TABLE broker_tbl("
-                + " k1 tinyint,"
-                + " k2 smallint,"
-                + " k3 int,"
-                + " k4 bigint) "
-                + "ENGINE=broker "
-                + "PROPERTIES("
-                + " \"broker_name\" = \"hdfs\","
-                + " \"path\" = \"hdfs://abc/qe/a.txt\""
-                + ") "
-                + "BROKER PROPERTIES("
-                + " \"username\" = \"root\","
-                + " \"password\" = \"123\""
-                + ")";
+            sql = "CREATE EXTERNAL TABLE broker_tbl("
+                    + " k1 tinyint,"
+                    + " k2 smallint,"
+                    + " k3 int,"
+                    + " k4 bigint) "
+                    + "ENGINE=broker "
+                    + "PROPERTIES("
+                    + " \"broker_name\" = \"hdfs\","
+                    + " \"path\" = \"hdfs://abc/qe/a.txt\""
+                    + ") "
+                    + "BROKER PROPERTIES("
+                    + " \"username\" = \"root\","
+                    + " \"password\" = \"123\""
+                    + ")";
 
-        res = "CREATE EXTERNAL TABLE broker_tbl("
-                + " k1 tinyint,"
-                + " k2 smallint,"
-                + " k3 int,"
-                + " k4 bigint) "
-                + "ENGINE=broker "
-                + "PROPERTIES("
-                + " \"broker_name\" = \"hdfs\","
-                + " \"path\" = \"hdfs://abc/qe/a.txt\""
-                + ") "
-                + "BROKER PROPERTIES("
-                + " \"username\" = \"root\","
-                + " \"password\" = \"*XXX\""
-                + ")";
-        parseAndCheck(sql, res);
+            res = "CREATE EXTERNAL TABLE broker_tbl("
+                    + " k1 tinyint,"
+                    + " k2 smallint,"
+                    + " k3 int,"
+                    + " k4 bigint) "
+                    + "ENGINE=broker "
+                    + "PROPERTIES("
+                    + " \"broker_name\" = \"hdfs\","
+                    + " \"path\" = \"hdfs://abc/qe/a.txt\""
+                    + ") "
+                    + "BROKER PROPERTIES("
+                    + " \"username\" = \"root\","
+                    + " \"password\" = \"*XXX\""
+                    + ")";
+            parseAndCheck(sql, res);
 
-        sql = "INSERT INTO test_s3load "
-                + "SELECT * FROM s3_tbl("
-                + " \"uri\" = \"s3://your_bucket_name/s3load_example.csv\","
-                + " \"format\" = \"csv\","
-                + " \"provider\" = \"OSS\","
-                + " \"s3.endpoint\" = \"oss-cn-hangzhou.aliyuncs.com\","
-                + " \"s3.region\" = \"oss-cn-hangzhou\","
-                + " \"s3.access_key\" = \"abc\","
-                + " \"s3.secret_key\" = \"abc\","
-                + " \"column_separator\" = \",\","
-                + " \"csv_schema\" = \"user_id:int;name:string;age:int\""
-                + ")";
+            sql = "INSERT INTO test_s3load "
+                    + "SELECT * FROM s3_tbl("
+                    + " \"uri\" = \"s3://your_bucket_name/s3load_example.csv\","
+                    + " \"format\" = \"csv\","
+                    + " \"provider\" = \"OSS\","
+                    + " \"s3.endpoint\" = \"oss-cn-hangzhou.aliyuncs.com\","
+                    + " \"s3.region\" = \"oss-cn-hangzhou\","
+                    + " \"s3.access_key\" = \"abc\","
+                    + " \"s3.secret_key\" = \"abc\","
+                    + " \"column_separator\" = \",\","
+                    + " \"csv_schema\" = \"user_id:int;name:string;age:int\""
+                    + ")";
 
-        res = "INSERT INTO test_s3load "
-                + "SELECT * FROM s3_tbl("
-                + " \"uri\" = \"s3://your_bucket_name/s3load_example.csv\","
-                + " \"format\" = \"csv\","
-                + " \"provider\" = \"OSS\","
-                + " \"s3.endpoint\" = \"oss-cn-hangzhou.aliyuncs.com\","
-                + " \"s3.region\" = \"oss-cn-hangzhou\","
-                + " \"s3.access_key\" = \"*XXX\","
-                + " \"s3.secret_key\" = \"*XXX\","
-                + " \"column_separator\" = \",\","
-                + " \"csv_schema\" = \"user_id:int;name:string;age:int\""
-                + ")";
-        parseAndCheck(sql, res);
+            res = "INSERT INTO test_s3load "
+                    + "SELECT * FROM s3_tbl("
+                    + " \"uri\" = \"s3://your_bucket_name/s3load_example.csv\","
+                    + " \"format\" = \"csv\","
+                    + " \"provider\" = \"OSS\","
+                    + " \"s3.endpoint\" = \"oss-cn-hangzhou.aliyuncs.com\","
+                    + " \"s3.region\" = \"oss-cn-hangzhou\","
+                    + " \"s3.access_key\" = \"*XXX\","
+                    + " \"s3.secret_key\" = \"*XXX\","
+                    + " \"column_separator\" = \",\","
+                    + " \"csv_schema\" = \"user_id:int;name:string;age:int\""
+                    + ")";
+            parseAndCheck(sql, res);
 
-        sql = "SELECT * FROM s3_tbl("
-                + " \"uri\" = \"s3://your_bucket_name/s3load_example.csv\","
-                + " \"format\" = \"csv\","
-                + " \"provider\" = \"OSS\","
-                + " \"s3.endpoint\" = \"oss-cn-hangzhou.aliyuncs.com\","
-                + " \"s3.region\" = \"oss-cn-hangzhou\","
-                + " \"s3.access_key\" = \"abc\","
-                + " \"s3.secret_key\" = \"abc\","
-                + " \"column_separator\" = \",\","
-                + " \"csv_schema\" = \"user_id:int;name:string;age:int\""
-                + ")";
+            sql = "SELECT * FROM s3_tbl("
+                    + " \"uri\" = \"s3://your_bucket_name/s3load_example.csv\","
+                    + " \"format\" = \"csv\","
+                    + " \"provider\" = \"OSS\","
+                    + " \"s3.endpoint\" = \"oss-cn-hangzhou.aliyuncs.com\","
+                    + " \"s3.region\" = \"oss-cn-hangzhou\","
+                    + " \"s3.access_key\" = \"abc\","
+                    + " \"s3.secret_key\" = \"abc\","
+                    + " \"column_separator\" = \",\","
+                    + " \"csv_schema\" = \"user_id:int;name:string;age:int\""
+                    + ")";
 
-        res = "SELECT * FROM s3_tbl("
-                + " \"uri\" = \"s3://your_bucket_name/s3load_example.csv\","
-                + " \"format\" = \"csv\","
-                + " \"provider\" = \"OSS\","
-                + " \"s3.endpoint\" = \"oss-cn-hangzhou.aliyuncs.com\","
-                + " \"s3.region\" = \"oss-cn-hangzhou\","
-                + " \"s3.access_key\" = \"*XXX\","
-                + " \"s3.secret_key\" = \"*XXX\","
-                + " \"column_separator\" = \",\","
-                + " \"csv_schema\" = \"user_id:int;name:string;age:int\""
-                + ")";
+            res = "SELECT * FROM s3_tbl("
+                    + " \"uri\" = \"s3://your_bucket_name/s3load_example.csv\","
+                    + " \"format\" = \"csv\","
+                    + " \"provider\" = \"OSS\","
+                    + " \"s3.endpoint\" = \"oss-cn-hangzhou.aliyuncs.com\","
+                    + " \"s3.region\" = \"oss-cn-hangzhou\","
+                    + " \"s3.access_key\" = \"*XXX\","
+                    + " \"s3.secret_key\" = \"*XXX\","
+                    + " \"column_separator\" = \",\","
+                    + " \"csv_schema\" = \"user_id:int;name:string;age:int\""
+                    + ")";
 
-        parseAndCheck(sql, res);
+            parseAndCheck(sql, res);
 
-        sql = "SET LDAP_ADMIN_PASSWORD = PASSWORD('123456')";
-        res = "SET LDAP_ADMIN_PASSWORD = PASSWORD('*XXX')";
-        parseAndCheck(sql, res);
+            sql = "SET LDAP_ADMIN_PASSWORD = PASSWORD('123456')";
+            res = "SET LDAP_ADMIN_PASSWORD = PASSWORD('*XXX')";
+            parseAndCheck(sql, res);
 
-        sql = "SET PASSWORD FOR 'admin' = PASSWORD('123456')";
-        res = "SET PASSWORD FOR 'admin' = PASSWORD('*XXX')";
-        parseAndCheck(sql, res);
+            sql = "SET PASSWORD FOR 'admin' = PASSWORD('123456')";
+            res = "SET PASSWORD FOR 'admin' = PASSWORD('*XXX')";
+            parseAndCheck(sql, res);
 
-        // create s3 job
-        sql = "CREATE JOB my_job"
-                + " ON STREAMING"
-                + " DO"
-                + " INSERT INTO test.`student`"
-                + " SELECT * FROM S3"
-                + " ("
-                + " \"uri\" = \"s3://bucketname/demo/*.csv\","
-                + " \"format\" = \"csv\","
-                + " \"column_separator\" = \",\","
-                + " \"s3.endpoint\" = \"s3.ap-southeast-1.amazonaws.com\","
-                + " \"s3.region\" = \"ap-southeast-1\","
-                + " \"s3.access_key\" = \"ak\","
-                + " \"s3.secret_key\" = \"abcdefg\""
-                + " );";
+            // create s3 job
+            sql = "CREATE JOB my_job"
+                    + " ON STREAMING"
+                    + " DO"
+                    + " INSERT INTO test.`student`"
+                    + " SELECT * FROM S3"
+                    + " ("
+                    + " \"uri\" = \"s3://bucketname/demo/*.csv\","
+                    + " \"format\" = \"csv\","
+                    + " \"column_separator\" = \",\","
+                    + " \"s3.endpoint\" = \"s3.ap-southeast-1.amazonaws.com\","
+                    + " \"s3.region\" = \"ap-southeast-1\","
+                    + " \"s3.access_key\" = \"ak\","
+                    + " \"s3.secret_key\" = \"abcdefg\""
+                    + " );";
 
-        res = "CREATE JOB my_job"
-                + " ON STREAMING"
-                + " DO"
-                + " INSERT INTO test.`student`"
-                + " SELECT * FROM S3"
-                + " ("
-                + " \"uri\" = \"s3://bucketname/demo/*.csv\","
-                + " \"format\" = \"csv\","
-                + " \"column_separator\" = \",\","
-                + " \"s3.endpoint\" = \"s3.ap-southeast-1.amazonaws.com\","
-                + " \"s3.region\" = \"ap-southeast-1\","
-                + " \"s3.access_key\" = \"*XXX\","
-                + " \"s3.secret_key\" = \"*XXX\""
-                + " );";
-        parseAndCheck(sql, res);
+            res = "CREATE JOB my_job"
+                    + " ON STREAMING"
+                    + " DO"
+                    + " INSERT INTO test.`student`"
+                    + " SELECT * FROM S3"
+                    + " ("
+                    + " \"uri\" = \"s3://bucketname/demo/*.csv\","
+                    + " \"format\" = \"csv\","
+                    + " \"column_separator\" = \",\","
+                    + " \"s3.endpoint\" = \"s3.ap-southeast-1.amazonaws.com\","
+                    + " \"s3.region\" = \"ap-southeast-1\","
+                    + " \"s3.access_key\" = \"*XXX\","
+                    + " \"s3.secret_key\" = \"*XXX\""
+                    + " );";
+            parseAndCheck(sql, res);
 
-        // alter s3 job
-        sql = "ALTER JOB my_job"
-                + " INSERT INTO test.`student`"
-                + " SELECT * FROM S3"
-                + " ("
-                + " \"uri\" = \"s3://bucketname/demo/*.csv\","
-                + " \"format\" = \"csv\","
-                + " \"column_separator\" = \",\","
-                + " \"s3.endpoint\" = \"s3.ap-southeast-1.amazonaws.com\","
-                + " \"s3.region\" = \"ap-southeast-1\","
-                + " \"s3.access_key\" = \"ak\","
-                + " \"s3.secret_key\" = \"abcdefg\""
-                + " );";
+            // alter s3 job
+            sql = "ALTER JOB my_job"
+                    + " INSERT INTO test.`student`"
+                    + " SELECT * FROM S3"
+                    + " ("
+                    + " \"uri\" = \"s3://bucketname/demo/*.csv\","
+                    + " \"format\" = \"csv\","
+                    + " \"column_separator\" = \",\","
+                    + " \"s3.endpoint\" = \"s3.ap-southeast-1.amazonaws.com\","
+                    + " \"s3.region\" = \"ap-southeast-1\","
+                    + " \"s3.access_key\" = \"ak\","
+                    + " \"s3.secret_key\" = \"abcdefg\""
+                    + " );";
 
-        res = "ALTER JOB my_job"
-                + " INSERT INTO test.`student`"
-                + " SELECT * FROM S3"
-                + " ("
-                + " \"uri\" = \"s3://bucketname/demo/*.csv\","
-                + " \"format\" = \"csv\","
-                + " \"column_separator\" = \",\","
-                + " \"s3.endpoint\" = \"s3.ap-southeast-1.amazonaws.com\","
-                + " \"s3.region\" = \"ap-southeast-1\","
-                + " \"s3.access_key\" = \"*XXX\","
-                + " \"s3.secret_key\" = \"*XXX\""
-                + " );";
-        parseAndCheck(sql, res);
+            res = "ALTER JOB my_job"
+                    + " INSERT INTO test.`student`"
+                    + " SELECT * FROM S3"
+                    + " ("
+                    + " \"uri\" = \"s3://bucketname/demo/*.csv\","
+                    + " \"format\" = \"csv\","
+                    + " \"column_separator\" = \",\","
+                    + " \"s3.endpoint\" = \"s3.ap-southeast-1.amazonaws.com\","
+                    + " \"s3.region\" = \"ap-southeast-1\","
+                    + " \"s3.access_key\" = \"*XXX\","
+                    + " \"s3.secret_key\" = \"*XXX\""
+                    + " );";
+            parseAndCheck(sql, res);
 
-        // create mysql job
-        sql = "CREATE JOB my_mysql_job "
-                + "ON STREAMING "
-                + "FROM MYSQL ( "
-                + "\"jdbc_url\" = \"jdbc:mysql://127.0.0.1:3306\", "
-                + "\"driver_url\" = \"mysql-connector-j-8.4.0.jar\", "
-                + "\"driver_class\" = \"com.mysql.cj.jdbc.Driver\", "
-                + "\"user\" = \"root\", "
-                + "\"password\" = \"123456\", "
-                + "\"database\" = \"test_cdc_db\", "
-                + "\"include_tables\" = \"mysqltable\", "
-                + "\"offset\" = \"initial\" "
-                + ") "
-                + "TO DATABASE targetDB ( "
-                + "\"table.create.properties.replication_num\" = \"1\" "
-                + ")";
+            // create mysql job
+            sql = "CREATE JOB my_mysql_job "
+                    + "ON STREAMING "
+                    + "FROM MYSQL ( "
+                    + "\"jdbc_url\" = \"jdbc:mysql://127.0.0.1:3306\", "
+                    + "\"driver_url\" = \"mysql-connector-j-8.4.0.jar\", "
+                    + "\"driver_class\" = \"com.mysql.cj.jdbc.Driver\", "
+                    + "\"user\" = \"root\", "
+                    + "\"password\" = \"123456\", "
+                    + "\"database\" = \"test_cdc_db\", "
+                    + "\"include_tables\" = \"mysqltable\", "
+                    + "\"offset\" = \"initial\" "
+                    + ") "
+                    + "TO DATABASE targetDB ( "
+                    + "\"table.create.properties.replication_num\" = \"1\" "
+                    + ")";
 
-        res = "CREATE JOB my_mysql_job "
-                + "ON STREAMING "
-                + "FROM MYSQL ( "
-                + "\"jdbc_url\" = \"jdbc:mysql://127.0.0.1:3306\", "
-                + "\"driver_url\" = \"mysql-connector-j-8.4.0.jar\", "
-                + "\"driver_class\" = \"com.mysql.cj.jdbc.Driver\", "
-                + "\"user\" = \"root\", "
-                + "\"password\" = \"*XXX\", "
-                + "\"database\" = \"test_cdc_db\", "
-                + "\"include_tables\" = \"mysqltable\", "
-                + "\"offset\" = \"initial\" "
-                + ") "
-                + "TO DATABASE targetDB ( "
-                + "\"table.create.properties.replication_num\" = \"1\" "
-                + ")";
-        parseAndCheck(sql, res);
+            res = "CREATE JOB my_mysql_job "
+                    + "ON STREAMING "
+                    + "FROM MYSQL ( "
+                    + "\"jdbc_url\" = \"jdbc:mysql://127.0.0.1:3306\", "
+                    + "\"driver_url\" = \"mysql-connector-j-8.4.0.jar\", "
+                    + "\"driver_class\" = \"com.mysql.cj.jdbc.Driver\", "
+                    + "\"user\" = \"root\", "
+                    + "\"password\" = \"*XXX\", "
+                    + "\"database\" = \"test_cdc_db\", "
+                    + "\"include_tables\" = \"mysqltable\", "
+                    + "\"offset\" = \"initial\" "
+                    + ") "
+                    + "TO DATABASE targetDB ( "
+                    + "\"table.create.properties.replication_num\" = \"1\" "
+                    + ")";
+            parseAndCheck(sql, res);
 
-        // alter mysql job
-        sql = "ALTER JOB my_mysql_job "
-                + "FROM MYSQL ( "
-                + "\"jdbc_url\" = \"jdbc:mysql://127.0.0.1:3306\", "
-                + "\"driver_url\" = \"mysql-connector-j-8.4.0.jar\", "
-                + "\"driver_class\" = \"com.mysql.cj.jdbc.Driver\", "
-                + "\"user\" = \"mysql_job_priv\", "
-                + "\"password\" = \"test123\", "
-                + "\"database\" = \"test_cdc_db\", "
-                + "\"include_tables\" = \"mysqltable\", "
-                + "\"offset\" = \"latest\""
-                + ")"
-                + "TO DATABASE targetDB";
+            // alter mysql job
+            sql = "ALTER JOB my_mysql_job "
+                    + "FROM MYSQL ( "
+                    + "\"jdbc_url\" = \"jdbc:mysql://127.0.0.1:3306\", "
+                    + "\"driver_url\" = \"mysql-connector-j-8.4.0.jar\", "
+                    + "\"driver_class\" = \"com.mysql.cj.jdbc.Driver\", "
+                    + "\"user\" = \"mysql_job_priv\", "
+                    + "\"password\" = \"test123\", "
+                    + "\"database\" = \"test_cdc_db\", "
+                    + "\"include_tables\" = \"mysqltable\", "
+                    + "\"offset\" = \"latest\""
+                    + ")"
+                    + "TO DATABASE targetDB";
 
-        res = "ALTER JOB my_mysql_job "
-                + "FROM MYSQL ( "
-                + "\"jdbc_url\" = \"jdbc:mysql://127.0.0.1:3306\", "
-                + "\"driver_url\" = \"mysql-connector-j-8.4.0.jar\", "
-                + "\"driver_class\" = \"com.mysql.cj.jdbc.Driver\", "
-                + "\"user\" = \"mysql_job_priv\", "
-                + "\"password\" = \"*XXX\", "
-                + "\"database\" = \"test_cdc_db\", "
-                + "\"include_tables\" = \"mysqltable\", "
-                + "\"offset\" = \"latest\""
-                + ")"
-                + "TO DATABASE targetDB";
-        parseAndCheck(sql, res);
+            res = "ALTER JOB my_mysql_job "
+                    + "FROM MYSQL ( "
+                    + "\"jdbc_url\" = \"jdbc:mysql://127.0.0.1:3306\", "
+                    + "\"driver_url\" = \"mysql-connector-j-8.4.0.jar\", "
+                    + "\"driver_class\" = \"com.mysql.cj.jdbc.Driver\", "
+                    + "\"user\" = \"mysql_job_priv\", "
+                    + "\"password\" = \"*XXX\", "
+                    + "\"database\" = \"test_cdc_db\", "
+                    + "\"include_tables\" = \"mysqltable\", "
+                    + "\"offset\" = \"latest\""
+                    + ")"
+                    + "TO DATABASE targetDB";
+            parseAndCheck(sql, res);
 
-        sql = "selected * from tbl";
-        res = "Syntax Error";
-        parseAndCheck(sql, res);
+            sql = "selected * from tbl";
+            res = "Syntax Error";
+            parseAndCheck(sql, res);
+        }
 
-        sql = "select * from tbl";
-        res = "select * from tbl";
-        processor.executeQuery(sql);
-        AuditEvent event = auditEvents.get(auditEvents.size() - 1);
-        Assertions.assertEquals(res, event.stmt);
-
-        String errorMsg = "errCode = 2, detailMessage = Database [test] does not exist.";
-        Assertions.assertTrue(event.errorMessage.contains(errorMsg));
+        // Test real StmtExecutor execution (outside mockConstruction)
+        // Set feType to MASTER so shouldForwardToMaster() returns false
+        FrontendNodeType origFeType = Deencapsulation.getField(
+                Env.getCurrentEnv(), "feType");
+        Deencapsulation.setField(Env.getCurrentEnv(), "feType",
+                FrontendNodeType.MASTER);
+        // Override spy catalog so "test" db is not found
+        InternalCatalog internalCatalog = env.getInternalCatalog();
+        Mockito.doReturn(null).when(internalCatalog)
+                .getDbNullable("test");
+        try {
+            String sql = "select * from tbl";
+            String res = "select * from tbl";
+            processor.executeQuery(sql);
+            AuditEvent event = auditEvents.get(auditEvents.size() - 1);
+            Assertions.assertEquals(res, event.stmt);
+            String errorMsg = "errCode = 2, detailMessage = "
+                    + "Database [test] does not exist.";
+            Assertions.assertTrue(event.errorMessage.contains(errorMsg),
+                    "Expected errorMessage to contain '"
+                    + errorMsg + "' but was: '"
+                    + event.errorMessage + "'");
+        } finally {
+            Deencapsulation.setField(Env.getCurrentEnv(), "feType",
+                    origFeType);
+        }
     }
 
     private void parseAndCheck(String sql, String expected) throws Exception {

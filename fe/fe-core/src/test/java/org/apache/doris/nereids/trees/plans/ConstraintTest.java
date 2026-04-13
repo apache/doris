@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.catalog.constraint.ConstraintManager;
 import org.apache.doris.catalog.constraint.ForeignKeyConstraint;
@@ -31,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanPatternMatchSupported;
+import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Sets;
@@ -43,6 +45,15 @@ class ConstraintTest extends TestWithFeService implements PlanPatternMatchSuppor
 
     private ConstraintManager getConstraintMgr() {
         return Env.getCurrentEnv().getConstraintManager();
+    }
+
+    private TableNameInfo tableNameInfoOf(TableIf table) {
+        String tblName = table.getName();
+        if (GlobalVariable.isStoredTableNamesLowerCase()) {
+            tblName = tblName.toLowerCase();
+        }
+        return new TableNameInfo(
+                table.getDatabase().getCatalog().getName(), table.getDatabase().getFullName(), tblName);
     }
 
     @Override
@@ -84,7 +95,7 @@ class ConstraintTest extends TestWithFeService implements PlanPatternMatchSuppor
                 "alter table t1 add constraint pk primary key (k1)");
         addCommand.run(connectContext, null);
         PlanChecker.from(connectContext).parse("select * from t1").analyze().matches(logicalOlapScan().when(o -> {
-            TableNameInfo tni = new TableNameInfo(o.getTable());
+            TableNameInfo tni = tableNameInfoOf(o.getTable());
             Constraint c = getConstraintMgr().getConstraint(tni, "pk");
             if (c instanceof PrimaryKeyConstraint) {
                 Set<String> columns = ((PrimaryKeyConstraint) c).getPrimaryKeyNames();
@@ -98,7 +109,7 @@ class ConstraintTest extends TestWithFeService implements PlanPatternMatchSuppor
         dropCommand.run(connectContext, null);
         PlanChecker.from(connectContext).parse("select * from t1").analyze().matches(
                 logicalOlapScan().when(o -> getConstraintMgr()
-                        .getConstraints(new TableNameInfo(o.getTable())).isEmpty()));
+                        .getConstraints(tableNameInfoOf(o.getTable())).isEmpty()));
     }
 
     @Test
@@ -107,7 +118,7 @@ class ConstraintTest extends TestWithFeService implements PlanPatternMatchSuppor
                 "alter table t1 add constraint un unique (k1)");
         command.run(connectContext, null);
         PlanChecker.from(connectContext).parse("select * from t1").analyze().matches(logicalOlapScan().when(o -> {
-            TableNameInfo tni = new TableNameInfo(o.getTable());
+            TableNameInfo tni = tableNameInfoOf(o.getTable());
             Constraint c = getConstraintMgr().getConstraint(tni, "un");
             if (c instanceof UniqueConstraint) {
                 Set<String> columns = ((UniqueConstraint) c).getUniqueColumnNames();
@@ -121,7 +132,7 @@ class ConstraintTest extends TestWithFeService implements PlanPatternMatchSuppor
         dropCommand.run(connectContext, null);
         PlanChecker.from(connectContext).parse("select * from t1").analyze().matches(
                 logicalOlapScan().when(o -> getConstraintMgr()
-                        .getConstraints(new TableNameInfo(o.getTable())).isEmpty()));
+                        .getConstraints(tableNameInfoOf(o.getTable())).isEmpty()));
     }
 
     @Test
@@ -141,7 +152,7 @@ class ConstraintTest extends TestWithFeService implements PlanPatternMatchSuppor
                 null);
 
         PlanChecker.from(connectContext).parse("select * from t1").analyze().matches(logicalOlapScan().when(o -> {
-            TableNameInfo tni = new TableNameInfo(o.getTable());
+            TableNameInfo tni = tableNameInfoOf(o.getTable());
             Constraint c = getConstraintMgr().getConstraint(tni, "fk");
             if (c instanceof ForeignKeyConstraint) {
                 ForeignKeyConstraint f = (ForeignKeyConstraint) c;
@@ -155,7 +166,7 @@ class ConstraintTest extends TestWithFeService implements PlanPatternMatchSuppor
         }));
 
         PlanChecker.from(connectContext).parse("select * from t2").analyze().matches(logicalOlapScan().when(o -> {
-            TableNameInfo tni = new TableNameInfo(o.getTable());
+            TableNameInfo tni = tableNameInfoOf(o.getTable());
             Constraint c = getConstraintMgr().getConstraint(tni, "pk");
             if (c instanceof PrimaryKeyConstraint) {
                 Set<String> columnNames = ((PrimaryKeyConstraint) c).getPrimaryKeyNames();
@@ -174,7 +185,7 @@ class ConstraintTest extends TestWithFeService implements PlanPatternMatchSuppor
         dropCommand.run(connectContext, null);
         PlanChecker.from(connectContext).parse("select * from t1").analyze().matches(
                 logicalOlapScan().when(o -> getConstraintMgr()
-                        .getConstraints(new TableNameInfo(o.getTable())).isEmpty()));
+                        .getConstraints(tableNameInfoOf(o.getTable())).isEmpty()));
         // drop pk and fk referenced it also should be dropped
         ((AddConstraintCommand) new NereidsParser().parseSingle(
                 "alter table t1 add constraint fk foreign key (k1, k2) references t2(k1, k2)")).run(connectContext,
@@ -184,10 +195,10 @@ class ConstraintTest extends TestWithFeService implements PlanPatternMatchSuppor
 
         PlanChecker.from(connectContext).parse("select * from t1").analyze().matches(
                 logicalOlapScan().when(o -> getConstraintMgr()
-                        .getConstraints(new TableNameInfo(o.getTable())).isEmpty()));
+                        .getConstraints(tableNameInfoOf(o.getTable())).isEmpty()));
         PlanChecker.from(connectContext).parse("select * from t2").analyze().matches(
                 logicalOlapScan().when(o -> getConstraintMgr()
-                        .getConstraints(new TableNameInfo(o.getTable())).isEmpty()));
+                        .getConstraints(tableNameInfoOf(o.getTable())).isEmpty()));
     }
 
     @Test
@@ -198,7 +209,7 @@ class ConstraintTest extends TestWithFeService implements PlanPatternMatchSuppor
 
         PlanChecker.from(connectContext).parse("select * from t2").analyze().matches(
                 logicalOlapScan().when(o -> getConstraintMgr()
-                        .getConstraints(new TableNameInfo(o.getTable())).isEmpty()));
+                        .getConstraints(tableNameInfoOf(o.getTable())).isEmpty()));
 
         addConstraint("alter table t1 add constraint pk primary key (k1)");
         addConstraint("alter table t1 add constraint fk foreign key (k1) references t1(k1)");
@@ -207,13 +218,13 @@ class ConstraintTest extends TestWithFeService implements PlanPatternMatchSuppor
         dropConstraint("alter table t1 drop constraint pk");
         PlanChecker.from(connectContext).parse("select * from t1").analyze().matches(
                 logicalOlapScan().when(o -> getConstraintMgr()
-                        .getConstraints(new TableNameInfo(o.getTable())).isEmpty()));
+                        .getConstraints(tableNameInfoOf(o.getTable())).isEmpty()));
         PlanChecker.from(connectContext).parse("select * from t2").analyze().matches(
                 logicalOlapScan().when(o -> getConstraintMgr()
-                        .getConstraints(new TableNameInfo(o.getTable())).isEmpty()));
+                        .getConstraints(tableNameInfoOf(o.getTable())).isEmpty()));
         PlanChecker.from(connectContext).parse("select * from t3").analyze().matches(
                 logicalOlapScan().when(o -> getConstraintMgr()
-                        .getConstraints(new TableNameInfo(o.getTable())).isEmpty()));
+                        .getConstraints(tableNameInfoOf(o.getTable())).isEmpty()));
     }
 
     @Test

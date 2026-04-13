@@ -26,7 +26,6 @@
 
 namespace doris {
 class JsonbOutStream;
-#include "common/compile_check_begin.h"
 class DataTypeTimeV2SerDe : public DataTypeNumberSerDe<PrimitiveType::TYPE_TIMEV2> {
 public:
     DataTypeTimeV2SerDe(int scale = 0, int nesting_level = 1)
@@ -77,5 +76,4 @@ protected:
 private:
     int _scale;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

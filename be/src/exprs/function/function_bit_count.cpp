@@ -28,7 +28,6 @@
 #include "exprs/function/simple_function_factory.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 struct NameBitCount {
     static constexpr auto name = "bit_count";
 };

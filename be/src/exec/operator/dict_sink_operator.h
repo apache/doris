@@ -24,7 +24,6 @@
 #include "exec/operator/operator.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class DictSinkLocalState final : public PipelineXSinkLocalState<BasicSharedState> {
     ENABLE_FACTORY_CREATOR(DictSinkLocalState);
     using Base = PipelineXSinkLocalState<BasicSharedState>;
@@ -90,4 +89,3 @@ private:
 };
 
 } // namespace doris
-#include "common/compile_check_end.h"

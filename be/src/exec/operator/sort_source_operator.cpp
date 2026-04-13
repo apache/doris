@@ -22,7 +22,6 @@
 #include "exec/operator/operator.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 SortLocalState::SortLocalState(RuntimeState* state, OperatorXBase* parent)
         : PipelineXLocalState<SortSharedState>(state, parent) {}
@@ -46,5 +45,4 @@ const SortDescription& SortSourceOperatorX::get_sort_description(RuntimeState* s
     return local_state._shared_state->sorter->get_sort_description();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

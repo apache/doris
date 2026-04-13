@@ -24,6 +24,7 @@ import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
 import org.apache.doris.catalog.constraint.UniqueConstraint;
 import org.apache.doris.common.Pair;
 import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -68,13 +69,17 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         Pair<ImmutableList<String>, TableIf> columnsAndTable = extractColumnsAndTable(ctx, constraint.toProject());
         TableIf table = columnsAndTable.second;
-        TableNameInfo tableNameInfo = new TableNameInfo(table);
+        TableNameInfo tableNameInfo = TableNameInfoUtils.fromCatalogDb(
+                table.getDatabase().getCatalog(), table.getDatabase(), table);
         ImmutableList<String> columns = columnsAndTable.first;
 
         if (constraint.isForeignKey()) {
             Pair<ImmutableList<String>, TableIf> refColumnsAndTable
                     = extractColumnsAndTable(ctx, constraint.toReferenceProject());
-            TableNameInfo refTableInfo = new TableNameInfo(refColumnsAndTable.second);
+            TableIf refTable = refColumnsAndTable.second;
+            TableNameInfo refTableInfo = TableNameInfoUtils.fromCatalogDb(
+                    refTable.getDatabase().getCatalog(),
+                    refTable.getDatabase(), refTable);
             ForeignKeyConstraint fkConstraint = new ForeignKeyConstraint(
                     name, columns, refTableInfo, refColumnsAndTable.first);
             Env.getCurrentEnv().getConstraintManager().addConstraint(

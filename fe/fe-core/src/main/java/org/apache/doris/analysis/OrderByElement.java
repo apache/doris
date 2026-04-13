@@ -75,13 +75,14 @@ public class OrderByElement {
         return result;
     }
 
-    public String toSql() {
+    @Override
+    public String toString() {
         StringBuilder strBuilder = new StringBuilder();
-        strBuilder.append(expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
+        strBuilder.append(expr);
         strBuilder.append(isAsc ? " ASC" : " DESC");
 
         // When ASC and NULLS LAST or DESC and NULLS FIRST, we do not print NULLS FIRST/LAST
-        // because it is the default behavior and we want to avoid printing NULLS FIRST/LAST
+        // because it is the default behavior. we want to avoid printing NULLS FIRST/LAST
         // whenever possible as it is incompatible with Hive (SQL compatibility with Hive is
         // important for views).
         if (nullsFirstParam != null) {
@@ -95,11 +96,6 @@ public class OrderByElement {
         }
 
         return strBuilder.toString();
-    }
-
-    @Override
-    public String toString() {
-        return toSql();
     }
 
     @Override

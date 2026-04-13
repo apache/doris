@@ -25,7 +25,6 @@
 #include "util/thread.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 CloudCommittedRSMgr::CloudCommittedRSMgr() : _stop_latch(1) {}
 
 CloudCommittedRSMgr::~CloudCommittedRSMgr() {
@@ -138,5 +137,4 @@ void CloudCommittedRSMgr::_clean_thread_callback() {
     } while (!_stop_latch.wait_for(
             std::chrono::seconds(config::remove_expired_tablet_txn_info_interval_seconds)));
 }
-#include "common/compile_check_end.h"
 } // namespace doris

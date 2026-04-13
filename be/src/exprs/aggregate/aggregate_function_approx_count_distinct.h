@@ -35,7 +35,6 @@
 #include "util/slice.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class Arena;
 class BufferReadable;
 class BufferWritable;
@@ -97,7 +96,7 @@ public:
              Arena&) const override {
         if constexpr (is_decimal(type) || is_int_or_bool(type) || is_ip(type) ||
                       is_date_type(type) || is_timestamptz_type(type) || is_float_or_double(type) ||
-                      type == TYPE_TIME || type == TYPE_TIMEV2) {
+                      type == TYPE_TIMEV2) {
             auto column =
                     assert_cast<const ColumnDataType*, TypeCheckOnRelease::DISABLE>(columns[0]);
             auto value = column->get_element(row_num);
@@ -135,5 +134,3 @@ public:
 };
 
 } // namespace doris
-
-#include "common/compile_check_end.h"

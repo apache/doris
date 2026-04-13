@@ -21,7 +21,6 @@
 #include "exec/scan/jdbc_scanner.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 std::string JDBCScanLocalState::name_suffix() const {
     if (_parent->nereids_id() == -1) {
         return fmt::format("(id={}, table_name={})", _parent->node_id(),

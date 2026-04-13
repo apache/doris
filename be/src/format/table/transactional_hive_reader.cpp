@@ -25,7 +25,6 @@
 #include "format/table/transactional_hive_common.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 namespace io {
 struct IOContext;
@@ -262,5 +261,4 @@ Status TransactionalHiveReader::init_row_filters() {
     }
     return Status::OK();
 }
-#include "common/compile_check_end.h"
 } // namespace doris

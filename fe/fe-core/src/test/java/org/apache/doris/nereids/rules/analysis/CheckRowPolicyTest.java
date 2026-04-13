@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.DataMaskPolicy;
 import org.apache.doris.nereids.StatementContext;
@@ -47,10 +48,9 @@ import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import mockit.Mock;
-import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.Arrays;
 import java.util.List;
@@ -100,26 +100,27 @@ public class CheckRowPolicyTest extends TestWithFeService {
         grantTablePrivilegeCommand.validate();
         Env.getCurrentEnv().getAuth().grantTablePrivilegeCommand(grantTablePrivilegeCommand);
 
-        new MockUp<AccessControllerManager>() {
-            @Mock
-            public Optional<DataMaskPolicy> evalDataMaskPolicy(UserIdentity currentUser, String ctl,
-                    String db, String tbl, String col) {
-                return tbl.equalsIgnoreCase(tableNameRanddomDist)
-                        ? Optional.of(new DataMaskPolicy() {
-                            @Override
-                            public String getMaskTypeDef() {
-                                return String.format("concat(%s, '_****_', %s)", col, col);
-                            }
+        AccessControllerManager spyAcm = Mockito.spy(Env.getCurrentEnv().getAccessManager());
+        Mockito.doAnswer(invocation -> {
+            String tbl = invocation.getArgument(3);
+            String col = invocation.getArgument(4);
+            return tbl.equalsIgnoreCase(tableNameRanddomDist)
+                    ? Optional.of(new DataMaskPolicy() {
+                        @Override
+                        public String getMaskTypeDef() {
+                            return String.format("concat(%s, '_****_', %s)", col, col);
+                        }
 
-                            @Override
-                            public String getPolicyIdent() {
-                                return String.format("custom policy: concat(%s, '_****_', %s)", col,
-                                        col);
-                            }
-                        })
-                        : Optional.empty();
-            }
-        };
+                        @Override
+                        public String getPolicyIdent() {
+                            return String.format("custom policy: concat(%s, '_****_', %s)", col, col);
+                        }
+                    })
+                    : Optional.empty();
+        }).when(spyAcm).evalDataMaskPolicy(
+                Mockito.any(UserIdentity.class), Mockito.anyString(),
+                Mockito.anyString(), Mockito.anyString(), Mockito.anyString());
+        Deencapsulation.setField(Env.getCurrentEnv(), "accessManager", spyAcm);
     }
 
     @Test

@@ -37,7 +37,6 @@ namespace doris {
 
 // This number represents the number of days from 0000-01-01 to 1970-01-01
 static const int32_t date_threshold = 719528;
-#include "common/compile_check_begin.h"
 
 Status DataTypeDateV2SerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,
                                                      int64_t end_idx, BufferWritable& bw,

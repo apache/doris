@@ -86,3 +86,59 @@
 -- !v2_increase_old_chain_better --
 2
 
+-- !v2_dedup_same_row_multi_event --
+3
+
+-- !v2_dedup_true_dup_breaks --
+2
+
+-- !v2_fixed_same_row_level_jump --
+2
+
+-- !v2_fixed_multi_cond_complex --
+2
+
+-- !v2_fixed_e0_skip --
+3
+
+-- !v2_fixed_edge_single_row_all_match --
+1
+
+-- !v2_fixed_edge_next_row_all --
+2
+
+-- !v2_fixed_edge_e1e2_no_e0 --
+2
+
+-- !v2_fixed_edge_4cond_progressive --
+3
+
+-- !v2_fixed_edge_both_rows_multi --
+2
+
+-- !v2_fixed_edge_full_chain --
+4
+
+-- !v2_fixed_edge_level_jump_break --
+1
+
+-- !v2_fixed_edge_e0_restart_diff_row --
+2
+
+-- !v2_fixed_edge_window_boundary --
+1
+
+-- !v2_fixed_edge_multi_restart_best --
+3
+
+-- !v2_fixed_edge_many_e0_restarts --
+3
+
+-- !v2_fixed_edge_irrelevant_skip --
+3
+
+-- !v2_fixed_edge_relevant_but_wrong --
+2
+
+-- !v2_fixed_edge_relevant_wrong_no_restart --
+2

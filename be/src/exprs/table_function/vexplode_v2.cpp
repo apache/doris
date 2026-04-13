@@ -41,7 +41,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
 #include "core/column/column_struct.h"
 
 VExplodeV2TableFunction::VExplodeV2TableFunction() {
@@ -105,6 +104,25 @@ Status VExplodeV2TableFunction::process_init(Block* block, RuntimeState* state) 
         }
     }
 
+    return Status::OK();
+}
+
+bool VExplodeV2TableFunction::support_block_fast_path() const {
+    return _multi_detail.size() == 1;
+}
+
+Status VExplodeV2TableFunction::prepare_block_fast_path(Block* /*block*/, RuntimeState* /*state*/,
+                                                        BlockFastPathContext* ctx) {
+    DCHECK(support_block_fast_path());
+    const auto& detail = _multi_detail[0];
+    if (detail.offsets_ptr == nullptr || detail.nested_col.get() == nullptr) {
+        return Status::InternalError("vexplode block fast path not initialized");
+    }
+    ctx->array_nullmap_data = detail.array_nullmap_data;
+    ctx->offsets_ptr = detail.offsets_ptr;
+    ctx->nested_col = detail.nested_col;
+    ctx->nested_nullmap_data = detail.nested_nullmap_data;
+    ctx->generate_row_index = _generate_row_index;
     return Status::OK();
 }
 
@@ -272,7 +290,5 @@ int VExplodeV2TableFunction::get_value(MutableColumnPtr& column, int max_step) {
     forward(max_step);
     return max_step;
 }
-
-#include "common/compile_check_end.h"
 
 } // namespace doris

@@ -39,7 +39,6 @@
 #include "util/string_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 std::tuple<Block, ColumnNumbers> create_block_with_nested_columns(const Block& block,
                                                                   const ColumnNumbers& args,
                                                                   const bool need_check_same) {
@@ -135,5 +134,4 @@ const ColumnConst* check_and_get_column_const_string_or_fixedstring(const IColum
 
     return {};
 }
-#include "common/compile_check_end.h"
 } // namespace doris

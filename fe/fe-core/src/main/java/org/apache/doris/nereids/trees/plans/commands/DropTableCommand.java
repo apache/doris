@@ -78,7 +78,7 @@ public class DropTableCommand extends Command implements ForwardWithSync {
         if (Strings.isNullOrEmpty(tableName.getDb())) {
             tableName.setDb(ctx.getDatabase());
         }
-        tableName.analyze(ctx);
+        tableName.analyze(ctx.getNameSpaceContext());
         InternalDatabaseUtil.checkDatabase(tableName.getDb(), ctx);
         // check access
         if (!Env.getCurrentEnv().getAccessManager()

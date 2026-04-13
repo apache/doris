@@ -20,7 +20,6 @@
 #include "exprs/aggregate/helpers.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 AggregateFunctionPtr create_agg_function_map_agg_v2(const DataTypes& argument_types,
                                                     const bool result_is_nullable,
