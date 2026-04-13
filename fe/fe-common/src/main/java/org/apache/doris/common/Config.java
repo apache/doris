@@ -3090,6 +3090,12 @@ public class Config extends ConfigBase {
             options = {"default", "ldap"})
     public static String authentication_type = "default";
 
+    @ConfField(description = {
+            "指定主认证失败后使用的 authentication chain，多个 integration 名称用逗号分隔",
+            "Specifies the authentication chain used after primary authentication failure, "
+                    + "multiple integration names are comma-separated"})
+    public static String authentication_chain = "";
+
     @ConfField(mutable = true, masterOnly = false, description = {"指定 trino-connector catalog 的插件默认加载路径",
             "Specify the default plugins loading path for the trino-connector catalog"})
     public static String trino_connector_plugin_dir = EnvUtils.getDorisHome() + "/plugins/connectors";

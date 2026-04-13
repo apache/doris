@@ -21,6 +21,7 @@ import org.apache.doris.mysql.MysqlAuthPacket;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlHandshakePacket;
 import org.apache.doris.mysql.MysqlSerializer;
+import org.apache.doris.mysql.authenticate.AuthenticateRequest;
 import org.apache.doris.qe.ConnectContext;
 
 import java.io.IOException;
@@ -31,4 +32,16 @@ public interface PasswordResolver {
             MysqlSerializer serializer,
             MysqlAuthPacket authPacket,
             MysqlHandshakePacket handshakePacket) throws IOException;
+
+    default Optional<AuthenticateRequest> resolveAuthenticateRequest(String userName, ConnectContext context,
+            MysqlChannel channel, MysqlSerializer serializer, MysqlAuthPacket authPacket,
+            MysqlHandshakePacket handshakePacket) throws IOException {
+        return resolvePassword(context, channel, serializer, authPacket, handshakePacket)
+                .map(password -> AuthenticateRequest.builder()
+                        .userName(userName)
+                        .password(password)
+                        .remoteHost(channel.getRemoteIp())
+                        .clientType("mysql")
+                        .build());
+    }
 }
