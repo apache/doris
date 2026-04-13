@@ -349,6 +349,14 @@ public class MTMVTask extends AbstractTask {
         // correct thread-local ConnectContext (with MTMV disabled rules, etc.).
         ConnectContext mtmvCtx = MTMVPlanUtil.createMTMVContext(mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
         StatementContext statementContext = new StatementContext();
+        // Install the StatementContext on the ConnectContext before parsing
+        // the MV definition SQL.  UpdateMvByPartitionCommand.from() calls
+        // NereidsParser.parseSingle() which, for SQL containing SET_VAR hints,
+        // accesses ConnectContext.get().getStatementContext() inside
+        // LogicalPlanBuilder.withHints().  Without this assignment the
+        // StatementContext is null and a NullPointerException is thrown.
+        mtmvCtx.setStatementContext(statementContext);
+        statementContext.setConnectContext(mtmvCtx);
         for (Entry<MvccTableInfo, MvccSnapshot> entry : snapshots.entrySet()) {
             statementContext.setSnapshot(entry.getKey(), entry.getValue());
         }
