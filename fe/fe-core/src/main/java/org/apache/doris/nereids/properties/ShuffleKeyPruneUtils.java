@@ -41,7 +41,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
-/**AggShuffleKeyOptimize*/
+/**ShuffleKeyPruneUtils*/
 public class ShuffleKeyPruneUtils {
     public static final double shuffleKeyHotValueThreshold = 0.05;
 

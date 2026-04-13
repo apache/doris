@@ -59,7 +59,7 @@ class ShuffleKeyPrunerTest extends TestWithFeService {
         useDatabase("test");
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         connectContext.getSessionVariable().setParallelResultSink(false);
-        connectContext.getSessionVariable().enableAggShuffleKeyPrune = true;
+        connectContext.getSessionVariable().enableShuffleKeyPrune = true;
 
         createTable("CREATE TABLE `t1` (\n"
                 + "  `a` int(11) NULL,\n"
@@ -103,7 +103,7 @@ class ShuffleKeyPrunerTest extends TestWithFeService {
                 + "on t1.b=t2.b and t1.d=t2.d order by 1,2";
         int[] pruneOn = extractJoinShuffleKeySizes(sql, true);
         int[] pruneOff = extractJoinShuffleKeySizes(sql, false);
-        connectContext.getSessionVariable().enableAggShuffleKeyPrune = true;
+        connectContext.getSessionVariable().enableShuffleKeyPrune = true;
 
         Assertions.assertArrayEquals(pruneOff, pruneOn);
     }
@@ -113,14 +113,14 @@ class ShuffleKeyPrunerTest extends TestWithFeService {
         String sql = "select a,count(distinct [skew] b) from t1 group by a";
         int keySizeOn = extractDistinctGlobalChildDistributeKeySize(sql, true);
         int keySizeOff = extractDistinctGlobalChildDistributeKeySize(sql, false);
-        connectContext.getSessionVariable().enableAggShuffleKeyPrune = true;
+        connectContext.getSessionVariable().enableShuffleKeyPrune = true;
 
         Assertions.assertEquals(keySizeOff, keySizeOn);
         Assertions.assertEquals(1, keySizeOn);
     }
 
     private int[] extractJoinShuffleKeySizes(String sql, boolean enablePrune) {
-        connectContext.getSessionVariable().enableAggShuffleKeyPrune = enablePrune;
+        connectContext.getSessionVariable().enableShuffleKeyPrune = enablePrune;
         int[] sizes = new int[2];
         PlanChecker.from(connectContext).checkExplain(sql, planner -> {
             PhysicalHashJoin<? extends Plan, ? extends Plan> join = findFirstHashJoin(planner.getOptimizedPlan());
@@ -136,7 +136,7 @@ class ShuffleKeyPrunerTest extends TestWithFeService {
     }
 
     private int extractDistinctGlobalChildDistributeKeySize(String sql, boolean enablePrune) {
-        connectContext.getSessionVariable().enableAggShuffleKeyPrune = enablePrune;
+        connectContext.getSessionVariable().enableShuffleKeyPrune = enablePrune;
         int[] size = new int[] {-1};
         PlanChecker.from(connectContext).checkExplain(sql, planner -> {
             PhysicalHashAggregate<? extends Plan> distinctGlobal = findFirstDistinctGlobalAgg(planner.getOptimizedPlan());

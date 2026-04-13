@@ -78,7 +78,7 @@ public class ShuffleKeyPruner extends PlanPostProcessor {
 
     @Override
     public Plan processRoot(Plan plan, CascadesContext ctx) {
-        if (!ctx.getConnectContext().getSessionVariable().enableAggShuffleKeyPrune) {
+        if (!ctx.getConnectContext().getSessionVariable().enableShuffleKeyPrune) {
             return plan;
         }
         Plan newPlan = plan.accept(new ShuffleKeyPruneRewriter(), new PruneCtx(true, ctx));
