@@ -2723,6 +2723,77 @@ TEST_F(BlockFileCacheTest, remove_directly) {
     }
 }
 
+TEST_F(BlockFileCacheTest, late_holder_remove_skips_missing_cache_cell) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+
+    io::FileCacheSettings settings;
+    settings.query_queue_size = 30;
+    settings.query_queue_elements = 5;
+    settings.index_queue_size = 30;
+    settings.index_queue_elements = 5;
+    settings.disposable_queue_size = 30;
+    settings.disposable_queue_elements = 5;
+    settings.capacity = 90;
+    settings.max_file_block_size = 30;
+    settings.max_query_cache_size = 0;
+
+    io::BlockFileCache cache(cache_base_path, settings);
+    ASSERT_TRUE(cache.initialize());
+    wait_until_cache_ready(cache);
+
+    io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
+    context.cache_type = io::FileCacheType::NORMAL;
+
+    auto key = io::BlockFileCache::hash("late-holder-remove-skips-missing-cache-cell");
+    auto holder = std::make_unique<FileBlocksHolder>(cache.get_or_set(key, 0, 5, context));
+    auto blocks = fromHolder(*holder);
+    ASSERT_EQ(blocks.size(), 1);
+
+    auto file_block = blocks[0];
+    ASSERT_EQ(file_block->get_or_set_downloader(), io::FileBlock::get_caller_id());
+    download(file_block);
+    file_block->set_deleting();
+
+    ASSERT_EQ(cache._cur_cache_size, 5);
+    {
+        auto* cache_ptr = &cache;
+        SCOPED_CACHE_LOCK(cache_ptr->_mutex, cache_ptr);
+        auto file_it = cache._files.find(key);
+        ASSERT_NE(file_it, cache._files.end());
+        auto cell_it = file_it->second.find(0);
+        ASSERT_NE(cell_it, file_it->second.end());
+        auto& cell = cell_it->second;
+        ASSERT_TRUE(cell.queue_iterator.has_value());
+
+        auto& queue = cache.get_queue(file_block->cache_type());
+        queue.remove(*cell.queue_iterator, cache_lock);
+        cache._cur_cache_size -= file_block->range().size();
+
+        file_it->second.erase(cell_it);
+        if (file_it->second.empty()) {
+            cache._files.erase(file_it);
+        }
+    }
+
+    blocks.clear();
+    ASSERT_EQ(file_block.use_count(), 2);
+
+    holder.reset();
+
+    EXPECT_EQ(cache._cur_cache_size, 0);
+    EXPECT_EQ(cache.get_file_blocks_num(io::FileCacheType::NORMAL), 0);
+
+    file_block.reset();
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+}
+
 TEST_F(BlockFileCacheTest, test_factory_1) {
     std::string cache_path2 = caches_dir / "cache2" / "";
     std::string cache_path3 = caches_dir / "cache3" / "";

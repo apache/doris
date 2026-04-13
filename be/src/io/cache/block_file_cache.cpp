@@ -1411,7 +1411,11 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
     auto tablet_id = file_block->tablet_id();
     auto* cell = get_cell(hash, offset, cache_lock);
     file_block->cell = nullptr;
-    DCHECK(cell);
+    // Holder cleanup can race with prior cache metadata cleanup. In that case,
+    // skip the duplicate remove instead of touching a detached or replaced cell.
+    if (cell == nullptr || cell->file_block.get() != file_block.get()) {
+        return;
+    }
     DCHECK(cell->queue_iterator);
     if (cell->queue_iterator) {
         auto& queue = get_queue(file_block->cache_type());
