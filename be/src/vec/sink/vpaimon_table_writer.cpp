@@ -574,8 +574,7 @@ Status VPaimonTableWriter::close(Status status) {
     }
 
     if (_file_store_write) {
-        ::paimon::Status close_status;
-        Defer do_close {[&]() { close_status = _file_store_write->Close(); }};
+        std::vector<TCommitMessage> msgs;
         if (status.ok() && result_status.ok()) {
             int64_t prepare_commit_ns = 0;
             auto commit_result = [&]() {
@@ -588,7 +587,6 @@ Status VPaimonTableWriter::close(Status status) {
                 return Status::InternalError("paimon prepare commit failed: {}",
                                              commit_result.status().ToString());
             }
-            std::vector<TCommitMessage> msgs;
             const auto& commit_messages = commit_result.value();
             DorisMetrics::instance()->paimon_prepare_commit_messages->increment(
                     commit_messages.size());
@@ -655,11 +653,14 @@ Status VPaimonTableWriter::close(Status status) {
             VLOG(1) << "Prepared " << total_messages << " commit messages, serialized as "
                     << msgs.size() << " payload chunks, total_payload_bytes=" << total_payload_bytes
                     << ", serializer_version=" << serializer_version;
-            _state->add_paimon_commit_messages(msgs);
         }
+        auto close_status = _file_store_write->Close();
         if (!close_status.ok()) {
             return Status::InternalError("paimon file store write close failed: {}",
                                          close_status.ToString());
+        }
+        if (!msgs.empty()) {
+            _state->add_paimon_commit_messages(msgs);
         }
     }
     _writers.clear();
