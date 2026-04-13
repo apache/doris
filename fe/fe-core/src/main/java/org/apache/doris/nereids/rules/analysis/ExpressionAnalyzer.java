@@ -919,10 +919,35 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
 
     @Override
     public Expression visitInPredicate(InPredicate inPredicate, ExpressionRewriteContext context) {
+        // Register placeholder ids to slot BEFORE children are visited (i.e., before Placeholders
+        // are replaced with actual literal values by visitPlaceholder).
+        // Used to replace expressions in ShortCircuit plan for prepared statement.
+        registerInPredicatePlaceholderToSlot(inPredicate, context);
         List<Expression> rewrittenChildren = inPredicate.children().stream()
                 .map(e -> e.accept(this, context)).collect(Collectors.toList());
         InPredicate newInPredicate = inPredicate.withChildren(rewrittenChildren);
         return TypeCoercionUtils.processInPredicate(newInPredicate);
+    }
+
+    // Register prepared statement placeholder ids to related slot in IN predicate.
+    // Each placeholder in the IN list is mapped to the compare slot for short circuit plan replacement.
+    // Must be called BEFORE children are recursively visited (before Placeholder→Literal substitution).
+    private void registerInPredicatePlaceholderToSlot(InPredicate inPredicate,
+                    ExpressionRewriteContext context) {
+        if (context == null) {
+            return;
+        }
+        if (ConnectContext.get() != null
+                && ConnectContext.get().getCommand() == MysqlCommand.COM_STMT_EXECUTE
+                && inPredicate.getCompareExpr() instanceof SlotReference) {
+            SlotReference slot = (SlotReference) inPredicate.getCompareExpr();
+            for (Expression option : inPredicate.getOptions()) {
+                if (option instanceof Placeholder) {
+                    PlaceholderId id = ((Placeholder) option).getPlaceholderId();
+                    context.cascadesContext.getStatementContext().getIdToInPredicateSlot().put(id, slot);
+                }
+            }
+        }
     }
 
     @Override

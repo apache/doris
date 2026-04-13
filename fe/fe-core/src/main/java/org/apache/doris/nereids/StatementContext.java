@@ -178,6 +178,9 @@ public class StatementContext implements Closeable {
     // map placeholder id to comparison slot, which will used to replace conjuncts
     // directly
     private final Map<PlaceholderId, SlotReference> idToComparisonSlot = new TreeMap<>();
+    // map placeholder id to slot for IN predicate options, used to replace IN predicate
+    // conjuncts in short circuit plan for prepared statement
+    private final Map<PlaceholderId, SlotReference> idToInPredicateSlot = new TreeMap<>();
 
     // collect all hash join conditions to compute node connectivity in join graph
     private final List<Expression> joinFilters = new ArrayList<>();
@@ -628,6 +631,10 @@ public class StatementContext implements Closeable {
 
     public Map<PlaceholderId, SlotReference> getIdToComparisonSlot() {
         return idToComparisonSlot;
+    }
+
+    public Map<PlaceholderId, SlotReference> getIdToInPredicateSlot() {
+        return idToInPredicateSlot;
     }
 
     public Map<CTEId, List<Pair<Multimap<Slot, Slot>, Group>>> getCteIdToConsumerGroup() {
