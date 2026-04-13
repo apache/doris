@@ -147,11 +147,6 @@ if [[ -z "${WITH_TDE_DIR}" ]]; then
     WITH_TDE_DIR=''
 fi
 
-if [[ -n "${WITH_TDE_DIR}" && "${WITH_TDE_DIR}" != "extra/tde" ]]; then
-    echo "Unsupported WITH_TDE_DIR=${WITH_TDE_DIR}; only extra/tde is supported"
-    exit 1
-fi
-
 if [[ -n "${WITH_TDE_DIR}" && ! -d "${DORIS_HOME}/be/src/${WITH_TDE_DIR}" ]]; then
     echo "WITH_TDE_DIR=${WITH_TDE_DIR} requested but be/src/${WITH_TDE_DIR} is missing; skip TDE plugin build"
     WITH_TDE_DIR=''
@@ -159,11 +154,6 @@ fi
 
 if [[ -z "${WITH_TLS_DIR}" ]]; then
     WITH_TLS_DIR=''
-fi
-
-if [[ -n "${WITH_TLS_DIR}" && "${WITH_TLS_DIR}" != "extra/tls" ]]; then
-    echo "Unsupported WITH_TLS_DIR=${WITH_TLS_DIR}; only extra/tls is supported"
-    exit 1
 fi
 
 if [[ -n "${WITH_TLS_DIR}" && ! -d "${DORIS_HOME}/be/src/${WITH_TLS_DIR}" ]]; then
