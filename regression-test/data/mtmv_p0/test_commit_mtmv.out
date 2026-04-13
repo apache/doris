@@ -5,7 +5,7 @@
 3	2017-03-15	3
 
 -- !task1 --
-{"triggerMode":"COMMIT","partitions":[],"isComplete":false}
+{"triggerMode":"COMMIT","partitions":[],"isComplete":false,"refreshMode":"AUTO"}
 
 -- !mv2 --
 1	2017-01-15	1
@@ -13,7 +13,7 @@
 3	2017-03-15	3
 
 -- !task2 --
-{"triggerMode":"COMMIT","partitions":[],"isComplete":false}
+{"triggerMode":"COMMIT","partitions":[],"isComplete":false,"refreshMode":"AUTO"}
 
 -- !mv1_pause --
 1	2017-01-15	1
@@ -65,13 +65,13 @@
 1	1	60
 
 -- !task_sag --
-{"triggerMode":"COMMIT","partitions":[],"isComplete":false}
+{"triggerMode":"COMMIT","partitions":[],"isComplete":false,"refreshMode":"AUTO"}
 
 -- !mv_sag1 --
 1	1	60
 
 -- !task_sag1 --
-{"triggerMode":"COMMIT","partitions":[],"isComplete":false}
+{"triggerMode":"COMMIT","partitions":[],"isComplete":false,"refreshMode":"AUTO"}
 
 -- !mv_sag2 --
 1	1	60
@@ -79,5 +79,5 @@
 2	1	70
 
 -- !task_sag2 --
-{"triggerMode":"COMMIT","partitions":[],"isComplete":false}
+{"triggerMode":"COMMIT","partitions":[],"isComplete":false,"refreshMode":"AUTO"}
 
