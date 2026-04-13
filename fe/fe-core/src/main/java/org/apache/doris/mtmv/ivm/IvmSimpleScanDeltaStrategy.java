@@ -23,6 +23,8 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -51,9 +53,12 @@ import java.util.Optional;
  * Delta rewrite strategy for simple scan-only or project-scan MVs (no aggregate).
  *
  * <p>Extends {@link PlanVisitor} with return type {@link RewriteResult} that carries both
- * the rewritten plan and the propagated dml_factor Slot. The visitor always injects
- * {@code dml_factor = 1} at the OlapScan level and propagates it upward through Projects
- * and Filters. Unsupported node types cause an immediate {@link AnalysisException}.
+ * the rewritten plan and the propagated dml_factor Slot. The visitor injects
+ * {@code dml_factor} at the OlapScan level — either derived from the base table's
+ * {@code binlog_op} column ({@code IF(binlog_op = 0, 1, -1)}) when present,
+ * or as the literal
+ * {@code 1} (insert-only assumption) when absent — and propagates it upward through
+ * Projects and Filters. Unsupported node types cause an immediate {@link AnalysisException}.
  *
  * <p>Each instance is single-use: create a fresh instance per rewrite invocation.
  *
@@ -96,10 +101,17 @@ public class IvmSimpleScanDeltaStrategy extends PlanVisitor<IvmSimpleScanDeltaSt
                 "IVM delta rewrite does not support: " + plan.getClass().getSimpleName());
     }
 
-    /** Wraps scan with Project(scan_output + dml_factor=1). */
+    /**
+     * Wraps scan with Project(scan_output + dml_factor).
+     *
+     * <p>If the base table has a {@code binlog_op} column (following the delete-sign convention:
+     * 0 = insert, 1 = delete), dml_factor is derived as {@code IF(binlog_op = 0, 1, -1)}.
+     * Otherwise, falls back to the literal {@code dml_factor = 1} (insert-only assumption).
+     */
     @Override
     public RewriteResult visitLogicalOlapScan(LogicalOlapScan scan, Void ctx) {
-        Alias factorAlias = new Alias(new TinyIntLiteral((byte) 1), Column.IVM_DML_FACTOR_COL);
+        Expression factorExpr = buildDmlFactorExpr(scan);
+        Alias factorAlias = new Alias(factorExpr, Column.IVM_DML_FACTOR_COL);
         ImmutableList.Builder<NamedExpression> outputs = ImmutableList.builderWithExpectedSize(
                 scan.getOutput().size() + 1);
         scan.getOutput().forEach(slot -> outputs.add((NamedExpression) slot));
@@ -107,6 +119,24 @@ public class IvmSimpleScanDeltaStrategy extends PlanVisitor<IvmSimpleScanDeltaSt
         LogicalProject<?> project = new LogicalProject<>(outputs.build(), scan);
         Slot dmlFactorSlot = project.getOutput().get(project.getOutput().size() - 1);
         return new RewriteResult(project, dmlFactorSlot);
+    }
+
+    /**
+     * Builds the dml_factor expression for the given scan.
+     *
+     * <p>If the table contains a {@code binlog_op} column, returns
+     * {@code IF(binlog_op = 0, 1, -1)}.
+     * Otherwise, returns the literal {@code 1} (insert-only).
+     */
+    private Expression buildDmlFactorExpr(LogicalOlapScan scan) {
+        if (scan.getTable().getColumn(Column.BINLOG_OPERATION_COL) == null) {
+            return new TinyIntLiteral((byte) 1);
+        }
+        Slot opSlot = findSlotByName(scan.getOutput(), Column.BINLOG_OPERATION_COL);
+        return new If(
+                new EqualTo(opSlot, new TinyIntLiteral((byte) 0)),
+                new TinyIntLiteral((byte) 1),
+                new TinyIntLiteral((byte) -1));
     }
 
     /** Propagates dml_factor slot by appending it to the project output, unless already present. */

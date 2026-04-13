@@ -33,3 +33,9 @@
 3	30	30
 4	40	40
 
+-- !minmax_op_after_complete --
+10	30	3
+
+-- !minmax_op_after_recovery --
+10	35	5
+

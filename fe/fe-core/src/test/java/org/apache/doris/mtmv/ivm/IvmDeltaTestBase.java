@@ -83,6 +83,24 @@ abstract class IvmDeltaTestBase {
         return new LogicalOlapScan(PlanConstructor.getNextRelationId(), table, ImmutableList.of("test_db"));
     }
 
+    /**
+     * Builds a scan over a DUP_KEYS table that contains an additional {@code binlog_op}
+     * column (TinyInt). Schema: id (INT key), name (STRING key), binlog_op (TINYINT).
+     */
+    protected LogicalOlapScan buildScanWithOpColumn() {
+        List<Column> columns = ImmutableList.of(
+                new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
+                new Column("name", Type.STRING, true, AggregateType.NONE, "", ""),
+                new Column(Column.BINLOG_OPERATION_COL, Type.TINYINT, false, AggregateType.NONE, "0", ""));
+        OlapTable table = new OlapTable(1L, "t_op", columns,
+                KeysType.DUP_KEYS, new SinglePartitionInfo(),
+                new RandomDistributionInfo(3));
+        table.setIndexMeta(-1, "t_op", table.getFullSchema(),
+                0, 0, (short) 0, TStorageType.COLUMN, KeysType.DUP_KEYS);
+        table.setQualifiedDbName("test_db");
+        return new LogicalOlapScan(PlanConstructor.getNextRelationId(), table, ImmutableList.of("test_db"));
+    }
+
     protected LogicalResultSink<LogicalProject<LogicalOlapScan>> buildScanPlan(LogicalOlapScan scan) {
         ImmutableList<NamedExpression> exprs = ImmutableList.copyOf(scan.getOutput());
         LogicalProject<LogicalOlapScan> project = new LogicalProject<>(exprs, scan);
