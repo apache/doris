@@ -258,6 +258,8 @@ Status TransactionalHiveReader::on_after_init_reader(ReaderInitContext* /*ctx*/)
 
 // ============================================================================
 // on_before_read_block: expand ACID columns into block
+// TODO: Consider caching ACID column templates at init time to avoid repeated
+// create_column + map update on every batch. Requires a block template mechanism.
 // ============================================================================
 Status TransactionalHiveReader::on_before_read_block(Block* block) {
     for (const auto& i : TransactionalHive::READ_PARAMS) {

@@ -77,10 +77,6 @@ public:
                                                 io_ctx, state, meta_cache) {}
 
     void set_delete_rows() final {
-        LOG(INFO) << "[PosDeleteDebug] IcebergParquetReader::set_delete_rows: _iceberg_delete_rows="
-                  << (_iceberg_delete_rows
-                              ? "set(" + std::to_string(_iceberg_delete_rows->size()) + ")"
-                              : "null");
         // Call ParquetReader's set_delete_rows(const vector<int64_t>*)
         ParquetReader::set_delete_rows(_iceberg_delete_rows);
     }

@@ -829,13 +829,7 @@ Status ParquetReader::_do_get_next_block(Block* block, size_t* read_rows, bool* 
 
 RowGroupReader::PositionDeleteContext ParquetReader::_get_position_delete_ctx(
         const tparquet::RowGroup& row_group, const RowGroupReader::RowGroupIndex& row_group_index) {
-    LOG(INFO) << "[PosDeleteDebug] _get_position_delete_ctx: _delete_rows="
-              << (_delete_rows ? "set(" + std::to_string(_delete_rows->size()) + ")" : "null")
-              << " row_group.num_rows=" << row_group.num_rows
-              << " first_row=" << row_group_index.first_row;
     if (_delete_rows == nullptr) {
-        LOG(INFO) << "[PosDeleteDebug] _get_position_delete_ctx: NO delete rows, returning "
-                     "no-filter ctx";
         return RowGroupReader::PositionDeleteContext(row_group.num_rows, row_group_index.first_row);
     }
     const int64_t* delete_rows = &(*_delete_rows)[0];

@@ -53,10 +53,6 @@ Status SimpleEqualityDelete::filter_data_block(
 
     const auto& block_col_name = id_to_block_column_name.at(column_field_id);
     auto block_idx = col_name_to_block_idx->at(block_col_name);
-    LOG(INFO) << "[EqDeleteDebug] SimpleEqualityDelete::filter_data_block: field_id="
-              << column_field_id << ", block_col_name=" << block_col_name
-              << ", block_idx=" << block_idx << ", delete_block_rows=" << _delete_block->rows()
-              << ", data_block_rows=" << data_block->rows();
 
     auto column_and_type = data_block->get_by_position(block_idx);
 

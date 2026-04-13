@@ -45,7 +45,8 @@ public:
     ///                     and lifecycle management. Ownership is transferred.
     CountReader(int64_t total_rows, size_t batch_size,
                 std::unique_ptr<GenericReader> inner_reader = nullptr)
-            : _remaining_rows(total_rows),
+            : _total_rows(total_rows),
+              _remaining_rows(total_rows),
               _batch_size(batch_size),
               _inner_reader(std::move(inner_reader)) {
         set_push_down_agg_type(TPushAggOp::type::COUNT);
@@ -94,8 +95,9 @@ protected:
     }
 
 private:
-    int64_t _initial_total_rows() const { return _remaining_rows; }
+    int64_t _initial_total_rows() const { return _total_rows; }
 
+    const int64_t _total_rows;
     int64_t _remaining_rows;
     size_t _batch_size;
     std::unique_ptr<GenericReader> _inner_reader;

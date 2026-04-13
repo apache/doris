@@ -79,7 +79,11 @@ struct ReaderInitContext {
     const TFileRangeDesc* range = nullptr;
     TPushAggOp::type push_down_agg_type = TPushAggOp::type::NONE;
 
-    // ---- Output slots (filled by on_before_init_reader) ----
+    // ---- Output slots (populated by on_before_init_reader, consumed by _do_init_reader) ----
+    // column_names: the list of file columns to read. Populated by on_before_init_reader
+    // from column_descs (slot→name mapping). _do_init_reader uses this to configure the
+    // format-specific parsing engine. For standalone readers (column_descs==nullptr),
+    // callers populate column_names directly before calling init_reader.
     std::vector<std::string> column_names;
     std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node =
             TableSchemaChangeHelper::ConstNode::get_instance();
@@ -109,8 +113,6 @@ class GenericReader : public ProfileCollector {
 public:
     GenericReader() : _push_down_agg_type(TPushAggOp::type::NONE) {}
     void set_push_down_agg_type(TPushAggOp::type push_down_agg_type) {
-        DCHECK(!_reader_initialized)
-                << "set_push_down_agg_type must not be called after init_reader completes";
         _push_down_agg_type = push_down_agg_type;
     }
     TPushAggOp::type get_push_down_agg_type() const { return _push_down_agg_type; }
@@ -199,7 +201,6 @@ public:
             RETURN_IF_ERROR(on_after_init_reader(ctx));
         }
 
-        _reader_initialized = true;
         return Status::OK();
     }
 
@@ -257,7 +258,6 @@ protected:
     const size_t _MIN_BATCH_SIZE = 4064; // 4094 - 32(padding)
 
     TPushAggOp::type _push_down_agg_type {};
-    bool _reader_initialized = false;
 
 public:
     // Pass condition cache context to the reader for HIT/MISS tracking.

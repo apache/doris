@@ -120,9 +120,7 @@ protected:
     /// Fill Iceberg $row_id synthesized column. Registered as handler during init.
     Status _fill_iceberg_row_id(Block* block, size_t rows) {
         int row_id_pos = block->get_position_by_name(BeConsts::ICEBERG_ROWID_COL);
-        if (row_id_pos < 0) {
-            return Status::OK();
-        }
+        DORIS_CHECK(row_id_pos >= 0);
 
         // Lazy-init file info: only set when $row_id is actually needed.
         const auto& table_desc = this->get_scan_range().table_format_params.iceberg_params;
@@ -158,11 +156,7 @@ protected:
 
     Status _fill_row_lineage_row_id(Block* block, size_t rows) {
         int col_pos = block->get_position_by_name(ROW_LINEAGE_ROW_ID);
-        DCHECK(col_pos >= 0);
-        if (col_pos < 0) {
-            return Status::InternalError("Row lineage column {} not found in block",
-                                         ROW_LINEAGE_ROW_ID);
-        }
+        DORIS_CHECK(col_pos >= 0);
 
         if (_row_lineage_columns.first_row_id >= 0) {
             auto col = block->get_by_position(col_pos).column->assume_mutable();
@@ -183,11 +177,7 @@ protected:
 
     Status _fill_row_lineage_last_updated_sequence_number(Block* block, size_t rows) {
         int col_pos = block->get_position_by_name(ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER);
-        DCHECK(col_pos >= 0);
-        if (col_pos < 0) {
-            return Status::InternalError("Row lineage column {} not found in block",
-                                         ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER);
-        }
+        DORIS_CHECK(col_pos >= 0);
 
         if (_row_lineage_columns.last_updated_sequence_number >= 0) {
             auto col = block->get_by_position(col_pos).column->assume_mutable();
@@ -208,16 +198,6 @@ protected:
     // Called after reading a block: apply equality delete filter + shrink block
     Status on_after_read_block(Block* block, size_t* read_rows) override {
         if (!_equality_delete_impls.empty()) {
-            LOG(INFO) << "[EqDeleteDebug] on_after_read_block: block has " << block->rows()
-                      << " rows, columns: " << block->dump_names();
-            for (auto& [fid, name] : _id_to_block_column_name) {
-                LOG(INFO) << "[EqDeleteDebug] _id_to_block_column_name[" << fid << "] = " << name;
-            }
-            if (this->col_name_to_block_idx_ref()) {
-                for (auto& [name, idx] : *this->col_name_to_block_idx_ref()) {
-                    LOG(INFO) << "[EqDeleteDebug] col_name_to_block_idx[" << name << "] = " << idx;
-                }
-            }
             std::unique_ptr<IColumn::Filter> filter =
                     std::make_unique<IColumn::Filter>(block->rows(), 1);
             for (auto& equality_delete_impl : _equality_delete_impls) {
@@ -225,11 +205,6 @@ protected:
                         block, this->col_name_to_block_idx_ref(), _id_to_block_column_name,
                         *filter));
             }
-            size_t kept = 0;
-            for (size_t i = 0; i < filter->size(); i++) {
-                if ((*filter)[i]) kept++;
-            }
-            LOG(INFO) << "[EqDeleteDebug] after filter: kept " << kept << " of " << block->rows();
             Block::filter_block_internal(block, *filter, block->columns());
             *read_rows = block->rows();
         }
@@ -413,10 +388,6 @@ Status IcebergReaderMixin<BaseReader>::_init_row_filters() {
             deletion_vector_files.emplace_back(desc);
         }
     }
-    LOG(INFO) << "[IcebergDebug] _init_row_filters: total_delete_files="
-              << table_desc.delete_files.size() << ", position=" << position_delete_files.size()
-              << ", equality=" << equality_delete_files.size()
-              << ", dv=" << deletion_vector_files.size();
 
     if (!equality_delete_files.empty()) {
         RETURN_IF_ERROR(_equality_delete_base(equality_delete_files));
@@ -486,21 +457,11 @@ Status IcebergReaderMixin<BaseReader>::_equality_delete_base(
         std::unordered_map<std::string, uint32_t> delete_col_name_to_block_idx;
 
         if (auto* parquet_reader = typeid_cast<ParquetReader*>(delete_reader.get())) {
-            LOG(INFO) << "[EqDeleteDebug] step1: parquet delete reader cast OK";
             const FieldDescriptor* delete_field_desc = nullptr;
-            auto st1 = parquet_reader->get_file_metadata_schema(&delete_field_desc);
-            if (!st1.ok()) {
-                LOG(WARNING) << "[EqDeleteDebug] get_file_metadata_schema FAILED: " << st1;
-                return st1;
-            }
-            LOG(INFO) << "[EqDeleteDebug] step2: get_file_metadata_schema OK, fields="
-                      << delete_field_desc->get_fields_schema().size();
+            RETURN_IF_ERROR(parquet_reader->get_file_metadata_schema(&delete_field_desc));
             DCHECK(delete_field_desc != nullptr);
 
             for (const auto& delete_file_field : delete_field_desc->get_fields_schema()) {
-                LOG(INFO) << "[EqDeleteDebug] step3: field name=" << delete_file_field.name
-                          << ", field_id=" << delete_file_field.field_id << ", in_set="
-                          << read_column_field_ids_set.contains(delete_file_field.field_id);
                 if (delete_file_field.field_id == -1) [[unlikely]] {
                     return Status::DataQualityError(
                             "missing field id when reading equality delete file");
@@ -526,8 +487,6 @@ Status IcebergReaderMixin<BaseReader>::_equality_delete_base(
                             make_nullable(delete_file_field.data_type), delete_file_field.name);
                 }
             }
-            LOG(INFO) << "[EqDeleteDebug] step4: after loop, delete_col_names.size="
-                      << delete_col_names.size();
             for (uint32_t idx = 0; idx < delete_col_names.size(); ++idx) {
                 delete_col_name_to_block_idx[delete_col_names[idx]] = idx;
             }
@@ -540,10 +499,8 @@ Status IcebergReaderMixin<BaseReader>::_equality_delete_base(
             eq_delete_ctx.col_name_to_block_idx = &delete_col_name_to_block_idx;
             auto st2 = parquet_reader->init_reader(&eq_delete_ctx);
             if (!st2.ok()) {
-                LOG(WARNING) << "[EqDeleteDebug] _do_init_reader for delete reader FAILED: " << st2;
                 return st2;
             }
-            LOG(INFO) << "[EqDeleteDebug] step5: _do_init_reader OK";
         } else if (auto* orc_reader = typeid_cast<OrcReader*>(delete_reader.get())) {
             // For ORC: use get_parsed_schema with field_ids from delete_file
             // ORC field_ids come from the Thrift descriptor, not from ORC metadata
@@ -577,15 +534,6 @@ Status IcebergReaderMixin<BaseReader>::_equality_delete_base(
             return Status::InternalError("Unsupported format of delete file");
         }
 
-        LOG(INFO) << "[EqDeleteDebug] after init, delete_col_ids.size=" << delete_col_ids.size()
-                  << ", delete_col_names.size=" << delete_col_names.size();
-        for (size_t i = 0; i < delete_col_names.size(); i++) {
-            LOG(INFO) << "[EqDeleteDebug] delete_col[" << i << "]: name=" << delete_col_names[i]
-                      << (i < delete_col_ids.size()
-                                  ? ", field_id=" + std::to_string(delete_col_ids[i])
-                                  : "");
-        }
-
         if (!_equality_delete_block_map.contains(delete_col_ids)) {
             _equality_delete_block_map.emplace(delete_col_ids, _equality_delete_blocks.size());
             Block block;
@@ -601,10 +549,8 @@ Status IcebergReaderMixin<BaseReader>::_equality_delete_base(
             size_t read_rows = 0;
             auto st = delete_reader->get_next_block(&tmp_block, &read_rows, &eof);
             if (!st.ok()) {
-                LOG(WARNING) << "[EqDeleteDebug] delete_reader->get_next_block failed: " << st;
                 return st;
             }
-            LOG(INFO) << "[EqDeleteDebug] read delete file: rows=" << read_rows << ", eof=" << eof;
             if (read_rows > 0) {
                 MutableBlock mutable_block(&eq_file_block);
                 RETURN_IF_ERROR(mutable_block.merge(tmp_block));
@@ -619,8 +565,6 @@ Status IcebergReaderMixin<BaseReader>::_equality_delete_base(
         RETURN_IF_ERROR(equality_delete_impl->init(this->get_profile()));
         _equality_delete_impls.emplace_back(std::move(equality_delete_impl));
     }
-    LOG(INFO) << "[EqDeleteDebug] _equality_delete_base done: impls="
-              << _equality_delete_impls.size() << ", expand_cols=" << _expand_col_names.size();
     return Status::OK();
 }
 
@@ -694,17 +638,10 @@ Status IcebergReaderMixin<BaseReader>::_position_delete_base(
                     return position_delete;
                 });
         if (create_status.is<ErrorCode::END_OF_FILE>()) {
-            LOG(INFO) << "[IcebergDebug] _position_delete_base: END_OF_FILE for "
-                      << delete_file.path << ", skipping";
             continue;
         } else if (!create_status.ok()) {
-            LOG(INFO) << "[IcebergDebug] _position_delete_base: ERROR reading " << delete_file.path
-                      << ": " << create_status.to_string();
             return create_status;
         }
-        LOG(INFO) << "[IcebergDebug] _position_delete_base: cache returned, "
-                  << "delete_file_cache=" << (void*)delete_file_cache
-                  << ", delete_file=" << delete_file.path;
 
         DeleteFile& delete_file_map = *((DeleteFile*)delete_file_cache);
         auto get_value = [&](const auto& v) {
@@ -715,15 +652,6 @@ Status IcebergReaderMixin<BaseReader>::_position_delete_base(
             }
         };
         delete_file_map.if_contains(data_file_path, get_value);
-        LOG(INFO) << "[IcebergDebug] _position_delete_base: data_file_path=" << data_file_path
-                  << ", delete_file=" << delete_file.path
-                  << ", num_delete_rows_so_far=" << num_delete_rows
-                  << ", delete_file_map_size=" << delete_file_map.size();
-        // Log all keys in the delete file map for debugging
-        delete_file_map.for_each([&](const auto& kv) {
-            LOG(INFO) << "[IcebergDebug] _position_delete_base: map_key=" << kv.first
-                      << ", rows=" << kv.second->size();
-        });
     }
     if (num_delete_rows > 0) {
         SCOPED_TIMER(_iceberg_profile.delete_rows_sort_time);
@@ -736,9 +664,6 @@ Status IcebergReaderMixin<BaseReader>::_position_delete_base(
                 });
         set_delete_rows();
         COUNTER_UPDATE(_iceberg_profile.num_delete_rows, num_delete_rows);
-    } else {
-        LOG(INFO) << "[IcebergDebug] _position_delete_base: NO delete rows matched for "
-                  << data_file_path;
     }
     return Status::OK();
 }

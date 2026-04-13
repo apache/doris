@@ -301,14 +301,6 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
     }
     _expand_col_names = std::move(new_expand_col_names);
 
-    // Debug logging
-    for (const auto& name : _expand_col_names) {
-        LOG(INFO) << "[EqDeleteDebug] final expand col: " << name;
-    }
-    for (auto& [fid, name] : _id_to_block_column_name) {
-        LOG(INFO) << "[EqDeleteDebug] final _id_to_block_column_name[" << fid << "] = " << name;
-    }
-
     // Enable group filtering for Iceberg
     _filter_groups = true;
 
