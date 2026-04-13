@@ -89,6 +89,7 @@ void SpillableOperatorTestHelper::SetUp() {
     runtime_state->set_desc_tbl(desc_tbl);
 
     auto spill_data_dir = std::make_unique<SpillDataDir>("./ut_dir/spill_test", 1024L * 1024 * 4);
+    spill_data_dir_ptr = spill_data_dir.get();
     st = io::global_local_filesystem()->create_directory(spill_data_dir->path(), false);
     EXPECT_TRUE(st.ok()) << "create directory: " << spill_data_dir->path()
                          << " failed: " << st.to_string();

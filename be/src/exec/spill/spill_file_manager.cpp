@@ -121,7 +121,7 @@ std::vector<SpillDataDir*> SpillFileManager::_get_stores_for_spill(
     std::vector<std::pair<SpillDataDir*, double>> stores_with_usage;
     for (auto& [_, store] : _spill_store_map) {
         if (store->storage_medium() == storage_medium && !store->reach_capacity_limit(0)) {
-            stores_with_usage.emplace_back(store.get(), store->_get_disk_usage(0));
+            stores_with_usage.emplace_back(store.get(), store->get_disk_usage(0));
         }
     }
     if (stores_with_usage.empty()) {

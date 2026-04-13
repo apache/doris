@@ -22,6 +22,10 @@
 #include <limits>
 #include <memory>
 #include <unordered_set>
+#include <atomic>
+#include <chrono>
+#include <thread>
+#include <numeric>
 
 #include "common/config.h"
 #include "core/block/block.h"
@@ -1194,6 +1198,73 @@ TEST_F(SpillSortSourceOperatorTest, EndToEndSinkAndSource) {
     ASSERT_TRUE(st.ok());
     st = source_operator->close(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok());
+}
+
+TEST_F(SpillSortSourceOperatorTest, SpillDataDirThreadSafety) {
+    // Test the thread safety of get_disk_usage and update_capacity (Bug 1)
+    std::atomic<bool> stop {false};
+    
+    // Thread 1: Keep calling update_capacity
+    std::thread t1([&]() {
+        while (!stop) {
+            auto st = _helper.spill_data_dir_ptr->update_capacity();
+            EXPECT_TRUE(st.ok());
+            std::this_thread::yield();
+        }
+    });
+
+    // Thread 2: Keep calling get_disk_usage
+    std::thread t2([&]() {
+        while (!stop) {
+            double usage = _helper.spill_data_dir_ptr->get_disk_usage(1024);
+            EXPECT_GE(usage, 0.0);
+            EXPECT_LE(usage, 1.0);
+            std::this_thread::yield();
+        }
+    });
+
+    // Let them run concurrently for a short while
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    stop = true;
+    t1.join();
+    t2.join();
+}
+
+TEST_F(SpillSortSourceOperatorTest, SpillWriterMemoryTracking) {
+    // Test the accuracy of memory tracking in SpillWriter (Bug 2)
+    SpillStreamSPtr spill_stream;
+    auto st = ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
+            _helper.runtime_state.get(), spill_stream,
+            print_id(_helper.runtime_state->query_id()), "SpillWriterTest",
+            0, std::numeric_limits<int32_t>::max(),
+            std::numeric_limits<int32_t>::max(), _helper.operator_profile.get());
+    ASSERT_TRUE(st.ok()) << "register_spill_stream failed: " << st.to_string();
+
+    auto* memory_used_counter = _helper.common_profile->get_counter("MemoryUsage");
+    ASSERT_TRUE(memory_used_counter != nullptr);
+    
+    auto* hw_counter = static_cast<RuntimeProfile::HighWaterMarkCounter*>(memory_used_counter);
+    int64_t initial_memory = hw_counter->current_value();
+
+    std::vector<int32_t> data(1000);
+    std::iota(data.begin(), data.end(), 0);
+    auto block = ColumnHelper::create_block<DataTypeInt32>(data);
+
+    // After spill_block, the memory usage should return to initial_memory
+    // because the Defer block should have decremented it.
+    st = spill_stream->spill_block(_helper.runtime_state.get(), block, false);
+    ASSERT_TRUE(st.ok());
+    
+    int64_t after_write_memory = hw_counter->current_value();
+    ASSERT_EQ(after_write_memory, initial_memory) 
+        << "Memory should be properly decremented after spill_block";
+        
+    // Also verify that the peak memory actually increased during the write
+    int64_t peak_memory = hw_counter->value();
+    ASSERT_GT(peak_memory, initial_memory) 
+        << "Peak memory should be greater than initial memory, proving it was incremented";
+
+    spill_stream->gc();
 }
 
 } // namespace doris
