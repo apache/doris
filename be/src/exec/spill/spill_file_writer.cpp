@@ -238,8 +238,7 @@ Status SpillFileWriter::_write_internal(const Block& block,
                 _data_dir->update_spill_data_usage(buff_size);
                 ExecEnv::GetInstance()->spill_file_mgr()->update_spill_write_bytes(buff_size);
 
-                _part_max_sub_block_size =
-                        std::max(_part_max_sub_block_size, (size_t)buff_size);
+                _part_max_sub_block_size = std::max(_part_max_sub_block_size, (size_t)buff_size);
 
                 _part_meta.append((const char*)&_part_written_bytes, sizeof(size_t));
                 COUNTER_UPDATE(_write_file_total_size, buff_size);

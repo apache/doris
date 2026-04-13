@@ -19,13 +19,13 @@
 
 #include <gtest/gtest.h>
 
-#include <limits>
-#include <memory>
-#include <unordered_set>
 #include <atomic>
 #include <chrono>
-#include <thread>
+#include <limits>
+#include <memory>
 #include <numeric>
+#include <thread>
+#include <unordered_set>
 
 #include "common/config.h"
 #include "core/block/block.h"
@@ -1203,7 +1203,7 @@ TEST_F(SpillSortSourceOperatorTest, EndToEndSinkAndSource) {
 TEST_F(SpillSortSourceOperatorTest, SpillDataDirThreadSafety) {
     // Test the thread safety of get_disk_usage and update_capacity (Bug 1)
     std::atomic<bool> stop {false};
-    
+
     // Thread 1: Keep calling update_capacity
     std::thread t1([&]() {
         while (!stop) {
@@ -1234,15 +1234,14 @@ TEST_F(SpillSortSourceOperatorTest, SpillWriterMemoryTracking) {
     // Test the accuracy of memory tracking in SpillWriter (Bug 2)
     SpillStreamSPtr spill_stream;
     auto st = ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
-            _helper.runtime_state.get(), spill_stream,
-            print_id(_helper.runtime_state->query_id()), "SpillWriterTest",
-            0, std::numeric_limits<int32_t>::max(),
+            _helper.runtime_state.get(), spill_stream, print_id(_helper.runtime_state->query_id()),
+            "SpillWriterTest", 0, std::numeric_limits<int32_t>::max(),
             std::numeric_limits<int32_t>::max(), _helper.operator_profile.get());
     ASSERT_TRUE(st.ok()) << "register_spill_stream failed: " << st.to_string();
 
     auto* memory_used_counter = _helper.common_profile->get_counter("MemoryUsage");
     ASSERT_TRUE(memory_used_counter != nullptr);
-    
+
     auto* hw_counter = static_cast<RuntimeProfile::HighWaterMarkCounter*>(memory_used_counter);
     int64_t initial_memory = hw_counter->current_value();
 
@@ -1254,15 +1253,15 @@ TEST_F(SpillSortSourceOperatorTest, SpillWriterMemoryTracking) {
     // because the Defer block should have decremented it.
     st = spill_stream->spill_block(_helper.runtime_state.get(), block, false);
     ASSERT_TRUE(st.ok());
-    
+
     int64_t after_write_memory = hw_counter->current_value();
-    ASSERT_EQ(after_write_memory, initial_memory) 
-        << "Memory should be properly decremented after spill_block";
-        
+    ASSERT_EQ(after_write_memory, initial_memory)
+            << "Memory should be properly decremented after spill_block";
+
     // Also verify that the peak memory actually increased during the write
     int64_t peak_memory = hw_counter->value();
-    ASSERT_GT(peak_memory, initial_memory) 
-        << "Peak memory should be greater than initial memory, proving it was incremented";
+    ASSERT_GT(peak_memory, initial_memory)
+            << "Peak memory should be greater than initial memory, proving it was incremented";
 
     spill_stream->gc();
 }
