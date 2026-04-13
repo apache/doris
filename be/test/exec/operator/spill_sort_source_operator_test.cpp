@@ -1231,13 +1231,14 @@ TEST_F(SpillSortSourceOperatorTest, SpillDataDirThreadSafety) {
 }
 
 TEST_F(SpillSortSourceOperatorTest, SpillWriterMemoryTracking) {
-    // Test the accuracy of memory tracking in SpillWriter (Bug 2)
-    SpillStreamSPtr spill_stream;
-    auto st = ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
-            _helper.runtime_state.get(), spill_stream, print_id(_helper.runtime_state->query_id()),
-            "SpillWriterTest", 0, std::numeric_limits<int32_t>::max(),
-            std::numeric_limits<int32_t>::max(), _helper.operator_profile.get());
-    ASSERT_TRUE(st.ok()) << "register_spill_stream failed: " << st.to_string();
+    // Test the accuracy of memory tracking in SpillFileWriter (Bug 2)
+    SpillFileSPtr spill_file;
+    auto st = ExecEnv::GetInstance()->spill_file_mgr()->create_spill_file("SpillWriterTest", spill_file);
+    ASSERT_TRUE(st.ok()) << "create_spill_file failed: " << st.to_string();
+
+    SpillFileWriterSPtr writer;
+    st = spill_file->create_writer(_helper.runtime_state.get(), _helper.operator_profile.get(), writer);
+    ASSERT_TRUE(st.ok());
 
     auto* memory_used_counter = _helper.common_profile->get_counter("MemoryUsage");
     ASSERT_TRUE(memory_used_counter != nullptr);
