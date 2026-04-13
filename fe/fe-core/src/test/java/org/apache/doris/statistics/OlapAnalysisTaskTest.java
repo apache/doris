@@ -759,43 +759,26 @@ public class OlapAnalysisTaskTest {
     }
 
     @Test
-    public void testDoFullHotValue(@Mocked CatalogIf catalogIf, @Mocked DatabaseIf databaseIf,
-            @Mocked OlapTable tableIf) throws Exception {
+    public void testDoFullHotValue() throws Exception {
+        CatalogIf catalogIf = Mockito.mock(CatalogIf.class);
+        DatabaseIf databaseIf = Mockito.mock(DatabaseIf.class);
+        OlapTable tableIf = Mockito.mock(OlapTable.class);
+        Mockito.when(tableIf.getId()).thenReturn(30001L);
+        Mockito.when(tableIf.getName()).thenReturn("testTbl");
+        Mockito.when(catalogIf.getId()).thenReturn(10001L);
+        Mockito.when(catalogIf.getName()).thenReturn("catalogName");
+        Mockito.when(databaseIf.getId()).thenReturn(20001L);
+        Mockito.when(databaseIf.getFullName()).thenReturn("testDb");
 
-        new Expectations() {
-            {
-                tableIf.getId();
-                result = 30001;
-                tableIf.getName();
-                result = "testTbl";
-                catalogIf.getId();
-                result = 10001;
-                catalogIf.getName();
-                result = "catalogName";
-                databaseIf.getId();
-                result = 20001;
-                databaseIf.getFullName();
-                result = "testDb";
-            }
-        };
+        try (MockedStatic<StatisticsUtil> mockedStatisticsUtil = Mockito.mockStatic(
+                StatisticsUtil.class, Mockito.CALLS_REAL_METHODS);
+                MockedStatic<SessionVariable> mockedSessionVariable = Mockito.mockStatic(SessionVariable.class)) {
+            mockedStatisticsUtil.when(StatisticsUtil::enablePartitionAnalyze).thenReturn(false);
+            mockedSessionVariable.when(SessionVariable::getHotValueCollectCount).thenReturn(10);
 
-        new MockUp<StatisticsUtil>() {
-            @Mock
-            public boolean enablePartitionAnalyze() {
-                return false;
-            }
-        };
-
-        new MockUp<SessionVariable>() {
-            @Mock
-            public int getHotValueCollectCount() {
-                return 10;
-            }
-        };
-
-        new MockUp<OlapAnalysisTask>() {
-            @Mock
-            public void runQuery(String sql) {
+            OlapAnalysisTask task = Mockito.spy(new OlapAnalysisTask());
+            Mockito.doAnswer(invocation -> {
+                String sql = invocation.getArgument(0);
                 Assertions.assertTrue(sql.startsWith("WITH cte1 AS (SELECT `testCol` "
                         + "FROM `catalogName`.`testDb`.`testTbl` "), sql);
                 Assertions.assertTrue(sql.contains("cte3 AS (SELECT GROUP_CONCAT"), sql);
@@ -803,76 +786,59 @@ public class OlapAnalysisTaskTest {
                 Assertions.assertTrue(sql.contains("LIMIT 10"), sql);
                 Assertions.assertTrue(sql.contains("CROSS JOIN cte3"), sql);
                 Assertions.assertFalse(sql.contains("null as `hot_value`"), sql);
-            }
-        };
+                return null;
+            }).when(task).runQuery(Mockito.anyString());
 
-        OlapAnalysisTask task = new OlapAnalysisTask();
-        task.col = new Column("testCol", Type.fromPrimitiveType(PrimitiveType.INT),
-            true, null, null, null);
-        task.tbl = tableIf;
-        AnalysisInfoBuilder builder = new AnalysisInfoBuilder();
-        builder.setJobType(AnalysisInfo.JobType.MANUAL);
-        builder.setColName("testCol");
-        task.info = builder.build();
-        task.catalog = catalogIf;
-        task.db = databaseIf;
-        task.doFull();
+            task.col = new Column("testCol", Type.fromPrimitiveType(PrimitiveType.INT),
+                true, null, null, null);
+            task.tbl = tableIf;
+            AnalysisInfoBuilder builder = new AnalysisInfoBuilder();
+            builder.setJobType(AnalysisInfo.JobType.MANUAL);
+            builder.setColName("testCol");
+            task.info = builder.build();
+            task.catalog = catalogIf;
+            task.db = databaseIf;
+            task.doFull();
+        }
     }
 
     @Test
-    public void testDoFullHotValueStringColumn(@Mocked CatalogIf catalogIf, @Mocked DatabaseIf databaseIf,
-            @Mocked OlapTable tableIf) throws Exception {
+    public void testDoFullHotValueStringColumn() throws Exception {
+        CatalogIf catalogIf = Mockito.mock(CatalogIf.class);
+        DatabaseIf databaseIf = Mockito.mock(DatabaseIf.class);
+        OlapTable tableIf = Mockito.mock(OlapTable.class);
+        Mockito.when(tableIf.getId()).thenReturn(30001L);
+        Mockito.when(tableIf.getName()).thenReturn("testTbl");
+        Mockito.when(catalogIf.getId()).thenReturn(10001L);
+        Mockito.when(catalogIf.getName()).thenReturn("catalogName");
+        Mockito.when(databaseIf.getId()).thenReturn(20001L);
+        Mockito.when(databaseIf.getFullName()).thenReturn("testDb");
 
-        new Expectations() {
-            {
-                tableIf.getId();
-                result = 30001;
-                tableIf.getName();
-                result = "testTbl";
-                catalogIf.getId();
-                result = 10001;
-                catalogIf.getName();
-                result = "catalogName";
-                databaseIf.getId();
-                result = 20001;
-                databaseIf.getFullName();
-                result = "testDb";
-            }
-        };
+        try (MockedStatic<StatisticsUtil> mockedStatisticsUtil = Mockito.mockStatic(
+                StatisticsUtil.class, Mockito.CALLS_REAL_METHODS);
+                MockedStatic<SessionVariable> mockedSessionVariable = Mockito.mockStatic(SessionVariable.class)) {
+            mockedStatisticsUtil.when(StatisticsUtil::enablePartitionAnalyze).thenReturn(false);
+            mockedSessionVariable.when(SessionVariable::getHotValueCollectCount).thenReturn(10);
 
-        new MockUp<StatisticsUtil>() {
-            @Mock
-            public boolean enablePartitionAnalyze() {
-                return false;
-            }
-        };
-
-        new MockUp<SessionVariable>() {
-            @Mock
-            public int getHotValueCollectCount() {
-                return 10;
-            }
-        };
-
-        new MockUp<OlapAnalysisTask>() {
-            @Mock
-            public void runQuery(String sql) {
+            OlapAnalysisTask task = Mockito.spy(new OlapAnalysisTask());
+            Mockito.doAnswer(invocation -> {
+                String sql = invocation.getArgument(0);
                 Assertions.assertTrue(sql.contains(
                         "xxhash_64(SUBSTRING(CAST(`strCol` AS STRING), 1, 1024)) as `hash_value`"), sql);
                 Assertions.assertTrue(sql.contains("MAX(`strCol`) as `column_key`"), sql);
-            }
-        };
+                return null;
+            }).when(task).runQuery(Mockito.anyString());
 
-        OlapAnalysisTask task = new OlapAnalysisTask();
-        task.col = new Column("strCol", Type.fromPrimitiveType(PrimitiveType.STRING),
-            true, null, null, null);
-        task.tbl = tableIf;
-        AnalysisInfoBuilder builder = new AnalysisInfoBuilder();
-        builder.setJobType(AnalysisInfo.JobType.MANUAL);
-        builder.setColName("strCol");
-        task.info = builder.build();
-        task.catalog = catalogIf;
-        task.db = databaseIf;
-        task.doFull();
+            task.col = new Column("strCol", Type.fromPrimitiveType(PrimitiveType.STRING),
+                true, null, null, null);
+            task.tbl = tableIf;
+            AnalysisInfoBuilder builder = new AnalysisInfoBuilder();
+            builder.setJobType(AnalysisInfo.JobType.MANUAL);
+            builder.setColName("strCol");
+            task.info = builder.build();
+            task.catalog = catalogIf;
+            task.db = databaseIf;
+            task.doFull();
+        }
     }
 }
