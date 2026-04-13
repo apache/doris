@@ -111,7 +111,12 @@ public final class HiveUtil {
 
     public static boolean isSplittable(FileSystem remoteFileSystem, String inputFormat,
             String location) throws UserException {
-        // All supported hive input format are splittable
+        // LZO files are not splittable (unless .lzo.index exists, but Doris does not support indexed split).
+        // Use contains("lzo") to cover LzoTextInputFormat, DeprecatedLzoTextInputFormat, and future variants.
+        if (inputFormat.toLowerCase().contains("lzo")) {
+            return false;
+        }
+        // All other supported hive input formats are splittable
         return HMSExternalTable.SUPPORTED_HIVE_FILE_FORMATS.contains(inputFormat);
     }
 

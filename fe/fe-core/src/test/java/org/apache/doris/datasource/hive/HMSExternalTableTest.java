@@ -87,6 +87,26 @@ public class HMSExternalTableTest {
         Assertions.assertEquals(TEST_VIEW_TEXT, table.getViewText());
     }
 
+    // -------------------------------------------------------------------------
+    // Tests for SUPPORTED_HIVE_FILE_FORMATS whitelist (LZO input formats)
+    // -------------------------------------------------------------------------
+
+    @Test
+    public void testSupportedFileFormats_ContainsLzoTextInputFormat() {
+        Assertions.assertTrue(
+                HMSExternalTable.SUPPORTED_HIVE_FILE_FORMATS.contains(
+                        "com.hadoop.compression.lzo.LzoTextInputFormat"),
+                "LzoTextInputFormat should be in the supported formats whitelist");
+    }
+
+    @Test
+    public void testSupportedFileFormats_ContainsDeprecatedLzoTextInputFormat() {
+        Assertions.assertTrue(
+                HMSExternalTable.SUPPORTED_HIVE_FILE_FORMATS.contains(
+                        "com.hadoop.mapred.DeprecatedLzoTextInputFormat"),
+                "DeprecatedLzoTextInputFormat should be in the supported formats whitelist");
+    }
+
     /**
      * Test implementation of HMSExternalTable that allows setting view texts
      * Uses parent's getViewText() implementation for actual testing
