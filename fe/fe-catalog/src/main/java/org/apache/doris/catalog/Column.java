@@ -62,6 +62,12 @@ public class Column implements GsonPostProcessable {
     public static final String IVM_AGG_COUNT_COL = "__DORIS_IVM_AGG_COUNT_COL__";
     public static final String IVM_DML_FACTOR_COL = "__DORIS_IVM_DML_FACTOR_COL__";
     public static final String IVM_DELTA_GROUP_COUNT_COL = "__DORIS_IVM_DELTA_GROUP_COUNT_COL__";
+    /**
+     * Name of the binlog operation column in the base table that indicates insert (0) vs delete (1).
+     * When present, IVM delta rewrite derives dml_factor from this column instead of using the
+     * hardcoded literal 1. Follows the same convention as {@link #DELETE_SIGN}: 0 = insert, 1 = delete.
+     */
+    public static final String BINLOG_OPERATION_COL = "binlog_op";
     public static final String ROW_STORE_COL = "__DORIS_ROW_STORE_COL__";
     public static final String VERSION_COL = "__DORIS_VERSION_COL__";
     public static final String SKIP_BITMAP_COL = "__DORIS_SKIP_BITMAP_COL__";

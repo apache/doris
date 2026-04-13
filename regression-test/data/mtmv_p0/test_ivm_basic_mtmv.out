@@ -25,3 +25,47 @@
 4	40	ddd
 5	50	eee
 
+-- !op_after_complete --
+1	10	aaa	0
+2	20	bbb	0
+3	30	ccc	1
+
+-- !op_after_incremental --
+1	10	aaa	0
+2	20	bbb	0
+4	40	ddd	0
+
+-- !op_after_restore --
+1	10	aaa	0
+2	20	bbb	0
+3	30	ccc	1
+4	40	ddd	0
+
+-- !op_after_upsert_incremental --
+1	10	aaa	0
+2	20	bbb	0
+3	30	ccc	0
+4	40	ddd	0
+
+-- !filter_after_complete --
+2	20
+3	30
+4	40
+
+-- !filter_after_incremental --
+2	20
+4	40
+5	50
+
+-- !filter_after_restore --
+2	20
+3	30
+4	40
+5	50
+
+-- !filter_after_upsert --
+2	20
+3	30
+4	40
+5	50
+
