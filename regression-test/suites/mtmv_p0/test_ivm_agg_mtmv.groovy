@@ -15,6 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.awaitility.Awaitility
+import static java.util.concurrent.TimeUnit.SECONDS
+
 suite("test_ivm_agg_mtmv") {
     sql """drop materialized view if exists test_ivm_agg_mtmv_mv;"""
     sql """drop table if exists test_ivm_agg_mtmv_base;"""
@@ -254,4 +257,122 @@ suite("test_ivm_agg_mtmv") {
     order_qt_minmax_after_final_complete """
         SELECT k1, min_v1, max_v1 FROM test_ivm_agg_mtmv_minmax_mv ORDER BY k1
     """
+
+    // =========================================================
+    // Part 4: Agg MV with MIN + binlog_op=delete hitting MIN boundary
+    //         → INCREMENTAL should fail (assert_true guard), then COMPLETE recovers
+    // =========================================================
+    // When an INCREMENTAL refresh encounters a delete (binlog_op=1) whose value equals
+    // the current MIN, the assert_true guard fires:
+    //   assert_true(deltaDelMin IS NULL OR old_min IS NULL OR deltaDelMin > old_min)
+    // Because deltaDelMin == old_min, the guard fails and the execution throws an exception.
+    // Since we use `REFRESH ... INCREMENTAL` (explicit), the task does NOT fall back to
+    // COMPLETE — it fails with status FAILED. We verify this, then run COMPLETE to recover.
+
+    sql """drop materialized view if exists test_ivm_agg_mtmv_minmax_op_mv;"""
+    sql """drop table if exists test_ivm_agg_mtmv_minmax_op_base;"""
+
+    sql """
+        CREATE TABLE test_ivm_agg_mtmv_minmax_op_base (
+            k1 INT,
+            v1 INT,
+            binlog_op TINYINT
+        )
+        UNIQUE KEY(k1)
+        DISTRIBUTED BY HASH(k1) BUCKETS 2
+        PROPERTIES (
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "true"
+        );
+    """
+
+    // Initial data: group by v1 ranges via k1 grouping
+    // k1=1 (v1=10, op=0), k1=2 (v1=20, op=0), k1=3 (v1=30, op=0)
+    sql """
+        INSERT INTO test_ivm_agg_mtmv_minmax_op_base VALUES
+            (1, 10, 0),
+            (2, 20, 0),
+            (3, 30, 0);
+    """
+
+    // Scalar agg MV with MIN/MAX (no GROUP BY) — the single group makes boundary detection simple
+    sql """
+        CREATE MATERIALIZED VIEW test_ivm_agg_mtmv_minmax_op_mv
+        BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES (
+            'replication_num' = '1'
+        )
+        AS SELECT MIN(v1) AS min_v1, MAX(v1) AS max_v1, COUNT(*) AS cnt
+           FROM test_ivm_agg_mtmv_minmax_op_base;
+    """
+
+    def minmaxOpMvInfos = sql """select State from mv_infos('database'='${context.dbName}') where Name = 'test_ivm_agg_mtmv_minmax_op_mv'"""
+    assertTrue(minmaxOpMvInfos.toString().contains("INIT"))
+
+    // Step 1: COMPLETE refresh — min=10, max=30, cnt=3
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_minmax_op_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_minmax_op_mv")
+
+    order_qt_minmax_op_after_complete """
+        SELECT min_v1, max_v1, cnt FROM test_ivm_agg_mtmv_minmax_op_mv
+    """
+
+    // Step 2: Safe INCREMENTAL — insert a new row (op=0) that does NOT touch MIN boundary
+    // After this, mock delta reads all 4 rows (all op=0), dml_factor=1 for all → no deletes
+    sql """INSERT INTO test_ivm_agg_mtmv_minmax_op_base VALUES (4, 25, 0);"""
+
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_minmax_op_mv INCREMENTAL"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_minmax_op_mv")
+
+    // Step 3: Now upsert k1=1 to binlog_op=1 (mark the MIN value v1=10 as deleted),
+    // and insert a dirty row to ensure the partition is stale for INCREMENTAL.
+    // The mock delta will read all rows. k1=1 has op=1 → dml_factor=-1,
+    // and deleteOnlyExpr picks up v1=10. Since old_min=10 and deltaDelMin=10,
+    // the guard (deltaDelMin > old_min) is false → assert_true fires → task FAILS.
+    sql """INSERT INTO test_ivm_agg_mtmv_minmax_op_base VALUES (1, 10, 1);"""
+
+    // Dirty the partition to ensure INCREMENTAL actually runs
+    sql """INSERT INTO test_ivm_agg_mtmv_minmax_op_base VALUES (5, 35, 0);"""
+
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_minmax_op_mv INCREMENTAL"""
+
+    // Wait for the task to reach a terminal state (expected FAILED)
+    def showTasksSql = """
+        select TaskId, Status, ErrorMsg from tasks('type'='mv')
+        where MvDatabaseName = '${context.dbName}' and MvName = 'test_ivm_agg_mtmv_minmax_op_mv'
+        order by CreateTime DESC limit 1
+    """
+    def taskResult
+    Awaitility.await().atMost(300, SECONDS).pollInterval(2, SECONDS).until({
+        taskResult = sql(showTasksSql)
+        if (taskResult.isEmpty()) return false
+        def st = taskResult[0][1].toString()
+        return st != 'PENDING' && st != 'RUNNING'
+    })
+    def taskStatus = taskResult[0][1].toString()
+    logger.info("MIN boundary delete INCREMENTAL task status: " + taskStatus
+            + ", error: " + taskResult[0][2])
+    // The task should be FAILED because assert_true guard detected MIN boundary deletion
+    assertTrue(taskStatus == "FAILED",
+            "Expected INCREMENTAL to fail when deleting MIN value, but got: " + taskStatus)
+    def errorMsg = taskResult[0][2].toString()
+    assertTrue(errorMsg.contains("IVM") || errorMsg.contains("assert_true") || errorMsg.contains("fallback"),
+            "Error should mention IVM/assert_true/fallback but got: " + errorMsg)
+
+    // Step 4: COMPLETE refresh to recover — now k1=1(op=1) is physically present,
+    // and k1=2(v1=20), k1=3(v1=30), k1=4(v1=25), k1=5(v1=35) all have op=0.
+    // COMPLETE ignores binlog_op semantics, so min=10, max=35, cnt=5
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_minmax_op_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_minmax_op_mv")
+
+    order_qt_minmax_op_after_recovery """
+        SELECT min_v1, max_v1, cnt FROM test_ivm_agg_mtmv_minmax_op_mv
+    """
+
+    // Step 5: Fix the data — upsert k1=1 back to op=0, then safe INCREMENTAL should succeed
+    sql """INSERT INTO test_ivm_agg_mtmv_minmax_op_base VALUES (1, 10, 0);"""
+
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_minmax_op_mv INCREMENTAL"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_minmax_op_mv")
 }

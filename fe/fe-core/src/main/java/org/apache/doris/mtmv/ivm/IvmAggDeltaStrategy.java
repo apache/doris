@@ -514,8 +514,10 @@ public class IvmAggDeltaStrategy extends IvmSimpleScanDeltaStrategy {
                 // IF(old_min IS NULL, delta_min, IF(delta_min IS NULL, old_min, LEAST(old_min, delta_min)))
                 Expression newMinRaw = new If(new IsNull(oldMin), deltaMin,
                         new If(new IsNull(deltaMin), oldMin, new Least(oldMin, deltaMin)));
-                // Embed guard evaluation: IF(assert_true(guard), new_min, new_min)
-                Expression newMinGuarded = new If(delMinGuard, newMinRaw, newMinRaw);
+                // Embed guard evaluation: false branch uses NullLiteral to prevent IF constant folding.
+                // assert_true either returns TRUE (pass) or throws (fail), so false branch is unreachable.
+                Expression newMinGuarded = new If(delMinGuard, newMinRaw,
+                        new NullLiteral(newMinRaw.getDataType()));
                 finalByColumnName.put(target.getHiddenStateSlot("MIN").getName(), newMinGuarded);
                 finalByColumnName.put(target.getHiddenStateSlot("COUNT").getName(), newCount);
                 finalByColumnName.put(target.getVisibleSlot().getName(),
@@ -545,7 +547,9 @@ public class IvmAggDeltaStrategy extends IvmSimpleScanDeltaStrategy {
                 // new_max = GREATEST(old_max, delta_max) with NULL-safe logic
                 Expression newMaxRaw = new If(new IsNull(oldMax), deltaMax,
                         new If(new IsNull(deltaMax), oldMax, new Greatest(oldMax, deltaMax)));
-                Expression newMaxGuarded = new If(delMaxGuard, newMaxRaw, newMaxRaw);
+                // Embed guard evaluation: false branch uses NullLiteral to prevent IF constant folding.
+                Expression newMaxGuarded = new If(delMaxGuard, newMaxRaw,
+                        new NullLiteral(newMaxRaw.getDataType()));
                 finalByColumnName.put(target.getHiddenStateSlot("MAX").getName(), newMaxGuarded);
                 finalByColumnName.put(target.getHiddenStateSlot("COUNT").getName(), newCount);
                 finalByColumnName.put(target.getVisibleSlot().getName(),
@@ -599,10 +603,19 @@ public class IvmAggDeltaStrategy extends IvmSimpleScanDeltaStrategy {
         return new If(new IsNull(exprSlot), new TinyIntLiteral((byte) 0), dmlFactorSlot);
     }
 
-    /** Wraps expr in assert_true(expr >= 0, message); throws at runtime if violated. */
+    /**
+     * Wraps expr in assert_true(expr >= 0, message); throws at runtime if violated.
+     *
+     * <p>IMPORTANT: the false branch must differ from the true branch to prevent
+     * {@code FoldConstantRuleOnFE.visitIf} from collapsing {@code IF(cond, x, x)} into {@code x},
+     * which would silently discard the assert_true guard. Since assert_true either returns TRUE
+     * (condition satisfied) or throws (condition violated), the false branch is unreachable —
+     * we use a NullLiteral as a distinct, never-reached placeholder.
+     */
     private Expression assertNonNegative(Expression expr, String message) {
         return new If(new AssertTrue(new GreaterThanEqual(expr,
-                new BigIntLiteral(0)), new StringLiteral(message)), expr, expr);
+                new BigIntLiteral(0)), new StringLiteral(message)),
+                expr, new NullLiteral(expr.getDataType()));
     }
 
     /** Predicate: expr > 0. Used to guard visible value derivation. */
@@ -718,6 +731,6 @@ public class IvmAggDeltaStrategy extends IvmSimpleScanDeltaStrategy {
      * This column exists only in the delta sub-plan aggregate and is NOT stored in the MV.
      */
     private String transientDelHiddenName(AggTarget target, String suffix) {
-        return "__ivm_transient_" + target.getOrdinal() + "_" + suffix + "__";
+        return Column.IVM_HIDDEN_COLUMN_PREFIX + "TRANSIENT_" + target.getOrdinal() + "_" + suffix + "_COL__";
     }
 }
