@@ -139,6 +139,10 @@ class Suite implements GroovyInterceptable {
         return p
     }
 
+    String getPythonUdfRuntimeVersion() {
+        return getConf("pythonUdfRuntimeVersion", "3.8.10")
+    }
+
     void onSuccess(Closure callback) {
         successCallbacks.add(callback)
     }

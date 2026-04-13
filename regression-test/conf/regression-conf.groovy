@@ -328,4 +328,5 @@ hudiMinioSecretKey="minio123"
 
 icebergDlfRestCatalog="'type' = 'iceberg', 'warehouse' = 'new_dlf_iceberg_catalog', 'iceberg.catalog.type' = 'rest', 'iceberg.rest.uri' = 'http://cn-beijing-vpc.dlf.aliyuncs.com/iceberg', 'iceberg.rest.sigv4-enabled' = 'true', 'iceberg.rest.signing-name' = 'DlfNext', 'iceberg.rest.access-key-id' = 'ak', 'iceberg.rest.secret-access-key' = 'sk', 'iceberg.rest.signing-region' = 'cn-beijing', 'iceberg.rest.vended-credentials-enabled' = 'true', 'io-impl' = 'org.apache.iceberg.rest.DlfFileIO', 'fs.oss.support' = 'true'"
 
-pythonUdfRuntimeVersion = "3.12.11"
+// For python UDF test, set the runtime version of python, default: 3.8.10
+// pythonUdfRuntimeVersion = ""

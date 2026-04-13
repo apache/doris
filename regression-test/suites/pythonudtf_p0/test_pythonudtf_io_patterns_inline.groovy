@@ -19,7 +19,7 @@ suite("test_pythonudtf_io_patterns_inline") {
     // Test Python UDTF Input/Output Patterns
     // Testing different cardinality patterns: 1-to-1, 1-to-N, 1-to-0, N-to-M
     
-    def runtime_version = "3.8.10"
+    def runtime_version = getPythonUdfRuntimeVersion()
     
     try {
         // ========================================
@@ -33,7 +33,7 @@ suite("test_pythonudtf_io_patterns_inline") {
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "one_to_one",
-            "runtime_version" = "3.8.10"
+            "runtime_version" = "${runtime_version}"
         )
         AS \$\$
 def one_to_one(value):
@@ -77,7 +77,7 @@ def one_to_one(value):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "one_to_many",
-            "runtime_version" = "3.8.10"
+            "runtime_version" = "${runtime_version}"
         )
         AS \$\$
 def one_to_many(n):
@@ -122,7 +122,7 @@ def one_to_many(n):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "one_to_zero",
-            "runtime_version" = "3.8.10"
+            "runtime_version" = "${runtime_version}"
         )
         AS \$\$
 def one_to_zero(value):
@@ -167,7 +167,7 @@ def one_to_zero(value):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "one_to_variable",
-            "runtime_version" = "3.8.10"
+            "runtime_version" = "${runtime_version}"
         )
         AS \$\$
 def one_to_variable(text):
@@ -223,7 +223,7 @@ def one_to_variable(text):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "aggregate_pattern",
-            "runtime_version" = "3.8.10"
+            "runtime_version" = "${runtime_version}"
         )
         AS \$\$
 def aggregate_pattern(value):
@@ -275,7 +275,7 @@ def aggregate_pattern(value):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "explosive",
-            "runtime_version" = "3.8.10"
+            "runtime_version" = "${runtime_version}"
         )
         AS \$\$
 def explosive(all_rows, all_cols):
@@ -322,7 +322,7 @@ def explosive(all_rows, all_cols):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "conditional",
-            "runtime_version" = "3.8.10"
+            "runtime_version" = "${runtime_version}"
         )
         AS \$\$
 def conditional(value):
@@ -376,7 +376,7 @@ def conditional(value):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "all_or_nothing",
-            "runtime_version" = "3.8.10"
+            "runtime_version" = "${runtime_version}"
         )
         AS \$\$
 def all_or_nothing(text, min_length):
@@ -429,7 +429,7 @@ def all_or_nothing(text, min_length):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "empty_input",
-            "runtime_version" = "3.8.10"
+            "runtime_version" = "${runtime_version}"
         )
         AS \$\$
 def empty_input(value):
@@ -469,7 +469,7 @@ def empty_input(value):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "batch_process",
-            "runtime_version" = "3.8.10"
+            "runtime_version" = "${runtime_version}"
         )
         AS \$\$
 def batch_process(value):
