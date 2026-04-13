@@ -431,9 +431,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     protected List<SnapshotSplit> recalculateRemainingSplits(
             Map<String, Map<String, Map<String, String>>> chunkHighWatermarkMap,
             Map<String, List<SnapshotSplit>> snapshotSplits) {
-        if (this.finishedSplits == null) {
-            this.finishedSplits = new ArrayList<>();
-        }
+        this.finishedSplits = new ArrayList<>();
         for (Map.Entry<String, Map<String, Map<String, String>>> entry : chunkHighWatermarkMap.entrySet()) {
             String tableId = entry.getKey();
             Map<String, Map<String, String>> splitIdToHighWatermark = entry.getValue();
