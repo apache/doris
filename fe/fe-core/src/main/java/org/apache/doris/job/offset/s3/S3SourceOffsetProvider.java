@@ -196,10 +196,21 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
 
     @Override
     public void replayIfNeed(StreamingInsertJob job) {
+        // If currentOffset was already set by EditLog replay (replayOnCommitted -> updateOffset),
+        // it reflects the latest committed state and should not be overwritten by
+        // offsetProviderPersist which may be stale (e.g. txn replay runs after ALTER replay).
+        if (currentOffset != null) {
+            log.info("S3 offset for job {} already set by EditLog replay: endFile={}",
+                    job.getJobId(), currentOffset.getEndFile());
+            return;
+        }
+        // Only restore from offsetProviderPersist when currentOffset is null,
+        // which means recovery is from checkpoint image without subsequent EditLog replay.
         String persist = job.getOffsetProviderPersist();
         if (persist != null) {
             this.currentOffset = GsonUtils.GSON.fromJson(persist, S3Offset.class);
-            log.info("Restored S3 offset for job {}: endFile={}", job.getJobId(), currentOffset.getEndFile());
+            log.info("Restored S3 offset from checkpoint for job {}: endFile={}",
+                    job.getJobId(), currentOffset.getEndFile());
         }
     }
 
