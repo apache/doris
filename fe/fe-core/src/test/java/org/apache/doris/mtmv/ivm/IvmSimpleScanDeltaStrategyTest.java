@@ -23,6 +23,7 @@ import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -227,5 +228,63 @@ class IvmSimpleScanDeltaStrategyTest extends IvmDeltaTestBase {
         Assertions.assertEquals(Column.DELETE_SIGN, lastExpr.getName());
         Assertions.assertInstanceOf(Alias.class, lastExpr);
         Assertions.assertInstanceOf(If.class, ((Alias) lastExpr).child());
+    }
+
+    // ---- Tests for op-based dml_factor ----
+
+    @Test
+    void testRewritePlanWithoutOpColumnUsesLiteralOne() {
+        LogicalOlapScan scan = buildScan(); // table without op column
+        TestableIvmSimpleScanDeltaStrategy strategy = new TestableIvmSimpleScanDeltaStrategy();
+
+        IvmSimpleScanDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(scan);
+        // The injected project should have scan columns + dml_factor
+        LogicalProject<?> project = (LogicalProject<?>) result.plan;
+        NamedExpression factorExpr = project.getProjects().get(project.getProjects().size() - 1);
+        Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, factorExpr.getName());
+        Assertions.assertInstanceOf(Alias.class, factorExpr);
+        // Should be literal TinyIntLiteral(1) — not an IF expression
+        Assertions.assertInstanceOf(TinyIntLiteral.class, ((Alias) factorExpr).child());
+        Assertions.assertEquals((byte) 1, ((TinyIntLiteral) ((Alias) factorExpr).child()).getValue());
+    }
+
+    @Test
+    void testRewritePlanWithOpColumnUsesIfExpression() {
+        LogicalOlapScan scan = buildScanWithOpColumn(); // table WITH op column
+        TestableIvmSimpleScanDeltaStrategy strategy = new TestableIvmSimpleScanDeltaStrategy();
+
+        IvmSimpleScanDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(scan);
+        LogicalProject<?> project = (LogicalProject<?>) result.plan;
+        NamedExpression factorExpr = project.getProjects().get(project.getProjects().size() - 1);
+        Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, factorExpr.getName());
+        Assertions.assertInstanceOf(Alias.class, factorExpr);
+        // Should be IF(op = 0, 1, -1)
+        Expression ifExpr = ((Alias) factorExpr).child();
+        Assertions.assertInstanceOf(If.class, ifExpr);
+        If ifFunc = (If) ifExpr;
+        // Condition: EqualTo(opSlot, TinyIntLiteral(0))
+        Assertions.assertInstanceOf(EqualTo.class, ifFunc.getArgument(0));
+        // Then: TinyIntLiteral(1)
+        Assertions.assertInstanceOf(TinyIntLiteral.class, ifFunc.getArgument(1));
+        Assertions.assertEquals((byte) 1, ((TinyIntLiteral) ifFunc.getArgument(1)).getValue());
+        // Else: TinyIntLiteral(-1)
+        Assertions.assertInstanceOf(TinyIntLiteral.class, ifFunc.getArgument(2));
+        Assertions.assertEquals((byte) -1, ((TinyIntLiteral) ifFunc.getArgument(2)).getValue());
+    }
+
+    @Test
+    void testRewritePlanWithOpColumnDmlFactorSlotPropagates() {
+        LogicalOlapScan scan = buildScanWithOpColumn();
+        // Wrap in project + result sink (simulating normalized plan)
+        ImmutableList<NamedExpression> exprs = ImmutableList.copyOf(scan.getOutput());
+        LogicalProject<LogicalOlapScan> userProject = new LogicalProject<>(exprs, scan);
+        TestableIvmSimpleScanDeltaStrategy strategy = new TestableIvmSimpleScanDeltaStrategy();
+
+        IvmSimpleScanDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(userProject);
+        Assertions.assertNotNull(result.dmlFactorSlot);
+        Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, result.dmlFactorSlot.getName());
+        // The outer project should propagate dml_factor from the scan-level project
+        Assertions.assertTrue(
+                result.plan.getOutput().stream().anyMatch(s -> Column.IVM_DML_FACTOR_COL.equals(s.getName())));
     }
 }
