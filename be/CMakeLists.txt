@@ -154,18 +154,6 @@ message(STATUS "build task executor simulator: ${BUILD_TASK_EXECUTOR_SIMULATOR}"
 option(BUILD_FILE_CACHE_LRU_TOOL "ON for building file cache lru tool or OFF for not" OFF)
 message(STATUS "build file cache lru tool: ${BUILD_FILE_CACHE_LRU_TOOL}")
 
-if("${WITH_TDE_DIR}" STREQUAL "enterprise")
-    message(FATAL_ERROR "WITH_TDE_DIR=enterprise is no longer supported; use WITH_TDE_DIR=enterprise/tde")
-endif()
-
-if(NOT "${WITH_TDE_DIR}" STREQUAL "" AND NOT "${WITH_TDE_DIR}" STREQUAL "enterprise/tde")
-    message(FATAL_ERROR "Unsupported WITH_TDE_DIR=${WITH_TDE_DIR}; only enterprise/tde is supported")
-endif()
-
-if(NOT "${WITH_TLS_DIR}" STREQUAL "" AND NOT "${WITH_TLS_DIR}" STREQUAL "enterprise/tls")
-    message(FATAL_ERROR "Unsupported WITH_TLS_DIR=${WITH_TLS_DIR}; only enterprise/tls is supported")
-endif()
-
 option(ENABLE_PAIMON_CPP "Enable Paimon C++ integration" ON)
 set(PAIMON_HOME "" CACHE PATH "Paimon install prefix")
 

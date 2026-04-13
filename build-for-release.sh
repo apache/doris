@@ -102,13 +102,8 @@ if [[ -z ${VERSION} ]]; then
     usage
 fi
 
-if [[ -z "${WITH_TDE_DIR+x}" ]]; then
-    export WITH_TDE_DIR="enterprise/tde"
-fi
-
-if [[ -z "${WITH_TLS_DIR+x}" ]]; then
-    export WITH_TLS_DIR="enterprise/tls"
-fi
+export WITH_TDE_DIR="${WITH_TDE_DIR:-}"
+export WITH_TLS_DIR="${WITH_TLS_DIR:-}"
 
 echo "Get params:
     VERSION         -- ${VERSION}
