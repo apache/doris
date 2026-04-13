@@ -230,13 +230,21 @@ suite("test_ivm_agg_mtmv") {
         SELECT k1, min_v1, max_v1 FROM test_ivm_agg_mtmv_minmax_mv ORDER BY k1
     """
 
-    // Safe INCREMENTAL: upsert k1=1 with v1=5 (new min) and insert k1=4 (v1=40)
-    // Deleting min/max is NOT tested here; only inserts/upserts that don't remove current extreme.
+    // Safe INCREMENTAL: upsert k1=1 with v1=5 (new min) and insert k1=4 (v1=40).
+    // NOTE: The current IVM mock reads the full base table as delta (all rows have dml_factor=+1,
+    // i.e. no delete stream), so the assert_true guard for boundary deletion is never triggered.
+    // Boundary-deletion fallback can only be tested once real binlog-based delta streams are available.
     sql """INSERT INTO test_ivm_agg_mtmv_minmax_base VALUES (1, 5);"""
     sql """INSERT INTO test_ivm_agg_mtmv_minmax_base VALUES (4, 40);"""
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_minmax_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_minmax_mv")
+
+    // Verify INCREMENTAL refresh completed and produced queryable data (values may not be
+    // semantically correct due to the mock delta reading the full base table).
+    order_qt_minmax_after_incremental """
+        SELECT k1, min_v1, max_v1 FROM test_ivm_agg_mtmv_minmax_mv ORDER BY k1
+    """
 
     // Final COMPLETE refresh to get ground truth
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_minmax_mv COMPLETE"""
