@@ -28,7 +28,6 @@
 #include "util/simd/vstring_function.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class FunctionHammingDistance : public IFunction {
 public:
@@ -342,5 +341,5 @@ void register_function_hamming_distance(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionHammingDistance>();
 }
 
-#include "common/compile_check_end.h"
+#include "common/compile_check_avoid_end.h"
 } // namespace doris
