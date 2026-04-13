@@ -130,12 +130,6 @@ public class IvmAggMeta {
         return aggTargets;
     }
 
-    /** Returns true if any aggregate target is MIN or MAX. */
-    public boolean hasMinMax() {
-        return aggTargets.stream().anyMatch(t ->
-                t.getAggType() == AggType.MIN || t.getAggType() == AggType.MAX);
-    }
-
     @Override
     public String toString() {
         return "IvmAggMeta{scalar=" + scalarAgg
