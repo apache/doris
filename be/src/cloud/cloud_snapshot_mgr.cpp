@@ -275,6 +275,9 @@ Status CloudSnapshotMgr::_create_rowset_meta(
     for (const auto& key_bound : source_meta_pb.segments_key_bounds()) {
         *new_rowset_meta_pb->add_segments_key_bounds() = key_bound;
     }
+    if (source_meta_pb.has_rowset_key_bounds()) {
+        new_rowset_meta_pb->mutable_rowset_key_bounds()->CopyFrom(source_meta_pb.rowset_key_bounds());
+    }
     if (source_meta_pb.has_delete_predicate()) {
         DeletePredicatePB* new_delete_condition = new_rowset_meta_pb->mutable_delete_predicate();
         *new_delete_condition = source_meta_pb.delete_predicate();

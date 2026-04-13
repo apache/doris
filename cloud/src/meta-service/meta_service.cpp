@@ -5710,6 +5710,9 @@ std::size_t get_segments_key_bounds_bytes(const doris::RowsetMetaCloudPB& rowset
     for (const auto& key_bounds : rowset_meta.segments_key_bounds()) {
         ret += key_bounds.ByteSizeLong();
     }
+    if (rowset_meta.has_rowset_key_bounds()) {
+        ret += rowset_meta.rowset_key_bounds().ByteSizeLong();
+    }
     return ret;
 }
 

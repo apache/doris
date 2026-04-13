@@ -139,6 +139,11 @@ message RowsetMetaPB {
 
     // rows count for each segment
     repeated int64 num_segment_rows = 56;
+    // the encoded key range of this rowset. For non-MoW rowsets, Doris may persist
+    // only this rowset-level first/last segment key range instead of all segment bounds.
+    // ATTN: rowset_key_bounds may be truncated too, please refer to
+    // `segments_key_bounds_truncated`.
+    optional KeyBoundsPB rowset_key_bounds = 57;
 
     // For cloud
     // for data recycling
@@ -245,6 +250,11 @@ message RowsetMetaCloudPB {
 
     // rows count for each segment
     repeated int64 num_segment_rows = 56;
+    // the encoded key range of this rowset. For non-MoW rowsets, Doris may persist
+    // only this rowset-level first/last segment key range instead of all segment bounds.
+    // ATTN: rowset_key_bounds may be truncated too, please refer to
+    // `segments_key_bounds_truncated`.
+    optional KeyBoundsPB rowset_key_bounds = 57;
 
     // cloud
     // the field is a vector, rename it

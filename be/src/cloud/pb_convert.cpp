@@ -71,6 +71,9 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, const RowsetMetaPB& in) 
     out->set_resource_id(in.resource_id());
     out->set_newest_write_timestamp(in.newest_write_timestamp());
     out->mutable_segments_key_bounds()->CopyFrom(in.segments_key_bounds());
+    if (in.has_rowset_key_bounds()) {
+        out->mutable_rowset_key_bounds()->CopyFrom(in.rowset_key_bounds());
+    }
     if (in.has_tablet_schema()) {
         doris_tablet_schema_to_cloud(out->mutable_tablet_schema(), in.tablet_schema());
     }
@@ -151,6 +154,9 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in) {
     out->set_resource_id(in.resource_id());
     out->set_newest_write_timestamp(in.newest_write_timestamp());
     out->mutable_segments_key_bounds()->Swap(in.mutable_segments_key_bounds());
+    if (in.has_rowset_key_bounds()) {
+        out->mutable_rowset_key_bounds()->Swap(in.mutable_rowset_key_bounds());
+    }
     if (in.has_tablet_schema()) {
         doris_tablet_schema_to_cloud(out->mutable_tablet_schema(),
                                      std::move(*in.mutable_tablet_schema()));
@@ -245,6 +251,9 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, const RowsetMetaCloudPB& in) 
     out->set_resource_id(in.resource_id());
     out->set_newest_write_timestamp(in.newest_write_timestamp());
     out->mutable_segments_key_bounds()->CopyFrom(in.segments_key_bounds());
+    if (in.has_rowset_key_bounds()) {
+        out->mutable_rowset_key_bounds()->CopyFrom(in.rowset_key_bounds());
+    }
     if (in.has_tablet_schema()) {
         cloud_tablet_schema_to_doris(out->mutable_tablet_schema(), in.tablet_schema());
     }
@@ -325,6 +334,9 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in) {
     out->set_resource_id(in.resource_id());
     out->set_newest_write_timestamp(in.newest_write_timestamp());
     out->mutable_segments_key_bounds()->Swap(in.mutable_segments_key_bounds());
+    if (in.has_rowset_key_bounds()) {
+        out->mutable_rowset_key_bounds()->Swap(in.mutable_rowset_key_bounds());
+    }
     if (in.has_tablet_schema()) {
         cloud_tablet_schema_to_doris(out->mutable_tablet_schema(),
                                      std::move(*in.mutable_tablet_schema()));

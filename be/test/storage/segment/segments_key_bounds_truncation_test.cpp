@@ -51,6 +51,8 @@ private:
 
 public:
     void SetUp() override {
+        config::enable_rowset_key_bounds_for_non_mow = false;
+        config::segments_key_bounds_truncation_threshold = -1;
         auto st = io::global_local_filesystem()->delete_directory(kSegmentDir);
         ASSERT_TRUE(st.ok()) << st;
         st = io::global_local_filesystem()->create_directory(kSegmentDir);
@@ -64,6 +66,8 @@ public:
     }
 
     void TearDown() override {
+        config::enable_rowset_key_bounds_for_non_mow = false;
+        config::segments_key_bounds_truncation_threshold = -1;
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kSegmentDir).ok());
         engine_ref = nullptr;
         ExecEnv::GetInstance()->set_storage_engine(nullptr);
@@ -73,10 +77,10 @@ public:
         config::segments_key_bounds_truncation_threshold = -1;
     }
 
-    TabletSchemaSPtr create_schema(int varchar_length) {
+    TabletSchemaSPtr create_schema(int varchar_length, KeysType keys_type = DUP_KEYS) {
         TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
         TabletSchemaPB tablet_schema_pb;
-        tablet_schema_pb.set_keys_type(DUP_KEYS);
+        tablet_schema_pb.set_keys_type(keys_type);
         tablet_schema_pb.set_num_short_key_columns(1);
         tablet_schema_pb.set_num_rows_per_row_block(1024);
         tablet_schema_pb.set_compress_kind(COMPRESS_NONE);
@@ -146,7 +150,8 @@ public:
     RowsetWriterContext create_rowset_writer_context(TabletSchemaSPtr tablet_schema,
                                                      const SegmentsOverlapPB& overlap,
                                                      uint32_t max_rows_per_segment,
-                                                     Version version) {
+                                                     Version version,
+                                                     bool enable_unique_key_merge_on_write = false) {
         RowsetWriterContext rowset_writer_context;
         rowset_writer_context.rowset_id = engine_ref->next_rowset_id();
         rowset_writer_context.rowset_type = BETA_ROWSET;
@@ -156,6 +161,8 @@ public:
         rowset_writer_context.version = version;
         rowset_writer_context.segments_overlap = overlap;
         rowset_writer_context.max_rows_per_segment = max_rows_per_segment;
+        rowset_writer_context.enable_unique_key_merge_on_write =
+                enable_unique_key_merge_on_write;
         return rowset_writer_context;
     }
 
@@ -214,9 +221,11 @@ public:
 
     RowsetSharedPtr create_rowset(TabletSchemaSPtr tablet_schema, SegmentsOverlapPB overlap,
                                   const std::vector<Block> blocks, int64_t version,
-                                  bool is_vertical) {
+                                  bool is_vertical,
+                                  bool enable_unique_key_merge_on_write = false) {
         auto writer_context = create_rowset_writer_context(tablet_schema, overlap, UINT32_MAX,
-                                                           {version, version});
+                                                           {version, version},
+                                                           enable_unique_key_merge_on_write);
         auto res = RowsetFactory::create_rowset_writer(*engine_ref, writer_context, is_vertical);
         EXPECT_TRUE(res.has_value()) << res.error();
         auto rowset_writer = std::move(res).value();
@@ -386,7 +395,8 @@ TEST_F(SegmentsKeyBoundsTruncationTest, CompareFuncTest) {
 
 TEST_F(SegmentsKeyBoundsTruncationTest, BasicTruncationTest) {
     {
-        // 1. don't do segments key bounds truncation when the config is off
+        // 1. the new behavior is gated off by default for rollback compatibility
+        config::enable_rowset_key_bounds_for_non_mow = false;
         config::segments_key_bounds_truncation_threshold = -1;
 
         auto tablet_schema = create_schema(100);
@@ -403,10 +413,37 @@ TEST_F(SegmentsKeyBoundsTruncationTest, BasicTruncationTest) {
         rowset_meta->get_segments_key_bounds(&segments_key_bounds);
         EXPECT_EQ(segments_key_bounds.size(), data.size());
         check_key_bounds(data, segments_key_bounds);
+        ASSERT_TRUE(rowset_meta->has_rowset_key_bounds());
     }
 
     {
-        // 2. do segments key bounds truncation when the config is on
+        // 2. persist only rowset-level key bounds when the config is on for non-MoW rowsets
+        config::enable_rowset_key_bounds_for_non_mow = true;
+        config::segments_key_bounds_truncation_threshold = -1;
+
+        auto tablet_schema = create_schema(100);
+        std::vector<std::vector<std::string>> data {{std::string(2, 'x'), std::string(3, 'y')},
+                                                    {std::string(4, 'a'), std::string(15, 'b')},
+                                                    {std::string(18, 'c'), std::string(5, 'z')},
+                                                    {std::string(20, '0'), std::string(22, '1')}};
+        auto blocks = generate_blocks(tablet_schema, data);
+        RowsetSharedPtr rowset = create_rowset(tablet_schema, NONOVERLAPPING, blocks, 2, false);
+
+        auto rowset_meta = rowset->rowset_meta();
+        EXPECT_EQ(false, rowset_meta->is_segments_key_bounds_truncated());
+        std::vector<KeyBoundsPB> segments_key_bounds;
+        rowset_meta->get_segments_key_bounds(&segments_key_bounds);
+        EXPECT_TRUE(segments_key_bounds.empty());
+        ASSERT_TRUE(rowset_meta->has_rowset_key_bounds());
+        EXPECT_EQ(rowset_meta->rowset_key_bounds().min_key(),
+                  std::string {KeyConsts::KEY_NORMAL_MARKER} + data.front().front());
+        EXPECT_EQ(rowset_meta->rowset_key_bounds().max_key(),
+                  std::string {KeyConsts::KEY_NORMAL_MARKER} + data.back().back());
+    }
+
+    {
+        // 3. do rowset key bounds truncation when the config is on for non-MoW rowsets
+        config::enable_rowset_key_bounds_for_non_mow = true;
         config::segments_key_bounds_truncation_threshold = 10;
 
         auto tablet_schema = create_schema(100);
@@ -421,12 +458,17 @@ TEST_F(SegmentsKeyBoundsTruncationTest, BasicTruncationTest) {
         EXPECT_EQ(true, rowset_meta->is_segments_key_bounds_truncated());
         std::vector<KeyBoundsPB> segments_key_bounds;
         rowset_meta->get_segments_key_bounds(&segments_key_bounds);
-        EXPECT_EQ(segments_key_bounds.size(), data.size());
-        check_key_bounds(data, segments_key_bounds);
+        EXPECT_TRUE(segments_key_bounds.empty());
+        ASSERT_TRUE(rowset_meta->has_rowset_key_bounds());
+        EXPECT_EQ(rowset_meta->rowset_key_bounds().min_key(),
+                  do_trunacte(std::string {KeyConsts::KEY_NORMAL_MARKER} + data.front().front()));
+        EXPECT_EQ(rowset_meta->rowset_key_bounds().max_key(),
+                  do_trunacte(std::string {KeyConsts::KEY_NORMAL_MARKER} + data.back().back()));
     }
 
     {
-        // 3. segments_key_bounds_truncated should be set to false if no actual truncation happend
+        // 4. segments_key_bounds_truncated should be false if no actual truncation happened
+        config::enable_rowset_key_bounds_for_non_mow = true;
         config::segments_key_bounds_truncation_threshold = 100;
 
         auto tablet_schema = create_schema(100);
@@ -439,6 +481,30 @@ TEST_F(SegmentsKeyBoundsTruncationTest, BasicTruncationTest) {
 
         auto rowset_meta = rowset->rowset_meta();
         EXPECT_EQ(false, rowset_meta->is_segments_key_bounds_truncated());
+    }
+
+    {
+        // 5. keep per-segment key bounds for MoW rowsets
+        config::enable_rowset_key_bounds_for_non_mow = true;
+        config::segments_key_bounds_truncation_threshold = -1;
+
+        auto tablet_schema = create_schema(100, UNIQUE_KEYS);
+        std::vector<std::vector<std::string>> data {{std::string(2, 'x'), std::string(3, 'y')},
+                                                    {std::string(4, 'a'), std::string(15, 'b')},
+                                                    {std::string(18, 'c'), std::string(5, 'z')},
+                                                    {std::string(20, '0'), std::string(22, '1')}};
+        auto blocks = generate_blocks(tablet_schema, data);
+        RowsetSharedPtr rowset =
+                create_rowset(tablet_schema, NONOVERLAPPING, blocks, 2, false, true);
+
+        auto rowset_meta = rowset->rowset_meta();
+        std::vector<KeyBoundsPB> segments_key_bounds;
+        rowset_meta->get_segments_key_bounds(&segments_key_bounds);
+        EXPECT_EQ(segments_key_bounds.size(), data.size());
+        check_key_bounds(data, segments_key_bounds);
+        ASSERT_TRUE(rowset_meta->has_rowset_key_bounds());
+        EXPECT_EQ(rowset_meta->rowset_key_bounds().min_key(), segments_key_bounds.front().min_key());
+        EXPECT_EQ(rowset_meta->rowset_key_bounds().max_key(), segments_key_bounds.back().max_key());
     }
 }
 

@@ -1715,6 +1715,9 @@ DEFINE_mBool(enable_fetch_rowsets_from_peer_replicas, "false");
 DEFINE_mInt32(segments_key_bounds_truncation_threshold, "36");
 // ATTENTION: for test only, use random segments key bounds truncation threshold every time
 DEFINE_mBool(random_segments_key_bounds_truncation, "false");
+// persist rowset-level key bounds instead of per-segment key bounds for non-MoW rowsets.
+// rollback compatibility requires disabling this config before downgrade.
+DEFINE_mBool(enable_rowset_key_bounds_for_non_mow, "true");
 // p0, daily, rqg, external
 DEFINE_String(fuzzy_test_type, "");
 

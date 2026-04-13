@@ -31,6 +31,7 @@
 #include <mutex>
 #include <nlohmann/json.hpp>
 #include <numeric>
+#include <optional>
 #include <ostream>
 #include <set>
 #include <shared_mutex>
@@ -420,6 +421,7 @@ Status CompactionMixin::do_compact_ordered_rowsets() {
     auto seg_id = 0;
     bool segments_key_bounds_truncated {false};
     std::vector<KeyBoundsPB> segment_key_bounds;
+    std::optional<KeyBoundsPB> rowset_key_bounds;
     std::vector<uint32_t> num_segment_rows;
     for (auto rowset : _input_rowsets) {
         RETURN_IF_ERROR(rowset->link_files_to(tablet()->tablet_path(),
@@ -429,6 +431,18 @@ Status CompactionMixin::do_compact_ordered_rowsets() {
         std::vector<KeyBoundsPB> key_bounds;
         RETURN_IF_ERROR(rowset->get_segments_key_bounds(&key_bounds));
         segment_key_bounds.insert(segment_key_bounds.end(), key_bounds.begin(), key_bounds.end());
+        std::string first_key;
+        bool has_first_key = rowset->first_key(&first_key);
+        std::string last_key;
+        bool has_last_key = rowset->last_key(&last_key);
+        DCHECK_EQ(has_first_key, has_last_key);
+        if (has_first_key) {
+            if (!rowset_key_bounds.has_value()) {
+                rowset_key_bounds.emplace();
+                rowset_key_bounds->set_min_key(first_key);
+            }
+            rowset_key_bounds->set_max_key(last_key);
+        }
         std::vector<uint32_t> input_segment_rows;
         rowset->get_num_segment_rows(&input_segment_rows);
         num_segment_rows.insert(num_segment_rows.end(), input_segment_rows.begin(),
@@ -445,7 +459,11 @@ Status CompactionMixin::do_compact_ordered_rowsets() {
     rowset_meta->set_segments_overlap(NONOVERLAPPING);
     rowset_meta->set_rowset_state(VISIBLE);
     rowset_meta->set_segments_key_bounds_truncated(segments_key_bounds_truncated);
-    rowset_meta->set_segments_key_bounds(segment_key_bounds);
+    if (!segment_key_bounds.empty()) {
+        rowset_meta->set_segments_key_bounds(segment_key_bounds);
+    } else if (rowset_key_bounds.has_value()) {
+        rowset_meta->set_rowset_key_bounds(rowset_key_bounds.value());
+    }
     rowset_meta->set_num_segment_rows(num_segment_rows);
 
     _output_rowset = _output_rs_writer->manual_build(rowset_meta);

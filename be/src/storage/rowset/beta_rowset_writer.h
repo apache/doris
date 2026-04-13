@@ -238,6 +238,7 @@ protected:
     // for unique key table with merge-on-write
     std::vector<KeyBoundsPB> _segments_encoded_key_bounds;
     std::optional<bool> _segments_key_bounds_truncated;
+    std::optional<KeyBoundsPB> _rowset_key_bounds;
 
     // counters and statistics maintained during add_rowset
     std::atomic<int64_t> _num_rows_written;

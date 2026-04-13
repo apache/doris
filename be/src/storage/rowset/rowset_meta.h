@@ -344,6 +344,12 @@ public:
 
     auto& get_segments_key_bounds() const { return _rowset_meta_pb.segments_key_bounds(); }
 
+    bool has_rowset_key_bounds() const { return _rowset_meta_pb.has_rowset_key_bounds(); }
+
+    const KeyBoundsPB& rowset_key_bounds() const { return _rowset_meta_pb.rowset_key_bounds(); }
+
+    void set_rowset_key_bounds(const KeyBoundsPB& rowset_key_bounds);
+
     bool is_segments_key_bounds_truncated() const {
         return _rowset_meta_pb.has_segments_key_bounds_truncated() &&
                _rowset_meta_pb.segments_key_bounds_truncated();
@@ -353,7 +359,11 @@ public:
         _rowset_meta_pb.set_segments_key_bounds_truncated(truncated);
     }
 
-    bool get_first_segment_key_bound(KeyBoundsPB* key_bounds) {
+    bool get_first_segment_key_bound(KeyBoundsPB* key_bounds) const {
+        if (_rowset_meta_pb.has_rowset_key_bounds()) {
+            *key_bounds = _rowset_meta_pb.rowset_key_bounds();
+            return true;
+        }
         // for compatibility, old version has not segment key bounds
         if (_rowset_meta_pb.segments_key_bounds_size() == 0) {
             return false;
@@ -362,7 +372,11 @@ public:
         return true;
     }
 
-    bool get_last_segment_key_bound(KeyBoundsPB* key_bounds) {
+    bool get_last_segment_key_bound(KeyBoundsPB* key_bounds) const {
+        if (_rowset_meta_pb.has_rowset_key_bounds()) {
+            *key_bounds = _rowset_meta_pb.rowset_key_bounds();
+            return true;
+        }
         if (_rowset_meta_pb.segments_key_bounds_size() == 0) {
             return false;
         }

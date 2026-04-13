@@ -94,9 +94,14 @@ void build_rowset_meta_with_spec_field(RowsetMeta& rowset_meta,
     rowset_meta.set_rowset_state(spec_rowset_meta.rowset_state());
     rowset_meta.set_segments_key_bounds_truncated(
             spec_rowset_meta.is_segments_key_bounds_truncated());
+    if (spec_rowset_meta.has_rowset_key_bounds()) {
+        rowset_meta.set_rowset_key_bounds(spec_rowset_meta.rowset_key_bounds());
+    }
     std::vector<KeyBoundsPB> segments_key_bounds;
     spec_rowset_meta.get_segments_key_bounds(&segments_key_bounds);
-    rowset_meta.set_segments_key_bounds(segments_key_bounds);
+    if (!segments_key_bounds.empty()) {
+        rowset_meta.set_segments_key_bounds(segments_key_bounds);
+    }
     std::vector<uint32_t> num_segment_rows;
     spec_rowset_meta.get_num_segment_rows(&num_segment_rows);
     rowset_meta.set_num_segment_rows(num_segment_rows);
@@ -781,7 +786,21 @@ Status BaseBetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     // append key_bounds to current rowset
     RETURN_IF_ERROR(rowset->get_segments_key_bounds(&_segments_encoded_key_bounds));
     rowset->get_num_segment_rows(&_segment_num_rows);
-    _segments_key_bounds_truncated = rowset->rowset_meta()->is_segments_key_bounds_truncated();
+    _segments_key_bounds_truncated =
+            _segments_key_bounds_truncated.value_or(false) ||
+            rowset->rowset_meta()->is_segments_key_bounds_truncated();
+    std::string first_key;
+    bool has_first_key = rowset->first_key(&first_key);
+    std::string last_key;
+    bool has_last_key = rowset->last_key(&last_key);
+    DCHECK_EQ(has_first_key, has_last_key);
+    if (has_first_key) {
+        if (!_rowset_key_bounds.has_value()) {
+            _rowset_key_bounds.emplace();
+            _rowset_key_bounds->set_min_key(first_key);
+        }
+        _rowset_key_bounds->set_max_key(last_key);
+    }
 
     // TODO update zonemap
     if (rowset->rowset_meta()->has_delete_predicate()) {
@@ -1019,7 +1038,19 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
                                      _total_index_size);
     rowset_meta->set_data_disk_size(total_data_size + _total_data_size);
     rowset_meta->set_index_disk_size(total_index_size + _total_index_size);
-    rowset_meta->set_segments_key_bounds(segments_encoded_key_bounds);
+    if (!segments_encoded_key_bounds.empty()) {
+        if (_context.enable_unique_key_merge_on_write ||
+            !config::enable_rowset_key_bounds_for_non_mow) {
+            rowset_meta->set_segments_key_bounds(segments_encoded_key_bounds);
+        } else {
+            KeyBoundsPB rowset_key_bounds;
+            rowset_key_bounds.set_min_key(segments_encoded_key_bounds.front().min_key());
+            rowset_key_bounds.set_max_key(segments_encoded_key_bounds.back().max_key());
+            rowset_meta->set_rowset_key_bounds(rowset_key_bounds);
+        }
+    } else if (_rowset_key_bounds.has_value()) {
+        rowset_meta->set_rowset_key_bounds(_rowset_key_bounds.value());
+    }
     // TODO write zonemap to meta
     rowset_meta->set_empty((num_rows_written + _num_rows_written) == 0);
     rowset_meta->set_creation_time(time(nullptr));

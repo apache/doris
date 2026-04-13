@@ -48,6 +48,46 @@
 
 namespace doris {
 
+#include "common/compile_check_begin.h"
+
+namespace {
+
+int32_t get_segments_key_bounds_truncation_threshold() {
+    int32_t truncation_threshold = config::segments_key_bounds_truncation_threshold;
+    if (config::random_segments_key_bounds_truncation) {
+        std::mt19937 generator(std::random_device {}());
+        std::uniform_int_distribution<int> distribution(-10, 40);
+        truncation_threshold = distribution(generator);
+    }
+    return truncation_threshold;
+}
+
+bool truncate_key_bounds(KeyBoundsPB* key_bounds, int32_t truncation_threshold) {
+    bool truncated = false;
+    if (truncation_threshold <= 0) {
+        return truncated;
+    }
+    if (key_bounds->min_key().size() > truncation_threshold) {
+        truncated = true;
+        key_bounds->mutable_min_key()->resize(truncation_threshold);
+    }
+    if (key_bounds->max_key().size() > truncation_threshold) {
+        truncated = true;
+        key_bounds->mutable_max_key()->resize(truncation_threshold);
+    }
+    return truncated;
+}
+
+KeyBoundsPB build_rowset_key_bounds(const std::vector<KeyBoundsPB>& segments_key_bounds) {
+    DCHECK(!segments_key_bounds.empty());
+    KeyBoundsPB rowset_key_bounds;
+    rowset_key_bounds.set_min_key(segments_key_bounds.front().min_key());
+    rowset_key_bounds.set_max_key(segments_key_bounds.back().max_key());
+    return rowset_key_bounds;
+}
+
+} // namespace
+
 RowsetMeta::~RowsetMeta() {
     if (_handle) {
         TabletSchemaCache::instance()->release(_handle);
@@ -289,29 +329,31 @@ int64_t RowsetMeta::segment_file_size(int seg_id) const {
                    : -1;
 }
 
+void RowsetMeta::set_rowset_key_bounds(const KeyBoundsPB& rowset_key_bounds) {
+    *_rowset_meta_pb.mutable_rowset_key_bounds() = rowset_key_bounds;
+    bool really_do_truncation = truncate_key_bounds(_rowset_meta_pb.mutable_rowset_key_bounds(),
+                                                    get_segments_key_bounds_truncation_threshold());
+    set_segments_key_bounds_truncated(really_do_truncation || is_segments_key_bounds_truncated());
+}
+
 void RowsetMeta::set_segments_key_bounds(const std::vector<KeyBoundsPB>& segments_key_bounds) {
+    if (!segments_key_bounds.empty()) {
+        *_rowset_meta_pb.mutable_rowset_key_bounds() = build_rowset_key_bounds(segments_key_bounds);
+    }
     for (const KeyBoundsPB& key_bounds : segments_key_bounds) {
         KeyBoundsPB* new_key_bounds = _rowset_meta_pb.add_segments_key_bounds();
         *new_key_bounds = key_bounds;
     }
 
-    int32_t truncation_threshold = config::segments_key_bounds_truncation_threshold;
-    if (config::random_segments_key_bounds_truncation) {
-        std::mt19937 generator(std::random_device {}());
-        std::uniform_int_distribution<int> distribution(-10, 40);
-        truncation_threshold = distribution(generator);
-    }
+    int32_t truncation_threshold = get_segments_key_bounds_truncation_threshold();
     bool really_do_truncation {false};
     if (truncation_threshold > 0) {
         for (auto& segment_key_bounds : *_rowset_meta_pb.mutable_segments_key_bounds()) {
-            if (segment_key_bounds.min_key().size() > truncation_threshold) {
-                really_do_truncation = true;
-                segment_key_bounds.mutable_min_key()->resize(truncation_threshold);
-            }
-            if (segment_key_bounds.max_key().size() > truncation_threshold) {
-                really_do_truncation = true;
-                segment_key_bounds.mutable_max_key()->resize(truncation_threshold);
-            }
+            really_do_truncation |= truncate_key_bounds(&segment_key_bounds, truncation_threshold);
+        }
+        if (_rowset_meta_pb.has_rowset_key_bounds()) {
+            really_do_truncation |= truncate_key_bounds(
+                    _rowset_meta_pb.mutable_rowset_key_bounds(), truncation_threshold);
         }
     }
     set_segments_key_bounds_truncated(really_do_truncation || is_segments_key_bounds_truncated());
@@ -339,6 +381,17 @@ void RowsetMeta::merge_rowset_meta(const RowsetMeta& other) {
                 _rowset_meta_pb.clear_num_segment_rows();
             }
         }
+    }
+    KeyBoundsPB other_last_key_bound;
+    if (other.get_last_segment_key_bound(&other_last_key_bound)) {
+        if (!_rowset_meta_pb.has_rowset_key_bounds()) {
+            KeyBoundsPB first_key_bound;
+            if (get_first_segment_key_bound(&first_key_bound) ||
+                other.get_first_segment_key_bound(&first_key_bound)) {
+                _rowset_meta_pb.mutable_rowset_key_bounds()->set_min_key(first_key_bound.min_key());
+            }
+        }
+        _rowset_meta_pb.mutable_rowset_key_bounds()->set_max_key(other_last_key_bound.max_key());
     }
     for (auto&& key_bound : other.get_segments_key_bounds()) {
         add_segment_key_bounds(key_bound);
@@ -403,5 +456,7 @@ bool operator==(const RowsetMeta& a, const RowsetMeta& b) {
         return false;
     return true;
 }
+
+#include "common/compile_check_end.h"
 
 } // namespace doris
