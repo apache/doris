@@ -261,13 +261,10 @@ public class TestCheckPrivileges extends TestWithFeService implements GeneratedM
 
             AccessControllerManager accessManager = Env.getCurrentEnv().getAccessManager();
             CatalogAccessController catalogAccessController = accessManager.getAccessControllerOrDefault(catalog);
-            new Expectations(accessManager) {
-                {
-                    accessManager.getAccessControllerOrDefault("internal");
-                    minTimes = 0;
-                    result = catalogAccessController;
-                }
-            };
+            AccessControllerManager spyAccessManager = Mockito.spy(accessManager);
+            Mockito.doReturn(catalogAccessController).when(spyAccessManager)
+                    .getAccessControllerOrDefault("internal");
+            Deencapsulation.setField(Env.getCurrentEnv(), "accessManager", spyAccessManager);
 
             withPrivileges(privileges, () -> {
                 // CTE with authorized table should succeed
