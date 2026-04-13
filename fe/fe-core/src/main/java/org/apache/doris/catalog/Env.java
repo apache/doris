@@ -3869,7 +3869,17 @@ public class Env {
             addTableComment(mtmv, sb);
             addMTMVPartitionInfo(mtmv, sb);
             DistributionInfo distributionInfo = mtmv.getDefaultDistributionInfo();
-            sb.append("\n").append(distributionInfo.toSql());
+            if (isIvm) {
+                // IVM internally rewrites distribution to HASH(__DORIS_IVM_ROW_ID_COL__),
+                // which is a hidden column invisible to users.  Output DISTRIBUTED BY RANDOM
+                // with the same bucket count / auto-bucket setting, so the DDL is re-executable
+                // and preserves the bucket configuration.  On re-creation, the IVM pipeline
+                // will rewrite RANDOM to HASH(row_id) again automatically.
+                sb.append("\n").append(new RandomDistributionInfo(
+                        distributionInfo.getBucketNum(), distributionInfo.getAutoBucket()).toSql());
+            } else {
+                sb.append("\n").append(distributionInfo.toSql());
+            }
             // properties
             sb.append("\nPROPERTIES (\n");
             addOlapTablePropertyInfo(mtmv, sb, false, false, null);

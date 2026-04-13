@@ -17,10 +17,14 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.sqltest.SqlTestBase;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Tests for SHOW CREATE MATERIALIZED VIEW DDL output.
@@ -185,5 +189,81 @@ public class ShowCreateMTMVTest extends SqlTestBase {
             Assertions.assertFalse(ddl.contains("__DORIS_IVM_"),
                     "DUP_KEYS MV key clause should not reference IVM columns:\n" + ddl);
         }
+    }
+
+    // TC-4-8: SHOW CREATE roundtrip — re-create IVM MV from DDL and verify identical output
+    @Test
+    public void testShowCreateIvmRoundtrip() throws Exception {
+        // Step 1: create an IVM MV with a specific bucket count
+        createMvByNereids("create materialized view mv_show_ivm_roundtrip_1 "
+                + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + "DISTRIBUTED BY RANDOM BUCKETS 3\n"
+                + "PROPERTIES ('replication_num' = '1')\n"
+                + "as select * from test.T4;");
+
+        Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test");
+        MTMV mtmv1 = (MTMV) db.getTableOrAnalysisException("mv_show_ivm_roundtrip_1");
+        String ddl1 = Env.getMTMVDdl(mtmv1);
+
+        // Step 2: verify DDL contains DISTRIBUTED BY RANDOM BUCKETS 3
+        Assertions.assertTrue(ddl1.contains("DISTRIBUTED BY RANDOM BUCKETS 3"),
+                "DDL should contain 'DISTRIBUTED BY RANDOM BUCKETS 3', but got:\n" + ddl1);
+
+        // Step 3: use DDL to create a second MV (replace the name)
+        String ddl2Sql = ddl1.replace("mv_show_ivm_roundtrip_1", "mv_show_ivm_roundtrip_2");
+        createMvByNereids(ddl2Sql);
+
+        MTMV mtmv2 = (MTMV) db.getTableOrAnalysisException("mv_show_ivm_roundtrip_2");
+        String ddl2 = Env.getMTMVDdl(mtmv2);
+
+        // Step 4: verify bucket count is preserved — both have 3 buckets internally
+        Assertions.assertEquals(mtmv1.getDefaultDistributionInfo().getBucketNum(),
+                mtmv2.getDefaultDistributionInfo().getBucketNum(),
+                "Bucket count should be preserved after roundtrip");
+
+        // Step 5: verify structural part of SHOW CREATE is identical (everything before "AS select")
+        // The query SQL may differ slightly (e.g. "select *" expands to explicit columns with aliases),
+        // but the structure (columns, refresh, distribution, properties) must match exactly.
+        String struct1 = ddl1.substring(0, ddl1.indexOf("\nAS "))
+                .replace("mv_show_ivm_roundtrip_1", "MV_NAME");
+        String struct2 = ddl2.substring(0, ddl2.indexOf("\nAS "))
+                .replace("mv_show_ivm_roundtrip_2", "MV_NAME");
+        Assertions.assertEquals(struct1, struct2,
+                "Structural part of SHOW CREATE should match after roundtrip.\n"
+                + "DDL1:\n" + ddl1 + "\nDDL2:\n" + ddl2);
+
+        // Step 6: second roundtrip should be a true fixpoint (DDL from MV2 reproduces itself)
+        String ddl3Sql = ddl2.replace("mv_show_ivm_roundtrip_2", "mv_show_ivm_roundtrip_3");
+        createMvByNereids(ddl3Sql);
+        MTMV mtmv3 = (MTMV) db.getTableOrAnalysisException("mv_show_ivm_roundtrip_3");
+        String ddl3 = Env.getMTMVDdl(mtmv3);
+        String normalized2 = ddl2.replace("mv_show_ivm_roundtrip_2", "MV_NAME");
+        String normalized3 = ddl3.replace("mv_show_ivm_roundtrip_3", "MV_NAME");
+        Assertions.assertEquals(normalized2, normalized3,
+                "Second roundtrip should be a perfect fixpoint.\n"
+                + "DDL2:\n" + ddl2 + "\nDDL3:\n" + ddl3);
+
+        // Step 7: verify schema columns match (excluding hidden IVM columns)
+        List<String> cols1 = mtmv1.getBaseSchema().stream()
+                .map(Column::getName)
+                .filter(n -> !IvmUtil.isIvmHiddenColumn(n))
+                .collect(Collectors.toList());
+        List<String> cols2 = mtmv2.getBaseSchema().stream()
+                .map(Column::getName)
+                .filter(n -> !IvmUtil.isIvmHiddenColumn(n))
+                .collect(Collectors.toList());
+        Assertions.assertEquals(cols1, cols2,
+                "Visible schema columns should match after roundtrip");
+
+        // Step 8: all should have HASH distribution internally (IVM rewrites to HASH(row_id))
+        Assertions.assertEquals(DistributionInfo.DistributionInfoType.HASH,
+                mtmv1.getDefaultDistributionInfo().getType(),
+                "MV1 internal distribution should be HASH");
+        Assertions.assertEquals(DistributionInfo.DistributionInfoType.HASH,
+                mtmv2.getDefaultDistributionInfo().getType(),
+                "MV2 internal distribution should be HASH");
+        Assertions.assertEquals(DistributionInfo.DistributionInfoType.HASH,
+                mtmv3.getDefaultDistributionInfo().getType(),
+                "MV3 internal distribution should be HASH");
     }
 }
