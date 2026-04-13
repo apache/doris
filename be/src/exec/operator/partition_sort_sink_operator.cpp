@@ -104,7 +104,7 @@ Status PartitionSortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* st
 
 Status PartitionSortSinkOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX<PartitionSortSinkLocalState>::prepare(state));
-    RETURN_IF_ERROR(VExpr::prepare(_ordering_expr_ctxs, state, _child->row_desc()));
+    RETURN_IF_ERROR(VExpr::prepare(_ordering_expr_ctxs, state, _row_descriptor));
     RETURN_IF_ERROR(VExpr::prepare(_partition_expr_ctxs, state, _child->row_desc()));
     RETURN_IF_ERROR(VExpr::open(_ordering_expr_ctxs, state));
     RETURN_IF_ERROR(VExpr::open(_partition_expr_ctxs, state));
