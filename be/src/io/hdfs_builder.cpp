@@ -241,8 +241,11 @@ Status create_hdfs_builder(const THdfsParams& hdfsParams, const std::string& fs_
             hdfsBuilderSetUserName(builder->get(), builder->hadoop_user.c_str());
         }
     }
+    // For Kerberos connections, do NOT allow fallback to SIMPLE auth.
+    // Falling back masks real Kerberos errors and causes confusing
+    // "SIMPLE authentication is not enabled" errors on the server side.
     hdfsBuilderConfSetStr(builder->get(), FALLBACK_TO_SIMPLE_AUTH_ALLOWED.c_str(),
-                          TRUE_VALUE.c_str());
+                          auth_type == "kerberos" ? "false" : TRUE_VALUE.c_str());
     return Status::OK();
 }
 
