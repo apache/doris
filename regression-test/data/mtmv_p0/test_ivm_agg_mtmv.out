@@ -39,3 +39,27 @@
 -- !minmax_op_after_recovery --
 10	35	5
 
+-- !null_after_complete --
+1	30	15	2	10	20	2
+2	30	30	1	30	30	2
+3	\N	\N	0	\N	\N	1
+
+-- !null_after_final_complete --
+1	30	15	2	10	20	3
+2	30	30	1	30	30	2
+3	50	50	1	50	50	2
+
+-- !null_after_delete_complete --
+1	30	15	2	10	20	3
+2	70	35	2	30	40	3
+3	50	50	1	50	50	2
+
+-- !allnull_after_complete --
+\N	\N	0	\N	\N	2
+
+-- !allnull_after_insert_complete --
+100	100	1	100	100	3
+
+-- !allnull_after_null_insert_complete --
+100	100	1	100	100	4
+
