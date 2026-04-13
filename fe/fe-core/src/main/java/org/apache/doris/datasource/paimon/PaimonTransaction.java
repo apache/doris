@@ -198,8 +198,10 @@ public class PaimonTransaction implements Transaction {
                         version, len, payload.length);
             }
         } else {
-            LOG.warn("paimon: payload header mismatch or too short: length={}, payload={}",
-                    payload == null ? 0 : payload.length, java.util.Arrays.toString(payload));
+            LOG.warn("paimon: payload header mismatch or too short: length={}",
+                    payload == null ? 0 : payload.length);
+            LOG.debug("paimon: problematic payload bytes: {}",
+                    payload == null ? "null" : java.util.Arrays.toString(payload));
         }
 
         int[] candidateVersions = new int[] {11, 10, 9, 8, 7, 6, 5, 4, 3};
