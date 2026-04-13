@@ -97,11 +97,18 @@ public abstract class AbstractInsertExecutor {
      */
     public AbstractInsertExecutor(ConnectContext ctx, TableIf table, String labelName, NereidsPlanner planner,
             Optional<InsertCommandContext> insertCtx, boolean emptyInsert, long jobId) {
+        this(ctx, table, labelName, planner, insertCtx, emptyInsert, jobId, false);
+    }
+
+    /**
+     * constructor
+     */
+    public AbstractInsertExecutor(ConnectContext ctx, TableIf table, String labelName, NereidsPlanner planner,
+            Optional<InsertCommandContext> insertCtx, boolean emptyInsert, long jobId, boolean needRegister) {
         this.ctx = ctx;
         this.database = table.getDatabase();
         this.insertLoadJob = new InsertLoadJob(database.getId(), labelName, jobId);
-        // Do not add load job if job id is -1.
-        if (jobId != -1) {
+        if (needRegister) {
             ctx.getEnv().getLoadManager().addLoadJob(insertLoadJob);
         }
         this.coordinator = EnvFactory.getInstance().createCoordinator(
