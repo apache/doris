@@ -54,17 +54,18 @@ public:
         std::vector<DataTypePtr> data_types {std::make_shared<DataTypeInt32>()};
         row_desc = std::make_unique<MockRowDescriptor>(data_types, &pool);
 
-        ordering_expr_ctxs.push_back(
-                VExprContext::create_shared(std::make_shared<MockSlotRef>(0)));
+        ordering_expr_ctxs.push_back(VExprContext::create_shared(std::make_shared<MockSlotRef>(0)));
 
         switch (sort_type) {
         case TestSortType::FULL_SORT:
-            sorter = FullSorter::create_unique(ordering_expr_ctxs, limit, offset, &pool, is_asc_order,
-                                               nulls_first, *row_desc, &_state, nullptr);
+            sorter = FullSorter::create_unique(ordering_expr_ctxs, limit, offset, &pool,
+                                               is_asc_order, nulls_first, *row_desc, &_state,
+                                               nullptr);
             break;
         case TestSortType::TOPN_SORT:
-            sorter = TopNSorter::create_unique(ordering_expr_ctxs, limit, offset, &pool, is_asc_order,
-                                               nulls_first, *row_desc, &_state, nullptr);
+            sorter = TopNSorter::create_unique(ordering_expr_ctxs, limit, offset, &pool,
+                                               is_asc_order, nulls_first, *row_desc, &_state,
+                                               nullptr);
             break;
         case TestSortType::HEAP_SORT:
             sorter = HeapSorter::create_unique(ordering_expr_ctxs, &_state, limit, offset, &pool,

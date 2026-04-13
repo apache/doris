@@ -64,8 +64,7 @@ Status LocalMergeSortLocalState::build_merger(RuntimeState* state) {
     VExprContextSPtrs ordering_expr_ctxs;
     ordering_expr_ctxs.resize(p._ordering_expr_ctxs.size());
     for (size_t i = 0; i < ordering_expr_ctxs.size(); i++) {
-        RETURN_IF_ERROR(
-                p._ordering_expr_ctxs[i]->clone(state, ordering_expr_ctxs[i]));
+        RETURN_IF_ERROR(p._ordering_expr_ctxs[i]->clone(state, ordering_expr_ctxs[i]));
     }
     _merger = std::make_unique<VSortedRunMerger>(ordering_expr_ctxs, p._is_asc_order,
                                                  p._nulls_first, state->batch_size(), p._limit,
@@ -92,7 +91,7 @@ LocalMergeSortSourceOperatorX::LocalMergeSortSourceOperatorX(ObjectPool* pool,
 Status LocalMergeSortSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(Base::init(tnode, state));
     RETURN_IF_ERROR(VExpr::create_expr_trees(tnode.sort_node.sort_info.ordering_exprs,
-                                            _ordering_expr_ctxs));
+                                             _ordering_expr_ctxs));
     _is_asc_order = tnode.sort_node.sort_info.is_asc_order;
     _nulls_first = tnode.sort_node.sort_info.nulls_first;
     _op_name = "LOCAL_MERGE_SORT_SOURCE_OPERATOR";

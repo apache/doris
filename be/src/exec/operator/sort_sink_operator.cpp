@@ -113,7 +113,7 @@ SortSinkOperatorX::SortSinkOperatorX(ObjectPool* pool, int operator_id, int dest
 Status SortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX::init(tnode, state));
     RETURN_IF_ERROR(VExpr::create_expr_trees(tnode.sort_node.sort_info.ordering_exprs,
-                                            _ordering_expr_ctxs));
+                                             _ordering_expr_ctxs));
     _is_asc_order = tnode.sort_node.sort_info.is_asc_order;
     _nulls_first = tnode.sort_node.sort_info.nulls_first;
 

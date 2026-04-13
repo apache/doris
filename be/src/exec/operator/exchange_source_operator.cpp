@@ -128,7 +128,7 @@ Status ExchangeSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state
         return Status::OK();
     }
     RETURN_IF_ERROR(VExpr::create_expr_trees(tnode.exchange_node.sort_info.ordering_exprs,
-                                            _ordering_expr_ctxs));
+                                             _ordering_expr_ctxs));
     _is_asc_order = tnode.exchange_node.sort_info.is_asc_order;
     _nulls_first = tnode.exchange_node.sort_info.nulls_first;
 
@@ -157,8 +157,8 @@ Status ExchangeSourceOperatorX::get_block(RuntimeState* state, Block* block, boo
     if (_is_merging && !local_state.is_ready) {
         SCOPED_TIMER(local_state.create_merger_timer);
         RETURN_IF_ERROR(local_state.stream_recvr->create_merger(
-                local_state.ordering_expr_ctxs, _is_asc_order, _nulls_first,
-                state->batch_size(), _limit, _offset));
+                local_state.ordering_expr_ctxs, _is_asc_order, _nulls_first, state->batch_size(),
+                _limit, _offset));
         local_state.is_ready = true;
         return Status::OK();
     }
