@@ -71,6 +71,12 @@ protected:
     const TDataSink& _t_sink;
 
 private:
+    Status _init_partition_column_indices(const ::doris::Block& block) const;
+    std::string _default_partition_name() const;
+    Status _collect_partition_value_columns(
+            const ::doris::Block& block,
+            std::vector<std::vector<std::string>>* partition_value_columns) const;
+
     struct WriteKey {
         std::vector<std::string> partition_values;
         int32_t bucket_id = -1;
