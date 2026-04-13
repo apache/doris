@@ -28,13 +28,12 @@ import org.apache.doris.datasource.es.MappingPhase;
 import org.apache.doris.datasource.es.SearchContext;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import mockit.Expectations;
-import mockit.Injectable;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
 import org.junit.rules.ExpectedException;
+import org.mockito.Mockito;
 
 import java.io.IOException;
 import java.net.URISyntaxException;
@@ -94,17 +93,12 @@ public class EsUtilTest extends EsTestCase {
     }
 
     @Test
-    public void testWorkFlow(@Injectable EsRestClient client) throws Exception {
+    public void testWorkFlow() throws Exception {
+        EsRestClient client = Mockito.mock(EsRestClient.class);
         EsExternalTable table = fakeEsTable("fake", "test", "doc", columns);
         SearchContext searchContext1 = new SearchContext(table);
         String jsonMapping = loadJsonFromFile("data/es/test_index_mapping.json");
-        new Expectations(client) {
-            {
-                client.getMapping(anyString);
-                minTimes = 0;
-                result = jsonMapping;
-            }
-        };
+        Mockito.when(client.getMapping(Mockito.anyString())).thenReturn(jsonMapping);
         MappingPhase mappingPhase = new MappingPhase(client);
         ExceptionChecker.expectThrowsNoException(() -> mappingPhase.execute(searchContext1));
         ExceptionChecker.expectThrowsNoException(() -> mappingPhase.postProcess(searchContext1));

@@ -32,7 +32,6 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.info.TableRefInfo;
@@ -52,15 +51,13 @@ import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import mockit.Delegate;
-import mockit.Expectations;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedConstruction;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.io.File;
 import java.io.IOException;
@@ -76,14 +73,12 @@ public class BackupHandlerTest {
 
     private BackupHandler handler;
 
-    @Mocked
-    private Env env;
-    @Mocked
-    private InternalCatalog catalog;
-    @Mocked
-    private BrokerMgr brokerMgr;
-    @Mocked
-    private EditLog editLog;
+    private Env env = Mockito.mock(Env.class);
+    private InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+    private BrokerMgr brokerMgr = Mockito.mock(BrokerMgr.class);
+    private EditLog editLog = Mockito.mock(EditLog.class);
+
+    private MockedStatic<Env> mockedEnvStatic;
 
     private Database db;
 
@@ -102,52 +97,27 @@ public class BackupHandlerTest {
         rootDir.mkdirs();
         FeConstants.runningUnitTest = true;
 
-        new Expectations() {
-            {
-                env.getBrokerMgr();
-                minTimes = 0;
-                result = brokerMgr;
+        mockedEnvStatic = Mockito.mockStatic(Env.class);
 
-                env.getNextId();
-                minTimes = 0;
-                result = idGen++;
+        Mockito.when(env.getBrokerMgr()).thenReturn(brokerMgr);
+        Mockito.when(env.getNextId()).thenAnswer(inv -> idGen++);
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
 
-                env.getEditLog();
-                minTimes = 0;
-                result = editLog;
-
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                Env.getCurrentEnvJournalVersion();
-                minTimes = 0;
-                result = FeConstants.meta_version;
-
-                Env.getCurrentInvertedIndex();
-                minTimes = 0;
-                result = invertedIndex;
-            }
-        };
+        mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
+        mockedEnvStatic.when(Env::getCurrentEnvJournalVersion).thenReturn(FeConstants.meta_version);
+        mockedEnvStatic.when(Env::getCurrentInvertedIndex).thenReturn(invertedIndex);
 
         db = CatalogMocker.mockDb();
-        catalog = Deencapsulation.newInstance(InternalCatalog.class);
 
-        new Expectations() {
-            {
-                env.getInternalCatalog();
-                minTimes = 0;
-                result = catalog;
-
-                catalog.getDbOrDdlException(anyString);
-                minTimes = 0;
-                result = db;
-            }
-        };
+        Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+        Mockito.doReturn(db).when(catalog).getDbOrDdlException(Mockito.anyString());
     }
 
     @After
     public void done() {
+        if (mockedEnvStatic != null) {
+            mockedEnvStatic.close();
+        }
         if (rootDir != null) {
             try {
                 Files.walk(Paths.get(Config.tmp_dir),
@@ -170,156 +140,133 @@ public class BackupHandlerTest {
 
     @Test
     public void testCreateAndDropRepository() throws Exception {
-        new Expectations() {
-            {
-                editLog.logCreateRepository((Repository) any);
-                minTimes = 0;
-                result = new Delegate() {
-                    public void logCreateRepository(Repository repo) {
+        Mockito.when(brokerMgr.containsBroker(Mockito.anyString())).thenReturn(true);
 
+        try (MockedConstruction<Repository> mockedRepo = Mockito.mockConstruction(Repository.class,
+                (mock, context) -> {
+                    List<?> args = context.arguments();
+                    if (args.size() >= 2) {
+                        Mockito.when(mock.getName()).thenReturn((String) args.get(1));
+                        Mockito.when(mock.getId()).thenReturn((Long) args.get(0));
                     }
-                };
-
-                editLog.logDropRepository(anyString);
-                minTimes = 0;
-                result = new Delegate() {
-                    public void logDropRepository(String repoName) {
-
-                    }
-                };
-            }
-        };
-
-        new MockUp<Repository>() {
-            @Mock
-            public Status initRepository() {
-                return Status.OK;
-            }
-
-            @Mock
-            public Status listSnapshots(List<String> snapshotNames) {
-                snapshotNames.add("ss2");
-                return Status.OK;
-            }
-
-            @Mock
-            public Status getSnapshotInfoFile(String label, String backupTimestamp, List<BackupJobInfo> infos) throws Exception {
-                OlapTable tbl = (OlapTable) db.getTableOrMetaException(CatalogMocker.TEST_TBL_NAME);
-                List<Table> tbls = Lists.newArrayList();
-                tbls.add(tbl);
-                List<Resource> resources = Lists.newArrayList();
-                BackupMeta backupMeta = new BackupMeta(tbls, resources);
-                Map<Long, SnapshotInfo> snapshotInfos = Maps.newHashMap();
-                for (Partition part : tbl.getPartitions()) {
-                    for (MaterializedIndex idx : part.getMaterializedIndices(IndexExtState.VISIBLE)) {
-                        for (Tablet tablet : idx.getTablets()) {
-                            List<String> files = Lists.newArrayList();
-                            SnapshotInfo sinfo = new SnapshotInfo(db.getId(), tbl.getId(), part.getId(), idx.getId(),
-                                    tablet.getId(), -1, 0, "./path", files);
-                            snapshotInfos.put(tablet.getId(), sinfo);
+                    Mockito.when(mock.initRepository()).thenReturn(Status.OK);
+                    Mockito.when(mock.ping()).thenReturn(true);
+                    Mockito.doAnswer(inv -> {
+                        List<String> snapshotNames = inv.getArgument(0);
+                        snapshotNames.add("ss2");
+                        return Status.OK;
+                    }).when(mock).listSnapshots(Mockito.anyList());
+                    Mockito.doAnswer(inv -> {
+                        List<BackupJobInfo> infos = inv.getArgument(2);
+                        OlapTable tbl = (OlapTable) db.getTableOrMetaException(CatalogMocker.TEST_TBL_NAME);
+                        List<Table> tbls = Lists.newArrayList();
+                        tbls.add(tbl);
+                        List<Resource> resources = Lists.newArrayList();
+                        BackupMeta backupMeta = new BackupMeta(tbls, resources);
+                        Map<Long, SnapshotInfo> snapshotInfos = Maps.newHashMap();
+                        for (Partition part : tbl.getPartitions()) {
+                            for (MaterializedIndex idx : part.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                                for (Tablet tablet : idx.getTablets()) {
+                                    List<String> files = Lists.newArrayList();
+                                    SnapshotInfo sinfo = new SnapshotInfo(db.getId(), tbl.getId(), part.getId(), idx.getId(),
+                                            tablet.getId(), -1, 0, "./path", files);
+                                    snapshotInfos.put(tablet.getId(), sinfo);
+                                }
+                            }
                         }
-                    }
-                }
 
-                BackupJobInfo info = BackupJobInfo.fromCatalog(System.currentTimeMillis(),
-                        "ss2", CatalogMocker.TEST_DB_NAME,
-                        CatalogMocker.TEST_DB_ID, BackupCommand.BackupContent.ALL,
-                        backupMeta, snapshotInfos, null);
-                infos.add(info);
-                return Status.OK;
-            }
-        };
+                        BackupJobInfo info = BackupJobInfo.fromCatalog(System.currentTimeMillis(),
+                                "ss2", CatalogMocker.TEST_DB_NAME,
+                                CatalogMocker.TEST_DB_ID, BackupCommand.BackupContent.ALL,
+                                backupMeta, snapshotInfos, null);
+                        infos.add(info);
+                        return Status.OK;
+                    }).when(mock).getSnapshotInfoFile(Mockito.anyString(), Mockito.anyString(), Mockito.anyList());
+                })) {
 
-        new Expectations() {
-            {
-                brokerMgr.containsBroker(anyString);
-                minTimes = 0;
-                result = true;
-            }
-        };
+            // add repo
+            handler = new BackupHandler(env);
+            StorageBackend storageBackend = new StorageBackend("broker", "bos://location",
+                    StorageBackend.StorageType.BROKER, Maps.newHashMap());
 
-        // add repo
-        handler = new BackupHandler(env);
-        StorageBackend storageBackend = new StorageBackend("broker", "bos://location",
-                StorageBackend.StorageType.BROKER, Maps.newHashMap());
+            CreateRepositoryCommand command = new CreateRepositoryCommand(false, "repo", storageBackend);
+            handler.createRepository(command);
 
-        CreateRepositoryCommand command = new CreateRepositoryCommand(false, "repo", storageBackend);
-        handler.createRepository(command);
+            // process backup
+            List<TableRefInfo> tableRefInfos = Lists.newArrayList();
+            tableRefInfos.add(new TableRefInfo(new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME, CatalogMocker.TEST_DB_NAME,
+                    CatalogMocker.TEST_TBL_NAME), null, null, null, null, null, null, null));
+            Map<String, String> properties = Maps.newHashMap();
+            properties.put("backup_timestamp", "2018-08-08-08-08-08");
+            boolean isExclude = false;
+            BackupCommand backupCommand = new BackupCommand(new LabelNameInfo(CatalogMocker.TEST_DB_NAME, "label1"), "repo", tableRefInfos, properties, isExclude);
+            handler.process(backupCommand);
 
-        // process backup
-        List<TableRefInfo> tableRefInfos = Lists.newArrayList();
-        tableRefInfos.add(new TableRefInfo(new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME, CatalogMocker.TEST_DB_NAME,
-                CatalogMocker.TEST_TBL_NAME), null, null, null, null, null, null, null));
-        Map<String, String> properties = Maps.newHashMap();
-        properties.put("backup_timestamp", "2018-08-08-08-08-08");
-        boolean isExclude = false;
-        BackupCommand backupCommand = new BackupCommand(new LabelNameInfo(CatalogMocker.TEST_DB_NAME, "label1"), "repo", tableRefInfos, properties, isExclude);
-        handler.process(backupCommand);
+            // handleFinishedSnapshotTask
+            BackupJob backupJob = (BackupJob) handler.getJob(CatalogMocker.TEST_DB_ID);
+            SnapshotTask snapshotTask = new SnapshotTask(null, 0, 0, backupJob.getJobId(), CatalogMocker.TEST_DB_ID, 0, 0,
+                    0, 0, 0, 0, 1, false);
+            TFinishTaskRequest request = new TFinishTaskRequest();
+            List<String> snapshotFiles = Lists.newArrayList();
+            request.setSnapshotFiles(snapshotFiles);
+            request.setSnapshotPath("./snapshot/path");
+            request.setTaskStatus(new TStatus(TStatusCode.OK));
+            handler.handleFinishedSnapshotTask(snapshotTask, request);
 
-        // handleFinishedSnapshotTask
-        BackupJob backupJob = (BackupJob) handler.getJob(CatalogMocker.TEST_DB_ID);
-        SnapshotTask snapshotTask = new SnapshotTask(null, 0, 0, backupJob.getJobId(), CatalogMocker.TEST_DB_ID, 0, 0,
-                0, 0, 0, 0, 1, false);
-        TFinishTaskRequest request = new TFinishTaskRequest();
-        List<String> snapshotFiles = Lists.newArrayList();
-        request.setSnapshotFiles(snapshotFiles);
-        request.setSnapshotPath("./snapshot/path");
-        request.setTaskStatus(new TStatus(TStatusCode.OK));
-        handler.handleFinishedSnapshotTask(snapshotTask, request);
+            // handleFinishedSnapshotUploadTask
+            Map<String, String> srcToDestPath = Maps.newHashMap();
+            UploadTask uploadTask = new UploadTask(null, 0, 0, backupJob.getJobId(), CatalogMocker.TEST_DB_ID,
+                    srcToDestPath, null, null, StorageBackend.StorageType.BROKER, "");
+            request = new TFinishTaskRequest();
+            Map<Long, List<String>> tabletFiles = Maps.newHashMap();
+            request.setTabletFiles(tabletFiles);
+            request.setTaskStatus(new TStatus(TStatusCode.OK));
+            handler.handleFinishedSnapshotUploadTask(uploadTask, request);
 
-        // handleFinishedSnapshotUploadTask
-        Map<String, String> srcToDestPath = Maps.newHashMap();
-        UploadTask uploadTask = new UploadTask(null, 0, 0, backupJob.getJobId(), CatalogMocker.TEST_DB_ID,
-                srcToDestPath, null, null, StorageBackend.StorageType.BROKER, "");
-        request = new TFinishTaskRequest();
-        Map<Long, List<String>> tabletFiles = Maps.newHashMap();
-        request.setTabletFiles(tabletFiles);
-        request.setTaskStatus(new TStatus(TStatusCode.OK));
-        handler.handleFinishedSnapshotUploadTask(uploadTask, request);
+            // cancel backup
+            handler.cancel(new CancelBackupCommand(CatalogMocker.TEST_DB_NAME, false));
 
-        // cancel backup
-        handler.cancel(new CancelBackupCommand(CatalogMocker.TEST_DB_NAME, false));
+            // process restore
+            List<TableRefInfo> tableRefInfos2 = Lists.newArrayList();
+            tableRefInfos2.add(new TableRefInfo(new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME, CatalogMocker.TEST_DB_NAME,
+                    CatalogMocker.TEST_TBL_NAME), null, null, null, null, null, null, null));
+            Map<String, String> properties02 = Maps.newHashMap();
+            properties02.put("backup_timestamp", "2018-08-08-08-08-08");
+            boolean isExclude02 = false;
+            RestoreCommand restoreCommand = new RestoreCommand(new LabelNameInfo(CatalogMocker.TEST_DB_NAME, "ss2"), "repo", tableRefInfos2, properties02, isExclude02);
+            restoreCommand.analyzeProperties();
+            handler.process(restoreCommand);
 
-        // process restore
-        List<TableRefInfo> tableRefInfos2 = Lists.newArrayList();
-        tableRefInfos2.add(new TableRefInfo(new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME, CatalogMocker.TEST_DB_NAME,
-                CatalogMocker.TEST_TBL_NAME), null, null, null, null, null, null, null));
-        Map<String, String> properties02 = Maps.newHashMap();
-        properties02.put("backup_timestamp", "2018-08-08-08-08-08");
-        boolean isExclude02 = false;
-        RestoreCommand restoreCommand = new RestoreCommand(new LabelNameInfo(CatalogMocker.TEST_DB_NAME, "ss2"), "repo", tableRefInfos2, properties02, isExclude02);
-        restoreCommand.analyzeProperties();
-        handler.process(restoreCommand);
+            // handleFinishedSnapshotTask
+            RestoreJob restoreJob = (RestoreJob) handler.getJob(CatalogMocker.TEST_DB_ID);
+            snapshotTask = new SnapshotTask(null, 0, 0, restoreJob.getJobId(), CatalogMocker.TEST_DB_ID,
+                    0, 0, 0, 0, 0, 0, 1, true);
+            request = new TFinishTaskRequest();
+            request.setSnapshotPath("./snapshot/path");
+            request.setTaskStatus(new TStatus(TStatusCode.OK));
+            handler.handleFinishedSnapshotTask(snapshotTask, request);
 
-        // handleFinishedSnapshotTask
-        RestoreJob restoreJob = (RestoreJob) handler.getJob(CatalogMocker.TEST_DB_ID);
-        snapshotTask = new SnapshotTask(null, 0, 0, restoreJob.getJobId(), CatalogMocker.TEST_DB_ID,
-                0, 0, 0, 0, 0, 0, 1, true);
-        request = new TFinishTaskRequest();
-        request.setSnapshotPath("./snapshot/path");
-        request.setTaskStatus(new TStatus(TStatusCode.OK));
-        handler.handleFinishedSnapshotTask(snapshotTask, request);
+            // handleDownloadSnapshotTask
+            DownloadTask downloadTask = new DownloadTask(null, 0, 0, restoreJob.getJobId(), CatalogMocker.TEST_DB_ID,
+                    srcToDestPath, null, null, StorageBackend.StorageType.BROKER, "", "");
+            request = new TFinishTaskRequest();
+            List<Long> downloadedTabletIds = Lists.newArrayList();
+            request.setDownloadedTabletIds(downloadedTabletIds);
+            request.setTaskStatus(new TStatus(TStatusCode.OK));
+            handler.handleDownloadSnapshotTask(downloadTask, request);
 
-        // handleDownloadSnapshotTask
-        DownloadTask downloadTask = new DownloadTask(null, 0, 0, restoreJob.getJobId(), CatalogMocker.TEST_DB_ID,
-                srcToDestPath, null, null, StorageBackend.StorageType.BROKER, "", "");
-        request = new TFinishTaskRequest();
-        List<Long> downloadedTabletIds = Lists.newArrayList();
-        request.setDownloadedTabletIds(downloadedTabletIds);
-        request.setTaskStatus(new TStatus(TStatusCode.OK));
-        handler.handleDownloadSnapshotTask(downloadTask, request);
+            // handleDirMoveTask
+            DirMoveTask dirMoveTask = new DirMoveTask(null, 0, 0, restoreJob.getJobId(), CatalogMocker.TEST_DB_ID, 0, 0, 0,
+                    0, "", 0, true);
+            request = new TFinishTaskRequest();
+            request.setTaskStatus(new TStatus(TStatusCode.OK));
+            handler.handleDirMoveTask(dirMoveTask, request);
 
-        // handleDirMoveTask
-        DirMoveTask dirMoveTask = new DirMoveTask(null, 0, 0, restoreJob.getJobId(), CatalogMocker.TEST_DB_ID, 0, 0, 0,
-                0, "", 0, true);
-        request = new TFinishTaskRequest();
-        request.setTaskStatus(new TStatus(TStatusCode.OK));
-        handler.handleDirMoveTask(dirMoveTask, request);
+            // cancel restore
+            handler.cancel(new CancelBackupCommand(CatalogMocker.TEST_DB_NAME, true));
 
-        // cancel restore
-        handler.cancel(new CancelBackupCommand(CatalogMocker.TEST_DB_NAME, true));
-
-        // drop repo
-        handler.dropRepository("repo");
+            // drop repo
+            handler.dropRepository("repo");
+        }
     }
 }

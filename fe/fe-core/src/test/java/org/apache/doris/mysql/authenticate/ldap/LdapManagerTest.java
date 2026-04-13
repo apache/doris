@@ -18,14 +18,12 @@
 package org.apache.doris.mysql.authenticate.ldap;
 
 import org.apache.doris.common.Config;
-import org.apache.doris.mysql.authenticate.TestLogAppender;
+import org.apache.doris.common.jmockit.Deencapsulation;
 
-import mockit.Expectations;
-import mockit.Mocked;
-import org.apache.logging.log4j.Level;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 
@@ -34,8 +32,7 @@ public class LdapManagerTest {
     private static final String USER1 = "user1";
     private static final String USER2 = "user2";
 
-    @Mocked
-    private LdapClient ldapClient;
+    private LdapClient ldapClient = Mockito.mock(LdapClient.class);
 
     @Before
     public void setUp() {
@@ -43,26 +40,15 @@ public class LdapManagerTest {
     }
 
     private void mockClient(boolean userExist, boolean passwd) {
-        new Expectations() {
-            {
-                ldapClient.doesUserExist(anyString);
-                minTimes = 0;
-                result = userExist;
-
-                ldapClient.checkPassword(anyString, anyString);
-                minTimes = 0;
-                result = passwd;
-
-                ldapClient.getGroups(anyString);
-                minTimes = 0;
-                result = new ArrayList<>();
-            }
-        };
+        Mockito.when(ldapClient.doesUserExist(Mockito.anyString())).thenReturn(userExist);
+        Mockito.when(ldapClient.checkPassword(Mockito.anyString(), Mockito.anyString())).thenReturn(passwd);
+        Mockito.when(ldapClient.getGroups(Mockito.anyString())).thenReturn(new ArrayList<>());
     }
 
     @Test
     public void testGetUserInfo() {
         LdapManager ldapManager = new LdapManager();
+        Deencapsulation.setField(ldapManager, "ldapClient", ldapClient);
         mockClient(true, true);
         LdapUserInfo ldapUserInfo = ldapManager.getUserInfo(USER1);
         Assert.assertNotNull(ldapUserInfo);
@@ -77,6 +63,7 @@ public class LdapManagerTest {
     @Test
     public void testCheckUserPasswd() {
         LdapManager ldapManager = new LdapManager();
+        Deencapsulation.setField(ldapManager, "ldapClient", ldapClient);
         mockClient(true, true);
         Assert.assertTrue(ldapManager.checkUserPasswd(USER1, "123"));
         LdapUserInfo ldapUserInfo = ldapManager.getUserInfo(USER1);
@@ -86,34 +73,5 @@ public class LdapManagerTest {
 
         mockClient(true, false);
         Assert.assertFalse(ldapManager.checkUserPasswd(USER2, "123"));
-    }
-
-    @Test
-    public void testCheckUserPasswdCachedPasswdMatchLogsInfoWithoutThreshold() {
-        LdapManager ldapManager = new LdapManager();
-        mockClient(true, true);
-        Assert.assertTrue(ldapManager.checkUserPasswd(USER1, "123"));
-
-        try (TestLogAppender appender = TestLogAppender.attach(LdapManager.class)) {
-            Assert.assertTrue(ldapManager.checkUserPasswd(USER1, "123"));
-            Assert.assertTrue(appender.contains(Level.DEBUG,
-                    "LdapManager.checkUserPasswd: user=user1, result=cached_passwd_match, elapsed="));
-            Assert.assertFalse(appender.contains(Level.WARN,
-                    "LdapManager.checkUserPasswd slow: user=user1"));
-        }
-    }
-
-    @Test
-    public void testGetUserInfoLogsInfoWithoutThreshold() {
-        LdapManager ldapManager = new LdapManager();
-        mockClient(true, true);
-
-        try (TestLogAppender appender = TestLogAppender.attach(LdapManager.class)) {
-            Assert.assertNotNull(ldapManager.getUserInfo(USER1));
-            Assert.assertTrue(appender.contains(Level.DEBUG,
-                    "LdapManager.getUserInfo: user=user1, cacheHit=false, elapsed="));
-            Assert.assertFalse(appender.contains(Level.WARN,
-                    "LdapManager.getUserInfo slow: user=user1"));
-        }
     }
 }

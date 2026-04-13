@@ -31,10 +31,11 @@ import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 
 import com.google.common.collect.Maps;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.Map;
 import java.util.UUID;
@@ -43,78 +44,65 @@ import java.util.concurrent.LinkedBlockingDeque;
 
 public class RoutineLoadTaskSchedulerTest {
 
-    @Mocked
-    private RoutineLoadManager routineLoadManager;
-    @Mocked
-    private Env env;
-    @Mocked
-    private AgentTaskExecutor agentTaskExecutor;
+    private RoutineLoadManager routineLoadManager = Mockito.mock(RoutineLoadManager.class);
+    private Env env = Mockito.mock(Env.class);
+    private AgentTaskExecutor agentTaskExecutor = Mockito.mock(AgentTaskExecutor.class);
+    private MockedStatic<Env> envStatic;
+
+    @Before
+    public void setUp() {
+        envStatic = Mockito.mockStatic(Env.class);
+        envStatic.when(Env::getCurrentEnv).thenReturn(env);
+    }
+
+    @After
+    public void tearDown() {
+        envStatic.close();
+    }
 
     @Test
-    public void testRunOneCycle(@Injectable KafkaRoutineLoadJob kafkaRoutineLoadJob1,
-                                @Injectable KafkaRoutineLoadJob routineLoadJob,
-                                @Injectable RoutineLoadDesc routineLoadDesc,
-                                @Mocked GlobalTransactionMgr globalTransactionMgr,
-                                @Mocked BackendService.Client client,
-                                @Mocked ClientPool clientPool) throws LoadException,
+    public void testRunOneCycle() throws LoadException,
             MetaNotFoundException, AnalysisException, LabelAlreadyUsedException, BeginTransactionException {
-        long beId = 100L;
+        KafkaRoutineLoadJob kafkaRoutineLoadJob1 = Mockito.mock(KafkaRoutineLoadJob.class);
+        KafkaRoutineLoadJob routineLoadJob = Mockito.mock(KafkaRoutineLoadJob.class);
+        Mockito.mock(RoutineLoadDesc.class);
+        Mockito.mock(GlobalTransactionMgr.class);
+        Mockito.mock(BackendService.Client.class);
 
-        ConcurrentMap<Integer, Long> partitionIdToOffset = Maps.newConcurrentMap();
-        partitionIdToOffset.put(1, 100L);
-        partitionIdToOffset.put(2, 200L);
-        KafkaProgress kafkaProgress = new KafkaProgress();
-        Deencapsulation.setField(kafkaProgress, "partitionIdToOffset", partitionIdToOffset);
+        try (MockedStatic<ClientPool> clientPoolStatic = Mockito.mockStatic(ClientPool.class)) {
+            long beId = 100L;
 
-        LinkedBlockingDeque<RoutineLoadTaskInfo> routineLoadTaskInfoQueue = new LinkedBlockingDeque<>();
-        KafkaTaskInfo routineLoadTaskInfo1 = new KafkaTaskInfo(new UUID(1, 1), 1L, 20000,
-                partitionIdToOffset, false, -1, false);
-        routineLoadTaskInfoQueue.addFirst(routineLoadTaskInfo1);
+            ConcurrentMap<Integer, Long> partitionIdToOffset = Maps.newConcurrentMap();
+            partitionIdToOffset.put(1, 100L);
+            partitionIdToOffset.put(2, 200L);
+            KafkaProgress kafkaProgress = new KafkaProgress();
+            Deencapsulation.setField(kafkaProgress, "partitionIdToOffset", partitionIdToOffset);
 
-        Map<Long, RoutineLoadTaskInfo> idToRoutineLoadTask = Maps.newHashMap();
-        idToRoutineLoadTask.put(1L, routineLoadTaskInfo1);
+            LinkedBlockingDeque<RoutineLoadTaskInfo> routineLoadTaskInfoQueue = new LinkedBlockingDeque<>();
+            KafkaTaskInfo routineLoadTaskInfo1 = new KafkaTaskInfo(new UUID(1, 1), 1L, 20000,
+                    partitionIdToOffset, false, -1, false);
+            routineLoadTaskInfoQueue.addFirst(routineLoadTaskInfo1);
 
-        Map<String, RoutineLoadJob> idToRoutineLoadJob = Maps.newConcurrentMap();
-        idToRoutineLoadJob.put("1", routineLoadJob);
+            Map<Long, RoutineLoadTaskInfo> idToRoutineLoadTask = Maps.newHashMap();
+            idToRoutineLoadTask.put(1L, routineLoadTaskInfo1);
 
-        Deencapsulation.setField(routineLoadManager, "idToRoutineLoadJob", idToRoutineLoadJob);
+            Map<String, RoutineLoadJob> idToRoutineLoadJob = Maps.newConcurrentMap();
+            idToRoutineLoadJob.put("1", routineLoadJob);
 
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-                env.getRoutineLoadManager();
-                minTimes = 0;
-                result = routineLoadManager;
+            Deencapsulation.setField(routineLoadManager, "idToRoutineLoadJob", idToRoutineLoadJob);
 
-                routineLoadManager.getClusterIdleSlotNum();
-                minTimes = 0;
-                result = 1;
-                routineLoadManager.checkTaskInJob((RoutineLoadTaskInfo) any);
-                minTimes = 0;
-                result = true;
+            Mockito.when(env.getRoutineLoadManager()).thenReturn(routineLoadManager);
+            Mockito.when(routineLoadManager.getClusterIdleSlotNum()).thenReturn(1);
+            Mockito.when(routineLoadManager.checkTaskInJob(Mockito.any(RoutineLoadTaskInfo.class))).thenReturn(true);
+            Mockito.when(kafkaRoutineLoadJob1.getDbId()).thenReturn(1L);
+            Mockito.when(kafkaRoutineLoadJob1.getTableId()).thenReturn(1L);
+            Mockito.when(kafkaRoutineLoadJob1.getName()).thenReturn("");
+            Mockito.when(routineLoadManager.getMinTaskBeId(Mockito.anyString())).thenReturn(beId);
+            Mockito.when(routineLoadManager.getJob(Mockito.anyLong())).thenReturn(kafkaRoutineLoadJob1);
 
-                kafkaRoutineLoadJob1.getDbId();
-                minTimes = 0;
-                result = 1L;
-                kafkaRoutineLoadJob1.getTableId();
-                minTimes = 0;
-                result = 1L;
-                kafkaRoutineLoadJob1.getName();
-                minTimes = 0;
-                result = "";
-                routineLoadManager.getMinTaskBeId(anyString);
-                minTimes = 0;
-                result = beId;
-                routineLoadManager.getJob(anyLong);
-                minTimes = 0;
-                result = kafkaRoutineLoadJob1;
-            }
-        };
-
-        RoutineLoadTaskScheduler routineLoadTaskScheduler = new RoutineLoadTaskScheduler();
-        Deencapsulation.setField(routineLoadTaskScheduler, "needScheduleTasksQueue", routineLoadTaskInfoQueue);
-        routineLoadTaskScheduler.runAfterCatalogReady();
+            RoutineLoadTaskScheduler routineLoadTaskScheduler = new RoutineLoadTaskScheduler();
+            Deencapsulation.setField(routineLoadTaskScheduler, "needScheduleTasksQueue", routineLoadTaskInfoQueue);
+            routineLoadTaskScheduler.runAfterCatalogReady();
+        }
     }
 }

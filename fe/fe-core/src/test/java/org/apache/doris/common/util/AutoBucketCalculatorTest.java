@@ -21,32 +21,19 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.util.AutoBucketCalculator.AutoBucketContext;
 import org.apache.doris.common.util.AutoBucketCalculator.AutoBucketResult;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 public class AutoBucketCalculatorTest {
 
-    @Mocked
-    OlapTable table;
+    OlapTable table = Mockito.mock(OlapTable.class);
 
     @Test
     public void testCalculateAutoBucketsNotAutoBucket() {
-        new Expectations() {
-            {
-                table.isAutoBucket();
-                result = false;
-
-                table.getName();
-                result = "test_table";
-                minTimes = 0;
-
-                table.getId();
-                result = 1L;
-                minTimes = 0;
-            }
-        };
+        Mockito.when(table.isAutoBucket()).thenReturn(false);
+        Mockito.when(table.getName()).thenReturn("test_table");
+        Mockito.when(table.getId()).thenReturn(1L);
 
         AutoBucketContext context = new AutoBucketContext(table, "p1", "p2", false, 10);
         AutoBucketResult result = AutoBucketCalculator.calculateAutoBuckets(context);
@@ -58,20 +45,9 @@ public class AutoBucketCalculatorTest {
 
     @Test
     public void testCalculateAutoBucketsExecuteFirstTime() {
-        new Expectations() {
-            {
-                table.isAutoBucket();
-                result = true;
-
-                table.getName();
-                result = "test_table";
-                minTimes = 0;
-
-                table.getId();
-                result = 1L;
-                minTimes = 0;
-            }
-        };
+        Mockito.when(table.isAutoBucket()).thenReturn(true);
+        Mockito.when(table.getName()).thenReturn("test_table");
+        Mockito.when(table.getId()).thenReturn(1L);
 
         AutoBucketContext context = new AutoBucketContext(table, "p1", "p2", true, 10);
         AutoBucketResult result = AutoBucketCalculator.calculateAutoBuckets(context);
@@ -83,20 +59,9 @@ public class AutoBucketCalculatorTest {
 
     @Test
     public void testCalculateAutoBucketsWithBoundsCheck() {
-        new Expectations() {
-            {
-                table.isAutoBucket();
-                result = false;
-
-                table.getName();
-                result = "test_table";
-                minTimes = 0;
-
-                table.getId();
-                result = 1L;
-                minTimes = 0;
-            }
-        };
+        Mockito.when(table.isAutoBucket()).thenReturn(false);
+        Mockito.when(table.getName()).thenReturn("test_table");
+        Mockito.when(table.getId()).thenReturn(1L);
 
         AutoBucketContext context = new AutoBucketContext(table, "p1", "p2", false, 10);
         int buckets = AutoBucketCalculator.calculateAutoBucketsWithBoundsCheck(context);

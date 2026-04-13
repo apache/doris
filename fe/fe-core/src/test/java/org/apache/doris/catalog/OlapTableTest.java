@@ -38,10 +38,10 @@ import org.apache.doris.utframe.UtFrameUtils;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import mockit.Mock;
-import mockit.MockUp;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -59,36 +59,33 @@ public class OlapTableTest {
     @Test
     public void test() throws IOException {
 
-        new MockUp<Env>() {
-            @Mock
-            int getCurrentEnvJournalVersion() {
-                return FeConstants.meta_version;
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedEnv.when(Env::getCurrentEnvJournalVersion).thenReturn(FeConstants.meta_version);
+
+            Database db = UnitTestUtil.createDb(1, 2, 3, 4, 5, 6, 7);
+            List<Table> tables = db.getTables();
+
+            for (Table table : tables) {
+                if (table.getType() != TableType.OLAP) {
+                    continue;
+                }
+                OlapTable tbl = (OlapTable) table;
+                tbl.setIndexes(Lists.newArrayList(new Index(0, "index", Lists.newArrayList("col"),
+                        IndexType.BITMAP, null, "xxxxxx")));
+                System.out.println("orig table id: " + tbl.getId());
+
+                FastByteArrayOutputStream byteArrayOutputStream = new FastByteArrayOutputStream();
+                DataOutputStream out = new DataOutputStream(byteArrayOutputStream);
+                tbl.write(out);
+
+                out.flush();
+                out.close();
+
+                DataInputStream in = new DataInputStream(byteArrayOutputStream.getInputStream());
+                Table copiedTbl = OlapTable.read(in);
+                System.out.println("copied table id: " + copiedTbl.getId());
+                in.close();
             }
-        };
-
-        Database db = UnitTestUtil.createDb(1, 2, 3, 4, 5, 6, 7);
-        List<Table> tables = db.getTables();
-
-        for (Table table : tables) {
-            if (table.getType() != TableType.OLAP) {
-                continue;
-            }
-            OlapTable tbl = (OlapTable) table;
-            tbl.setIndexes(Lists.newArrayList(new Index(0, "index", Lists.newArrayList("col"),
-                    IndexType.BITMAP, null, "xxxxxx")));
-            System.out.println("orig table id: " + tbl.getId());
-
-            FastByteArrayOutputStream byteArrayOutputStream = new FastByteArrayOutputStream();
-            DataOutputStream out = new DataOutputStream(byteArrayOutputStream);
-            tbl.write(out);
-
-            out.flush();
-            out.close();
-
-            DataInputStream in = new DataInputStream(byteArrayOutputStream.getInputStream());
-            Table copiedTbl = OlapTable.read(in);
-            System.out.println("copied table id: " + copiedTbl.getId());
-            in.close();
         }
 
     }
@@ -204,7 +201,7 @@ public class OlapTableTest {
 
     @Test
     public void testGetSchemaAllIndexes() {
-        OlapTable table = new OlapTable();
+        OlapTable table = Mockito.spy(new OlapTable());
         List<Column> schema1 = Lists.newArrayList();
         Column col1 = new Column("col1", PrimitiveType.INT);
         Column col2 = new Column("col2", PrimitiveType.INT);
@@ -227,12 +224,7 @@ public class OlapTableTest {
         table.addIndexNameToIdForUnitTest("index2", 2L);
 
         MaterializedIndex index1 = new MaterializedIndex(1, MaterializedIndex.IndexState.NORMAL);
-        new MockUp<OlapTable>() {
-            @Mock
-            public List<MaterializedIndex> getVisibleIndex() {
-                return Lists.newArrayList(index1);
-            }
-        };
+        Mockito.doReturn(Lists.newArrayList(index1)).when(table).getVisibleIndex();
 
         Set<Column> schemaAllIndexes = table.getSchemaAllIndexes(false);
         Assert.assertEquals(2, schemaAllIndexes.size());
@@ -242,12 +234,7 @@ public class OlapTableTest {
         Assert.assertTrue(schemaAllIndexes.contains(col2));
 
         MaterializedIndex index2 = new MaterializedIndex(2, MaterializedIndex.IndexState.NORMAL);
-        new MockUp<OlapTable>() {
-            @Mock
-            public List<MaterializedIndex> getVisibleIndex() {
-                return Lists.newArrayList(index2);
-            }
-        };
+        Mockito.doReturn(Lists.newArrayList(index2)).when(table).getVisibleIndex();
         schemaAllIndexes = table.getSchemaAllIndexes(false);
         Assert.assertEquals(2, schemaAllIndexes.size());
         Assert.assertTrue(schemaAllIndexes.contains(col3));
@@ -255,12 +242,7 @@ public class OlapTableTest {
         Assert.assertFalse(schemaAllIndexes.contains(col1));
         Assert.assertFalse(schemaAllIndexes.contains(col2));
 
-        new MockUp<OlapTable>() {
-            @Mock
-            public List<MaterializedIndex> getVisibleIndex() {
-                return Lists.newArrayList(index1, index2);
-            }
-        };
+        Mockito.doReturn(Lists.newArrayList(index1, index2)).when(table).getVisibleIndex();
         schemaAllIndexes = table.getSchemaAllIndexes(false);
         Assert.assertEquals(4, schemaAllIndexes.size());
         Assert.assertTrue(schemaAllIndexes.contains(col3));
@@ -310,14 +292,6 @@ public class OlapTableTest {
 
     @Test
     public void testTableVersionCacheWithRpc() throws Exception {
-        // Mock cloud mode
-        new MockUp<Config>() {
-            @Mock
-            public boolean isNotCloudMode() {
-                return false;
-            }
-        };
-
         // Create table and database
         final Database db = new Database(1L, "test_db");
 
@@ -334,95 +308,98 @@ public class OlapTableTest {
         final long[] versions = {100L, 200L, 300L};
         final int[] callCount = {0};
 
-        new MockUp<VersionHelper>() {
-            @Mock
-            public Cloud.GetVersionResponse getVersionFromMeta(Cloud.GetVersionRequest req) {
+        try (MockedStatic<Config> mockedConfig = Mockito.mockStatic(Config.class, Mockito.CALLS_REAL_METHODS);
+                MockedStatic<VersionHelper> mockedVH = Mockito.mockStatic(VersionHelper.class, Mockito.CALLS_REAL_METHODS)) {
+            // Mock cloud mode
+            mockedConfig.when(Config::isNotCloudMode).thenReturn(false);
+
+            mockedVH.when(() -> VersionHelper.getVersionFromMeta(Mockito.any())).thenAnswer(invocation -> {
                 Cloud.GetVersionResponse.Builder builder = Cloud.GetVersionResponse.newBuilder();
                 builder.setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
                         .setCode(Cloud.MetaServiceCode.OK).build());
                 builder.setVersion(versions[callCount[0]]);
                 callCount[0]++;
                 return builder.build();
+            });
+
+            // Create ConnectContext with SessionVariable
+            ConnectContext ctx = new ConnectContext();
+            ctx.setSessionVariable(new SessionVariable());
+            ctx.setThreadLocalInfo();
+
+            try {
+                // Test 1: Initial state with TTL set, should still call RPC for first time
+                ctx.getSessionVariable().cloudTableVersionCacheTtlMs = 100000; // Set long TTL
+                Assert.assertEquals(-1, table.getCachedTableVersion()); // Initial state
+                Assert.assertTrue(table.isCachedTableVersionExpired()); // Should be expired due to -1
+
+                long ver0 = table.getVisibleVersion();
+                Assert.assertEquals(100, ver0); // Should get from MS
+                Assert.assertEquals(1, callCount[0]); // First RPC call
+                Assert.assertEquals(100, table.getCachedTableVersion()); // Cache updated
+
+                // Second call should use cache
+                long ver0Again = table.getVisibleVersion();
+                Assert.assertEquals(100, ver0Again); // Should use cached version
+                Assert.assertEquals(1, callCount[0]); // No new RPC call
+
+                // Test 2: Disable cache (TTL = 0), should always call RPC
+                ctx.getSessionVariable().cloudTableVersionCacheTtlMs = 0;
+                long ver1 = table.getVisibleVersion();
+                Assert.assertEquals(200, ver1);
+                Assert.assertEquals(2, callCount[0]); // Second RPC call
+
+                long ver2 = table.getVisibleVersion();
+                Assert.assertEquals(300, ver2);
+                Assert.assertEquals(3, callCount[0]); // Third RPC call
+                Assert.assertEquals(300, table.getCachedTableVersion()); // Cache updated to 300
+
+                // Test 3: Enable cache with long TTL, should use cached version
+                ctx.getSessionVariable().cloudTableVersionCacheTtlMs = 100000; // 100 seconds
+                table.setCachedTableVersion(350); // Set cache to a larger version
+                long ver3 = table.getVisibleVersion();
+                Assert.assertEquals(350, ver3); // Should return cached version (350)
+                Assert.assertEquals(3, callCount[0]); // No new RPC call
+
+                // Test 4: Test setCachedTableVersion only updates when version is greater
+                ctx.getSessionVariable().cloudTableVersionCacheTtlMs = 500; // 500ms TTL
+
+                // At this point, cache is 350 from Test 3
+                // Set a larger version to 400
+                table.setCachedTableVersion(400);
+                Assert.assertEquals(400, table.getCachedTableVersion());
+                Assert.assertFalse(table.isCachedTableVersionExpired()); // Not expired yet
+
+                Thread.sleep(300); // Sleep 300ms
+
+                // Try to set a smaller version (380), should NOT update version or timestamp
+                table.setCachedTableVersion(380);
+                Assert.assertEquals(400, table.getCachedTableVersion()); // Version should remain 400
+
+                Thread.sleep(300); // Total 600ms since setCachedTableVersion(400)
+                // Cache should be expired (600ms > 500ms TTL)
+                // If timestamp was incorrectly reset by setCachedTableVersion(380), cache would not be expired
+                Assert.assertTrue(table.isCachedTableVersionExpired());
+
+                // Test 5: Setting a greater version should update both version and timestamp
+                ctx.getSessionVariable().cloudTableVersionCacheTtlMs = 500; // 500ms TTL
+                table.setCachedTableVersion(500); // Set to 500
+                Assert.assertEquals(500, table.getCachedTableVersion());
+                Assert.assertFalse(table.isCachedTableVersionExpired()); // Not expired
+
+                Thread.sleep(300); // Sleep 300ms
+
+                // Set a greater version (550), should update both version and timestamp
+                table.setCachedTableVersion(550);
+                Assert.assertEquals(550, table.getCachedTableVersion()); // Version updated to 550
+                Assert.assertFalse(table.isCachedTableVersionExpired()); // Timestamp reset, not expired yet
+
+                Thread.sleep(300); // Sleep another 300ms (total 600ms from first setCachedTableVersion(500), but only 300ms from setCachedTableVersion(550))
+                Assert.assertFalse(table.isCachedTableVersionExpired()); // Still not expired (300ms < 500ms TTL)
+
+            } finally {
+                ConnectContext.remove();
             }
-        };
-
-        // Create ConnectContext with SessionVariable
-        ConnectContext ctx = new ConnectContext();
-        ctx.setSessionVariable(new SessionVariable());
-        ctx.setThreadLocalInfo();
-
-        try {
-            // Test 1: Initial state with TTL set, should still call RPC for first time
-            ctx.getSessionVariable().cloudTableVersionCacheTtlMs = 100000; // Set long TTL
-            Assert.assertEquals(-1, table.getCachedTableVersion()); // Initial state
-            Assert.assertTrue(table.isCachedTableVersionExpired()); // Should be expired due to -1
-
-            long ver0 = table.getVisibleVersion();
-            Assert.assertEquals(100, ver0); // Should get from MS
-            Assert.assertEquals(1, callCount[0]); // First RPC call
-            Assert.assertEquals(100, table.getCachedTableVersion()); // Cache updated
-
-            // Second call should use cache
-            long ver0Again = table.getVisibleVersion();
-            Assert.assertEquals(100, ver0Again); // Should use cached version
-            Assert.assertEquals(1, callCount[0]); // No new RPC call
-
-            // Test 2: Disable cache (TTL = 0), should always call RPC
-            ctx.getSessionVariable().cloudTableVersionCacheTtlMs = 0;
-            long ver1 = table.getVisibleVersion();
-            Assert.assertEquals(200, ver1);
-            Assert.assertEquals(2, callCount[0]); // Second RPC call
-
-            long ver2 = table.getVisibleVersion();
-            Assert.assertEquals(300, ver2);
-            Assert.assertEquals(3, callCount[0]); // Third RPC call
-            Assert.assertEquals(300, table.getCachedTableVersion()); // Cache updated to 300
-
-            // Test 3: Enable cache with long TTL, should use cached version
-            ctx.getSessionVariable().cloudTableVersionCacheTtlMs = 100000; // 100 seconds
-            table.setCachedTableVersion(350); // Set cache to a larger version
-            long ver3 = table.getVisibleVersion();
-            Assert.assertEquals(350, ver3); // Should return cached version (350)
-            Assert.assertEquals(3, callCount[0]); // No new RPC call
-
-            // Test 4: Test setCachedTableVersion only updates when version is greater
-            ctx.getSessionVariable().cloudTableVersionCacheTtlMs = 500; // 500ms TTL
-
-            // At this point, cache is 350 from Test 3
-            // Set a larger version to 400
-            table.setCachedTableVersion(400);
-            Assert.assertEquals(400, table.getCachedTableVersion());
-            Assert.assertFalse(table.isCachedTableVersionExpired()); // Not expired yet
-
-            Thread.sleep(300); // Sleep 300ms
-
-            // Try to set a smaller version (380), should NOT update version or timestamp
-            table.setCachedTableVersion(380);
-            Assert.assertEquals(400, table.getCachedTableVersion()); // Version should remain 400
-
-            Thread.sleep(300); // Total 600ms since setCachedTableVersion(400)
-            // Cache should be expired (600ms > 500ms TTL)
-            // If timestamp was incorrectly reset by setCachedTableVersion(380), cache would not be expired
-            Assert.assertTrue(table.isCachedTableVersionExpired());
-
-            // Test 5: Setting a greater version should update both version and timestamp
-            ctx.getSessionVariable().cloudTableVersionCacheTtlMs = 500; // 500ms TTL
-            table.setCachedTableVersion(500); // Set to 500
-            Assert.assertEquals(500, table.getCachedTableVersion());
-            Assert.assertFalse(table.isCachedTableVersionExpired()); // Not expired
-
-            Thread.sleep(300); // Sleep 300ms
-
-            // Set a greater version (550), should update both version and timestamp
-            table.setCachedTableVersion(550);
-            Assert.assertEquals(550, table.getCachedTableVersion()); // Version updated to 550
-            Assert.assertFalse(table.isCachedTableVersionExpired()); // Timestamp reset, not expired yet
-
-            Thread.sleep(300); // Sleep another 300ms (total 600ms from first setCachedTableVersion(500), but only 300ms from setCachedTableVersion(550))
-            Assert.assertFalse(table.isCachedTableVersionExpired()); // Still not expired (300ms < 500ms TTL)
-
-        } finally {
-            ConnectContext.remove();
         }
     }
 
@@ -451,18 +428,6 @@ public class OlapTableTest {
 
     @Test
     public void testGetVisibleVersionInBatchCached() throws Exception {
-        new MockUp<Config>() {
-            @Mock
-            public boolean isNotCloudMode() {
-                return false;
-            }
-
-            @Mock
-            public boolean isCloudMode() {
-                return true;
-            }
-        };
-
         final Database db = new Database(1L, "test_db");
         List<OlapTable> tables = new ArrayList<>();
         for (long i = 0; i < 3; i++) {
@@ -477,21 +442,23 @@ public class OlapTableTest {
         ));
         final int[] callCount = {0};
 
-        new MockUp<VersionHelper>() {
-            @Mock
-            public Cloud.GetVersionResponse getVersionFromMeta(Cloud.GetVersionRequest req) {
+        try (MockedStatic<Config> mockedConfig = Mockito.mockStatic(Config.class, Mockito.CALLS_REAL_METHODS);
+                MockedStatic<VersionHelper> mockedVH = Mockito.mockStatic(VersionHelper.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedConfig.when(Config::isNotCloudMode).thenReturn(false);
+            mockedConfig.when(Config::isCloudMode).thenReturn(true);
+
+            mockedVH.when(() -> VersionHelper.getVersionFromMeta(Mockito.any())).thenAnswer(invocation -> {
                 Cloud.GetVersionResponse.Builder builder = Cloud.GetVersionResponse.newBuilder();
                 builder.setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
                         .setCode(Cloud.MetaServiceCode.OK).build());
                 builder.addAllVersions(batchVersions.get(callCount[0]));
                 callCount[0]++;
                 return builder.build();
-            }
-        };
+            });
 
-        ConnectContext ctx = new ConnectContext();
-        ctx.setSessionVariable(new SessionVariable());
-        ctx.setThreadLocalInfo();
+            ConnectContext ctx = new ConnectContext();
+            ctx.setSessionVariable(new SessionVariable());
+            ctx.setThreadLocalInfo();
 
         // CHECKSTYLE OFF
         try {
@@ -550,6 +517,7 @@ public class OlapTableTest {
             }
         } finally {
             ConnectContext.remove();
+        }
         }
         // CHECKSTYLE ONca
     }

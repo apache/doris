@@ -66,11 +66,11 @@ struct AggregateFunctionAvgData {
             // null is handled in AggregationNode::_get_without_key_result
             return static_cast<ResultT>(sum);
         }
-        // to keep the same result with row vesion; see AggregateFunctions::decimalv2_avg_get_value
+        // DecimalV2 has fixed internal scale=9; its arithmetic operators already
+        // handle scale correctly, so no external multiplier is needed.
         if constexpr (T == TYPE_DECIMALV2 && IsDecimalV2<ResultT>) {
             DecimalV2Value decimal_val_count(count, 0);
-            DecimalV2Value decimal_val_sum(sum * multiplier);
-            DecimalV2Value cal_ret = decimal_val_sum / decimal_val_count;
+            DecimalV2Value cal_ret = sum / decimal_val_count;
             return cal_ret;
         } else {
             if constexpr (T == TYPE_DECIMAL256) {

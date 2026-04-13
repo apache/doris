@@ -23,11 +23,11 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rpc.RpcException;
 
-import mockit.Mock;
-import mockit.MockUp;
 import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -96,20 +96,19 @@ public class CloudPartitionTest {
         ));
         final Integer[] callCount = {0};
 
-        new MockUp<VersionHelper>(VersionHelper.class) {
-            @Mock
-            public Cloud.GetVersionResponse getVersionFromMeta(Cloud.GetVersionRequest req) {
-                Cloud.GetVersionResponse.Builder builder = Cloud.GetVersionResponse.newBuilder();
-                builder.setVersion(singleVersions.get(callCount[0]));
-                builder.addAllVersions(batchVersions.get(callCount[0]));
-                ++callCount[0];
-                return builder.build();
-            }
-        };
         // CHECKSTYLE ON
+        try (MockedStatic<VersionHelper> mockedVersionHelper = Mockito.mockStatic(VersionHelper.class)) {
+            mockedVersionHelper.when(() -> VersionHelper.getVersionFromMeta(Mockito.any(Cloud.GetVersionRequest.class)))
+                    .thenAnswer(invocation -> {
+                        Cloud.GetVersionResponse.Builder builder = Cloud.GetVersionResponse.newBuilder();
+                        builder.setVersion(singleVersions.get(callCount[0]));
+                        builder.addAllVersions(batchVersions.get(callCount[0]));
+                        ++callCount[0];
+                        return builder.build();
+                    });
 
-        ctx.getSessionVariable().cloudPartitionVersionCacheTtlMs = -1; // disable cache
-            {
+            ctx.getSessionVariable().cloudPartitionVersionCacheTtlMs = -1; // disable cache
+                {
                 // test single get version
                 Assertions.assertEquals(2, part.getVisibleVersion()); // should not get from cache
                 Assertions.assertEquals(1, callCount[0]); // issue a rpc call to meta-service
@@ -124,11 +123,11 @@ public class CloudPartitionTest {
                     }
                     Assertions.assertEquals(exp, versions.get(i));
                 }
-            }
+                }
 
-        // enable change expiration and make it cached in long duration
-        ctx.getSessionVariable().cloudPartitionVersionCacheTtlMs = 100000;
-            {
+            // enable change expiration and make it cached in long duration
+            ctx.getSessionVariable().cloudPartitionVersionCacheTtlMs = 100000;
+                {
                 // test single get version
                 Assertions.assertEquals(2, part.getVisibleVersion()); // cached version
                 Assertions.assertEquals(2, callCount[0]); // issue a rpc call to meta-service
@@ -143,24 +142,24 @@ public class CloudPartitionTest {
                     }
                     Assertions.assertEquals(exp, versions.get(i));
                 }
+                }
+
+            // enable change expiration and make it expired
+            ctx.getSessionVariable().cloudPartitionVersionCacheTtlMs = 500;
+            try {
+                Thread.sleep(550);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
             }
+            // make some partition not expired, these partitions will not get version from meta-service
+            CloudPartition hotPartition = parts.get(0);
+            hotPartition.setCachedVisibleVersion(hotPartition.getCachedVisibleVersion(), 10086L);
+            Assertions.assertEquals(2, hotPartition.getCachedVisibleVersion());
+            Assertions.assertFalse(hotPartition.isCachedVersionExpired());
+            Assertions.assertTrue(parts.get(1).isCachedVersionExpired());
+            Assertions.assertTrue(parts.get(2).isCachedVersionExpired());
 
-        // enable change expiration and make it expired
-        ctx.getSessionVariable().cloudPartitionVersionCacheTtlMs = 500;
-        try {
-            Thread.sleep(550);
-        } catch (InterruptedException e) {
-            throw new RuntimeException(e);
-        }
-        // make some partition not expired, these partitions will not get version from meta-service
-        CloudPartition hotPartition = parts.get(0);
-        hotPartition.setCachedVisibleVersion(hotPartition.getCachedVisibleVersion(), 10086L);
-        Assertions.assertEquals(2, hotPartition.getCachedVisibleVersion());
-        Assertions.assertFalse(hotPartition.isCachedVersionExpired());
-        Assertions.assertTrue(parts.get(1).isCachedVersionExpired());
-        Assertions.assertTrue(parts.get(2).isCachedVersionExpired());
-
-            {
+                {
                 // test single get version
                 Assertions.assertEquals(4, part.getVisibleVersion()); // should not get from cache
                 Assertions.assertEquals(3, callCount[0]); // issue a rpc call to meta-service
@@ -178,6 +177,7 @@ public class CloudPartitionTest {
                 }
                 // hot partition version not changed
                 Assertions.assertEquals(2, hotPartition.getCachedVisibleVersion());
-            }
+                }
+        }
     }
 }

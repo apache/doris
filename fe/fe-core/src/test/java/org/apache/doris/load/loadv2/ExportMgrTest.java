@@ -18,6 +18,7 @@
 package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
@@ -27,11 +28,14 @@ import org.apache.doris.load.ExportJobState;
 import org.apache.doris.load.ExportMgr;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.MockedAuth;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
-import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.Comparator;
 import java.util.HashMap;
@@ -40,8 +44,7 @@ import java.util.List;
 public class ExportMgrTest {
     private final ExportMgr exportMgr = new ExportMgr();
 
-    @Mocked
-    private AccessControllerManager accessManager;
+    private AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
 
     @Before
     public void setUp() {
@@ -50,33 +53,42 @@ public class ExportMgrTest {
 
     @Test
     public void testShowExport() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
 
-        ExportJob job1 = makeExportJob(1, "aabbcc");
-        ExportJob job2 = makeExportJob(2, "aabbdd");
-        ExportJob job3 = makeExportJob(3, "eebbcc");
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedStatic<ConnectContext> connectContextStatic = Mockito.mockStatic(ConnectContext.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            connectContextStatic.when(ConnectContext::get).thenReturn(connectContext);
+            Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+            Mockito.when(connectContext.getSessionVariable()).thenReturn(new SessionVariable());
 
-        exportMgr.unprotectAddJob(job1);
-        exportMgr.unprotectAddJob(job2);
-        exportMgr.unprotectAddJob(job3);
+            ExportJob job1 = makeExportJob(1, "aabbcc");
+            ExportJob job2 = makeExportJob(2, "aabbdd");
+            ExportJob job3 = makeExportJob(3, "eebbcc");
 
-        List<List<String>> r1 = exportMgr.getExportJobInfosByIdOrState(-1, 3, "", true, null, null, -1);
-        Assert.assertEquals(r1.size(), 1);
+            exportMgr.unprotectAddJob(job1);
+            exportMgr.unprotectAddJob(job2);
+            exportMgr.unprotectAddJob(job3);
 
-        List<List<String>> r2 = exportMgr.getExportJobInfosByIdOrState(-1, 0, "", false, null, null, -1);
-        Assert.assertEquals(r2.size(), 3);
+            List<List<String>> r1 = exportMgr.getExportJobInfosByIdOrState(-1, 3, "", true, null, null, -1);
+            Assert.assertEquals(r1.size(), 1);
 
-        List<List<String>> r3 = exportMgr.getExportJobInfosByIdOrState(-1, 0, "aabbcc", false, null, null, -1);
-        Assert.assertEquals(r3.size(), 1);
+            List<List<String>> r2 = exportMgr.getExportJobInfosByIdOrState(-1, 0, "", false, null, null, -1);
+            Assert.assertEquals(r2.size(), 3);
 
-        List<List<String>> r4 = exportMgr.getExportJobInfosByIdOrState(-1, 0, "%bb%", true, null, null, -1);
-        Assert.assertEquals(r4.size(), 3);
+            List<List<String>> r3 = exportMgr.getExportJobInfosByIdOrState(-1, 0, "aabbcc", false, null, null, -1);
+            Assert.assertEquals(r3.size(), 1);
 
-        List<List<String>> r5 = exportMgr.getExportJobInfosByIdOrState(-1, 0, "aabb%", true, null, null, -1);
-        Assert.assertEquals(r5.size(), 2);
+            List<List<String>> r4 = exportMgr.getExportJobInfosByIdOrState(-1, 0, "%bb%", true, null, null, -1);
+            Assert.assertEquals(r4.size(), 3);
 
-        List<List<String>> r6 = exportMgr.getExportJobInfosByIdOrState(-1, 0, "%dd", true, null, null, -1);
-        Assert.assertEquals(r6.size(), 1);
+            List<List<String>> r5 = exportMgr.getExportJobInfosByIdOrState(-1, 0, "aabb%", true, null, null, -1);
+            Assert.assertEquals(r5.size(), 2);
 
+            List<List<String>> r6 = exportMgr.getExportJobInfosByIdOrState(-1, 0, "%dd", true, null, null, -1);
+            Assert.assertEquals(r6.size(), 1);
+        }
     }
 
     @Test

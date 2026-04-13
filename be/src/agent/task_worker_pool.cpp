@@ -1333,12 +1333,14 @@ void download_callback(StorageEngine& engine, ExecEnv* env, const TAgentTaskRequ
     if (download_request.__isset.remote_tablet_snapshots) {
         std::unique_ptr<SnapshotLoader> loader = std::make_unique<SnapshotLoader>(
                 engine, env, download_request.job_id, req.signature);
+        SCOPED_ATTACH_TASK(loader->resource_ctx());
         status = loader->remote_http_download(download_request.remote_tablet_snapshots,
                                               &downloaded_tablet_ids);
     } else {
         std::unique_ptr<SnapshotLoader> loader = std::make_unique<SnapshotLoader>(
                 engine, env, download_request.job_id, req.signature, download_request.broker_addr,
                 download_request.broker_prop);
+        SCOPED_ATTACH_TASK(loader->resource_ctx());
         status = loader->init(download_request.__isset.storage_backend
                                       ? download_request.storage_backend
                                       : TStorageBackendType::type::BROKER,
@@ -1386,6 +1388,7 @@ void download_callback(CloudStorageEngine& engine, ExecEnv* env, const TAgentTas
         std::unique_ptr<CloudSnapshotLoader> loader = std::make_unique<CloudSnapshotLoader>(
                 engine, env, download_request.job_id, req.signature, download_request.broker_addr,
                 download_request.broker_prop);
+        SCOPED_ATTACH_TASK(loader->resource_ctx());
         status = loader->init(download_request.__isset.storage_backend
                                       ? download_request.storage_backend
                                       : TStorageBackendType::type::BROKER,
@@ -1539,6 +1542,7 @@ void move_dir_callback(StorageEngine& engine, ExecEnv* env, const TAgentTaskRequ
         status = Status::InvalidArgument("Could not find tablet");
     } else {
         SnapshotLoader loader(engine, env, move_dir_req.job_id, move_dir_req.tablet_id);
+        SCOPED_ATTACH_TASK(loader.resource_ctx());
         status = loader.move(move_dir_req.src, tablet, true);
     }
 

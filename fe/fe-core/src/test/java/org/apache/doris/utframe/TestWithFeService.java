@@ -94,13 +94,12 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import mockit.Mock;
-import mockit.MockUp;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.TestInstance;
+import org.mockito.Mockito;
 
 import java.io.File;
 import java.io.IOException;
@@ -879,53 +878,44 @@ public abstract class TestWithFeService {
         Thread.sleep(1000);
     }
 
-
     protected void createMvByNereids(String sql) throws Exception {
-        new MockUp<EditLog>() {
-            @Mock
-            public void logCreateTable(CreateTableInfo info) {
-                System.out.println("skip log create table...");
+        EditLog editLog = Env.getCurrentEnv().getEditLog();
+        EditLog spyEditLog = Mockito.spy(editLog);
+        Mockito.doNothing().when(spyEditLog).logCreateTable(Mockito.any(CreateTableInfo.class));
+        Mockito.doNothing().when(spyEditLog).logCreateJob(Mockito.any(AbstractJob.class));
+        Env.getCurrentEnv().setEditLog(spyEditLog);
+        try {
+            NereidsParser nereidsParser = new NereidsParser();
+            LogicalPlan parsed = nereidsParser.parseSingle(sql);
+            StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+            if (parsed instanceof CreateMTMVCommand) {
+                ((CreateMTMVCommand) parsed).run(connectContext, stmtExecutor);
             }
-
-            @Mock
-            public void logCreateJob(AbstractJob job) {
-                System.out.println("skip log create job...");
-            }
-        };
-        NereidsParser nereidsParser = new NereidsParser();
-        LogicalPlan parsed = nereidsParser.parseSingle(sql);
-        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
-        if (parsed instanceof CreateMTMVCommand) {
-            ((CreateMTMVCommand) parsed).run(connectContext, stmtExecutor);
+            checkAlterJob();
+            Thread.sleep(1000);
+        } finally {
+            Env.getCurrentEnv().setEditLog(editLog);
         }
-        checkAlterJob();
-        // waiting table state to normal
-        Thread.sleep(1000);
-
     }
 
     protected void dropMvByNereids(String sql) throws Exception {
-        new MockUp<EditLog>() {
-            @Mock
-            public void logCreateTable(CreateTableInfo info) {
-                System.out.println("skip log create table...");
+        EditLog editLog = Env.getCurrentEnv().getEditLog();
+        EditLog spyEditLog = Mockito.spy(editLog);
+        Mockito.doNothing().when(spyEditLog).logCreateTable(Mockito.any(CreateTableInfo.class));
+        Mockito.doNothing().when(spyEditLog).logCreateJob(Mockito.any(AbstractJob.class));
+        Env.getCurrentEnv().setEditLog(spyEditLog);
+        try {
+            NereidsParser nereidsParser = new NereidsParser();
+            LogicalPlan parsed = nereidsParser.parseSingle(sql);
+            StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+            if (parsed instanceof DropMTMVCommand) {
+                ((DropMTMVCommand) parsed).run(connectContext, stmtExecutor);
             }
-
-            @Mock
-            public void logCreateJob(AbstractJob job) {
-                System.out.println("skip log create job...");
-            }
-        };
-        NereidsParser nereidsParser = new NereidsParser();
-        LogicalPlan parsed = nereidsParser.parseSingle(sql);
-        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
-        if (parsed instanceof DropMTMVCommand) {
-            ((DropMTMVCommand) parsed).run(connectContext, stmtExecutor);
+            checkAlterJob();
+            Thread.sleep(1000);
+        } finally {
+            Env.getCurrentEnv().setEditLog(editLog);
         }
-        checkAlterJob();
-        // waiting table state to normal
-        Thread.sleep(1000);
-
     }
 
     private void updateReplicaPathHash() {

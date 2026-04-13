@@ -40,6 +40,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
@@ -131,6 +132,19 @@ public class DatabaseTransactionMgrTest {
         slaveTransMgr.setEditLog(slaveEnv.getEditLog());
 
         LabelToTxnId = addTransactionToTransactionMgr();
+    }
+
+    @After
+    public void tearDown() {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        if (fakeTransactionIDGenerator != null) {
+            fakeTransactionIDGenerator.close();
+        }
     }
 
     public Map<String, Long> addTransactionToTransactionMgr() throws UserException {

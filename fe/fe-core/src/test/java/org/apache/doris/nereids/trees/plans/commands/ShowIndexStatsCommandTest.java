@@ -20,75 +20,78 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.backup.CatalogMocker;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.NameSpaceContext;
+import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryState;
 
-import mockit.Expectations;
-import mockit.Mocked;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
+
+import java.util.Optional;
 
 public class ShowIndexStatsCommandTest {
     private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
     private static final String tableNotExist = "table_not_exist";
-    @Mocked
-    private Env env;
-    @Mocked
-    private InternalCatalog catalog;
-    @Mocked
-    private AccessControllerManager accessManager;
-    @Mocked
-    private ConnectContext ctx;
+
+    private Env env = Mockito.mock(Env.class);
+    private InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+    private AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+    private ConnectContext ctx = Mockito.mock(ConnectContext.class);
+    private CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+    private NameSpaceContext nameSpaceContext = Mockito.mock(NameSpaceContext.class);
     private Database db;
 
-    private void runBefore() throws Exception {
+    private MockedStatic<Env> mockedEnv;
+    private MockedStatic<ConnectContext> mockedConnectContext;
+
+    @BeforeEach
+    public void setUp() throws Exception {
+        mockedEnv = Mockito.mockStatic(Env.class);
+        mockedConnectContext = Mockito.mockStatic(ConnectContext.class);
+
+        mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+        mockedConnectContext.when(ConnectContext::get).thenReturn(ctx);
+
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(catalogMgr.getCatalog(Mockito.anyString())).thenReturn(catalog);
+        Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+        Mockito.when(ctx.getNameSpaceContext()).thenReturn(nameSpaceContext);
+        Mockito.when(nameSpaceContext.getDefaultCatalog()).thenReturn(InternalCatalog.INTERNAL_CATALOG_NAME);
+        Mockito.when(ctx.getState()).thenReturn(new QueryState());
+
+        TabletInvertedIndex tabletInvertedIndex = Mockito.mock(TabletInvertedIndex.class);
+        mockedEnv.when(Env::getCurrentInvertedIndex).thenReturn(tabletInvertedIndex);
+
         db = CatalogMocker.mockDb();
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
+        Mockito.doReturn(Optional.of(db)).when(catalog).getDb(Mockito.anyString());
 
-                env.getCatalogMgr().getCatalog(anyString);
-                minTimes = 0;
-                result = catalog;
+        Mockito.when(accessManager.checkTblPriv(
+                Mockito.nullable(ConnectContext.class),
+                Mockito.anyString(),
+                Mockito.anyString(),
+                Mockito.eq(CatalogMocker.TEST_TBL_NAME),
+                Mockito.any(PrivPredicate.class))).thenReturn(true);
+    }
 
-                catalog.getDb(anyString);
-                minTimes = 0;
-                result = db;
-
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessManager;
-
-                ConnectContext.get();
-                minTimes = 0;
-                result = ctx;
-
-                ctx.isSkipAuth();
-                minTimes = 0;
-                result = true;
-
-                accessManager.checkTblPriv(ctx, internalCtl, CatalogMocker.TEST_DB_NAME, CatalogMocker.TEST_TBL_NAME,
-                        PrivPredicate.SHOW);
-                minTimes = 0;
-                result = true;
-
-                accessManager.checkTblPriv(ctx, internalCtl, CatalogMocker.TEST_DB_NAME, CatalogMocker.TEST_TBL2_NAME,
-                        PrivPredicate.SHOW);
-                minTimes = 0;
-                result = false;
-            }
-        };
+    @AfterEach
+    public void tearDown() {
+        mockedConnectContext.close();
+        mockedEnv.close();
     }
 
     @Test
     public void testValidateNormal() throws Exception {
-        runBefore();
         TableNameInfo tableNameInfo =
                 new TableNameInfo(internalCtl, CatalogMocker.TEST_DB_NAME, CatalogMocker.TEST_TBL_NAME);
         ShowIndexStatsCommand command = new ShowIndexStatsCommand(tableNameInfo, CatalogMocker.TEST_TBL_NAME);
@@ -97,7 +100,6 @@ public class ShowIndexStatsCommandTest {
 
     @Test
     public void testValidateFail() throws Exception {
-        runBefore();
         TableNameInfo tableNameInfo =
                 new TableNameInfo(internalCtl, CatalogMocker.TEST_DB_NAME, tableNotExist);
         ShowIndexStatsCommand command = new ShowIndexStatsCommand(tableNameInfo, tableNotExist);

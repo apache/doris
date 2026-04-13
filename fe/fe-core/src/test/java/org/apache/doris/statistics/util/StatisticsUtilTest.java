@@ -19,6 +19,7 @@ package org.apache.doris.statistics.util;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
@@ -31,7 +32,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.ExternalCatalog;
-import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
@@ -53,11 +53,10 @@ import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.Maps;
-import mockit.Mock;
-import mockit.MockUp;
 import org.apache.iceberg.CatalogProperties;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.time.LocalTime;
@@ -114,40 +113,34 @@ class StatisticsUtilTest {
 
     @Test
     void testInAnalyzeTime1() {
-        new MockUp<StatisticsUtil>() {
-
-            @Mock
-            protected SessionVariable findConfigFromGlobalSessionVar(String varName) throws Exception {
-                SessionVariable sessionVariable = new SessionVariable();
-                sessionVariable.autoAnalyzeStartTime = "00:00:00";
-                sessionVariable.autoAnalyzeEndTime = "02:00:00";
-                return sessionVariable;
-            }
-        };
-        DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss");
-        String now = "01:00:00";
-        Assertions.assertTrue(StatisticsUtil.inAnalyzeTime(LocalTime.parse(now, timeFormatter)));
-        now = "13:00:00";
-        Assertions.assertFalse(StatisticsUtil.inAnalyzeTime(LocalTime.parse(now, timeFormatter)));
+        try (MockedStatic<StatisticsUtil> ms = Mockito.mockStatic(StatisticsUtil.class, Mockito.CALLS_REAL_METHODS)) {
+            SessionVariable sessionVariable = new SessionVariable();
+            sessionVariable.autoAnalyzeStartTime = "00:00:00";
+            sessionVariable.autoAnalyzeEndTime = "02:00:00";
+            ms.when(() -> StatisticsUtil.findConfigFromGlobalSessionVar(Mockito.anyString()))
+                    .thenReturn(sessionVariable);
+            DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss");
+            String now = "01:00:00";
+            Assertions.assertTrue(StatisticsUtil.inAnalyzeTime(LocalTime.parse(now, timeFormatter)));
+            now = "13:00:00";
+            Assertions.assertFalse(StatisticsUtil.inAnalyzeTime(LocalTime.parse(now, timeFormatter)));
+        }
     }
 
     @Test
     void testInAnalyzeTime2() {
-        new MockUp<StatisticsUtil>() {
-
-            @Mock
-            protected SessionVariable findConfigFromGlobalSessionVar(String varName) throws Exception {
-                SessionVariable sessionVariable = new SessionVariable();
-                sessionVariable.autoAnalyzeStartTime = "00:00:00";
-                sessionVariable.autoAnalyzeEndTime = "23:00:00";
-                return sessionVariable;
-            }
-        };
-        DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss");
-        String now = "15:00:00";
-        Assertions.assertTrue(StatisticsUtil.inAnalyzeTime(LocalTime.parse(now, timeFormatter)));
-        now = "23:30:00";
-        Assertions.assertFalse(StatisticsUtil.inAnalyzeTime(LocalTime.parse(now, timeFormatter)));
+        try (MockedStatic<StatisticsUtil> ms = Mockito.mockStatic(StatisticsUtil.class, Mockito.CALLS_REAL_METHODS)) {
+            SessionVariable sessionVariable = new SessionVariable();
+            sessionVariable.autoAnalyzeStartTime = "00:00:00";
+            sessionVariable.autoAnalyzeEndTime = "23:00:00";
+            ms.when(() -> StatisticsUtil.findConfigFromGlobalSessionVar(Mockito.anyString()))
+                    .thenReturn(sessionVariable);
+            DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss");
+            String now = "15:00:00";
+            Assertions.assertTrue(StatisticsUtil.inAnalyzeTime(LocalTime.parse(now, timeFormatter)));
+            now = "23:30:00";
+            Assertions.assertFalse(StatisticsUtil.inAnalyzeTime(LocalTime.parse(now, timeFormatter)));
+        }
     }
 
     @Test
@@ -179,179 +172,117 @@ class StatisticsUtilTest {
         Mockito.when(table.getDatabase()).thenReturn(db1);
         Mockito.when(db1.getCatalog()).thenReturn(catalog1);
         Mockito.when(catalog1.getId()).thenReturn(0L);
-        new MockUp<HMSExternalTable>() {
-            @Mock
-            protected synchronized void makeSureInitialized() {
-            }
-        };
 
         // Test auto analyze catalog disabled.
-        HMSExternalTable hmsTable = new HMSExternalTable(1, "name", "name", externalCatalog, externalDatabase);
+        HMSExternalTable hmsTable = Mockito.spy(new HMSExternalTable(1, "name", "name", externalCatalog, externalDatabase) {
+            @Override
+            protected synchronized void makeSureInitialized() { }
+        });
         Assertions.assertFalse(StatisticsUtil.needAnalyzeColumn(hmsTable, Pair.of("index", column.getName())));
 
         // Test catalog auto analyze enabled.
-        new MockUp<AnalysisManager>() {
-            @Mock
-            public TableStatsMeta findTableStatsStatus(long tblId) {
-                return null;
-            }
-        };
-        externalCatalog.getCatalogProperty().addProperty(ExternalCatalog.ENABLE_AUTO_ANALYZE, "true");
-        Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
+        Env mockEnv = Mockito.mock(Env.class);
+        AnalysisManager mockAnalysisManager = Mockito.mock(AnalysisManager.class);
+        Mockito.when(mockEnv.getAnalysisManager()).thenReturn(mockAnalysisManager);
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class, Mockito.CALLS_REAL_METHODS)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(mockEnv);
+            envStatic.when(Env::getServingEnv).thenReturn(mockEnv);
 
-        // Test external table auto analyze enabled.
-        externalCatalog.getCatalogProperty().addProperty(ExternalCatalog.ENABLE_AUTO_ANALYZE, "false");
-        HMSExternalTable hmsTable1 = new HMSExternalTable(1, "name", "name", externalCatalog, externalDatabase);
-        externalCatalog.setAutoAnalyzePolicy("dbName", "name", "enable");
-        Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(hmsTable1, Pair.of("index", column.getName())));
+            Mockito.when(mockAnalysisManager.findTableStatsStatus(Mockito.anyLong())).thenReturn(null);
+            externalCatalog.getCatalogProperty().addProperty(ExternalCatalog.ENABLE_AUTO_ANALYZE, "true");
+            Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
 
+            // Test external table auto analyze enabled.
+            externalCatalog.getCatalogProperty().addProperty(ExternalCatalog.ENABLE_AUTO_ANALYZE, "false");
+            HMSExternalTable hmsTable1 = Mockito.spy(new HMSExternalTable(1, "name", "name", externalCatalog, externalDatabase) {
+                @Override
+                protected synchronized void makeSureInitialized() { }
+            });
+            externalCatalog.setAutoAnalyzePolicy("dbName", "name", "enable");
+            Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(hmsTable1, Pair.of("index", column.getName())));
 
-        // Test table stats meta is null.
-        Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
+            // Test table stats meta is null.
+            Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
 
-        // Test user injected flag is set.
-        TableStatsMeta tableMeta = new TableStatsMeta();
-        tableMeta.userInjected = true;
-        new MockUp<AnalysisManager>() {
-            @Mock
-            public TableStatsMeta findTableStatsStatus(long tblId) {
-                return tableMeta;
-            }
-        };
-        Assertions.assertFalse(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
+            // Test user injected flag is set.
+            TableStatsMeta tableMeta = Mockito.spy(new TableStatsMeta());
+            tableMeta.userInjected = true;
+            Mockito.when(mockAnalysisManager.findTableStatsStatus(Mockito.anyLong())).thenReturn(tableMeta);
+            Assertions.assertFalse(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
 
-        // Test column meta is null.
-        tableMeta.userInjected = false;
-        Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
+            // Test column meta is null.
+            tableMeta.userInjected = false;
+            Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
 
-        new MockUp<TableStatsMeta>() {
-            @Mock
-            public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
-                return new ColStatsMeta(System.currentTimeMillis(), null, null, null, 0, 0, 0, 0, null);
-            }
-        };
+            Mockito.doReturn(new ColStatsMeta(System.currentTimeMillis(), null, null, null, 0, 0, 0, 0, null))
+                    .when(tableMeta).findColumnStatsMeta(Mockito.anyString(), Mockito.anyString());
 
-        new MockUp<JdbcExternalTable>() {
-            @Mock
-            protected synchronized void makeSureInitialized() {
-            }
-        };
-        // Test not supported external table type.
-        JdbcExternalCatalog jdbcExternalCatalog = new JdbcExternalCatalog(1, "name", "resource", new HashMap<>(), "");
-        JdbcExternalDatabase jdbcExternalDatabase = new JdbcExternalDatabase(jdbcExternalCatalog, 1, "jdbcdb", "jdbcdb");
-        ExternalTable externalTable = new JdbcExternalTable(1, "jdbctable", "jdbctable", jdbcExternalCatalog, jdbcExternalDatabase);
-        Assertions.assertFalse(StatisticsUtil.needAnalyzeColumn(externalTable, Pair.of("index", column.getName())));
+            // Test not supported external table type.
+            JdbcExternalCatalog jdbcExternalCatalog = new JdbcExternalCatalog(1, "name", "resource", new HashMap<>(), "");
+            JdbcExternalDatabase jdbcExternalDatabase = new JdbcExternalDatabase(jdbcExternalCatalog, 1, "jdbcdb", "jdbcdb");
+            JdbcExternalTable jdbcTable = Mockito.spy(new JdbcExternalTable(1, "jdbctable", "jdbctable", jdbcExternalCatalog, jdbcExternalDatabase) {
+                @Override
+                protected synchronized void makeSureInitialized() { }
+            });
+            Assertions.assertFalse(StatisticsUtil.needAnalyzeColumn(jdbcTable, Pair.of("index", column.getName())));
 
-        // Test hms external table not hive type.
-        new MockUp<HMSExternalTable>() {
-            @Mock
-            public DLAType getDlaType() {
-                return DLAType.ICEBERG;
-            }
-        };
-        ExternalTable hmsExternalTable = new HMSExternalTable(1, "hmsTable", "hmsTable", externalCatalog, externalDatabase);
-        Assertions.assertFalse(StatisticsUtil.needAnalyzeColumn(hmsExternalTable, Pair.of("index", column.getName())));
+            // Test hms external table not hive type.
+            HMSExternalTable hmsExternalTable = Mockito.spy(new HMSExternalTable(1, "hmsTable", "hmsTable", externalCatalog, externalDatabase) {
+                @Override
+                protected synchronized void makeSureInitialized() { }
+            });
+            Mockito.doReturn(DLAType.ICEBERG).when(hmsExternalTable).getDlaType();
+            Assertions.assertFalse(StatisticsUtil.needAnalyzeColumn(hmsExternalTable, Pair.of("index", column.getName())));
 
-        // Test partition first load.
-        new MockUp<OlapTable>() {
-            @Mock
-            public boolean isPartitionColumn(String columnName) {
-                return true;
-            }
-        };
-        tableMeta.partitionChanged.set(true);
-        Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
+            // Test partition first load.
+            tableMeta.partitionChanged.set(true);
+            Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
 
-        // Test empty table to non-empty table.
-        new MockUp<OlapTable>() {
-            @Mock
-            public long getRowCount() {
-                return 100;
-            }
-        };
-        tableMeta.partitionChanged.set(false);
-        Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
+            // Test empty table to non-empty table.
+            Mockito.doReturn(100L).when(table).getRowCount();
+            tableMeta.partitionChanged.set(false);
+            Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
 
-        // Test non-empty table to empty table.
-        new MockUp<OlapTable>() {
-            @Mock
-            public long getRowCount() {
-                return 0;
-            }
-        };
-        new MockUp<TableStatsMeta>() {
-            @Mock
-            public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
-                return new ColStatsMeta(System.currentTimeMillis(), null, null, null, 0, 100, 0, 0, null);
-            }
-        };
-        tableMeta.partitionChanged.set(false);
-        Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
+            // Test non-empty table to empty table.
+            Mockito.doReturn(0L).when(table).getRowCount();
+            Mockito.doReturn(new ColStatsMeta(System.currentTimeMillis(), null, null, null, 0, 100, 0, 0, null))
+                    .when(tableMeta).findColumnStatsMeta(Mockito.anyString(), Mockito.anyString());
+            tableMeta.partitionChanged.set(false);
+            Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
 
-        // Test table still empty.
-        new MockUp<TableStatsMeta>() {
-            @Mock
-            public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
-                return new ColStatsMeta(System.currentTimeMillis(), null, null, null, 0, 0, 0, 0, null);
-            }
-        };
-        tableMeta.partitionChanged.set(false);
-        Assertions.assertFalse(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
+            // Test table still empty.
+            Mockito.doReturn(new ColStatsMeta(System.currentTimeMillis(), null, null, null, 0, 0, 0, 0, null))
+                    .when(tableMeta).findColumnStatsMeta(Mockito.anyString(), Mockito.anyString());
+            tableMeta.partitionChanged.set(false);
+            Assertions.assertFalse(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
 
-        // Test row count changed more than threshold.
-        new MockUp<OlapTable>() {
-            @Mock
-            public long getRowCount() {
-                return 1000;
-            }
-        };
-        new MockUp<TableStatsMeta>() {
-            @Mock
-            public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
-                return new ColStatsMeta(System.currentTimeMillis(), null, null, null, 0, 500, 0, 0, null);
-            }
-        };
-        tableMeta.partitionChanged.set(false);
-        Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
+            // Test row count changed more than threshold.
+            Mockito.doReturn(1000L).when(table).getRowCount();
+            Mockito.doReturn(new ColStatsMeta(System.currentTimeMillis(), null, null, null, 0, 500, 0, 0, null))
+                    .when(tableMeta).findColumnStatsMeta(Mockito.anyString(), Mockito.anyString());
+            tableMeta.partitionChanged.set(false);
+            Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
 
-        // Test row count changed more than threshold.
-        new MockUp<OlapTable>() {
-            @Mock
-            public long getRowCount() {
-                return 111;
-            }
-        };
-        new MockUp<TableStatsMeta>() {
-            @Mock
-            public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
-                return new ColStatsMeta(System.currentTimeMillis(), null, null, null, 0, 100, 80, 0, null);
-            }
-        };
-        tableMeta.partitionChanged.set(false);
-        tableMeta.updatedRows.set(80);
-        Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
+            // Test row count changed more than threshold.
+            Mockito.doReturn(111L).when(table).getRowCount();
+            Mockito.doReturn(new ColStatsMeta(System.currentTimeMillis(), null, null, null, 0, 100, 80, 0, null))
+                    .when(tableMeta).findColumnStatsMeta(Mockito.anyString(), Mockito.anyString());
+            tableMeta.partitionChanged.set(false);
+            tableMeta.updatedRows.set(80);
+            Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
 
-        // Test update rows changed more than threshold
-        new MockUp<OlapTable>() {
-            @Mock
-            public long getRowCount() {
-                return 101;
-            }
-        };
-        tableMeta.partitionChanged.set(false);
-        tableMeta.updatedRows.set(91);
-        Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
+            // Test update rows changed more than threshold
+            Mockito.doReturn(101L).when(table).getRowCount();
+            tableMeta.partitionChanged.set(false);
+            tableMeta.updatedRows.set(91);
+            Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
 
-        // Test row count and update rows changed less than threshold
-        new MockUp<OlapTable>() {
-            @Mock
-            public long getRowCount() {
-                return 100;
-            }
-        };
-        tableMeta.partitionChanged.set(false);
-        tableMeta.updatedRows.set(85);
-        Assertions.assertFalse(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
+            // Test row count and update rows changed less than threshold
+            Mockito.doReturn(100L).when(table).getRowCount();
+            tableMeta.partitionChanged.set(false);
+            tableMeta.updatedRows.set(85);
+            Assertions.assertFalse(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
+        }
     }
 
     @Test
@@ -359,88 +290,59 @@ class StatisticsUtilTest {
         Column column = new Column("testColumn", PrimitiveType.INT);
         List<Column> schema = new ArrayList<>();
         schema.add(column);
-        OlapTable table = new OlapTable(200, "testTable", schema, null, null, null);
+        OlapTable table = Mockito.spy(new OlapTable(200, "testTable", schema, null, null, null));
 
         // Test column is null
         Assertions.assertFalse(StatisticsUtil.isLongTimeColumn(table, null, 0));
 
         // Test table auto analyze is disabled.
-        new MockUp<OlapTable>() {
-            @Mock
-            public boolean autoAnalyzeEnabled() {
-                return false;
-            }
-        };
+        Mockito.doReturn(false).when(table).autoAnalyzeEnabled();
         Assertions.assertFalse(StatisticsUtil.isLongTimeColumn(table, Pair.of("index", column.getName()), 0));
-        new MockUp<OlapTable>() {
-            @Mock
-            public boolean autoAnalyzeEnabled() {
-                return true;
-            }
-        };
+        Mockito.doReturn(true).when(table).autoAnalyzeEnabled();
 
         // Test external table
-        new MockUp<ExternalTable>() {
-            @Mock
-            public boolean autoAnalyzeEnabled() {
-                return true;
-            }
-        };
         IcebergExternalDatabase icebergDatabase = new IcebergExternalDatabase(null, 1L, "", "");
         Map<String, String> props = Maps.newHashMap();
         props.put(CatalogProperties.WAREHOUSE_LOCATION, "s3://tmp");
         IcebergExternalCatalog catalog = new IcebergHadoopExternalCatalog(0, "iceberg_ctl", "", props, "");
-        IcebergExternalTable icebergTable = new IcebergExternalTable(0, "", "", catalog, icebergDatabase);
+        IcebergExternalTable icebergTable = Mockito.spy(new IcebergExternalTable(0, "", "", catalog, icebergDatabase));
+        Mockito.doReturn(true).when(icebergTable).autoAnalyzeEnabled();
         Assertions.assertFalse(StatisticsUtil.isLongTimeColumn(icebergTable, Pair.of("index", column.getName()), 0));
 
-        // Test table stats meta is null.
-        new MockUp<AnalysisManager>() {
-            @Mock
-            public TableStatsMeta findTableStatsStatus(long tblId) {
-                return null;
-            }
-        };
-        Assertions.assertFalse(StatisticsUtil.isLongTimeColumn(table, Pair.of("index", column.getName()), 0));
+        // Mock Env.getServingEnv().getAnalysisManager() for remaining tests
+        Env mockEnv = Mockito.mock(Env.class);
+        AnalysisManager mockAnalysisManager = Mockito.mock(AnalysisManager.class);
+        Mockito.when(mockEnv.getAnalysisManager()).thenReturn(mockAnalysisManager);
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getServingEnv).thenReturn(mockEnv);
 
-        // Test column stats meta is null
-        TableStatsMeta tableMeta = new TableStatsMeta();
-        new MockUp<AnalysisManager>() {
-            @Mock
-            public TableStatsMeta findTableStatsStatus(long tblId) {
-                return tableMeta;
-            }
-        };
-        new MockUp<TableStatsMeta>() {
-            @Mock
-            public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
-                return null;
-            }
-        };
-        Assertions.assertFalse(StatisticsUtil.isLongTimeColumn(table, Pair.of("index", column.getName()), 0));
-        new MockUp<TableStatsMeta>() {
-            @Mock
-            public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
-                return new ColStatsMeta(System.currentTimeMillis(), null, null, null, 0, 100, 0, 0, null);
-            }
-        };
+            // Test table stats meta is null.
+            Mockito.when(mockAnalysisManager.findTableStatsStatus(Mockito.anyLong())).thenReturn(null);
+            Assertions.assertFalse(StatisticsUtil.isLongTimeColumn(table, Pair.of("index", column.getName()), 0));
 
-        // Test table stats is user injected
-        tableMeta.userInjected = true;
-        Assertions.assertFalse(StatisticsUtil.isLongTimeColumn(table, Pair.of("index", column.getName()), 0));
-        tableMeta.userInjected = false;
+            // Test column stats meta is null
+            TableStatsMeta tableMeta = Mockito.spy(new TableStatsMeta());
+            Mockito.when(mockAnalysisManager.findTableStatsStatus(Mockito.anyLong())).thenReturn(tableMeta);
+            Mockito.doReturn(null).when(tableMeta).findColumnStatsMeta(Mockito.anyString(), Mockito.anyString());
+            Assertions.assertFalse(StatisticsUtil.isLongTimeColumn(table, Pair.of("index", column.getName()), 0));
+            Mockito.doReturn(new ColStatsMeta(System.currentTimeMillis(), null, null, null, 0, 100, 0, 0, null))
+                    .when(tableMeta).findColumnStatsMeta(Mockito.anyString(), Mockito.anyString());
 
-        // Test Config.auto_analyze_interval_seconds == 0
-        Config.auto_analyze_interval_seconds = 0;
-        Assertions.assertFalse(StatisticsUtil.isLongTimeColumn(table, Pair.of("index", column.getName()), 0));
+            // Test table stats is user injected
+            tableMeta.userInjected = true;
+            Assertions.assertFalse(StatisticsUtil.isLongTimeColumn(table, Pair.of("index", column.getName()), 0));
+            tableMeta.userInjected = false;
 
-        // Test column analyzed within the time interval
-        Config.auto_analyze_interval_seconds = 86400;
-        Assertions.assertFalse(StatisticsUtil.isLongTimeColumn(table, Pair.of("index", column.getName()), 0));
+            // Test Config.auto_analyze_interval_seconds == 0
+            Config.auto_analyze_interval_seconds = 0;
+            Assertions.assertFalse(StatisticsUtil.isLongTimeColumn(table, Pair.of("index", column.getName()), 0));
 
-        // Test column hasn't analyzed for longer than time interval, but version and row count doesn't change
-        new MockUp<TableStatsMeta>() {
-            @Mock
-            public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
+            // Test column analyzed within the time interval
+            Config.auto_analyze_interval_seconds = 86400;
+            Assertions.assertFalse(StatisticsUtil.isLongTimeColumn(table, Pair.of("index", column.getName()), 0));
+
+            // Test column hasn't analyzed for longer than time interval, but version and row count doesn't change
+            Mockito.doAnswer(inv -> {
                 ColStatsMeta ret = new ColStatsMeta(System.currentTimeMillis(), null, null, null, 0, 100, 20, 10, null);
                 try {
                     Thread.sleep(1500);
@@ -448,49 +350,18 @@ class StatisticsUtilTest {
                     e.printStackTrace();
                 }
                 return ret;
-            }
-        };
-        new MockUp<OlapTable>() {
-            @Mock
-            public long getVisibleVersion() {
-                return 10;
-            }
+            }).when(tableMeta).findColumnStatsMeta(Mockito.anyString(), Mockito.anyString());
+            Mockito.doReturn(100L).when(table).getRowCount();
+            Config.auto_analyze_interval_seconds = 1;
+            Assertions.assertFalse(StatisticsUtil.isLongTimeColumn(table, Pair.of("index", column.getName()), 10));
 
-            @Mock
-            public long fetchRowCount() {
-                return 100;
-            }
-        };
-        Config.auto_analyze_interval_seconds = 1;
-        Assertions.assertFalse(StatisticsUtil.isLongTimeColumn(table, Pair.of("index", column.getName()), 10));
+            // Test column hasn't analyzed for longer than time interval, and version change
+            Assertions.assertTrue(StatisticsUtil.isLongTimeColumn(table, Pair.of("index", column.getName()), 11));
 
-        // Test column hasn't analyzed for longer than time interval, and version change
-        new MockUp<OlapTable>() {
-            @Mock
-            public long getVisibleVersion() {
-                return 11;
-            }
-
-            @Mock
-            public long fetchRowCount() {
-                return 100;
-            }
-        };
-        Assertions.assertTrue(StatisticsUtil.isLongTimeColumn(table, Pair.of("index", column.getName()), 11));
-
-        // Test column hasn't analyzed for longer than time interval, and row count change
-        new MockUp<OlapTable>() {
-            @Mock
-            public long getVisibleVersion() {
-                return 10;
-            }
-
-            @Mock
-            public long fetchRowCount() {
-                return 101;
-            }
-        };
-        Assertions.assertTrue(StatisticsUtil.isLongTimeColumn(table, Pair.of("index", column.getName()), 10));
+            // Test column hasn't analyzed for longer than time interval, and row count change
+            Mockito.doReturn(101L).when(table).getRowCount();
+            Assertions.assertTrue(StatisticsUtil.isLongTimeColumn(table, Pair.of("index", column.getName()), 10));
+        }
     }
 
     @Test
@@ -498,7 +369,7 @@ class StatisticsUtilTest {
         Column column = new Column("testColumn", Type.INT, true, null, null, "");
         List<Column> schema = new ArrayList<>();
         schema.add(column);
-        OlapTable table = new OlapTable(200, "testTable", schema, KeysType.AGG_KEYS, null, null);
+        OlapTable table = Mockito.spy(new OlapTable(200, "testTable", schema, KeysType.AGG_KEYS, null, null));
 
         // Test full analyze always return true;
         Assertions.assertTrue(StatisticsUtil.canCollectColumn(column, table, false, 1));
@@ -514,12 +385,7 @@ class StatisticsUtilTest {
 
         // Test agg key return true;
         MaterializedIndexMeta meta = new MaterializedIndexMeta(1L, schema, 1, 1, (short) 1, TStorageType.COLUMN, KeysType.AGG_KEYS, null);
-        new MockUp<OlapTable>() {
-            @Mock
-            public MaterializedIndexMeta getIndexMetaByIndexId(long indexId) {
-                return meta;
-            }
-        };
+        Mockito.doReturn(meta).when(table).getIndexMetaByIndexId(Mockito.anyLong());
         Assertions.assertTrue(StatisticsUtil.canCollectColumn(column, table, true, 1));
 
         // Test agg value return false
@@ -528,17 +394,8 @@ class StatisticsUtilTest {
 
         // Test unique mor value column return false
         MaterializedIndexMeta meta1 = new MaterializedIndexMeta(1L, schema, 1, 1, (short) 1, TStorageType.COLUMN, KeysType.UNIQUE_KEYS, null);
-        new MockUp<OlapTable>() {
-            @Mock
-            public MaterializedIndexMeta getIndexMetaByIndexId(long indexId) {
-                return meta1;
-            }
-
-            @Mock
-            public boolean isUniqKeyMergeOnWrite() {
-                return false;
-            }
-        };
+        Mockito.doReturn(meta1).when(table).getIndexMetaByIndexId(Mockito.anyLong());
+        Mockito.doReturn(false).when(table).isUniqKeyMergeOnWrite();
         Assertions.assertFalse(StatisticsUtil.canCollectColumn(column, table, true, 1));
 
         // Test unique mor key column return true

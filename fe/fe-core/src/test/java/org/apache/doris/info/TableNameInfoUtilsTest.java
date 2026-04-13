@@ -23,25 +23,20 @@ import org.apache.doris.catalog.NameSpaceContext;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.CatalogIf;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 public class TableNameInfoUtilsTest {
 
     @Test
-    public void testFromDbWithCatalog(@Mocked Database db, @Mocked CatalogIf catalog) {
-        new Expectations() {
-            {
-                db.getCatalog();
-                result = catalog;
-                catalog.getName();
-                result = "test_catalog";
-                db.getFullName();
-                result = "test_db";
-            }
-        };
+    public void testFromDbWithCatalog() {
+        Database db = Mockito.mock(Database.class);
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+
+        Mockito.when(db.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getName()).thenReturn("test_catalog");
+        Mockito.when(db.getFullName()).thenReturn("test_db");
 
         TableNameInfo info = TableNameInfoUtils.fromDb(db, "test_table");
         Assertions.assertEquals("test_catalog", info.getCtl());
@@ -50,15 +45,11 @@ public class TableNameInfoUtilsTest {
     }
 
     @Test
-    public void testFromDbWithNullCatalog(@Mocked Database db) {
-        new Expectations() {
-            {
-                db.getCatalog();
-                result = null;
-                db.getFullName();
-                result = "test_db";
-            }
-        };
+    public void testFromDbWithNullCatalog() {
+        Database db = Mockito.mock(Database.class);
+
+        Mockito.when(db.getCatalog()).thenReturn(null);
+        Mockito.when(db.getFullName()).thenReturn("test_db");
 
         TableNameInfo info = TableNameInfoUtils.fromDb(db, "test_table");
         Assertions.assertEquals(NameSpaceContext.INTERNAL_CATALOG_NAME, info.getCtl());
@@ -67,15 +58,12 @@ public class TableNameInfoUtilsTest {
     }
 
     @Test
-    public void testFromCatalogDbWithString(@Mocked CatalogIf catalog, @Mocked DatabaseIf db) {
-        new Expectations() {
-            {
-                catalog.getName();
-                result = "my_catalog";
-                db.getFullName();
-                result = "my_db";
-            }
-        };
+    public void testFromCatalogDbWithString() {
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+        DatabaseIf db = Mockito.mock(DatabaseIf.class);
+
+        Mockito.when(catalog.getName()).thenReturn("my_catalog");
+        Mockito.when(db.getFullName()).thenReturn("my_db");
 
         TableNameInfo info = TableNameInfoUtils.fromCatalogDb(catalog, db, "my_table");
         Assertions.assertEquals("my_catalog", info.getCtl());
@@ -84,18 +72,14 @@ public class TableNameInfoUtilsTest {
     }
 
     @Test
-    public void testFromCatalogDbWithTableIf(@Mocked CatalogIf catalog, @Mocked DatabaseIf db,
-            @Mocked TableIf table) {
-        new Expectations() {
-            {
-                catalog.getName();
-                result = "cat1";
-                db.getFullName();
-                result = "db1";
-                table.getName();
-                result = "tbl1";
-            }
-        };
+    public void testFromCatalogDbWithTableIf() {
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+        DatabaseIf db = Mockito.mock(DatabaseIf.class);
+        TableIf table = Mockito.mock(TableIf.class);
+
+        Mockito.when(catalog.getName()).thenReturn("cat1");
+        Mockito.when(db.getFullName()).thenReturn("db1");
+        Mockito.when(table.getName()).thenReturn("tbl1");
 
         TableNameInfo info = TableNameInfoUtils.fromCatalogDb(catalog, db, table);
         Assertions.assertEquals("cat1", info.getCtl());
@@ -104,22 +88,16 @@ public class TableNameInfoUtilsTest {
     }
 
     @Test
-    public void testFromTableOrNullWithDbAndCatalog(@Mocked TableIf table, @Mocked DatabaseIf db,
-            @Mocked CatalogIf catalog) {
-        new Expectations() {
-            {
-                table.getDatabase();
-                result = db;
-                db.getCatalog();
-                result = catalog;
-                catalog.getName();
-                result = "ext_catalog";
-                db.getFullName();
-                result = "ext_db";
-                table.getName();
-                result = "ext_table";
-            }
-        };
+    public void testFromTableOrNullWithDbAndCatalog() {
+        TableIf table = Mockito.mock(TableIf.class);
+        DatabaseIf db = Mockito.mock(DatabaseIf.class);
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+
+        Mockito.when(table.getDatabase()).thenReturn(db);
+        Mockito.when(db.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getName()).thenReturn("ext_catalog");
+        Mockito.when(db.getFullName()).thenReturn("ext_db");
+        Mockito.when(table.getName()).thenReturn("ext_table");
 
         TableNameInfo info = TableNameInfoUtils.fromTableOrNull(table);
         Assertions.assertNotNull(info);
@@ -129,32 +107,24 @@ public class TableNameInfoUtilsTest {
     }
 
     @Test
-    public void testFromTableOrNullWithNullDb(@Mocked TableIf table) {
-        new Expectations() {
-            {
-                table.getName();
-                result = "some_table";
-                table.getDatabase();
-                result = null;
-            }
-        };
+    public void testFromTableOrNullWithNullDb() {
+        TableIf table = Mockito.mock(TableIf.class);
+
+        Mockito.when(table.getName()).thenReturn("some_table");
+        Mockito.when(table.getDatabase()).thenReturn(null);
 
         TableNameInfo info = TableNameInfoUtils.fromTableOrNull(table);
         Assertions.assertNull(info);
     }
 
     @Test
-    public void testFromTableOrNullWithNullCatalog(@Mocked TableIf table, @Mocked DatabaseIf db) {
-        new Expectations() {
-            {
-                table.getName();
-                result = "internal_table";
-                table.getDatabase();
-                result = db;
-                db.getCatalog();
-                result = null;
-            }
-        };
+    public void testFromTableOrNullWithNullCatalog() {
+        TableIf table = Mockito.mock(TableIf.class);
+        DatabaseIf db = Mockito.mock(DatabaseIf.class);
+
+        Mockito.when(table.getName()).thenReturn("internal_table");
+        Mockito.when(table.getDatabase()).thenReturn(db);
+        Mockito.when(db.getCatalog()).thenReturn(null);
 
         TableNameInfo info = TableNameInfoUtils.fromTableOrNull(table);
         Assertions.assertNull(info);
@@ -167,13 +137,10 @@ public class TableNameInfoUtilsTest {
     }
 
     @Test
-    public void testFromTableOrNullWithEmptyName(@Mocked TableIf table) {
-        new Expectations() {
-            {
-                table.getName();
-                result = "";
-            }
-        };
+    public void testFromTableOrNullWithEmptyName() {
+        TableIf table = Mockito.mock(TableIf.class);
+
+        Mockito.when(table.getName()).thenReturn("");
 
         TableNameInfo info = TableNameInfoUtils.fromTableOrNull(table);
         Assertions.assertNull(info);

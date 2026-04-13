@@ -99,7 +99,6 @@
 #include "service/point_query_executor.h"
 #include "storage/cache/ann_index_ivf_list_cache.h"
 #include "storage/cache/page_cache.h"
-#include "storage/cache/schema_cache.h"
 #include "storage/id_manager.h"
 #include "storage/index/inverted/inverted_index_cache.h"
 #include "storage/olap_define.h"
@@ -641,8 +640,6 @@ Status ExecEnv::init_mem_env() {
               << " segment_cache_capacity: " << segment_cache_capacity
               << " min_segment_cache_mem_limit " << segment_cache_mem_limit;
 
-    _schema_cache = new SchemaCache(config::schema_cache_capacity);
-
     size_t block_file_cache_fd_cache_size =
             std::min((uint64_t)config::file_cache_max_file_reader_cache_size, fd_number / 3);
     LOG(INFO) << "max file reader cache size is: " << block_file_cache_fd_cache_size
@@ -725,7 +722,7 @@ void ExecEnv::init_mem_tracker() {
     _segcompaction_mem_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::COMPACTION, "SegCompaction");
     _tablets_no_cache_mem_tracker = MemTrackerLimiter::create_shared(
-            MemTrackerLimiter::Type::METADATA, "Tablets(not in SchemaCache, TabletSchemaCache)");
+            MemTrackerLimiter::Type::METADATA, "Tablets(not in TabletSchemaCache)");
     _segments_no_cache_mem_tracker = MemTrackerLimiter::create_shared(
             MemTrackerLimiter::Type::METADATA, "Segments(not in SegmentCache)");
     _rowsets_no_cache_mem_tracker =
@@ -885,7 +882,6 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_condition_cache);
     SAFE_DELETE(_encoding_info_resolver);
     SAFE_DELETE(_lookup_connection_cache);
-    SAFE_DELETE(_schema_cache);
     SAFE_DELETE(_segment_loader);
     SAFE_DELETE(_row_cache);
     SAFE_DELETE(_query_cache);

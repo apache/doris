@@ -32,11 +32,12 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.Lists;
-import mockit.Mock;
-import mockit.MockUp;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.Collections;
 import java.util.List;
@@ -50,7 +51,8 @@ public class DeleteJobTest {
     private static final long TABLET_ID = 4L;
 
     private final Database database = new Database(DB_ID, "db");
-    private final InternalCatalog catalog = Deencapsulation.newInstance(InternalCatalog.class);
+    private InternalCatalog catalog = Deencapsulation.newInstance(InternalCatalog.class);
+    private MockedStatic<Env> mockedEnvStatic;
     private final TabletInvertedIndex invertedIndex = new TabletInvertedIndex() {
         @Override
         public List<Replica> getReplicas(Long tabletId) {
@@ -85,27 +87,22 @@ public class DeleteJobTest {
     };
 
     @Before
-    public void setUp() {
+    public void setUp() throws Exception {
         invertedIndex.addTablet(TABLET_ID, new TabletMeta(DB_ID, TABLE_ID, PARTITION_ID, 5L, 6, TStorageMedium.HDD));
 
-        new MockUp<Env>() {
-            @Mock
-            public InternalCatalog getCurrentInternalCatalog() {
-                return catalog;
-            }
+        catalog = Mockito.spy(catalog);
+        Mockito.doReturn(database).when(catalog).getDbOrMetaException(DB_ID);
 
-            @Mock
-            public TabletInvertedIndex getCurrentInvertedIndex() {
-                return invertedIndex;
-            }
-        };
+        mockedEnvStatic = Mockito.mockStatic(Env.class);
+        mockedEnvStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+        mockedEnvStatic.when(Env::getCurrentInvertedIndex).thenReturn(invertedIndex);
+    }
 
-        new MockUp<InternalCatalog>() {
-            @Mock
-            public Database getDbOrMetaException(long dbId) {
-                return database;
-            }
-        };
+    @After
+    public void tearDown() {
+        if (mockedEnvStatic != null) {
+            mockedEnvStatic.close();
+        }
     }
 
     @Test
