@@ -939,8 +939,12 @@ private:
         }
 
         const PadChars* padding_ptr = padding ? &*padding : nullptr;
-        res_chars.resize(estimate_const_output_bytes<is_utf8>(strcol.get_chars(), target_len,
-                                                              input_rows_count, padding_ptr));
+        const size_t estimated_total = estimate_const_output_bytes<is_utf8>(
+                strcol.get_chars(), target_len, input_rows_count, padding_ptr);
+        if (estimated_total > 0) {
+            ColumnString::check_chars_length(estimated_total, 0, input_rows_count);
+        }
+        res_chars.resize(estimated_total);
 
         size_t dst_offset = 0;
         for (size_t i = 0; i < input_rows_count; ++i) {
