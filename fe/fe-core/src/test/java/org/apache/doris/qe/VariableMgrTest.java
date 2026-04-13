@@ -204,6 +204,18 @@ public class VariableMgrTest {
     }
 
     @Test
+    public void testLocalExchangeBeforeAggToThrift() throws Exception {
+        SessionVariable var = new SessionVariable();
+        Assert.assertTrue(var.enableLocalExchangeBeforeAgg);
+        Assert.assertTrue(var.toThrift().isEnableLocalExchangeBeforeAgg());
+
+        VariableMgr.setVar(var, new SetVar(SetType.SESSION,
+                SessionVariable.ENABLE_LOCAL_EXCHANGE_BEFORE_AGG, new StringLiteral("false")));
+        Assert.assertFalse(var.enableLocalExchangeBeforeAgg);
+        Assert.assertFalse(var.toThrift().isEnableLocalExchangeBeforeAgg());
+    }
+
+    @Test
     public void testAdaptiveBatchSizeSessionVariables() throws Exception {
         SessionVariable var = new SessionVariable();
 
