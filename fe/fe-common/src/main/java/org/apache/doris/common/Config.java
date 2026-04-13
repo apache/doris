@@ -3133,7 +3133,7 @@ public class Config extends ConfigBase {
             options = {"default", "ldap"})
     public static String authentication_type = "default";
 
-    @ConfField(description = {
+    @ConfField(mutable = true, description = {
             "指定主认证失败后使用的 authentication chain，多个 integration 名称用逗号分隔",
             "Specifies the authentication chain used after primary authentication failure, "
                     + "multiple integration names are comma-separated"})
@@ -3770,12 +3770,12 @@ public class Config extends ConfigBase {
             "设置为 true，如果查询无法选择到健康副本时，会打印出该 tablet 所有副本的详细信息，"})
     public static boolean sql_block_rule_ignore_admin = false;
 
-    @ConfField(description = {"认证插件目录",
-            "Authentication plugin directory"})
+    @ConfField(description = {"认证插件根目录，多个目录使用逗号分隔",
+            "Authentication plugin root directories. Use a comma-separated list to configure multiple roots."})
     public static String authentication_plugins_dir = EnvUtils.getDorisHome() + "/plugins/authentication";
 
-    @ConfField(description = {"鉴权插件目录",
-            "Authorization plugin directory"})
+    @ConfField(description = {"鉴权插件根目录，多个目录使用逗号分隔",
+            "Authorization plugin root directories. Use a comma-separated list to configure multiple roots."})
     public static String authorization_plugins_dir = EnvUtils.getDorisHome() + "/plugins/authorization";
 
     @ConfField(description = {"安全相关插件目录",
