@@ -280,6 +280,80 @@ Status VPaimonTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
 #endif
 }
 
+Status VPaimonTableWriter::_init_partition_column_indices(const ::doris::Block& block) const {
+    const TPaimonTableSink& paimon_sink = _t_sink.paimon_table_sink;
+    if (!paimon_sink.__isset.partition_keys || paimon_sink.partition_keys.empty() ||
+        _partition_indices_inited) {
+        return Status::OK();
+    }
+
+    std::unordered_map<std::string, int> name_to_idx;
+    for (int i = 0; i < block.columns(); ++i) {
+        std::string col_name = block.get_by_position(i).name;
+        if (col_name.empty()) {
+            if (paimon_sink.__isset.column_names && i < paimon_sink.column_names.size()) {
+                col_name = paimon_sink.column_names[i];
+            }
+        }
+        name_to_idx.emplace(col_name, i);
+    }
+    _partition_column_indices.clear();
+    _partition_column_indices.reserve(paimon_sink.partition_keys.size());
+    for (const auto& key_name : paimon_sink.partition_keys) {
+        auto it = name_to_idx.find(key_name);
+        if (it == name_to_idx.end()) {
+            return Status::InvalidArgument("paimon partition key {} not found in output block",
+                                           key_name);
+        }
+        _partition_column_indices.push_back(it->second);
+    }
+    _partition_indices_inited = true;
+    return Status::OK();
+}
+
+std::string VPaimonTableWriter::_default_partition_name() const {
+    std::string default_part = "__DEFAULT_PARTITION__";
+    const TPaimonTableSink& paimon_sink = _t_sink.paimon_table_sink;
+    if (paimon_sink.__isset.options) {
+        auto it = paimon_sink.options.find("partition.default-name");
+        if (it != paimon_sink.options.end() && !it->second.empty()) {
+            default_part = it->second;
+        }
+    }
+    return default_part;
+}
+
+Status VPaimonTableWriter::_collect_partition_value_columns(
+        const ::doris::Block& block,
+        std::vector<std::vector<std::string>>* partition_value_columns) const {
+    partition_value_columns->clear();
+    const TPaimonTableSink& paimon_sink = _t_sink.paimon_table_sink;
+    if (!paimon_sink.__isset.partition_keys || paimon_sink.partition_keys.empty()) {
+        return Status::OK();
+    }
+
+    RETURN_IF_ERROR(_init_partition_column_indices(block));
+    const size_t rows = block.rows();
+    partition_value_columns->resize(_partition_column_indices.size());
+    const std::string default_part = _default_partition_name();
+    DataTypeSerDe::FormatOptions options;
+    for (size_t part_idx = 0; part_idx < _partition_column_indices.size(); ++part_idx) {
+        auto& values = (*partition_value_columns)[part_idx];
+        values.resize(rows);
+        const auto& col_with_type = block.get_by_position(_partition_column_indices[part_idx]);
+        const auto& type = col_with_type.type;
+        const auto& col = col_with_type.column;
+        for (size_t row = 0; row < rows; ++row) {
+            if (col->is_null_at(row)) {
+                values[row] = default_part;
+            } else {
+                values[row] = type->to_string(*col, row, options);
+            }
+        }
+    }
+    return Status::OK();
+}
+
 Status VPaimonTableWriter::_extract_write_key(const ::doris::Block& block, int row,
                                               WriteKey* key) const {
     key->partition_values.clear();
@@ -290,39 +364,11 @@ Status VPaimonTableWriter::_extract_write_key(const ::doris::Block& block, int r
         return Status::OK();
     }
 
-    if (!_partition_indices_inited) {
-        std::unordered_map<std::string, int> name_to_idx;
-        for (int i = 0; i < block.columns(); ++i) {
-            std::string col_name = block.get_by_position(i).name;
-            if (col_name.empty()) {
-                if (paimon_sink.__isset.column_names && i < paimon_sink.column_names.size()) {
-                    col_name = paimon_sink.column_names[i];
-                }
-            }
-            name_to_idx.emplace(col_name, i);
-        }
-        _partition_column_indices.clear();
-        _partition_column_indices.reserve(paimon_sink.partition_keys.size());
-        for (const auto& key_name : paimon_sink.partition_keys) {
-            auto it = name_to_idx.find(key_name);
-            if (it == name_to_idx.end()) {
-                return Status::InvalidArgument("paimon partition key {} not found in output block",
-                                               key_name);
-            }
-            _partition_column_indices.push_back(it->second);
-        }
-        _partition_indices_inited = true;
-    }
-
-    std::string default_part = "__DEFAULT_PARTITION__";
-    if (paimon_sink.__isset.options) {
-        auto it = paimon_sink.options.find("partition.default-name");
-        if (it != paimon_sink.options.end() && !it->second.empty()) {
-            default_part = it->second;
-        }
-    }
+    RETURN_IF_ERROR(_init_partition_column_indices(block));
+    const std::string default_part = _default_partition_name();
 
     key->partition_values.reserve(_partition_column_indices.size());
+    DataTypeSerDe::FormatOptions options;
     for (int idx : _partition_column_indices) {
         const auto& col_with_type = block.get_by_position(idx);
         const auto& type = col_with_type.type;
@@ -330,10 +376,7 @@ Status VPaimonTableWriter::_extract_write_key(const ::doris::Block& block, int r
         if (col->is_null_at(row)) {
             key->partition_values.emplace_back(default_part);
         } else {
-            {
-                DataTypeSerDe::FormatOptions options;
-                key->partition_values.emplace_back(type->to_string(*col, row, options));
-            }
+            key->partition_values.emplace_back(type->to_string(*col, row, options));
         }
     }
     return Status::OK();
@@ -506,31 +549,81 @@ Status VPaimonTableWriter::write(RuntimeState* state, ::doris::Block& block) {
 
     int64_t dispatch_ns = 0;
     int64_t partitions_write_ns = 0;
-    std::unordered_map<WriteKey, std::vector<uint32_t>, WriteKeyHash> writer_indices;
-    writer_indices.reserve(rows);
+    struct PartitionDispatch {
+        WriteKey key;
+        std::vector<uint32_t> row_indices;
+    };
+    std::vector<PartitionDispatch> partitions;
+    partitions.reserve(rows);
     {
         SCOPED_TIMER(_partition_writers_dispatch_timer);
         SCOPED_RAW_TIMER(&dispatch_ns);
-        for (uint32_t i = 0; i < static_cast<uint32_t>(rows); ++i) {
+        std::vector<std::vector<std::string>> partition_value_columns;
+        RETURN_IF_ERROR(_collect_partition_value_columns(output_block, &partition_value_columns));
+        std::unordered_map<size_t, std::vector<size_t>> partition_hash_to_indices;
+        partition_hash_to_indices.reserve(rows);
+        auto hash_row = [&](uint32_t row) {
+            size_t hash = std::hash<int32_t> {}(bucket_ids[row]);
+            for (const auto& values : partition_value_columns) {
+                hash = hash * 31 + std::hash<std::string_view> {}(values[row]);
+            }
+            return hash;
+        };
+        auto match_partition = [&](const WriteKey& key, uint32_t row) {
+            if (key.bucket_id != bucket_ids[row] ||
+                key.partition_values.size() != partition_value_columns.size()) {
+                return false;
+            }
+            for (size_t i = 0; i < partition_value_columns.size(); ++i) {
+                if (key.partition_values[i] != partition_value_columns[i][row]) {
+                    return false;
+                }
+            }
+            return true;
+        };
+        auto materialize_key = [&](uint32_t row) {
             WriteKey key;
-            RETURN_IF_ERROR(_extract_write_key(output_block, static_cast<int>(i), &key));
-            key.bucket_id = bucket_ids[i];
-            writer_indices[key].push_back(i);
+            key.bucket_id = bucket_ids[row];
+            key.partition_values.reserve(partition_value_columns.size());
+            for (const auto& values : partition_value_columns) {
+                key.partition_values.emplace_back(values[row]);
+            }
+            return key;
+        };
+        for (uint32_t i = 0; i < static_cast<uint32_t>(rows); ++i) {
+            const size_t hash = hash_row(i);
+            size_t partition_idx = partitions.size();
+            auto it = partition_hash_to_indices.find(hash);
+            if (it != partition_hash_to_indices.end()) {
+                for (size_t candidate_idx : it->second) {
+                    if (match_partition(partitions[candidate_idx].key, i)) {
+                        partition_idx = candidate_idx;
+                        break;
+                    }
+                }
+            }
+            if (partition_idx == partitions.size()) {
+                PartitionDispatch dispatch;
+                dispatch.key = materialize_key(i);
+                partitions.push_back(std::move(dispatch));
+                partition_hash_to_indices[hash].push_back(partition_idx);
+            }
+            partitions[partition_idx].row_indices.push_back(i);
         }
     }
 
-    COUNTER_UPDATE(_partition_writers_count, writer_indices.size());
+    COUNTER_UPDATE(_partition_writers_count, partitions.size());
 
     {
         SCOPED_TIMER(_partition_writers_write_timer);
         SCOPED_RAW_TIMER(&partitions_write_ns);
         const int cols = output_block.columns();
-        for (auto& it : writer_indices) {
+        for (auto& partition : partitions) {
             std::shared_ptr<VPaimonPartitionWriter> writer;
-            RETURN_IF_ERROR(_get_or_create_writer(it.first, &writer));
+            RETURN_IF_ERROR(_get_or_create_writer(partition.key, &writer));
             auto columns = output_block.clone_empty_columns();
-            const uint32_t* begin = it.second.data();
-            const uint32_t* end = begin + it.second.size();
+            const uint32_t* begin = partition.row_indices.data();
+            const uint32_t* end = begin + partition.row_indices.size();
             for (int col = 0; col < cols; ++col) {
                 columns[col]->insert_indices_from(*output_block.get_by_position(col).column, begin,
                                                   end);
