@@ -1233,11 +1233,13 @@ TEST_F(SpillSortSourceOperatorTest, SpillDataDirThreadSafety) {
 TEST_F(SpillSortSourceOperatorTest, SpillWriterMemoryTracking) {
     // Test the accuracy of memory tracking in SpillFileWriter (Bug 2)
     SpillFileSPtr spill_file;
-    auto st = ExecEnv::GetInstance()->spill_file_mgr()->create_spill_file("SpillWriterTest", spill_file);
+    auto st = ExecEnv::GetInstance()->spill_file_mgr()->create_spill_file("SpillWriterTest",
+                                                                          spill_file);
     ASSERT_TRUE(st.ok()) << "create_spill_file failed: " << st.to_string();
 
     SpillFileWriterSPtr writer;
-    st = spill_file->create_writer(_helper.runtime_state.get(), _helper.operator_profile.get(), writer);
+    st = spill_file->create_writer(_helper.runtime_state.get(), _helper.operator_profile.get(),
+                                   writer);
     ASSERT_TRUE(st.ok());
 
     auto* memory_used_counter = _helper.common_profile->get_counter("MemoryUsage");
