@@ -70,7 +70,7 @@ public class AuthenticationPluginAuthenticator implements Authenticator {
     private final PasswordResolver passwordResolver;
 
     public AuthenticationPluginAuthenticator(String pluginType, Properties initProps) throws AuthenticationException {
-        this(pluginType, PropertiesUtils.propertiesToMap(initProps), new AuthenticationPluginManager());
+        this(pluginType, PropertiesUtils.propertiesToMap(initProps), createPluginManager());
     }
 
     AuthenticationPluginAuthenticator(String pluginType, Map<String, String> initProps,
@@ -214,6 +214,17 @@ public class AuthenticationPluginAuthenticator implements Authenticator {
             throw new AuthenticationException(
                     "No AuthenticationPluginFactory found for plugin: " + pluginType,
                     AuthenticationFailureType.MISCONFIGURED);
+        }
+    }
+
+    private static AuthenticationPluginManager createPluginManager() {
+        ClassLoader originalClassLoader = Thread.currentThread().getContextClassLoader();
+        ClassLoader pluginClassLoader = AuthenticationPluginAuthenticator.class.getClassLoader();
+        try {
+            Thread.currentThread().setContextClassLoader(pluginClassLoader);
+            return new AuthenticationPluginManager();
+        } finally {
+            Thread.currentThread().setContextClassLoader(originalClassLoader);
         }
     }
 

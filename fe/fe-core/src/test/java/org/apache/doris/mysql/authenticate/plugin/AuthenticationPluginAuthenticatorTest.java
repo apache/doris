@@ -134,7 +134,7 @@ class AuthenticationPluginAuthenticatorTest {
                 authPacket,
                 handshakePacket).orElseThrow(() -> new AssertionError("request is required"));
 
-        Assertions.assertEquals(CredentialType.OIDC_ID_TOKEN, request.getCredentialType());
+        Assertions.assertEquals(CredentialType.OAUTH_TOKEN, request.getCredentialType());
         Assertions.assertArrayEquals("token-from-client".getBytes(StandardCharsets.UTF_8), request.getCredential());
 
         AuthenticateResponse response = authenticator.authenticate(request);
@@ -142,7 +142,7 @@ class AuthenticationPluginAuthenticatorTest {
 
         ArgumentCaptor<AuthenticationRequest> requestCaptor = ArgumentCaptor.forClass(AuthenticationRequest.class);
         Mockito.verify(plugin).authenticate(requestCaptor.capture(), Mockito.any());
-        Assertions.assertEquals(CredentialType.OIDC_ID_TOKEN, requestCaptor.getValue().getCredentialType());
+        Assertions.assertEquals(CredentialType.OAUTH_TOKEN, requestCaptor.getValue().getCredentialType());
         Assertions.assertArrayEquals("token-from-client".getBytes(StandardCharsets.UTF_8),
                 requestCaptor.getValue().getCredential());
     }

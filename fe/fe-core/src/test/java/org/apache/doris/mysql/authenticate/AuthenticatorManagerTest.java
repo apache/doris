@@ -49,6 +49,8 @@ import org.mockito.Mockito;
 
 import java.io.IOException;
 import java.lang.reflect.Field;
+import java.net.URL;
+import java.net.URLClassLoader;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
@@ -104,6 +106,20 @@ class AuthenticatorManagerTest {
 
         Authenticator authenticator = manager.chooseAuthenticator(USER_NAME, REMOTE_IP);
         Assertions.assertTrue(authenticator instanceof AuthenticationPluginAuthenticator);
+    }
+
+    @Test
+    void testChooseAuthenticatorUsesPluginFactoryWhenThreadContextClassLoaderCannotSeeProvider() {
+        ClassLoader originalClassLoader = Thread.currentThread().getContextClassLoader();
+        Thread.currentThread().setContextClassLoader(new URLClassLoader(new URL[0], null));
+        try {
+            AuthenticatorManager manager = new AuthenticatorManager("test_plugin");
+
+            Authenticator authenticator = manager.chooseAuthenticator(USER_NAME, REMOTE_IP);
+            Assertions.assertTrue(authenticator instanceof AuthenticationPluginAuthenticator);
+        } finally {
+            Thread.currentThread().setContextClassLoader(originalClassLoader);
+        }
     }
 
     @Test
@@ -536,7 +552,7 @@ class AuthenticatorManagerTest {
         Assertions.assertTrue(result);
         ArgumentCaptor<AuthenticateRequest> requestCaptor = ArgumentCaptor.forClass(AuthenticateRequest.class);
         Mockito.verify(chainAuthenticator).authenticate(requestCaptor.capture());
-        Assertions.assertEquals(CredentialType.OIDC_ID_TOKEN, requestCaptor.getValue().getCredentialType());
+        Assertions.assertEquals(CredentialType.OAUTH_TOKEN, requestCaptor.getValue().getCredentialType());
         Assertions.assertArrayEquals("oidc-token".getBytes(StandardCharsets.UTF_8),
                 requestCaptor.getValue().getCredential());
     }
@@ -554,7 +570,7 @@ class AuthenticatorManagerTest {
                         .password(new ClearPassword(OIDC_ID_TOKEN))
                         .remoteHost(REMOTE_IP)
                         .clientType("mysql")
-                        .credentialType(CredentialType.OIDC_ID_TOKEN)
+                        .credentialType(CredentialType.OAUTH_TOKEN)
                         .credential(OIDC_ID_TOKEN.getBytes(StandardCharsets.UTF_8))
                         .build()));
 
@@ -605,7 +621,7 @@ class AuthenticatorManagerTest {
                         .password(new ClearPassword(OIDC_ID_TOKEN))
                         .remoteHost(REMOTE_IP)
                         .clientType("mysql")
-                        .credentialType(CredentialType.OIDC_ID_TOKEN)
+                        .credentialType(CredentialType.OAUTH_TOKEN)
                         .credential(OIDC_ID_TOKEN.getBytes(StandardCharsets.UTF_8))
                         .build()));
 
@@ -731,7 +747,7 @@ class AuthenticatorManagerTest {
         ArgumentCaptor<AuthenticateRequest> requestCaptor = ArgumentCaptor.forClass(AuthenticateRequest.class);
         Mockito.verify(chainAuthenticator).authenticate(requestCaptor.capture());
         AuthenticateRequest chainRequest = requestCaptor.getValue();
-        Assertions.assertEquals(CredentialType.OIDC_ID_TOKEN, chainRequest.getCredentialType());
+        Assertions.assertEquals(CredentialType.OAUTH_TOKEN, chainRequest.getCredentialType());
         Assertions.assertArrayEquals(originalOidcToken, chainRequest.getCredential());
         Assertions.assertInstanceOf(ClearPassword.class, chainRequest.getPassword());
         Assertions.assertEquals("oidc-token", ((ClearPassword) chainRequest.getPassword()).getPassword());
