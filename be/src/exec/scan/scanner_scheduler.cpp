@@ -164,13 +164,9 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
     max_run_time_watch.start();
     scanner->resume();
 
-    bool need_update_profile = true;
     auto update_scanner_profile = [&]() {
-        if (need_update_profile) {
-            scanner->pause();
-            scanner->update_realtime_counters();
-            need_update_profile = false;
-        }
+        scanner->pause();
+        scanner->update_realtime_counters();
     };
 
     Status status = Status::OK();
