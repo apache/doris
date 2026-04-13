@@ -66,7 +66,9 @@ public:
     Status close(Status status) override;
 
 protected:
-    const TDataSink _t_sink;
+    // The sink descriptor is owned by the surrounding sink/operator state and
+    // outlives the writer during fragment execution.
+    const TDataSink& _t_sink;
 
 private:
     struct WriteKey {
