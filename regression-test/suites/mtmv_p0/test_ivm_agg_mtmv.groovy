@@ -375,4 +375,200 @@ suite("test_ivm_agg_mtmv") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_minmax_op_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_minmax_op_mv")
+
+    // =========================================================
+    // Part 5: Grouped agg MV with NULL values + binlog_op
+    //         Tests that SUM/AVG/COUNT(expr)/MIN/MAX handle NULLs correctly
+    // =========================================================
+
+    sql """drop materialized view if exists test_ivm_agg_mtmv_null_mv;"""
+    sql """drop table if exists test_ivm_agg_mtmv_null_base;"""
+
+    sql """
+        CREATE TABLE test_ivm_agg_mtmv_null_base (
+            k1 INT,
+            grp INT,
+            v1 INT,
+            binlog_op TINYINT
+        )
+        UNIQUE KEY(k1)
+        DISTRIBUTED BY HASH(k1) BUCKETS 2
+        PROPERTIES (
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "true"
+        );
+    """
+
+    // Initial data: 3 groups
+    // grp=1: two rows, both non-NULL (v1=10, v1=20)
+    // grp=2: two rows, one NULL (v1=NULL, v1=30)
+    // grp=3: one row, all NULL (v1=NULL)
+    sql """
+        INSERT INTO test_ivm_agg_mtmv_null_base VALUES
+            (1, 1, 10, 0),
+            (2, 1, 20, 0),
+            (3, 2, NULL, 0),
+            (4, 2, 30, 0),
+            (5, 3, NULL, 0);
+    """
+
+    sql """
+        CREATE MATERIALIZED VIEW test_ivm_agg_mtmv_null_mv
+        BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES (
+            'replication_num' = '1'
+        )
+        AS SELECT grp,
+                  SUM(v1) AS sum_v1,
+                  AVG(v1) AS avg_v1,
+                  COUNT(v1) AS cnt_v1,
+                  MIN(v1) AS min_v1,
+                  MAX(v1) AS max_v1,
+                  COUNT(*) AS cnt_all
+           FROM test_ivm_agg_mtmv_null_base
+           GROUP BY grp;
+    """
+
+    // Step 1: COMPLETE refresh
+    // grp=1: sum=30, avg=15, cnt_v1=2, min=10, max=20, cnt_all=2
+    // grp=2: sum=30, avg=30, cnt_v1=1, min=30, max=30, cnt_all=2
+    // grp=3: sum=NULL, avg=NULL, cnt_v1=0, min=NULL, max=NULL, cnt_all=1
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_null_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_null_mv")
+
+    order_qt_null_after_complete """
+        SELECT grp, sum_v1, avg_v1, cnt_v1, min_v1, max_v1, cnt_all
+        FROM test_ivm_agg_mtmv_null_mv ORDER BY grp
+    """
+
+    // Step 2: INCREMENTAL — insert a NULL value into grp=1 and a non-NULL into grp=3
+    // Mock delta reads all rows (all op=0), no deletes, so INCREMENTAL should succeed.
+    sql """INSERT INTO test_ivm_agg_mtmv_null_base VALUES (6, 1, NULL, 0);"""
+    sql """INSERT INTO test_ivm_agg_mtmv_null_base VALUES (7, 3, 50, 0);"""
+
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_null_mv INCREMENTAL"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_null_mv")
+
+    // Step 3: COMPLETE to verify correct final state after NULL-aware incremental
+    // grp=1: k1=1(10),2(20),6(NULL) → sum=30, avg=15, cnt_v1=2, min=10, max=20, cnt_all=3
+    // grp=2: k1=3(NULL),4(30) → sum=30, avg=30, cnt_v1=1, min=30, max=30, cnt_all=2
+    // grp=3: k1=5(NULL),7(50) → sum=50, avg=50, cnt_v1=1, min=50, max=50, cnt_all=2
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_null_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_null_mv")
+
+    order_qt_null_after_final_complete """
+        SELECT grp, sum_v1, avg_v1, cnt_v1, min_v1, max_v1, cnt_all
+        FROM test_ivm_agg_mtmv_null_mv ORDER BY grp
+    """
+
+    // Step 4: Delete a NULL value row (binlog_op=1) — tests caseWhenExprNotNull with delete+NULL
+    // Mark k1=6 (grp=1, v1=NULL) as deleted
+    sql """INSERT INTO test_ivm_agg_mtmv_null_base VALUES (6, 1, NULL, 1);"""
+    // Dirty partition for INCREMENTAL
+    sql """INSERT INTO test_ivm_agg_mtmv_null_base VALUES (8, 2, 40, 0);"""
+
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_null_mv INCREMENTAL"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_null_mv")
+
+    // Step 5: COMPLETE to get ground truth after NULL-row deletion
+    // grp=1: k1=1(10),2(20),6(NULL,deleted) → effectively k1=1(10),2(20) → sum=30, avg=15, cnt_v1=2, min=10, max=20, cnt_all=2
+    //         BUT with mock delta, COMPLETE still sees all physical rows including k1=6 with op=1
+    //         COMPLETE refresh ignores binlog_op, so k1=6 is still counted:
+    //         k1=1(10),2(20),6(NULL) → sum=30, avg=15, cnt_v1=2, min=10, max=20, cnt_all=3
+    // grp=2: k1=3(NULL),4(30),8(40) → sum=70, avg=35, cnt_v1=2, min=30, max=40, cnt_all=3
+    // grp=3: k1=5(NULL),7(50) → sum=50, avg=50, cnt_v1=1, min=50, max=50, cnt_all=2
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_null_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_null_mv")
+
+    order_qt_null_after_delete_complete """
+        SELECT grp, sum_v1, avg_v1, cnt_v1, min_v1, max_v1, cnt_all
+        FROM test_ivm_agg_mtmv_null_mv ORDER BY grp
+    """
+
+    // =========================================================
+    // Part 6: Scalar agg MV with all-NULL values + binlog_op
+    //         Tests SUM/AVG/COUNT(expr)/MIN/MAX when every value is NULL
+    // =========================================================
+
+    sql """drop materialized view if exists test_ivm_agg_mtmv_allnull_mv;"""
+    sql """drop table if exists test_ivm_agg_mtmv_allnull_base;"""
+
+    sql """
+        CREATE TABLE test_ivm_agg_mtmv_allnull_base (
+            k1 INT,
+            v1 INT,
+            binlog_op TINYINT
+        )
+        UNIQUE KEY(k1)
+        DISTRIBUTED BY HASH(k1) BUCKETS 2
+        PROPERTIES (
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "true"
+        );
+    """
+
+    // All values are NULL
+    sql """
+        INSERT INTO test_ivm_agg_mtmv_allnull_base VALUES
+            (1, NULL, 0),
+            (2, NULL, 0);
+    """
+
+    sql """
+        CREATE MATERIALIZED VIEW test_ivm_agg_mtmv_allnull_mv
+        BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES (
+            'replication_num' = '1'
+        )
+        AS SELECT SUM(v1) AS sum_v1,
+                  AVG(v1) AS avg_v1,
+                  COUNT(v1) AS cnt_v1,
+                  MIN(v1) AS min_v1,
+                  MAX(v1) AS max_v1,
+                  COUNT(*) AS cnt_all
+           FROM test_ivm_agg_mtmv_allnull_base;
+    """
+
+    // COMPLETE: all NULLs → sum=NULL, avg=NULL, cnt_v1=0, min=NULL, max=NULL, cnt_all=2
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_allnull_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_allnull_mv")
+
+    order_qt_allnull_after_complete """
+        SELECT sum_v1, avg_v1, cnt_v1, min_v1, max_v1, cnt_all
+        FROM test_ivm_agg_mtmv_allnull_mv
+    """
+
+    // Insert a non-NULL value → transitions from all-NULL to mixed
+    sql """INSERT INTO test_ivm_agg_mtmv_allnull_base VALUES (3, 100, 0);"""
+
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_allnull_mv INCREMENTAL"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_allnull_mv")
+
+    // COMPLETE to get ground truth: k1=1(NULL),2(NULL),3(100)
+    // sum=100, avg=100, cnt_v1=1, min=100, max=100, cnt_all=3
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_allnull_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_allnull_mv")
+
+    order_qt_allnull_after_insert_complete """
+        SELECT sum_v1, avg_v1, cnt_v1, min_v1, max_v1, cnt_all
+        FROM test_ivm_agg_mtmv_allnull_mv
+    """
+
+    // Insert another NULL (should not change aggregates)
+    sql """INSERT INTO test_ivm_agg_mtmv_allnull_base VALUES (4, NULL, 0);"""
+
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_allnull_mv INCREMENTAL"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_allnull_mv")
+
+    // COMPLETE: k1=1(NULL),2(NULL),3(100),4(NULL)
+    // sum=100, avg=100, cnt_v1=1, min=100, max=100, cnt_all=4
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_allnull_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_allnull_mv")
+
+    order_qt_allnull_after_null_insert_complete """
+        SELECT sum_v1, avg_v1, cnt_v1, min_v1, max_v1, cnt_all
+        FROM test_ivm_agg_mtmv_allnull_mv
+    """
 }
