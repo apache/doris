@@ -786,6 +786,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 && S3TableValuedFunction.NAME.equalsIgnoreCase(this.tvfType)) {
             Offset offset = validateOffset(inputStreamProps.getOffsetProperty());
             this.offsetProvider.updateOffset(offset);
+            this.offsetProviderPersist = offsetProvider.getPersistInfo();
             if (Config.isCloudMode()) {
                 resetCloudProgress(offset);
             }
