@@ -47,7 +47,8 @@ public:
 
 private:
     static void* _zero_size_ptr();
-    void _ensure_thread_context(std::unique_ptr<::doris::SwitchThreadMemTrackerLimiter>* switcher);
+    void _ensure_thread_context(std::unique_ptr<::doris::SwitchThreadMemTrackerLimiter>* switcher,
+                                std::unique_ptr<::doris::AttachTask>* attacher);
 
     std::atomic<uint64_t> _bytes_allocated {0};
     std::atomic<uint64_t> _max_bytes_allocated {0};
