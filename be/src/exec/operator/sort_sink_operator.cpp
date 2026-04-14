@@ -22,6 +22,8 @@
 #include "exec/operator/operator.h"
 #include "exec/sort/heap_sorter.h"
 #include "exec/sort/topn_sorter.h"
+#include "exprs/vexpr.h"
+#include "exprs/vexpr_context.h"
 #include "runtime/query_context.h"
 
 namespace doris {
@@ -43,23 +45,26 @@ Status SortSinkLocalState::open(RuntimeState* state) {
     RETURN_IF_ERROR(Base::open(state));
     auto& p = _parent->cast<SortSinkOperatorX>();
 
-    RETURN_IF_ERROR(p._vsort_exec_exprs.clone(state, _vsort_exec_exprs));
+    _ordering_expr_ctxs.resize(p._ordering_expr_ctxs.size());
+    for (size_t i = 0; i < p._ordering_expr_ctxs.size(); i++) {
+        RETURN_IF_ERROR(p._ordering_expr_ctxs[i]->clone(state, _ordering_expr_ctxs[i]));
+    }
     switch (p._algorithm) {
     case TSortAlgorithm::HEAP_SORT: {
         _shared_state->sorter = HeapSorter::create_shared(
-                _vsort_exec_exprs, state, p._limit, p._offset, p._pool, p._is_asc_order,
+                _ordering_expr_ctxs, state, p._limit, p._offset, p._pool, p._is_asc_order,
                 p._nulls_first, p._child->row_desc(),
                 state->get_query_ctx()->has_runtime_predicate(p._node_id));
         break;
     }
     case TSortAlgorithm::TOPN_SORT: {
         _shared_state->sorter = TopNSorter::create_shared(
-                _vsort_exec_exprs, p._limit, p._offset, p._pool, p._is_asc_order, p._nulls_first,
+                _ordering_expr_ctxs, p._limit, p._offset, p._pool, p._is_asc_order, p._nulls_first,
                 p._child->row_desc(), state, custom_profile());
         break;
     }
     case TSortAlgorithm::FULL_SORT: {
-        auto sorter = FullSorter::create_shared(_vsort_exec_exprs, p._limit, p._offset, p._pool,
+        auto sorter = FullSorter::create_shared(_ordering_expr_ctxs, p._limit, p._offset, p._pool,
                                                 p._is_asc_order, p._nulls_first,
                                                 p._child->row_desc(), state, custom_profile());
         if (p._max_buffered_bytes > 0) {
@@ -107,7 +112,8 @@ SortSinkOperatorX::SortSinkOperatorX(ObjectPool* pool, int operator_id, int dest
 
 Status SortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX::init(tnode, state));
-    RETURN_IF_ERROR(_vsort_exec_exprs.init(tnode.sort_node.sort_info, _pool));
+    RETURN_IF_ERROR(VExpr::create_expr_trees(tnode.sort_node.sort_info.ordering_exprs,
+                                             _ordering_expr_ctxs));
     _is_asc_order = tnode.sort_node.sort_info.is_asc_order;
     _nulls_first = tnode.sort_node.sort_info.nulls_first;
 
@@ -121,8 +127,8 @@ Status SortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status SortSinkOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX<SortSinkLocalState>::prepare(state));
-    RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, _child->row_desc(), _row_descriptor));
-    return _vsort_exec_exprs.open(state);
+    RETURN_IF_ERROR(VExpr::prepare(_ordering_expr_ctxs, state, _row_descriptor));
+    return VExpr::open(_ordering_expr_ctxs, state);
 }
 
 Status SortSinkOperatorX::sink(doris::RuntimeState* state, Block* in_block, bool eos) {

@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.FileQueryScanNode;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
 import org.apache.doris.nereids.trees.plans.distribute.PipelineDistributedPlan;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
@@ -211,6 +212,27 @@ public class ThriftPlansBuilder {
             }
             return filterDescs;
         });
+    }
+
+    static Map<String, TAIResource> collectAiResources(ConnectContext connectContext) {
+        Map<String, TAIResource> aiResourceMap = Maps.newLinkedHashMap();
+        if (connectContext == null) {
+            return aiResourceMap;
+        }
+
+        StatementContext statementContext = connectContext.getStatementContext();
+        if (statementContext == null) {
+            return aiResourceMap;
+        }
+
+        for (String resourceName : statementContext.getUsedAIResourceNames()) {
+            Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(resourceName);
+            if (!(resource instanceof AIResource)) {
+                throw new IllegalStateException("AI resource '" + resourceName + "' does not exist");
+            }
+            aiResourceMap.put(resourceName, ((AIResource) resource).toThrift());
+        }
+        return aiResourceMap;
     }
 
     private static void setParamsForOlapTableSink(List<PipelineDistributedPlan> distributedPlans,
@@ -426,13 +448,7 @@ public class ThriftPlansBuilder {
             params.setShuffleIdxToInstanceIdx(computeDestIdToInstanceId(fragmentPlan, w, instanceToIndex));
 
             // Only used for AI Functions
-            Map<String, TAIResource> aiResourceMap = Maps.newLinkedHashMap();
-            for (Resource resource : Env.getCurrentEnv().getResourceMgr().getResource(Resource.ResourceType.AI)) {
-                if (resource instanceof AIResource) {
-                    aiResourceMap.put(resource.getName(), ((AIResource) resource).toThrift());
-                }
-            }
-            params.setAiResources(aiResourceMap);
+            params.setAiResources(collectAiResources(connectContext));
 
             return params;
         });

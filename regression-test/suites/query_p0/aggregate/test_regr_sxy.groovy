@@ -90,17 +90,24 @@ suite("test_regr_sxy") {
     qt_literal_2 "SELECT regr_sxy(10, x) FROM test_regr_sxy WHERE id = 2"
     qt_literal_3 "SELECT regr_sxy(y, 3) FROM test_regr_sxy WHERE id = 2"
 
-    // exception
+    // String type inputs (compile-time cast only, no table needed)
+    qt_sql_string_1 "select regr_sxy('5', '3')"
+    qt_sql_string_2 "select regr_sxy(1, '3')"
+
+    // Boolean type inputs
+    qt_sql_bool_1 "select regr_sxy(true, false)"
+
+    // NULL literal inputs
+    qt_sql_null_1 "select regr_sxy(NULL, 1)"
+    qt_sql_null_2 "select regr_sxy(1, NULL)"
+
+    // Exception inputs
     test {
-        sql "select regr_sxy('y', 1)"
-        exception "regr_sxy requires numeric for first parameter"
-    }
-    test {
-        sql "select regr_sxy(1, 'x')"
-        exception "regr_sxy requires numeric for second parameter"
+        sql "select regr_sxy(CAST([1, 2, 3] AS ARRAY<INT>), 1)"
+        exception "Can not find the compatibility function signature: regr_sxy("
     }
     test {
         sql "select regr_sxy(1, CAST([1, 2, 3] AS ARRAY<INT>))"
-        exception "Doris hll, bitmap, array, map, struct, jsonb, variant column"
+        exception "Can not find the compatibility function signature: regr_sxy("
     }
 }

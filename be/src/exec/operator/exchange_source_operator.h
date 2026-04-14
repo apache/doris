@@ -20,6 +20,7 @@
 #include <stdint.h>
 
 #include "exec/operator/operator.h"
+#include "exprs/vexpr_fwd.h"
 
 namespace doris {
 class ExecNode;
@@ -71,7 +72,7 @@ public:
 
     MOCK_FUNCTION void create_stream_recvr(RuntimeState* state);
     std::shared_ptr<doris::VDataStreamRecvr> stream_recvr;
-    doris::VSortExecExprs vsort_exec_exprs;
+    doris::VExprContextSPtrs ordering_expr_ctxs;
     int64_t num_rows_skipped;
     bool is_ready;
 
@@ -128,7 +129,7 @@ private:
 
     // use in merge sort
     size_t _offset;
-    doris::VSortExecExprs _vsort_exec_exprs;
+    doris::VExprContextSPtrs _ordering_expr_ctxs;
     std::vector<bool> _is_asc_order;
     std::vector<bool> _nulls_first;
 };

@@ -40,9 +40,11 @@ Always focus on the following core invariants during review:
 - **Evidence Speaks**: All issues with code itself (not memory or environment) must be clearly identified as either having problems or not. For any erroneous situation, if it cannot be confirmed locally, you must provide the specific path or logic where the error occurs. That is, if you believe that if A then B, you must specify a clear scenario where A occurs.
 - **Review Holistically**: For any new feature or modification, you must analyze its upstream and downstream code to understand the real invocation chain. Identify all implicit assumptions and constraints throughout the flow, then verify carefully that the current change works correctly within the entire end-to-end process. Also determine whether a seemingly problematic local pattern is actually safe due to strong guarantees from upstream or downstream, or whether a conventional local implementation fails to achieve optimal performance because it does not leverage additional information available from the surrounding context.
 
-### 1.3 Critical Checkpoints (Self-Review and Review Priority)
+### 1.3 Critical Checkpoints (Review Priority)
 
-The following checkpoints must be **individually confirmed with conclusions** during self-review and review. If the code is too long or too complex, you should delve into the code again as needed when analyzing specific issues, especially the entire logic chain where there are doubts:
+For PRs with not only local minor modifications, before answering specific questions, you must read and deeply understand the complete process involved in the code modification, thoroughly comprehend the role, function, and expected functionality of the reviewed functions and modules, the actual triggering methods, potential concurrency, and lifecycle. It is necessary to understand the specific triggering methods and runtime interaction relationships, as well as dependencies, of the specific code in a concrete visual manner.
+
+The following checkpoints must be **individually confirmed with conclusions** during review. If the code is too long or too complex, you should delve into the code again as needed when analyzing specific issues, especially the entire logic chain where there are doubts:
 
 - What is the goal of the current task? Does the current code accomplish this goal? Is there a test that proves it?
 - Is this modification as small, clear, and focused as possible?
@@ -67,6 +69,8 @@ The following checkpoints must be **individually confirmed with conclusions** du
   - Are end-to-end functional tests comprehensive?
   - Are there comprehensive negative test cases from various angles?
   - For complex features, are key functions sufficiently modular with unit tests?
+- Has the test result been added/modified?
+  - Are ALL the new test results correct?
 - Does the feature need increased observability? If yes:
   - When bugs occur, are existing logs and VLOGs sufficient to investigate key issues?
   - Are INFO logs lightweight enough?
@@ -85,6 +89,8 @@ The following checkpoints must be **individually confirmed with conclusions** du
 After checking all the above items with code. Use the remaining parts of this skill as needed. The following content does not need individual responses; just check during the review process.
 
 #### 1.3.1 Concurrency and Thread Safety (Highest Priority)
+
+If it involves the judgment of concurrent scenarios, it is necessary to find the starting point of concurrency and actually understand all actually possible concurrent situations (which thread initiated what at what stage, and what concurrent operations there will be). Due to the clear program semantics, some functions of the same module are executed in stages, so concurrency is definitely not present, there should be no misjudgment.
 
 - [ ] **Thread context**: Does every new thread or bthread entry attach the right memory-tracking context? (See `be/src/runtime/AGENTS.md`)
 - [ ] **Lock protection**: Is shared data accessed under the correct lock and mode?

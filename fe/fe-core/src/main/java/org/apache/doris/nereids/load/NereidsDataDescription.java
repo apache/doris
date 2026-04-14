@@ -763,10 +763,6 @@ public class NereidsDataDescription {
         this.isHadoopLoad = isHadoopLoad;
     }
 
-    public boolean isHadoopLoad() {
-        return isHadoopLoad;
-    }
-
     public boolean isClientLocal() {
         return clientLocal;
     }
@@ -785,10 +781,6 @@ public class NereidsDataDescription {
 
     public boolean getIgnoreCsvRedundantCol() {
         return ignoreCsvRedundantCol;
-    }
-
-    public void setIgnoreCsvRedundantCol(boolean ignoreCsvRedundantCol) {
-        this.ignoreCsvRedundantCol = ignoreCsvRedundantCol;
     }
 
     /*

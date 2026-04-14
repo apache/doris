@@ -1667,6 +1667,21 @@ public class Coordinator implements CoordInterface {
         return backend.getArrowFlightAddress();
     }
 
+    private Map<String, TAIResource> getNeededAiResources() {
+        Map<String, TAIResource> aiResourceMap = Maps.newLinkedHashMap();
+        if (context == null || context.getStatementContext() == null) {
+            return aiResourceMap;
+        }
+        for (String resourceName : context.getStatementContext().getUsedAIResourceNames()) {
+            Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(resourceName);
+            if (!(resource instanceof AIResource)) {
+                throw new IllegalStateException("AI resource '" + resourceName + "' does not exist");
+            }
+            aiResourceMap.put(resourceName, ((AIResource) resource).toThrift());
+        }
+        return aiResourceMap;
+    }
+
     // estimate if this fragment contains UnionNode
     private boolean containsUnionNode(PlanNode node) {
         if (node instanceof UnionNode) {
@@ -3280,15 +3295,7 @@ public class Coordinator implements CoordInterface {
                     }
 
                     // Used for AI Functions
-                    Map<String, TAIResource> aiResourceMap = Maps.newLinkedHashMap();
-                    for (Resource resource : Env.getCurrentEnv().getResourceMgr()
-                                                    .getResource(Resource.ResourceType.AI)) {
-                        if (resource instanceof AIResource) {
-                            aiResourceMap.put(resource.getName(), ((AIResource) resource).toThrift());
-                        }
-                    }
-
-                    params.setAiResources(aiResourceMap);
+                    params.setAiResources(getNeededAiResources());
                     res.put(instanceExecParam.host, params);
                     res.get(instanceExecParam.host).setBucketSeqToInstanceIdx(new HashMap<Integer, Integer>());
                     res.get(instanceExecParam.host).setShuffleIdxToInstanceIdx(new HashMap<Integer, Integer>());
@@ -3536,4 +3543,3 @@ public class Coordinator implements CoordInterface {
         this.queryOptions.setEnableProfile(isSafe && queryOptions.isEnableProfile());
     }
 }
-

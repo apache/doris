@@ -226,8 +226,7 @@ public:
             state->enable_streaming_agg_hash_join_force_passthrough()) {
             return DataDistribution(ExchangeType::PASSTHROUGH);
         }
-        if (!state->get_query_ctx()->should_be_shuffled_agg(
-                    StatefulOperatorX<StreamingAggLocalState>::node_id())) {
+        if (!_needs_finalize && !state->enable_local_exchange_before_agg()) {
             return StatefulOperatorX<StreamingAggLocalState>::required_data_distribution(state);
         }
         if (_partition_exprs.empty()) {

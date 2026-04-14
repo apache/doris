@@ -17,6 +17,10 @@
 
 #pragma once
 
+#include <algorithm>
+#include <cctype>
+#include <cstdlib>
+
 #include "exprs/function/ai/ai_functions.h"
 
 namespace doris {
@@ -39,6 +43,43 @@ public:
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return std::make_shared<DataTypeFloat32>();
+    }
+
+    Status execute_with_adapter(FunctionContext* context, Block& block,
+                                const ColumnNumbers& arguments, uint32_t result,
+                                size_t input_rows_count, const TAIResource& config,
+                                std::shared_ptr<AIAdapter>& adapter) const {
+        auto col_result = ColumnFloat32::create();
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            std::string prompt;
+            RETURN_IF_ERROR(build_prompt(block, arguments, i, prompt));
+
+            std::string string_result;
+            RETURN_IF_ERROR(
+                    execute_single_request(prompt, string_result, config, adapter, context));
+
+#ifdef BE_TEST
+            const char* test_result = std::getenv("AI_TEST_RESULT");
+            if (test_result != nullptr) {
+                string_result = test_result;
+            } else {
+                string_result = "0.0";
+            }
+#endif
+
+            std::string_view trimmed = doris::trim(string_result);
+            float float_value = 0;
+            auto [ptr, ec] = fast_float::from_chars(trimmed.data(), trimmed.data() + trimmed.size(),
+                                                    float_value);
+            if (ec != std::errc() || ptr != trimmed.data() + trimmed.size()) [[unlikely]] {
+                return Status::RuntimeError("Failed to parse float value: " + string_result);
+            }
+            assert_cast<ColumnFloat32&>(*col_result).insert_value(float_value);
+        }
+
+        block.replace_by_position(result, std::move(col_result));
+        return Status::OK();
     }
 
     static FunctionPtr create() { return std::make_shared<FunctionAISimilarity>(); }

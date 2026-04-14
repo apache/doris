@@ -19,6 +19,7 @@
 
 #include <gen_cpp/FrontendService.h>
 #include <gen_cpp/PaloInternalService_types.h>
+#include <glog/logging.h>
 
 #include <algorithm>
 #include <cctype>
@@ -43,6 +44,7 @@
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "service/http/http_client.h"
+#include "util/security.h"
 #include "util/threadpool.h"
 
 namespace doris {
@@ -73,10 +75,6 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        DataTypePtr return_type_impl =
-                assert_cast<const Derived&>(*this).get_return_type_impl(DataTypes());
-        MutableColumnPtr col_result = return_type_impl->create_column();
-
         TAIResource config;
         std::shared_ptr<AIAdapter> adapter;
         if (Status status = assert_cast<const Derived*>(this)->_init_from_resource(
@@ -85,91 +83,42 @@ public:
             return status;
         }
 
+        return assert_cast<const Derived&>(*this).execute_with_adapter(
+                context, block, arguments, result, input_rows_count, config, adapter);
+    }
+
+protected:
+    // Derived classes can override this method for non-text/default behavior.
+    // The base implementation keeps previous text-oriented processing unchanged.
+    Status execute_with_adapter(FunctionContext* context, Block& block,
+                                const ColumnNumbers& arguments, uint32_t result,
+                                size_t input_rows_count, const TAIResource& config,
+                                std::shared_ptr<AIAdapter>& adapter) const {
+        DataTypePtr return_type_impl =
+                assert_cast<const Derived&>(*this).get_return_type_impl(DataTypes());
+        if (return_type_impl->get_primitive_type() != PrimitiveType::TYPE_STRING) {
+            return Status::InternalError("{} must override execute for non-string return type",
+                                         get_name());
+        }
+        MutableColumnPtr col_result = ColumnString::create();
+
         for (size_t i = 0; i < input_rows_count; ++i) {
             // Build AI prompt text
             std::string prompt;
             RETURN_IF_ERROR(
                     assert_cast<const Derived&>(*this).build_prompt(block, arguments, i, prompt));
 
-            // Execute a single AI request and get the result
-            if (return_type_impl->get_primitive_type() == PrimitiveType::TYPE_ARRAY) {
-                // Array(Float) for AI_EMBED
-                std::vector<float> float_result;
-                RETURN_IF_ERROR(
-                        execute_single_request(prompt, float_result, config, adapter, context));
-
-                auto& col_array = assert_cast<ColumnArray&>(*col_result);
-                auto& offsets = col_array.get_offsets();
-                auto& nested_nullable_col = assert_cast<ColumnNullable&>(col_array.get_data());
-                auto& nested_col =
-                        assert_cast<ColumnFloat32&>(*(nested_nullable_col.get_nested_column_ptr()));
-                nested_col.reserve(nested_col.size() + float_result.size());
-
-                size_t current_offset = nested_col.size();
-                nested_col.insert_many_raw_data(reinterpret_cast<const char*>(float_result.data()),
-                                                float_result.size());
-                offsets.push_back(current_offset + float_result.size());
-                auto& null_map = nested_nullable_col.get_null_map_column();
-                null_map.insert_many_vals(0, float_result.size());
-            } else {
-                std::string string_result;
-                RETURN_IF_ERROR(
-                        execute_single_request(prompt, string_result, config, adapter, context));
-
-                switch (return_type_impl->get_primitive_type()) {
-                case PrimitiveType::TYPE_STRING: { // string
-                    assert_cast<ColumnString&>(*col_result)
-                            .insert_data(string_result.data(), string_result.size());
-                    break;
-                }
-                case PrimitiveType::TYPE_BOOLEAN: { // boolean for AI_FILTER
-#ifdef BE_TEST
-                    const char* test_result = std::getenv("AI_TEST_RESULT");
-                    if (test_result != nullptr) {
-                        string_result = test_result;
-                    } else {
-                        string_result = "0";
-                    }
-#endif
-                    trim_string(string_result);
-                    if (string_result != "1" && string_result != "0") {
-                        return Status::RuntimeError("Failed to parse boolean value: " +
-                                                    string_result);
-                    }
-                    assert_cast<ColumnUInt8&>(*col_result)
-                            .insert_value(static_cast<UInt8>(string_result == "1"));
-                    break;
-                }
-                case PrimitiveType::TYPE_FLOAT: { // float for AI_SIMILARITY
-#ifdef BE_TEST
-                    const char* test_result = std::getenv("AI_TEST_RESULT");
-                    if (test_result != nullptr) {
-                        string_result = test_result;
-                    } else {
-                        string_result = "0.0";
-                    }
-#endif
-                    trim_string(string_result);
-                    try {
-                        float float_value = std::stof(string_result);
-                        assert_cast<ColumnFloat32&>(*col_result).insert_value(float_value);
-                    } catch (...) {
-                        return Status::RuntimeError("Failed to parse float value: " +
-                                                    string_result);
-                    }
-                    break;
-                }
-                default:
-                    return Status::InternalError("Unsupported ReturnType for AIFunction");
-                }
-            }
+            std::string string_result;
+            RETURN_IF_ERROR(
+                    execute_single_request(prompt, string_result, config, adapter, context));
+            assert_cast<ColumnString&>(*col_result)
+                    .insert_data(string_result.data(), string_result.size());
         }
 
         block.replace_by_position(result, std::move(col_result));
         return Status::OK();
     }
 
-protected:
     // The endpoint `v1/completions` does not support `system_prompt`.
     // To ensure a clear structure and stable AI results.
     // Convert from `v1/completions` to `v1/chat/completions`
@@ -179,17 +128,6 @@ protected:
             config.endpoint.replace(config.endpoint.size() - legacy_suffix.size(),
                                     legacy_suffix.size(), "v1/chat/completions");
         }
-    }
-
-private:
-    // Trim whitespace and newlines from string
-    static void trim_string(std::string& str) {
-        str.erase(str.begin(), std::find_if(str.begin(), str.end(),
-                                            [](unsigned char ch) { return !std::isspace(ch); }));
-        str.erase(std::find_if(str.rbegin(), str.rend(),
-                               [](unsigned char ch) { return !std::isspace(ch); })
-                          .base(),
-                  str.end());
     }
 
     // The ai resource must be literal
@@ -228,7 +166,7 @@ private:
     Status do_send_request(HttpClient* client, const std::string& request_body,
                            std::string& response, const TAIResource& config,
                            std::shared_ptr<AIAdapter>& adapter, FunctionContext* context) const {
-        RETURN_IF_ERROR(client->init(config.endpoint));
+        RETURN_IF_ERROR(client->init(config.endpoint, false));
 
         QueryContext* query_ctx = context->state()->get_query_ctx();
         int64_t remaining_query_time = query_ctx->get_remaining_query_time_seconds();
@@ -242,7 +180,22 @@ private:
             RETURN_IF_ERROR(adapter->set_authentication(client));
         }
 
-        return client->execute_post_request(request_body, &response);
+        Status st = client->execute_post_request(request_body, &response);
+        long http_status = client->get_http_status();
+
+        if (!st.ok()) {
+            LOG(INFO) << "AI HTTP request failed before status validation, provider="
+                      << config.provider_type << ", model=" << config.model_name
+                      << ", endpoint=" << mask_token(config.endpoint)
+                      << ", exec_status=" << st.to_string() << ", response_body=" << response;
+            return st;
+        }
+        if (http_status != 200) {
+            return Status::HttpError(
+                    "http status code is not 200, code={}, url={}, response_body={}", http_status,
+                    mask_token(config.endpoint), response);
+        }
+        return Status::OK();
     }
 
     // Sends the request with retry mechanism for handling transient failures
@@ -308,6 +261,26 @@ private:
             return Status::InternalError("AI returned empty result");
         }
 
+        result = std::move(results[0]);
+        return Status::OK();
+    }
+
+    // Sends a pre-built embedding request body and parses the float vector result.
+    // Used when the request body has already been constructed (e.g., multimodal embedding).
+    Status execute_embedding_request(const std::string& request_body, std::vector<float>& result,
+                                     const TAIResource& config, std::shared_ptr<AIAdapter>& adapter,
+                                     FunctionContext* context) const {
+        std::vector<std::vector<float>> results;
+        std::string response;
+        if (config.provider_type == "MOCK") {
+            response = "{\"embedding\": [0, 1, 2, 3, 4]}";
+        } else {
+            RETURN_IF_ERROR(send_request_to_llm(request_body, response, config, adapter, context));
+        }
+        RETURN_IF_ERROR(adapter->parse_embedding_response(response, results));
+        if (results.empty()) {
+            return Status::InternalError("AI returned empty result");
+        }
         result = std::move(results[0]);
         return Status::OK();
     }

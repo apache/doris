@@ -25,11 +25,11 @@
 
 namespace doris {
 
-HeapSorter::HeapSorter(VSortExecExprs& vsort_exec_exprs, RuntimeState* state, int64_t limit,
-                       int64_t offset, ObjectPool* pool, std::vector<bool>& is_asc_order,
-                       std::vector<bool>& nulls_first, const RowDescriptor& row_desc,
-                       bool have_runtime_predicate)
-        : Sorter(vsort_exec_exprs, state, limit, offset, pool, is_asc_order, nulls_first),
+HeapSorter::HeapSorter(const VExprContextSPtrs& ordering_expr_ctxs, RuntimeState* state,
+                       int64_t limit, int64_t offset, ObjectPool* pool,
+                       std::vector<bool>& is_asc_order, std::vector<bool>& nulls_first,
+                       const RowDescriptor& row_desc, bool have_runtime_predicate)
+        : Sorter(ordering_expr_ctxs, state, limit, offset, pool, is_asc_order, nulls_first),
           _heap_size(limit + offset),
           _state(MergeSorterState::create_unique(row_desc, offset)),
           _have_runtime_predicate(have_runtime_predicate) {}
@@ -38,11 +38,7 @@ Status HeapSorter::append_block(Block* block) {
     auto tmp_block = std::make_shared<Block>(block->clone_empty());
     if (!_have_runtime_predicate && _queue.is_valid() && _queue_row_num >= _heap_size) {
         RETURN_IF_ERROR(_prepare_sort_columns(*block, *tmp_block, false));
-        if (_materialize_sort_exprs) {
-            block->clear_column_data();
-        } else {
-            tmp_block->swap(*block);
-        }
+        tmp_block->swap(*block);
         auto tmp_cursor_impl = MergeSortCursorImpl::create_shared(tmp_block, _sort_description);
         size_t num_rows = tmp_block->rows();
         _do_filter(*tmp_cursor_impl, num_rows);

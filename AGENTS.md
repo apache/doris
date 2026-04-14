@@ -1,20 +1,20 @@
 # AGENTS.md — Apache Doris
 
-This is the codebase for Apache Doris, an MPP OLAP database. It primarily consists of the Backend module BE (be/, execution and storage engine), the Frontend module FE (fe/, optimizer and transaction core), and the Cloud module (cloud/, storage-compute separation). Your basic development workflow is: modify code, build using standard procedures, add and run tests, and submit relevant changes.
+This is the codebase for Apache Doris, an MPP OLAP database. It primarily consists of the Backend module BE (`be/`, execution and storage engine), the Frontend module FE (`fe/`, optimizer and transaction core), and the Cloud module (`cloud/`, storage-compute separation). Your basic development workflow is: modify code, build using standard procedures, add and run tests, and submit relevant changes.
 
 ## When running in a WORKTREE directory
 
 To ensure smooth test execution without interference between worktrees, the first thing to do upon entering a worktree directory is to check if `.worktree_initialized` exists. If not, execute `hooks/setup_worktree.sh`, setting `$ROOT_WORKSPACE_PATH` to the base directory (typically `${DORIS_REPO}`) beforehand. After successful execution, verify that `.worktree_initialized` has been touched and that `thirdparty/installed` dependencies exist correctly. Also check if submodules have been properly initialized; if not, do so manually.
 
-When working in worktree mode, all operations must be confined to the current worktree directory. Do not enter `${DORIS_REPO}` or use any resources there. Compilation and execution must be done within the current worktree directory. The compiled Doris cluster must use random ports not used by other worktrees (modify BE and FE conf before compilation, using a uniform offset of `${DORIS_PORT_OFFSET_RANGE}` from default ports without conflicting with other worktrees' ports). Run from the `output` directory within the worktree. To run regression tests, modify `regression-test/conf/regression-conf.groovy` and set the port numbers in jdbcUrl and other configuration items to your new ports so the corresponding worktree cluster can be used for regression testing.
+When working in worktree mode, all operations must be confined to the current worktree directory. Do not enter `${DORIS_REPO}` or use any resources there. Compilation and execution must be done within the current worktree directory. The compiled Doris cluster must use random ports not used by other worktrees (modify BE and FE conf before compilation, using a uniform offset of `${DORIS_PORT_OFFSET_RANGE}` from default ports without conflicting with other worktrees' ports). Run from the `output` directory within the worktree. To run regression tests, modify `regression-test/conf/regression-conf.groovy` and set the port numbers in `jdbcUrl` and other configuration items to your new ports so the corresponding worktree cluster can be used for regression testing.
 
 ## Coding Standards
 
-Assert correctness only—never use defensive programming with `if` or similar constructs. Any `if` check for errors must have a clearly known inevitable failure path (not speculation). If no such scenario is found, strictly avoid using `if(valid)` checks. However, you may use the `DORIS_CHECK` macro for precondition assertions (If inside performance-sensitive areas like loops, it can only be `DCHECK`). For example, if logically A=true should always imply B=true, then strictly avoid `if(A&&B)` and instead use `if(A){DORIS_CHECK(B);...}`. In short, the principle is: upon discovering errors or unexpected situations, report errors or crash—never allow the process to continue.
+Assert correctness only—never use defensive programming with `if` or similar constructs. Any `if` check for errors must have a clearly known inevitable failure path (not speculation). If no such scenario is found, strictly avoid using `if(valid)` checks. However, you may use the `DORIS_CHECK` macro for precondition assertions (if inside performance-sensitive areas like loops, it can only be `DCHECK`). For example, if logically A=true should always imply B=true, then strictly avoid `if (A && B)` and instead use `if (A) { DORIS_CHECK(B); ... }`. In short, the principle is: upon discovering errors or unexpected situations, report errors or crash—never allow the process to continue.
 
-When adding code, strictly follow existing similar code in similar contexts, including interface usage, error handling, etc., maintaining consistency. When adding any code, first try to reference existing functionality. Second, you must examine the relevant context paragraphs to fully understand the logic.
+When adding code, strictly follow existing similar code in similar contexts, including interface usage, error handling, and locking patterns. When adding any code, first try to reference existing functionality. Second, examine the relevant context paragraphs to fully understand the logic.
 
-After adding code, you must first conduct self-review and refactoring attempts to ensure good abstraction and reuse as much as possible.
+After adding code, conduct self-review and refactoring attempts to ensure good abstraction and reuse as much as possible.
 
 ### Code Style Enforcement
 
@@ -28,11 +28,11 @@ All code must pass style checks before committing. Use the corresponding skill f
 
 ## Code Review
 
-When conducting code review (including self-review and review tasks), it is necessary to complete the key checkpoints according to our `code-review` skill and provide conclusions for each key checkpoint (if applicable) as part of the final written description. Other content does not require individual responses; just check them during the review process.
+When conducting code review (including self-review and review tasks), complete the key checkpoints from the `code-review` skill and provide conclusions for each key checkpoint when applicable. Other content does not require item-by-item responses; check them during the review process.
 
 ## Build and Run Standards
 
-Always use only the `build.sh` script with its correct parameters to build Doris BE and FE. When building, use `-j${DORIS_PARALLELISM}` parallelism. For example, the simplest BE+FE build command is `./build.sh --be --fe -j${DORIS_PARALLELISM}`.
+Always use only the `build.sh` script with its correct parameters to build Doris BE and FE. For example, the simplest BE+FE build command is `./build.sh --be --fe`.
 Build type can be set via `BUILD_TYPE` in `custom_env.sh`, but only set it to `RELEASE` when explicitly required for performance testing; otherwise, keep it as `ASAN`.
 You may modify BE and FE ports and network settings in `conf/` before compilation to ensure correctness and avoid conflicts.
 Build artifacts are in the current directory's `output/`. If starting the service, ensure all process artifacts have their conf set with appropriate non-conflicting ports and `priority_networks = 10.16.10.3/24`. Use `--daemon` when starting. Cluster startup is slow; wait at least 30s for success. If still not ready after waiting, continue waiting. If not ready after a long time, check BE and FE logs to investigate.
@@ -44,9 +44,7 @@ All kernel features must have corresponding tests. Prioritize adding regression 
 
 You must use the preset scripts in the codebase with their correct parameters to run tests (`run-regression-test.sh`, `run-be-ut.sh`, `run-fe-ut.sh`). Regression test result files must not be handwritten; they must be auto-generated via test scripts. When running regression tests, if using `-s` to specify a case, also try to use `-d` to specify the parent directory for faster execution. For example, for cases under `nereids_p0`, you can use `-d nereids_p0 -s xxx`, where `xxx` is the name from `suite("xxx")` in the groovy file.
 
-BE-UT compilation must use at most `${DORIS_PARALLELISM}` parallelism also.
-
-Key utility functions in BE code, as well as the core logic (functions) of complete features, must have corresponding unit tests. If it's inconvenient to add unit tests, the module design and function decomposition should be reviewed again to ensure high cohesion and low coupling are properly achieved.
+Key utility functions in BE code, as well as the core logic of complete features, must have corresponding unit tests. If it is inconvenient to add unit tests, revisit the module design and function decomposition to ensure high cohesion and low coupling.
 
 Added regression tests must comply with the following standards:
 1. Use `order_qt` prefix or manually add `order by` to ensure ordered results
@@ -90,3 +88,5 @@ Key rules for commit messages:
 3. The `Issue Number` field must reference the corresponding GitHub Issue with `close #xxx` syntax when applicable
 4. The `Release note` section must be filled in for any user-visible behavior or feature change; write "None" for internal refactoring or test-only changes
 5. The test section must honestly reflect the testing performed; do not claim tests that were not actually run
+
+Files in a git commit should only be related to the current modification task. Environment modifications for running (for example `conf/`, `AGENTS.md`, `hooks/`) must not be `git add`ed. When delivering the final task, ensure all actual code modifications have been committed.
