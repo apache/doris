@@ -127,6 +127,14 @@ public interface SourceOffsetProvider {
     }
 
     /**
+     * Restore offset from persisted string during image load (gsonPostProcess).
+     * Called immediately after the provider is created so that even PAUSED jobs
+     * have the correct offset state.
+     */
+    default void restoreFromPersistInfo(String persistInfo) {
+    }
+
+    /**
      * Returns the serialized JSON offset to store in txn commit attachment.
      * Default: serialize running offset directly (e.g. S3 path).
      * CDC stream TVF overrides to pull actual end offset from BE after fetchRecordStream completes.

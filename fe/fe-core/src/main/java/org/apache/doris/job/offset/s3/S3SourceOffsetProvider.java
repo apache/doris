@@ -195,6 +195,19 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
     }
 
     @Override
+    public void restoreFromPersistInfo(String persistInfo) {
+        if (persistInfo == null) {
+            return;
+        }
+        try {
+            this.currentOffset = GsonUtils.GSON.fromJson(
+                    persistInfo, S3Offset.class);
+        } catch (Exception e) {
+            log.warn("Failed to restore S3 offset from persistInfo", e);
+        }
+    }
+
+    @Override
     public void replayIfNeed(StreamingInsertJob job) {
         // If currentOffset was already set by EditLog replay (replayOnCommitted -> updateOffset),
         // it reflects the latest committed state and should not be overwritten by
