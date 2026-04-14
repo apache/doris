@@ -1246,7 +1246,7 @@ TEST_F(SpillSortSourceOperatorTest, SpillWriterMemoryTracking) {
     ASSERT_TRUE(memory_used_counter != nullptr);
 
     // We use value() directly as it is safe for all Counter types.
-    // Downcasting to HighWaterMarkCounter caused ASAN heap-buffer-overflow 
+    // Downcasting to HighWaterMarkCounter caused ASAN heap-buffer-overflow
     // because MemoryUsage might be a normal Counter in the latest Profile structure.
     int64_t initial_memory = memory_used_counter->value();
 
