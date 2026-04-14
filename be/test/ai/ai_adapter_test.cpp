@@ -561,9 +561,9 @@ TEST(AI_ADAPTER_TEST, unsupported_provider_type) {
 }
 
 TEST(AI_ADAPTER_TEST, adapter_factory_all_types) {
-    std::vector<std::string> types = {"LOCAL",     "OPENAI", "MOONSHOT", "DEEPSEEK",
-                                      "MINIMAX",   "ZHIPU",  "QWEN",     "BAICHUAN",
-                                      "ANTHROPIC", "GEMINI", "VOYAGEAI", "MOCK"};
+    std::vector<std::string> types = {"LOCAL",  "OPENAI",   "MOONSHOT", "DEEPSEEK", "MINIMAX",
+                                      "ZHIPU",  "QWEN",     "JINA",     "BAICHUAN", "ANTHROPIC",
+                                      "GEMINI", "VOYAGEAI", "MOCK"};
     for (const auto& type : types) {
         auto adapter = doris::AIAdapterFactory::create_adapter(type);
         ASSERT_TRUE(adapter != nullptr) << "Adapter not found for type: " << type;
@@ -686,6 +686,202 @@ TEST(AI_ADAPTER_TEST, voyage_adapter_chat_test) {
     ASSERT_FALSE(st.ok());
     ASSERT_STREQ(st.to_string().c_str(),
                  "[NOT_IMPLEMENTED_ERROR]VoyageAI don't support text generation");
+}
+
+TEST(AI_ADAPTER_TEST, qwen_multimodal_embedding_request_image) {
+    QwenAdapter adapter;
+    TAIResource config;
+    config.model_name = "tongyi-embedding-vision-plus";
+    config.dimensions = 1024;
+    adapter.init(config);
+
+    std::string request_body;
+    Status st = adapter.build_multimodal_embedding_request(MultimodalType::IMAGE,
+                                                           "https://a/b/c.png", request_body);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    rapidjson::Document doc;
+    doc.Parse(request_body.c_str());
+    ASSERT_FALSE(doc.HasParseError()) << request_body;
+    ASSERT_TRUE(doc.IsObject());
+    ASSERT_TRUE(doc.HasMember("model"));
+    ASSERT_STREQ(doc["model"].GetString(), "tongyi-embedding-vision-plus");
+    ASSERT_TRUE(doc.HasMember("input"));
+    ASSERT_TRUE(doc["input"].HasMember("contents"));
+    const auto& contents = doc["input"]["contents"];
+    ASSERT_TRUE(contents.IsArray());
+    ASSERT_EQ(contents.Size(), 1);
+    ASSERT_TRUE(contents[0].HasMember("image"));
+    ASSERT_STREQ(contents[0]["image"].GetString(), "https://a/b/c.png");
+    ASSERT_TRUE(doc.HasMember("parameters"));
+    ASSERT_TRUE(doc["parameters"].IsObject());
+    ASSERT_TRUE(doc["parameters"].HasMember("dimension"));
+    ASSERT_EQ(doc["parameters"]["dimension"].GetInt(), 1024);
+}
+
+TEST(AI_ADAPTER_TEST, qwen_multimodal_embedding_request_video) {
+    QwenAdapter adapter;
+    TAIResource config;
+    config.model_name = "tongyi-embedding-vision-plus";
+    config.dimensions = 1024;
+    adapter.init(config);
+
+    std::string request_body;
+    Status st = adapter.build_multimodal_embedding_request(MultimodalType::VIDEO,
+                                                           "https://a/b/c.mp4", request_body);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    rapidjson::Document doc;
+    doc.Parse(request_body.c_str());
+    ASSERT_FALSE(doc.HasParseError()) << request_body;
+    ASSERT_TRUE(doc.IsObject());
+    ASSERT_TRUE(doc.HasMember("model"));
+    ASSERT_STREQ(doc["model"].GetString(), "tongyi-embedding-vision-plus");
+    ASSERT_TRUE(doc.HasMember("input"));
+    ASSERT_TRUE(doc["input"].HasMember("contents"));
+    const auto& contents = doc["input"]["contents"];
+    ASSERT_TRUE(contents.IsArray());
+    ASSERT_EQ(contents.Size(), 1);
+    ASSERT_TRUE(contents[0].HasMember("video"));
+    ASSERT_STREQ(contents[0]["video"].GetString(), "https://a/b/c.mp4");
+    ASSERT_TRUE(doc.HasMember("parameters"));
+    ASSERT_TRUE(doc["parameters"].IsObject());
+    ASSERT_TRUE(doc["parameters"].HasMember("dimension"));
+    ASSERT_EQ(doc["parameters"]["dimension"].GetInt(), 1024);
+}
+
+TEST(AI_ADAPTER_TEST, qwen_multimodal_embedding_request_audio_not_supported) {
+    QwenAdapter adapter;
+    TAIResource config;
+    config.model_name = "tongyi-embedding-vision-plus";
+    adapter.init(config);
+
+    std::string request_body;
+    Status st = adapter.build_multimodal_embedding_request(MultimodalType::AUDIO,
+                                                           "https://a/b/c.mp3", request_body);
+    ASSERT_FALSE(st.ok());
+    ASSERT_THAT(st.to_string(),
+                ::testing::HasSubstr("QWEN only supports image/video multimodal embed"));
+    ASSERT_THAT(st.to_string(), ::testing::HasSubstr("audio"));
+}
+
+TEST(AI_ADAPTER_TEST, voyage_multimodal_embedding_request) {
+    VoyageAIAdapter adapter;
+    TAIResource config;
+    config.model_name = "voyage-multimodal-3.5";
+    config.dimensions = 2048;
+    adapter.init(config);
+
+    std::string request_body;
+    Status st = adapter.build_multimodal_embedding_request(MultimodalType::VIDEO,
+                                                           "https://a/b/c.mp4", request_body);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    rapidjson::Document doc;
+    doc.Parse(request_body.c_str());
+    ASSERT_FALSE(doc.HasParseError()) << request_body;
+    ASSERT_TRUE(doc.IsObject());
+    ASSERT_TRUE(doc.HasMember("inputs"));
+    const auto& inputs = doc["inputs"];
+    ASSERT_TRUE(inputs.IsArray());
+    ASSERT_EQ(inputs.Size(), 1);
+    ASSERT_TRUE(inputs[0].HasMember("content"));
+    const auto& content = inputs[0]["content"];
+    ASSERT_TRUE(content.IsArray());
+    ASSERT_EQ(content.Size(), 1);
+    ASSERT_TRUE(content[0].HasMember("type"));
+    ASSERT_STREQ(content[0]["type"].GetString(), "video_url");
+    ASSERT_TRUE(content[0].HasMember("video_url"));
+    ASSERT_STREQ(content[0]["video_url"].GetString(), "https://a/b/c.mp4");
+    ASSERT_FALSE(doc.HasMember("dimensions"));
+    ASSERT_FALSE(doc.HasMember("output_dimension"));
+}
+
+TEST(AI_ADAPTER_TEST, jina_multimodal_embedding_request) {
+    JinaAdapter adapter;
+    TAIResource config;
+    config.model_name = "jina-embeddings-v4";
+    config.dimensions = 512;
+    adapter.init(config);
+
+    std::string request_body;
+    Status st = adapter.build_multimodal_embedding_request(MultimodalType::IMAGE,
+                                                           "https://a/b/c.jpg", request_body);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    rapidjson::Document doc;
+    doc.Parse(request_body.c_str());
+    ASSERT_FALSE(doc.HasParseError()) << request_body;
+    ASSERT_TRUE(doc.IsObject());
+    ASSERT_TRUE(doc.HasMember("task"));
+    ASSERT_STREQ(doc["task"].GetString(), "text-matching");
+    ASSERT_TRUE(doc.HasMember("input"));
+    const auto& input = doc["input"];
+    ASSERT_TRUE(input.IsArray());
+    ASSERT_EQ(input.Size(), 1);
+    ASSERT_TRUE(input[0].HasMember("image"));
+    ASSERT_STREQ(input[0]["image"].GetString(), "https://a/b/c.jpg");
+    ASSERT_TRUE(doc.HasMember("dimensions"));
+    ASSERT_EQ(doc["dimensions"].GetInt(), 512);
+}
+
+TEST(AI_ADAPTER_TEST, multimodal_provider_support) {
+    OpenAIAdapter openai_adapter;
+    TAIResource openai_config;
+    openai_config.provider_type = "OPENAI";
+    openai_adapter.init(openai_config);
+
+    std::string request_body;
+    Status st = openai_adapter.build_multimodal_embedding_request(
+            MultimodalType::IMAGE, "https://a/b/c.png", request_body);
+    ASSERT_FALSE(st.ok());
+    ASSERT_THAT(st.to_string(), ::testing::HasSubstr("does not support multimodal Embed"));
+}
+
+TEST(AI_ADAPTER_TEST, gemini_multimodal_embedding_request) {
+    GeminiAdapter gemini_adapter;
+    TAIResource gemini_config;
+    gemini_config.provider_type = "GEMINI";
+    gemini_config.model_name = "gemini-embedding-2-preview";
+    gemini_config.dimensions = 768;
+    gemini_adapter.init(gemini_config);
+
+    struct GeminiMultimodalCase {
+        MultimodalType media_type;
+        const char* media_url;
+        const char* mime_type;
+    };
+    const std::vector<GeminiMultimodalCase> test_cases = {
+            {MultimodalType::IMAGE, "https://a/b/c.png", "image/png"},
+            {MultimodalType::AUDIO, "https://a/b/c.mp3", "audio/mpeg"},
+            {MultimodalType::VIDEO, "https://a/b/c.mp4", "video/mp4"},
+    };
+
+    for (const auto& test_case : test_cases) {
+        std::string request_body;
+        Status st = gemini_adapter.build_multimodal_embedding_request(
+                test_case.media_type, test_case.media_url, request_body);
+        ASSERT_TRUE(st.ok()) << st.to_string();
+
+        rapidjson::Document doc;
+        doc.Parse(request_body.c_str());
+        ASSERT_FALSE(doc.HasParseError()) << request_body;
+        ASSERT_TRUE(doc.IsObject());
+        ASSERT_TRUE(doc.HasMember("model"));
+        ASSERT_STREQ(doc["model"].GetString(), "models/gemini-embedding-2-preview");
+        ASSERT_TRUE(doc.HasMember("outputDimensionality"));
+        ASSERT_EQ(doc["outputDimensionality"].GetInt(), 768);
+        ASSERT_TRUE(doc.HasMember("content"));
+        ASSERT_TRUE(doc["content"].HasMember("parts"));
+        ASSERT_TRUE(doc["content"]["parts"].IsArray());
+        ASSERT_EQ(doc["content"]["parts"].Size(), 1);
+        ASSERT_TRUE(doc["content"]["parts"][0].HasMember("file_data"));
+        ASSERT_TRUE(doc["content"]["parts"][0]["file_data"].IsObject());
+        ASSERT_STREQ(doc["content"]["parts"][0]["file_data"]["mime_type"].GetString(),
+                     test_case.mime_type);
+        ASSERT_STREQ(doc["content"]["parts"][0]["file_data"]["file_uri"].GetString(),
+                     test_case.media_url);
+    }
 }
 
 } // namespace doris

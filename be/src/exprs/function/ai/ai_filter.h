@@ -47,6 +47,8 @@ public:
 private:
     MutableColumnPtr create_result_column() const { return ColumnUInt8::create(); }
 
+    // AI_FILTER-private helper.
+    // Converts one parsed batch of string flags into BOOL results.
     Status append_batch_results(const std::vector<std::string>& batch_results,
                                 IColumn& col_result) const {
         auto& bool_col = assert_cast<ColumnUInt8&>(col_result);

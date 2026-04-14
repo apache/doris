@@ -990,6 +990,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_STRICT_CAST = "enable_strict_cast";
 
     public static final String DEFAULT_AI_RESOURCE = "default_ai_resource";
+    public static final String FILE_PRESIGNED_URL_TTL_SECONDS = "file_presigned_url_ttl_seconds";
     public static final String EMBED_MAX_BATCH_SIZE = "embed_max_batch_size";
     public static final String AI_CONTEXT_WINDOW_SIZE = "ai_context_window_size";
     public static final String HNSW_EF_SEARCH = "hnsw_ef_search";
@@ -3557,6 +3558,13 @@ public class SessionVariable implements Serializable, Writable {
             })
     public String defaultAIResource = "";
 
+    @VariableMgr.VarAttr(name = FILE_PRESIGNED_URL_TTL_SECONDS, needForward = true,
+            description = {
+                    "EMBED 多模态场景中，S3 预签名 URL 的有效期（秒）。",
+                    "Expiration time in seconds for S3 presigned URL used by multimodal EMBED."
+            })
+    public long filePresignedUrlTtlSeconds = 3600;
+
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;
     }
@@ -5643,6 +5651,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableOrcFilterByMinMax(enableOrcFilterByMinMax);
         tResult.setEnableExprZonemapFilter(enableExprZonemapFilter);
         tResult.setEnablePaimonCppReader(enablePaimonCppReader);
+        tResult.setFilePresignedUrlTtlSeconds(filePresignedUrlTtlSeconds);
         tResult.setCheckOrcInitSargsSuccess(checkOrcInitSargsSuccess);
 
         tResult.setTruncateCharOrVarcharColumns(truncateCharOrVarcharColumns);
