@@ -138,6 +138,9 @@ Status SpillSortLocalState::execute_merge_sort_spill_files(RuntimeState* state) 
             }
             RETURN_IF_ERROR(status);
         }
+        if (state->is_cancelled()) {
+            return Status::Cancelled("Cancelled during spill sort source merge");
+        }
         RETURN_IF_ERROR(tmp_writer->close());
     }
     return Status::OK();

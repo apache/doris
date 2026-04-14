@@ -407,6 +407,9 @@ Status PartitionedHashJoinProbeLocalState::recover_probe_blocks_from_partition(
             return Status::OK(); // yield — enough data read
         }
     }
+    if (state->is_cancelled()) {
+        return Status::Cancelled("Cancelled during probe block recovery");
+    }
     // Probe file fully consumed.
     RETURN_IF_ERROR(_current_probe_reader->close());
     _current_probe_reader.reset();
@@ -463,12 +466,18 @@ Status PartitionedHashJoinProbeLocalState::repartition_current_partition(
         while (!done && !state->is_cancelled()) {
             RETURN_IF_ERROR(_repartitioner.repartition(state, _current_build_reader, &done));
         }
+        if (state->is_cancelled()) {
+            return Status::Cancelled("Cancelled during build data repartitioning");
+        }
         // reader is reset by repartitioner on completion
     } else if (partition.build_file) {
         // No partial read — repartition the entire file from scratch.
         bool done = false;
         while (!done && !state->is_cancelled()) {
             RETURN_IF_ERROR(_repartitioner.repartition(state, partition.build_file, &done));
+        }
+        if (state->is_cancelled()) {
+            return Status::Cancelled("Cancelled during build data repartitioning");
         }
     }
     RETURN_IF_ERROR(_repartitioner.finalize());
@@ -494,6 +503,9 @@ Status PartitionedHashJoinProbeLocalState::repartition_current_partition(
         bool done = false;
         while (!done && !state->is_cancelled()) {
             RETURN_IF_ERROR(_repartitioner.repartition(state, partition.probe_file, &done));
+        }
+        if (state->is_cancelled()) {
+            return Status::Cancelled("Cancelled during probe data repartitioning");
         }
         partition.probe_file.reset();
 

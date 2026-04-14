@@ -213,6 +213,9 @@ Status SpillSortSinkLocalState::_execute_spill_sort(RuntimeState* state) {
         RETURN_IF_ERROR(_spilling_writer->write_block(state, block));
         block.clear_column_data();
     }
+    if (state->is_cancelled()) {
+        return Status::Cancelled("Cancelled during spill sort sink write");
+    }
     RETURN_IF_ERROR(_spilling_writer->close());
     RETURN_IF_ERROR(parent._sort_sink_operator->reset(_runtime_state.get()));
     return Status::OK();

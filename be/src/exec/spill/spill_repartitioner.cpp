@@ -120,6 +120,10 @@ Status SpillRepartitioner::repartition(RuntimeState* state, SpillFileSPtr& input
         }
     }
 
+    if (state->is_cancelled()) {
+        return Status::Cancelled("Cancelled during spill repartitioning");
+    }
+
     // Flush all remaining buffers
     RETURN_IF_ERROR(_flush_all_buffers(state, output_buffers, /*force=*/true));
 
@@ -167,6 +171,10 @@ Status SpillRepartitioner::repartition(RuntimeState* state, SpillFileReaderSPtr&
         if (accumulated_bytes >= MAX_BATCH_BYTES && !eos) {
             break;
         }
+    }
+
+    if (state->is_cancelled()) {
+        return Status::Cancelled("Cancelled during spill repartitioning");
     }
 
     // Flush all remaining buffers
