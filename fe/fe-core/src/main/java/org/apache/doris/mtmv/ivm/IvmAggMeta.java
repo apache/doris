@@ -45,20 +45,37 @@ public class IvmAggMeta {
     }
 
     /**
+     * Keys used to identify hidden state columns within an {@link AggTarget}.
+     * Each key maps to a hidden column that stores intermediate state needed for incremental
+     * delta computation. The {@code name()} of each constant also serves as the suffix
+     * in generated column names (via {@link IvmUtil#ivmAggHiddenColumnName}).
+     */
+    public enum StateKey {
+        /** Hidden SUM state (for SUM, AVG targets). */
+        SUM,
+        /** Hidden COUNT state (for all non-COUNT_STAR targets). */
+        COUNT,
+        /** Hidden MIN state (for MIN targets). */
+        MIN,
+        /** Hidden MAX state (for MAX targets). */
+        MAX
+    }
+
+    /**
      * Describes one aggregate target in the MV and its associated hidden state columns.
      */
     public static class AggTarget {
         private final int ordinal;
         private final AggType aggType;
         private final Slot visibleSlot;
-        // hidden state column slots, keyed by state type (e.g. "SUM", "COUNT")
-        private final Map<String, Slot> hiddenStateSlots;
+        // hidden state column slots, keyed by StateKey
+        private final Map<StateKey, Slot> hiddenStateSlots;
         // the expression(s) from the base scan that feed this aggregate
         // (empty for COUNT_STAR; may be Slot or compound Expression like v1+v2)
         private final List<Expression> exprArgs;
 
         public AggTarget(int ordinal, AggType aggType, Slot visibleSlot,
-                Map<String, Slot> hiddenStateSlots, List<Expression> exprArgs) {
+                Map<StateKey, Slot> hiddenStateSlots, List<Expression> exprArgs) {
             this.ordinal = ordinal;
             this.aggType = Objects.requireNonNull(aggType);
             this.visibleSlot = Objects.requireNonNull(visibleSlot);
@@ -78,12 +95,12 @@ public class IvmAggMeta {
             return visibleSlot;
         }
 
-        public Map<String, Slot> getHiddenStateSlots() {
+        public Map<StateKey, Slot> getHiddenStateSlots() {
             return hiddenStateSlots;
         }
 
-        public Slot getHiddenStateSlot(String stateType) {
-            return hiddenStateSlots.get(stateType);
+        public Slot getHiddenStateSlot(StateKey stateKey) {
+            return hiddenStateSlots.get(stateKey);
         }
 
         public List<Expression> getExprArgs() {
