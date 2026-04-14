@@ -38,7 +38,7 @@ public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
     // ProcessRows temp used for doris manager compatibility, will be implemented future.
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("QueryId").add("ConnectionId").add("Catalog").add("Database").add("User")
-            .add("ExecTimeMs").add("SqlHash").add("Statement")
+            .add("ExecTime").add("SqlHash").add("Statement")
             .add("ScanRows").add("ScanBytes").add("ProcessRows").add("CpuMs")
             .add("MaxPeakMemoryBytes").add("CurrentUsedMemoryBytes").add("WorkloadGroupId")
             .add("ShuffleSendBytes").add("ShuffleSendRows")
