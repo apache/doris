@@ -24,6 +24,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.ivm.IvmAggMeta;
 import org.apache.doris.mtmv.ivm.IvmAggMeta.AggTarget;
 import org.apache.doris.mtmv.ivm.IvmAggMeta.AggType;
+import org.apache.doris.mtmv.ivm.IvmAggMeta.StateKey;
 import org.apache.doris.mtmv.ivm.IvmNormalizeResult;
 import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -259,52 +260,31 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
     private void buildHiddenStateForAgg(int ordinal, AggregateFunction aggFunc, Alias origAlias,
             List<NamedExpression> hiddenAggOutputs, List<AggTarget> aggTargets) {
         AggType aggType;
-        Map<String, Alias> hiddenAliases = new LinkedHashMap<>();
+        Map<StateKey, Alias> hiddenAliases = new LinkedHashMap<>();
 
         if (aggFunc instanceof Count) {
             Count countFunc = (Count) aggFunc;
             if (countFunc.isStar()) {
                 aggType = AggType.COUNT_STAR;
-                hiddenAliases.put("COUNT", new Alias(new Count(),
-                        IvmUtil.ivmAggHiddenColumnName(ordinal, "COUNT")));
+                addHiddenAlias(hiddenAliases, ordinal, StateKey.COUNT, new Count());
             } else {
                 aggType = AggType.COUNT_EXPR;
-                hiddenAliases.put("COUNT", new Alias(
-                        new Count(aggFunc.child(0)),
-                        IvmUtil.ivmAggHiddenColumnName(ordinal, "COUNT")));
+                addHiddenAlias(hiddenAliases, ordinal, StateKey.COUNT, new Count(aggFunc.child(0)));
             }
         } else if (aggFunc instanceof Sum) {
             aggType = AggType.SUM;
-            hiddenAliases.put("SUM", new Alias(
-                    new Sum(aggFunc.child(0)),
-                    IvmUtil.ivmAggHiddenColumnName(ordinal, "SUM")));
-            hiddenAliases.put("COUNT", new Alias(
-                    new Count(aggFunc.child(0)),
-                    IvmUtil.ivmAggHiddenColumnName(ordinal, "COUNT")));
+            addHiddenSumAndCount(hiddenAliases, ordinal, aggFunc.child(0));
         } else if (aggFunc instanceof Avg) {
             aggType = AggType.AVG;
-            hiddenAliases.put("SUM", new Alias(
-                    new Sum(aggFunc.child(0)),
-                    IvmUtil.ivmAggHiddenColumnName(ordinal, "SUM")));
-            hiddenAliases.put("COUNT", new Alias(
-                    new Count(aggFunc.child(0)),
-                    IvmUtil.ivmAggHiddenColumnName(ordinal, "COUNT")));
+            addHiddenSumAndCount(hiddenAliases, ordinal, aggFunc.child(0));
         } else if (aggFunc instanceof Min) {
             aggType = AggType.MIN;
-            hiddenAliases.put("MIN", new Alias(
-                    new Min(aggFunc.child(0)),
-                    IvmUtil.ivmAggHiddenColumnName(ordinal, "MIN")));
-            hiddenAliases.put("COUNT", new Alias(
-                    new Count(aggFunc.child(0)),
-                    IvmUtil.ivmAggHiddenColumnName(ordinal, "COUNT")));
+            addHiddenAlias(hiddenAliases, ordinal, StateKey.MIN, new Min(aggFunc.child(0)));
+            addHiddenAlias(hiddenAliases, ordinal, StateKey.COUNT, new Count(aggFunc.child(0)));
         } else if (aggFunc instanceof Max) {
             aggType = AggType.MAX;
-            hiddenAliases.put("MAX", new Alias(
-                    new Max(aggFunc.child(0)),
-                    IvmUtil.ivmAggHiddenColumnName(ordinal, "MAX")));
-            hiddenAliases.put("COUNT", new Alias(
-                    new Count(aggFunc.child(0)),
-                    IvmUtil.ivmAggHiddenColumnName(ordinal, "COUNT")));
+            addHiddenAlias(hiddenAliases, ordinal, StateKey.MAX, new Max(aggFunc.child(0)));
+            addHiddenAlias(hiddenAliases, ordinal, StateKey.COUNT, new Count(aggFunc.child(0)));
         } else {
             throw new AnalysisException("IVM: unsupported aggregate function: " + aggFunc.getName());
         }
@@ -312,8 +292,8 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
         hiddenAggOutputs.addAll(hiddenAliases.values());
 
         // Build AggTarget with placeholder slots (to be resolved after Aggregate is rebuilt)
-        ImmutableMap.Builder<String, Slot> placeholderHiddenSlots = ImmutableMap.builder();
-        for (Map.Entry<String, Alias> entry : hiddenAliases.entrySet()) {
+        ImmutableMap.Builder<StateKey, Slot> placeholderHiddenSlots = ImmutableMap.builder();
+        for (Map.Entry<StateKey, Alias> entry : hiddenAliases.entrySet()) {
             placeholderHiddenSlots.put(entry.getKey(), entry.getValue().toSlot());
         }
 
@@ -324,6 +304,19 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
 
         aggTargets.add(new AggTarget(ordinal, aggType, origAlias.toSlot(),
                 placeholderHiddenSlots.build(), exprArgs));
+    }
+
+    /** Adds a SUM + COUNT hidden alias pair — shared by SUM and AVG types. */
+    private void addHiddenSumAndCount(Map<StateKey, Alias> hiddenAliases, int ordinal, Expression child) {
+        addHiddenAlias(hiddenAliases, ordinal, StateKey.SUM, new Sum(child));
+        addHiddenAlias(hiddenAliases, ordinal, StateKey.COUNT, new Count(child));
+    }
+
+    /** Adds a single hidden alias to the map with the standard IVM column name. */
+    private void addHiddenAlias(Map<StateKey, Alias> hiddenAliases, int ordinal,
+            StateKey stateKey, AggregateFunction aggFunc) {
+        hiddenAliases.put(stateKey, new Alias(aggFunc,
+                IvmUtil.ivmAggHiddenColumnName(ordinal, stateKey.name())));
     }
 
     /**
@@ -348,8 +341,8 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
             }
 
             // Resolve hidden state slots
-            ImmutableMap.Builder<String, Slot> resolvedHidden = ImmutableMap.builder();
-            for (Map.Entry<String, Slot> entry : target.getHiddenStateSlots().entrySet()) {
+            ImmutableMap.Builder<StateKey, Slot> resolvedHidden = ImmutableMap.builder();
+            for (Map.Entry<StateKey, Slot> entry : target.getHiddenStateSlots().entrySet()) {
                 Slot resolvedSlot = slotByName.get(entry.getValue().getName());
                 if (resolvedSlot == null) {
                     throw new AnalysisException("IVM: failed to resolve hidden state slot '"
