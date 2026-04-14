@@ -490,18 +490,15 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
      *
      * <p>Rules enforced:
      * <ol>
-     *   <li>At least one aggregate function must be present (bare GROUP BY is not supported).</li>
+     *   <li>Bare GROUP BY (no aggregate functions) is allowed — the group-level count
+     *       hidden column alone is sufficient for incremental maintenance.</li>
      *   <li>DISTINCT aggregates are not supported.</li>
-     *   <li>Only count, sum, and avg are supported.</li>
+     *   <li>Only count, sum, avg, min, and max are supported.</li>
      * </ol>
      *
      * @throws AnalysisException if validation fails
      */
     private static void checkAggFunctions(List<AggregateFunction> aggFunctions) {
-        if (aggFunctions.isEmpty()) {
-            throw new AnalysisException(
-                    "GROUP BY without aggregate functions is not supported for IVM");
-        }
         for (AggregateFunction aggFunc : aggFunctions) {
             if (aggFunc.isDistinct()) {
                 throw new AnalysisException(
