@@ -20,8 +20,10 @@ package org.apache.doris.resource.workloadschedpolicy;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.plugin.AuditEvent;
+import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.thrift.TQueryStatistics;
 import org.apache.doris.thrift.TQueryStatisticsResult;
 import org.apache.doris.thrift.TReportWorkloadRuntimeStatusParams;
@@ -48,6 +50,7 @@ import java.util.concurrent.locks.ReentrantLock;
 public class WorkloadRuntimeStatusMgr extends MasterDaemon {
 
     private static final Logger LOG = LogManager.getLogger(WorkloadRuntimeStatusMgr.class);
+    // backend id --> {query id --> (query last report time, query stats)}
     private Map<Long, BeReportInfo> beToQueryStatsMap = Maps.newConcurrentMap();
     private final ReentrantLock queryAuditEventLock = new ReentrantLock();
     private List<AuditEvent> queryAuditEventList = Lists.newLinkedList();
@@ -59,7 +62,7 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
         BeReportInfo(long beLastReportTime) {
             this.beLastReportTime = beLastReportTime;
         }
-
+        // query id --> (query last report time, query stats)
         Map<String, Pair<Long, TQueryStatisticsResult>> queryStatsMap = Maps.newConcurrentMap();
     }
 
@@ -109,7 +112,11 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
         // 3 clear beToQueryStatsMap when be report timeout
         clearReportTimeoutBeStatistics();
     }
-
+// After the query or insert finished, FE will not audit immediately, it will send an audit event to this queue. And the worker thread
+//  will handle it. If the queue is full, the event will be handled immediately and may miss some statistic info. So the statistic 
+// info of audit event may be not accurate, but it can avoid the case that FE OOM because of too many audit events in queue when QPS
+//  is high.  The event will be logged directly if the queue is full. And the worker thread will get a event from the queue and get 
+// the statistic info for this event from queryStatisticsMap.
     public void submitFinishQueryToAudit(AuditEvent event) {
         queryAuditEventLogWriteLock();
         try {
@@ -186,7 +193,7 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
         }
     }
 
-    void clearReportTimeoutBeStatistics() {
+    private void clearReportTimeoutBeStatistics() {
         // 1 clear report timeout be
         Set<Long> currentBeIdSet = beToQueryStatsMap.keySet();
         Long currentTime = System.currentTimeMillis();
@@ -200,10 +207,27 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
             for (String queryId : queryIdSet) {
                 Pair<Long, TQueryStatisticsResult> pair = beReportInfo.queryStatsMap.get(queryId);
                 long queryLastReportTime = pair.first;
-                if (currentTime - queryLastReportTime > Config.be_report_query_statistics_timeout_ms) {
+                boolean timeout = currentTime - queryLastReportTime
+                        > Config.be_report_query_statistics_timeout_ms;
+                // Remove query statistics only when both conditions are satisfied:
+                // 1) this query statistics is timeout, and
+                // 2) FE no longer has this query in QeProcessorImpl.
+                // Example timeline:
+                // - t0: query q1 is still running, but one periodic BE report is delayed for > timeout.
+                // - t1: clear thread runs. timeout condition is true, but q1 still exists in FE.
+                // - t2: we keep q1 statistics instead of removing it; later reports can update it again.
+                if (timeout && isQueryNotExistInFe(queryId)) {
                     beReportInfo.queryStatsMap.remove(queryId);
                 }
             }
+        }
+    }
+
+    private boolean isQueryNotExistInFe(String queryId) {
+        try {
+            return QeProcessorImpl.INSTANCE.getCoordinator(DebugUtil.parseTUniqueIdFromString(queryId)) == null;
+        } catch (NumberFormatException e) {
+            return true;
         }
     }
 
