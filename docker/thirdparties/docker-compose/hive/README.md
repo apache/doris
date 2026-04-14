@@ -97,9 +97,10 @@ Lifecycle:
 
 When volumes are empty (fresh CI host, or after `rebuild`), the script primes them from a pre-built baseline tarball instead of bootstrapping from scratch:
 
-1. Look for a cached tarball at `${HIVE_BASELINE_TARBALL_CACHE:-/tmp/hive-baseline-cache}/<hive_version>-baseline.tar.gz`.
+1. Look for a cached tarball at `${HIVE_BASELINE_TARBALL_CACHE:-/tmp/hive-baseline-cache}/<hive_version>-baseline-<version>.tar.gz`.
 2. If not cached, download from `${HIVE_BASELINE_URL_PREFIX}/<hive_version>-baseline-<version>-<arch>.tar.gz`. Default prefix is `https://doris-thirdparty.oss-cn-beijing.aliyuncs.com/thirdparties/hive-baseline`. `HIVE_BASELINE_TARBALL_URL` overrides the full URL.
 3. Unpack in a single `alpine tar` container that mounts all four volumes — tar streams write directly into the volume mounts.
+4. Bumping `HIVE_BASELINE_VERSION` changes both the cache filename and the auto-constructed OSS URL, so CI hosts fetch the newly published tarball instead of reusing an older cached artifact.
 
 Relevant env vars:
 
@@ -107,8 +108,8 @@ Relevant env vars:
 |---|---|---|
 | `HIVE_BASELINE_URL_PREFIX` | `https://doris-thirdparty.oss-cn-beijing.aliyuncs.com/thirdparties/hive-baseline` | Base URL for auto-constructed tarball download |
 | `HIVE_BASELINE_TARBALL_URL` | *(empty)* | Fully qualified URL; overrides the prefix-based construction |
-| `HIVE_BASELINE_TARBALL_CACHE` | `/tmp/hive-baseline-cache` | Local cache dir for downloaded tarballs |
-| `HIVE_BASELINE_VERSION` | `20260415` | Marker written to `/mnt/state/baseline.version`; mismatches force re-bootstrap |
+| `HIVE_BASELINE_TARBALL_CACHE` | `/tmp/hive-baseline-cache` | Local cache dir for downloaded tarballs; cache filenames include `HIVE_BASELINE_VERSION` |
+| `HIVE_BASELINE_VERSION` | `20260415` | Single source of truth for baseline rollout: written to `/mnt/state/baseline.version`, embedded in the cache filename, and embedded in the auto-constructed OSS tarball URL |
 
 ### Producing a new baseline tarball
 
@@ -123,6 +124,7 @@ bash docker/thirdparties/docker-compose/hive/scripts/snapshot-hive-baseline.sh \
 ```
 
 Then upload the resulting tarball to OSS at `<HIVE_BASELINE_URL_PREFIX>/hive3-baseline-<version>-<arch>.tar.gz` (same convention for `hive2`).
+To publish a new baseline, update `HIVE_BASELINE_VERSION` once in `run-thirdparties-docker.sh`, produce the new tarballs, and upload them with the matching versioned filenames.
 
 ---
 
