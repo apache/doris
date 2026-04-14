@@ -463,6 +463,27 @@ public class MTMV extends OlapTable {
     }
 
     /**
+     * Normalize query-used base table partitions to the effective filter consumed by
+     * partition-mapping generation.
+     */
+    public Map<List<String>, Set<String>> getEffectiveQueryUsedBaseTablePartitionMap(
+            Map<List<String>, Set<String>> queryUsedBaseTablePartitionMap) throws AnalysisException {
+        return getEffectiveQueryUsedBaseTablePartitionMap(queryUsedBaseTablePartitionMap, null);
+    }
+
+    private Map<List<String>, Set<String>> getEffectiveQueryUsedBaseTablePartitionMap(
+            Map<List<String>, Set<String>> queryUsedBaseTablePartitionMap,
+            Map<String, PartitionItem> mvPartitionItems) throws AnalysisException {
+        if (queryUsedBaseTablePartitionMap.isEmpty()
+                || mvPartitionInfo.getPartitionType() != MTMVPartitionType.EXPR) {
+            return queryUsedBaseTablePartitionMap;
+        }
+        return MTMVPartitionExpander.expandToMvPartitionGranularity(queryUsedBaseTablePartitionMap,
+                mvPartitionItems != null ? mvPartitionItems : getAndCopyPartitionItems(),
+                mvPartitionInfo.getPctTables());
+    }
+
+    /**
      * Calculate the partition and associated partition mapping relationship of the MTMV
      * It is the result of real-time comparison calculation, so there may be some costs,
      * so it should be called with caution
@@ -483,13 +504,8 @@ public class MTMV extends OlapTable {
         // For nested MVs where pctTable is not in the filter, the expanded map is empty,
         // so the pipeline runs without filtering (full computation) — correct behavior.
         Map<String, PartitionItem> mvPartitionItems = getAndCopyPartitionItems();
-        Map<List<String>, Set<String>> effectiveFilter = queryUsedBaseTablePartitionMap;
-        if (!queryUsedBaseTablePartitionMap.isEmpty()
-                && mvPartitionInfo.getPartitionType() == MTMVPartitionType.EXPR) {
-            effectiveFilter = MTMVPartitionExpander.expandToMvPartitionGranularity(
-                    queryUsedBaseTablePartitionMap, mvPartitionItems,
-                    mvPartitionInfo.getPctTables());
-        }
+        Map<List<String>, Set<String>> effectiveFilter
+                = getEffectiveQueryUsedBaseTablePartitionMap(queryUsedBaseTablePartitionMap, mvPartitionItems);
         Map<String, Map<MTMVRelatedTableIf, Set<String>>> res = Maps.newHashMap();
         Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> pctPartitionDescs = MTMVPartitionUtil
                 .generateRelatedPartitionDescs(mvPartitionInfo, mvProperties, getPartitionColumns(),

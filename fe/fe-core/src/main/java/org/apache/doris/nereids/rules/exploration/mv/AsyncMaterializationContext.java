@@ -40,6 +40,7 @@ import com.google.common.collect.Multimap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -56,6 +57,7 @@ public class AsyncMaterializationContext extends MaterializationContext {
     private static final Logger LOG = LogManager.getLogger(AsyncMaterializationContext.class);
     private final MTMV mtmv;
     private Map<MTMVRelatedTableIf, Map<String, Set<String>>> partitionMultiFlatMap;
+    private final Map<List<String>, Set<String>> coveredQueryUsedBaseTablePartitionMap = new HashMap<>();
 
     /**
      * MaterializationContext, this contains necessary info for query rewriting by mv
@@ -186,10 +188,14 @@ public class AsyncMaterializationContext extends MaterializationContext {
      */
     public Map<MTMVRelatedTableIf, Map<String, Set<String>>> calculatePartitionMappings(
             Map<List<String>, Set<String>> queryUsedBaseTablePartitionMap) throws AnalysisException {
-        if (partitionMultiFlatMap != null) {
+        Map<List<String>, Set<String>> effectiveQueryUsedBaseTablePartitionMap
+                = mtmv.getEffectiveQueryUsedBaseTablePartitionMap(queryUsedBaseTablePartitionMap);
+        if (isPartitionMappingsCovered(effectiveQueryUsedBaseTablePartitionMap)) {
             return partitionMultiFlatMap;
         }
-        partitionMultiFlatMap = new HashMap<>();
+        if (partitionMultiFlatMap == null) {
+            partitionMultiFlatMap = new HashMap<>();
+        }
         Map<String, Map<MTMVRelatedTableIf, Set<String>>> partitionMultiMap
                 = this.mtmv.calculatePartitionMappings(queryUsedBaseTablePartitionMap);
         for (Map.Entry<String, Map<MTMVRelatedTableIf, Set<String>>> entry : partitionMultiMap.entrySet()) {
@@ -204,6 +210,56 @@ public class AsyncMaterializationContext extends MaterializationContext {
                         .addAll(set);
             }
         }
+        mergeCoveredPartitions(effectiveQueryUsedBaseTablePartitionMap);
         return partitionMultiFlatMap;
+    }
+
+    private boolean isPartitionMappingsCovered(Map<List<String>, Set<String>> effectiveQueryUsedBaseTablePartitionMap) {
+        if (partitionMultiFlatMap == null) {
+            return false;
+        }
+        for (MTMVRelatedTableIf pctTable : mtmv.getMvPartitionInfo().getPctTables()) {
+            List<String> tableQualifiers = pctTable.getFullQualifiers();
+            Set<String> queryUsedPartitions = effectiveQueryUsedBaseTablePartitionMap.containsKey(tableQualifiers)
+                    ? effectiveQueryUsedBaseTablePartitionMap.get(tableQualifiers)
+                    : null;
+            if (!isTableCovered(tableQualifiers, queryUsedPartitions)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean isTableCovered(List<String> tableQualifiers, Set<String> queryUsedPartitions) {
+        if (!coveredQueryUsedBaseTablePartitionMap.containsKey(tableQualifiers)) {
+            return false;
+        }
+        Set<String> coveredPartitions = coveredQueryUsedBaseTablePartitionMap.get(tableQualifiers);
+        if (coveredPartitions == null) {
+            return true;
+        }
+        return queryUsedPartitions != null && coveredPartitions.containsAll(queryUsedPartitions);
+    }
+
+    private void mergeCoveredPartitions(Map<List<String>, Set<String>> effectiveQueryUsedBaseTablePartitionMap) {
+        for (MTMVRelatedTableIf pctTable : mtmv.getMvPartitionInfo().getPctTables()) {
+            List<String> tableQualifiers = pctTable.getFullQualifiers();
+            Set<String> queryUsedPartitions = effectiveQueryUsedBaseTablePartitionMap.containsKey(tableQualifiers)
+                    ? effectiveQueryUsedBaseTablePartitionMap.get(tableQualifiers)
+                    : null;
+            List<String> copiedQualifiers = new ArrayList<>(tableQualifiers);
+            if (queryUsedPartitions == null) {
+                coveredQueryUsedBaseTablePartitionMap.put(copiedQualifiers, null);
+                continue;
+            }
+            if (!coveredQueryUsedBaseTablePartitionMap.containsKey(copiedQualifiers)) {
+                coveredQueryUsedBaseTablePartitionMap.put(copiedQualifiers, new HashSet<>(queryUsedPartitions));
+                continue;
+            }
+            Set<String> coveredPartitions = coveredQueryUsedBaseTablePartitionMap.get(copiedQualifiers);
+            if (coveredPartitions != null) {
+                coveredPartitions.addAll(queryUsedPartitions);
+            }
+        }
     }
 }
