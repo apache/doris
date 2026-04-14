@@ -17,8 +17,11 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DoubleType;
 
 import org.junit.jupiter.api.Assertions;
@@ -57,5 +60,45 @@ public class RandSparkTest {
     public void testSignatures() {
         RandSpark randSpark = new RandSpark();
         Assertions.assertEquals(2, randSpark.getSignatures().size());
+    }
+
+    @Test
+    public void testRejectsNumberVarcharArgument() {
+        RandSpark randSpark = new RandSpark(new VarcharLiteral("123"));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> randSpark.checkLegalityBeforeTypeCoercion());
+    }
+
+    @Test
+    public void testRejectsNumberStringArgument() {
+        RandSpark randSpark = new RandSpark(new StringLiteral("123"));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> randSpark.checkLegalityBeforeTypeCoercion());
+    }
+
+    @Test
+    public void testRejectsVarcharArgument() {
+        RandSpark randSpark = new RandSpark(new VarcharLiteral("abc"));
+        Assertions.assertThrows(AnalysisException.class,
+            () -> randSpark.checkLegalityBeforeTypeCoercion());
+    }
+
+    @Test
+    public void testRejectsStringArgument() {
+        RandSpark randSpark = new RandSpark(new StringLiteral("abc"));
+        Assertions.assertThrows(AnalysisException.class,
+            () -> randSpark.checkLegalityBeforeTypeCoercion());
+    }
+
+    @Test
+    public void testCheckLegalityPassesForBigInt() {
+        RandSpark randSpark = new RandSpark(new BigIntLiteral(42L));
+        Assertions.assertDoesNotThrow(() -> randSpark.checkLegalityBeforeTypeCoercion());
+    }
+
+    @Test
+    public void testCheckLegalityPassesForNoArgs() {
+        RandSpark randSpark = new RandSpark();
+        Assertions.assertDoesNotThrow(() -> randSpark.checkLegalityBeforeTypeCoercion());
     }
 }

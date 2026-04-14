@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 
 import com.google.common.collect.ImmutableList;
 
@@ -106,6 +107,16 @@ public class RandSpark extends UniqueFunction
     @Override
     public RandSpark withIgnoreUniqueId(boolean ignoreUniqueId) {
         return new RandSpark(uniqueId, ignoreUniqueId, children);
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        for (Expression child : children()) {
+            if (child.getDataType() instanceof CharacterType) {
+                throw new AnalysisException(
+                        "rand_spark does not support string type arguments");
+            }
+        }
     }
 
     @Override
