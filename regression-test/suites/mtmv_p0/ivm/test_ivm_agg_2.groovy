@@ -427,8 +427,9 @@ suite("test_ivm_agg_2") {
     assertTrue(maxDelTaskStatus == "FAILED",
             "Expected INCREMENTAL to fail when deleting MAX value, but got: " + maxDelTaskStatus)
     def maxDelErrorMsg = maxDelTaskResult[0][2].toString()
-    assertTrue(maxDelErrorMsg.contains("IVM") || maxDelErrorMsg.contains("assert_true") || maxDelErrorMsg.contains("fallback"),
-            "Error should mention IVM/assert_true/fallback but got: " + maxDelErrorMsg)
+    assertTrue(maxDelErrorMsg.contains("MIN_MAX_BOUNDARY") || maxDelErrorMsg.contains("IVM")
+                    || maxDelErrorMsg.contains("assert_true") || maxDelErrorMsg.contains("fallback"),
+            "Error should mention MIN_MAX_BOUNDARY/IVM/assert_true/fallback but got: " + maxDelErrorMsg)
 
     // Step 4: COMPLETE refresh to recover
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_maxdel_mv COMPLETE"""
