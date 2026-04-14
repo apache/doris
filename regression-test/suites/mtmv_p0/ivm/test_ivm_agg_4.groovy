@@ -57,4 +57,267 @@ suite("test_ivm_agg_4") {
         """
         exception "aggregate argument must be a Slot"
     }
+
+    // =========================================================
+    // Part 16: NULL group keys — single nullable group key
+    //          Verifies null-safe row_id hash: groups with NULL key
+    //          must not collide with non-NULL key groups.
+    // =========================================================
+
+    sql """drop materialized view if exists test_ivm_agg_4_nullkey1_mv;"""
+    sql """drop table if exists test_ivm_agg_4_nullkey1_base;"""
+
+    sql """
+        CREATE TABLE test_ivm_agg_4_nullkey1_base (
+            id INT,
+            k1 INT,
+            v1 INT,
+            binlog_op TINYINT
+        )
+        UNIQUE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 2
+        PROPERTIES (
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "true"
+        );
+    """
+
+    // Initial data: 3 groups — k1=NULL, k1=1, k1=2
+    sql """
+        INSERT INTO test_ivm_agg_4_nullkey1_base VALUES
+            (1, NULL, 10, 0),
+            (2, NULL, 20, 0),
+            (3, 1, 30, 0),
+            (4, 2, 40, 0);
+    """
+
+    sql """
+        CREATE MATERIALIZED VIEW test_ivm_agg_4_nullkey1_mv
+        BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES (
+            'replication_num' = '1'
+        )
+        AS SELECT k1, COUNT(*) AS cnt, SUM(v1) AS sum_v1
+           FROM test_ivm_agg_4_nullkey1_base
+           GROUP BY k1;
+    """
+
+    // COMPLETE refresh
+    // k1=NULL: cnt=2, sum=30; k1=1: cnt=1, sum=30; k1=2: cnt=1, sum=40
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_4_nullkey1_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_4_nullkey1_mv")
+
+    order_qt_nullkey1_complete """
+        SELECT k1, cnt, sum_v1 FROM test_ivm_agg_4_nullkey1_mv ORDER BY k1
+    """
+
+    // Insert: add to NULL group and k1=1 group
+    sql """INSERT INTO test_ivm_agg_4_nullkey1_base VALUES (5, NULL, 50, 0);"""
+    sql """INSERT INTO test_ivm_agg_4_nullkey1_base VALUES (6, 1, 60, 0);"""
+
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_4_nullkey1_mv INCREMENTAL"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_4_nullkey1_mv")
+
+    // After INCREMENTAL — verify via query
+    order_qt_nullkey1_after_incr """
+        SELECT k1, cnt, sum_v1 FROM test_ivm_agg_4_nullkey1_mv ORDER BY k1
+    """
+
+    // COMPLETE to get ground truth
+    // k1=NULL: ids 1(10),2(20),5(50) → cnt=3, sum=80
+    // k1=1: ids 3(30),6(60) → cnt=2, sum=90
+    // k1=2: id 4(40) → cnt=1, sum=40
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_4_nullkey1_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_4_nullkey1_mv")
+
+    order_qt_nullkey1_complete_verify """
+        SELECT k1, cnt, sum_v1 FROM test_ivm_agg_4_nullkey1_mv ORDER BY k1
+    """
+
+    // Delete from NULL group via binlog_op=1
+    sql """INSERT INTO test_ivm_agg_4_nullkey1_base VALUES (1, NULL, 10, 1);"""
+    // Dirty partition with another insert
+    sql """INSERT INTO test_ivm_agg_4_nullkey1_base VALUES (7, 2, 70, 0);"""
+
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_4_nullkey1_mv INCREMENTAL"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_4_nullkey1_mv")
+
+    order_qt_nullkey1_after_delete_incr """
+        SELECT k1, cnt, sum_v1 FROM test_ivm_agg_4_nullkey1_mv ORDER BY k1
+    """
+
+    // COMPLETE ground truth after delete
+    // k1=NULL: ids 1(10,del),2(20),5(50) → cnt=2, sum=70
+    // k1=1: ids 3(30),6(60) → cnt=2, sum=90
+    // k1=2: ids 4(40),7(70) → cnt=2, sum=110
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_4_nullkey1_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_4_nullkey1_mv")
+
+    order_qt_nullkey1_complete_after_delete """
+        SELECT k1, cnt, sum_v1 FROM test_ivm_agg_4_nullkey1_mv ORDER BY k1
+    """
+
+    // =========================================================
+    // Part 17: NULL group keys — multiple nullable group keys
+    //          Verifies (NULL,'x'), ('x',NULL), (NULL,NULL) produce
+    //          distinct row_ids and don't collide.
+    // =========================================================
+
+    sql """drop materialized view if exists test_ivm_agg_4_nullkey2_mv;"""
+    sql """drop table if exists test_ivm_agg_4_nullkey2_base;"""
+
+    sql """
+        CREATE TABLE test_ivm_agg_4_nullkey2_base (
+            id INT,
+            k1 VARCHAR(32),
+            k2 VARCHAR(32),
+            v1 INT,
+            binlog_op TINYINT
+        )
+        UNIQUE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 2
+        PROPERTIES (
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "true"
+        );
+    """
+
+    // Groups:
+    // (NULL, 'x'):   ids 1,2 → v1=10,20
+    // ('x', NULL):   id 3    → v1=30
+    // (NULL, NULL):  id 4    → v1=40
+    // ('a', 'b'):    id 5    → v1=50
+    sql """
+        INSERT INTO test_ivm_agg_4_nullkey2_base VALUES
+            (1, NULL, 'x', 10, 0),
+            (2, NULL, 'x', 20, 0),
+            (3, 'x', NULL, 30, 0),
+            (4, NULL, NULL, 40, 0),
+            (5, 'a', 'b', 50, 0);
+    """
+
+    sql """
+        CREATE MATERIALIZED VIEW test_ivm_agg_4_nullkey2_mv
+        BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES (
+            'replication_num' = '1'
+        )
+        AS SELECT k1, k2, COUNT(*) AS cnt, SUM(v1) AS sum_v1
+           FROM test_ivm_agg_4_nullkey2_base
+           GROUP BY k1, k2;
+    """
+
+    // COMPLETE refresh
+    // (NULL,'x'): cnt=2, sum=30
+    // ('x',NULL): cnt=1, sum=30
+    // (NULL,NULL): cnt=1, sum=40
+    // ('a','b'): cnt=1, sum=50
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_4_nullkey2_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_4_nullkey2_mv")
+
+    order_qt_nullkey2_complete """
+        SELECT k1, k2, cnt, sum_v1 FROM test_ivm_agg_4_nullkey2_mv ORDER BY k1, k2
+    """
+
+    // Insert into various NULL groups to test incremental correctness
+    sql """INSERT INTO test_ivm_agg_4_nullkey2_base VALUES (6, NULL, 'x', 60, 0);"""
+    sql """INSERT INTO test_ivm_agg_4_nullkey2_base VALUES (7, 'x', NULL, 70, 0);"""
+    sql """INSERT INTO test_ivm_agg_4_nullkey2_base VALUES (8, NULL, NULL, 80, 0);"""
+
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_4_nullkey2_mv INCREMENTAL"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_4_nullkey2_mv")
+
+    order_qt_nullkey2_after_incr """
+        SELECT k1, k2, cnt, sum_v1 FROM test_ivm_agg_4_nullkey2_mv ORDER BY k1, k2
+    """
+
+    // COMPLETE ground truth
+    // (NULL,'x'): ids 1(10),2(20),6(60) → cnt=3, sum=90
+    // ('x',NULL): ids 3(30),7(70) → cnt=2, sum=100
+    // (NULL,NULL): ids 4(40),8(80) → cnt=2, sum=120
+    // ('a','b'): id 5(50) → cnt=1, sum=50
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_4_nullkey2_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_4_nullkey2_mv")
+
+    order_qt_nullkey2_complete_verify """
+        SELECT k1, k2, cnt, sum_v1 FROM test_ivm_agg_4_nullkey2_mv ORDER BY k1, k2
+    """
+
+    // =========================================================
+    // Part 18: NULL group keys — empty-string vs NULL distinction
+    //          Verifies that k1='' and k1=NULL are distinct groups.
+    //          This is important because the ifnull(cast(k AS VARCHAR), '')
+    //          maps NULL to '', so the isnull flag must distinguish them.
+    // =========================================================
+
+    sql """drop materialized view if exists test_ivm_agg_4_nullempty_mv;"""
+    sql """drop table if exists test_ivm_agg_4_nullempty_base;"""
+
+    sql """
+        CREATE TABLE test_ivm_agg_4_nullempty_base (
+            id INT,
+            k1 VARCHAR(32),
+            v1 INT,
+            binlog_op TINYINT
+        )
+        UNIQUE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 2
+        PROPERTIES (
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "true"
+        );
+    """
+
+    // Groups: k1=NULL, k1='', k1='a'
+    sql """
+        INSERT INTO test_ivm_agg_4_nullempty_base VALUES
+            (1, NULL, 10, 0),
+            (2, '', 20, 0),
+            (3, 'a', 30, 0);
+    """
+
+    sql """
+        CREATE MATERIALIZED VIEW test_ivm_agg_4_nullempty_mv
+        BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES (
+            'replication_num' = '1'
+        )
+        AS SELECT k1, COUNT(*) AS cnt, SUM(v1) AS sum_v1
+           FROM test_ivm_agg_4_nullempty_base
+           GROUP BY k1;
+    """
+
+    // COMPLETE: NULL→cnt=1,sum=10; ''→cnt=1,sum=20; 'a'→cnt=1,sum=30
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_4_nullempty_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_4_nullempty_mv")
+
+    order_qt_nullempty_complete """
+        SELECT k1, cnt, sum_v1 FROM test_ivm_agg_4_nullempty_mv ORDER BY k1
+    """
+
+    // Insert into each group
+    sql """INSERT INTO test_ivm_agg_4_nullempty_base VALUES (4, NULL, 40, 0);"""
+    sql """INSERT INTO test_ivm_agg_4_nullempty_base VALUES (5, '', 50, 0);"""
+    sql """INSERT INTO test_ivm_agg_4_nullempty_base VALUES (6, 'a', 60, 0);"""
+
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_4_nullempty_mv INCREMENTAL"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_4_nullempty_mv")
+
+    order_qt_nullempty_after_incr """
+        SELECT k1, cnt, sum_v1 FROM test_ivm_agg_4_nullempty_mv ORDER BY k1
+    """
+
+    // COMPLETE ground truth
+    // NULL: ids 1(10),4(40) → cnt=2, sum=50
+    // '': ids 2(20),5(50) → cnt=2, sum=70
+    // 'a': ids 3(30),6(60) → cnt=2, sum=90
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_4_nullempty_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_4_nullempty_mv")
+
+    order_qt_nullempty_complete_verify """
+        SELECT k1, cnt, sum_v1 FROM test_ivm_agg_4_nullempty_mv ORDER BY k1
+    """
 }
