@@ -80,6 +80,12 @@ suite("test_ivm_agg_2") {
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_allnull_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_allnull_mv")
 
+    // After INCREMENTAL: mock delta reads all 3 rows; output queryable (may be inflated).
+    order_qt_allnull_after_insert_incremental """
+        SELECT sum_v1, avg_v1, cnt_v1, min_v1, max_v1, cnt_all
+        FROM test_ivm_agg_mtmv_allnull_mv
+    """
+
     // COMPLETE to get ground truth: k1=1(NULL),2(NULL),3(100)
     // sum=100, avg=100, cnt_v1=1, min=100, max=100, cnt_all=3
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_allnull_mv COMPLETE"""
@@ -95,6 +101,12 @@ suite("test_ivm_agg_2") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_allnull_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_allnull_mv")
+
+    // After inserting another NULL: mock delta increments cnt_all but sum/min/max unchanged.
+    order_qt_allnull_after_null_insert_incremental """
+        SELECT sum_v1, avg_v1, cnt_v1, min_v1, max_v1, cnt_all
+        FROM test_ivm_agg_mtmv_allnull_mv
+    """
 
     // COMPLETE: k1=1(NULL),2(NULL),3(100),4(NULL)
     // sum=100, avg=100, cnt_v1=1, min=100, max=100, cnt_all=4
@@ -190,6 +202,11 @@ suite("test_ivm_agg_2") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_grpdel_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_grpdel_mv")
+
+    // After INCREMENTAL resurrection: grp=2 re-appears in MV output.
+    order_qt_grpdel_after_resurrect_incremental """
+        SELECT grp, cnt, sum_v1 FROM test_ivm_agg_mtmv_grpdel_mv ORDER BY grp
+    """
 
     // COMPLETE to verify resurrected grp=2
     // Physical rows: k1=1(grp=1,10,0), k1=2(grp=1,20,0), k1=3(grp=2,30,0),
@@ -291,13 +308,11 @@ suite("test_ivm_agg_2") {
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_scalardel_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_scalardel_mv")
 
-    // After INCREMENTAL: the mock delta reads all physical rows.
-    // k1=1(op=1) → dml_factor=-1, k1=2(op=1) → dml_factor=-1, k1=3(op=0) → dml_factor=+1
-    // delta_group_count = SUM(-1,-1,+1) = -1
-    // new_group_count = old(2) + (-1) = 1
-    // The mock doesn't perfectly simulate "all rows deleted" because the physical rows are still
-    // there with different op values. But the values are computed incrementally.
-    // Let's just verify INCREMENTAL succeeds and check via COMPLETE.
+    // After INCREMENTAL: k1=1(op=1→-1), k1=2(op=1→-1), k1=3(op=0→+1).
+    // delta_group_count = -1-1+1 = -1; new_count = old(2)+(-1) = 1
+    order_qt_scalardel_after_delete_incremental """
+        SELECT cnt, sum_v1 FROM test_ivm_agg_mtmv_scalardel_mv
+    """
 
     // Step 4: COMPLETE to get ground truth
     // Physical rows: k1=1(v1=10,op=1), k1=2(v1=20,op=1), k1=3(v1=99,op=0)
@@ -317,6 +332,11 @@ suite("test_ivm_agg_2") {
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_scalardel_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_scalardel_mv")
 
+    // After second INCREMENTAL with more deletes + dirty row.
+    order_qt_scalardel_after_second_delete_incremental """
+        SELECT cnt, sum_v1 FROM test_ivm_agg_mtmv_scalardel_mv
+    """
+
     // COMPLETE to verify: all rows have op=1 or the physical state
     // Physical: k1=1(10,1), k1=2(20,1), k1=3(99,1), k1=4(0,0)
     // COMPLETE sees all 4 physical rows → cnt=4, sum=129
@@ -333,6 +353,11 @@ suite("test_ivm_agg_2") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_scalardel_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_scalardel_mv")
+
+    // After recovery INCREMENTAL: fresh rows k1=5,6 inserted.
+    order_qt_scalardel_after_recovery_incremental """
+        SELECT cnt, sum_v1 FROM test_ivm_agg_mtmv_scalardel_mv
+    """
 
     // COMPLETE: k1=1(10,1),2(20,1),3(99,1),4(0,0),5(50,0),6(60,0) → cnt=6, sum=239
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_scalardel_mv COMPLETE"""
@@ -400,6 +425,11 @@ suite("test_ivm_agg_2") {
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_maxdel_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_maxdel_mv")
 
+    // After safe INCREMENTAL (no boundary hit): output reflects 4 rows including new k1=4.
+    order_qt_maxdel_after_safe_incremental """
+        SELECT min_v1, max_v1, cnt FROM test_ivm_agg_mtmv_maxdel_mv
+    """
+
     // Step 3: Delete the MAX value (k1=3, v1=30, op=1)
     // The MAX guard should fire: deltaDelMax=30 == old_max=30, so deltaDelMax < old_max is FALSE
     sql """INSERT INTO test_ivm_agg_mtmv_maxdel_base VALUES (3, 30, 1);"""
@@ -446,4 +476,9 @@ suite("test_ivm_agg_2") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_maxdel_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_maxdel_mv")
+
+    // After fix INCREMENTAL: k1=3 restored to op=0; output stable.
+    order_qt_maxdel_after_fix_incremental """
+        SELECT min_v1, max_v1, cnt FROM test_ivm_agg_mtmv_maxdel_mv
+    """
 }
