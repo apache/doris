@@ -111,38 +111,9 @@ suite("test_streaming_postgres_job_special_offset", "p0,external,pg,external_doc
         sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
         sql """drop table if exists ${currentDb}.${table1} force"""
 
-        // ===== Test 3: ALTER JOB to change offset =====
-        connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
-            sql """DELETE FROM ${pgDB}.${pgSchema}.${table1} WHERE id = 3"""
-        }
+        // ===== Test 3: ALTER with named mode should fail for CDC =====
         sql """CREATE JOB ${jobName}
                 ON STREAMING
-                FROM POSTGRES (
-                    "jdbc_url" = "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}",
-                    "driver_url" = "${driver_url}",
-                    "driver_class" = "org.postgresql.Driver",
-                    "user" = "${pgUser}",
-                    "password" = "${pgPassword}",
-                    "database" = "${pgDB}",
-                    "schema" = "${pgSchema}",
-                    "include_tables" = "${table1}",
-                    "offset" = "latest"
-                )
-                TO DATABASE ${currentDb} (
-                  "table.create.properties.replication_num" = "1"
-                )
-            """
-        Awaitility.await().atMost(60, SECONDS).pollInterval(2, SECONDS).until({
-            def jobStatus = sql """select status from jobs("type"="insert") where Name='${jobName}'"""
-            return jobStatus.size() == 1 && jobStatus[0][0] == "RUNNING"
-        })
-        // pause, then alter offset to initial
-        sql "PAUSE JOB where jobname = '${jobName}'"
-        Awaitility.await().atMost(30, SECONDS).pollInterval(1, SECONDS).until({
-            def jobStatus = sql """select status from jobs("type"="insert") where Name='${jobName}'"""
-            return jobStatus[0][0] == "PAUSED"
-        })
-        sql """ALTER JOB ${jobName}
                 FROM POSTGRES (
                     "jdbc_url" = "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}",
                     "driver_url" = "${driver_url}",
@@ -158,12 +129,21 @@ suite("test_streaming_postgres_job_special_offset", "p0,external,pg,external_doc
                   "table.create.properties.replication_num" = "1"
                 )
             """
-        sql "RESUME JOB where jobname = '${jobName}'"
-        // after alter to initial, snapshot data should sync
-        Awaitility.await().atMost(120, SECONDS).pollInterval(2, SECONDS).until({
-            def result = sql """SELECT count(*) FROM ${currentDb}.${table1}"""
-            return result[0][0] >= 2
+        Awaitility.await().atMost(60, SECONDS).pollInterval(2, SECONDS).until({
+            def jobStatus = sql """select status from jobs("type"="insert") where Name='${jobName}'"""
+            return jobStatus.size() == 1 && jobStatus[0][0] == "RUNNING"
         })
+        sql "PAUSE JOB where jobname = '${jobName}'"
+        Awaitility.await().atMost(30, SECONDS).pollInterval(1, SECONDS).until({
+            def jobStatus = sql """select status from jobs("type"="insert") where Name='${jobName}'"""
+            return jobStatus[0][0] == "PAUSED"
+        })
+        test {
+            sql """ALTER JOB ${jobName}
+                    PROPERTIES('offset' = 'initial')
+                """
+            exception "ALTER JOB for CDC only supports JSON specific offset"
+        }
         sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
         sql """drop table if exists ${currentDb}.${table1} force"""
 
@@ -260,20 +240,7 @@ suite("test_streaming_postgres_job_special_offset", "p0,external,pg,external_doc
         def lsnOffsetJson = """{"lsn":"${currentLsn}"}"""
         log.info("Using JSON LSN offset: ${lsnOffsetJson}")
         sql """ALTER JOB ${jobName}
-                FROM POSTGRES (
-                    "jdbc_url" = "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}",
-                    "driver_url" = "${driver_url}",
-                    "driver_class" = "org.postgresql.Driver",
-                    "user" = "${pgUser}",
-                    "password" = "${pgPassword}",
-                    "database" = "${pgDB}",
-                    "schema" = "${pgSchema}",
-                    "include_tables" = "${table1}",
-                    "offset" = '${lsnOffsetJson}'
-                )
-                TO DATABASE ${currentDb} (
-                  "table.create.properties.replication_num" = "1"
-                )
+                PROPERTIES('offset' = '${lsnOffsetJson}')
             """
         sql "RESUME JOB where jobname = '${jobName}'"
 
