@@ -406,6 +406,41 @@ class IvmAggDeltaStrategyTest extends IvmDeltaTestBase {
                 "Grouped agg delete sign should be IF expression");
     }
 
+    @Test
+    void testExpressionAggArgumentSumProducesValidPlan() {
+        // SUM(id + name) — expression aggregate argument should be accepted
+        AggRewriteResult result = rewriteAgg(buildExprAgg(buildScan()));
+
+        // Should have net-zero filter (grouped agg)
+        Assertions.assertInstanceOf(LogicalFilter.class, result.finalProject.child(),
+                "Expr agg should have net-zero filter");
+
+        LogicalJoin<?, ?> join = getJoin(result);
+        Assertions.assertEquals(JoinType.RIGHT_OUTER_JOIN, join.getJoinType());
+
+        // Delta sub-plan should compile without error
+        LogicalAggregate<?> deltaAgg = (LogicalAggregate<?>) getDeltaTopProject(result).child();
+        Assertions.assertEquals(1, deltaAgg.getGroupByExpressions().size());
+    }
+
+    @Test
+    void testExpressionAggArgumentMinMaxProducesValidPlan() {
+        // MIN(id + name), MAX(id + name) — expression args for extremal aggs
+        AggRewriteResult result = rewriteAgg(buildExprMinMaxAgg(buildScan()));
+
+        // Should have net-zero filter (grouped agg)
+        Assertions.assertInstanceOf(LogicalFilter.class, result.finalProject.child(),
+                "Expr min/max agg should have net-zero filter");
+
+        LogicalJoin<?, ?> join = getJoin(result);
+        Assertions.assertEquals(JoinType.RIGHT_OUTER_JOIN, join.getJoinType());
+
+        // assert_true guards should be present in the plan
+        Assertions.assertTrue(result.finalProject.getProjects().stream()
+                .anyMatch(expr -> expr.toSql().contains("assert_true")),
+                "MIN/MAX with expression args should still have assert_true guards");
+    }
+
     private static final class AggRewriteResult {
         private final PlanBundle bundle;
         private final MTMV mtmv;

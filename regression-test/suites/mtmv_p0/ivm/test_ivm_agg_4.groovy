@@ -19,16 +19,16 @@ suite("test_ivm_agg_4") {
 
     // =========================================================
     // Part 15: Expressions in agg arguments — SUM(v1 + v2), MIN(v1 * 2)
-    //          IVM does NOT support complex expressions inside agg functions
-    //          (only bare column Slots are allowed after NormalizeAggregate).
-    //          Verify that CREATE MV with INCREMENTAL correctly rejects this.
+    //          IVM supports complex expressions inside agg functions.
+    //          Verify that INCREMENTAL refresh produces correct results
+    //          for SUM(expr), MIN(expr), MAX(expr), COUNT(expr), AVG(expr).
     // =========================================================
 
-    sql """drop materialized view if exists test_ivm_agg_mtmv_expr_mv;"""
-    sql """drop table if exists test_ivm_agg_mtmv_expr_base;"""
+    sql """drop materialized view if exists test_ivm_agg_4_expr_mv;"""
+    sql """drop table if exists test_ivm_agg_4_expr_base;"""
 
     sql """
-        CREATE TABLE test_ivm_agg_mtmv_expr_base (
+        CREATE TABLE test_ivm_agg_4_expr_base (
             k1 INT,
             grp INT,
             v1 INT,
@@ -43,20 +43,99 @@ suite("test_ivm_agg_4") {
         );
     """
 
-    test {
-        sql """
-            CREATE MATERIALIZED VIEW test_ivm_agg_mtmv_expr_mv
-            BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
-            DISTRIBUTED BY RANDOM BUCKETS 2
-            PROPERTIES (
-                'replication_num' = '1'
-            )
-            AS SELECT grp, SUM(v1 + v2) AS sum_add, MIN(v1 * 2) AS min_double, COUNT(*) AS cnt
-               FROM test_ivm_agg_mtmv_expr_base
-               GROUP BY grp;
-        """
-        exception "aggregate argument must be a Slot"
-    }
+    // Initial data
+    sql """
+        INSERT INTO test_ivm_agg_4_expr_base VALUES
+            (1, 1, 10, 20, 0),
+            (2, 1, 30, 40, 0),
+            (3, 2, 50, 60, 0);
+    """
+
+    sql """
+        CREATE MATERIALIZED VIEW test_ivm_agg_4_expr_mv
+        BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES (
+            'replication_num' = '1'
+        )
+        AS SELECT grp,
+                  SUM(v1 + v2) AS sum_add,
+                  MIN(v1 * 2) AS min_double,
+                  MAX(v1 + v2) AS max_add,
+                  COUNT(v1 + v2) AS cnt_add,
+                  AVG(v1 + v2) AS avg_add,
+                  COUNT(*) AS cnt
+           FROM test_ivm_agg_4_expr_base
+           GROUP BY grp;
+    """
+
+    // COMPLETE refresh
+    // grp=1: sum_add=SUM(30+70)=100, min_double=MIN(20,60)=20, max_add=MAX(30,70)=70,
+    //        cnt_add=2, avg_add=50, cnt=2
+    // grp=2: sum_add=110, min_double=100, max_add=110, cnt_add=1, avg_add=110, cnt=1
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_4_expr_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_4_expr_mv")
+
+    order_qt_expr_complete """
+        SELECT grp, sum_add, min_double, max_add, cnt_add, avg_add, cnt
+        FROM test_ivm_agg_4_expr_mv ORDER BY grp
+    """
+
+    // Insert rows and trigger INCREMENTAL
+    sql """INSERT INTO test_ivm_agg_4_expr_base VALUES (4, 1, 100, 200, 0);"""
+    sql """INSERT INTO test_ivm_agg_4_expr_base VALUES (5, 2, 5, 1, 0);"""
+
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_4_expr_mv INCREMENTAL"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_4_expr_mv")
+
+    // After INCREMENTAL:
+    // grp=1: +row(100,200): sum_add=100+300=400, min_double=MIN(20,60,200)=20, max_add=MAX(30,70,300)=300,
+    //        cnt_add=3, avg_add=400/3≈133.333, cnt=3
+    // grp=2: +row(5,1): sum_add=110+6=116, min_double=MIN(100,10)=10, max_add=MAX(110,6)=110,
+    //        cnt_add=2, avg_add=116/2=58, cnt=2
+    order_qt_expr_after_incr """
+        SELECT grp, sum_add, min_double, max_add, cnt_add, avg_add, cnt
+        FROM test_ivm_agg_4_expr_mv ORDER BY grp
+    """
+
+    // COMPLETE ground truth
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_4_expr_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_4_expr_mv")
+
+    order_qt_expr_complete_verify """
+        SELECT grp, sum_add, min_double, max_add, cnt_add, avg_add, cnt
+        FROM test_ivm_agg_4_expr_mv ORDER BY grp
+    """
+
+    // Delete a row (non-boundary for MIN/MAX) and verify INCREMENTAL
+    // Delete row k1=2 (grp=1, v1=30, v2=40):
+    //   v1*2=60 → current MIN is 20, so 60 > 20 → NOT min boundary
+    //   v1+v2=70 → current MAX is 300, so 70 < 300 → NOT max boundary
+    sql """INSERT INTO test_ivm_agg_4_expr_base VALUES (2, 1, 30, 40, 1);"""
+    // Dirty partition
+    sql """INSERT INTO test_ivm_agg_4_expr_base VALUES (6, 2, 7, 3, 0);"""
+
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_4_expr_mv INCREMENTAL"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_4_expr_mv")
+
+    // After delete+insert INCREMENTAL:
+    // grp=1: removed row(30,40): sum_add=400-70=330, min_double=MIN(20,200)=20, max_add=MAX(30,300)=300,
+    //        cnt_add=2, avg_add=330/2=165, cnt=2
+    // grp=2: +row(7,3): sum_add=116+10=126, min_double=MIN(10,100,14)=10, max_add=MAX(110,6,10)=110,
+    //        cnt_add=3, avg_add=126/3=42, cnt=3
+    order_qt_expr_after_delete """
+        SELECT grp, sum_add, min_double, max_add, cnt_add, avg_add, cnt
+        FROM test_ivm_agg_4_expr_mv ORDER BY grp
+    """
+
+    // COMPLETE ground truth after delete
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_4_expr_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_4_expr_mv")
+
+    order_qt_expr_complete_after_delete """
+        SELECT grp, sum_add, min_double, max_add, cnt_add, avg_add, cnt
+        FROM test_ivm_agg_4_expr_mv ORDER BY grp
+    """
 
     // =========================================================
     // Part 16: NULL group keys — single nullable group key
