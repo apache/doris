@@ -16,7 +16,7 @@
 // under the License.
 
 suite('test_pythonudaf_pkg_isolation') {
-    def runtime_version = '3.8.10'
+    def runtime_version = getPythonUdfRuntimeVersion()
     def zipA = """${context.file.parent}/udaf_scripts/python_udaf_pkg_a/python_udaf_pkg_test.zip"""
     def zipB = """${context.file.parent}/udaf_scripts/python_udaf_pkg_b/python_udaf_pkg_test.zip"""
 

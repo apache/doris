@@ -42,21 +42,18 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.property.storage.BrokerProperties;
 import org.apache.doris.persist.EditLog;
-import org.apache.doris.resource.Tag;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import mockit.Delegate;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedConstruction;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -64,7 +61,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.zip.Adler32;
@@ -82,10 +78,8 @@ public class RestoreJobTest {
 
     private long repoId = 20000;
 
-    @Mocked
-    private Env env;
-    @Mocked
-    private InternalCatalog catalog;
+    private Env env = Mockito.mock(Env.class);
+    private InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
 
     private MockBackupHandler backupHandler;
 
@@ -118,16 +112,17 @@ public class RestoreJobTest {
         }
     }
 
-    @Mocked
-    private EditLog editLog;
-    @Mocked
-    private SystemInfoService systemInfoService;
+    private EditLog editLog = Mockito.mock(EditLog.class);
+    private SystemInfoService systemInfoService = Mockito.mock(SystemInfoService.class);
 
-    @Injectable
-    private Repository repo = new Repository(repoId, "repo", false, "bos://my_repo",
-            BrokerProperties.of("broker", Maps.newHashMap()));
+    private Repository repo = Mockito.spy(new Repository(repoId, "repo", false, "bos://my_repo",
+            BrokerProperties.of("broker", Maps.newHashMap())));
 
     private BackupMeta backupMeta;
+
+    private MockedStatic<Env> mockedEnvStatic;
+    @SuppressWarnings("rawtypes")
+    private MockedConstruction<MarkedCountDownLatch> mockedMarkedCountDownLatch;
 
     @Before
     public void setUp() throws Exception {
@@ -137,90 +132,46 @@ public class RestoreJobTest {
 
         Deencapsulation.setField(env, "backupHandler", backupHandler);
 
-        new Expectations() {
-            {
-                env.getInternalCatalog();
-                minTimes = 0;
-                result = catalog;
+        mockedEnvStatic = Mockito.mockStatic(Env.class);
+        mockedEnvStatic.when(Env::getCurrentEnvJournalVersion).thenReturn(FeConstants.meta_version);
+        mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
 
-                catalog.getDbNullable(anyLong);
-                minTimes = 0;
-                result = db;
+        Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getDbNullable(Mockito.anyLong())).thenReturn(db);
+        Mockito.when(env.getNextId()).thenAnswer(inv -> id.getAndIncrement());
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
 
-                Env.getCurrentEnvJournalVersion();
-                minTimes = 0;
-                result = FeConstants.meta_version;
+        Mockito.doAnswer(inv -> {
+            List<Long> beIds = Lists.newArrayList();
+            beIds.add(CatalogMocker.BACKEND1_ID);
+            beIds.add(CatalogMocker.BACKEND2_ID);
+            beIds.add(CatalogMocker.BACKEND3_ID);
+            return beIds;
+        }).when(systemInfoService).selectBackendIdsForReplicaCreation(
+                Mockito.any(ReplicaAllocation.class),
+                Mockito.anyMap(),
+                Mockito.any(TStorageMedium.class),
+                Mockito.eq(false),
+                Mockito.eq(true));
 
-                env.getNextId();
-                minTimes = 0;
-                result = id.getAndIncrement();
+        Mockito.doAnswer(inv -> {
+            BackupJob job = inv.getArgument(0);
+            System.out.println("log backup job: " + job);
+            return null;
+        }).when(editLog).logBackupJob(Mockito.any(BackupJob.class));
 
-                env.getEditLog();
-                minTimes = 0;
-                result = editLog;
+        Mockito.doReturn(Status.OK).when(repo).upload(Mockito.anyString(), Mockito.anyString());
+        Mockito.doAnswer(inv -> {
+            List<BackupMeta> metas = inv.getArgument(1);
+            metas.add(backupMeta);
+            return Status.OK;
+        }).when(repo).getSnapshotMetaFile(Mockito.eq(label), Mockito.anyList(), Mockito.eq(-1));
 
-                Env.getCurrentSystemInfo();
-                minTimes = 0;
-                result = systemInfoService;
-            }
-        };
-
-        new Expectations() {
-            {
-                systemInfoService.selectBackendIdsForReplicaCreation((ReplicaAllocation) any,
-                        Maps.newHashMap(), (TStorageMedium) any, false, true);
-                minTimes = 0;
-                result = new Delegate() {
-                    public synchronized List<Long> selectBackendIdsForReplicaCreation(
-                            ReplicaAllocation replicaAlloc, Map<Tag, Integer> nextIndexs,
-                            TStorageMedium medium, boolean isStorageMediumSpecified,
-                            boolean isOnlyForCheck) {
-                        List<Long> beIds = Lists.newArrayList();
-                        beIds.add(CatalogMocker.BACKEND1_ID);
-                        beIds.add(CatalogMocker.BACKEND2_ID);
-                        beIds.add(CatalogMocker.BACKEND3_ID);
-                        return beIds;
-                    }
-                };
-            }
-        };
-
-        new Expectations() {
-            {
-                editLog.logBackupJob((BackupJob) any);
-                minTimes = 0;
-                result = new Delegate() {
-                    public void logBackupJob(BackupJob job) {
-                        System.out.println("log backup job: " + job);
-                    }
-                };
-            }
-        };
-
-        new Expectations() {
-            {
-                repo.upload(anyString, anyString);
-                result = Status.OK;
-                minTimes = 0;
-
-                List<BackupMeta> backupMetas = Lists.newArrayList();
-                repo.getSnapshotMetaFile(label, backupMetas, -1);
-                minTimes = 0;
-                result = new Delegate() {
-                    public Status getSnapshotMetaFile(String label, List<BackupMeta> backupMetas) {
-                        backupMetas.add(backupMeta);
-                        return Status.OK;
-                    }
-                };
-            }
-        };
-
-        new MockUp<MarkedCountDownLatch>() {
-            @Mock
-            boolean await(long timeout, TimeUnit unit) {
-                return true;
-            }
-        };
+        mockedMarkedCountDownLatch = Mockito.mockConstruction(MarkedCountDownLatch.class,
+                Mockito.withSettings().defaultAnswer(Mockito.CALLS_REAL_METHODS),
+                (mock, context) -> {
+                    Mockito.doReturn(true).when(mock).await(Mockito.anyLong(), Mockito.any(TimeUnit.class));
+                });
 
         // gen BackupJobInfo
         jobInfo = new BackupJobInfo();
@@ -266,6 +217,16 @@ public class RestoreJobTest {
         List<Resource> resources = Lists.newArrayList();
         tbls.add(expectedRestoreTbl);
         backupMeta = new BackupMeta(tbls, resources);
+    }
+
+    @After
+    public void tearDown() {
+        if (mockedEnvStatic != null) {
+            mockedEnvStatic.close();
+        }
+        if (mockedMarkedCountDownLatch != null) {
+            mockedMarkedCountDownLatch.close();
+        }
     }
 
     @Test

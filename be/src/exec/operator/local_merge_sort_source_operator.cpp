@@ -22,6 +22,8 @@
 #include <string>
 
 #include "exec/operator/operator.h"
+#include "exprs/vexpr.h"
+#include "exprs/vexpr_context.h"
 
 namespace doris {
 
@@ -60,10 +62,9 @@ std::vector<Dependency*> LocalMergeSortLocalState::dependencies() const {
 Status LocalMergeSortLocalState::build_merger(RuntimeState* state) {
     auto& p = _parent->cast<LocalMergeSortSourceOperatorX>();
     VExprContextSPtrs ordering_expr_ctxs;
-    ordering_expr_ctxs.resize(p._vsort_exec_exprs.ordering_expr_ctxs().size());
+    ordering_expr_ctxs.resize(p._ordering_expr_ctxs.size());
     for (size_t i = 0; i < ordering_expr_ctxs.size(); i++) {
-        RETURN_IF_ERROR(
-                p._vsort_exec_exprs.ordering_expr_ctxs()[i]->clone(state, ordering_expr_ctxs[i]));
+        RETURN_IF_ERROR(p._ordering_expr_ctxs[i]->clone(state, ordering_expr_ctxs[i]));
     }
     _merger = std::make_unique<VSortedRunMerger>(ordering_expr_ctxs, p._is_asc_order,
                                                  p._nulls_first, state->batch_size(), p._limit,
@@ -89,7 +90,8 @@ LocalMergeSortSourceOperatorX::LocalMergeSortSourceOperatorX(ObjectPool* pool,
 
 Status LocalMergeSortSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(Base::init(tnode, state));
-    RETURN_IF_ERROR(_vsort_exec_exprs.init(tnode.sort_node.sort_info, _pool));
+    RETURN_IF_ERROR(VExpr::create_expr_trees(tnode.sort_node.sort_info.ordering_exprs,
+                                             _ordering_expr_ctxs));
     _is_asc_order = tnode.sort_node.sort_info.is_asc_order;
     _nulls_first = tnode.sort_node.sort_info.nulls_first;
     _op_name = "LOCAL_MERGE_SORT_SOURCE_OPERATOR";
@@ -98,8 +100,8 @@ Status LocalMergeSortSourceOperatorX::init(const TPlanNode& tnode, RuntimeState*
 
 Status LocalMergeSortSourceOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(Base::prepare(state));
-    RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, _child->row_desc(), _row_descriptor));
-    RETURN_IF_ERROR(_vsort_exec_exprs.open(state));
+    RETURN_IF_ERROR(VExpr::prepare(_ordering_expr_ctxs, state, _row_descriptor));
+    RETURN_IF_ERROR(VExpr::open(_ordering_expr_ctxs, state));
     init_dependencies_and_sorter();
     return Status::OK();
 }

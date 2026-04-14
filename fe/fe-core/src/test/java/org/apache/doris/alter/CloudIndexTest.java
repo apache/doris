@@ -37,7 +37,6 @@ import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.UserException;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
@@ -48,7 +47,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.CreateIndexOp;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.resource.computegroup.ComputeGroupMgr;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -61,15 +59,16 @@ import org.apache.doris.utframe.MockedMetaServerFactory;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import mockit.Mock;
-import mockit.MockUp;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
-import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -91,136 +90,147 @@ public class CloudIndexTest {
     private static CancelBuildIndexCommand cancelBuildIndexCommand;
     private static SchemaChangeHandler schemaChangeHandler;
 
+    private MockedStatic<MetaServiceProxy> mockedMetaServiceProxy;
+    private MetaServiceProxy mockProxy;
+
+    private static void setField(Object target, Class<?> clazz, String fieldName, Object value)
+            throws Exception {
+        Field field = clazz.getDeclaredField(fieldName);
+        field.setAccessible(true);
+        field.set(target, value);
+    }
+
+    @After
+    public void tearDown() {
+        if (mockedMetaServiceProxy != null) {
+            mockedMetaServiceProxy.close();
+        }
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+    }
+
     @Before
-    public void setUp() throws InstantiationException, IllegalAccessException, IllegalArgumentException,
-            InvocationTargetException, NoSuchMethodException, SecurityException, UserException {
+    public void setUp() throws Exception {
         FeConstants.runningUnitTest = true;
         // Setup for MetaServiceProxy mock
-        new MockUp<MetaServiceProxy>(MetaServiceProxy.class) {
+        mockProxy = Mockito.mock(MetaServiceProxy.class);
+        mockedMetaServiceProxy = Mockito.mockStatic(MetaServiceProxy.class);
+        mockedMetaServiceProxy.when(MetaServiceProxy::getInstance).thenReturn(mockProxy);
 
-            @Mock
-            public Cloud.BeginTxnResponse beginTxn(Cloud.BeginTxnRequest request) {
-                Cloud.BeginTxnResponse.Builder beginTxnResponseBuilder = Cloud.BeginTxnResponse.newBuilder();
-                beginTxnResponseBuilder.setTxnId(1000)
-                        .setStatus(
-                                Cloud.MetaServiceResponseStatus.newBuilder().setCode(MetaServiceCode.OK).setMsg("OK"));
-                return beginTxnResponseBuilder.build();
-            }
+        Mockito.doAnswer(invocation -> {
+            Cloud.BeginTxnResponse.Builder beginTxnResponseBuilder = Cloud.BeginTxnResponse.newBuilder();
+            beginTxnResponseBuilder.setTxnId(1000)
+                    .setStatus(
+                            Cloud.MetaServiceResponseStatus.newBuilder().setCode(MetaServiceCode.OK).setMsg("OK"));
+            return beginTxnResponseBuilder.build();
+        }).when(mockProxy).beginTxn(Mockito.any());
 
-            @Mock
-            public Cloud.CommitTxnResponse commitTxn(Cloud.CommitTxnRequest request) {
-                Cloud.TxnInfoPB.Builder txnInfoBuilder = Cloud.TxnInfoPB.newBuilder();
-                txnInfoBuilder.setDbId(CatalogTestUtil.testDbId1);
-                txnInfoBuilder.addAllTableIds(Lists.newArrayList(olapTable.getId()));
-                txnInfoBuilder.setLabel("test_label");
-                txnInfoBuilder.setListenerId(-1);
-                Cloud.CommitTxnResponse.Builder commitTxnResponseBuilder = Cloud.CommitTxnResponse.newBuilder();
-                commitTxnResponseBuilder.setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
-                                .setCode(MetaServiceCode.OK).setMsg("OK"))
-                        .setTxnInfo(txnInfoBuilder.build());
-                return commitTxnResponseBuilder.build();
-            }
+        Mockito.doAnswer(invocation -> {
+            Cloud.TxnInfoPB.Builder txnInfoBuilder = Cloud.TxnInfoPB.newBuilder();
+            txnInfoBuilder.setDbId(CatalogTestUtil.testDbId1);
+            txnInfoBuilder.addAllTableIds(Lists.newArrayList(olapTable != null ? olapTable.getId() : 0L));
+            txnInfoBuilder.setLabel("test_label");
+            txnInfoBuilder.setListenerId(-1);
+            Cloud.CommitTxnResponse.Builder commitTxnResponseBuilder = Cloud.CommitTxnResponse.newBuilder();
+            commitTxnResponseBuilder.setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                            .setCode(MetaServiceCode.OK).setMsg("OK"))
+                    .setTxnInfo(txnInfoBuilder.build());
+            return commitTxnResponseBuilder.build();
+        }).when(mockProxy).commitTxn(Mockito.any());
 
-            @Mock
-            public Cloud.CheckTxnConflictResponse checkTxnConflict(Cloud.CheckTxnConflictRequest request) {
-                Cloud.CheckTxnConflictResponse.Builder checkTxnConflictResponseBuilder =
-                        Cloud.CheckTxnConflictResponse.newBuilder();
-                checkTxnConflictResponseBuilder.setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
-                                .setCode(MetaServiceCode.OK).setMsg("OK"))
-                        .setFinished(true);
-                return checkTxnConflictResponseBuilder.build();
-            }
+        Mockito.doAnswer(invocation -> {
+            Cloud.CheckTxnConflictResponse.Builder checkTxnConflictResponseBuilder =
+                    Cloud.CheckTxnConflictResponse.newBuilder();
+            checkTxnConflictResponseBuilder.setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                            .setCode(MetaServiceCode.OK).setMsg("OK"))
+                    .setFinished(true);
+            return checkTxnConflictResponseBuilder.build();
+        }).when(mockProxy).checkTxnConflict(Mockito.any());
 
-            @Mock
-            public Cloud.GetClusterResponse getCluster(Cloud.GetClusterRequest request) {
-                Cloud.GetClusterResponse.Builder getClusterResponseBuilder = Cloud.GetClusterResponse.newBuilder();
-                Cloud.ClusterPB.Builder clusterBuilder = Cloud.ClusterPB.newBuilder();
-                clusterBuilder.setClusterId("test_id").setClusterName("test_group");
+        Mockito.doAnswer(invocation -> {
+            Cloud.GetClusterResponse.Builder getClusterResponseBuilder = Cloud.GetClusterResponse.newBuilder();
+            Cloud.ClusterPB.Builder clusterBuilder = Cloud.ClusterPB.newBuilder();
+            clusterBuilder.setClusterId("test_id").setClusterName("test_group");
 
-                Cloud.NodeInfoPB.Builder node1 = Cloud.NodeInfoPB.newBuilder();
-                node1.setCloudUniqueId("test_cloud")
-                        .setName("host1")
-                        .setIp("host1")
-                        .setHost("host1")
-                        .setHeartbeatPort(123)
-                        .setEditLogPort(125)
-                        .setStatus(Cloud.NodeStatusPB.NODE_STATUS_RUNNING);
-                clusterBuilder.addNodes(node1.build());
-                getClusterResponseBuilder.setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
-                                .setCode(MetaServiceCode.OK).setMsg("OK"))
-                        .addCluster(clusterBuilder.build());
-                return getClusterResponseBuilder.build();
-            }
+            Cloud.NodeInfoPB.Builder node1 = Cloud.NodeInfoPB.newBuilder();
+            node1.setCloudUniqueId("test_cloud")
+                    .setName("host1")
+                    .setIp("host1")
+                    .setHost("host1")
+                    .setHeartbeatPort(123)
+                    .setEditLogPort(125)
+                    .setStatus(Cloud.NodeStatusPB.NODE_STATUS_RUNNING);
+            clusterBuilder.addNodes(node1.build());
+            getClusterResponseBuilder.setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                            .setCode(MetaServiceCode.OK).setMsg("OK"))
+                    .addCluster(clusterBuilder.build());
+            return getClusterResponseBuilder.build();
+        }).when(mockProxy).getCluster(Mockito.any());
 
-            @Mock
-            public Cloud.CreateTabletsResponse createTablets(Cloud.CreateTabletsRequest request) {
-                Cloud.CreateTabletsResponse.Builder responseBuilder = Cloud.CreateTabletsResponse.newBuilder();
-                responseBuilder.setStatus(
-                        Cloud.MetaServiceResponseStatus.newBuilder().setCode(MetaServiceCode.OK).setMsg("OK"));
-                return responseBuilder.build();
-            }
+        Mockito.doAnswer(invocation -> {
+            Cloud.CreateTabletsResponse.Builder responseBuilder = Cloud.CreateTabletsResponse.newBuilder();
+            responseBuilder.setStatus(
+                    Cloud.MetaServiceResponseStatus.newBuilder().setCode(MetaServiceCode.OK).setMsg("OK"));
+            return responseBuilder.build();
+        }).when(mockProxy).createTablets(Mockito.any());
 
-            @Mock
-            public Cloud.FinishTabletJobResponse finishTabletJob(Cloud.FinishTabletJobRequest request) {
-                Cloud.FinishTabletJobResponse.Builder responseBuilder = Cloud.FinishTabletJobResponse.newBuilder();
-                responseBuilder.setStatus(
-                        Cloud.MetaServiceResponseStatus.newBuilder().setCode(MetaServiceCode.OK).setMsg("OK"));
-                return responseBuilder.build();
-            }
+        Mockito.doAnswer(invocation -> {
+            Cloud.FinishTabletJobResponse.Builder responseBuilder = Cloud.FinishTabletJobResponse.newBuilder();
+            responseBuilder.setStatus(
+                    Cloud.MetaServiceResponseStatus.newBuilder().setCode(MetaServiceCode.OK).setMsg("OK"));
+            return responseBuilder.build();
+        }).when(mockProxy).finishTabletJob(Mockito.any());
 
-            @Mock
-            public Cloud.IndexResponse prepareIndex(Cloud.IndexRequest request) {
-                Cloud.IndexResponse.Builder builder = Cloud.IndexResponse.newBuilder();
-                builder.setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
-                        .setCode(MetaServiceCode.OK).setMsg("OK"));
-                return builder.build();
-            }
+        Mockito.doAnswer(invocation -> {
+            Cloud.IndexResponse.Builder builder = Cloud.IndexResponse.newBuilder();
+            builder.setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                    .setCode(MetaServiceCode.OK).setMsg("OK"));
+            return builder.build();
+        }).when(mockProxy).prepareIndex(Mockito.any());
 
-            @Mock
-            public Cloud.IndexResponse commitIndex(Cloud.IndexRequest request) {
-                Cloud.IndexResponse.Builder builder = Cloud.IndexResponse.newBuilder();
-                builder.setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
-                        .setCode(MetaServiceCode.OK).setMsg("OK"));
-                return builder.build();
-            }
+        Mockito.doAnswer(invocation -> {
+            Cloud.IndexResponse.Builder builder = Cloud.IndexResponse.newBuilder();
+            builder.setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                    .setCode(MetaServiceCode.OK).setMsg("OK"));
+            return builder.build();
+        }).when(mockProxy).commitIndex(Mockito.any());
 
-            @Mock
-            public Cloud.IndexResponse dropIndex(Cloud.IndexRequest request) {
-                Cloud.IndexResponse.Builder builder = Cloud.IndexResponse.newBuilder();
-                builder.setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
-                        .setCode(MetaServiceCode.OK).setMsg("OK"));
-                return builder.build();
-            }
+        Mockito.doAnswer(invocation -> {
+            Cloud.IndexResponse.Builder builder = Cloud.IndexResponse.newBuilder();
+            builder.setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                    .setCode(MetaServiceCode.OK).setMsg("OK"));
+            return builder.build();
+        }).when(mockProxy).dropIndex(Mockito.any());
 
-            @Mock
-            public Cloud.CheckKVResponse checkKv(Cloud.CheckKVRequest request) {
-                Cloud.CheckKVResponse.Builder builder = Cloud.CheckKVResponse.newBuilder();
-                builder.setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
-                        .setCode(MetaServiceCode.OK).setMsg("OK"));
-                return builder.build();
-            }
+        Mockito.doAnswer(invocation -> {
+            Cloud.CheckKVResponse.Builder builder = Cloud.CheckKVResponse.newBuilder();
+            builder.setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                    .setCode(MetaServiceCode.OK).setMsg("OK"));
+            return builder.build();
+        }).when(mockProxy).checkKv(Mockito.any());
 
-            @Mock
-            public Cloud.GetCurrentMaxTxnResponse getCurrentMaxTxnId(Cloud.GetCurrentMaxTxnRequest request) {
-                Cloud.GetCurrentMaxTxnResponse.Builder builder = Cloud.GetCurrentMaxTxnResponse.newBuilder();
-                builder.setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
-                                .setCode(MetaServiceCode.OK).setMsg("OK"))
-                        .setCurrentMaxTxnId(1000);
-                return builder.build();
-            }
-        };
+        Mockito.doAnswer(invocation -> {
+            Cloud.GetCurrentMaxTxnResponse.Builder builder = Cloud.GetCurrentMaxTxnResponse.newBuilder();
+            builder.setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                            .setCode(MetaServiceCode.OK).setMsg("OK"))
+                    .setCurrentMaxTxnId(1000);
+            return builder.build();
+        }).when(mockProxy).getCurrentMaxTxnId(Mockito.any());
 
         Config.cloud_unique_id = "test_cloud";
         Config.meta_service_endpoint = MockedMetaServerFactory.METASERVER_DEFAULT_IP + ":" + 20121;
 
         EnvFactory envFactory = EnvFactory.getInstance();
         masterEnv = envFactory.createEnv(false);
-        SystemInfoService cloudSystemInfo = Env.getCurrentSystemInfo();
+        SystemInfoService cloudSystemInfo = masterEnv.getClusterInfo();
         fakeEnv = new FakeEnv();
         FakeEnv.setSystemInfo(cloudSystemInfo);
 
         fakeEditLog = new FakeEditLog();
-        testEditLog = null; // Will be set by MockUp
         FakeEnv.setEnv(masterEnv);
 
         ctx = new ConnectContext();
@@ -232,113 +242,73 @@ public class CloudIndexTest {
         ctx.setCloudCluster("test_group");
         Assert.assertTrue(envFactory instanceof CloudEnvFactory);
         Assert.assertTrue(masterEnv instanceof CloudEnv);
-        new MockUp<Env>() {
-            @Mock
-            public Env getCurrentEnv() {
-                return masterEnv;
+
+        // Replace MockUp<Env> with direct field injection on masterEnv
+        setField(masterEnv, Env.class, "selfNode",
+                new SystemInfoService.HostInfo("127.0.0.1", 9030));
+        testEditLog = Mockito.mock(EditLog.class);
+        setField(masterEnv, Env.class, "editLog", testEditLog);
+        setField(masterEnv, Env.class, "computeGroupMgr", new ComputeGroupMgr(Env.getCurrentSystemInfo()));
+        AccessControllerManager acm = new AccessControllerManager(masterEnv.getAuth()) {
+            @Override
+            public boolean checkTblPriv(ConnectContext ctx, String ctl, String db, String tbl,
+                    PrivPredicate wanted) {
+                return true;
             }
 
-            @Mock
-            public EditLog getEditLog() {
-                if (testEditLog == null) {
-                    // Create a mock EditLog using a no-op approach
-                    testEditLog = new EditLog("test") {
-                        // Override to avoid initialization issues
-                    };
-                }
-                return testEditLog;
-            }
-
-            @Mock
-            public ComputeGroupMgr getComputeGroupMgr() {
-                return new ComputeGroupMgr(Env.getCurrentSystemInfo());
-            }
-
-            @Mock
-            public SchemaChangeHandler getSchemaChangeHandler() {
-                // Create a new independent SchemaChangeHandler for each call
-                return schemaChangeHandler;
-            }
-
-            @Mock
-            public AccessControllerManager getAccessManager() {
-                return new AccessControllerManager(masterEnv.getAuth()) {
-                    @Override
-                    public boolean checkTblPriv(ConnectContext ctx, String ctl, String db, String tbl, PrivPredicate wanted) {
-                        return true; // Allow all access for test
-                    }
-
-                    @Override
-                    public boolean checkCloudPriv(UserIdentity user, String cluster, PrivPredicate wanted, ResourceTypeEnum resourceType) {
-                        return true; // Allow all cloud privileges for test
-                    }
-                };
+            @Override
+            public boolean checkCloudPriv(UserIdentity user, String cluster, PrivPredicate wanted,
+                    ResourceTypeEnum resourceType) {
+                return true;
             }
         };
+        setField(masterEnv, Env.class, "accessManager", acm);
 
-        new MockUp<Auth>() {
-            @Mock
-            public String getDefaultCloudCluster(String user) {
-                return "test_group"; // Return default cluster for test
+        // Replace MockUp<Auth> with spy
+        Auth authSpy = Mockito.spy(masterEnv.getAuth());
+        Mockito.doReturn("test_group").when(authSpy).getDefaultCloudCluster(Mockito.anyString());
+        Mockito.doAnswer(invocation -> {
+            try {
+                return masterEnv.getComputeGroupMgr().getComputeGroupByName("test_group");
+            } catch (Exception e) {
+                return masterEnv.getComputeGroupMgr().getAllBackendComputeGroup();
             }
+        }).when(authSpy).getComputeGroup(Mockito.anyString());
+        setField(masterEnv, Env.class, "auth", authSpy);
 
-            @Mock
-            public ComputeGroup getComputeGroup(String user) {
-                try {
-                    return masterEnv.getComputeGroupMgr().getComputeGroupByName("test_group");
-                } catch (Exception e) {
-                    return masterEnv.getComputeGroupMgr().getAllBackendComputeGroup();
-                }
-            }
-        };
-
-        // Mock cloud environment permissions
-        new MockUp<CloudEnv>() {
-            @Mock
-            public void checkCloudClusterPriv(String cluster) throws Exception {
-                // Always allow for tests
-            }
-        };
-
-        // Mock ConnectContext to avoid compute group permission check
-        new MockUp<ConnectContext>() {
-            @Mock
-            public String getCloudCluster() {
-                return "test_group";
-            }
-
-            @Mock
-            public UserIdentity getCurrentUserIdentity() {
-                UserIdentity rootUser = new UserIdentity("root", "%");
-                rootUser.setIsAnalyzed();
-                return rootUser;
-            }
-        };
+        // MockUp<CloudEnv> removed: checkCloudClusterPriv not called in test paths
+        // MockUp<ConnectContext> removed: ctx already has correct values via setters
 
         Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
-        // Mock addCloudCluster to avoid EditLog issues
-        new MockUp<CloudSystemInfoService>() {
-            @Mock
-            public void addCloudCluster(String clusterName, String clusterId) {
-                // Create backend manually for test
-                Backend backend = new Backend(10001L, "host1", 123);
-                backend.setAlive(true);
-                backend.setBePort(456);
-                backend.setHttpPort(789);
-                backend.setBrpcPort(321);
-                backend.setTagMap(Maps.newHashMap());
-                backend.getTagMap().put("cloud_cluster_id", "test_id");
-                backend.getTagMap().put("cloud_unique_id", "test_cloud");
-                backend.getTagMap().put("cloud_cluster_name", "test_group");
-                backend.getTagMap().put("cloud_cluster_status", "NORMAL");
-                backend.getTagMap().put("location", "default");
-                backend.getTagMap().put("cloud_cluster_private_endpoint", "");
-                backend.getTagMap().put("cloud_cluster_public_endpoint", "");
-                CloudSystemInfoService systemInfo = (CloudSystemInfoService) Env.getCurrentSystemInfo();
-                systemInfo.addBackend(backend);
-            }
-        };
-        ((CloudSystemInfoService) Env.getCurrentSystemInfo()).addCloudCluster("test_group", "");
+        // Replace MockUp<CloudSystemInfoService> with spy
+        CloudSystemInfoService sysInfo = (CloudSystemInfoService) Env.getCurrentSystemInfo();
+        CloudSystemInfoService sysInfoSpy = Mockito.spy(sysInfo);
+        Mockito.doAnswer(invocation -> {
+            Backend backend = new Backend(10001L, "host1", 123);
+            backend.setAlive(true);
+            backend.setBePort(456);
+            backend.setHttpPort(789);
+            backend.setBrpcPort(321);
+            Map<String, String> tagMap = Maps.newHashMap();
+            tagMap.put("location", "default");
+            tagMap.put("cloud_cluster_id", "test_id");
+            tagMap.put("cloud_unique_id", "test_cloud");
+            tagMap.put("cloud_cluster_name", "test_group");
+            tagMap.put("cloud_cluster_status", "NORMAL");
+            tagMap.put("cloud_cluster_private_endpoint", "");
+            tagMap.put("cloud_cluster_public_endpoint", "");
+            backend.setTagMap(tagMap);
+            CloudSystemInfoService self = (CloudSystemInfoService) invocation.getMock();
+            self.addBackend(backend);
+            List<Backend> toAdd = new ArrayList<>();
+            toAdd.add(backend);
+            self.updateCloudClusterMap(toAdd, new ArrayList<>());
+            return null;
+        }).when(sysInfoSpy).addCloudCluster(Mockito.anyString(), Mockito.anyString());
+        setField(masterEnv, Env.class, "systemInfo", sysInfoSpy);
+        FakeEnv.setSystemInfo(sysInfoSpy);
+
+        sysInfoSpy.addCloudCluster("test_group", "");
         List<Backend> backends =
                 ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getBackendsByClusterName("test_group");
         Assert.assertEquals(1, backends.size());
@@ -358,7 +328,13 @@ public class CloudIndexTest {
         Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
 
         SystemInfoService cloudSystemInfo = Env.getCurrentSystemInfo();
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
         fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
         fakeEditLog = new FakeEditLog();
         FakeEnv.setEnv(masterEnv);
         FakeEnv.setSystemInfo(cloudSystemInfo);
@@ -407,7 +383,13 @@ public class CloudIndexTest {
         Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
 
         SystemInfoService cloudSystemInfo = Env.getCurrentSystemInfo();
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
         fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
         fakeEditLog = new FakeEditLog();
         FakeEnv.setEnv(masterEnv);
         FakeEnv.setSystemInfo(cloudSystemInfo);
@@ -472,7 +454,13 @@ public class CloudIndexTest {
         Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
 
         SystemInfoService cloudSystemInfo = Env.getCurrentSystemInfo();
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
         fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
         fakeEditLog = new FakeEditLog();
         FakeEnv.setEnv(masterEnv);
         FakeEnv.setSystemInfo(cloudSystemInfo);
@@ -534,7 +522,13 @@ public class CloudIndexTest {
         Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
 
         SystemInfoService cloudSystemInfo = Env.getCurrentSystemInfo();
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
         fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
         fakeEditLog = new FakeEditLog();
         FakeEnv.setEnv(masterEnv);
         FakeEnv.setSystemInfo(cloudSystemInfo);
@@ -579,7 +573,13 @@ public class CloudIndexTest {
         Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
 
         SystemInfoService cloudSystemInfo = Env.getCurrentSystemInfo();
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
         fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
         fakeEditLog = new FakeEditLog();
         FakeEnv.setEnv(masterEnv);
         FakeEnv.setSystemInfo(cloudSystemInfo);

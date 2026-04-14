@@ -25,9 +25,8 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.DatabaseMetadata;
-import org.apache.doris.datasource.ExternalDatabase;
-import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.TableMetadata;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
@@ -54,15 +53,14 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.utframe.TestWithFeService;
 
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
 import org.apache.commons.lang3.RandomUtils;
 import org.apache.hadoop.hive.metastore.api.Database;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedConstruction;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -77,14 +75,17 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
     private static final String mockedDbName = "mockedDb";
     private final NereidsParser nereidsParser = new NereidsParser();
 
-    @Mocked
-    private ThriftHMSCachedClient mockedHiveClient;
+    private MockedConstruction<ThriftHMSCachedClient> mockedClientConstruction;
+    private HMSExternalCatalog hmsExternalCatalog;
 
     private List<FieldSchema> checkedHiveCols;
 
     private final Set<String> createdDbs = new HashSet<>();
 
     private final Set<Table> createdTables = new HashSet<>();
+
+    private volatile List<Column> mockTableSchema;
+    private volatile Set<String> mockTablePartNames;
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -113,12 +114,76 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
                 + "  'replication_num' = '1')";
         createTable(createSourceInterPTable, true);
 
+        // Set up MockedConstruction for ThriftHMSCachedClient before catalog creation
+        mockedClientConstruction = Mockito.mockConstruction(ThriftHMSCachedClient.class,
+            (mock, context) -> {
+                Mockito.doAnswer(inv -> {
+                    DatabaseMetadata db = inv.getArgument(0);
+                    if (db instanceof HiveDatabaseMetadata) {
+                        Database hiveDb = HiveUtil.toHiveDatabase((HiveDatabaseMetadata) db);
+                        createdDbs.add(hiveDb.getName());
+                    }
+                    return null;
+                }).when(mock).createDatabase(Mockito.any(DatabaseMetadata.class));
+
+                Mockito.doAnswer(inv -> {
+                    String dbName = inv.getArgument(0);
+                    if (createdDbs.contains(dbName)) {
+                        return new Database(dbName, "", "", null);
+                    }
+                    return null;
+                }).when(mock).getDatabase(Mockito.anyString());
+
+                Mockito.doAnswer(inv -> {
+                    String dbName = inv.getArgument(0);
+                    String tblName = inv.getArgument(1);
+                    for (Table table : createdTables) {
+                        if (table.getDbName().equals(dbName) && table.getTableName().equals(tblName)) {
+                            return true;
+                        }
+                    }
+                    return false;
+                }).when(mock).tableExists(Mockito.anyString(), Mockito.anyString());
+
+                Mockito.doAnswer(inv -> new ArrayList<>(createdDbs))
+                    .when(mock).getAllDatabases();
+
+                Mockito.doAnswer(inv -> {
+                    TableMetadata tbl = inv.getArgument(0);
+                    if (tbl instanceof HiveTableMetadata) {
+                        Table table = HiveUtil.toHiveTable((HiveTableMetadata) tbl);
+                        createdTables.add(table);
+                        if (checkedHiveCols != null) {
+                            List<FieldSchema> fieldSchemas = table.getSd().getCols();
+                            Assertions.assertEquals(checkedHiveCols.size(), fieldSchemas.size());
+                            for (int i = 0; i < checkedHiveCols.size(); i++) {
+                                FieldSchema checkedCol = checkedHiveCols.get(i);
+                                FieldSchema actualCol = fieldSchemas.get(i);
+                                Assertions.assertEquals(checkedCol.getName(), actualCol.getName().toLowerCase());
+                                Assertions.assertEquals(checkedCol.getType(), actualCol.getType().toLowerCase());
+                            }
+                        }
+                    }
+                    return null;
+                }).when(mock).createTable(Mockito.any(TableMetadata.class), Mockito.anyBoolean());
+
+                Mockito.doAnswer(inv -> {
+                    String dbName = inv.getArgument(0);
+                    String tblName = inv.getArgument(1);
+                    for (Table createdTable : createdTables) {
+                        if (createdTable.getDbName().equals(dbName) && createdTable.getTableName().equals(tblName)) {
+                            return createdTable;
+                        }
+                    }
+                    return null;
+                }).when(mock).getTable(Mockito.anyString(), Mockito.anyString());
+            });
+
         // create external catalog and switch it
         String hiveCatalog = "create catalog " + mockedCtlName
                 + " properties('type' = 'hms',"
                 + " 'hive.metastore.uris' = 'thrift://192.168.0.1:9083');";
 
-        NereidsParser nereidsParser = new NereidsParser();
         LogicalPlan logicalPlan = nereidsParser.parseSingle(hiveCatalog);
         if (logicalPlan instanceof CreateCatalogCommand) {
             ((CreateCatalogCommand) logicalPlan).run(connectContext, null);
@@ -128,68 +193,6 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
         // create db and use it
         Map<String, String> dbProps = new HashMap<>();
         dbProps.put(HiveMetadataOps.LOCATION_URI_KEY, "file://loc/db");
-        new MockUp<ThriftHMSCachedClient>(ThriftHMSCachedClient.class) {
-            @Mock
-            public void createDatabase(DatabaseMetadata db) {
-                if (db instanceof HiveDatabaseMetadata) {
-                    Database hiveDb = HiveUtil.toHiveDatabase((HiveDatabaseMetadata) db);
-                    createdDbs.add(hiveDb.getName());
-                }
-            }
-
-            @Mock
-            public Database getDatabase(String dbName) {
-                if (createdDbs.contains(dbName)) {
-                    return new Database(dbName, "", "", null);
-                }
-                return null;
-            }
-
-            @Mock
-            public boolean tableExists(String dbName, String tblName) {
-                for (Table table : createdTables) {
-                    if (table.getDbName().equals(dbName) && table.getTableName().equals(tblName)) {
-                        return true;
-                    }
-                }
-                return false;
-            }
-
-            @Mock
-            public List<String> getAllDatabases() {
-                return new ArrayList<>(createdDbs);
-            }
-
-            @Mock
-            public void createTable(TableMetadata tbl, boolean ignoreIfExists) {
-                if (tbl instanceof HiveTableMetadata) {
-                    Table table = HiveUtil.toHiveTable((HiveTableMetadata) tbl);
-                    createdTables.add(table);
-                    if (checkedHiveCols == null) {
-                        // if checkedHiveCols is null, skip column check
-                        return;
-                    }
-                    List<FieldSchema> fieldSchemas = table.getSd().getCols();
-                    Assertions.assertEquals(checkedHiveCols.size(), fieldSchemas.size());
-                    for (int i = 0; i < checkedHiveCols.size(); i++) {
-                        FieldSchema checkedCol = checkedHiveCols.get(i);
-                        FieldSchema actualCol = fieldSchemas.get(i);
-                        Assertions.assertEquals(checkedCol.getName(), actualCol.getName().toLowerCase());
-                        Assertions.assertEquals(checkedCol.getType(), actualCol.getType().toLowerCase());
-                    }
-                }
-            }
-
-            @Mock
-            public Table getTable(String dbName, String tblName) {
-                for (Table createdTable : createdTables) {
-                    if (createdTable.getDbName().equals(dbName) && createdTable.getTableName().equals(tblName)) {
-                        return createdTable;
-                    }
-                }
-                return null;
-            }
-        };
         CreateDatabaseCommand command = new CreateDatabaseCommand(true, new DbName("hive", mockedDbName), dbProps);
         Env.getCurrentEnv().createDb(command);
         // checkout ifNotExists
@@ -217,33 +220,46 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
                 + "  'file_format'='orc')";
         createTable(createSourceExtTable, true);
 
-        HMSExternalCatalog hmsExternalCatalog = (HMSExternalCatalog) Env.getCurrentEnv().getCatalogMgr()
+        hmsExternalCatalog = (HMSExternalCatalog) Env.getCurrentEnv().getCatalogMgr()
                 .getCatalog(mockedCtlName);
-        new MockUp<HMSExternalCatalog>(HMSExternalCatalog.class) {
-            // mock after ThriftHMSCachedClient is mocked
-            @Mock
-            public ExternalDatabase<? extends ExternalTable> getDbNullable(String dbName) {
-                if (createdDbs.contains(dbName)) {
-                    return new HMSExternalDatabase(hmsExternalCatalog, RandomUtils.nextLong(), dbName, dbName);
-                }
-                return null;
-            }
-        };
-        new MockUp<HMSExternalDatabase>(HMSExternalDatabase.class) {
-            // mock after ThriftHMSCachedClient is mocked
-            @Mock
-            HMSExternalTable getTableNullable(String tableName) {
-                for (Table table : createdTables) {
-                    if (table.getTableName().equals(tableName)) {
-                        return new HMSExternalTable(0, tableName, tableName, hmsExternalCatalog, (HMSExternalDatabase) hmsExternalCatalog.getDbNullable(mockedDbName));
+        // Spy on the catalog to override getDbNullable
+        HMSExternalCatalog spyCatalog = Mockito.spy(hmsExternalCatalog);
+        Mockito.doAnswer(inv -> {
+            String dbName = inv.getArgument(0);
+            if (createdDbs.contains(dbName)) {
+                // Create a real HMSExternalDatabase and spy on it
+                HMSExternalDatabase realDb = new HMSExternalDatabase(spyCatalog, RandomUtils.nextLong(), dbName, dbName);
+                HMSExternalDatabase spyDb = Mockito.spy(realDb);
+                Mockito.doAnswer(inv2 -> {
+                    String tableName = inv2.getArgument(0);
+                    for (Table table : createdTables) {
+                        if (table.getTableName().equals(tableName)) {
+                            // Create a real HMSExternalTable and spy on it
+                            HMSExternalTable realTable = new HMSExternalTable(0, tableName, tableName,
+                                    spyCatalog, spyDb);
+                            HMSExternalTable spyTable = Mockito.spy(realTable);
+                            if (mockTableSchema != null) {
+                                Mockito.doReturn(false).when(spyTable).isView();
+                                Mockito.doReturn(mockTableSchema).when(spyTable).getFullSchema();
+                                Mockito.doReturn(mockTablePartNames != null ? mockTablePartNames : new HashSet<>())
+                                        .when(spyTable).getPartitionColumnNames();
+                            }
+                            return spyTable;
+                        }
                     }
-                }
-                return null;
+                    return null;
+                }).when(spyDb).getTableNullable(Mockito.anyString());
+                return spyDb;
             }
-        };
-        new MockUp<HMSExternalTable>(HMSExternalTable.class) {
-            // mock after ThriftHMSCachedClient is mocked
-        };
+            return null;
+        }).when(spyCatalog).getDbNullable(Mockito.anyString());
+        // Replace catalog in CatalogMgr with the spy
+        @SuppressWarnings("unchecked")
+        Map<String, CatalogIf> nameMap = (Map<String, CatalogIf>)
+                org.apache.doris.common.jmockit.Deencapsulation.getField(
+                        Env.getCurrentEnv().getCatalogMgr(), "nameToCatalog");
+        nameMap.put(mockedCtlName, spyCatalog);
+        hmsExternalCatalog = spyCatalog;
     }
 
     private void switchHive() throws Exception {
@@ -261,8 +277,8 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
         switchHive();
         String dropDbStmtStr = "DROP DATABASE IF EXISTS " + mockedDbName;
 
-        NereidsParser nereidsParser = new NereidsParser();
-        LogicalPlan logicalPlan = nereidsParser.parseSingle(dropDbStmtStr);
+        NereidsParser parser = new NereidsParser();
+        LogicalPlan logicalPlan = parser.parseSingle(dropDbStmtStr);
         if (logicalPlan instanceof DropDatabaseCommand) {
             ((DropDatabaseCommand) logicalPlan).run(connectContext, null);
         }
@@ -275,6 +291,10 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
                 dropDatabaseInfo.getDatabaseName(),
                 dropDatabaseInfo.isIfExists(),
                 dropDatabaseInfo.isForce());
+
+        if (mockedClientConstruction != null) {
+            mockedClientConstruction.close();
+        }
     }
 
     @Test
@@ -489,23 +509,9 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
         Assertions.assertEquals(16, createTableInfo.getDistributionDesc().getBuckets());
     }
 
-    private static void mockTargetTable(List<Column> schema, Set<String> partNames) {
-        new MockUp<HMSExternalTable>(HMSExternalTable.class) {
-            @Mock
-            public boolean isView() {
-                return false;
-            }
-
-            @Mock
-            public List<Column> getFullSchema() {
-                return schema;
-            }
-
-            @Mock
-            public Set<String> getPartitionColumnNames() {
-                return partNames;
-            }
-        };
+    private void mockTargetTable(List<Column> schema, Set<String> partNames) {
+        mockTableSchema = schema;
+        mockTablePartNames = partNames;
     }
 
     @Test
@@ -692,7 +698,6 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
         columns = ((CreateTableCommand) plan).getCreateTableInfo().getColumns();
         Assertions.assertEquals(4, columns.size());
         dropTableWithSql("drop table complex_type_struct");
-
 
         String compoundTypeTable1 = "CREATE TABLE complex_type_compound1(\n"
                 + "  `col1` ARRAY<MAP<string,double>> COMMENT 'col1',\n"

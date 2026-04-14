@@ -18,7 +18,7 @@
 suite("test_pythonudaf_inline") {
     // Test Python UDAF using Inline mode
     
-    def runtime_version = "3.8.10"
+    def runtime_version = getPythonUdfRuntimeVersion()
     
     try {
         // Create test table
@@ -55,7 +55,7 @@ suite("test_pythonudaf_inline") {
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "SumUDAF",
-            "runtime_version" = "3.8.10"
+            "runtime_version" = "${runtime_version}"
         )
         AS \$\$
 class SumUDAF:
@@ -101,7 +101,7 @@ class SumUDAF:
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "AvgUDAF",
-            "runtime_version" = "3.8.10"
+            "runtime_version" = "${runtime_version}"
         )
         AS \$\$
 class AvgUDAF:
@@ -151,7 +151,7 @@ class AvgUDAF:
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "CountUDAF",
-            "runtime_version" = "3.8.10"
+            "runtime_version" = "${runtime_version}"
         )
         AS \$\$
 class CountUDAF:
@@ -195,7 +195,7 @@ class CountUDAF:
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "MaxUDAF",
-            "runtime_version" = "3.8.10"
+            "runtime_version" = "${runtime_version}"
         )
         AS \$\$
 class MaxUDAF:
@@ -289,7 +289,7 @@ class MaxUDAF:
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "SumUDAF",
-            "runtime_version" = "3.8.10"
+            "runtime_version" = "${runtime_version}"
         )
         AS \$\$
 class SumUDAF:

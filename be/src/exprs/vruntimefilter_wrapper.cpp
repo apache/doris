@@ -56,12 +56,13 @@ class VExprContext;
 
 VRuntimeFilterWrapper::VRuntimeFilterWrapper(const TExprNode& node, VExprSPtr impl,
                                              double ignore_thredhold, bool null_aware,
-                                             int filter_id)
+                                             int filter_id, int sampling_frequency)
         : VExpr(node),
           _impl(std::move(impl)),
           _ignore_thredhold(ignore_thredhold),
           _null_aware(null_aware),
-          _filter_id(filter_id) {}
+          _filter_id(filter_id),
+          _sampling_frequency(sampling_frequency) {}
 
 Status VRuntimeFilterWrapper::prepare(RuntimeState* state, const RowDescriptor& desc,
                                       VExprContext* context) {
@@ -75,6 +76,7 @@ Status VRuntimeFilterWrapper::open(RuntimeState* state, VExprContext* context,
                                    FunctionContext::FunctionStateScope scope) {
     DCHECK(_prepare_finished);
     RETURN_IF_ERROR(_impl->open(state, context, scope));
+    context->get_runtime_filter_selectivity().set_sampling_frequency(_sampling_frequency);
     _open_finished = true;
     return Status::OK();
 }

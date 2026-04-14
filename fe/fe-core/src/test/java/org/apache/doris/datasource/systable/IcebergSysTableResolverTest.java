@@ -23,18 +23,15 @@ import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.Optional;
 
 public class IcebergSysTableResolverTest {
-    @Mocked
-    private IcebergExternalCatalog catalog;
-    @Mocked
-    private IcebergExternalDatabase db;
+    private IcebergExternalCatalog catalog = Mockito.mock(IcebergExternalCatalog.class);
+    private IcebergExternalDatabase db = Mockito.mock(IcebergExternalDatabase.class);
 
     @Test
     public void testSupportedSysTablesExcludePositionDeletes() {
@@ -68,32 +65,11 @@ public class IcebergSysTableResolverTest {
     }
 
     private IcebergExternalTable newIcebergTable() throws Exception {
-        new Expectations() {
-            {
-                catalog.getId();
-                minTimes = 0;
-                result = 1L;
-
-                db.getFullName();
-                minTimes = 0;
-                result = "test_db";
-
-                db.getRemoteName();
-                minTimes = 0;
-                result = "test_db";
-
-                catalog.getDbOrAnalysisException("test_db");
-                minTimes = 0;
-                result = db;
-
-                db.getId();
-                minTimes = 0;
-                result = 2L;
-
-                db.makeSureInitialized();
-                minTimes = 0;
-            }
-        };
+        Mockito.when(catalog.getId()).thenReturn(1L);
+        Mockito.when(db.getFullName()).thenReturn("test_db");
+        Mockito.when(db.getRemoteName()).thenReturn("test_db");
+        Mockito.doReturn(db).when(catalog).getDbOrAnalysisException("test_db");
+        Mockito.when(db.getId()).thenReturn(2L);
         return new IcebergExternalTable(3L, "tbl", "tbl", catalog, db);
     }
 }

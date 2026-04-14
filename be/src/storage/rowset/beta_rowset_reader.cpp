@@ -34,7 +34,6 @@
 #include "io/io_common.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_profile.h"
-#include "storage/cache/schema_cache.h"
 #include "storage/delete/delete_handler.h"
 #include "storage/iterator/vgeneric_iterators.h"
 #include "storage/olap_define.h"

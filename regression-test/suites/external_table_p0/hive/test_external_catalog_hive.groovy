@@ -17,6 +17,7 @@
 
 suite("test_external_catalog_hive", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
+    String enableRangerTest = context.config.otherConfigs.get("enableRangerTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("diable Hive test.")
         return;
@@ -184,8 +185,8 @@ suite("test_external_catalog_hive", "p0,external") {
 
         sql """alter catalog hms rename ${catalog_name};"""
 
-        // test wrong access controller
-        test {
+        // test wrong ranger service only when ranger regression environment is configured
+        if (enableRangerTest != null && enableRangerTest.equalsIgnoreCase("true")) {
             def tmp_name = "${catalog_name}" + "_wrong"
             sql "drop catalog if exists ${tmp_name}"
             sql """
@@ -196,7 +197,15 @@ suite("test_external_catalog_hive", "p0,external") {
                     'access_controller.class' = 'org.apache.doris.catalog.authorizer.ranger.hive.RangerHiveAccessControllerFactory'
                 );
             """
-            exception "Failed to init access controller: bound must be positive"
+            sql """switch ${tmp_name};"""
+            test {
+                sql """use test;"""
+                exception "Access denied for user"
+            }
+            sql """switch internal"""
+            sql "drop catalog if exists ${tmp_name}"
+        } else {
+            logger.info("skip wrong ranger service case because enableRangerTest is not true")
         }
 
         // test catalog_meta_cache_statistics

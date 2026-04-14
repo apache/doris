@@ -17,17 +17,16 @@
 
 package org.apache.doris.backup;
 
+import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.BackupJob.BackupJobState;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.UnitTestUtil;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.property.storage.BrokerProperties;
@@ -36,7 +35,6 @@ import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.nereids.trees.plans.commands.BackupCommand;
 import org.apache.doris.persist.EditLog;
-import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
@@ -50,16 +48,16 @@ import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import mockit.Delegate;
-import mockit.Expectations;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
+import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.mockito.ArgumentMatchers;
+import org.mockito.MockedConstruction;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -97,47 +95,24 @@ public class BackupJobTest {
     private long repoId = 20000;
     private AtomicLong id = new AtomicLong(50000);
 
-    @Mocked
-    private Env env;
-    @Mocked
-    private InternalCatalog catalog;
+    private Env env = Mockito.mock(Env.class);
+    private InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
 
-    private MockBackupHandler backupHandler;
+    private BackupHandler backupHandler;
 
-    private MockRepositoryMgr repoMgr;
+    private RepositoryMgr repoMgr;
 
     public BackupJobTest() throws UserException {
     }
 
-    // Thread is not mockable in Jmockit, use subclass instead
-    private final class MockBackupHandler extends BackupHandler {
-        public MockBackupHandler(Env env) {
-            super(env);
-        }
+    private EditLog editLog = Mockito.mock(EditLog.class);
 
-        @Override
-        public RepositoryMgr getRepoMgr() {
-            return repoMgr;
-        }
-    }
+    private Repository repo = Mockito.spy(new Repository(repoId, "repo", false, "my_repo",
+            BrokerProperties.of("broker", Maps.newHashMap())));
 
-    // Thread is not mockable in Jmockit, use subclass instead
-    private final class MockRepositoryMgr extends RepositoryMgr {
-        public MockRepositoryMgr() {
-            super();
-        }
-
-        @Override
-        public Repository getRepo(long repoId) {
-            return repo;
-        }
-    }
-
-    @Mocked
-    private EditLog editLog;
-
-    private Repository repo = new Repository(repoId, "repo", false, "my_repo",
-            BrokerProperties.of("broker", Maps.newHashMap()));
+    private MockedStatic<Env> mockedEnvStatic;
+    private MockedStatic<AgentTaskExecutor> mockedAgentTaskExecutor;
+    private MockedConstruction<FileSystemDescriptor> mockedFsDescriptor;
 
     @BeforeClass
     public static void start() {
@@ -158,94 +133,62 @@ public class BackupJobTest {
 
     @Before
     public void setUp() {
-
-        repoMgr = new MockRepositoryMgr();
-        backupHandler = new MockBackupHandler(env);
-
-        // Thread is unmockable after Jmockit version 1.48, so use reflection to set field instead.
-        Deencapsulation.setField(env, "backupHandler", backupHandler);
+        repoMgr = Mockito.mock(RepositoryMgr.class);
+        backupHandler = Mockito.mock(BackupHandler.class);
 
         db = UnitTestUtil.createDb(dbId, tblId, partId, idxId, tabletId, backendId, version);
 
         // Create second table in setUp to avoid Env initialization issues
         table2 = UnitTestUtil.createTable(db, tblId2, table2Name, partId2, idxId2, tabletId2, backendId, version);
 
-        catalog = Deencapsulation.newInstance(InternalCatalog.class);
-        new Expectations(env) {
-            {
-                env.getInternalCatalog();
-                minTimes = 0;
-                result = catalog;
+        // Mock Env static methods
+        mockedEnvStatic = Mockito.mockStatic(Env.class);
+        mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
+        mockedEnvStatic.when(Env::getCurrentEnvJournalVersion).thenReturn(FeConstants.meta_version);
 
-                catalog.getDbNullable(anyLong);
-                minTimes = 0;
-                result = db;
+        // Mock instance methods on env
+        Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+        Mockito.when(env.getNextId()).thenAnswer(inv -> id.getAndIncrement());
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
+        Mockito.when(env.getBackupHandler()).thenReturn(backupHandler);
 
-                catalog.getTableByTableId(anyLong);
-                minTimes = 0;
-                result = new Delegate<Table>() {
-                    public Table getTableByTableId(Long tableId) {
-                        // Check if table exists in the database
-                        return db.getTableNullable(tableId);
-                    }
-                };
+        // Mock repository lookup through Env.getCurrentEnv().getBackupHandler().getRepoMgr()
+        Mockito.when(backupHandler.getRepoMgr()).thenReturn(repoMgr);
+        Mockito.when(repoMgr.getRepo(Mockito.anyLong())).thenReturn(repo);
 
-                Env.getCurrentEnvJournalVersion();
-                minTimes = 0;
-                result = FeConstants.meta_version;
+        // Mock instance methods on catalog
+        Mockito.when(catalog.getDbNullable(ArgumentMatchers.anyLong())).thenReturn(db);
+        Mockito.when(catalog.getTableByTableId(ArgumentMatchers.anyLong())).thenAnswer(inv -> {
+            Long tableId = inv.getArgument(0);
+            return db.getTableNullable(tableId);
+        });
 
-                env.getNextId();
-                minTimes = 0;
-                result = new Delegate<Long>() {
-                    public Long getNextId() {
-                        return id.getAndIncrement();
-                    }
-                };
+        // Mock editLog
+        Mockito.doAnswer(inv -> {
+            BackupJob job = inv.getArgument(0);
+            System.out.println("log backup job: " + job);
+            return null;
+        }).when(editLog).logBackupJob(ArgumentMatchers.any(BackupJob.class));
 
-                env.getEditLog();
-                minTimes = 0;
-                result = editLog;
-            }
-        };
+        // Mock AgentTaskExecutor static method
+        mockedAgentTaskExecutor = Mockito.mockStatic(AgentTaskExecutor.class);
 
-        new Expectations() {
-            {
-                editLog.logBackupJob((BackupJob) any);
-                minTimes = 0;
-                result = new Delegate() {
-                    public void logBackupJob(BackupJob job) {
-                        System.out.println("log backup job: " + job);
-                    }
-                };
-            }
-        };
+        // Mock Repository instance methods via spy
+        Mockito.doReturn(Status.OK).when(repo).upload(ArgumentMatchers.anyString(), ArgumentMatchers.anyString());
+        Mockito.doAnswer(inv -> {
+            List<FsBroker> brokerAddrs = inv.getArgument(2);
+            brokerAddrs.add(new FsBroker());
+            return Status.OK;
+        }).when(repo).getBrokerAddress(ArgumentMatchers.any(Long.class), ArgumentMatchers.any(Env.class), ArgumentMatchers.anyList());
+        FileSystemDescriptor fileSystemDescriptor = Mockito.mock(FileSystemDescriptor.class);
+        Mockito.when(fileSystemDescriptor.getBackendConfigProperties()).thenReturn(Maps.newHashMap());
+        Mockito.when(fileSystemDescriptor.getThriftStorageType()).thenReturn(StorageBackend.StorageType.BROKER);
+        Mockito.doReturn(fileSystemDescriptor).when(repo).getFileSystemDescriptor();
 
-        new MockUp<AgentTaskExecutor>() {
-            @Mock
-            public void submit(AgentBatchTask task) {
-
-            }
-        };
-
-        new MockUp<Repository>() {
-            @Mock
-            Status upload(String localFilePath, String remoteFilePath) {
-                return Status.OK;
-            }
-
-            @Mock
-            Status getBrokerAddress(Long beId, Env env, List<FsBroker> brokerAddrs) {
-                brokerAddrs.add(new FsBroker());
-                return Status.OK;
-            }
-        };
-
-        new MockUp<FileSystemDescriptor>() {
-            @Mock
-            public java.util.Map<String, String> getBackendConfigProperties() {
-                return Maps.newHashMap();
-            }
-        };
+        // Mock FileSystemDescriptor construction
+        mockedFsDescriptor = Mockito.mockConstruction(FileSystemDescriptor.class, (mock, ctx) -> {
+            Mockito.when(mock.getBackendConfigProperties()).thenReturn(Maps.newHashMap());
+        });
 
         // Only include first table to ensure other tests are not affected
         List<TableRefInfo> tableRefs = Lists.newArrayList();
@@ -260,6 +203,19 @@ public class BackupJobTest {
                 new ArrayList<>()));
         job = new BackupJob("label", dbId, UnitTestUtil.DB_NAME, tableRefs, 13600 * 1000, BackupCommand.BackupContent.ALL,
                 env, repo.getId(), 0);
+    }
+
+    @After
+    public void tearDown() {
+        if (mockedEnvStatic != null) {
+            mockedEnvStatic.close();
+        }
+        if (mockedAgentTaskExecutor != null) {
+            mockedAgentTaskExecutor.close();
+        }
+        if (mockedFsDescriptor != null) {
+            mockedFsDescriptor.close();
+        }
     }
 
     /**

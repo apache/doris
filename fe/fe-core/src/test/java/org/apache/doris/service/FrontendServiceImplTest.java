@@ -51,13 +51,13 @@ import org.apache.doris.thrift.TShowUserResult;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.utframe.UtFrameUtils;
 
-import mockit.Mocked;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -72,8 +72,7 @@ public class FrontendServiceImplTest {
     private static ConnectContext connectContext;
     @Rule
     public ExpectedException expectedException = ExpectedException.none();
-    @Mocked
-    ExecuteEnv exeEnv;
+    private ExecuteEnv exeEnv = Mockito.mock(ExecuteEnv.class);
 
     @BeforeClass
     public static void beforeClass() throws Exception {

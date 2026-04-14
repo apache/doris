@@ -35,29 +35,24 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.thrift.TOdbcTableType;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 import java.util.Arrays;
 import java.util.List;
 
 public class JdbcScanNodeTest {
 
-    @Mocked
-    private JdbcExternalTable mockTable;
+    private JdbcExternalTable mockTable = Mockito.mock(JdbcExternalTable.class);
 
     @Test
     public void testSimpleBinaryPredicate() {
-        new Expectations() {{
-                mockTable.getProperRemoteColumnName((TOdbcTableType) any, anyString);
-                result = new mockit.Delegate() {
-                    String getProperColumnName(TOdbcTableType tableType, String colName) {
-                        return "\"" + colName + "\"";
-                    }
-                };
-            }};
+        Mockito.when(mockTable.getProperRemoteColumnName(Mockito.nullable(TOdbcTableType.class), Mockito.anyString()))
+                .thenAnswer(invocation -> {
+                    String colName = invocation.getArgument(1);
+                    return "\"" + colName + "\"";
+                });
 
         SlotRef idSlot = new SlotRef(null, "ID");
         IntLiteral intLiteral = new IntLiteral(1);
@@ -72,14 +67,11 @@ public class JdbcScanNodeTest {
 
     @Test
     public void testSimpleCompoundPredicate() {
-        new Expectations() {{
-                mockTable.getProperRemoteColumnName((TOdbcTableType) any, anyString);
-                result = new mockit.Delegate() {
-                    String getProperColumnName(TOdbcTableType tableType, String colName) {
-                        return "\"" + colName + "\"";
-                    }
-                };
-            }};
+        Mockito.when(mockTable.getProperRemoteColumnName(Mockito.nullable(TOdbcTableType.class), Mockito.anyString()))
+                .thenAnswer(invocation -> {
+                    String colName = invocation.getArgument(1);
+                    return "\"" + colName + "\"";
+                });
 
         SlotRef idSlot = new SlotRef(null, "ID");
         IntLiteral intLiteral = new IntLiteral(1);
@@ -97,14 +89,11 @@ public class JdbcScanNodeTest {
 
     @Test
     public void testNestedCompoundPredicate() {
-        new Expectations() {{
-                mockTable.getProperRemoteColumnName((TOdbcTableType) any, anyString);
-                result = new mockit.Delegate() {
-                    String getProperColumnName(TOdbcTableType tableType, String colName) {
-                        return "\"" + colName + "\"";
-                    }
-                };
-            }};
+        Mockito.when(mockTable.getProperRemoteColumnName(Mockito.nullable(TOdbcTableType.class), Mockito.anyString()))
+                .thenAnswer(invocation -> {
+                    String colName = invocation.getArgument(1);
+                    return "\"" + colName + "\"";
+                });
 
         // ID = 1 OR (NAME = 'test' AND AGE > 18)
         SlotRef idSlot = new SlotRef(null, "ID");
@@ -129,14 +118,11 @@ public class JdbcScanNodeTest {
     @Test
     public void testComplexNestedCompoundPredicate() {
 
-        new Expectations() {{
-                mockTable.getProperRemoteColumnName((TOdbcTableType) any, anyString);
-                result = new mockit.Delegate() {
-                    String getProperColumnName(TOdbcTableType tableType, String colName) {
-                        return "\"" + colName + "\"";
-                    }
-                };
-            }};
+        Mockito.when(mockTable.getProperRemoteColumnName(Mockito.nullable(TOdbcTableType.class), Mockito.anyString()))
+                .thenAnswer(invocation -> {
+                    String colName = invocation.getArgument(1);
+                    return "\"" + colName + "\"";
+                });
 
         // (ID = 1 OR NAME = 'test') AND (AGE > 18 OR DEPT = 'HR')
         SlotRef idSlot = new SlotRef(null, "ID");
@@ -165,14 +151,11 @@ public class JdbcScanNodeTest {
 
     @Test
     public void testDateLiteralOracle() throws Exception {
-        new Expectations() {{
-                mockTable.getProperRemoteColumnName((TOdbcTableType) any, anyString);
-                result = new mockit.Delegate() {
-                    String getProperColumnName(TOdbcTableType tableType, String colName) {
-                        return "\"" + colName + "\"";
-                    }
-                };
-            }};
+        Mockito.when(mockTable.getProperRemoteColumnName(Mockito.nullable(TOdbcTableType.class), Mockito.anyString()))
+                .thenAnswer(invocation -> {
+                    String colName = invocation.getArgument(1);
+                    return "\"" + colName + "\"";
+                });
 
         DateLiteral dateLiteral = new DateLiteral(2023, 1, 1, 12, 34, 56, Type.DATETIME);
 
@@ -186,14 +169,11 @@ public class JdbcScanNodeTest {
 
     @Test
     public void testDateLiteralTrino() throws Exception {
-        new Expectations() {{
-                mockTable.getProperRemoteColumnName((TOdbcTableType) any, anyString);
-                result = new mockit.Delegate() {
-                    String getProperColumnName(TOdbcTableType tableType, String colName) {
-                        return "\"" + colName + "\"";
-                    }
-                };
-            }};
+        Mockito.when(mockTable.getProperRemoteColumnName(Mockito.nullable(TOdbcTableType.class), Mockito.anyString()))
+                .thenAnswer(invocation -> {
+                    String colName = invocation.getArgument(1);
+                    return "\"" + colName + "\"";
+                });
 
         DateLiteral dateLiteral = new DateLiteral(2023, 1, 1, 12, 34, 56, Type.DATETIME);
 
@@ -207,14 +187,11 @@ public class JdbcScanNodeTest {
 
     @Test
     public void testDateLiteralCompoundPredicateOracle() throws Exception {
-        new Expectations() {{
-                mockTable.getProperRemoteColumnName((TOdbcTableType) any, anyString);
-                result = new mockit.Delegate() {
-                    String getProperColumnName(TOdbcTableType tableType, String colName) {
-                        return "\"" + colName + "\"";
-                    }
-                };
-            }};
+        Mockito.when(mockTable.getProperRemoteColumnName(Mockito.nullable(TOdbcTableType.class), Mockito.anyString()))
+                .thenAnswer(invocation -> {
+                    String colName = invocation.getArgument(1);
+                    return "\"" + colName + "\"";
+                });
 
         // ID = 1 OR CREATE_TIME >= '2023-01-01'
         SlotRef idSlot = new SlotRef(null, "ID");
@@ -245,14 +222,11 @@ public class JdbcScanNodeTest {
 
     @Test
     public void testComplexPredicateWithDateComparisons() throws Exception {
-        new Expectations() {{
-                mockTable.getProperRemoteColumnName((TOdbcTableType) any, anyString);
-                result = new mockit.Delegate() {
-                    String getProperColumnName(TOdbcTableType tableType, String colName) {
-                        return "\"" + colName + "\"";
-                    }
-                };
-            }};
+        Mockito.when(mockTable.getProperRemoteColumnName(Mockito.nullable(TOdbcTableType.class), Mockito.anyString()))
+                .thenAnswer(invocation -> {
+                    String colName = invocation.getArgument(1);
+                    return "\"" + colName + "\"";
+                });
 
         // (ID = 1 OR NAME = 'test') AND (CREATE_TIME >= '2023-01-01' AND UPDATE_TIME <= '2023-12-31')
         SlotRef idSlot = new SlotRef(null, "ID");
@@ -299,14 +273,11 @@ public class JdbcScanNodeTest {
 
     @Test
     public void testDifferentComparisonOperators() {
-        new Expectations() {{
-                mockTable.getProperRemoteColumnName((TOdbcTableType) any, anyString);
-                result = new mockit.Delegate() {
-                    String getProperColumnName(TOdbcTableType tableType, String colName) {
-                        return "\"" + colName + "\"";
-                    }
-                };
-            }};
+        Mockito.when(mockTable.getProperRemoteColumnName(Mockito.nullable(TOdbcTableType.class), Mockito.anyString()))
+                .thenAnswer(invocation -> {
+                    String colName = invocation.getArgument(1);
+                    return "\"" + colName + "\"";
+                });
 
         SlotRef ageSlot = new SlotRef(null, "AGE");
         IntLiteral ageLiteral = new IntLiteral(30);
@@ -339,14 +310,11 @@ public class JdbcScanNodeTest {
 
     @Test
     public void testIsNullPredicates() {
-        new Expectations() {{
-                mockTable.getProperRemoteColumnName((TOdbcTableType) any, anyString);
-                result = new mockit.Delegate() {
-                    String getProperColumnName(TOdbcTableType tableType, String colName) {
-                        return "\"" + colName + "\"";
-                    }
-                };
-            }};
+        Mockito.when(mockTable.getProperRemoteColumnName(Mockito.nullable(TOdbcTableType.class), Mockito.anyString()))
+                .thenAnswer(invocation -> {
+                    String colName = invocation.getArgument(1);
+                    return "\"" + colName + "\"";
+                });
 
         // NAME IS NULL
         SlotRef nameSlot = new SlotRef(null, "NAME");
@@ -362,14 +330,11 @@ public class JdbcScanNodeTest {
 
     @Test
     public void testCompoundIsNullPredicates() {
-        new Expectations() {{
-                mockTable.getProperRemoteColumnName((TOdbcTableType) any, anyString);
-                result = new mockit.Delegate() {
-                    String getProperColumnName(TOdbcTableType tableType, String colName) {
-                        return "\"" + colName + "\"";
-                    }
-                };
-            }};
+        Mockito.when(mockTable.getProperRemoteColumnName(Mockito.nullable(TOdbcTableType.class), Mockito.anyString()))
+                .thenAnswer(invocation -> {
+                    String colName = invocation.getArgument(1);
+                    return "\"" + colName + "\"";
+                });
 
         // ID = 1 AND NAME IS NULL
         SlotRef idSlot = new SlotRef(null, "ID");
@@ -387,14 +352,11 @@ public class JdbcScanNodeTest {
 
     @Test
     public void testLikePredicates() {
-        new Expectations() {{
-                mockTable.getProperRemoteColumnName((TOdbcTableType) any, anyString);
-                result = new mockit.Delegate() {
-                    String getProperColumnName(TOdbcTableType tableType, String colName) {
-                        return "\"" + colName + "\"";
-                    }
-                };
-            }};
+        Mockito.when(mockTable.getProperRemoteColumnName(Mockito.nullable(TOdbcTableType.class), Mockito.anyString()))
+                .thenAnswer(invocation -> {
+                    String colName = invocation.getArgument(1);
+                    return "\"" + colName + "\"";
+                });
 
         // NAME LIKE 'test%'
         SlotRef nameSlot = new SlotRef(null, "NAME");
@@ -408,14 +370,11 @@ public class JdbcScanNodeTest {
 
     @Test
     public void testFloatLiteral() {
-        new Expectations() {{
-                mockTable.getProperRemoteColumnName((TOdbcTableType) any, anyString);
-                result = new mockit.Delegate() {
-                    String getProperColumnName(TOdbcTableType tableType, String colName) {
-                        return "\"" + colName + "\"";
-                    }
-                };
-            }};
+        Mockito.when(mockTable.getProperRemoteColumnName(Mockito.nullable(TOdbcTableType.class), Mockito.anyString()))
+                .thenAnswer(invocation -> {
+                    String colName = invocation.getArgument(1);
+                    return "\"" + colName + "\"";
+                });
 
         // SALARY > 5000.50
         SlotRef salarySlot = new SlotRef(null, "SALARY");
@@ -429,14 +388,11 @@ public class JdbcScanNodeTest {
     @Test
     public void testVeryComplexNestedPredicate() {
 
-        new Expectations() {{
-                mockTable.getProperRemoteColumnName((TOdbcTableType) any, anyString);
-                result = new mockit.Delegate() {
-                    String getProperColumnName(TOdbcTableType tableType, String colName) {
-                        return "\"" + colName + "\"";
-                    }
-                };
-            }};
+        Mockito.when(mockTable.getProperRemoteColumnName(Mockito.nullable(TOdbcTableType.class), Mockito.anyString()))
+                .thenAnswer(invocation -> {
+                    String colName = invocation.getArgument(1);
+                    return "\"" + colName + "\"";
+                });
 
         // (ID > 10 AND ID < 100) OR (NAME LIKE 'test%' AND (DEPT = 'HR' OR SALARY > 5000.0))
         SlotRef idSlot = new SlotRef(null, "ID");
@@ -471,14 +427,11 @@ public class JdbcScanNodeTest {
     @Test
     public void testTripleNestedCompoundPredicate() {
 
-        new Expectations() {{
-                mockTable.getProperRemoteColumnName((TOdbcTableType) any, anyString);
-                result = new mockit.Delegate() {
-                    String getProperColumnName(TOdbcTableType tableType, String colName) {
-                        return "\"" + colName + "\"";
-                    }
-                };
-            }};
+        Mockito.when(mockTable.getProperRemoteColumnName(Mockito.nullable(TOdbcTableType.class), Mockito.anyString()))
+                .thenAnswer(invocation -> {
+                    String colName = invocation.getArgument(1);
+                    return "\"" + colName + "\"";
+                });
 
         // (ID = 1 OR (NAME = 'test' AND (AGE > 18 OR DEPT = 'HR')))
         SlotRef idSlot = new SlotRef(null, "ID");
@@ -507,14 +460,11 @@ public class JdbcScanNodeTest {
 
     @Test
     public void testDateLiteralSQLServerDatetime() throws Exception {
-        new Expectations() {{
-                mockTable.getProperRemoteColumnName((TOdbcTableType) any, anyString);
-                result = new mockit.Delegate() {
-                    String getProperColumnName(TOdbcTableType tableType, String colName) {
-                        return "\"" + colName + "\"";
-                    }
-                };
-            }};
+        Mockito.when(mockTable.getProperRemoteColumnName(Mockito.nullable(TOdbcTableType.class), Mockito.anyString()))
+                .thenAnswer(invocation -> {
+                    String colName = invocation.getArgument(1);
+                    return "\"" + colName + "\"";
+                });
 
         // Test DATETIME type with SQL Server
         DateLiteral dateLiteral = new DateLiteral(2026, 2, 28, 12, 30, 12, Type.DATETIME);
@@ -529,14 +479,11 @@ public class JdbcScanNodeTest {
 
     @Test
     public void testDateLiteralSQLServerDate() throws Exception {
-        new Expectations() {{
-                mockTable.getProperRemoteColumnName((TOdbcTableType) any, anyString);
-                result = new mockit.Delegate() {
-                    String getProperColumnName(TOdbcTableType tableType, String colName) {
-                        return "\"" + colName + "\"";
-                    }
-                };
-            }};
+        Mockito.when(mockTable.getProperRemoteColumnName(Mockito.nullable(TOdbcTableType.class), Mockito.anyString()))
+                .thenAnswer(invocation -> {
+                    String colName = invocation.getArgument(1);
+                    return "\"" + colName + "\"";
+                });
 
         // Test DATE type with SQL Server
         DateLiteral dateLiteral = new DateLiteral(2026, 2, 28, Type.DATEV2);
@@ -551,14 +498,11 @@ public class JdbcScanNodeTest {
 
     @Test
     public void testDateLiteralSQLServerDatetimeV2WithFractionalSeconds() throws Exception {
-        new Expectations() {{
-                mockTable.getProperRemoteColumnName((TOdbcTableType) any, anyString);
-                result = new mockit.Delegate() {
-                    String getProperColumnName(TOdbcTableType tableType, String colName) {
-                        return "\"" + colName + "\"";
-                    }
-                };
-            }};
+        Mockito.when(mockTable.getProperRemoteColumnName(Mockito.nullable(TOdbcTableType.class), Mockito.anyString()))
+                .thenAnswer(invocation -> {
+                    String colName = invocation.getArgument(1);
+                    return "\"" + colName + "\"";
+                });
 
         // Test DATETIMEV2 type with fractional seconds (as SQL Server datetime maps to DATETIMEV2)
         DateLiteral dateLiteral = new DateLiteral(2026, 2, 28, 12, 30, 12, 123000,
@@ -574,14 +518,11 @@ public class JdbcScanNodeTest {
 
     @Test
     public void testDateLiteralSQLServerInPredicate() throws Exception {
-        new Expectations() {{
-                mockTable.getProperRemoteColumnName((TOdbcTableType) any, anyString);
-                result = new mockit.Delegate() {
-                    String getProperColumnName(TOdbcTableType tableType, String colName) {
-                        return "\"" + colName + "\"";
-                    }
-                };
-            }};
+        Mockito.when(mockTable.getProperRemoteColumnName(Mockito.nullable(TOdbcTableType.class), Mockito.anyString()))
+                .thenAnswer(invocation -> {
+                    String colName = invocation.getArgument(1);
+                    return "\"" + colName + "\"";
+                });
 
         // Test IN predicate with datetime literals for SQL Server
         SlotRef dateSlot = new SlotRef(null, "data_time");
@@ -601,14 +542,11 @@ public class JdbcScanNodeTest {
 
     @Test
     public void testDateLiteralSQLServerCompoundPredicate() throws Exception {
-        new Expectations() {{
-                mockTable.getProperRemoteColumnName((TOdbcTableType) any, anyString);
-                result = new mockit.Delegate() {
-                    String getProperColumnName(TOdbcTableType tableType, String colName) {
-                        return "\"" + colName + "\"";
-                    }
-                };
-            }};
+        Mockito.when(mockTable.getProperRemoteColumnName(Mockito.nullable(TOdbcTableType.class), Mockito.anyString()))
+                .thenAnswer(invocation -> {
+                    String colName = invocation.getArgument(1);
+                    return "\"" + colName + "\"";
+                });
 
         // Test compound predicate: ID = 1 AND data_time > '2026-02-28 12:30:12'
         SlotRef idSlot = new SlotRef(null, "ID");

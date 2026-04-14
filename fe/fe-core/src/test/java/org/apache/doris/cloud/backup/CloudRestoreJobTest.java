@@ -51,14 +51,12 @@ import org.apache.doris.thrift.TSortType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.List;
 import java.util.Map;
@@ -84,12 +82,13 @@ public class CloudRestoreJobTest {
     private static Env cloudEnv;
     private SystemInfoService cloudSystemInfoService;
     private ConnectContext ctx;
-    @Mocked
-    private StorageVaultMgr storageVaultMgr;
+    private StorageVaultMgr storageVaultMgr = Mockito.mock(StorageVaultMgr.class);
 
-    @Injectable
     private Repository repo = new Repository(repoId, "repo", false, "bos://my_repo",
             BrokerProperties.of("broker", Maps.newHashMap()));
+
+    private MockedStatic<MetaServiceProxy> mockedMetaServiceProxy;
+    private MetaServiceProxy mockMetaServiceProxyInstance;
 
     @Before
     public void setUp() throws Exception {
@@ -112,47 +111,39 @@ public class CloudRestoreJobTest {
         Assert.assertTrue(cloudEnv instanceof CloudEnv);
         Assert.assertTrue(cloudSystemInfoService instanceof CloudSystemInfoService);
 
-        new Expectations() {
-            {
-                storageVaultMgr.getVaultNameById(anyString);
-                minTimes = 0;
-                result = "test_vault";
-            }
-        };
+        Mockito.when(storageVaultMgr.getVaultNameById(Mockito.anyString())).thenReturn("test_vault");
 
-        new MockUp<MetaServiceProxy>(MetaServiceProxy.class) {
-            @Mock
-            public Cloud.CreateTabletsResponse createTablets(Cloud.CreateTabletsRequest request) {
-                Cloud.CreateTabletsResponse.Builder responseBuilder = Cloud.CreateTabletsResponse.newBuilder();
-                responseBuilder.setStatus(
-                        Cloud.MetaServiceResponseStatus.newBuilder().setCode(Cloud.MetaServiceCode.OK).setMsg("OK"));
-                return responseBuilder.build();
-            }
+        mockMetaServiceProxyInstance = Mockito.mock(MetaServiceProxy.class);
+        mockedMetaServiceProxy = Mockito.mockStatic(MetaServiceProxy.class);
+        mockedMetaServiceProxy.when(MetaServiceProxy::getInstance).thenReturn(mockMetaServiceProxyInstance);
 
-            @Mock
-            public Cloud.PartitionResponse preparePartition(Cloud.PartitionRequest request) {
-                Cloud.PartitionResponse.Builder builder = Cloud.PartitionResponse.newBuilder();
-                builder.setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
-                        .setCode(Cloud.MetaServiceCode.OK).setMsg("OK"));
-                return builder.build();
-            }
+        Mockito.when(mockMetaServiceProxyInstance.createTablets(Mockito.any())).thenAnswer(inv -> {
+            Cloud.CreateTabletsResponse.Builder responseBuilder = Cloud.CreateTabletsResponse.newBuilder();
+            responseBuilder.setStatus(
+                    Cloud.MetaServiceResponseStatus.newBuilder().setCode(Cloud.MetaServiceCode.OK).setMsg("OK"));
+            return responseBuilder.build();
+        });
 
-            @Mock
-            public Cloud.PartitionResponse commitPartition(Cloud.PartitionRequest request) {
-                Cloud.PartitionResponse.Builder builder = Cloud.PartitionResponse.newBuilder();
-                builder.setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
-                        .setCode(Cloud.MetaServiceCode.OK).setMsg("OK"));
-                return builder.build();
-            }
+        Mockito.when(mockMetaServiceProxyInstance.preparePartition(Mockito.any())).thenAnswer(inv -> {
+            Cloud.PartitionResponse.Builder builder = Cloud.PartitionResponse.newBuilder();
+            builder.setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                    .setCode(Cloud.MetaServiceCode.OK).setMsg("OK"));
+            return builder.build();
+        });
 
-            @Mock
-            public Cloud.PartitionResponse dropPartition(Cloud.PartitionRequest request) {
-                Cloud.PartitionResponse.Builder builder = Cloud.PartitionResponse.newBuilder();
-                builder.setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
-                        .setCode(Cloud.MetaServiceCode.OK).setMsg("OK"));
-                return builder.build();
-            }
-        };
+        Mockito.when(mockMetaServiceProxyInstance.commitPartition(Mockito.any())).thenAnswer(inv -> {
+            Cloud.PartitionResponse.Builder builder = Cloud.PartitionResponse.newBuilder();
+            builder.setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                    .setCode(Cloud.MetaServiceCode.OK).setMsg("OK"));
+            return builder.build();
+        });
+
+        Mockito.when(mockMetaServiceProxyInstance.dropPartition(Mockito.any())).thenAnswer(inv -> {
+            Cloud.PartitionResponse.Builder builder = Cloud.PartitionResponse.newBuilder();
+            builder.setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                    .setCode(Cloud.MetaServiceCode.OK).setMsg("OK"));
+            return builder.build();
+        });
 
         db = CatalogTestUtil.createSimpleDb(TEST_DB_ID, TEST_TBL_ID, TEST_TBL_ID, TEST_PARTITION_ID, TEST_TABLET_ID, TEST_VERSION);
         cloudEnv.unprotectCreateDb(db);
@@ -207,6 +198,22 @@ public class CloudRestoreJobTest {
                 false, false, cloudEnv, repo.getId(), "test_vault");
     }
 
+    @After
+    public void tearDown() {
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+            fakeEditLog = null;
+        }
+        if (fakeEnv != null) {
+            fakeEnv.close();
+            fakeEnv = null;
+        }
+        if (mockedMetaServiceProxy != null) {
+            mockedMetaServiceProxy.close();
+            mockedMetaServiceProxy = null;
+        }
+    }
+
     @Test
     public void testStorageVaultCheck() throws UserException {
         // Case 1: Storage vault exists
@@ -224,23 +231,17 @@ public class CloudRestoreJobTest {
 
     @Test
     public void testCloudClusterCheck() throws UserException {
+        CloudSystemInfoService spySysInfo = Mockito.spy((CloudSystemInfoService) cloudSystemInfoService);
+        Deencapsulation.setField(cloudEnv, "systemInfo", spySysInfo);
+        FakeEnv.setSystemInfo(spySysInfo);
+
         // Case 1: Cloud cluster exists
-        new MockUp<CloudSystemInfoService>() {
-            @Mock
-            public String getCloudClusterIdByName(String clusterName) {
-                return "test_cluster_id";
-            }
-        };
+        Mockito.doReturn("test_cluster_id").when(spySysInfo).getCloudClusterIdByName(Mockito.anyString());
         job.checkIfNeedCancel();
         Assert.assertTrue(job.getStatus().ok());
 
         // Case 2: Cloud cluster not exists
-        new MockUp<CloudSystemInfoService>() {
-            @Mock
-            public String getCloudClusterIdByName(String clusterName) {
-                return null;
-            }
-        };
+        Mockito.doReturn(null).when(spySysInfo).getCloudClusterIdByName(Mockito.anyString());
         job.checkIfNeedCancel();
         Assert.assertFalse(job.getStatus().ok());
     }

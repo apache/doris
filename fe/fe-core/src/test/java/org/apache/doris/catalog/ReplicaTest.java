@@ -21,10 +21,10 @@ import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.persist.gson.GsonUtils;
 
-import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -37,8 +37,7 @@ import java.util.List;
 public class ReplicaTest {
 
     // replica serialize and deserialize test will use catalog so that it should be mocked
-    @Mocked
-    Env env;
+    private Env env = Mockito.mock(Env.class);
 
     private Replica replica;
     private long replicaId;

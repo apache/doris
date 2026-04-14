@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -56,18 +57,16 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Statistics;
-import org.apache.doris.statistics.TableStatsMeta;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
-import mockit.Mock;
-import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
-import java.io.IOException;
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -547,25 +546,25 @@ public class StatsCalculatorTest {
     }
 
     @Test
-    public void testDisableJoinReorderIfStatsInvalid() throws IOException {
+    public void testDisableJoinReorderIfStatsInvalid() throws Exception {
+        // Spy on the actual OlapTable instances to make getRowCountForIndex return -1.
+        // JMockit's MockUp globally mocked ALL instances, but Mockito mockConstruction
+        // only intercepts NEW instances. Since scan1/scan2/scan3 already contain
+        // pre-existing OlapTable instances, we spy on their tables and replace via reflection.
+        Field tableField = LogicalCatalogRelation.class.getDeclaredField("table");
+        tableField.setAccessible(true);
+        for (LogicalOlapScan scan : new LogicalOlapScan[]{scan1, scan2, scan3}) {
+            OlapTable spyTable = Mockito.spy(scan.getTable());
+            Mockito.doReturn(-1L).when(spyTable)
+                    .getRowCountForIndex(Mockito.anyLong(), Mockito.anyBoolean());
+            tableField.set(scan, spyTable);
+        }
+
         LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) new LogicalPlanBuilder(scan1)
                 .join(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
                 .join(scan3, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
                 .build();
 
-        // mock StatsCalculator to return -1 for getTableRowCount
-        new MockUp<OlapTable>() {
-            @Mock
-            public long getRowCountForIndex(long indexId, boolean strict) {
-                return -1;
-            }
-        };
-        new MockUp<TableStatsMeta>() {
-            @Mock
-            public long getRowCount(long indexId) {
-                return -1;
-            }
-        };
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(join);
         cascadesContext.getConnectContext().getSessionVariable()
                 .setVarOnce(SessionVariable.DISABLE_JOIN_REORDER, "false");

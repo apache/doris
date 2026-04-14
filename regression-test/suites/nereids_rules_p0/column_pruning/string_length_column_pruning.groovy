@@ -69,7 +69,7 @@ suite("string_length_column_pruning") {
         contains "OFFSET"
         notContains "type=bigint"
     }
-    //sql "select length(struct_element(struct_col, 'f3')) from slcp_str_tbl"
+    sql "select length(struct_element(struct_col, 'f3')) from slcp_str_tbl"
     // length() in both SELECT and WHERE: predicate must remain length(str_col) > 1,
     // never be rewritten to CAST(str_col AS int) > 1. Slot type must stay varchar.
     explain {

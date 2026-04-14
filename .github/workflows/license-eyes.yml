@@ -48,7 +48,37 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
 
+      - name: Get changed files
+        if: github.event_name == 'pull_request_target'
+        id: changed-files
+        uses: tj-actions/changed-files@v45
+        with:
+          separator: "\n"
+
+      - name: Generate incremental licenserc
+        if: github.event_name == 'pull_request_target' && steps.changed-files.outputs.all_changed_files != ''
+        env:
+          CHANGED_FILES: ${{ steps.changed-files.outputs.all_changed_files }}
+        run: |
+          python3 - <<'EOF'
+          import yaml, os
+
+          with open('.licenserc.yaml') as f:
+              config = yaml.safe_load(f)
+
+          changed = os.environ.get('CHANGED_FILES', '').strip().split('\n')
+          changed = [p.strip() for p in changed if p.strip()]
+
+          config['header']['paths'] = changed
+
+          with open('.licenserc-incremental.yaml', 'w') as f:
+              yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
+          EOF
+
       - name: Check License
-        uses: apache/skywalking-eyes@v0.2.0
+        if: github.event_name != 'pull_request_target' || steps.changed-files.outputs.all_changed_files != ''
+        uses: apache/skywalking-eyes@v0.8.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          config: ${{ github.event_name == 'pull_request_target' && '.licenserc-incremental.yaml' || '.licenserc.yaml' }}

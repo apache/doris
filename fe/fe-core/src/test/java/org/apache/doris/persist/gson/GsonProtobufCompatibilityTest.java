@@ -15,16 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+package org.apache.doris.persist.gson;
 
-public class ImportSequenceStmt extends StatementBase {
-    private String sequenceColName;
+import com.google.gson.annotations.SerializedName;
+import doris.segment_v2.SegmentV2;
+import org.junit.Assert;
+import org.junit.Test;
 
-    public ImportSequenceStmt(String sequenceColName) {
-        this.sequenceColName = sequenceColName;
+public class GsonProtobufCompatibilityTest {
+    private static class ProtobufBuilderHolder {
+        @SerializedName("name")
+        private final String name = "holder";
+
+        @SerializedName("builder")
+        private final Object builder = SegmentV2.ColumnPathPartInfo.newBuilder().setKey("nested_field");
     }
 
-    public String getSequenceColName() {
-        return sequenceColName;
+    @Test
+    public void testSerializeGeneratedProtobufBuilder() {
+        String json = GsonUtils.GSON.toJson(new ProtobufBuilderHolder());
+        Assert.assertTrue(json, json.contains("\"name\":\"holder\""));
+        Assert.assertFalse(json, json.contains("\"builder\""));
     }
 }

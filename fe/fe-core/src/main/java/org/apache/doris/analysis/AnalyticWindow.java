@@ -41,7 +41,7 @@ public class AnalyticWindow {
 
         private final String description;
 
-        private Type(String d) {
+        Type(String d) {
             description = d;
         }
 
@@ -64,7 +64,7 @@ public class AnalyticWindow {
 
         private final String description;
 
-        private BoundaryType(String d) {
+        BoundaryType(String d) {
             description = d;
         }
 
@@ -104,7 +104,7 @@ public class AnalyticWindow {
 
         // The offset value. Set during analysis after evaluating expr_. Integral valued
         // for ROWS windows.
-        private BigDecimal offsetValue;
+        private final BigDecimal offsetValue;
 
         public BoundaryType getType() {
             return type;

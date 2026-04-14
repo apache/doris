@@ -21,7 +21,7 @@ suite("test_python_udf_nlp_chinese") {
 
     def pyPath = """${context.file.parent}/py_udf_complex_scripts/py_udf_complex.zip"""
     scp_udf_file_to_all_be(pyPath)
-    def runtime_version = "3.8.10"
+    def runtime_version = getPythonUdfRuntimeVersion()
     log.info("Python zip path: ${pyPath}".toString())
 
     try {
