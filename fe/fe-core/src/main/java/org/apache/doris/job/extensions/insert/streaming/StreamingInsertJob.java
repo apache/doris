@@ -306,9 +306,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             this.offsetProvider = SourceOffsetProviderFactory.createSourceOffsetProvider(currentTvf.getFunctionName());
             this.offsetProvider.ensureInitialized(getJobId(), originTvfProps);
             this.offsetProvider.initOnCreate();
-            // validate offset props, only for s3 cause s3 tvf no offset prop
-            if (jobProperties.getOffsetProperty() != null
-                    && S3TableValuedFunction.NAME.equalsIgnoreCase(tvfType)) {
+            // validate offset props
+            if (jobProperties.getOffsetProperty() != null) {
                 Offset offset = validateOffset(jobProperties.getOffsetProperty());
                 this.offsetProvider.updateOffset(offset);
             }
@@ -780,12 +779,16 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
      */
     private void modifyPropertiesInternal(Map<String, String> inputProperties) throws AnalysisException, JobException {
         StreamingJobProperties inputStreamProps = new StreamingJobProperties(inputProperties);
-        if (StringUtils.isNotEmpty(inputStreamProps.getOffsetProperty())
-                && S3TableValuedFunction.NAME.equalsIgnoreCase(this.tvfType)) {
+        if (StringUtils.isNotEmpty(inputStreamProps.getOffsetProperty())) {
             Offset offset = validateOffset(inputStreamProps.getOffsetProperty());
             this.offsetProvider.updateOffset(offset);
             if (Config.isCloudMode()) {
                 resetCloudProgress(offset);
+            }
+            // For FROM...TO path, also update sourceProperties so the CDC client
+            // uses the new offset when building the next task.
+            if (this.sourceProperties != null) {
+                this.sourceProperties.put(DataSourceConfigKeys.OFFSET, inputStreamProps.getOffsetProperty());
             }
         }
         this.properties.putAll(inputProperties);

@@ -206,7 +206,16 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         } else if (DataSourceConfigKeys.OFFSET_LATEST.equalsIgnoreCase(startupMode)) {
             configFactory.startupOptions(StartupOptions.latest());
         } else if (ConfigUtil.isJson(startupMode)) {
-            throw new RuntimeException("Unsupported json offset " + startupMode);
+            Map<String, String> offsetMap = ConfigUtil.toStringMap(startupMode);
+            if (offsetMap == null || !offsetMap.containsKey(SourceInfo.LSN_KEY)) {
+                throw new RuntimeException("JSON offset for PostgreSQL must contain 'lsn' key, got: " + startupMode);
+            }
+            // Ensure ts_usec is present (required by PostgresOffset)
+            if (!offsetMap.containsKey(SourceInfo.TIMESTAMP_USEC_KEY)) {
+                offsetMap.put(SourceInfo.TIMESTAMP_USEC_KEY,
+                        String.valueOf(Conversions.toEpochMicros(Instant.MIN)));
+            }
+            configFactory.startupOptions(StartupOptions.specificOffset(offsetMap));
         } else if (ConfigUtil.is13Timestamp(startupMode)) {
             // start from timestamp
             Long ts = Long.parseLong(startupMode);

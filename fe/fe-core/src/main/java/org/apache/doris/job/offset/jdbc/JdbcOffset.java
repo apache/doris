@@ -48,7 +48,10 @@ public class JdbcOffset implements Offset {
 
     @Override
     public String toSerializedJson() {
-        return null;
+        if (splits == null || splits.isEmpty()) {
+            return null;
+        }
+        return new Gson().toJson(splits);
     }
 
     @Override
@@ -58,7 +61,7 @@ public class JdbcOffset implements Offset {
 
     @Override
     public boolean isValidOffset() {
-        return false;
+        return splits != null && !splits.isEmpty();
     }
 
     @Override

@@ -29,6 +29,7 @@ import org.apache.doris.job.cdc.split.BinlogSplit;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
 import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.exception.JobException;
+import org.apache.doris.job.extensions.insert.streaming.DataSourceConfigValidator;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.job.extensions.insert.streaming.StreamingJobProperties;
 import org.apache.doris.job.offset.Offset;
@@ -360,7 +361,28 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
 
     @Override
     public Offset deserializeOffsetProperty(String offset) {
-        // no need cause cdc_stream has offset property
+        if (offset == null || offset.trim().isEmpty()) {
+            return null;
+        }
+        // Named modes: stored in sourceProperties.offset, CDC client reads it directly.
+        // Return a placeholder JdbcOffset so validateOffset() passes.
+        if (DataSourceConfigKeys.OFFSET_INITIAL.equalsIgnoreCase(offset)
+                || DataSourceConfigKeys.OFFSET_SNAPSHOT.equalsIgnoreCase(offset)
+                || DataSourceConfigKeys.OFFSET_EARLIEST.equalsIgnoreCase(offset)
+                || DataSourceConfigKeys.OFFSET_LATEST.equalsIgnoreCase(offset)) {
+            return new JdbcOffset(Collections.singletonList(new BinlogSplit()));
+        }
+        // JSON format: {"file":"binlog.000003","pos":154} or {"lsn":"123456"}
+        if (DataSourceConfigValidator.isJsonOffset(offset)) {
+            try {
+                Map<String, String> offsetMap = objectMapper.readValue(offset,
+                        new TypeReference<Map<String, String>>() {});
+                return new JdbcOffset(Collections.singletonList(new BinlogSplit(offsetMap)));
+            } catch (Exception e) {
+                log.warn("Failed to parse JSON offset: {}", offset, e);
+                return null;
+            }
+        }
         return null;
     }
 
