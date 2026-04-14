@@ -1093,7 +1093,7 @@ DEFINE_Int32(min_s3_file_system_thread_num, "16");
 DEFINE_Int32(max_s3_file_system_thread_num, "64");
 
 DEFINE_Int32(min_peer_race_s3_thread_num, "0");
-DEFINE_Int32(max_peer_race_s3_thread_num, "64"); // aligned with default max_concurrent_peer_races
+DEFINE_Int32(max_peer_race_s3_thread_num, "32"); // aligned with default max_concurrent_peer_races
 
 DEFINE_Bool(enable_time_lut, "true");
 

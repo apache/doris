@@ -382,8 +382,7 @@ void run_peer_race(std::shared_ptr<RaceState> race, std::vector<FileBlockSPtr> e
         MonotonicStopWatch cand_sw;
         cand_sw.start();
         auto st = peer_reader.fetch_blocks(empty_blocks, &local_peer_res, file_sz,
-                                           /*ctx=*/nullptr, request_fill, tablet_id, file_path,
-                                           request_fill ? resource_id : std::string {});
+                                           /*ctx=*/nullptr, request_fill, tablet_id, resource_id);
         if (st.ok()) {
             manager.update_peer_candidate_on_success(tablet_id, cand.compute_group_id);
             std::unique_lock<bthread::Mutex> lk(race->mtx);

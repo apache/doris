@@ -211,13 +211,12 @@ public:
         request_block_count = request->cache_req_size();
         support_attachment = request->has_support_attachment() && request->support_attachment();
         request_fill = request->has_request_cache_fill() && request->request_cache_fill();
-        last_fill_tablet_id = request->has_fill_tablet_id() ? request->fill_tablet_id() : -1;
         {
             std::lock_guard lock(_request_mu);
-            last_fill_remote_path =
-                    request->has_fill_remote_path() ? request->fill_remote_path() : "";
             last_fill_resource_id =
-                    request->has_fill_resource_id() ? request->fill_resource_id() : "";
+                    request->has_rowset_meta() && request->rowset_meta().has_resource_id()
+                            ? request->rowset_meta().resource_id()
+                            : "";
         }
 
         if (_options.fail_status) {
@@ -315,11 +314,6 @@ public:
     std::atomic<int> request_block_count {0};
     std::atomic<bool> support_attachment {false};
     std::atomic<bool> request_fill {false};
-    std::atomic<int64_t> last_fill_tablet_id {-1};
-    std::string get_last_fill_remote_path() const {
-        std::lock_guard lock(_request_mu);
-        return last_fill_remote_path;
-    }
     std::string get_last_fill_resource_id() const {
         std::lock_guard lock(_request_mu);
         return last_fill_resource_id;
@@ -329,7 +323,6 @@ private:
     std::string _content;
     MockPeerCacheServiceOptions _options;
     mutable std::mutex _request_mu;
-    std::string last_fill_remote_path;
     std::string last_fill_resource_id;
 };
 
@@ -816,9 +809,9 @@ TEST_F(CachedRemoteFileReaderPeerTest,
     request.set_file_size(static_cast<int64_t>(content.size()));
     request.set_support_attachment(false);
     request.set_request_cache_fill(true);
-    request.set_fill_tablet_id(kCrossTabletId);
-    request.set_fill_remote_path(file_path.string());
-    request.set_fill_resource_id("peer_fill_resource");
+    auto* fill_meta = request.mutable_rowset_meta();
+    fill_meta->set_resource_id("peer_fill_resource");
+    fill_meta->set_tablet_id(kCrossTabletId);
     auto* cache_req = request.add_cache_req();
     cache_req->set_block_offset(0);
     cache_req->set_block_size(kPeerTestBlockSize);
@@ -872,18 +865,14 @@ TEST_F(CachedRemoteFileReaderPeerTest,
     PeerFileCacheReader peer_reader(Path(file_path.string()), true, "127.0.0.1", addr.port);
     PeerFetchResult result;
     IOContext io_ctx;
-    const std::string remote_path = "s3://bucket/data/12345/rowset_0.dat";
     const std::string resource_id = "peer_fill_resource";
 
     ASSERT_TRUE(peer_reader
                         .fetch_blocks(blocks, &result, content.size(), &io_ctx,
-                                      /*request_fill=*/true, kCrossTabletId, remote_path,
-                                      resource_id)
+                                      /*request_fill=*/true, kCrossTabletId, resource_id)
                         .ok());
     EXPECT_EQ(service.rpc_count.load(), 1);
     EXPECT_TRUE(service.request_fill.load());
-    EXPECT_EQ(service.last_fill_tablet_id.load(), kCrossTabletId);
-    EXPECT_EQ(service.get_last_fill_remote_path(), remote_path);
     EXPECT_EQ(service.get_last_fill_resource_id(), resource_id);
 }
 
@@ -931,8 +920,9 @@ TEST_F(CachedRemoteFileReaderPeerTest,
     request.set_file_size(static_cast<int64_t>(content.size()));
     request.set_support_attachment(false);
     request.set_request_cache_fill(true);
-    request.set_fill_remote_path("s3://bucket/data/12345/rowset_0.dat");
-    request.set_fill_resource_id("missing_peer_fill_resource");
+    auto* fill_meta = request.mutable_rowset_meta();
+    fill_meta->set_resource_id("missing_peer_fill_resource");
+    fill_meta->set_tablet_id(kCrossTabletId);
     auto* cache_req = request.add_cache_req();
     cache_req->set_block_offset(0);
     cache_req->set_block_size(kPeerTestBlockSize);

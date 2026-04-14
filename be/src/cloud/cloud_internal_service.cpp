@@ -40,6 +40,7 @@
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
+#include "io/fs/path.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_management/io_throttle.h"
 #include "storage/storage_policy.h"
@@ -270,6 +271,23 @@ inline int64_t elapsed_us(std::chrono::steady_clock::time_point start) {
             .count();
 }
 
+int64_t get_rowset_meta_tablet_id_from_request(const PFetchPeerDataRequest* request) {
+    return request->has_rowset_meta() && request->rowset_meta().has_tablet_id()
+                   ? request->rowset_meta().tablet_id()
+                   : -1;
+}
+
+std::string get_rowset_meta_resource_id_from_request(const PFetchPeerDataRequest* request) {
+    if (request->has_rowset_meta() && request->rowset_meta().has_resource_id()) {
+        return request->rowset_meta().resource_id();
+    }
+    return "";
+}
+
+std::string get_peer_cache_filename(std::string_view path) {
+    return io::Path(std::string(path)).filename().native();
+}
+
 std::string format_peer_request_context(const PFetchPeerDataRequest* request,
                                         const io::UInt128Wrapper& hash, size_t file_size) {
     const std::string file_size_str =
@@ -280,9 +298,8 @@ std::string format_peer_request_context(const PFetchPeerDataRequest* request,
             "cache_req_count={}, support_attachment={}",
             request->type(), request->path(), hash.to_string(),
             request->has_request_cache_fill() && request->request_cache_fill(),
-            request->has_fill_tablet_id() ? request->fill_tablet_id() : -1,
-            request->has_fill_remote_path() ? request->fill_remote_path() : "",
-            request->has_fill_resource_id() ? request->fill_resource_id() : "", file_size_str,
+            get_rowset_meta_tablet_id_from_request(request), request->path(),
+            get_rowset_meta_resource_id_from_request(request), file_size_str,
             file_size == std::numeric_limits<size_t>::max() ? std::string("unknown")
                                                             : std::to_string(file_size),
             request->cache_req_size(),
@@ -330,7 +347,8 @@ Status handle_peer_file_range_request(const std::string& path, PFetchPeerDataRes
     // Legacy path: PEER_FILE_RANGE still returns payload via protobuf bytes.
     // Keep this for compatibility until range path is migrated to attachment mode.
     // Read specific range [file_offset, file_offset+file_size) across cached blocks
-    auto datas = io::FileCacheFactory::instance()->get_cache_data_by_path(path);
+    auto datas =
+            io::FileCacheFactory::instance()->get_cache_data_by_path(get_peer_cache_filename(path));
     for (auto& cb : datas) {
         *(response->add_datas()) = std::move(cb);
     }
@@ -429,8 +447,7 @@ Status read_file_block(const std::shared_ptr<io::FileBlock>& file_block, size_t 
 //   client should not rotate or evict, just fall back to S3 and retry same candidate later.
 // Returns NOT_FOUND for soft misses (tablet not found, fill incomplete, timeout):
 //   client should rotate the candidate to try a different CG next time.
-// Client must provide fill_remote_path and fill_resource_id so the peer can fill directly
-// from remote storage without scanning tablet rowsets. fill_tablet_id/filename are kept for logging.
+// The peer uses request.path as the full remote path. tablet_id/filename are kept for logging.
 Status trigger_peer_server_fill(io::FileBlockSPtr& fb, int64_t fill_tablet_id,
                                 const std::string& filename, const std::string& resource_id,
                                 const std::string& remote_path, int64_t file_size, int64_t offset,
@@ -580,7 +597,8 @@ Status handle_peer_file_cache_block_request(const PFetchPeerDataRequest* request
         g_file_cache_get_by_peer_response_blocks_total << response_blocks;
     }};
     const auto& path = request->path();
-    auto hash = io::BlockFileCache::hash(path);
+    const auto cache_key_path = get_peer_cache_filename(path);
+    auto hash = io::BlockFileCache::hash(cache_key_path);
     auto get_cache_start = std::chrono::steady_clock::now();
     auto* cache = io::FileCacheFactory::instance()->get_by_path(hash);
     get_cache_us = elapsed_us(get_cache_start);
@@ -660,12 +678,10 @@ Status handle_peer_file_cache_block_request(const PFetchPeerDataRequest* request
                     response->mutable_status()->set_status_code(TStatusCode::NOT_FOUND);
                     return Status::NotFound<false>(msg);
                 }
-                // Server-side fill: use request-provided remote_path/resource_id to download
-                // from remote storage directly.
+                // Server-side fill: request.path already carries the full remote path.
                 auto fill_st = trigger_peer_server_fill(
-                        fb, request->fill_tablet_id(), path,
-                        request->has_fill_resource_id() ? request->fill_resource_id() : "",
-                        request->has_fill_remote_path() ? request->fill_remote_path() : "",
+                        fb, get_rowset_meta_tablet_id_from_request(request), cache_key_path,
+                        get_rowset_meta_resource_id_from_request(request), path,
                         request->has_file_size() ? request->file_size() : -1,
                         static_cast<int64_t>(fb->range().left),
                         static_cast<int64_t>(fb->range().size()),
@@ -772,13 +788,18 @@ void CloudInternalServiceImpl::fetch_peer_data(google::protobuf::RpcController* 
         }
 
         if (!status.ok()) {
-            LOG(WARNING) << "fetch peer data failed: " << status.to_string() << ", "
-                         << format_peer_request_context(
-                                    request, io::BlockFileCache::hash(path),
-                                    request->has_file_size()
-                                            ? static_cast<size_t>(
-                                                      std::max<int64_t>(0, request->file_size()))
-                                            : std::numeric_limits<size_t>::max());
+            const std::string msg =
+                    "fetch peer data failed: " + status.to_string() + ", " +
+                    format_peer_request_context(
+                            request, io::BlockFileCache::hash(get_peer_cache_filename(path)),
+                            request->has_file_size() ? static_cast<size_t>(std::max<int64_t>(
+                                                               0, request->file_size()))
+                                                     : std::numeric_limits<size_t>::max());
+            if (status.is<ErrorCode::NOT_FOUND>() || status.is<ErrorCode::TOO_MANY_TASKS>()) {
+                VLOG_DEBUG << msg;
+            } else {
+                LOG(WARNING) << msg;
+            }
             auto* resp_status = response->mutable_status();
             if (resp_status->status_code() == TStatusCode::OK) {
                 set_error_response(response, status.to_string());

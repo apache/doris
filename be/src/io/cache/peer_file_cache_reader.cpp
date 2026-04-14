@@ -156,7 +156,7 @@ PeerFileCacheReader::~PeerFileCacheReader() {
 Status PeerFileCacheReader::fetch_blocks(const std::vector<FileBlockSPtr>& blocks,
                                          PeerFetchResult* result, size_t file_size,
                                          const IOContext* ctx, bool request_fill, int64_t tablet_id,
-                                         std::string remote_path, std::string resource_id) {
+                                         std::string resource_id) {
     (void)ctx;
     if (result == nullptr) {
         return Status::InvalidArgument("peer cache fetch requires non-null result");
@@ -172,18 +172,20 @@ Status PeerFileCacheReader::fetch_blocks(const std::vector<FileBlockSPtr>& block
 
     PFetchPeerDataRequest req;
     req.set_type(PFetchPeerDataRequest_Type_PEER_FILE_CACHE_BLOCK);
-    req.set_path(_path.filename().native());
+    req.set_path(_path.native());
     req.set_file_size(static_cast<int64_t>(file_size));
+    auto* rowset_meta_pb = req.mutable_rowset_meta();
+    rowset_meta_pb->Clear();
+    // RowsetMetaPB still has deprecated proto2 required rowset_id. Set a dummy value so
+    // the RPC can be serialized; current peer read/fill paths only read tablet_id/resource_id.
+    rowset_meta_pb->set_rowset_id(0);
+    rowset_meta_pb->set_resource_id(resource_id);
+    rowset_meta_pb->set_tablet_id(tablet_id);
     if (request_fill) {
         // Ask the peer server to pull missing blocks from remote storage before serving them.
         // Only set for cross-CG reads targeting the designated fill compute group
         // (peer_cache_fill_compute_group_id). Server still gates with enable_peer_server_cache_fill.
         req.set_request_cache_fill(true);
-        // Send the resolved remote object path and storage resource id directly so the peer can
-        // fill without syncing/scanning tablet rowsets. Keep tablet_id for logging/metrics.
-        req.set_fill_tablet_id(tablet_id);
-        req.set_fill_remote_path(std::move(remote_path));
-        req.set_fill_resource_id(std::move(resource_id));
     }
     // Always advertise attachment support. Older peers can still reply in protobuf mode.
     req.set_support_attachment(true);
