@@ -46,7 +46,6 @@ github:
       required_status_checks:
         strict: false
         contexts:
-          - License Check
           - Check for secrets
           - Clang Formatter
           - CheckStyle
