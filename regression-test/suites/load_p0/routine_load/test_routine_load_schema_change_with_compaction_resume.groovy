@@ -52,6 +52,22 @@ suite("test_routine_load_schema_change_with_compaction_resume", "nonConcurrent")
         """
         sql "sync"
 
+        // 先写入两批基线数据，确保后续 full compaction 前存在可 compaction 的非空 rowset。
+        // 这里分两次 insert，是为了避免只有单个数据 rowset 时 full compaction 返回 no suitable version。
+        sql """
+            INSERT INTO ${tableName} VALUES
+            (101, 'seed_a', '2023-01-11', 'seed_v1', '2023-01-11 10:00:00', 'init1')
+        """
+        sql """
+            INSERT INTO ${tableName} VALUES
+            (102, 'seed_b', '2023-01-12', 'seed_v2', '2023-01-12 11:00:00', 'init2')
+        """
+        sql "sync"
+
+        def baselineCount = sql "select count(*) from ${tableName}"
+        Assert.assertEquals("基线数据应成功写入", 2L, baselineCount[0][0])
+        logger.info("Baseline row count before routine load: ${baselineCount[0][0]}")
+
         // 准备测试数据：v4 列超过 VARCHAR(5) 长度，strict_mode 下会导致暂停
         def badData = [
             "1,aaa,2023-01-01,val1,2023-01-01 10:00:00,abcdef",
@@ -107,9 +123,11 @@ suite("test_routine_load_schema_change_with_compaction_resume", "nonConcurrent")
                 }
             }
 
-            // 核心断言 1: 暂停期间不应有数据写入（strict_mode 下坏数据被拒绝）
+            // 核心断言 1: 暂停期间不应有坏数据写入（strict_mode 下坏数据被拒绝）
             def pausedCount = sql "select count(*) from ${tableName}"
-            Assert.assertEquals("PAUSED 期间不应有数据写入", 0L, pausedCount[0][0])
+            Assert.assertEquals("PAUSED 期间只应保留基线数据", 2L, pausedCount[0][0])
+            def badRowsDuringPause = sql "SELECT count(*) FROM ${tableName} WHERE k1 IN (1, 2)"
+            Assert.assertEquals("PAUSED 期间坏数据不应落表", 0L, badRowsDuringPause[0][0])
             logger.info("Row count during PAUSED: ${pausedCount[0][0]}")
 
             // 在 RESUME 前执行 schema change，扩大 v4 列
