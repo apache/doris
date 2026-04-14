@@ -77,7 +77,8 @@ public:
         auto arg_variant = remove_nullable(arguments[0]);
         const auto& data_type_object = assert_cast<const DataTypeVariant&>(*arg_variant);
         return make_nullable(
-                std::make_shared<DataTypeVariant>(data_type_object.variant_max_subcolumns_count()));
+                std::make_shared<DataTypeVariant>(data_type_object.variant_max_subcolumns_count(),
+                                                  data_type_object.enable_doc_mode()));
     }
 
     // wrap variant column with nullable
@@ -199,7 +200,6 @@ private:
                                                       const PathInData& path,
                                                       ColumnVariant::MutablePtr& target_ptr) {
         ColumnVariant::Subcolumn root {0, true, true};
-        // no root, no sparse column
         const auto& doc_value_data_map =
                 assert_cast<const ColumnMap&>(*src_ptr->get_doc_value_column());
         const auto& src_doc_value_data_offsets = doc_value_data_map.get_offsets();
@@ -207,11 +207,13 @@ private:
                 assert_cast<const ColumnString&>(doc_value_data_map.get_keys());
         const auto& src_doc_value_data_values =
                 assert_cast<const ColumnString&>(doc_value_data_map.get_values());
-        auto& sparse_data_offsets =
-                assert_cast<ColumnMap&>(*target_ptr->get_sparse_column()->assume_mutable())
+        // Write extracted data into target's doc_value column (not sparse) to preserve
+        // doc mode invariant: doc_mode columns must not have sparse data.
+        auto& doc_value_offsets =
+                assert_cast<ColumnMap&>(*target_ptr->get_doc_value_column()->assume_mutable())
                         .get_offsets();
-        auto [sparse_data_paths, sparse_data_values] =
-                target_ptr->get_sparse_data_paths_and_values();
+        auto [doc_value_paths, doc_value_values] =
+                target_ptr->get_doc_value_data_paths_and_values();
         StringRef prefix_ref(path.get_path());
         std::string_view path_prefix(prefix_ref.data, prefix_ref.size);
         for (size_t i = 0; i != src_doc_value_data_offsets.size(); ++i) {
@@ -225,33 +227,26 @@ private:
                 if (!nested_path.starts_with(path_prefix)) {
                     break;
                 }
-                // Don't include path that is equal to the prefix.
                 if (nested_path.size() != path_prefix.size()) {
                     auto sub_path_optional = get_sub_path(nested_path, path_prefix);
                     if (!sub_path_optional.has_value()) {
                         continue;
                     }
                     std::string_view sub_path = *sub_path_optional;
-                    sparse_data_paths->insert_data(sub_path.data(), sub_path.size());
-                    sparse_data_values->insert_from(src_doc_value_data_values, lower_bound_index);
+                    doc_value_paths->insert_data(sub_path.data(), sub_path.size());
+                    doc_value_values->insert_from(src_doc_value_data_values, lower_bound_index);
                 } else {
-                    // insert into root column, example:  access v['b'] and b is in sparse column
-                    // data example:
-                    // {"b" : 123}
-                    // {"b" : {"c" : 456}}
-                    // b maybe in sparse column, and b.c is in subolumn, put `b` into root column to distinguish
-                    // from "" which is empty path and root
                     root.deserialize_from_binary_column(&src_doc_value_data_values,
                                                         lower_bound_index);
                 }
             }
-            if (root.size() == sparse_data_offsets.size()) {
+            if (root.size() == doc_value_offsets.size()) {
                 root.insert_default();
             }
-            sparse_data_offsets.push_back(sparse_data_paths->size());
+            doc_value_offsets.push_back(doc_value_paths->size());
         }
         target_ptr->get_subcolumns().create_root(root);
-        target_ptr->get_doc_value_column()->assume_mutable()->resize(src_ptr->size());
+        target_ptr->get_sparse_column()->assume_mutable()->resize(src_ptr->size());
         target_ptr->set_num_rows(src_ptr->size());
     }
 
@@ -259,7 +254,7 @@ private:
                                      ColumnPtr* result) {
         std::string field_name = index_column->get_data_at(0).to_string();
         if (src.empty()) {
-            *result = ColumnVariant::create(src.max_subcolumns_count());
+            *result = ColumnVariant::create(src.max_subcolumns_count(), src.enable_doc_mode());
             // src subcolumns empty but src row count may not be 0
             (*result)->assume_mutable()->insert_many_defaults(src.size());
             // ColumnVariant should be finalized before parsing, finalize maybe modify original column structure
@@ -286,7 +281,7 @@ private:
                     result_column->insert_default();
                 }
             }
-            *result = ColumnVariant::create(src.max_subcolumns_count(), type,
+            *result = ColumnVariant::create(src.max_subcolumns_count(), src.enable_doc_mode(), type,
                                             std::move(result_column));
             (*result)->assume_mutable()->finalize();
             return Status::OK();
@@ -296,7 +291,8 @@ private:
             PathInData path(field_name);
             ColumnVariant::Subcolumns subcolumns = mutable_ptr->get_subcolumns();
             const auto* node = subcolumns.find_exact(path);
-            MutableColumnPtr result_col = ColumnVariant::create(src.max_subcolumns_count());
+            MutableColumnPtr result_col =
+                    ColumnVariant::create(src.max_subcolumns_count(), src.enable_doc_mode());
             ColumnVariant::Subcolumns new_subcolumns;
 
             if (node != nullptr) {
@@ -321,19 +317,22 @@ private:
                     new_subcolumns.create_root(ColumnVariant::Subcolumn {
                             nodes[0]->data.get_finalized_column_ptr()->assume_mutable(),
                             nodes[0]->data.get_least_common_type(), true, true});
-                    auto container = ColumnVariant::create(src.max_subcolumns_count(),
-                                                           std::move(new_subcolumns));
+                    auto container =
+                            ColumnVariant::create(src.max_subcolumns_count(), src.enable_doc_mode(),
+                                                  std::move(new_subcolumns));
                     result_col->insert_range_from(*container, 0, container->size());
                 } else {
-                    auto container = ColumnVariant::create(src.max_subcolumns_count(),
-                                                           std::move(new_subcolumns));
+                    auto container =
+                            ColumnVariant::create(src.max_subcolumns_count(), src.enable_doc_mode(),
+                                                  std::move(new_subcolumns));
                     container->clear_sparse_column();
                     _extract_sparse_column_from_source(mutable_ptr, path, container);
                     result_col->insert_range_from(*container, 0, container->size());
                 }
             } else {
-                auto container = ColumnVariant::create(src.max_subcolumns_count(),
-                                                       std::move(new_subcolumns));
+                auto container =
+                        ColumnVariant::create(src.max_subcolumns_count(), src.enable_doc_mode(),
+                                              std::move(new_subcolumns));
                 const auto& sparse_offsets = mutable_ptr->serialized_sparse_column_offsets();
                 if (sparse_offsets.back() == sparse_offsets[-1]) {
                     _extract_doc_value_column_from_source(mutable_ptr, path, container);

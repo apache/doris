@@ -55,7 +55,6 @@
 #include "util/json/path_in_data.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 FieldType TabletColumn::get_field_type_by_type(PrimitiveType primitiveType) {
     switch (primitiveType) {
     case PrimitiveType::INVALID_TYPE:
@@ -128,8 +127,6 @@ FieldType TabletColumn::get_field_type_by_type(PrimitiveType primitiveType) {
         return FieldType::OLAP_FIELD_TYPE_IPV4;
     case PrimitiveType::TYPE_IPV6:
         return FieldType::OLAP_FIELD_TYPE_IPV6;
-    case PrimitiveType::TYPE_LAMBDA_FUNCTION:
-        return FieldType::OLAP_FIELD_TYPE_UNKNOWN; // Not implemented
     case PrimitiveType::TYPE_AGG_STATE:
         return FieldType::OLAP_FIELD_TYPE_AGG_STATE;
     default:
@@ -689,7 +686,8 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
 TabletColumn TabletColumn::create_materialized_variant_column(const std::string& root,
                                                               const std::vector<std::string>& paths,
                                                               int32_t parent_unique_id,
-                                                              int32_t max_subcolumns_count) {
+                                                              int32_t max_subcolumns_count,
+                                                              bool enable_doc_mode) {
     TabletColumn subcol;
     subcol.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
     subcol.set_is_nullable(true);
@@ -699,6 +697,7 @@ TabletColumn TabletColumn::create_materialized_variant_column(const std::string&
     subcol.set_path_info(path);
     subcol.set_name(path.get_path());
     subcol.set_variant_max_subcolumns_count(max_subcolumns_count);
+    subcol.set_variant_enable_doc_mode(enable_doc_mode);
     return subcol;
 }
 
@@ -1981,5 +1980,4 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
 bool operator!=(const TabletSchema& a, const TabletSchema& b) {
     return !(a == b);
 }
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -21,6 +21,7 @@ import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToExprNameVisitor;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IsNullPredicate;
@@ -158,7 +159,7 @@ public class PaimonPredicateConverter {
                     return null;
             }
         } else if (dorisExpr instanceof FunctionCallExpr) {
-            String name = dorisExpr.getExprName().toLowerCase();
+            String name = dorisExpr.accept(ExprToExprNameVisitor.INSTANCE, null).toLowerCase();
             String s = value.toString();
             if (name.equals("like") && !s.startsWith("%") && s.endsWith("%")) {
                 return builder.startsWith(idx, BinaryString.fromString(s.substring(0, s.length() - 1)));

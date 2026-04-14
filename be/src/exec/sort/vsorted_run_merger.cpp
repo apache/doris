@@ -30,7 +30,6 @@
 #include "util/stopwatch.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 VSortedRunMerger::VSortedRunMerger(const VExprContextSPtrs& ordering_expr,
                                    const std::vector<bool>& is_asc_order,

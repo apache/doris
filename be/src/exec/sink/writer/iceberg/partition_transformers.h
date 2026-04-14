@@ -19,7 +19,8 @@
 
 #include "core/data_type/data_type_factory.hpp"
 #include "exec/common/stringop_substring.h"
-#include "exprs/function/function_string.h"
+#include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
+#include "exprs/function/cast/cast_to_datev2_impl.hpp"
 #include "util/bit_util.h"
 
 namespace doris {
@@ -28,8 +29,6 @@ namespace iceberg {
 class Type;
 class PartitionField;
 }; // namespace iceberg
-
-#include "common/compile_check_begin.h"
 
 class IColumn;
 class PartitionColumnTransform;
@@ -49,7 +48,9 @@ public:
         static DateV2Value<DateV2ValueType> epoch_date;
         static bool initialized = false;
         if (!initialized) {
-            epoch_date.from_date_str("1970-01-01 00:00:00", 19);
+            CastParameters params;
+            DORIS_CHECK((CastToDateV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                    {"1970-01-01 00:00:00", 19}, epoch_date, nullptr, params)));
             initialized = true;
         }
         return epoch_date;
@@ -59,7 +60,9 @@ public:
         static DateV2Value<DateTimeV2ValueType> epoch_datetime;
         static bool initialized = false;
         if (!initialized) {
-            epoch_datetime.from_date_str("1970-01-01 00:00:00", 19);
+            CastParameters params;
+            DORIS_CHECK((CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                    {"1970-01-01 00:00:00", 19}, epoch_datetime, nullptr, -1, params)));
             initialized = true;
         }
         return epoch_datetime;
@@ -1296,4 +1299,3 @@ private:
 };
 
 } // namespace doris
-#include "common/compile_check_end.h"

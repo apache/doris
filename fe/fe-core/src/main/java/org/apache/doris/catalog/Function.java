@@ -22,7 +22,6 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.URI;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -52,6 +51,17 @@ public class Function implements Writable {
         ALWAYS_NOT_NULLABLE
     }
 
+    public enum BinaryType {
+        BUILTIN,
+        HIVE,
+        NATIVE,
+        IR,
+        RPC,
+        JAVA_UDF,
+        AGG_STATE,
+        PYTHON_UDF
+    }
+
     // Function id, every function has a unique id. Now all built-in functions' id is 0
     @SerializedName("id")
     private long id = 0;
@@ -79,7 +89,7 @@ public class Function implements Writable {
     @SerializedName("l")
     private URI location;
     @SerializedName("bt")
-    private TFunctionBinaryType binaryType;
+    private BinaryType binaryType;
 
     @SerializedName("nm")
     protected NullableMode nullableMode = NullableMode.DEPEND_ON_ARGUMENT;
@@ -119,7 +129,7 @@ public class Function implements Writable {
     }
 
     public Function(long id, FunctionName name, List<Type> argTypes, Type retType, boolean hasVarArgs,
-            TFunctionBinaryType binaryType, boolean userVisible, boolean vectorized, NullableMode mode) {
+            BinaryType binaryType, boolean userVisible, boolean vectorized, NullableMode mode) {
         this.id = id;
         this.name = name;
         this.hasVarArgs = hasVarArgs;
@@ -137,7 +147,7 @@ public class Function implements Writable {
 
     public Function(long id, FunctionName name, List<Type> argTypes, Type retType,
             boolean hasVarArgs, boolean vectorized, NullableMode mode) {
-        this(id, name, argTypes, retType, hasVarArgs, TFunctionBinaryType.BUILTIN, true, vectorized, mode);
+        this(id, name, argTypes, retType, hasVarArgs, BinaryType.BUILTIN, true, vectorized, mode);
     }
 
     public Function(Function other) {
@@ -215,11 +225,11 @@ public class Function implements Writable {
         this.name = name;
     }
 
-    public TFunctionBinaryType getBinaryType() {
+    public BinaryType getBinaryType() {
         return binaryType;
     }
 
-    public void setBinaryType(TFunctionBinaryType type) {
+    public void setBinaryType(BinaryType type) {
         binaryType = type;
     }
 

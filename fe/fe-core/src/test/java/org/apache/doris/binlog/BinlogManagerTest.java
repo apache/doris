@@ -32,12 +32,14 @@ import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import mockit.Mock;
-import mockit.MockUp;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.mockito.MockedConstruction;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -64,6 +66,12 @@ public class BinlogManagerTest {
 
     private boolean enableDbBinlog = false;
 
+    private MockedConstruction<BinlogConfigCache> mockedBinlogConfigCacheConstruction;
+    private MockedConstruction<BinlogConfig> mockedBinlogConfigConstruction;
+    private MockedStatic<Env> mockedEnv;
+    private MockedConstruction<InternalCatalog> mockedInternalCatalogConstruction;
+    private MockedConstruction<Database> mockedDatabaseConstruction;
+
     @BeforeClass
     public static void beforeClass() {
         Config.enable_feature_binlog = true;
@@ -82,60 +90,67 @@ public class BinlogManagerTest {
             frameWork.put(dbId, tableIds);
         }
 
-        new MockUp<BinlogConfigCache>() {
-            @Mock
-            public BinlogConfig getDBBinlogConfig(long dbId) {
-                return new BinlogConfig();
-            }
+        mockedBinlogConfigConstruction = Mockito.mockConstruction(BinlogConfig.class,
+                Mockito.withSettings().defaultAnswer(Mockito.CALLS_REAL_METHODS),
+                (mock, context) -> {
+                    Mockito.doAnswer(inv -> ttl).when(mock).getTtlSeconds();
+                    Mockito.doAnswer(inv -> enableDbBinlog).when(mock).isEnable();
+                    Mockito.doReturn(BinlogTestUtils.MAX_BYTES).when(mock).getMaxBytes();
+                    Mockito.doReturn(BinlogTestUtils.MAX_HISTORY_NUMS).when(mock).getMaxHistoryNums();
+                });
 
-            @Mock
-            public BinlogConfig getTableBinlogConfig(long dbId, long tableId) {
-                return new BinlogConfig();
-            }
+        mockedBinlogConfigCacheConstruction = Mockito.mockConstruction(BinlogConfigCache.class,
+                Mockito.withSettings().defaultAnswer(Mockito.CALLS_REAL_METHODS),
+                (mock, context) -> {
+                    Mockito.doAnswer(inv -> new BinlogConfig()).when(mock)
+                            .getDBBinlogConfig(Mockito.anyLong());
+                    Mockito.doAnswer(inv -> new BinlogConfig()).when(mock)
+                            .getTableBinlogConfig(Mockito.anyLong(), Mockito.anyLong());
+                    Mockito.doReturn(true).when(mock)
+                            .isEnableTable(Mockito.anyLong(), Mockito.anyLong());
+                    Mockito.doAnswer(inv -> enableDbBinlog).when(mock)
+                            .isEnableDB(Mockito.anyLong());
+                    Mockito.doReturn(false).when(mock)
+                            .isAsyncMvTable(Mockito.anyLong(), Mockito.anyLong());
+                    Mockito.doReturn(false).when(mock)
+                            .isTemporaryTable(Mockito.anyLong(), Mockito.anyLong());
+                });
 
-            @Mock
-            public boolean isEnableTable(long dbId, long tableId) {
-                return true;
-            }
+        mockedDatabaseConstruction = Mockito.mockConstruction(Database.class,
+                Mockito.withSettings().defaultAnswer(Mockito.CALLS_REAL_METHODS),
+                (mock, context) -> {
+                    Mockito.doAnswer(inv -> new BinlogConfig()).when(mock).getBinlogConfig();
+                });
 
-            @Mock
-            public boolean isEnableDB(long dbId) {
-                return enableDbBinlog;
-            }
-        };
+        mockedInternalCatalogConstruction = Mockito.mockConstruction(InternalCatalog.class,
+                Mockito.withSettings().defaultAnswer(Mockito.CALLS_REAL_METHODS),
+                (mock, context) -> {
+                    Mockito.doAnswer(inv -> new Database()).when(mock)
+                            .getDbNullable(Mockito.anyLong());
+                });
 
-        new MockUp<BinlogConfig>() {
-            @Mock
-            public long getTtlSeconds() {
-                return ttl;
-            }
+        mockedEnv = Mockito.mockStatic(Env.class);
+        mockedEnv.when(Env::getCurrentInternalCatalog)
+                .thenAnswer(inv -> EnvFactory.getInstance().createInternalCatalog());
+    }
 
-            @Mock
-            public boolean isEnable() {
-                return enableDbBinlog;
-            }
-        };
-
-        new MockUp<Env>() {
-            @Mock
-            public InternalCatalog getCurrentInternalCatalog() {
-                return EnvFactory.getInstance().createInternalCatalog();
-            }
-        };
-
-        new MockUp<InternalCatalog>() {
-            @Mock
-            public Database getDbNullable(long dbId) {
-                return new Database();
-            }
-        };
-
-        new MockUp<Database>() {
-            @Mock
-            public BinlogConfig getBinlogConfig() {
-                return new BinlogConfig();
-            }
-        };
+    @After
+    public void tearDown() {
+        if (mockedBinlogConfigCacheConstruction != null) {
+            mockedBinlogConfigCacheConstruction.close();
+        }
+        if (mockedBinlogConfigConstruction != null) {
+            mockedBinlogConfigConstruction.close();
+        }
+        if (mockedEnv != null) {
+            mockedEnv.close();
+        }
+        if (mockedInternalCatalogConstruction != null) {
+            mockedInternalCatalogConstruction.close();
+        }
+        if (mockedDatabaseConstruction != null) {
+            mockedDatabaseConstruction.close();
+        }
     }
 
     @Test
@@ -252,59 +267,58 @@ public class BinlogManagerTest {
     @Test
     public void testReplayGcFromTableLevel() throws NoSuchMethodException, InvocationTargetException,
             IllegalAccessException, NoSuchFieldException {
-        // MockUp
-        new MockUp<BinlogUtils>() {
-            @Mock
-            public long getExpiredMs(long ttl) {
-                return timeNow - ttl;
+        try (MockedStatic<BinlogUtils> mockedBinlogUtils = Mockito.mockStatic(BinlogUtils.class,
+                Mockito.CALLS_REAL_METHODS)) {
+            mockedBinlogUtils.when(() -> BinlogUtils.getExpiredMs(Mockito.anyLong()))
+                    .thenAnswer(invocation -> timeNow - (long) invocation.getArgument(0));
+
+            // reflect BinlogManager
+            // addBinlog method
+            Method addBinlog = BinlogManager.class.getDeclaredMethod("addBinlog", TBinlog.class, Object.class);
+            addBinlog.setAccessible(true);
+            // dbBinlogMap
+            Field dbBinlogMapField = BinlogManager.class.getDeclaredField("dbBinlogMap");
+            dbBinlogMapField.setAccessible(true);
+
+            // init binlog origin & new manager
+            BinlogManager originManager = new BinlogManager();
+            BinlogManager newManager = new BinlogManager();
+
+            // insert binlogs
+            long commitSeq = 0;
+            for (Map.Entry<Long, List<Long>> dbEntry : frameWork.entrySet()) {
+                long dbId = dbEntry.getKey();
+                for (long tableId : dbEntry.getValue()) {
+                    addBinlog.invoke(originManager, BinlogTestUtils.newBinlog(dbId, tableId, commitSeq, timeNow),
+                            null);
+                    addBinlog.invoke(newManager, BinlogTestUtils.newBinlog(dbId, tableId, commitSeq, timeNow), null);
+                    ++commitSeq;
+                }
             }
-        };
 
-        // reflect BinlogManager
-        // addBinlog method
-        Method addBinlog = BinlogManager.class.getDeclaredMethod("addBinlog", TBinlog.class, Object.class);
-        addBinlog.setAccessible(true);
-        // dbBinlogMap
-        Field dbBinlogMapField = BinlogManager.class.getDeclaredField("dbBinlogMap");
-        dbBinlogMapField.setAccessible(true);
+            // origin manager gc & get BinlogGcInfo
+            BinlogGcInfo info = new BinlogGcInfo(originManager.gc());
 
-        // init binlog origin & new manager
-        BinlogManager originManager = new BinlogManager();
-        BinlogManager newManager = new BinlogManager();
+            // new manager replay gc
+            newManager.replayGc(info);
 
-        // insert binlogs
-        long commitSeq = 0;
-        for (Map.Entry<Long, List<Long>> dbEntry : frameWork.entrySet()) {
-            long dbId = dbEntry.getKey();
-            for (long tableId : dbEntry.getValue()) {
-                addBinlog.invoke(originManager, BinlogTestUtils.newBinlog(dbId, tableId, commitSeq, timeNow), null);
-                addBinlog.invoke(newManager, BinlogTestUtils.newBinlog(dbId, tableId, commitSeq, timeNow), null);
-                ++commitSeq;
-            }
-        }
-
-        // origin manager gc & get BinlogGcInfo
-        BinlogGcInfo info = new BinlogGcInfo(originManager.gc());
-
-        // new manager replay gc
-        newManager.replayGc(info);
-
-        // get origin & new dbbinlog's allbinlogs
-        Map<Long, DBBinlog> originDbBinlogMap = (Map<Long, DBBinlog>) dbBinlogMapField.get(originManager);
-        Map<Long, DBBinlog> newDbBinlogMap = (Map<Long, DBBinlog>) dbBinlogMapField.get(newManager);
-        Assert.assertEquals(originDbBinlogMap.size(), newDbBinlogMap.size());
-        for (long dbId : frameWork.keySet()) {
-            List<TBinlog> originBinlogList = Lists.newArrayList();
-            List<TBinlog> newBinlogList = Lists.newArrayList();
-            originDbBinlogMap.get(dbId).getAllBinlogs(originBinlogList);
-            newDbBinlogMap.get(dbId).getAllBinlogs(newBinlogList);
-            Assert.assertEquals(originBinlogList.size(), newBinlogList.size());
-            for (int i = 0; i < originBinlogList.size(); ++i) {
-                TBinlog originBinlog = originBinlogList.get(i);
-                TBinlog newBinlog = newBinlogList.get(i);
-                Assert.assertEquals(originBinlog.getCommitSeq(), newBinlog.getCommitSeq());
-                if (newBinlog.getType() != TBinlogType.DUMMY) {
-                    Assert.assertTrue(newBinlog.getTimestamp() > timeNow - ttl);
+            // get origin & new dbbinlog's allbinlogs
+            Map<Long, DBBinlog> originDbBinlogMap = (Map<Long, DBBinlog>) dbBinlogMapField.get(originManager);
+            Map<Long, DBBinlog> newDbBinlogMap = (Map<Long, DBBinlog>) dbBinlogMapField.get(newManager);
+            Assert.assertEquals(originDbBinlogMap.size(), newDbBinlogMap.size());
+            for (long dbId : frameWork.keySet()) {
+                List<TBinlog> originBinlogList = Lists.newArrayList();
+                List<TBinlog> newBinlogList = Lists.newArrayList();
+                originDbBinlogMap.get(dbId).getAllBinlogs(originBinlogList);
+                newDbBinlogMap.get(dbId).getAllBinlogs(newBinlogList);
+                Assert.assertEquals(originBinlogList.size(), newBinlogList.size());
+                for (int i = 0; i < originBinlogList.size(); ++i) {
+                    TBinlog originBinlog = originBinlogList.get(i);
+                    TBinlog newBinlog = newBinlogList.get(i);
+                    Assert.assertEquals(originBinlog.getCommitSeq(), newBinlog.getCommitSeq());
+                    if (newBinlog.getType() != TBinlogType.DUMMY) {
+                        Assert.assertTrue(newBinlog.getTimestamp() > timeNow - ttl);
+                    }
                 }
             }
         }
@@ -313,64 +327,64 @@ public class BinlogManagerTest {
     @Test
     public void testReplayGcFromDbLevel() throws NoSuchMethodException, InvocationTargetException,
             IllegalAccessException, NoSuchFieldException {
-        // MockUp
-        new MockUp<BinlogUtils>() {
-            @Mock
-            public long getExpiredMs(long ttl) {
-                return timeNow - ttl;
-            }
-        };
-
         // set dbBinlogEnable
         enableDbBinlog = true;
 
-        // reflect BinlogManager
-        // addBinlog method
-        Method addBinlog = BinlogManager.class.getDeclaredMethod("addBinlog", TBinlog.class, Object.class);
-        addBinlog.setAccessible(true);
-        // dbBinlogMap
-        Field dbBinlogMapField = BinlogManager.class.getDeclaredField("dbBinlogMap");
-        dbBinlogMapField.setAccessible(true);
+        try (MockedStatic<BinlogUtils> mockedBinlogUtils = Mockito.mockStatic(BinlogUtils.class,
+                Mockito.CALLS_REAL_METHODS)) {
+            mockedBinlogUtils.when(() -> BinlogUtils.getExpiredMs(Mockito.anyLong()))
+                    .thenAnswer(invocation -> timeNow - (long) invocation.getArgument(0));
 
-        // init binlog origin & new manager
-        BinlogManager originManager = new BinlogManager();
-        BinlogManager newManager = new BinlogManager();
+            // reflect BinlogManager
+            // addBinlog method
+            Method addBinlog = BinlogManager.class.getDeclaredMethod("addBinlog", TBinlog.class, Object.class);
+            addBinlog.setAccessible(true);
+            // dbBinlogMap
+            Field dbBinlogMapField = BinlogManager.class.getDeclaredField("dbBinlogMap");
+            dbBinlogMapField.setAccessible(true);
 
-        // insert binlogs
-        long commitSeq = baseNum;
-        for (Map.Entry<Long, List<Long>> dbEntry : frameWork.entrySet()) {
-            long dbId = dbEntry.getKey();
-            for (long tableId : dbEntry.getValue()) {
-                ++commitSeq;
-                addBinlog.invoke(originManager, BinlogTestUtils.newBinlog(dbId, tableId, commitSeq, commitSeq), null);
-                addBinlog.invoke(newManager, BinlogTestUtils.newBinlog(dbId, tableId, commitSeq, commitSeq), null);
+            // init binlog origin & new manager
+            BinlogManager originManager = new BinlogManager();
+            BinlogManager newManager = new BinlogManager();
+
+            // insert binlogs
+            long commitSeq = baseNum;
+            for (Map.Entry<Long, List<Long>> dbEntry : frameWork.entrySet()) {
+                long dbId = dbEntry.getKey();
+                for (long tableId : dbEntry.getValue()) {
+                    ++commitSeq;
+                    addBinlog.invoke(originManager,
+                            BinlogTestUtils.newBinlog(dbId, tableId, commitSeq, commitSeq), null);
+                    addBinlog.invoke(newManager,
+                            BinlogTestUtils.newBinlog(dbId, tableId, commitSeq, commitSeq), null);
+                }
             }
-        }
-        timeNow = commitSeq;
+            timeNow = commitSeq;
 
-        // origin manager gc & get BinlogGcInfo
-        BinlogGcInfo info = new BinlogGcInfo(originManager.gc());
+            // origin manager gc & get BinlogGcInfo
+            BinlogGcInfo info = new BinlogGcInfo(originManager.gc());
 
-        // new manager replay gc
-        newManager.replayGc(info);
+            // new manager replay gc
+            newManager.replayGc(info);
 
-        // get origin & new dbbinlog's allbinlogs
-        Map<Long, DBBinlog> originDbBinlogMap = (Map<Long, DBBinlog>) dbBinlogMapField.get(originManager);
-        Map<Long, DBBinlog> newDbBinlogMap = (Map<Long, DBBinlog>) dbBinlogMapField.get(newManager);
-        Assert.assertEquals(originDbBinlogMap.size(), newDbBinlogMap.size());
-        for (Map.Entry<Long, List<Long>> dbEntry : frameWork.entrySet()) {
-            long dbId = dbEntry.getKey();
-            List<TBinlog> originBinlogList = Lists.newArrayList();
-            List<TBinlog> newBinlogList = Lists.newArrayList();
-            originDbBinlogMap.get(dbId).getAllBinlogs(originBinlogList);
-            newDbBinlogMap.get(dbId).getAllBinlogs(newBinlogList);
-            Assert.assertEquals(originBinlogList.size(), newBinlogList.size());
-            for (int i = 0; i < originBinlogList.size(); ++i) {
-                TBinlog originBinlog = originBinlogList.get(i);
-                TBinlog newBinlog = newBinlogList.get(i);
-                Assert.assertEquals(originBinlog.getCommitSeq(), newBinlog.getCommitSeq());
-                if (newBinlog.getType() != TBinlogType.DUMMY) {
-                    Assert.assertTrue(newBinlog.getCommitSeq() > timeNow - ttl);
+            // get origin & new dbbinlog's allbinlogs
+            Map<Long, DBBinlog> originDbBinlogMap = (Map<Long, DBBinlog>) dbBinlogMapField.get(originManager);
+            Map<Long, DBBinlog> newDbBinlogMap = (Map<Long, DBBinlog>) dbBinlogMapField.get(newManager);
+            Assert.assertEquals(originDbBinlogMap.size(), newDbBinlogMap.size());
+            for (Map.Entry<Long, List<Long>> dbEntry : frameWork.entrySet()) {
+                long dbId = dbEntry.getKey();
+                List<TBinlog> originBinlogList = Lists.newArrayList();
+                List<TBinlog> newBinlogList = Lists.newArrayList();
+                originDbBinlogMap.get(dbId).getAllBinlogs(originBinlogList);
+                newDbBinlogMap.get(dbId).getAllBinlogs(newBinlogList);
+                Assert.assertEquals(originBinlogList.size(), newBinlogList.size());
+                for (int i = 0; i < originBinlogList.size(); ++i) {
+                    TBinlog originBinlog = originBinlogList.get(i);
+                    TBinlog newBinlog = newBinlogList.get(i);
+                    Assert.assertEquals(originBinlog.getCommitSeq(), newBinlog.getCommitSeq());
+                    if (newBinlog.getType() != TBinlogType.DUMMY) {
+                        Assert.assertTrue(newBinlog.getCommitSeq() > timeNow - ttl);
+                    }
                 }
             }
         }

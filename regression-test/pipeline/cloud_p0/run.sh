@@ -113,7 +113,7 @@ exit_flag="$?"
 if print_running_pipeline_tasks; then :; fi
 # shellcheck source=/dev/null
 source "$(cd "${teamcity_build_checkoutDir}" && bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'get')"
-
+if get_jstack_and_jmap_of_fe; then echo "INFO: get_jstack_and_jmap_of_fe done."; fi
 check_if_need_gcore "${exit_flag}"
 if stop_doris_grace; then
     echo "INFO: stop doris grace success."

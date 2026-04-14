@@ -24,7 +24,6 @@
 #include "exec/partitioner/partitioner.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 template <typename BlockType>
 void Exchanger<BlockType>::_enqueue_data_and_set_ready(int channel_id,
                                                        LocalExchangeSinkLocalState* local_state,

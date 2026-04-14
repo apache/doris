@@ -19,12 +19,10 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
@@ -34,10 +32,10 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import mockit.Mock;
-import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -49,6 +47,7 @@ import java.util.Queue;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class StatisticsJobAppenderTest {
 
@@ -60,88 +59,72 @@ public class StatisticsJobAppenderTest {
         Column column1 = new Column("placeholder", PrimitiveType.INT);
         List<Column> schema = new ArrayList<>();
         schema.add(column1);
-        OlapTable table1 = new OlapTable(200, "testTable", schema, null, null, null);
-        OlapTable table2 = new OlapTable(200, "testTable2", schema, null, null, null);
-        OlapTable table3 = new OlapTable(200, "testTable3", schema, null, null, null);
-        new MockUp<StatisticsUtil>() {
-            int i = 0;
-            Table[] tables = {table1, table2, table1, table3, table2};
-
-            @Mock
-            public boolean needAnalyzeColumn(TableIf table, Pair<String, String> column) {
-                return true;
-            }
-
-            @Mock
-            public TableIf findTable(long catalogId, long dbId, long tblId) {
-                return tables[i++];
-            }
-        };
-
-        new MockUp<Table>() {
-            @Mock
-            public DatabaseIf getDatabase() {
-                return db;
-            }
-
-            @Mock
-            public Column getColumn(String name) {
-                return new Column("mockCol", Type.INT);
-            }
-        };
-
-        new MockUp<OlapTable>() {
-            @Mock
-            public Set<Pair<String, String>> getColumnIndexPairs(Set<String> columns) {
-                String column = columns.iterator().next();
-                return Collections.singleton(Pair.of("mockIndex", column));
-            }
-        };
-
-        Queue<QueryColumn> testQueue = new ArrayBlockingQueue<>(100);
-        Map<TableNameInfo, Set<Pair<String, String>>> testMap = new HashMap<>();
-        QueryColumn high1 = new QueryColumn(10, 20, 30, "high1");
-        testQueue.add(high1);
-
-        StatisticsJobAppender appender = new StatisticsJobAppender();
-        appender.appendColumnsToJobs(testQueue, testMap);
-        Assertions.assertEquals(1, testMap.size());
-        Assertions.assertEquals(1, testMap.values().size());
-        Assertions.assertTrue(testMap.get(new TableNameInfo("internal", "testDb", "testTable")).contains(Pair.of("mockIndex", "high1")));
-
-        QueryColumn high2 = new QueryColumn(10, 20, 30, "high2");
-        QueryColumn high3 = new QueryColumn(10, 20, 30, "high3");
-        testQueue.add(high2);
-        testQueue.add(high3);
-        appender.appendColumnsToJobs(testQueue, testMap);
-        Assertions.assertEquals(2, testMap.size());
-
-        Set<Pair<String, String>> table1Column = testMap.get(new TableNameInfo("internal", "testDb", "testTable"));
-        Assertions.assertEquals(2, table1Column.size());
-        Assertions.assertTrue(table1Column.contains(Pair.of("mockIndex", "high1")));
-        Assertions.assertTrue(table1Column.contains(Pair.of("mockIndex", "high3")));
-
-        Set<Pair<String, String>> table2Column = testMap.get(new TableNameInfo("internal", "testDb", "testTable2"));
-        Assertions.assertEquals(1, table2Column.size());
-        Assertions.assertTrue(table2Column.contains(Pair.of("mockIndex", "high2")));
-
-        for (int i = 0; i < StatisticsJobAppender.JOB_MAP_SIZE - 2; i++) {
-            testMap.put(new TableNameInfo("a", "b", UUID.randomUUID().toString()), new HashSet<>());
+        OlapTable table1 = Mockito.spy(new OlapTable(200, "testTable", schema, null, null, null));
+        OlapTable table2 = Mockito.spy(new OlapTable(200, "testTable2", schema, null, null, null));
+        OlapTable table3 = Mockito.spy(new OlapTable(200, "testTable3", schema, null, null, null));
+        for (OlapTable t : new OlapTable[]{table1, table2, table3}) {
+            Mockito.doReturn(db).when(t).getDatabase();
+            Mockito.doReturn(new Column("mockCol", Type.INT)).when(t).getColumn(Mockito.anyString());
+            Mockito.doAnswer(inv -> {
+                Set<String> cols = inv.getArgument(0);
+                String col = cols.iterator().next();
+                return Collections.singleton(Pair.of("mockIndex", col));
+            }).when(t).getColumnIndexPairs(Mockito.any());
         }
-        Assertions.assertEquals(StatisticsJobAppender.JOB_MAP_SIZE, testMap.size());
 
-        QueryColumn high4 = new QueryColumn(10, 20, 30, "high4");
-        testQueue.add(high4);
-        appender.appendColumnsToJobs(testQueue, testMap);
-        Assertions.assertEquals(StatisticsJobAppender.JOB_MAP_SIZE, testMap.size());
+        try (MockedStatic<StatisticsUtil> statsUtilStatic = Mockito.mockStatic(StatisticsUtil.class, Mockito.CALLS_REAL_METHODS)) {
+            AtomicInteger idx = new AtomicInteger(0);
+            OlapTable[] tables = {table1, table2, table1, table3, table2};
+            statsUtilStatic.when(() -> StatisticsUtil.needAnalyzeColumn(Mockito.any(), Mockito.any()))
+                    .thenReturn(true);
+            statsUtilStatic.when(() -> StatisticsUtil.findTable(Mockito.anyLong(), Mockito.anyLong(), Mockito.anyLong()))
+                    .thenAnswer(inv -> tables[idx.getAndIncrement()]);
 
-        QueryColumn high5 = new QueryColumn(10, 20, 30, "high5");
-        testQueue.add(high5);
-        appender.appendColumnsToJobs(testQueue, testMap);
-        table2Column = testMap.get(new TableNameInfo("internal", "testDb", "testTable2"));
-        Assertions.assertEquals(2, table2Column.size());
-        Assertions.assertTrue(table2Column.contains(Pair.of("mockIndex", "high2")));
-        Assertions.assertTrue(table2Column.contains(Pair.of("mockIndex", "high5")));
+            Queue<QueryColumn> testQueue = new ArrayBlockingQueue<>(100);
+            Map<TableNameInfo, Set<Pair<String, String>>> testMap = new HashMap<>();
+            QueryColumn high1 = new QueryColumn(10, 20, 30, "high1");
+            testQueue.add(high1);
+
+            StatisticsJobAppender appender = new StatisticsJobAppender();
+            appender.appendColumnsToJobs(testQueue, testMap);
+            Assertions.assertEquals(1, testMap.size());
+            Assertions.assertEquals(1, testMap.values().size());
+            Assertions.assertTrue(testMap.get(new TableNameInfo("internal", "testDb", "testTable")).contains(Pair.of("mockIndex", "high1")));
+
+            QueryColumn high2 = new QueryColumn(10, 20, 30, "high2");
+            QueryColumn high3 = new QueryColumn(10, 20, 30, "high3");
+            testQueue.add(high2);
+            testQueue.add(high3);
+            appender.appendColumnsToJobs(testQueue, testMap);
+            Assertions.assertEquals(2, testMap.size());
+
+            Set<Pair<String, String>> table1Column = testMap.get(new TableNameInfo("internal", "testDb", "testTable"));
+            Assertions.assertEquals(2, table1Column.size());
+            Assertions.assertTrue(table1Column.contains(Pair.of("mockIndex", "high1")));
+            Assertions.assertTrue(table1Column.contains(Pair.of("mockIndex", "high3")));
+
+            Set<Pair<String, String>> table2Column = testMap.get(new TableNameInfo("internal", "testDb", "testTable2"));
+            Assertions.assertEquals(1, table2Column.size());
+            Assertions.assertTrue(table2Column.contains(Pair.of("mockIndex", "high2")));
+
+            for (int i = 0; i < StatisticsJobAppender.JOB_MAP_SIZE - 2; i++) {
+                testMap.put(new TableNameInfo("a", "b", UUID.randomUUID().toString()), new HashSet<>());
+            }
+            Assertions.assertEquals(StatisticsJobAppender.JOB_MAP_SIZE, testMap.size());
+
+            QueryColumn high4 = new QueryColumn(10, 20, 30, "high4");
+            testQueue.add(high4);
+            appender.appendColumnsToJobs(testQueue, testMap);
+            Assertions.assertEquals(StatisticsJobAppender.JOB_MAP_SIZE, testMap.size());
+
+            QueryColumn high5 = new QueryColumn(10, 20, 30, "high5");
+            testQueue.add(high5);
+            appender.appendColumnsToJobs(testQueue, testMap);
+            table2Column = testMap.get(new TableNameInfo("internal", "testDb", "testTable2"));
+            Assertions.assertEquals(2, table2Column.size());
+            Assertions.assertTrue(table2Column.contains(Pair.of("mockIndex", "high2")));
+            Assertions.assertTrue(table2Column.contains(Pair.of("mockIndex", "high5")));
+        } // close MockedStatic
     }
 
     @Test
@@ -154,66 +137,51 @@ public class StatisticsJobAppenderTest {
             Column column1 = new Column("placeholder", PrimitiveType.INT);
             List<Column> schema = new ArrayList<>();
             schema.add(column1);
-            OlapTable table1 = new OlapTable(id++, "testTable" + id + "_1", schema, null, null, null);
-            OlapTable table2 = new OlapTable(id++, "testTable" + id + "_1", schema, null, null, null);
+            OlapTable table1 = Mockito.spy(new OlapTable(id++, "testTable" + id + "_1", schema, null, null, null));
+            OlapTable table2 = Mockito.spy(new OlapTable(id++, "testTable" + id + "_1", schema, null, null, null));
+            Mockito.doReturn(Lists.newArrayList()).when(table1).getBaseSchema();
+            Mockito.doReturn(Collections.singleton(Pair.of("mockIndex", "mockColumn"))).when(table1).getColumnIndexPairs(Mockito.any());
+            Mockito.doReturn(Lists.newArrayList()).when(table2).getBaseSchema();
+            Mockito.doReturn(Collections.singleton(Pair.of("mockIndex", "mockColumn"))).when(table2).getColumnIndexPairs(Mockito.any());
             db.createTableWithLock(table1, true, false);
             db.createTableWithLock(table2, true, false);
         }
 
-        new MockUp<Env>() {
-            @Mock
-            public InternalCatalog getCurrentInternalCatalog() {
-                return testCatalog;
-            }
-        };
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedStatic<StatisticsUtil> statsUtilStatic = Mockito.mockStatic(StatisticsUtil.class)) {
+            envStatic.when(Env::getCurrentInternalCatalog).thenReturn(testCatalog);
+            statsUtilStatic.when(() -> StatisticsUtil.needAnalyzeColumn(Mockito.any(), Mockito.any()))
+                    .thenReturn(true);
 
-        new MockUp<OlapTable>() {
-            @Mock
-            public List<Column> getBaseSchema() {
-                return Lists.newArrayList();
-            }
+            Map<TableNameInfo, Set<Pair<String, String>>> testLowMap = new HashMap<>();
+            Map<TableNameInfo, Set<Pair<String, String>>> testVeryLowMap = new HashMap<>();
+            StatisticsJobAppender appender = new StatisticsJobAppender();
+            appender.appendToLowJobs(testLowMap, testVeryLowMap);
+            Assertions.assertEquals(100, testLowMap.size());
+            Assertions.assertEquals(0, testVeryLowMap.size());
+            testLowMap.clear();
+            appender.appendToLowJobs(testLowMap, testVeryLowMap);
+            Assertions.assertEquals(40, testLowMap.size());
+            Assertions.assertEquals(0, testVeryLowMap.size());
+            testLowMap.clear();
+            // Less than 1 minutes since last iteration.
+            appender.appendToLowJobs(testLowMap, testVeryLowMap);
+            Assertions.assertEquals(0, testLowMap.size());
+            Assertions.assertEquals(0, testVeryLowMap.size());
 
-            @Mock
-            public Set<Pair<String, String>> getColumnIndexPairs(Set<String> columns) {
-                return Collections.singleton(Pair.of("mockIndex", "mockColumn"));
-            }
-        };
-
-        new MockUp<StatisticsUtil>() {
-            @Mock
-            public boolean needAnalyzeColumn(TableIf table, Pair<String, String> column) {
-                return true;
-            }
-        };
-
-        Map<TableNameInfo, Set<Pair<String, String>>> testLowMap = new HashMap<>();
-        Map<TableNameInfo, Set<Pair<String, String>>> testVeryLowMap = new HashMap<>();
-        StatisticsJobAppender appender = new StatisticsJobAppender();
-        appender.appendToLowJobs(testLowMap, testVeryLowMap);
-        Assertions.assertEquals(100, testLowMap.size());
-        Assertions.assertEquals(0, testVeryLowMap.size());
-        testLowMap.clear();
-        appender.appendToLowJobs(testLowMap, testVeryLowMap);
-        Assertions.assertEquals(40, testLowMap.size());
-        Assertions.assertEquals(0, testVeryLowMap.size());
-        testLowMap.clear();
-        // Less than 1 minutes since last iteration.
-        appender.appendToLowJobs(testLowMap, testVeryLowMap);
-        Assertions.assertEquals(0, testLowMap.size());
-        Assertions.assertEquals(0, testVeryLowMap.size());
-
-        testLowMap.clear();
-        appender.setLastRoundFinishTime(0);
-        int processed = appender.appendToLowJobs(testLowMap, testVeryLowMap);
-        Assertions.assertEquals(100, testLowMap.size());
-        Assertions.assertEquals(0, testVeryLowMap.size());
-        Assertions.assertEquals(100, processed);
-        appender.setLastRoundFinishTime(0);
-        processed = appender.appendToLowJobs(testLowMap, testVeryLowMap);
-        Assertions.assertEquals(100, testLowMap.size());
-        Assertions.assertEquals(0, testVeryLowMap.size());
-        Assertions.assertEquals(StatisticsJobAppender.JOB_MAP_SIZE, testLowMap.size());
-        Assertions.assertEquals(0, processed);
+            testLowMap.clear();
+            appender.setLastRoundFinishTime(0);
+            int processed = appender.appendToLowJobs(testLowMap, testVeryLowMap);
+            Assertions.assertEquals(100, testLowMap.size());
+            Assertions.assertEquals(0, testVeryLowMap.size());
+            Assertions.assertEquals(100, processed);
+            appender.setLastRoundFinishTime(0);
+            processed = appender.appendToLowJobs(testLowMap, testVeryLowMap);
+            Assertions.assertEquals(100, testLowMap.size());
+            Assertions.assertEquals(0, testVeryLowMap.size());
+            Assertions.assertEquals(StatisticsJobAppender.JOB_MAP_SIZE, testLowMap.size());
+            Assertions.assertEquals(0, processed);
+        } // close MockedStatic
     }
 
     @Test
@@ -226,68 +194,50 @@ public class StatisticsJobAppenderTest {
             Column column1 = new Column("placeholder", PrimitiveType.INT);
             List<Column> schema = new ArrayList<>();
             schema.add(column1);
-            OlapTable table1 = new OlapTable(id++, "testTable" + id + "_1", schema, null, null, null);
-            OlapTable table2 = new OlapTable(id++, "testTable" + id + "_1", schema, null, null, null);
+            OlapTable table1 = Mockito.spy(new OlapTable(id++, "testTable" + id + "_1", schema, null, null, null));
+            OlapTable table2 = Mockito.spy(new OlapTable(id++, "testTable" + id + "_1", schema, null, null, null));
+            Mockito.doReturn(Lists.newArrayList()).when(table1).getBaseSchema();
+            Mockito.doReturn(Collections.singleton(Pair.of("mockIndex", "mockColumn"))).when(table1).getColumnIndexPairs(Mockito.any());
+            Mockito.doReturn(Lists.newArrayList()).when(table2).getBaseSchema();
+            Mockito.doReturn(Collections.singleton(Pair.of("mockIndex", "mockColumn"))).when(table2).getColumnIndexPairs(Mockito.any());
             db.createTableWithLock(table1, true, false);
             db.createTableWithLock(table2, true, false);
         }
 
-        new MockUp<Env>() {
-            @Mock
-            public InternalCatalog getCurrentInternalCatalog() {
-                return testCatalog;
-            }
-        };
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedStatic<StatisticsUtil> statsUtilStatic = Mockito.mockStatic(StatisticsUtil.class)) {
+            envStatic.when(Env::getCurrentInternalCatalog).thenReturn(testCatalog);
+            statsUtilStatic.when(() -> StatisticsUtil.needAnalyzeColumn(Mockito.any(), Mockito.any()))
+                    .thenReturn(false);
+            statsUtilStatic.when(() -> StatisticsUtil.isLongTimeColumn(Mockito.any(), Mockito.any(), Mockito.anyLong()))
+                    .thenReturn(true);
 
-        new MockUp<OlapTable>() {
-            @Mock
-            public List<Column> getBaseSchema() {
-                return Lists.newArrayList();
-            }
+            Map<TableNameInfo, Set<Pair<String, String>>> testLowMap = new HashMap<>();
+            Map<TableNameInfo, Set<Pair<String, String>>> testVeryLowMap = new HashMap<>();
+            StatisticsJobAppender appender = new StatisticsJobAppender();
+            int processed = appender.appendToLowJobs(testLowMap, testVeryLowMap);
+            Assertions.assertEquals(0, testLowMap.size());
+            Assertions.assertEquals(100, testVeryLowMap.size());
+            Assertions.assertEquals(100, processed);
+            testVeryLowMap.clear();
+            processed = appender.appendToLowJobs(testLowMap, testVeryLowMap);
+            Assertions.assertEquals(0, testLowMap.size());
+            Assertions.assertEquals(40, testVeryLowMap.size());
+            Assertions.assertEquals(40, processed);
 
-            @Mock
-            public Set<Pair<String, String>> getColumnIndexPairs(Set<String> columns) {
-                return Collections.singleton(Pair.of("mockIndex", "mockColumn"));
-            }
-        };
+            testLowMap.clear();
+            appender.setLastRoundFinishTime(0);
+            processed = appender.appendToLowJobs(testLowMap, testVeryLowMap);
+            Assertions.assertEquals(0, testLowMap.size());
+            Assertions.assertEquals(100, testVeryLowMap.size());
+            Assertions.assertEquals(100, processed);
 
-        new MockUp<StatisticsUtil>() {
-            @Mock
-            public boolean needAnalyzeColumn(TableIf table, Pair<String, String> column) {
-                return false;
-            }
-
-            @Mock
-            public boolean isLongTimeColumn(TableIf table, Pair<String, String> column, long version) {
-                return true;
-            }
-        };
-
-        Map<TableNameInfo, Set<Pair<String, String>>> testLowMap = new HashMap<>();
-        Map<TableNameInfo, Set<Pair<String, String>>> testVeryLowMap = new HashMap<>();
-        StatisticsJobAppender appender = new StatisticsJobAppender();
-        int processed = appender.appendToLowJobs(testLowMap, testVeryLowMap);
-        Assertions.assertEquals(0, testLowMap.size());
-        Assertions.assertEquals(100, testVeryLowMap.size());
-        Assertions.assertEquals(100, processed);
-        testVeryLowMap.clear();
-        processed = appender.appendToLowJobs(testLowMap, testVeryLowMap);
-        Assertions.assertEquals(0, testLowMap.size());
-        Assertions.assertEquals(40, testVeryLowMap.size());
-        Assertions.assertEquals(40, processed);
-
-        testLowMap.clear();
-        appender.setLastRoundFinishTime(0);
-        processed = appender.appendToLowJobs(testLowMap, testVeryLowMap);
-        Assertions.assertEquals(0, testLowMap.size());
-        Assertions.assertEquals(100, testVeryLowMap.size());
-        Assertions.assertEquals(100, processed);
-
-        appender.setLastRoundFinishTime(0);
-        processed = appender.appendToLowJobs(testLowMap, testVeryLowMap);
-        Assertions.assertEquals(0, testLowMap.size());
-        Assertions.assertEquals(100, testVeryLowMap.size());
-        Assertions.assertEquals(0, processed);
+            appender.setLastRoundFinishTime(0);
+            processed = appender.appendToLowJobs(testLowMap, testVeryLowMap);
+            Assertions.assertEquals(0, testLowMap.size());
+            Assertions.assertEquals(100, testVeryLowMap.size());
+            Assertions.assertEquals(0, processed);
+        } // close MockedStatic
     }
 
     @Test
@@ -299,43 +249,29 @@ public class StatisticsJobAppenderTest {
         Column column1 = new Column("placeholder", PrimitiveType.INT);
         List<Column> schema = new ArrayList<>();
         schema.add(column1);
-        OlapTable table1 = new OlapTable(id++, "testTable" + id + "_1", schema, null, null, null);
+        OlapTable table1 = Mockito.spy(new OlapTable(id++, "testTable" + id + "_1", schema, null, null, null));
+        Mockito.doReturn(Lists.newArrayList(new Column("col1", Type.INT), new Column("col2", Type.INT))).when(table1).getBaseSchema();
+        Mockito.doReturn(Collections.singleton(Pair.of("1", "1"))).when(table1).getColumnIndexPairs(Mockito.any());
         db.createTableWithLock(table1, true, false);
-        new MockUp<Env>() {
-            @Mock
-            public InternalCatalog getCurrentInternalCatalog() {
-                return testCatalog;
-            }
-        };
-        new MockUp<OlapTable>() {
-            @Mock
-            public List<Column> getBaseSchema() {
-                return Lists.newArrayList(new Column("col1", Type.INT), new Column("col2", Type.INT));
-            }
 
-            @Mock
-            public Set<Pair<String, String>> getColumnIndexPairs(Set<String> columns) {
-                return Collections.singleton(Pair.of("1", "1"));
-            }
-        };
-
-        new MockUp<StatisticsUtil>() {
-            int count = 0;
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedStatic<StatisticsUtil> statsUtilStatic = Mockito.mockStatic(StatisticsUtil.class)) {
+            envStatic.when(Env::getCurrentInternalCatalog).thenReturn(testCatalog);
+            AtomicInteger count = new AtomicInteger(0);
             int[] thresholds = {1, 10};
-
-            @Mock
-            public int getAutoAnalyzeTableWidthThreshold() {
-                return thresholds[count++];
-            }
-        };
-        Map<TableNameInfo, Set<Pair<String, String>>> testLowMap = new HashMap<>();
-        Map<TableNameInfo, Set<Pair<String, String>>> testVeryLowMap = new HashMap<>();
-        StatisticsJobAppender appender = new StatisticsJobAppender();
-        appender.appendToLowJobs(testLowMap, testVeryLowMap);
-        Assertions.assertEquals(0, testLowMap.size());
-        appender.setLastRoundFinishTime(0);
-        appender.appendToLowJobs(testLowMap, testVeryLowMap);
-        Assertions.assertEquals(1, testLowMap.size());
+            statsUtilStatic.when(StatisticsUtil::getAutoAnalyzeTableWidthThreshold)
+                    .thenAnswer(inv -> thresholds[count.getAndIncrement()]);
+            statsUtilStatic.when(() -> StatisticsUtil.needAnalyzeColumn(
+                    Mockito.any(), Mockito.any())).thenReturn(true);
+            Map<TableNameInfo, Set<Pair<String, String>>> testLowMap = new HashMap<>();
+            Map<TableNameInfo, Set<Pair<String, String>>> testVeryLowMap = new HashMap<>();
+            StatisticsJobAppender appender = new StatisticsJobAppender();
+            appender.appendToLowJobs(testLowMap, testVeryLowMap);
+            Assertions.assertEquals(0, testLowMap.size());
+            appender.setLastRoundFinishTime(0);
+            appender.appendToLowJobs(testLowMap, testVeryLowMap);
+            Assertions.assertEquals(1, testLowMap.size());
+        } // close MockedStatic
     }
 
     @Test

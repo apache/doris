@@ -25,7 +25,6 @@
 #include "runtime/result_block_buffer.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class ResultBlockBufferBase;
 
 struct ResultFileOptions {
@@ -184,5 +183,4 @@ private:
     std::shared_ptr<ResultBlockBufferBase> _sender = nullptr;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

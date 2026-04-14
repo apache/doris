@@ -225,25 +225,6 @@ public abstract class Replica {
         this.rowCount = rowCount;
     }
 
-    public long getSegmentCount() {
-        return 0;
-    }
-
-    public void setSegmentCount(long segmentCount) {
-        if (segmentCount > 0) {
-            throw new UnsupportedOperationException("setSegmentCount is not supported in Replica");
-        }
-    }
-
-    public long getRowsetCount() {
-        return 0;
-    }
-
-    public void setRowsetCount(long rowsetCount) {
-        if (rowsetCount > 0) {
-            throw new UnsupportedOperationException("setRowsetCount is not supported in Replica");
-        }
-    }
 
     public long getLastFailedVersion() {
         return -1;

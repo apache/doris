@@ -128,10 +128,7 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external") {
             println "iceberg_meta_result SUCCESS" + catalog_name
 
             def iceberg_meta_result = sql """
-        SELECT snapshot_id FROM iceberg_meta(
-                'table' = '${catalog_name}.${db_name}.${table_name}',
-                'query_type' = 'snapshots'
-        ) order by committed_at desc;
+        SELECT snapshot_id FROM ${catalog_name}.${db_name}.${table_name}\$snapshots order by committed_at desc;
         
         """
             def first_snapshot_id = iceberg_meta_result.get(0).get(0);
@@ -291,10 +288,7 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external") {
             println "iceberg_meta_result SUCCESS" + catalog_name
 
             def iceberg_meta_result = sql """
-        SELECT snapshot_id FROM iceberg_meta(
-                'table' = '${catalog_name}.${db_name}.${table_name}',
-                'query_type' = 'snapshots'
-        ) order by committed_at desc;
+        SELECT snapshot_id FROM ${catalog_name}.${db_name}.${table_name}\$snapshots order by committed_at desc;
         
         """
             def first_snapshot_id = iceberg_meta_result.get(0).get(0);

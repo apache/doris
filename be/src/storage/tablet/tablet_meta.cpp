@@ -63,7 +63,6 @@ using std::unordered_map;
 using std::vector;
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 bvar::Adder<uint64_t> g_contains_agg_with_cache_if_eligible_total(
@@ -561,8 +560,8 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
     if (tcolumn.__isset.variant_sparse_hash_shard_count) {
         column->set_variant_sparse_hash_shard_count(tcolumn.variant_sparse_hash_shard_count);
     }
-    if (tcolumn.__isset.variant_enable_doc_mode) {
-        column->set_variant_enable_doc_mode(tcolumn.variant_enable_doc_mode);
+    if (tcolumn.column_type.__isset.variant_enable_doc_mode) {
+        column->set_variant_enable_doc_mode(tcolumn.column_type.variant_enable_doc_mode);
     }
     if (tcolumn.__isset.variant_doc_materialization_min_rows) {
         column->set_variant_doc_materialization_min_rows(
@@ -1841,5 +1840,4 @@ std::string tablet_state_name(TabletState state) {
     }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

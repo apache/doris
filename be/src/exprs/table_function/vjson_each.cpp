@@ -37,7 +37,6 @@
 #include "util/jsonb_writer.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 template <bool TEXT_MODE>
 VJsonEachTableFunction<TEXT_MODE>::VJsonEachTableFunction() {
@@ -46,10 +45,10 @@ VJsonEachTableFunction<TEXT_MODE>::VJsonEachTableFunction() {
 
 template <bool TEXT_MODE>
 Status VJsonEachTableFunction<TEXT_MODE>::process_init(Block* block, RuntimeState* /*state*/) {
-    int value_column_idx = -1;
-    RETURN_IF_ERROR(_expr_context->root()->children()[0]->execute(_expr_context.get(), block,
-                                                                  &value_column_idx));
-    auto [col, is_const] = unpack_if_const(block->get_by_position(value_column_idx).column);
+    ColumnPtr value_column;
+    RETURN_IF_ERROR(_expr_context->root()->children()[0]->execute_column(
+            _expr_context.get(), block, nullptr, block->rows(), value_column));
+    auto [col, is_const] = unpack_if_const(value_column);
     _json_column = col;
     _is_const = is_const;
     return Status::OK();
@@ -203,5 +202,4 @@ int VJsonEachTableFunction<TEXT_MODE>::get_value(MutableColumnPtr& column, int m
 template class VJsonEachTableFunction<false>; // json_each
 template class VJsonEachTableFunction<true>;  // json_each_text
 
-#include "common/compile_check_end.h"
 } // namespace doris

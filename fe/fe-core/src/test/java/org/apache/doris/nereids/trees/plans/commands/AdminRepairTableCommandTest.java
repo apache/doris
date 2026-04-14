@@ -20,59 +20,44 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.utframe.TestWithFeService;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
-public class AdminRepairTableCommandTest {
+public class AdminRepairTableCommandTest extends TestWithFeService {
     private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
-    @Mocked
-    private Env env;
-    @Mocked
-    private AccessControllerManager accessControllerManager;
-    @Mocked
     private ConnectContext connectContext;
+    private Env env;
+    private AccessControllerManager accessControllerManager;
 
-    private void runBefore() throws Exception {
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessControllerManager;
-
-                ConnectContext.get();
-                minTimes = 0;
-                result = connectContext;
-
-                connectContext.isSkipAuth();
-                minTimes = 0;
-                result = true;
-
-                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN);
-                minTimes = 0;
-                result = true;
-            }
-        };
+    private void runBefore() throws IOException {
+        connectContext = createDefaultCtx();
+        env = Env.getCurrentEnv();
+        accessControllerManager = env.getAccessManager();
     }
 
     @Test
     public void testValidateNormal() throws Exception {
         runBefore();
+        connectContext.setSkipAuth(true);
+        AccessControllerManager spyAcm = Mockito.spy(accessControllerManager);
+        Mockito.doReturn(true).when(spyAcm).checkGlobalPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN));
+        Deencapsulation.setField(env, "accessManager", spyAcm);
+
         TableNameInfo tableNameInfo = new TableNameInfo(internalCtl, "test_db", "test_tbl");
         List<String> partitionNames = new ArrayList<>();
         partitionNames.add("p1");
@@ -98,22 +83,12 @@ public class AdminRepairTableCommandTest {
     }
 
     @Test
-    public void testValidateNoPriviledge() {
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessControllerManager;
-
-                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN);
-                minTimes = 0;
-                result = false;
-            }
-        };
+    public void testValidateNoPriviledge() throws Exception {
+        runBefore();
+        AccessControllerManager spyAcm = Mockito.spy(accessControllerManager);
+        Mockito.doReturn(false).when(spyAcm).checkGlobalPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN));
+        Deencapsulation.setField(env, "accessManager", spyAcm);
 
         TableNameInfo tableNameInfo = new TableNameInfo(internalCtl, "test_db", "test_tbl");
         List<String> partitionNames = new ArrayList<>();

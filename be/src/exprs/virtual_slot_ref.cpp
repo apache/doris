@@ -37,7 +37,6 @@
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 namespace doris {
-#include "common/compile_check_begin.h"
 VirtualSlotRef::VirtualSlotRef(const doris::TExprNode& node)
         : VExpr(node),
           _column_id(-1),
@@ -241,5 +240,4 @@ Status VirtualSlotRef::evaluate_ann_range_search(
 
     return Status::OK();
 }
-#include "common/compile_check_end.h"
 } // namespace doris

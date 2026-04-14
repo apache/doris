@@ -29,7 +29,6 @@
 #include "util/threadpool.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeProfile;
 template <typename T>
 class AtomicCounter;
@@ -165,4 +164,3 @@ private:
     IntAtomicCounter* _spill_read_bytes_counter {nullptr};
 };
 } // namespace doris
-#include "common/compile_check_end.h"

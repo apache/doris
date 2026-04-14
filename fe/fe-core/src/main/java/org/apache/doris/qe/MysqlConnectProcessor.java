@@ -186,6 +186,9 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         }
         if (ctx.getSessionVariable().isEnablePreparedStmtAuditLog()) {
             auditAfterExec(stmtStr, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);
+        } else {
+            // When audit log is disabled for prepared statements, still update QPS metrics.
+            AuditLogHelper.updateMetrics(ctx);
         }
     }
 

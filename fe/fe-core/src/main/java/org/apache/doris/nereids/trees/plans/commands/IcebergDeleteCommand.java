@@ -53,10 +53,12 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.Callable;
 
 /**
  * DELETE command for Iceberg tables.
@@ -125,50 +127,68 @@ public class IcebergDeleteCommand extends Command implements ForwardWithSync, Ex
         long previousTargetTableId = ctx.getIcebergRowIdTargetTableId();
         ctx.setIcebergRowIdTargetTableId(icebergTable.getId());
         try {
-            // Build query plan with DELETE sink
             LogicalPlan deleteQueryPlan = completeQueryPlan(ctx, logicalQuery, icebergTable);
+            executeWithExternalTableBatchModeDisabled(ctx, () -> {
+                // Create planner and plan the delete operation
+                NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
+                LogicalPlanAdapter logicalPlanAdapter =
+                        new LogicalPlanAdapter(deleteQueryPlan, ctx.getStatementContext());
 
-            // Create planner and plan the delete operation
-            NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
-            LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(deleteQueryPlan, ctx.getStatementContext());
+                // Plan the delete query to generate physical plan and distributed plan
+                planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
 
-            // Plan the delete query to generate physical plan and distributed plan
-            planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
+                // Set planner in executor for later use
+                executor.setPlanner(planner);
+                executor.checkBlockRules();
+                Optional<org.apache.iceberg.expressions.Expression> conflictFilter =
+                        IcebergConflictDetectionFilterUtils.buildConflictDetectionFilter(
+                                planner.getAnalyzedPlan(), icebergTable);
 
-            // Set planner in executor for later use
-            executor.setPlanner(planner);
-            executor.checkBlockRules();
-            Optional<org.apache.iceberg.expressions.Expression> conflictFilter =
-                    IcebergConflictDetectionFilterUtils.buildConflictDetectionFilter(
-                            planner.getAnalyzedPlan(), icebergTable);
+                PhysicalSink<?> physicalSink = getPhysicalSink(planner);
+                PlanFragment fragment = planner.getFragments().get(0);
+                DataSink dataSink = fragment.getSink();
+                boolean emptyInsert = childIsEmptyRelation(physicalSink);
+                String label = String.format("iceberg_delete_%x_%x", ctx.queryId().hi, ctx.queryId().lo);
 
-            PhysicalSink<?> physicalSink = getPhysicalSink(planner);
-            PlanFragment fragment = planner.getFragments().get(0);
-            DataSink dataSink = fragment.getSink();
-            boolean emptyInsert = childIsEmptyRelation(physicalSink);
-            String label = String.format("iceberg_delete_%x_%x", ctx.queryId().hi, ctx.queryId().lo);
+                // Create IcebergDeleteExecutor and execute
+                IcebergDeleteExecutor deleteExecutor = new IcebergDeleteExecutor(
+                        ctx,
+                        icebergTable,
+                        label,
+                        planner,
+                        emptyInsert,
+                        -1L);
+                deleteExecutor.setConflictDetectionFilter(conflictFilter);
 
-            // Create IcebergDeleteExecutor and execute
-            IcebergDeleteExecutor deleteExecutor = new IcebergDeleteExecutor(
-                    ctx,
-                    icebergTable,
-                    label,
-                    planner,
-                    emptyInsert,
-                    -1L);
-            deleteExecutor.setConflictDetectionFilter(conflictFilter);
+                if (deleteExecutor.isEmptyInsert()) {
+                    return null;
+                }
 
-            if (deleteExecutor.isEmptyInsert()) {
-                return;
-            }
-
-            deleteExecutor.beginTransaction();
-            deleteExecutor.finalizeSinkForDelete(fragment, dataSink, physicalSink);
-            deleteExecutor.getCoordinator().setTxnId(deleteExecutor.getTxnId());
-            executor.setCoord(deleteExecutor.getCoordinator());
-            deleteExecutor.executeSingleInsert(executor);
+                deleteExecutor.beginTransaction();
+                deleteExecutor.finalizeSinkForDelete(fragment, dataSink, physicalSink);
+                deleteExecutor.getCoordinator().setTxnId(deleteExecutor.getTxnId());
+                executor.setCoord(deleteExecutor.getCoordinator());
+                deleteExecutor.executeSingleInsert(executor);
+                return null;
+            });
         } finally {
             ctx.setIcebergRowIdTargetTableId(previousTargetTableId);
+        }
+    }
+
+    @VisibleForTesting
+    static <T> T executeWithExternalTableBatchModeDisabled(
+            ConnectContext ctx, Callable<T> action) throws Exception {
+        boolean previousEnableExternalTableBatchMode =
+                ctx.getSessionVariable().enableExternalTableBatchMode;
+        // disable batch mode for iceberg scan node get all splits.
+        // IcebergRewritableDeletePlanner.collect for map<data file -> list<delete file>>
+        ctx.getSessionVariable().enableExternalTableBatchMode = false;
+        try {
+            return action.call();
+        } finally {
+            ctx.getSessionVariable().enableExternalTableBatchMode =
+                    previousEnableExternalTableBatchMode;
         }
     }
 

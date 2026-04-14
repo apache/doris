@@ -22,7 +22,6 @@
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 AggregateFunctionPtr transform_to_sort_agg_function(const AggregateFunctionPtr& nested_function,
                                                     const DataTypes& arguments,

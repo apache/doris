@@ -58,7 +58,6 @@
 #include "storage/tablet/tablet_schema.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 void TabletReader::ReaderParams::check_validation() const {
@@ -199,6 +198,8 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.all_access_paths = read_params.all_access_paths;
     _reader_context.predicate_access_paths = read_params.predicate_access_paths;
 
+    // Propagate general read limit for DUP_KEYS and UNIQUE_KEYS with MOW
+    _reader_context.general_read_limit = read_params.general_read_limit;
     return Status::OK();
 }
 
@@ -574,5 +575,4 @@ Status TabletReader::init_reader_params_and_create_block(
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

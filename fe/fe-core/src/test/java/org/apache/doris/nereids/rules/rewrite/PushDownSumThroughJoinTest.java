@@ -29,25 +29,26 @@ import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import mockit.Mock;
-import mockit.MockUp;
 import org.junit.jupiter.api.Test;
-
-import java.util.Set;
+import org.mockito.Mockito;
 
 class PushDownSumThroughJoinTest implements MemoPatternMatchSupported {
     private static final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
     private static final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
-    private MockUp<SessionVariable> mockUp = new MockUp<SessionVariable>() {
-        @Mock
-        public Set<Integer> getEnableNereidsRules() {
-            return ImmutableSet.of(RuleType.PUSH_DOWN_AGG_THROUGH_JOIN.type());
-        }
-    };
+
+    private ConnectContext createMockedContext() {
+        ConnectContext ctx = MemoTestUtils.createConnectContext();
+        SessionVariable sv = Mockito.spy(ctx.getSessionVariable());
+        Mockito.doReturn(ImmutableSet.of(RuleType.PUSH_DOWN_AGG_THROUGH_JOIN.type()))
+                .when(sv).getEnableNereidsRules();
+        ctx.setSessionVariable(sv);
+        return ctx;
+    }
 
     @Test
     void testSingleJoinLeftSum() {
@@ -57,7 +58,7 @@ class PushDownSumThroughJoinTest implements MemoPatternMatchSupported {
                 .aggGroupUsingIndex(ImmutableList.of(0), ImmutableList.of(scan1.getOutput().get(0), sum))
                 .build();
 
-        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+        PlanChecker.from(createMockedContext(), plan)
                 .applyTopDown(new PushDownAggThroughJoin())
                 .matches(
                         logicalAggregate(
@@ -77,7 +78,7 @@ class PushDownSumThroughJoinTest implements MemoPatternMatchSupported {
                 .aggGroupUsingIndex(ImmutableList.of(0), ImmutableList.of(scan1.getOutput().get(0), sum))
                 .build();
 
-        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+        PlanChecker.from(createMockedContext(), plan)
                 .applyTopDown(new PushDownAggThroughJoin())
                 .matches(
                         logicalAggregate(
@@ -98,7 +99,7 @@ class PushDownSumThroughJoinTest implements MemoPatternMatchSupported {
                 .aggGroupUsingIndex(ImmutableList.of(0), ImmutableList.of(scan1.getOutput().get(0), leftSum, rightSum))
                 .build();
 
-        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+        PlanChecker.from(createMockedContext(), plan)
                 .applyTopDown(new PushDownAggThroughJoin())
                 .matches(
                         logicalAggregate(
@@ -119,7 +120,7 @@ class PushDownSumThroughJoinTest implements MemoPatternMatchSupported {
                 .aggGroupUsingIndex(ImmutableList.of(0), ImmutableList.of(sum))
                 .build();
 
-        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+        PlanChecker.from(createMockedContext(), plan)
                 .applyTopDown(new PushDownAggThroughJoin())
                 .matches(
                         logicalAggregate(

@@ -27,7 +27,6 @@
 #include "storage/tablet/tablet_meta.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 MergeIndexDeleteBitmapCalculatorContext::MergeIndexDeleteBitmapCalculatorContext(
         std::unique_ptr<segment_v2::IndexedColumnIterator> iter, DataTypePtr index_type,
@@ -241,5 +240,4 @@ Status MergeIndexDeleteBitmapCalculator::calculate_all(DeleteBitmapPtr delete_bi
     });
     return Status::OK();
 }
-#include "common/compile_check_end.h"
 } // namespace doris

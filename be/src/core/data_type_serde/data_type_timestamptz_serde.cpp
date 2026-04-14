@@ -36,7 +36,7 @@ Status DataTypeTimeStampTzSerDe::from_string(StringRef& str, IColumn& column,
 
     TimestampTzValue res;
 
-    if (!CastToTimstampTz::from_string(str, res, params, options.timezone, _scale)) [[unlikely]] {
+    if (!CastToTimestampTz::from_string(str, res, params, options.timezone, _scale)) [[unlikely]] {
         return Status::InvalidArgument("parse timestamptz fail, string: '{}'", str.to_string());
     }
     col_data.insert_value(res);
@@ -49,7 +49,7 @@ Status DataTypeTimeStampTzSerDe::from_olap_string(const std::string& str, Field&
 
     TimestampTzValue res;
 
-    if (!CastToTimstampTz::from_string(StringRef(str), res, params, options.timezone, _scale))
+    if (!CastToTimestampTz::from_string(StringRef(str), res, params, options.timezone, _scale))
             [[unlikely]] {
         return Status::InvalidArgument("parse timestamptz fail, string: '{}'", str);
     }
@@ -69,7 +69,7 @@ Status DataTypeTimeStampTzSerDe::from_string_batch(const ColumnString& col_str,
     for (size_t i = 0; i < row; ++i) {
         auto str = col_str.get_data_at(i);
         TimestampTzValue res;
-        if (!CastToTimstampTz::from_string(str, res, params, options.timezone, _scale))
+        if (!CastToTimestampTz::from_string(str, res, params, options.timezone, _scale))
                 [[unlikely]] {
             col_nullmap.get_data()[i] = true;
             col_data.get_data()[i] = TimestampTzValue(TimestampTzValue::default_column_value());
@@ -88,7 +88,7 @@ Status DataTypeTimeStampTzSerDe::from_string_strict_mode(StringRef& str, IColumn
     CastParameters params {.status = Status::OK(), .is_strict = true};
 
     TimestampTzValue res;
-    CastToTimstampTz::from_string(str, res, params, options.timezone, _scale);
+    CastToTimestampTz::from_string(str, res, params, options.timezone, _scale);
 
     if (!params.status.ok()) [[unlikely]] {
         params.status.prepend(
@@ -113,7 +113,7 @@ Status DataTypeTimeStampTzSerDe::from_string_strict_mode_batch(
         }
         auto str = col_str.get_data_at(i);
         TimestampTzValue res;
-        CastToTimstampTz::from_string(str, res, params, options.timezone, _scale);
+        CastToTimestampTz::from_string(str, res, params, options.timezone, _scale);
         // only after we called something with `IS_STRICT = true`, params.status will be set
         if (!params.status.ok()) [[unlikely]] {
             params.status.prepend(
@@ -169,7 +169,7 @@ Status DataTypeTimeStampTzSerDe::deserialize_one_cell_from_json(
     TimestampTzValue res;
 
     if (StringRef str(slice.data, slice.size);
-        !CastToTimstampTz::from_string(str, res, params, options.timezone, _scale)) {
+        !CastToTimestampTz::from_string(str, res, params, options.timezone, _scale)) {
         return Status::InvalidArgument("parse timestamptz fail, string: '{}'", str.to_string());
     }
     column_data.insert_value(res);

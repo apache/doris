@@ -24,12 +24,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <string>
 
 #include "common/status.h"
-#include "core/arena.h"
 #include "storage/segment/common.h"
 #include "storage/segment/page_pointer.h"
-#include "util/faststring.h"
 
 namespace doris {
 
@@ -96,14 +95,12 @@ private:
     IndexedColumnWriterOptions _options;
     const TypeInfo* _type_info = nullptr;
     io::FileWriter* _file_writer = nullptr;
-    // only used for `_first_value`
-    Arena _arena;
 
     ordinal_t _num_values;
     uint32_t _num_data_pages;
     uint64_t _disk_size;
-    // remember the first value in current page
-    faststring _first_value;
+    // remember the encoded first value key in current page
+    std::string _first_value_string;
     PagePointer _last_data_page;
 
     // the following members are initialized in init()

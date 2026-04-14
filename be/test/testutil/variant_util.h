@@ -70,7 +70,7 @@ public:
 
     static auto construct_basic_varint_column() {
         // 1. create an empty variant column
-        auto variant = ColumnVariant::create(5);
+        auto variant = ColumnVariant::create(5, false);
 
         std::vector<std::pair<std::string, doris::Field>> data;
 
@@ -105,12 +105,12 @@ public:
         dynamic_subcolumns.add(PathInData("v.b"), ColumnVariant::Subcolumn {0, true});
         dynamic_subcolumns.add(PathInData("v.b.d"), ColumnVariant::Subcolumn {0, true});
         dynamic_subcolumns.add(PathInData("v.c.d"), ColumnVariant::Subcolumn {0, true});
-        return ColumnVariant::create(5, std::move(dynamic_subcolumns));
+        return ColumnVariant::create(5, false, std::move(dynamic_subcolumns));
     }
 
     static auto construct_advanced_varint_column() {
         // 1. create an empty variant column
-        auto variant = ColumnVariant::create(5);
+        auto variant = ColumnVariant::create(5, false);
 
         std::vector<std::pair<std::string, doris::Field>> data;
 
@@ -153,7 +153,7 @@ public:
 
     static auto construct_varint_column_only_subcolumns() {
         // 1. create an empty variant column
-        auto variant = ColumnVariant::create(5);
+        auto variant = ColumnVariant::create(5, false);
 
         std::vector<std::pair<std::string, doris::Field>> data;
 
@@ -196,7 +196,7 @@ public:
 
     static auto construct_varint_column_more_subcolumns() {
         // 1. create an empty variant column
-        auto variant = ColumnVariant::create(5);
+        auto variant = ColumnVariant::create(5, false);
 
         std::vector<std::pair<std::string, doris::Field>> data;
 

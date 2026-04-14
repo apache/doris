@@ -27,6 +27,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.RandomIdentifierGenerator;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.FederationBackendPolicy;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.loadv2.BrokerLoadJob;
 import org.apache.doris.load.routineload.KafkaRoutineLoadJob;
 import org.apache.doris.load.routineload.RoutineLoadJob;
@@ -37,6 +38,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.CreateUserCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetUserPropertiesCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateUserInfo;
+import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.computegroup.AllBackendComputeGroup;
 import org.apache.doris.resource.computegroup.CloudComputeGroup;
@@ -49,14 +51,15 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import com.google.common.collect.Sets;
-import mockit.Expectations;
-import mockit.Mocked;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.io.IOException;
 import java.util.Set;
@@ -70,10 +73,10 @@ public class ComputeGroupTest {
     private static ConnectContext connectContext;
 
     private Auth auth;
-    @Mocked
     public Env env;
-    @Mocked
     AccessControllerManager accessManager;
+    private MockedStatic<Env> mockedEnvStatic;
+    private Env originalEnv;
 
     @BeforeClass
     public static void beforeClass() throws Exception {
@@ -84,35 +87,42 @@ public class ComputeGroupTest {
     @Before
     public void setUp() throws MetaNotFoundException {
         auth = new Auth();
-        accessManager = new AccessControllerManager(auth);
+        env = Mockito.mock(Env.class);
+        accessManager = Mockito.spy(new AccessControllerManager(auth));
 
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
+        // Save references from the real env before replacing
+        originalEnv = connectContext.getEnv();
+        InternalCatalog internalCatalog = originalEnv.getInternalCatalog();
+        EditLog editLog = Mockito.mock(EditLog.class);
 
-                env.getAuth();
-                minTimes = 0;
-                result = auth;
+        mockedEnvStatic = Mockito.mockStatic(Env.class, Mockito.CALLS_REAL_METHODS);
+        mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
+        mockedEnvStatic.when(Env::getCurrentInternalCatalog).thenReturn(internalCatalog);
 
-                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
-                minTimes = 0;
-                result = true;
+        Mockito.when(env.getAuth()).thenReturn(auth);
+        Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+        Mockito.when(env.getCurrentCatalog()).thenReturn(internalCatalog);
+        Mockito.when(env.getInternalCatalog()).thenReturn(internalCatalog);
+        Mockito.when(env.getCatalogMgr()).thenReturn(originalEnv.getCatalogMgr());
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
+        Mockito.doReturn(true).when(accessManager).checkGlobalPriv(Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN));
+        Mockito.doReturn(true).when(accessManager).checkGlobalPriv(Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.GRANT));
+        Mockito.doReturn(true).when(accessManager).checkGlobalPriv(Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.OPERATOR));
+        Mockito.doReturn(true).when(accessManager).checkGlobalPriv(Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.CREATE));
 
-                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.GRANT);
-                minTimes = 0;
-                result = true;
+        // Make connectContext use our mock env so that ctx.getEnv().getAuth()
+        // returns the test auth (where users are created)
+        connectContext.setEnv(env);
+    }
 
-                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.OPERATOR);
-                minTimes = 0;
-                result = true;
-
-                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.CREATE);
-                minTimes = 0;
-                result = true;
-            }
-        };
+    @After
+    public void tearDown() {
+        if (originalEnv != null) {
+            connectContext.setEnv(originalEnv);
+        }
+        if (mockedEnvStatic != null) {
+            mockedEnvStatic.close();
+        }
     }
 
     // @AfterClass
@@ -128,13 +138,7 @@ public class ComputeGroupTest {
 
     @Test
     public void testGetSetResourceTagFromAuth() throws Exception {
-        new Expectations() {
-            {
-                Env.getCurrentEnv().getComputeGroupMgr();
-                minTimes = 0;
-                result = new ComputeGroupMgr(null);
-            }
-        };
+        Mockito.when(env.getComputeGroupMgr()).thenReturn(new ComputeGroupMgr(null));
 
             // 1 get no user
             {
@@ -444,13 +448,7 @@ public class ComputeGroupTest {
 
 
         ComputeGroupMgr cgmgr = new ComputeGroupMgr(systemInfoService);
-        new Expectations() {
-            {
-                Env.getCurrentEnv().getComputeGroupMgr();
-                minTimes = 0;
-                result = cgmgr;
-            }
-        };
+        Mockito.when(env.getComputeGroupMgr()).thenReturn(cgmgr);
         BeSelectionPolicy beSelPolicy = new BeSelectionPolicy.Builder().build();
 
 
@@ -504,13 +502,7 @@ public class ComputeGroupTest {
 
     @Test
     public void testBrokerLoadToConnectContext() throws UserException, IOException {
-        new Expectations() {
-            {
-                Env.getCurrentEnv().getComputeGroupMgr();
-                minTimes = 0;
-                result = new ComputeGroupMgr(null);
-            }
-        };
+        Mockito.when(env.getComputeGroupMgr()).thenReturn(new ComputeGroupMgr(null));
 
             // test user is empty string
             {
@@ -562,17 +554,8 @@ public class ComputeGroupTest {
 
     @Test
     public void testRoutineLoadToConnectContext() throws Exception {
-        new Expectations() {
-            {
-                Env.getCurrentEnv().getComputeGroupMgr();
-                minTimes = 0;
-                result = new ComputeGroupMgr(null);
-
-                Env.getCurrentSystemInfo();
-                minTimes = 0;
-                result = new SystemInfoService();
-            }
-        };
+        Mockito.when(env.getComputeGroupMgr()).thenReturn(new ComputeGroupMgr(null));
+        mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(new SystemInfoService());
 
 
 

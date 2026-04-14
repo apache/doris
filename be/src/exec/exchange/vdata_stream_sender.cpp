@@ -52,7 +52,6 @@
 #include "util/proto_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 Status Channel::init(RuntimeState* state) {
     // only enable_local_exchange() is true and the destination address is localhost, then the channel is local

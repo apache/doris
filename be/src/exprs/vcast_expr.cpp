@@ -45,7 +45,6 @@ class RuntimeState;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 doris::Status VCastExpr::prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
                                  VExprContext* context) {
@@ -267,5 +266,4 @@ std::string VCastExpr::debug_string() const {
     return out.str();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

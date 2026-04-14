@@ -17,7 +17,7 @@
 #pragma once
 
 #include "exprs/function/array/function_array_reverse.h"
-#include "exprs/function/function_string.h"
+#include "exprs/function/function_string_replace.h"
 
 namespace doris {
 

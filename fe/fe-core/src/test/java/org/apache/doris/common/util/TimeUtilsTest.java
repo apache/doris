@@ -25,11 +25,12 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 
-import mockit.Expectations;
-import mockit.Mocked;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.time.ZoneId;
 import java.time.format.DateTimeParseException;
@@ -41,19 +42,20 @@ import java.util.TimeZone;
 
 public class TimeUtilsTest {
 
-    @Mocked
-    TimeUtils timeUtils;
+    private MockedStatic<TimeUtils> mockedTimeUtils;
 
     @Before
     public void setUp() {
         TimeZone tz = TimeZone.getTimeZone(ZoneId.of("Asia/Shanghai"));
-        new Expectations(timeUtils) {
-            {
-                TimeUtils.getTimeZone();
-                minTimes = 0;
-                result = tz;
-            }
-        };
+        mockedTimeUtils = Mockito.mockStatic(TimeUtils.class, Mockito.CALLS_REAL_METHODS);
+        mockedTimeUtils.when(TimeUtils::getTimeZone).thenReturn(tz);
+    }
+
+    @After
+    public void tearDown() {
+        if (mockedTimeUtils != null) {
+            mockedTimeUtils.close();
+        }
     }
 
     @Test
@@ -150,10 +152,10 @@ public class TimeUtilsTest {
         long timestamp = 1426125600000L;
         Assert.assertEquals("2015-03-12 10:00:00", TimeUtils.longToTimeString(timestamp));
 
-        DateLiteral date = new DateLiteral("2015-03-01", ScalarType.DATE);
+        DateLiteral date = new DateLiteral(2015, 3, 1, ScalarType.DATE);
         Assert.assertEquals(1031777L, date.getRealValue());
 
-        DateLiteral datetime = new DateLiteral("2015-03-01 12:00:00", ScalarType.DATETIME);
+        DateLiteral datetime = new DateLiteral(2015, 3, 1, 12, 0, 0, ScalarType.DATETIME);
         Assert.assertEquals(20150301120000L, datetime.getRealValue());
     }
 

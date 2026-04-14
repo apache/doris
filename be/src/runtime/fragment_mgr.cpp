@@ -81,6 +81,7 @@
 #include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_group/workload_group_manager.h"
 #include "service/backend_options.h"
+#include "storage/id_manager.h"
 #include "util/brpc_client_cache.h"
 #include "util/client_cache.h"
 #include "util/debug_points.h"
@@ -92,7 +93,6 @@
 #include "util/uid_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(fragment_instance_count, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(timeout_canceled_fragment_count, MetricUnit::NOUNIT);
@@ -120,7 +120,8 @@ std::string to_load_error_http_path(const std::string& file_name) {
         return file_name;
     }
     std::stringstream url;
-    url << "http://" << get_host_port(BackendOptions::get_localhost(), config::webserver_port)
+    url << (config::enable_https ? "https" : "http") << "://"
+        << get_host_port(BackendOptions::get_localhost(), config::webserver_port)
         << "/api/_load_error_log?"
         << "file=" << file_name;
     return url.str();
@@ -763,9 +764,16 @@ Status FragmentMgr::_get_or_create_query_ctx(const TPipelineFragmentParams& para
 
                         // This may be a first fragment request of the query.
                         // Create the query fragments context.
-                        query_ctx = QueryContext::create(query_id, _exec_env, params.query_options,
-                                                         params.coord, params.is_nereids,
-                                                         params.current_connect_fe, query_source);
+                        // Cross-cluster query: coordinator FE may not belong to local cluster.
+                        // In that case, cancel_worker() should not cancel it based on local FE liveness.
+                        QuerySource actual_query_source = query_source;
+                        if (query_source == QuerySource::INTERNAL_FRONTEND &&
+                            !_exec_env->get_running_frontends().contains(params.coord)) {
+                            actual_query_source = QuerySource::EXTERNAL_FRONTEND;
+                        }
+                        query_ctx = QueryContext::create(
+                                query_id, _exec_env, params.query_options, params.coord,
+                                params.is_nereids, params.current_connect_fe, actual_query_source);
                         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_ctx->query_mem_tracker());
                         RETURN_IF_ERROR(DescriptorTbl::create(
                                 &(query_ctx->obj_pool), params.desc_tbl, &(query_ctx->desc_tbl)));
@@ -976,6 +984,10 @@ void FragmentMgr::cancel_query(const TUniqueId query_id, const Status reason) {
     SCOPED_ATTACH_TASK(query_ctx->resource_ctx());
     query_ctx->cancel(reason);
     remove_query_context(query_id);
+    // Clean up id_file_map in IdManager if exists
+    if (ExecEnv::GetInstance()->get_id_manager()->get_id_file_map(query_id)) {
+        ExecEnv::GetInstance()->get_id_manager()->remove_id_file_map(query_id);
+    }
     LOG(INFO) << "Query " << print_id(query_id)
               << " is cancelled and removed. Reason: " << reason.to_string();
 }
@@ -1122,6 +1134,11 @@ void FragmentMgr::_collect_invalid_queries(
                                  -> Status {
         for (const auto& it : map) {
             if (auto q_ctx = it.second.lock()) {
+                // Cross-cluster query: coordinator FE is not in local `running_fes`,
+                // we should not cancel it based on local coordinator liveness.
+                if (q_ctx->get_query_source() == QuerySource::EXTERNAL_FRONTEND) {
+                    continue;
+                }
                 q_contexts.push_back(q_ctx);
                 const int64_t fe_process_uuid = q_ctx->get_fe_process_uuid();
 
@@ -1612,7 +1629,5 @@ Status FragmentMgr::reset_global_rf(const TUniqueId& query_id,
                 print_id(query_id));
     }
 }
-
-#include "common/compile_check_end.h"
 
 } // namespace doris

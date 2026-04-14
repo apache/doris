@@ -23,6 +23,7 @@
 #include <string>
 
 #include "common/status.h"
+#include "core/pod_array.h"
 #include "io/fs/file_handle_cache.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
@@ -62,7 +63,11 @@ private:
     // Returns OK on success with _range_supported set appropriately
     Status detect_range_support();
 
-    std::unique_ptr<char[]> _read_buffer;
+    // Start the CDC client process
+    // Called at the start of open() when enable_cdc_client=true.
+    Status setup_cdc_client();
+
+    PODArray<char> _read_buffer;
     static constexpr size_t READ_BUFFER_SIZE = 1 << 20; // 1MB
     // Default maximum file size for servers that don't support Range requests
     static constexpr size_t DEFAULT_MAX_REQUEST_SIZE = 100 << 20; // 100MB
@@ -89,6 +94,8 @@ private:
     // Full file cache for non-Range mode to avoid repeated downloads
     std::string _full_file_cache;   // Cache complete file content
     bool _full_file_cached = false; // Whether full file has been cached
+
+    bool _enable_chunk_response = false; // Whether server returns chunk streaming response
 };
 
 } // namespace doris::io

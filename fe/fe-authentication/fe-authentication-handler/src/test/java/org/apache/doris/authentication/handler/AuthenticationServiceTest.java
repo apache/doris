@@ -18,11 +18,13 @@
 package org.apache.doris.authentication.handler;
 
 import org.apache.doris.authentication.AuthenticationException;
+import org.apache.doris.authentication.AuthenticationFailureType;
 import org.apache.doris.authentication.AuthenticationIntegration;
 import org.apache.doris.authentication.AuthenticationRequest;
 import org.apache.doris.authentication.AuthenticationResult;
 import org.apache.doris.authentication.BasicPrincipal;
 import org.apache.doris.authentication.CredentialType;
+import org.apache.doris.authentication.rolemapping.RoleMappingEvaluator;
 import org.apache.doris.authentication.spi.AuthenticationPlugin;
 
 import org.junit.jupiter.api.Assertions;
@@ -39,6 +41,7 @@ import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.Set;
 
 /**
  * Unit tests for {@link AuthenticationService}.
@@ -57,6 +60,9 @@ class AuthenticationServiceTest {
 
     @Mock
     private AuthenticationPlugin plugin;
+
+    @Mock
+    private RoleMappingEvaluator roleMappingEvaluator;
 
     private AuthenticationService service;
     private AuthenticationIntegration testIntegration;
@@ -165,6 +171,64 @@ class AuthenticationServiceTest {
         }
 
         @Test
+        @DisplayName("UT-SVC-A-001A: Success path evaluates granted roles")
+        void testAuthenticate_SuccessEvaluatesGrantedRoles() throws AuthenticationException {
+            service = new AuthenticationService(
+                    integrationRegistry, pluginManager, bindingResolver, roleMappingEvaluator);
+
+            BasicPrincipal principal = BasicPrincipal.builder()
+                    .name("alice")
+                    .authenticator("test_integration")
+                    .build();
+
+            AuthenticationResult successResult = AuthenticationResult.success(principal);
+
+            Mockito.when(bindingResolver.resolveCandidates(Mockito.eq("alice"), Mockito.any()))
+                    .thenReturn(Collections.singletonList(testIntegration));
+            Mockito.when(pluginManager.getPlugin(testIntegration)).thenReturn(plugin);
+            Mockito.when(plugin.supports(Mockito.any())).thenReturn(true);
+            Mockito.when(plugin.authenticate(Mockito.any(), Mockito.eq(testIntegration))).thenReturn(successResult);
+            Mockito.when(roleMappingEvaluator.evaluate(testIntegration, principal)).thenReturn(Set.of("admin", "analyst"));
+
+            AuthenticationResult result = service.authenticate(testRequest);
+
+            Assertions.assertTrue(result.isSuccess());
+            Assertions.assertEquals(Set.of("admin", "analyst"), result.getGrantedRoles());
+            Mockito.verify(roleMappingEvaluator).evaluate(testIntegration, principal);
+        }
+
+        @Test
+        @DisplayName("UT-SVC-A-001B: Default constructor ignores inline role mapping properties")
+        void testAuthenticate_DefaultConstructorIgnoresInlineRoleMappingProperties() throws AuthenticationException {
+            HashMap<String, String> properties = new HashMap<>();
+            properties.put("role_mapping.rule.oncall.condition", "true");
+            properties.put("role_mapping.rule.oncall.roles", "admin");
+            testIntegration = AuthenticationIntegration.builder()
+                    .name("test_integration")
+                    .type("password")
+                    .properties(properties)
+                    .build();
+            service = new AuthenticationService(integrationRegistry, pluginManager, bindingResolver);
+
+            BasicPrincipal principal = BasicPrincipal.builder()
+                    .name("alice")
+                    .authenticator("test_integration")
+                    .build();
+            AuthenticationResult successResult = AuthenticationResult.success(principal);
+
+            Mockito.when(bindingResolver.resolveCandidates(Mockito.eq("alice"), Mockito.any()))
+                    .thenReturn(Collections.singletonList(testIntegration));
+            Mockito.when(pluginManager.getPlugin(testIntegration)).thenReturn(plugin);
+            Mockito.when(plugin.supports(Mockito.any())).thenReturn(true);
+            Mockito.when(plugin.authenticate(Mockito.any(), Mockito.eq(testIntegration))).thenReturn(successResult);
+
+            AuthenticationResult result = service.authenticate(testRequest);
+
+            Assertions.assertTrue(result.isSuccess());
+            Assertions.assertEquals(Collections.emptySet(), result.getGrantedRoles());
+        }
+
+        @Test
         @DisplayName("UT-SVC-A-002: Authentication with null request throws exception")
         void testAuthenticate_NullRequest() {
             Assertions.assertThrows(AuthenticationException.class, () ->
@@ -244,8 +308,8 @@ class AuthenticationServiceTest {
         }
 
         @Test
-        @DisplayName("UT-SVC-A-007: Multiple candidates, failure falls through to next")
-        void testAuthenticate_MultipleCandidatesFailureFallsThrough() throws AuthenticationException {
+        @DisplayName("UT-SVC-A-007: Multiple candidates, continue-worthy failure falls through to next")
+        void testAuthenticate_MultipleCandidatesContinueFailureFallsThrough() throws AuthenticationException {
             AuthenticationIntegration integration2 = AuthenticationIntegration.builder()
                     .name("integration2")
                     .type("ldap")
@@ -254,7 +318,10 @@ class AuthenticationServiceTest {
 
             AuthenticationPlugin plugin2 = Mockito.mock(AuthenticationPlugin.class);
 
-            AuthenticationResult failureResult = AuthenticationResult.failure("Bad password");
+            AuthenticationResult failureResult = AuthenticationResult.failure(
+                    AuthenticationFailureType.USER_NOT_FOUND,
+                    "User not found"
+            );
             AuthenticationResult successResult = AuthenticationResult.success(
                     BasicPrincipal.builder()
                             .name("alice")
@@ -305,7 +372,10 @@ class AuthenticationServiceTest {
             Mockito.when(pluginManager.getPlugin(integration2)).thenReturn(plugin2);
             Mockito.when(plugin.supports(Mockito.any())).thenReturn(true);
             Mockito.when(plugin.authenticate(Mockito.any(), Mockito.eq(testIntegration)))
-                    .thenThrow(new AuthenticationException("integration unavailable"));
+                    .thenThrow(new AuthenticationException(
+                            "integration unavailable",
+                            AuthenticationFailureType.SOURCE_UNAVAILABLE
+                    ));
             Mockito.when(plugin2.supports(Mockito.any())).thenReturn(true);
             Mockito.when(plugin2.authenticate(Mockito.any(), Mockito.eq(integration2))).thenReturn(successResult);
 
@@ -314,6 +384,69 @@ class AuthenticationServiceTest {
             Assertions.assertTrue(result.isSuccess());
             Mockito.verify(plugin).authenticate(Mockito.any(), Mockito.eq(testIntegration));
             Mockito.verify(plugin2).authenticate(Mockito.any(), Mockito.eq(integration2));
+        }
+
+        @Test
+        @DisplayName("UT-SVC-A-011: No-binding chain stops on non-continue failure result")
+        void testAuthenticate_NoBindingChainStopsOnBadCredentialFailure() throws AuthenticationException {
+            AuthenticationIntegration integration2 = AuthenticationIntegration.builder()
+                    .name("integration2")
+                    .type("ldap")
+                    .properties(new HashMap<>())
+                    .build();
+            AuthenticationPlugin plugin2 = Mockito.mock(AuthenticationPlugin.class);
+
+            AuthenticationResult failureResult = AuthenticationResult.failure(
+                    AuthenticationFailureType.BAD_CREDENTIAL,
+                    "Bad password"
+            );
+
+            Mockito.when(bindingResolver.resolveCandidates(Mockito.any(), Mockito.any()))
+                    .thenReturn(Arrays.asList(testIntegration, integration2));
+            Mockito.when(bindingResolver.hasUserBinding(Mockito.anyString()))
+                    .thenReturn(false);
+            Mockito.when(pluginManager.getPlugin(testIntegration)).thenReturn(plugin);
+            Mockito.when(pluginManager.getPlugin(integration2)).thenReturn(plugin2);
+            Mockito.when(plugin.supports(Mockito.any())).thenReturn(true);
+            Mockito.when(plugin.authenticate(Mockito.any(), Mockito.eq(testIntegration))).thenReturn(failureResult);
+
+            AuthenticationResult result = service.authenticate(testRequest);
+
+            Assertions.assertTrue(result.isFailure());
+            Assertions.assertEquals(AuthenticationFailureType.BAD_CREDENTIAL, result.getException().getFailureType());
+            Mockito.verify(plugin).authenticate(Mockito.any(), Mockito.eq(testIntegration));
+            Mockito.verify(plugin2, Mockito.never()).authenticate(Mockito.any(), Mockito.any());
+        }
+
+        @Test
+        @DisplayName("UT-SVC-A-012: No-binding chain stops on fatal plugin exception")
+        void testAuthenticate_NoBindingChainStopsOnMisconfiguredException() throws AuthenticationException {
+            AuthenticationIntegration integration2 = AuthenticationIntegration.builder()
+                    .name("integration2")
+                    .type("ldap")
+                    .properties(new HashMap<>())
+                    .build();
+            AuthenticationPlugin plugin2 = Mockito.mock(AuthenticationPlugin.class);
+
+            Mockito.when(bindingResolver.resolveCandidates(Mockito.any(), Mockito.any()))
+                    .thenReturn(Arrays.asList(testIntegration, integration2));
+            Mockito.when(bindingResolver.hasUserBinding(Mockito.anyString()))
+                    .thenReturn(false);
+            Mockito.when(pluginManager.getPlugin(testIntegration)).thenReturn(plugin);
+            Mockito.when(pluginManager.getPlugin(integration2)).thenReturn(plugin2);
+            Mockito.when(plugin.supports(Mockito.any())).thenReturn(true);
+            Mockito.when(plugin.authenticate(Mockito.any(), Mockito.eq(testIntegration)))
+                    .thenThrow(new AuthenticationException(
+                            "integration misconfigured",
+                            AuthenticationFailureType.MISCONFIGURED
+                    ));
+
+            AuthenticationException ex = Assertions.assertThrows(AuthenticationException.class, () ->
+                    service.authenticate(testRequest));
+
+            Assertions.assertEquals(AuthenticationFailureType.MISCONFIGURED, ex.getFailureType());
+            Mockito.verify(plugin).authenticate(Mockito.any(), Mockito.eq(testIntegration));
+            Mockito.verify(plugin2, Mockito.never()).authenticate(Mockito.any(), Mockito.any());
         }
 
         @Test
@@ -405,6 +538,51 @@ class AuthenticationServiceTest {
             Assertions.assertTrue(outcome.getAuthResult().isSuccess());
             Assertions.assertEquals(testIntegration, outcome.getIntegration());
             Mockito.verify(plugin).authenticate(Mockito.any(), Mockito.eq(testIntegration));
+        }
+
+        @Test
+        @DisplayName("UT-SVC-O-001A: Outcome includes granted roles on success")
+        void testAuthenticateWithOutcome_SuccessIncludesGrantedRoles() throws AuthenticationException {
+            service = new AuthenticationService(
+                    integrationRegistry, pluginManager, bindingResolver, roleMappingEvaluator);
+
+            BasicPrincipal principal = BasicPrincipal.builder()
+                    .name("alice")
+                    .authenticator("test_integration")
+                    .build();
+
+            AuthenticationResult successResult = AuthenticationResult.success(principal);
+
+            Mockito.when(bindingResolver.resolveCandidates(Mockito.any(), Mockito.any()))
+                    .thenReturn(Collections.singletonList(testIntegration));
+            Mockito.when(pluginManager.getPlugin(testIntegration)).thenReturn(plugin);
+            Mockito.when(plugin.supports(Mockito.any())).thenReturn(true);
+            Mockito.when(plugin.authenticate(Mockito.any(), Mockito.eq(testIntegration))).thenReturn(successResult);
+            Mockito.when(roleMappingEvaluator.evaluate(testIntegration, principal)).thenReturn(Set.of("admin"));
+
+            AuthenticationOutcome outcome = service.authenticateWithOutcome(testRequest);
+
+            Assertions.assertEquals(Set.of("admin"), outcome.getGrantedRoles());
+            Assertions.assertEquals(Set.of("admin"), outcome.getAuthResult().getGrantedRoles());
+        }
+
+        @Test
+        @DisplayName("UT-SVC-O-001B: Continue outcome keeps empty granted roles")
+        void testAuthenticateWithOutcome_ContinueHasEmptyGrantedRoles() throws AuthenticationException {
+            byte[] challengeData = "challenge".getBytes(StandardCharsets.UTF_8);
+            AuthenticationResult continueResult = AuthenticationResult.continueWith("state", challengeData);
+
+            Mockito.when(bindingResolver.resolveCandidates(Mockito.any(), Mockito.any()))
+                    .thenReturn(Collections.singletonList(testIntegration));
+            Mockito.when(pluginManager.getPlugin(testIntegration)).thenReturn(plugin);
+            Mockito.when(plugin.supports(Mockito.any())).thenReturn(true);
+            Mockito.when(plugin.authenticate(Mockito.any(), Mockito.eq(testIntegration))).thenReturn(continueResult);
+
+            AuthenticationOutcome outcome = service.authenticateWithOutcome(testRequest);
+
+            Assertions.assertTrue(outcome.isContinue());
+            Assertions.assertTrue(outcome.getGrantedRoles().isEmpty());
+            Mockito.verify(roleMappingEvaluator, Mockito.never()).evaluate(Mockito.any(), Mockito.any());
         }
 
         @Test
@@ -532,4 +710,92 @@ class AuthenticationServiceTest {
             Assertions.assertEquals(bindingResolver, service.getBindingResolver());
         }
     }
+
+    @Test
+    @DisplayName("UT-SVC-D-001: Direct success path evaluates granted roles")
+    void testDirectSuccessEvaluatesGrantedRoles() throws AuthenticationException {
+        service = new AuthenticationService(
+                integrationRegistry, pluginManager, bindingResolver, roleMappingEvaluator);
+
+        BasicPrincipal principal = BasicPrincipal.builder()
+                .name("alice")
+                .authenticator("test_integration")
+                .build();
+
+        AuthenticationResult successResult = AuthenticationResult.success(principal);
+
+        Mockito.when(bindingResolver.resolveCandidates(Mockito.eq("alice"), Mockito.any()))
+                .thenReturn(Collections.singletonList(testIntegration));
+        Mockito.when(bindingResolver.hasUserBinding(Mockito.eq("alice"))).thenReturn(false);
+        Mockito.when(pluginManager.getPlugin(testIntegration)).thenReturn(plugin);
+        Mockito.when(plugin.supports(Mockito.any())).thenReturn(true);
+        Mockito.when(plugin.authenticate(Mockito.any(), Mockito.eq(testIntegration))).thenReturn(successResult);
+        Mockito.when(roleMappingEvaluator.evaluate(testIntegration, principal)).thenReturn(Set.of("admin", "analyst"));
+
+        AuthenticationResult result = service.authenticate(testRequest);
+
+        Assertions.assertTrue(result.isSuccess());
+        Assertions.assertEquals(Set.of("admin", "analyst"), result.getGrantedRoles());
+        Mockito.verify(roleMappingEvaluator).evaluate(testIntegration, principal);
+    }
+
+    @Test
+    @DisplayName("UT-SVC-D-002: Direct continue path skips role mapping")
+    void testDirectContinueSkipsRoleMapping() throws AuthenticationException {
+        service = new AuthenticationService(
+                integrationRegistry, pluginManager, bindingResolver, roleMappingEvaluator);
+
+        AuthenticationResult continueResult = AuthenticationResult.continueWith(
+                "state", "challenge".getBytes(StandardCharsets.UTF_8));
+
+        Mockito.when(bindingResolver.resolveCandidates(Mockito.eq("alice"), Mockito.any()))
+                .thenReturn(Collections.singletonList(testIntegration));
+        Mockito.when(bindingResolver.hasUserBinding(Mockito.eq("alice"))).thenReturn(false);
+        Mockito.when(pluginManager.getPlugin(testIntegration)).thenReturn(plugin);
+        Mockito.when(plugin.supports(Mockito.any())).thenReturn(true);
+        Mockito.when(plugin.authenticate(Mockito.any(), Mockito.eq(testIntegration))).thenReturn(continueResult);
+
+        AuthenticationOutcome outcome = service.authenticateWithOutcome(testRequest);
+
+        Assertions.assertTrue(outcome.isContinue());
+        Assertions.assertTrue(outcome.getGrantedRoles().isEmpty());
+        Mockito.verify(roleMappingEvaluator, Mockito.never()).evaluate(Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    @DisplayName("UT-SVC-D-003: Default evaluator ignores inline role mapping rules")
+    void testDirectDefaultEvaluatorIgnoresInlineRoleMappingRules() throws AuthenticationException {
+        service = new AuthenticationService(integrationRegistry, pluginManager, bindingResolver);
+
+        HashMap<String, String> properties = new HashMap<>();
+        properties.put("role_mapping.rule.oncall.condition", "has_group(\"oncall\") && has_scope(\"logs:write\")");
+        properties.put("role_mapping.rule.oncall.roles", "logs_reader");
+        AuthenticationIntegration integration = AuthenticationIntegration.builder()
+                .name("test_integration")
+                .type("oidc")
+                .properties(properties)
+                .build();
+
+        BasicPrincipal principal = BasicPrincipal.builder()
+                .name("alice")
+                .authenticator("test_integration")
+                .externalGroups(Set.of("oncall"))
+                .multiValueAttributes(Collections.singletonMap("scope", Set.of("logs:write")))
+                .build();
+
+        AuthenticationResult successResult = AuthenticationResult.success(principal);
+
+        Mockito.when(bindingResolver.resolveCandidates(Mockito.eq("alice"), Mockito.any()))
+                .thenReturn(Collections.singletonList(integration));
+        Mockito.when(bindingResolver.hasUserBinding(Mockito.eq("alice"))).thenReturn(false);
+        Mockito.when(pluginManager.getPlugin(integration)).thenReturn(plugin);
+        Mockito.when(plugin.supports(Mockito.any())).thenReturn(true);
+        Mockito.when(plugin.authenticate(Mockito.any(), Mockito.eq(integration))).thenReturn(successResult);
+
+        AuthenticationResult result = service.authenticate(testRequest);
+
+        Assertions.assertTrue(result.isSuccess());
+        Assertions.assertEquals(Collections.emptySet(), result.getGrantedRoles());
+    }
+
 }

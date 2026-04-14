@@ -266,6 +266,15 @@ public:
                 "Method insert_many_continuous_binary_data is not supported for " + get_name());
     }
 
+    /// Insert `num` string entries with real length information but no actual
+    /// character data. Used by OFFSET_ONLY reading mode where actual string
+    /// content is not needed but length information must be preserved.
+    virtual void insert_offsets_from_lengths(const uint32_t* lengths, size_t num) {
+        throw doris::Exception(
+                ErrorCode::NOT_IMPLEMENTED_ERROR,
+                "Method insert_offsets_from_lengths is not supported for " + get_name());
+    }
+
     virtual void insert_many_strings(const StringRef* strings, size_t num) {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Method insert_many_strings is not supported for " + get_name());

@@ -399,19 +399,19 @@ public class ColumnDef {
                 break;
             case DECIMALV2:
                 //no need to check precision and scale, since V2 is fixed point
-                new DecimalLiteral(defaultValue);
+                DecimalLiteralUtils.create(defaultValue);
                 break;
             case DECIMAL32:
             case DECIMAL64:
             case DECIMAL128:
             case DECIMAL256:
-                DecimalLiteral decimalLiteral = new DecimalLiteral(defaultValue);
+                DecimalLiteral decimalLiteral = DecimalLiteralUtils.create(defaultValue);
                 decimalLiteral.checkPrecisionAndScale(scalarType.getScalarPrecision(), scalarType.getScalarScale());
                 break;
             case DATE:
             case DATEV2:
                 if (defaultValueExprDef == null) {
-                    new DateLiteral(defaultValue, scalarType);
+                    DateLiteralUtils.createDateLiteral(defaultValue, scalarType);
                 } else {
                     if (defaultValueExprDef.getExprName().equalsIgnoreCase(DefaultValue.CURRENT_DATE)) {
                         break;
@@ -424,7 +424,7 @@ public class ColumnDef {
             case DATETIMEV2:
             case TIMESTAMPTZ:
                 if (defaultValueExprDef == null) {
-                    new DateLiteral(defaultValue, scalarType);
+                    DateLiteralUtils.createDateLiteral(defaultValue, scalarType);
                 } else {
                     if (defaultValueExprDef.getExprName().equals(DefaultValue.NOW)) {
                         if (defaultValueExprDef.getPrecision() != null) {

@@ -51,6 +51,7 @@ struct IOContext;
 } // namespace io
 class Block;
 class FieldDescriptor;
+struct RowLineageColumns;
 } // namespace doris
 namespace tparquet {
 class ColumnMetaData;
@@ -63,7 +64,6 @@ class RowIdColumnIteratorV2;
 }
 
 namespace doris {
-#include "common/compile_check_begin.h"
 // TODO: we need to determine it by test.
 
 class RowGroupReader : public ProfileCollector {
@@ -205,6 +205,10 @@ public:
         _iceberg_rowid_params = params;
     }
 
+    void set_row_lineage_columns(std::shared_ptr<RowLineageColumns> row_lineage_columns) {
+        _row_lineage_columns = std::move(row_lineage_columns);
+    }
+
     void set_current_row_group_idx(RowGroupIndex row_group_idx) {
         _current_row_group_idx = row_group_idx;
     }
@@ -274,6 +278,7 @@ private:
     const cctz::time_zone* _ctz = nullptr;
     io::IOContext* _io_ctx = nullptr;
     PositionDeleteContext _position_delete_ctx;
+    std::shared_ptr<RowLineageColumns> _row_lineage_columns;
     // merge the row ranges generated from page index and position delete.
     RowRanges _read_ranges;
 
@@ -309,6 +314,5 @@ private:
     std::unordered_map<std::string, uint32_t>* _col_name_to_block_idx = nullptr;
     IcebergRowIdParams _iceberg_rowid_params;
 };
-#include "common/compile_check_end.h"
 
 } // namespace doris

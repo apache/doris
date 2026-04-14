@@ -23,7 +23,6 @@
 #include "exprs/aggregate/helpers.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 template <PrimitiveType T>
 AggregateFunctionPtr do_create_agg_function_collect(const DataTypes& argument_types,

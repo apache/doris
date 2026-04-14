@@ -558,6 +558,11 @@ public:
                _query_options.enable_streaming_agg_hash_join_force_passthrough;
     }
 
+    bool enable_local_exchange_before_agg() const {
+        return _query_options.__isset.enable_local_exchange_before_agg &&
+               _query_options.enable_local_exchange_before_agg;
+    }
+
     bool enable_distinct_streaming_agg_force_passthrough() const {
         return _query_options.__isset.enable_distinct_streaming_agg_force_passthrough &&
                _query_options.enable_distinct_streaming_agg_force_passthrough;
@@ -811,9 +816,12 @@ public:
 
     void set_id_file_map();
     VectorSearchUserParams get_vector_search_params() const {
-        return VectorSearchUserParams(_query_options.hnsw_ef_search,
-                                      _query_options.hnsw_check_relative_distance,
-                                      _query_options.hnsw_bounded_queue, _query_options.ivf_nprobe);
+        VectorSearchUserParams params;
+        params.hnsw_ef_search = _query_options.hnsw_ef_search;
+        params.hnsw_check_relative_distance = _query_options.hnsw_check_relative_distance;
+        params.hnsw_bounded_queue = _query_options.hnsw_bounded_queue;
+        params.ivf_nprobe = _query_options.ivf_nprobe;
+        return params;
     }
 
     bool runtime_filter_wait_infinitely() const {

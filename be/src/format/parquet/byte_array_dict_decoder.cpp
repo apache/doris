@@ -29,7 +29,6 @@
 #include "util/rle_encoding.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 Status ByteArrayDictDecoder::set_dict(DorisUniqueBufferPtr<uint8_t>& dict, int32_t length,
                                       size_t num_values) {
     _dict = std::move(dict);
@@ -161,6 +160,5 @@ Status ByteArrayDictDecoder::_decode_values(MutableColumnPtr& doris_column, Data
     }
     return Status::OK();
 }
-#include "common/compile_check_end.h"
 
 } // namespace doris

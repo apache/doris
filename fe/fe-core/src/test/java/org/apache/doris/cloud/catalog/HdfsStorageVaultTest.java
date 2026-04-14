@@ -27,22 +27,20 @@ import org.apache.doris.cloud.proto.Cloud.MetaServiceResponseStatus;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.nereids.trees.plans.commands.CreateStorageVaultCommand;
-import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
-import mockit.Mock;
-import mockit.MockUp;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.HashSet;
 import java.util.Map;
@@ -67,162 +65,165 @@ public class HdfsStorageVaultTest {
 
     @Test
     public void testAlterMetaServiceNormal() throws Exception {
-        new MockUp<MetaServiceProxy>(MetaServiceProxy.class) {
-            @Mock
-            public Cloud.AlterObjStoreInfoResponse
-                    alterStorageVault(Cloud.AlterObjStoreInfoRequest request) throws RpcException {
-                Cloud.AlterObjStoreInfoResponse.Builder resp = Cloud.AlterObjStoreInfoResponse.newBuilder();
-                resp.setStatus(MetaServiceResponseStatus.newBuilder().build());
-                resp.setStorageVaultId("1");
-                return resp.build();
-            }
-        };
-        StorageVault vault = createHdfsVault("hdfs", ImmutableMap.of(
-                "type", "hdfs",
-                "path", "abs/",
-                S3Properties.VALIDITY_CHECK, "false",
-                HdfsStorageVault.PropertyKey.HADOOP_FS_NAME, "default"));
-        Map<String, String> properties = vault.getCopiedProperties();
-        // To check if the properties is carried correctly
-        Assertions.assertEquals(properties.get(HdfsStorageVault.PropertyKey.HADOOP_FS_NAME), "default");
-        mgr.createHdfsVault(vault);
+        MetaServiceProxy mockProxy = Mockito.mock(MetaServiceProxy.class);
+        try (MockedStatic<MetaServiceProxy> mockedProxyStatic = Mockito.mockStatic(MetaServiceProxy.class)) {
+            mockedProxyStatic.when(MetaServiceProxy::getInstance).thenReturn(mockProxy);
+            Mockito.when(mockProxy.alterStorageVault(Mockito.any(Cloud.AlterObjStoreInfoRequest.class)))
+                    .thenAnswer(invocation -> {
+                        Cloud.AlterObjStoreInfoResponse.Builder resp = Cloud.AlterObjStoreInfoResponse.newBuilder();
+                        resp.setStatus(MetaServiceResponseStatus.newBuilder().build());
+                        resp.setStorageVaultId("1");
+                        return resp.build();
+                    });
+            StorageVault vault = createHdfsVault("hdfs", ImmutableMap.of(
+                    "type", "hdfs",
+                    "path", "abs/",
+                    S3Properties.VALIDITY_CHECK, "false",
+                    HdfsStorageVault.PropertyKey.HADOOP_FS_NAME, "default"));
+            Map<String, String> properties = vault.getCopiedProperties();
+            // To check if the properties is carried correctly
+            Assertions.assertEquals(properties.get(HdfsStorageVault.PropertyKey.HADOOP_FS_NAME), "default");
+            mgr.createHdfsVault(vault);
+        }
     }
 
     @Test
     public void testAlterMetaServiceWithDuplicateName() throws Exception {
-        new MockUp<MetaServiceProxy>(MetaServiceProxy.class) {
-            private Set<String> existed = new HashSet<>();
-            @Mock
-            public Cloud.AlterObjStoreInfoResponse
-                    alterStorageVault(Cloud.AlterObjStoreInfoRequest request) throws RpcException {
-                Cloud.AlterObjStoreInfoResponse.Builder resp = Cloud.AlterObjStoreInfoResponse.newBuilder();
-                MetaServiceResponseStatus.Builder status = MetaServiceResponseStatus.newBuilder();
-                if (existed.contains(request.getVault().getName())) {
-                    status.setCode(MetaServiceCode.ALREADY_EXISTED);
-                } else {
-                    status.setCode(MetaServiceCode.OK);
-                    existed.add(request.getVault().getName());
-                }
-                resp.setStatus(status.build());
-                resp.setStorageVaultId("1");
-                return resp.build();
-            }
-        };
-        StorageVault vault = createHdfsVault("hdfs", ImmutableMap.of(
-                "type", "hdfs",
-                "path", "abs/",
-                S3Properties.VALIDITY_CHECK, "false"));
-        mgr.createHdfsVault(vault);
-        Assertions.assertThrows(DdlException.class,
-                () -> {
-                    mgr.createHdfsVault(vault);
-                });
+        MetaServiceProxy mockProxy = Mockito.mock(MetaServiceProxy.class);
+        try (MockedStatic<MetaServiceProxy> mockedProxyStatic = Mockito.mockStatic(MetaServiceProxy.class)) {
+            mockedProxyStatic.when(MetaServiceProxy::getInstance).thenReturn(mockProxy);
+            Set<String> existed = new HashSet<>();
+            Mockito.when(mockProxy.alterStorageVault(Mockito.any(Cloud.AlterObjStoreInfoRequest.class)))
+                    .thenAnswer(invocation -> {
+                        Cloud.AlterObjStoreInfoRequest request = invocation.getArgument(0);
+                        Cloud.AlterObjStoreInfoResponse.Builder resp = Cloud.AlterObjStoreInfoResponse.newBuilder();
+                        MetaServiceResponseStatus.Builder status = MetaServiceResponseStatus.newBuilder();
+                        if (existed.contains(request.getVault().getName())) {
+                            status.setCode(MetaServiceCode.ALREADY_EXISTED);
+                        } else {
+                            status.setCode(MetaServiceCode.OK);
+                            existed.add(request.getVault().getName());
+                        }
+                        resp.setStatus(status.build());
+                        resp.setStorageVaultId("1");
+                        return resp.build();
+                    });
+            StorageVault vault = createHdfsVault("hdfs", ImmutableMap.of(
+                    "type", "hdfs",
+                    "path", "abs/",
+                    S3Properties.VALIDITY_CHECK, "false"));
+            mgr.createHdfsVault(vault);
+            Assertions.assertThrows(DdlException.class,
+                    () -> {
+                        mgr.createHdfsVault(vault);
+                    });
+        }
     }
 
     @Test
     public void testAlterMetaServiceWithMissingFiels() throws Exception {
-        new MockUp<MetaServiceProxy>(MetaServiceProxy.class) {
-            @Mock
-            public Cloud.AlterObjStoreInfoResponse
-                    alterStorageVault(Cloud.AlterObjStoreInfoRequest request) throws RpcException {
-                Cloud.AlterObjStoreInfoResponse.Builder resp = Cloud.AlterObjStoreInfoResponse.newBuilder();
-                if (!request.getVault().hasName() || request.getVault().getName().isEmpty()) {
-                    resp.setStatus(MetaServiceResponseStatus.newBuilder()
-                                .setCode(MetaServiceCode.INVALID_ARGUMENT).build());
-                } else {
-                    resp.setStatus(MetaServiceResponseStatus.newBuilder().build());
-                }
-                resp.setStorageVaultId("1");
-                return resp.build();
-            }
-        };
-        StorageVault vault = createHdfsVault("", ImmutableMap.of(
-                "type", "hdfs",
-                "path", "abs/",
-                S3Properties.VALIDITY_CHECK, "false"));
-        Assertions.assertThrows(DdlException.class,
-                () -> {
-                    mgr.createHdfsVault(vault);
-                });
+        MetaServiceProxy mockProxy = Mockito.mock(MetaServiceProxy.class);
+        try (MockedStatic<MetaServiceProxy> mockedProxyStatic = Mockito.mockStatic(MetaServiceProxy.class)) {
+            mockedProxyStatic.when(MetaServiceProxy::getInstance).thenReturn(mockProxy);
+            Mockito.when(mockProxy.alterStorageVault(Mockito.any(Cloud.AlterObjStoreInfoRequest.class)))
+                    .thenAnswer(invocation -> {
+                        Cloud.AlterObjStoreInfoRequest request = invocation.getArgument(0);
+                        Cloud.AlterObjStoreInfoResponse.Builder resp = Cloud.AlterObjStoreInfoResponse.newBuilder();
+                        if (!request.getVault().hasName() || request.getVault().getName().isEmpty()) {
+                            resp.setStatus(MetaServiceResponseStatus.newBuilder()
+                                    .setCode(MetaServiceCode.INVALID_ARGUMENT).build());
+                        } else {
+                            resp.setStatus(MetaServiceResponseStatus.newBuilder().build());
+                        }
+                        resp.setStorageVaultId("1");
+                        return resp.build();
+                    });
+            StorageVault vault = createHdfsVault("", ImmutableMap.of(
+                    "type", "hdfs",
+                    "path", "abs/",
+                    S3Properties.VALIDITY_CHECK, "false"));
+            Assertions.assertThrows(DdlException.class,
+                    () -> {
+                        mgr.createHdfsVault(vault);
+                    });
+        }
     }
 
     @Test
     public void testAlterMetaServiceIfNotExists() throws Exception {
-        new MockUp<MetaServiceProxy>(MetaServiceProxy.class) {
-            private Set<String> existed = new HashSet<>();
-            @Mock
-            public Cloud.AlterObjStoreInfoResponse
-                    alterStorageVault(Cloud.AlterObjStoreInfoRequest request) throws RpcException {
-                Cloud.AlterObjStoreInfoResponse.Builder resp = Cloud.AlterObjStoreInfoResponse.newBuilder();
-                MetaServiceResponseStatus.Builder status = MetaServiceResponseStatus.newBuilder();
-                if (existed.contains(request.getVault().getName())) {
-                    status.setCode(MetaServiceCode.ALREADY_EXISTED);
-                } else {
-                    status.setCode(MetaServiceCode.OK);
-                    existed.add(request.getVault().getName());
-                }
-                resp.setStatus(status.build());
-                resp.setStorageVaultId("1");
-                return resp.build();
-            }
-        };
-        StorageVault vault = new HdfsStorageVault("name", true, false);
-        vault.modifyProperties(ImmutableMap.of(
-                "type", "hdfs",
-                "path", "abs/",
-                S3Properties.VALIDITY_CHECK, "false"));
-        mgr.createHdfsVault(vault);
+        MetaServiceProxy mockProxy = Mockito.mock(MetaServiceProxy.class);
+        try (MockedStatic<MetaServiceProxy> mockedProxyStatic = Mockito.mockStatic(MetaServiceProxy.class)) {
+            mockedProxyStatic.when(MetaServiceProxy::getInstance).thenReturn(mockProxy);
+            Set<String> existed = new HashSet<>();
+            Mockito.when(mockProxy.alterStorageVault(Mockito.any(Cloud.AlterObjStoreInfoRequest.class)))
+                    .thenAnswer(invocation -> {
+                        Cloud.AlterObjStoreInfoRequest request = invocation.getArgument(0);
+                        Cloud.AlterObjStoreInfoResponse.Builder resp = Cloud.AlterObjStoreInfoResponse.newBuilder();
+                        MetaServiceResponseStatus.Builder status = MetaServiceResponseStatus.newBuilder();
+                        if (existed.contains(request.getVault().getName())) {
+                            status.setCode(MetaServiceCode.ALREADY_EXISTED);
+                        } else {
+                            status.setCode(MetaServiceCode.OK);
+                            existed.add(request.getVault().getName());
+                        }
+                        resp.setStatus(status.build());
+                        resp.setStorageVaultId("1");
+                        return resp.build();
+                    });
+            StorageVault vault = new HdfsStorageVault("name", true, false);
+            vault.modifyProperties(ImmutableMap.of(
+                    "type", "hdfs",
+                    "path", "abs/",
+                    S3Properties.VALIDITY_CHECK, "false"));
+            mgr.createHdfsVault(vault);
+        }
     }
 
     @Test
+    @SuppressWarnings("unchecked")
     public void testSetDefaultVault() throws Exception {
-        new MockUp<MetaServiceProxy>(MetaServiceProxy.class) {
-            private Pair<String, String> defaultVaultInfo;
-            private HashSet<String> existed = new HashSet<>();
+        MetaServiceProxy mockProxy = Mockito.mock(MetaServiceProxy.class);
+        try (MockedStatic<MetaServiceProxy> mockedProxyStatic = Mockito.mockStatic(MetaServiceProxy.class)) {
+            mockedProxyStatic.when(MetaServiceProxy::getInstance).thenReturn(mockProxy);
+            HashSet<String> existed = new HashSet<>();
 
-            @Mock
-            public Pair getDefaultStorageVault() {
-                return defaultVaultInfo;
-            }
-
-            @Mock
-            public Cloud.AlterObjStoreInfoResponse
-                    alterStorageVault(Cloud.AlterObjStoreInfoRequest request) throws RpcException {
-                Cloud.AlterObjStoreInfoResponse.Builder resp = Cloud.AlterObjStoreInfoResponse.newBuilder();
-                MetaServiceResponseStatus.Builder status = MetaServiceResponseStatus.newBuilder();
-                if (request.getOp() == Operation.ADD_HDFS_INFO) {
-                    if (existed.contains(request.getVault().getName())) {
-                        status.setCode(MetaServiceCode.ALREADY_EXISTED);
-                    } else {
-                        status.setCode(MetaServiceCode.OK);
-                        existed.add(request.getVault().getName());
-                    }
-                } else if (request.getOp() == Operation.SET_DEFAULT_VAULT) {
-                    if (!existed.contains(request.getVault().getName())) {
-                        status.setCode(MetaServiceCode.INVALID_ARGUMENT);
-                    } else {
-                        this.defaultVaultInfo = Pair.of(request.getVault().getName(), "1");
-                        status.setCode(MetaServiceCode.OK);
-                    }
-                }
-                resp.setStatus(status.build());
-                resp.setStorageVaultId(String.valueOf(existed.size()));
-                return resp.build();
-            }
-        };
-        StorageVault vault = new HdfsStorageVault("name", true, false);
-        Assertions.assertThrows(DdlException.class,
-                () -> {
-                    mgr.setDefaultStorageVault("non_existent");
-                });
-        vault.modifyProperties(ImmutableMap.of(
-                "type", "hdfs",
-                "path", "abs/",
-                S3Properties.VALIDITY_CHECK, "false"));
-        mgr.createHdfsVault(vault);
-        Assertions.assertTrue(mgr.getDefaultStorageVault() == null);
-        mgr.setDefaultStorageVault(vault.getName());
-        Assertions.assertTrue(mgr.getDefaultStorageVault().first.equals(vault.getName()));
+            Mockito.when(mockProxy.alterStorageVault(Mockito.any(Cloud.AlterObjStoreInfoRequest.class)))
+                    .thenAnswer(invocation -> {
+                        Cloud.AlterObjStoreInfoRequest request = invocation.getArgument(0);
+                        Cloud.AlterObjStoreInfoResponse.Builder resp = Cloud.AlterObjStoreInfoResponse.newBuilder();
+                        MetaServiceResponseStatus.Builder status = MetaServiceResponseStatus.newBuilder();
+                        if (request.getOp() == Operation.ADD_HDFS_INFO) {
+                            if (existed.contains(request.getVault().getName())) {
+                                status.setCode(MetaServiceCode.ALREADY_EXISTED);
+                            } else {
+                                status.setCode(MetaServiceCode.OK);
+                                existed.add(request.getVault().getName());
+                            }
+                        } else if (request.getOp() == Operation.SET_DEFAULT_VAULT) {
+                            if (!existed.contains(request.getVault().getName())) {
+                                status.setCode(MetaServiceCode.INVALID_ARGUMENT);
+                            } else {
+                                status.setCode(MetaServiceCode.OK);
+                            }
+                        }
+                        resp.setStatus(status.build());
+                        resp.setStorageVaultId(String.valueOf(existed.size()));
+                        return resp.build();
+                    });
+            StorageVault vault = new HdfsStorageVault("name", true, false);
+            Assertions.assertThrows(DdlException.class,
+                    () -> {
+                        mgr.setDefaultStorageVault("non_existent");
+                    });
+            vault.modifyProperties(ImmutableMap.of(
+                    "type", "hdfs",
+                    "path", "abs/",
+                    S3Properties.VALIDITY_CHECK, "false"));
+            mgr.createHdfsVault(vault);
+            Assertions.assertTrue(mgr.getDefaultStorageVault() == null);
+            mgr.setDefaultStorageVault(vault.getName());
+            Assertions.assertTrue(mgr.getDefaultStorageVault().first.equals(vault.getName()));
+        }
     }
 
     @Test

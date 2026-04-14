@@ -18,7 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.util.URI;
-import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.gson.annotations.SerializedName;
 
@@ -77,7 +76,7 @@ public class AggregateFunction extends Function {
             URI location, String updateFnSymbol, String initFnSymbol,
             String serializeFnSymbol, String mergeFnSymbol, String getValueFnSymbol,
             String removeFnSymbol, String finalizeFnSymbol, boolean ignoresDistinct,
-            boolean isAnalyticFn, boolean returnsNonNullOnEmpty, TFunctionBinaryType binaryType,
+            boolean isAnalyticFn, boolean returnsNonNullOnEmpty, BinaryType binaryType,
             boolean userVisible, boolean vectorized, NullableMode nullableMode) {
         // only `count` is always not nullable, other aggregate function is always nullable
         super(0, fnName, argTypes, retType, hasVarArgs, binaryType, userVisible, vectorized, nullableMode);
@@ -129,7 +128,7 @@ public class AggregateFunction extends Function {
     }
 
     public static class AggregateFunctionBuilder {
-        TFunctionBinaryType binaryType;
+        BinaryType binaryType;
         FunctionName name;
         Type[] argTypes;
         Type retType;
@@ -145,12 +144,12 @@ public class AggregateFunction extends Function {
         String getValueFnSymbol;
         String symbolName;
 
-        private AggregateFunctionBuilder(TFunctionBinaryType binaryType) {
+        private AggregateFunctionBuilder(BinaryType binaryType) {
             this.binaryType = binaryType;
         }
 
         public static AggregateFunctionBuilder createUdfBuilder() {
-            return new AggregateFunctionBuilder(TFunctionBinaryType.JAVA_UDF);
+            return new AggregateFunctionBuilder(BinaryType.JAVA_UDF);
         }
 
         public AggregateFunctionBuilder name(FunctionName name) {
@@ -218,7 +217,7 @@ public class AggregateFunction extends Function {
             return this;
         }
 
-        public AggregateFunctionBuilder binaryType(TFunctionBinaryType binaryType) {
+        public AggregateFunctionBuilder binaryType(BinaryType binaryType) {
             this.binaryType = binaryType;
             return this;
         }

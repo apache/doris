@@ -82,7 +82,6 @@ import org.apache.doris.proto.Types;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -166,7 +165,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
     private final Map<String, String> properties;
     private final List<String> parameters;
     private final Expression originFunction;
-    private TFunctionBinaryType binaryType = TFunctionBinaryType.JAVA_UDF;
+    private Function.BinaryType binaryType = Function.BinaryType.JAVA_UDF;
     // needed item set after analyzed
     private String userFile;
     private String originalUserFile; // Keep original jar name for BE
@@ -320,10 +319,10 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         userFile = properties.getOrDefault(FILE_KEY, properties.get(OBJECT_FILE_KEY));
         originalUserFile = userFile; // Keep original jar name for BE
         // Convert userFile to realUrl only for FE checksum calculation
-        if (!Strings.isNullOrEmpty(userFile) && binaryType != TFunctionBinaryType.RPC) {
+        if (!Strings.isNullOrEmpty(userFile) && binaryType != Function.BinaryType.RPC) {
             userFile = getRealUrl(userFile);
         }
-        if (!Strings.isNullOrEmpty(userFile) && binaryType != TFunctionBinaryType.RPC) {
+        if (!Strings.isNullOrEmpty(userFile) && binaryType != Function.BinaryType.RPC) {
             try {
                 computeObjectChecksum();
             } catch (IOException | NoSuchAlgorithmException e) {
@@ -334,7 +333,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
                 throw new AnalysisException("library's checksum is not equal with input, checksum=" + checksum);
             }
         }
-        if (binaryType == TFunctionBinaryType.JAVA_UDF) {
+        if (binaryType == Function.BinaryType.JAVA_UDF) {
             FunctionUtil.checkEnableJavaUdf();
 
             // always_nullable the default value is true, equal null means true
@@ -348,7 +347,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
                 isStaticLoad = true;
             }
             extractExpirationTime();
-        } else if (binaryType == TFunctionBinaryType.PYTHON_UDF) {
+        } else if (binaryType == Function.BinaryType.PYTHON_UDF) {
             FunctionUtil.checkEnablePythonUdf();
 
             // always_nullable the default value is true, equal null means true
@@ -457,9 +456,9 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         if (!returnType.isArrayType()) {
             throw new AnalysisException("JAVA_UDTF OR PYTHON_UDTF return type must be array type");
         }
-        if (binaryType == TFunctionBinaryType.JAVA_UDF) {
+        if (binaryType == Function.BinaryType.JAVA_UDF) {
             analyzeJavaUdf(symbol);
-        } else if (binaryType == TFunctionBinaryType.PYTHON_UDF) {
+        } else if (binaryType == Function.BinaryType.PYTHON_UDF) {
             analyzePythonUdtf(symbol);
         }
         URI location;
@@ -494,19 +493,19 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
                 .hasVarArgs(argsDef.isVariadic()).intermediateType(intermediateType.toCatalogDataType())
                 .location(location);
         String initFnSymbol = properties.get(INIT_KEY);
-        if (initFnSymbol == null && !(binaryType == TFunctionBinaryType.JAVA_UDF
-                || binaryType == TFunctionBinaryType.PYTHON_UDF
-                || binaryType == TFunctionBinaryType.RPC)) {
+        if (initFnSymbol == null && !(binaryType == Function.BinaryType.JAVA_UDF
+                || binaryType == Function.BinaryType.PYTHON_UDF
+                || binaryType == Function.BinaryType.RPC)) {
             throw new AnalysisException("No 'init_fn' in properties");
         }
         String updateFnSymbol = properties.get(UPDATE_KEY);
-        if (updateFnSymbol == null && !(binaryType == TFunctionBinaryType.JAVA_UDF
-                || binaryType == TFunctionBinaryType.PYTHON_UDF)) {
+        if (updateFnSymbol == null && !(binaryType == Function.BinaryType.JAVA_UDF
+                || binaryType == Function.BinaryType.PYTHON_UDF)) {
             throw new AnalysisException("No 'update_fn' in properties");
         }
         String mergeFnSymbol = properties.get(MERGE_KEY);
-        if (mergeFnSymbol == null && !(binaryType == TFunctionBinaryType.JAVA_UDF
-                || binaryType == TFunctionBinaryType.PYTHON_UDF)) {
+        if (mergeFnSymbol == null && !(binaryType == Function.BinaryType.JAVA_UDF
+                || binaryType == Function.BinaryType.PYTHON_UDF)) {
             throw new AnalysisException("No 'merge_fn' in properties");
         }
         String serializeFnSymbol = properties.get(SERIALIZE_KEY);
@@ -514,7 +513,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         String getValueFnSymbol = properties.get(GET_VALUE_KEY);
         String removeFnSymbol = properties.get(REMOVE_KEY);
         String symbol = properties.get(SYMBOL_KEY);
-        if (binaryType == TFunctionBinaryType.RPC && !userFile.contains("://")) {
+        if (binaryType == Function.BinaryType.RPC && !userFile.contains("://")) {
             if (initFnSymbol != null) {
                 checkRPCUdf(initFnSymbol);
             }
@@ -532,12 +531,12 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
             if (removeFnSymbol != null) {
                 checkRPCUdf(removeFnSymbol);
             }
-        } else if (binaryType == TFunctionBinaryType.JAVA_UDF) {
+        } else if (binaryType == Function.BinaryType.JAVA_UDF) {
             if (Strings.isNullOrEmpty(symbol)) {
                 throw new AnalysisException("No 'symbol' in properties of java-udaf");
             }
             analyzeJavaUdaf(symbol);
-        } else if (binaryType == TFunctionBinaryType.PYTHON_UDF) {
+        } else if (binaryType == Function.BinaryType.PYTHON_UDF) {
             analyzePythonUdaf(symbol);
         }
         function = builder.initFnSymbol(initFnSymbol).updateFnSymbol(updateFnSymbol).mergeFnSymbol(mergeFnSymbol)
@@ -562,14 +561,14 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         String closeFnSymbol = properties.get(CLOSE_SYMBOL_KEY);
         // TODO(yangzhg) support check function in FE when function service behind load balancer
         // the format for load balance can ref https://github.com/apache/incubator-brpc/blob/master/docs/en/client.md#connect-to-a-cluster
-        if (binaryType == TFunctionBinaryType.RPC && !userFile.contains("://")) {
+        if (binaryType == Function.BinaryType.RPC && !userFile.contains("://")) {
             if (StringUtils.isNotBlank(prepareFnSymbol) || StringUtils.isNotBlank(closeFnSymbol)) {
                 throw new AnalysisException("prepare and close in RPC UDF are not supported.");
             }
             checkRPCUdf(symbol);
-        } else if (binaryType == TFunctionBinaryType.JAVA_UDF) {
+        } else if (binaryType == Function.BinaryType.JAVA_UDF) {
             analyzeJavaUdf(symbol);
-        } else if (binaryType == TFunctionBinaryType.PYTHON_UDF) {
+        } else if (binaryType == Function.BinaryType.PYTHON_UDF) {
             analyzePythonUdf(symbol);
         }
         URI location;
@@ -1037,10 +1036,10 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         return typeBuilder.build();
     }
 
-    private TFunctionBinaryType getFunctionBinaryType(String type) {
-        TFunctionBinaryType binaryType = null;
+    private Function.BinaryType getFunctionBinaryType(String type) {
+        Function.BinaryType binaryType = null;
         try {
-            binaryType = TFunctionBinaryType.valueOf(type);
+            binaryType = Function.BinaryType.valueOf(type);
         } catch (IllegalArgumentException e) {
             // ignore enum Exception
         }
@@ -1258,7 +1257,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
             org.apache.doris.catalog.ScalarFunction catalogFunction = new org.apache.doris.catalog.ScalarFunction(
                     new FunctionName(name), argTypes,
                     expression.getDataType().toCatalogDataType(), hasVarArguments,
-                    "", TFunctionBinaryType.BUILTIN, true, true, nullableMode);
+                    "", Function.BinaryType.BUILTIN, true, true, nullableMode);
 
             // create catalog FunctionCallExpr without analyze again
             return new FunctionCallExpr(catalogFunction, new FunctionParams(false, arguments), expression.nullable());

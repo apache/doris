@@ -31,7 +31,6 @@
 #include "util/simd/bits.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 inline std::string compound_operator_to_string(TExprOpcode::type op) {
     if (op == TExprOpcode::COMPOUND_AND) {
@@ -417,5 +416,4 @@ private:
     TExprOpcode::type _op;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

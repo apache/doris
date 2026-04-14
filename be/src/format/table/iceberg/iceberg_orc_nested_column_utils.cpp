@@ -28,7 +28,6 @@
 #include "orc/Type.hh"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 void IcebergOrcNestedColumnUtils::extract_nested_column_ids(
         const orc::Type& type, const std::vector<std::vector<std::string>>& paths,

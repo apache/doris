@@ -22,6 +22,7 @@ import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.job.extensions.insert.streaming.StreamingJobProperties;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -35,6 +36,20 @@ public interface SourceOffsetProvider {
      * @return
      */
     String getSourceType();
+
+    /**
+     * Initialize the offset provider with job ID and original TVF properties.
+     * Only sets in-memory fields; safe to call on both fresh start and FE restart.
+     * May perform remote calls (e.g. fetching snapshot splits), so throws JobException.
+     */
+    default void ensureInitialized(Long jobId, Map<String, String> originTvfProps) throws JobException {}
+
+    /**
+     * Performs one-time initialization that must run only on fresh job creation, not on FE restart.
+     * For example, fetching and persisting snapshot splits to the meta table.
+     * Default: no-op (most providers need no extra setup).
+     */
+    default void initOnCreate() throws JobException {}
 
     /**
      * Get next offset to consume
@@ -59,11 +74,12 @@ public interface SourceOffsetProvider {
 
     /**
      * Rewrite the TVF parameters in the SQL based on the current offset.
+     * Only implemented by TVF-based providers (e.g. S3, cdc_stream).
      *
      * @param nextOffset
      * @return rewritten InsertIntoTableCommand
      */
-    InsertIntoTableCommand rewriteTvfParams(InsertIntoTableCommand originCommand, Offset nextOffset);
+    InsertIntoTableCommand rewriteTvfParams(InsertIntoTableCommand originCommand, Offset nextOffset, long taskId);
 
     /**
      * Update the offset of the source.
@@ -109,6 +125,30 @@ public interface SourceOffsetProvider {
     default String getPersistInfo() {
         return null;
     }
+
+    /**
+     * Returns the serialized JSON offset to store in txn commit attachment.
+     * Default: serialize running offset directly (e.g. S3 path).
+     * CDC stream TVF overrides to pull actual end offset from BE after fetchRecordStream completes.
+     * scanBackendIds: IDs of the BEs that ran the TVF scan node, used to locate taskOffsetCache.
+     */
+    default String getCommitOffsetJson(Offset runningOffset, long taskId, List<Long> scanBackendIds) {
+        return runningOffset.toSerializedJson();
+    }
+
+    /**
+     * Called after each task is committed. Providers that track data availability
+     * (e.g. JDBC binlog) can use this to update internal state such as hasMoreData.
+     * Default: no-op.
+     */
+    default void onTaskCommitted(long scannedRows, long loadBytes) {}
+
+    /**
+     * Applies the end offset from a committed task back onto the running offset object
+     * in-place, so that showRange() can display the full [start, end] interval.
+     * Default: no-op (only meaningful for JDBC providers).
+     */
+    default void applyEndOffsetToTask(Offset runningOffset, Offset endOffset) {}
 
     /**
      * Returns true if the provider has reached a natural completion point

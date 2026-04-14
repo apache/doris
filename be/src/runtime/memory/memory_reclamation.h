@@ -24,7 +24,6 @@
 #include "runtime/workload_management/task_controller.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 constexpr size_t SMALL_MEMORY_TASK = 32 * 1024 * 1024; // 32M
 
@@ -152,5 +151,4 @@ public:
 private:
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

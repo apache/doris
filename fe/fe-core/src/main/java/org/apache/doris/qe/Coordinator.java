@@ -18,6 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.DescriptorTable;
+import org.apache.doris.analysis.DescriptorToThriftConverter;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.AIResource;
 import org.apache.doris.catalog.Env;
@@ -338,7 +339,7 @@ public class Coordinator implements CoordInterface {
         this.queryId = context.queryId();
         this.fragments = planner.getFragments();
         this.scanNodes = planner.getScanNodes();
-        this.descTable = planner.getDescTable().toThrift();
+        this.descTable = DescriptorToThriftConverter.toThrift(planner.getDescTable());
 
         this.returnedAllResults = false;
         this.enableShareHashTableForBroadcastJoin = context.getSessionVariable().enableShareHashTableForBroadcastJoin;
@@ -380,7 +381,7 @@ public class Coordinator implements CoordInterface {
             List<ScanNode> scanNodes, String timezone, boolean loadZeroTolerance, boolean enableProfile) {
         this.jobId = jobId;
         this.queryId = queryId;
-        this.descTable = descTable.toThrift();
+        this.descTable = DescriptorToThriftConverter.toThrift(descTable);
         this.fragments = fragments;
         this.scanNodes = scanNodes;
         this.queryOptions = new TQueryOptions();
@@ -3233,6 +3234,14 @@ public class Coordinator implements CoordInterface {
             Map<TNetworkAddress, Integer> instanceIdx = new HashMap();
             TPlanFragment fragmentThrift = fragment.toThrift();
             fragmentThrift.query_cache_param = fragment.queryCacheParam;
+            // Pre-compute topn filter descs once; all instances share the same data.
+            List<TTopnFilterDesc> topnFilterDescs = null;
+            if (!topnFilters.isEmpty()) {
+                topnFilterDescs = new ArrayList<>();
+                for (TopnFilter filter : topnFilters) {
+                    topnFilterDescs.add(filter.toThrift());
+                }
+            }
             for (int i = 0; i < instanceExecParams.size(); ++i) {
                 final FInstanceExecParam instanceExecParam = instanceExecParams.get(i);
                 Map<Integer, List<TScanRangeParams>> scanRanges = instanceExecParam.perNodeScanRanges;
@@ -3304,12 +3313,8 @@ public class Coordinator implements CoordInterface {
                 localParams.setBackendNum(backendNum++);
                 localParams.setRuntimeFilterParams(new TRuntimeFilterParams());
                 localParams.runtime_filter_params.setRuntimeFilterMergeAddr(runtimeFilterMergeAddr);
-                if (!topnFilters.isEmpty()) {
-                    List<TTopnFilterDesc> filterDescs = new ArrayList<>();
-                    for (TopnFilter filter : topnFilters) {
-                        filterDescs.add(filter.toThrift());
-                    }
-                    localParams.setTopnFilterDescs(filterDescs);
+                if (topnFilterDescs != null) {
+                    localParams.setTopnFilterDescs(topnFilterDescs);
                 }
                 if (instanceExecParam.instanceId.equals(runtimeFilterMergeInstanceId)) {
                     Set<Integer> broadCastRf = assignedRuntimeFilters.stream().filter(RuntimeFilter::isBroadcast)
@@ -3491,6 +3496,18 @@ public class Coordinator implements CoordInterface {
             backendAddresses.add(new TNetworkAddress(backend.getHost(), backend.getBePort()));
         }
         return backendAddresses;
+    }
+
+    /**
+     * Returns the IDs of backends that have scan ranges assigned, collected from each ScanNode's
+     * scanBackendIds (populated during plan phase).
+     */
+    public List<Long> getScanBackendIds() {
+        Set<Long> result = Sets.newHashSet();
+        for (ScanNode scanNode : scanNodes) {
+            result.addAll(scanNode.getScanBackendIds());
+        }
+        return Lists.newArrayList(result);
     }
 
     public List<PlanFragment> getFragments() {

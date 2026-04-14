@@ -23,7 +23,6 @@
 #include "format/table/iceberg/schema.h"
 
 namespace doris::iceberg {
-#include "common/compile_check_begin.h"
 
 UnboundPartitionSpec::Builder& UnboundPartitionSpec::Builder::with_spec_id(int new_spec_id) {
     _spec_id = new_spec_id;
@@ -70,5 +69,4 @@ std::unique_ptr<PartitionSpec::Builder> UnboundPartitionSpec::_copy_to_builder(
     return builder;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris::iceberg

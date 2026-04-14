@@ -45,7 +45,6 @@
 #include "util/var_int.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class Arena;
 class BufferReadable;
 class BufferWritable;
@@ -56,7 +55,7 @@ namespace doris {
 
 enum class WindowFunnelMode : Int64 { INVALID, DEFAULT, DEDUPLICATION, FIXED, INCREASE };
 
-WindowFunnelMode string_to_window_funnel_mode(const String& string) {
+inline WindowFunnelMode string_to_window_funnel_mode(const String& string) {
     if (string == "default") {
         return WindowFunnelMode::DEFAULT;
     } else if (string == "deduplication") {
@@ -399,5 +398,3 @@ protected:
     using IAggregateFunction::version;
 };
 } // namespace doris
-
-#include "common/compile_check_end.h"

@@ -28,7 +28,6 @@
 #include "util/string_parser.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 const int128_t DecimalV2Value::MAX_DECIMAL_VALUE;
 
@@ -589,5 +588,4 @@ bool DecimalV2Value::greater_than_scale(int scale) {
     return false;
 }
 
-#include "common/compile_check_end.h"
 } // end namespace doris

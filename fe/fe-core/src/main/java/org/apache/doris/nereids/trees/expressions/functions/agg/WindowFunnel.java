@@ -65,7 +65,7 @@ public class WindowFunnel extends NullableAggregateFunction
 
     public WindowFunnel(boolean distinct, boolean alwaysNullable, Expression arg0, Expression arg1, Expression arg2,
             Expression arg3, Expression... varArgs) {
-        super("window_funnel", distinct, alwaysNullable,
+        super("window_funnel_v1", distinct, alwaysNullable,
                 ExpressionUtils.mergeArguments(arg0, arg1, arg2, arg3, varArgs));
     }
 

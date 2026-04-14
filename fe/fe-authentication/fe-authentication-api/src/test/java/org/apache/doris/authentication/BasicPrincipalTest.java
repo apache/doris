@@ -49,6 +49,7 @@ class BasicPrincipalTest {
         Assertions.assertEquals(authenticator, principal.getAuthenticator());
         Assertions.assertTrue(principal.getExternalGroups().isEmpty());
         Assertions.assertTrue(principal.getAttributes().isEmpty());
+        Assertions.assertTrue(principal.getMultiValueAttributes().isEmpty());
         Assertions.assertFalse(principal.isServicePrincipal());
     }
 
@@ -61,6 +62,7 @@ class BasicPrincipalTest {
         String externalPrincipal = "cn=bob,ou=users,dc=corp,dc=com";
         Set<String> externalGroups = Set.of("developers", "admins");
         Map<String, String> attributes = Map.of("email", "bob@corp.com", "department", "engineering");
+        Map<String, Set<String>> multiValueAttributes = Map.of("scope", Set.of("logs:write", "logs:read"));
 
         // When
         BasicPrincipal principal = BasicPrincipal.builder()
@@ -69,6 +71,7 @@ class BasicPrincipalTest {
                 .externalPrincipal(externalPrincipal)
                 .externalGroups(externalGroups)
                 .attributes(attributes)
+                .multiValueAttributes(multiValueAttributes)
                 .servicePrincipal(true)
                 .build();
 
@@ -79,6 +82,7 @@ class BasicPrincipalTest {
         Assertions.assertEquals(externalPrincipal, principal.getExternalPrincipal().get());
         Assertions.assertEquals(externalGroups, principal.getExternalGroups());
         Assertions.assertEquals(attributes, principal.getAttributes());
+        Assertions.assertEquals(multiValueAttributes, principal.getMultiValueAttributes());
         Assertions.assertTrue(principal.isServicePrincipal());
     }
 
@@ -225,7 +229,8 @@ class BasicPrincipalTest {
                 .authenticator("ldap")
                 .externalPrincipal("cn=alice")
                 .addExternalGroup("group1")
-                .attribute("email", "alice@example.com")
+                  .attribute("email", "alice.com")
+                .multiValueAttributes(Map.of("scope", Set.of("logs:write")))
                 .servicePrincipal(true)
                 .build();
 
@@ -238,6 +243,7 @@ class BasicPrincipalTest {
         Assertions.assertEquals(existingPrincipal.getExternalPrincipal(), newPrincipal.getExternalPrincipal());
         Assertions.assertEquals(existingPrincipal.getExternalGroups(), newPrincipal.getExternalGroups());
         Assertions.assertEquals(existingPrincipal.getAttributes(), newPrincipal.getAttributes());
+        Assertions.assertEquals(existingPrincipal.getMultiValueAttributes(), newPrincipal.getMultiValueAttributes());
         Assertions.assertEquals(existingPrincipal.isServicePrincipal(), newPrincipal.isServicePrincipal());
     }
 
@@ -253,6 +259,7 @@ class BasicPrincipalTest {
                 .addExternalGroup("group2")
                 .attribute("email", "alice@example.com")
                 .attribute("department", "engineering")
+                .multiValueAttributes(Map.of("scope", Set.of("logs:write"), "roles", Set.of("reader")))
                 .servicePrincipal(false)
                 .build();
 
@@ -261,6 +268,8 @@ class BasicPrincipalTest {
         Assertions.assertEquals("ldap", principal.getAuthenticator());
         Assertions.assertEquals(2, principal.getExternalGroups().size());
         Assertions.assertEquals(2, principal.getAttributes().size());
+        Assertions.assertEquals(Map.of("scope", Set.of("logs:write"), "roles", Set.of("reader")),
+                principal.getMultiValueAttributes());
         Assertions.assertFalse(principal.isServicePrincipal());
     }
 }

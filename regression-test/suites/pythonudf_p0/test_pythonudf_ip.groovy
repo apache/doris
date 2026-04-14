@@ -17,7 +17,7 @@
 
 suite("test_pythonudf_ip") {
     def tableName = "test_pythonudf_ip_table"
-    def runtime_version = "3.8.10"
+    def runtime_version = getPythonUdfRuntimeVersion()
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """

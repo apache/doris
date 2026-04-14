@@ -33,7 +33,6 @@ class OlapScanner;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class OlapScanOperatorX;
 class OlapScanLocalState final : public ScanLocalState<OlapScanLocalState> {
@@ -238,6 +237,9 @@ private:
     RuntimeProfile::Counter* _ann_topn_search_cnt = nullptr;
 
     RuntimeProfile::Counter* _ann_index_load_costs = nullptr;
+    RuntimeProfile::Counter* _ann_ivf_on_disk_load_costs = nullptr;
+    RuntimeProfile::Counter* _ann_ivf_on_disk_cache_hit_cnt = nullptr;
+    RuntimeProfile::Counter* _ann_ivf_on_disk_cache_miss_cnt = nullptr;
     RuntimeProfile::Counter* _ann_topn_pre_process_costs = nullptr;
     RuntimeProfile::Counter* _ann_topn_engine_search_costs = nullptr;
     RuntimeProfile::Counter* _ann_topn_post_process_costs = nullptr;
@@ -341,5 +343,4 @@ private:
     TabletSchemaSPtr _tablet_schema;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

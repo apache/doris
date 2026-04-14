@@ -23,7 +23,6 @@
 #include "exec/sink/writer/vjdbc_table_writer.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class JdbcTableSinkOperatorX;
 class JdbcTableSinkLocalState final
@@ -59,5 +58,4 @@ private:
     VExprContextSPtrs _output_vexpr_ctxs;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -25,7 +25,6 @@
 #include "util/brpc_closure.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 Status RuntimeFilter::_push_to_remote(RuntimeState* state, const TNetworkAddress* addr) {
     std::shared_ptr<PBackendService_Stub> stub(
             state->get_query_ctx()->exec_env()->brpc_internal_client_cache()->get_client(*addr));

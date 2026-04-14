@@ -181,7 +181,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
     private WriteRecordRequest buildRequestParams() throws JobException {
         JdbcOffset offset = (JdbcOffset) runningOffset;
         WriteRecordRequest request = new WriteRecordRequest();
-        request.setJobId(getJobId());
+        request.setJobId(String.valueOf(getJobId()));
         request.setConfig(sourceProperties);
 
         request.setDataSource(dataSourceType.name());
@@ -192,6 +192,8 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
         Map<String, String> props = generateStreamLoadProps();
         request.setStreamLoadProps(props);
 
+        //`meta` refers to the data synchronized by the job in this instance,
+        // while `sourceProperties.offset` is the data entered by the user.
         Map<String, Object> splitMeta = offset.generateMeta();
         Preconditions.checkArgument(!splitMeta.isEmpty(), "split meta is empty");
         request.setMeta(splitMeta);
@@ -315,7 +317,12 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
             // It's still pending, waiting for scheduling.
             return false;
         }
-        return (System.currentTimeMillis() - startTimeMs) > timeoutMs;
+        long elapsed = System.currentTimeMillis() - startTimeMs;
+        if (elapsed > timeoutMs) {
+            log.info("Task {} timeout detected: elapsed={}ms, timeoutMs={}ms", taskId, elapsed, timeoutMs);
+            return true;
+        }
+        return false;
     }
 
     /**

@@ -123,7 +123,7 @@ public class ExprToSqlTest {
 
     @Test
     public void testDecimalLiteral() {
-        DecimalLiteral expr = new DecimalLiteral(new java.math.BigDecimal("1.5"));
+        DecimalLiteral expr = new DecimalLiteral(new java.math.BigDecimal("1.5"), ScalarType.createDecimalV3Type(2, 1));
         Assertions.assertEquals("1.5", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
@@ -185,8 +185,8 @@ public class ExprToSqlTest {
     }
 
     @Test
-    public void testDateLiteral() throws AnalysisException {
-        DateLiteral expr = new DateLiteral("2024-01-15", Type.DATEV2);
+    public void testDateLiteral() {
+        DateLiteral expr = new DateLiteral(2024, 1, 15, Type.DATEV2);
         Assertions.assertEquals("'2024-01-15'", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
@@ -294,7 +294,7 @@ public class ExprToSqlTest {
         // isNereids=true, isQuery=false, sessionVariable set, desc set
         // → Nereids plan-printing path: label + "[#<slotId>]"
         TupleDescriptor tupleDesc = new TupleDescriptor(new TupleId(0));
-        SlotDescriptor slotDesc = new SlotDescriptor(new SlotId(3), tupleDesc);
+        SlotDescriptor slotDesc = new SlotDescriptor(new SlotId(3), tupleDesc.getId());
         slotDesc.setLabel("`col`");
         SlotRef expr = new SlotRef(null, "col");
         expr.setDesc(slotDesc);
@@ -307,7 +307,7 @@ public class ExprToSqlTest {
     public void testSlotRefLabelNereidsIsQuery() {
         // isNereids=true, isQuery=true → query execution path, slot-id suffix suppressed
         TupleDescriptor tupleDesc = new TupleDescriptor(new TupleId(0));
-        SlotDescriptor slotDesc = new SlotDescriptor(new SlotId(5), tupleDesc);
+        SlotDescriptor slotDesc = new SlotDescriptor(new SlotId(5), tupleDesc.getId());
         slotDesc.setLabel("`score`");
         SlotRef expr = new SlotRef(null, "score");
         expr.setDesc(slotDesc);
@@ -320,7 +320,7 @@ public class ExprToSqlTest {
     public void testSlotRefLabelNotNereids() {
         // isNereids=false → non-Nereids path, no slot-id suffix regardless of desc
         TupleDescriptor tupleDesc = new TupleDescriptor(new TupleId(0));
-        SlotDescriptor slotDesc = new SlotDescriptor(new SlotId(7), tupleDesc);
+        SlotDescriptor slotDesc = new SlotDescriptor(new SlotId(7), tupleDesc.getId());
         slotDesc.setLabel("`price`");
         SlotRef expr = new SlotRef(null, "price");
         expr.setDesc(slotDesc);
@@ -349,7 +349,7 @@ public class ExprToSqlTest {
     public void testSlotRefDescWithSourceExprs() {
         // label=null, desc has sourceExprs → "<slot N> expr visitor result"
         TupleDescriptor tupleDesc = new TupleDescriptor(new TupleId(0));
-        SlotDescriptor slotDesc = new SlotDescriptor(new SlotId(2), tupleDesc);
+        SlotDescriptor slotDesc = new SlotDescriptor(new SlotId(2), tupleDesc.getId());
         slotDesc.setSourceExpr(new IntLiteral(42L));
 
         SlotRef expr = new SlotRef(null, "x");
@@ -369,7 +369,7 @@ public class ExprToSqlTest {
     public void testSlotRefDescNoSourceExprs() {
         // label=null, desc has no sourceExprs → "<slot N>"
         TupleDescriptor tupleDesc = new TupleDescriptor(new TupleId(0));
-        SlotDescriptor slotDesc = new SlotDescriptor(new SlotId(4), tupleDesc);
+        SlotDescriptor slotDesc = new SlotDescriptor(new SlotId(4), tupleDesc.getId());
 
         SlotRef expr = new SlotRef(null, "x");
         try {
@@ -1034,12 +1034,7 @@ public class ExprToSqlTest {
     @Test
     public void testTimestampArithmeticExprWithLiteral() {
         // date_add('2024-01-01', INTERVAL 1 YEAR)
-        Expr e1;
-        try {
-            e1 = new DateLiteral("2024-01-01", Type.DATEV2);
-        } catch (AnalysisException e) {
-            throw new RuntimeException(e);
-        }
+        Expr e1 = new DateLiteral(2024, 1, 1, Type.DATEV2);
         Expr e2 = new IntLiteral(1L);
         TimestampArithmeticExpr expr = new TimestampArithmeticExpr(
                 "date_add", ArithmeticExpr.Operator.ADD,
@@ -1107,37 +1102,37 @@ public class ExprToSqlTest {
     // -----------------------------------------------------------------------
 
     @Test
-    public void testDateLiteralDateV2() throws AnalysisException {
+    public void testDateLiteralDateV2() {
         // DATE type: 'YYYY-MM-DD'
-        DateLiteral expr = new DateLiteral("2024-03-15", Type.DATEV2);
+        DateLiteral expr = new DateLiteral(2024, 3, 15, Type.DATEV2);
         Assertions.assertEquals("'2024-03-15'", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
-    public void testDateLiteralDatetime() throws AnalysisException {
+    public void testDateLiteralDatetime() {
         // DATETIME (v1) type: 'YYYY-MM-DD HH:MM:SS'
-        DateLiteral expr = new DateLiteral("2024-03-15 10:30:00", Type.DATETIME);
+        DateLiteral expr = new DateLiteral(2024, 3, 15, 10, 30, 0, Type.DATETIME);
         Assertions.assertEquals("'2024-03-15 10:30:00'", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
-    public void testDateLiteralDatetimeV2Scale0() throws AnalysisException {
+    public void testDateLiteralDatetimeV2Scale0() {
         // DATETIMEV2 scale=0: 'YYYY-MM-DD HH:MM:SS'
-        DateLiteral expr = new DateLiteral("2024-03-15 10:30:00", ScalarType.createDatetimeV2Type(0));
+        DateLiteral expr = new DateLiteral(2024, 3, 15, 10, 30, 0, ScalarType.createDatetimeV2Type(0));
         Assertions.assertEquals("'2024-03-15 10:30:00'", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
-    public void testDateLiteralDatetimeV2Scale3() throws AnalysisException {
+    public void testDateLiteralDatetimeV2Scale3() {
         // DATETIMEV2 scale=3: 'YYYY-MM-DD HH:MM:SS.mmm'
-        DateLiteral expr = new DateLiteral("2024-03-15 10:30:00.123", ScalarType.createDatetimeV2Type(3));
+        DateLiteral expr = new DateLiteral(2024, 3, 15, 10, 30, 0, 123000, ScalarType.createDatetimeV2Type(3));
         Assertions.assertEquals("'2024-03-15 10:30:00.123'", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
-    public void testDateLiteralDatetimeV2Scale6() throws AnalysisException {
+    public void testDateLiteralDatetimeV2Scale6() {
         // DATETIMEV2 scale=6: 'YYYY-MM-DD HH:MM:SS.mmmmmm'
-        DateLiteral expr = new DateLiteral("2024-03-15 10:30:00.123456", ScalarType.createDatetimeV2Type(6));
+        DateLiteral expr = new DateLiteral(2024, 3, 15, 10, 30, 0, 123456, ScalarType.createDatetimeV2Type(6));
         Assertions.assertEquals("'2024-03-15 10:30:00.123456'", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
@@ -1156,9 +1151,9 @@ public class ExprToSqlTest {
     }
 
     @Test
-    public void testDateLiteralDatetimeV2Scale1() throws AnalysisException {
+    public void testDateLiteralDatetimeV2Scale1() {
         // DATETIMEV2 scale=1: 'YYYY-MM-DD HH:MM:SS.m'
-        DateLiteral expr = new DateLiteral("2024-01-01 00:00:00.5", ScalarType.createDatetimeV2Type(1));
+        DateLiteral expr = new DateLiteral(2024, 1, 1, 0, 0, 0, 500000, ScalarType.createDatetimeV2Type(1));
         Assertions.assertEquals("'2024-01-01 00:00:00.5'", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 }

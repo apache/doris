@@ -32,11 +32,14 @@ import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TIcebergDeleteSink;
+import org.apache.doris.thrift.TIcebergRewritableDeleteFileSet;
 
 import org.apache.iceberg.Table;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -49,6 +52,7 @@ public class IcebergDeleteSink extends BaseExternalTableDataSink {
 
     private final IcebergExternalTable targetTable;
     private final DeleteCommandContext deleteContext;
+    private List<TIcebergRewritableDeleteFileSet> rewritableDeleteFileSets = Collections.emptyList();
 
     private static final HashSet<TFileFormatType> supportedTypes = new HashSet<TFileFormatType>() {{
             add(TFileFormatType.FORMAT_PARQUET);
@@ -71,6 +75,13 @@ public class IcebergDeleteSink extends BaseExternalTableDataSink {
                 catalog.getCatalogProperty().getMetastoreProperties(),
                 catalog.getCatalogProperty().getStoragePropertiesMap(),
                 targetTable.getIcebergTable());
+    }
+
+    public void setRewritableDeleteFileSets(List<TIcebergRewritableDeleteFileSet> deleteFileSets) {
+        rewritableDeleteFileSets = deleteFileSets != null ? deleteFileSets : Collections.emptyList();
+        if (tDataSink != null && tDataSink.isSetIcebergDeleteSink()) {
+            tDataSink.getIcebergDeleteSink().setRewritableDeleteFileSets(rewritableDeleteFileSets);
+        }
     }
 
     @Override
@@ -130,7 +141,12 @@ public class IcebergDeleteSink extends BaseExternalTableDataSink {
         // Partition information
         if (icebergTable.spec().isPartitioned()) {
             tSink.setPartitionSpecId(icebergTable.spec().specId());
-            // Partition data JSON will be set by BE based on actual data
+        }
+
+        int formatVersion  = IcebergUtils.getFormatVersion(icebergTable);
+        tSink.setFormatVersion(formatVersion);
+        if (formatVersion >= 3 && !rewritableDeleteFileSets.isEmpty()) {
+            tSink.setRewritableDeleteFileSets(rewritableDeleteFileSets);
         }
 
         tDataSink = new TDataSink(TDataSinkType.ICEBERG_DELETE_SINK);

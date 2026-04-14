@@ -159,8 +159,7 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
         LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
         updateSessionVariableForDelete(ctx.getSessionVariable());
         StatementContext statementContext = ctx.getStatementContext();
-        // delete not prune predicate after partition prune
-        statementContext.setSkipPrunePredicate(true);
+        statementContext.setIsDelete(true);
         NereidsPlanner planner = new NereidsPlanner(statementContext);
         boolean originalIsSkipAuth = ctx.isSkipAuth();
         // delete not need select priv

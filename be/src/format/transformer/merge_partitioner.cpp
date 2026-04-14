@@ -32,7 +32,6 @@
 #include "format/transformer/iceberg_partition_function.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 namespace {
 int64_t scale_threshold_by_task(int64_t value, int task_num) {
@@ -361,5 +360,4 @@ Status MergePartitioner::_clone_expr_ctxs(RuntimeState* state, const VExprContex
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

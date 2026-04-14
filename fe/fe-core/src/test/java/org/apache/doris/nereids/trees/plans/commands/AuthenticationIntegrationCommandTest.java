@@ -22,34 +22,34 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.authentication.AuthenticationIntegrationMgr;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.utframe.TestWithFeService;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
+import java.io.IOException;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
 
-public class AuthenticationIntegrationCommandTest {
+public class AuthenticationIntegrationCommandTest extends TestWithFeService {
 
-    @Mocked
-    private Env env;
-
-    @Mocked
-    private AccessControllerManager accessManager;
-
-    @Mocked
-    private AuthenticationIntegrationMgr authenticationIntegrationMgr;
-
-    @Mocked
     private ConnectContext connectContext;
+    private Env env;
+    private AccessControllerManager accessControllerManager;
+
+    private void runBefore() throws IOException {
+        connectContext = createDefaultCtx();
+        env = Env.getCurrentEnv();
+        accessControllerManager = env.getAccessManager();
+    }
 
     private static Map<String, String> map(String... kvs) {
         Map<String, String> result = new LinkedHashMap<>();
@@ -67,63 +67,45 @@ public class AuthenticationIntegrationCommandTest {
 
     @Test
     public void testCreateCommandRunAndDenied() throws Exception {
+        runBefore();
         UserIdentity currentUser = UserIdentity.createAnalyzedUserIdentWithIp("admin", "%");
+        connectContext.setCurrentUserIdentity(currentUser);
+
         CreateAuthenticationIntegrationCommand createCommand =
                 new CreateAuthenticationIntegrationCommand("corp_ldap", false,
                         map("type", "ldap", "ldap.server", "ldap://127.0.0.1:389"), "comment");
 
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
+        // Grant access
+        AccessControllerManager spyAcm = Mockito.spy(accessControllerManager);
+        Mockito.doReturn(true).when(spyAcm).checkGlobalPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN));
+        Deencapsulation.setField(env, "accessManager", spyAcm);
 
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessManager;
-
-                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
-                result = true;
-
-                connectContext.getQualifiedUser();
-                minTimes = 0;
-                result = currentUser.getQualifiedUser();
-
-                env.getAuthenticationIntegrationMgr();
-                minTimes = 0;
-                result = authenticationIntegrationMgr;
-
-                authenticationIntegrationMgr.createAuthenticationIntegration(
-                        anyString, anyBoolean, (Map<String, String>) any, anyString, anyString);
-                times = 1;
-            }
-        };
+        // Mock AuthenticationIntegrationMgr
+        AuthenticationIntegrationMgr mockAuthMgr = Mockito.mock(AuthenticationIntegrationMgr.class);
+        Deencapsulation.setField(env, "authenticationIntegrationMgr", mockAuthMgr);
 
         Assertions.assertDoesNotThrow(() -> createCommand.run(connectContext, null));
         Assertions.assertEquals(StmtType.CREATE, createCommand.stmtType());
         Assertions.assertTrue(createCommand.needAuditEncryption());
 
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
+        Mockito.verify(mockAuthMgr, Mockito.times(1)).createAuthenticationIntegration(
+                Mockito.anyString(), Mockito.anyBoolean(), Mockito.anyMap(),
+                Mockito.anyString(), Mockito.anyString());
 
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessManager;
-
-                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
-                result = false;
-            }
-        };
+        // Deny access
+        Mockito.doReturn(false).when(spyAcm).checkGlobalPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN));
 
         Assertions.assertThrows(AnalysisException.class, () -> createCommand.run(connectContext, null));
     }
 
     @Test
     public void testAlterCommandRun() throws Exception {
+        runBefore();
         UserIdentity currentUser = UserIdentity.createAnalyzedUserIdentWithIp("admin", "%");
+        connectContext.setCurrentUserIdentity(currentUser);
+
         AlterAuthenticationIntegrationCommand setPropertiesCommand =
                 AlterAuthenticationIntegrationCommand.forSetProperties(
                         "corp_ldap", map("ldap.server", "ldap://127.0.0.1:1389"));
@@ -133,40 +115,15 @@ public class AuthenticationIntegrationCommandTest {
         AlterAuthenticationIntegrationCommand setCommentCommand =
                 AlterAuthenticationIntegrationCommand.forSetComment("corp_ldap", "new comment");
 
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
+        // Grant access
+        AccessControllerManager spyAcm = Mockito.spy(accessControllerManager);
+        Mockito.doReturn(true).when(spyAcm).checkGlobalPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN));
+        Deencapsulation.setField(env, "accessManager", spyAcm);
 
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessManager;
-
-                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
-                minTimes = 0;
-                result = true;
-
-                connectContext.getQualifiedUser();
-                minTimes = 0;
-                result = currentUser.getQualifiedUser();
-
-                env.getAuthenticationIntegrationMgr();
-                minTimes = 0;
-                result = authenticationIntegrationMgr;
-
-                authenticationIntegrationMgr.alterAuthenticationIntegrationProperties(
-                        anyString, (Map<String, String>) any, anyString);
-                times = 1;
-
-                authenticationIntegrationMgr.alterAuthenticationIntegrationUnsetProperties(
-                        anyString, (Set<String>) any, anyString);
-                times = 1;
-
-                authenticationIntegrationMgr.alterAuthenticationIntegrationComment(anyString, anyString, anyString);
-                times = 1;
-            }
-        };
+        // Mock AuthenticationIntegrationMgr
+        AuthenticationIntegrationMgr mockAuthMgr = Mockito.mock(AuthenticationIntegrationMgr.class);
+        Deencapsulation.setField(env, "authenticationIntegrationMgr", mockAuthMgr);
 
         Assertions.assertDoesNotThrow(() -> setPropertiesCommand.doRun(connectContext, null));
         Assertions.assertDoesNotThrow(() -> unsetPropertiesCommand.doRun(connectContext, null));
@@ -174,75 +131,54 @@ public class AuthenticationIntegrationCommandTest {
         Assertions.assertTrue(setPropertiesCommand.needAuditEncryption());
         Assertions.assertTrue(unsetPropertiesCommand.needAuditEncryption());
         Assertions.assertTrue(setCommentCommand.needAuditEncryption());
+
+        Mockito.verify(mockAuthMgr, Mockito.times(1)).alterAuthenticationIntegrationProperties(
+                Mockito.anyString(), Mockito.anyMap(), Mockito.anyString());
+        Mockito.verify(mockAuthMgr, Mockito.times(1)).alterAuthenticationIntegrationUnsetProperties(
+                Mockito.anyString(), Mockito.anySet(), Mockito.anyString());
+        Mockito.verify(mockAuthMgr, Mockito.times(1)).alterAuthenticationIntegrationComment(
+                Mockito.anyString(), Mockito.anyString(), Mockito.anyString());
     }
 
     @Test
-    public void testAlterCommandDenied() {
+    public void testAlterCommandDenied() throws Exception {
+        runBefore();
         AlterAuthenticationIntegrationCommand setPropertiesCommand =
                 AlterAuthenticationIntegrationCommand.forSetProperties(
                         "corp_ldap", map("ldap.server", "ldap://127.0.0.1:1389"));
 
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessManager;
-
-                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
-                result = false;
-            }
-        };
+        AccessControllerManager spyAcm = Mockito.spy(accessControllerManager);
+        Mockito.doReturn(false).when(spyAcm).checkGlobalPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN));
+        Deencapsulation.setField(env, "accessManager", spyAcm);
 
         Assertions.assertThrows(AnalysisException.class, () -> setPropertiesCommand.doRun(connectContext, null));
     }
 
     @Test
     public void testDropCommandRunAndDenied() throws Exception {
+        runBefore();
         DropAuthenticationIntegrationCommand dropCommand =
                 new DropAuthenticationIntegrationCommand(true, "corp_ldap");
 
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
+        // Grant access
+        AccessControllerManager spyAcm = Mockito.spy(accessControllerManager);
+        Mockito.doReturn(true).when(spyAcm).checkGlobalPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN));
+        Deencapsulation.setField(env, "accessManager", spyAcm);
 
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessManager;
-
-                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
-                result = true;
-
-                env.getAuthenticationIntegrationMgr();
-                minTimes = 0;
-                result = authenticationIntegrationMgr;
-
-                authenticationIntegrationMgr.dropAuthenticationIntegration(anyString, anyBoolean);
-                times = 1;
-            }
-        };
+        // Mock AuthenticationIntegrationMgr
+        AuthenticationIntegrationMgr mockAuthMgr = Mockito.mock(AuthenticationIntegrationMgr.class);
+        Deencapsulation.setField(env, "authenticationIntegrationMgr", mockAuthMgr);
 
         Assertions.assertDoesNotThrow(() -> dropCommand.doRun(connectContext, null));
 
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
+        Mockito.verify(mockAuthMgr, Mockito.times(1)).dropAuthenticationIntegration(
+                Mockito.anyString(), Mockito.anyBoolean());
 
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessManager;
-
-                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
-                result = false;
-            }
-        };
+        // Deny access
+        Mockito.doReturn(false).when(spyAcm).checkGlobalPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN));
 
         Assertions.assertThrows(AnalysisException.class, () -> dropCommand.doRun(connectContext, null));
     }

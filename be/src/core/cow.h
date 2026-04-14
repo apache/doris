@@ -26,7 +26,6 @@
 #include <vector>
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 /** Copy-on-write shared ptr.
   * Allows to work with shared immutable objects and sometimes unshare and mutate you own unique copy.
@@ -449,5 +448,4 @@ protected:
         return MutablePtr(static_cast<Derived*>(Base::shallow_mutate().get()));
     }
 };
-#include "common/compile_check_end.h"
 } // namespace doris

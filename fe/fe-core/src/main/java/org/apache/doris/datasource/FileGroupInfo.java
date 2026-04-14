@@ -26,7 +26,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.planner.FileLoadScanNode;
@@ -266,7 +265,7 @@ public class FileGroupInfo {
                         Util.getOrInferCompressType(context.fileGroup.getFileFormatProperties().getCompressionType(),
                                 fileStatus.path);
                 context.params.setCompressType(compressType);
-                List<String> columnsFromPath = BrokerUtil.parseColumnsFromPath(fileStatus.path,
+                List<String> columnsFromPath = FilePartitionUtils.parseColumnsFromPath(fileStatus.path,
                         context.fileGroup.getColumnNamesFromPath());
                 List<String> columnsFromPathKeys = context.fileGroup.getColumnNamesFromPath();
                 TFileRangeDesc rangeDesc = createFileRangeDesc(0, fileStatus, fileStatus.size, columnsFromPath,
@@ -312,7 +311,7 @@ public class FileGroupInfo {
                     Util.getOrInferCompressType(context.fileGroup.getFileFormatProperties().getCompressionType(),
                             fileStatus.path);
             context.params.setCompressType(compressType);
-            List<String> columnsFromPath = BrokerUtil.parseColumnsFromPath(fileStatus.path,
+            List<String> columnsFromPath = FilePartitionUtils.parseColumnsFromPath(fileStatus.path,
                     context.fileGroup.getColumnNamesFromPath());
             List<String> columnsFromPathKeys = context.fileGroup.getColumnNamesFromPath();
             // Assign scan range locations only for broker load.

@@ -437,7 +437,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
                     continue;
                 }
                 ((UploadTask) task).updateBrokerProperties(
-                        repo.getRemoteFileSystem().getStorageProperties().getBackendConfigProperties());
+                        repo.getFileSystemDescriptor().getBackendConfigProperties());
                 AgentTaskQueue.updateTask(beId, TTaskType.UPLOAD, signature, task);
             }
             LOG.info("finished to update upload job properties. {}", this);
@@ -821,8 +821,8 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
                 long signature = env.getNextId();
                 UploadTask task = new UploadTask(null, beId, signature, jobId, dbId, srcToDest,
                         brokers.get(0),
-                        repo.getRemoteFileSystem().getStorageProperties().getBackendConfigProperties(),
-                        repo.getRemoteFileSystem().getStorageType(), repo.getLocation());
+                        repo.getFileSystemDescriptor().getBackendConfigProperties(),
+                        repo.getFileSystemDescriptor().getThriftStorageType(), repo.getLocation());
                 batchTask.addTask(task);
                 unfinishedTaskIds.put(signature, beId);
             }

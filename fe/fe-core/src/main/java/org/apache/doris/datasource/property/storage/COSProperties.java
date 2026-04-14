@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.property.storage;
 
+import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 import org.apache.doris.foundation.property.ConnectorProperty;
 
 import com.google.common.base.Strings;
@@ -126,6 +127,14 @@ public class COSProperties extends AbstractS3CompatibleProperties {
 
     protected COSProperties(Map<String, String> origProps) {
         super(Type.COS, origProps);
+    }
+
+    public static COSProperties of(Map<String, String> properties) {
+        COSProperties propertiesObj = new COSProperties(properties);
+        ConnectorPropertiesUtils.bindConnectorProperties(propertiesObj, properties);
+        propertiesObj.initNormalizeAndCheckProps();
+        propertiesObj.initializeHadoopStorageConfig();
+        return propertiesObj;
     }
 
     protected static boolean guessIsMe(Map<String, String> origProps) {

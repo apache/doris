@@ -48,7 +48,6 @@
 
 namespace doris {
 namespace segment_v2 {
-#include "common/compile_check_begin.h"
 
 Status PageIO::compress_page_body(BlockCompressionCodec* codec, double min_space_saving,
                                   const std::vector<Slice>& body, OwnedSlice* compressed_body) {
@@ -319,6 +318,5 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
     return st;
 }
 
-#include "common/compile_check_end.h"
 } // namespace segment_v2
 } // namespace doris

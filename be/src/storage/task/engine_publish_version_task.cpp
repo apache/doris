@@ -76,7 +76,7 @@ void TabletPublishStatistics::record_in_bvar() {
 EnginePublishVersionTask::EnginePublishVersionTask(
         StorageEngine& engine, const TPublishVersionRequest& publish_version_req,
         std::set<TTabletId>* error_tablet_ids, std::map<TTabletId, TVersion>* succ_tablets,
-        std::vector<std::tuple<int64_t, int64_t, int64_t>>* discontinuous_version_tablets,
+        std::vector<DiscontinuousVersionTablet>* discontinuous_version_tablets,
         std::map<TTableId, std::map<TTabletId, int64_t>>* table_id_to_tablet_id_to_num_delta_rows)
         : _engine(engine),
           _publish_version_req(publish_version_req),
@@ -224,15 +224,15 @@ Status EnginePublishVersionTask::execute() {
                         tablet->max_continuous_version_from_beginning(&max_continuous_version);
                         if (max_version > 1 && version.first > max_version &&
                             max_continuous_version.second != max_version) {
-                            _handle_publish_version_not_continuous(partition_id, tablet_info,
-                                                                   tablet, version, max_version,
-                                                                   first_time_update, res);
+                            _handle_publish_version_not_continuous(
+                                    partition_id, tablet_info, tablet, version,
+                                    par_ver_info.commit_tso, max_version, first_time_update, res);
                             continue;
                         }
                     } else {
                         _handle_publish_version_not_continuous(partition_id, tablet_info, tablet,
-                                                               version, max_version,
-                                                               first_time_update, res);
+                                                               version, par_ver_info.commit_tso,
+                                                               max_version, first_time_update, res);
                         continue;
                     }
                 }
@@ -248,14 +248,15 @@ Status EnginePublishVersionTask::execute() {
 
             auto tablet_publish_txn_ptr = std::make_shared<TabletPublishTxnTask>(
                     _engine, this, tablet, rowset, partition_id, transaction_id, version,
-                    tablet_info);
+                    tablet_info, par_ver_info.commit_tso);
             tablet_tasks.push_back(tablet_publish_txn_ptr);
             auto submit_st = token->submit_func([=]() { tablet_publish_txn_ptr->handle(); });
 #ifndef NDEBUG
             LOG(INFO) << "transaction_id: " << transaction_id << ", partition id: " << partition_id
                       << ", version: " << version.second
                       << " start to publish version on tablet: " << tablet_info.tablet_id
-                      << ", submit status: " << submit_st.code();
+                      << ", submit status: " << submit_st.code()
+                      << ", commit_tso: " << par_ver_info.commit_tso;
 #endif
             CHECK(submit_st.ok()) << submit_st;
         }
@@ -327,14 +328,16 @@ Status EnginePublishVersionTask::execute() {
 
 void EnginePublishVersionTask::_handle_publish_version_not_continuous(
         int64_t partition_id, const TabletInfo& tablet_info, const TabletSharedPtr& tablet,
-        const Version& version, int64_t max_version, bool first_time_update, Status& res) {
+        const Version& version, const int64_t commit_tso, int64_t max_version,
+        bool first_time_update, Status& res) {
     if (config::enable_auto_clone_on_mow_publish_missing_version) {
         LOG_INFO("mow publish submit missing rowset clone task.")
                 .tag("tablet_id", tablet->tablet_id())
                 .tag("version", version.second)
                 .tag("replica_id", tablet->replica_id())
                 .tag("partition_id", tablet->partition_id())
-                .tag("table_id", tablet->table_id());
+                .tag("table_id", tablet->table_id())
+                .tag("commit_tso", commit_tso);
         Status st = _engine.submit_clone_task(tablet.get(), version.second);
         if (!st) {
             LOG_WARNING("mow publish failed to submit missing rowset clone task.")
@@ -343,7 +346,8 @@ void EnginePublishVersionTask::_handle_publish_version_not_continuous(
                     .tag("version", version.second)
                     .tag("replica_id", tablet->replica_id())
                     .tag("partition_id", tablet->partition_id())
-                    .tag("table_id", tablet->table_id());
+                    .tag("table_id", tablet->table_id())
+                    .tag("commit_tso", commit_tso);
         }
     }
     add_error_tablet_id(tablet_info.tablet_id);
@@ -351,15 +355,18 @@ void EnginePublishVersionTask::_handle_publish_version_not_continuous(
     // publish and handle it through async publish.
     if (max_version + config::mow_publish_max_discontinuous_version_num < version.first) {
         _engine.add_async_publish_task(partition_id, tablet_info.tablet_id, version.first,
-                                       _publish_version_req.transaction_id, false);
+                                       _publish_version_req.transaction_id, false, commit_tso);
     } else {
-        _discontinuous_version_tablets->emplace_back(partition_id, tablet_info.tablet_id,
-                                                     version.first);
+        _discontinuous_version_tablets->emplace_back(
+                DiscontinuousVersionTablet {.partition_id = partition_id,
+                                            .tablet_id = tablet_info.tablet_id,
+                                            .publish_version = version.first,
+                                            .commit_tso = commit_tso});
     }
     res = Status::Error<PUBLISH_VERSION_NOT_CONTINUOUS>(
             "version not continuous for mow, tablet_id={}, "
-            "tablet_max_version={}, txn_version={}",
-            tablet_info.tablet_id, max_version, version.first);
+            "tablet_max_version={}, txn_version={}, commit_tso={}",
+            tablet_info.tablet_id, max_version, version.first, commit_tso);
     int64_t missed_version = max_version + 1;
     int64_t missed_txn_id =
             _engine.txn_manager()->get_txn_by_tablet_version(tablet->tablet_id(), missed_version);
@@ -369,9 +376,9 @@ void EnginePublishVersionTask::_handle_publish_version_not_continuous(
         auto msg = fmt::format(
                 "uniq key with merge-on-write version not continuous, "
                 "missed version={}, it's transaction_id={}, current publish "
-                "version={}, tablet_id={}, transaction_id={}",
+                "version={}, tablet_id={}, transaction_id={}, commit_tso={}",
                 missed_version, missed_txn_id, version.second, tablet->tablet_id(),
-                _publish_version_req.transaction_id);
+                _publish_version_req.transaction_id, commit_tso);
         if (first_time_update) {
             LOG(INFO) << msg;
         } else {
@@ -401,7 +408,8 @@ TabletPublishTxnTask::TabletPublishTxnTask(StorageEngine& engine,
                                            EnginePublishVersionTask* engine_task,
                                            TabletSharedPtr tablet, RowsetSharedPtr rowset,
                                            int64_t partition_id, int64_t transaction_id,
-                                           Version version, const TabletInfo& tablet_info)
+                                           Version version, const TabletInfo& tablet_info,
+                                           int64_t commit_tso)
         : _engine(engine),
           _engine_publish_version_task(engine_task),
           _tablet(std::move(tablet)),
@@ -414,7 +422,8 @@ TabletPublishTxnTask::TabletPublishTxnTask(StorageEngine& engine,
                   MemTrackerLimiter::Type::OTHER,
                   fmt::format("TabletPublishTxnTask-partitionID_{}-transactionID_{}-version_{}",
                               std::to_string(partition_id), std::to_string(transaction_id),
-                              version.to_string()))) {
+                              version.to_string()))),
+          _commit_tso(commit_tso) {
     _stats.submit_time_us = MonotonicMicros();
 }
 
@@ -424,18 +433,19 @@ Status publish_version_and_add_rowset(StorageEngine& engine, int64_t partition_i
                                       const TabletSharedPtr& tablet, const RowsetSharedPtr& rowset,
                                       int64_t transaction_id, const Version& version,
                                       EnginePublishVersionTask* engine_publish_version_task,
-                                      TabletPublishStatistics& stats) {
+                                      TabletPublishStatistics& stats, int64_t commit_tso) {
     // ATTN: Here, the life cycle needs to be extended to prevent tablet_txn_info.pending_rs_guard in txn
     // from being released prematurely, causing path gc to mistakenly delete the dat file
     std::shared_ptr<TabletTxnInfo> extend_tablet_txn_info_lifetime = nullptr;
 
     // Publish the transaction
-    auto result = engine.txn_manager()->publish_txn(partition_id, tablet, transaction_id, version,
-                                                    &stats, extend_tablet_txn_info_lifetime);
+    auto result =
+            engine.txn_manager()->publish_txn(partition_id, tablet, transaction_id, version, &stats,
+                                              extend_tablet_txn_info_lifetime, commit_tso);
     if (!result.ok()) {
         LOG(WARNING) << "failed to publish version. rowset_id=" << rowset->rowset_id()
                      << ", tablet_id=" << tablet->tablet_id() << ", txn_id=" << transaction_id
-                     << ", res=" << result;
+                     << ", commit_tso=" << commit_tso << ", res=" << result;
         if (engine_publish_version_task) {
             engine_publish_version_task->add_error_tablet_id(tablet->tablet_id());
         }
@@ -480,7 +490,7 @@ void TabletPublishTxnTask::handle() {
     _stats.schedule_time_us = MonotonicMicros() - _stats.submit_time_us;
     _result = publish_version_and_add_rowset(_engine, _partition_id, _tablet, _rowset,
                                              _transaction_id, _version,
-                                             _engine_publish_version_task, _stats);
+                                             _engine_publish_version_task, _stats, _commit_tso);
 
     if (!_result.ok()) {
         return;
@@ -519,8 +529,9 @@ void AsyncTabletPublishTask::handle() {
     RowsetSharedPtr rowset = iter->second;
     Version version(_version, _version);
 
-    auto publish_status = publish_version_and_add_rowset(_engine, _partition_id, _tablet, rowset,
-                                                         _transaction_id, version, nullptr, _stats);
+    auto publish_status =
+            publish_version_and_add_rowset(_engine, _partition_id, _tablet, rowset, _transaction_id,
+                                           version, nullptr, _stats, _commit_tso);
 
     if (!publish_status.ok()) {
         return;

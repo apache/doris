@@ -40,7 +40,6 @@ class SlotDescriptor;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class PaimonPredicateConverter {
 public:
@@ -86,5 +85,4 @@ private:
     cctz::time_zone _gmt_tz;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -45,7 +45,6 @@ import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.load.routineload.RoutineLoadStatistic;
 import org.apache.doris.load.routineload.RoutineLoadTaskInfo;
 import org.apache.doris.meta.MetaContext;
-import org.apache.doris.persist.EditLog;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.task.PublishVersionTask;
 import org.apache.doris.thrift.TKafkaRLTaskProgress;
@@ -62,11 +61,9 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import mockit.Injectable;
-import mockit.Mocked;
-import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -114,6 +111,19 @@ public class GlobalTransactionMgrTest {
 
         slaveTransMgr = (GlobalTransactionMgr) slaveEnv.getGlobalTransactionMgr();
         slaveTransMgr.setEditLog(slaveEnv.getEditLog());
+    }
+
+    @After
+    public void tearDown() {
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        if (fakeTransactionIDGenerator != null) {
+            fakeTransactionIDGenerator.close();
+        }
     }
 
     @Test
@@ -291,9 +301,7 @@ public class GlobalTransactionMgrTest {
     }
 
     @Test
-    public void testCommitRoutineLoadTransaction(@Injectable TabletCommitInfo tabletCommitInfo,
-            @Mocked KafkaConsumer kafkaConsumer,
-            @Mocked EditLog editLog)
+    public void testCommitRoutineLoadTransaction()
             throws UserException {
         FakeEnv.setEnv(masterEnv);
         List<TabletCommitInfo> transTablets = generateTabletCommitInfos(CatalogTestUtil.testTabletId1, allBackends);
@@ -356,9 +364,7 @@ public class GlobalTransactionMgrTest {
     }
 
     @Test
-    public void testCommitRoutineLoadTransactionWithErrorMax(@Injectable TabletCommitInfo tabletCommitInfo,
-            @Mocked EditLog editLog,
-            @Mocked KafkaConsumer kafkaConsumer)
+    public void testCommitRoutineLoadTransactionWithErrorMax()
             throws UserException {
 
         FakeEnv.setEnv(masterEnv);

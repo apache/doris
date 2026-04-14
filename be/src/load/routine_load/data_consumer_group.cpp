@@ -31,7 +31,6 @@
 #include "util/stopwatch.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 Status KafkaDataConsumerGroup::assign_topic_partitions(std::shared_ptr<StreamLoadContext> ctx) {
     DCHECK(ctx->kafka_info);
@@ -208,6 +207,5 @@ void KafkaDataConsumerGroup::actual_consume(std::shared_ptr<DataConsumer> consum
             queue, max_running_time_ms);
     cb(st);
 }
-#include "common/compile_check_end.h"
 
 } // namespace doris

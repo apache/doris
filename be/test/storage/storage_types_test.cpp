@@ -21,7 +21,6 @@
 
 #include <memory>
 
-#include "core/arena.h"
 #include "core/decimal12.h"
 #include "core/uint24.h"
 #include "gtest/gtest_pred_impl.h"
@@ -46,12 +45,6 @@ void common_test(typename TypeTraits<field_type>::CppType src_val) {
 
     EXPECT_EQ(field_type, type->type());
     EXPECT_EQ(sizeof(src_val), type->size());
-    {
-        typename TypeTraits<field_type>::CppType dst_val;
-        Arena pool;
-        type->deep_copy((char*)&dst_val, (char*)&src_val, pool);
-        EXPECT_EQ(0, type->cmp((char*)&src_val, (char*)&dst_val));
-    }
     // test min
     {
         typename TypeTraits<field_type>::CppType dst_val;
@@ -76,13 +69,6 @@ void test_char(Slice src_val) {
 
     EXPECT_EQ(field->type(), fieldType);
     EXPECT_EQ(sizeof(src_val), type->size());
-    {
-        char buf[64];
-        Slice dst_val(buf, sizeof(buf));
-        Arena pool;
-        type->deep_copy((char*)&dst_val, (char*)&src_val, pool);
-        EXPECT_EQ(0, type->cmp((char*)&src_val, (char*)&dst_val));
-    }
     // test min
     {
         char buf[64];
@@ -112,7 +98,7 @@ void common_test<FieldType::OLAP_FIELD_TYPE_VARCHAR>(Slice src_val) {
     test_char<FieldType::OLAP_FIELD_TYPE_VARCHAR>(src_val);
 }
 
-TEST(TypesTest, copy_and_equal) {
+TEST(TypesTest, cmp_and_minmax) {
     common_test<FieldType::OLAP_FIELD_TYPE_BOOL>(true);
     common_test<FieldType::OLAP_FIELD_TYPE_TINYINT>(112);
     common_test<FieldType::OLAP_FIELD_TYPE_SMALLINT>(static_cast<short>(54321));
@@ -152,13 +138,6 @@ void common_test_array(CollectionValue src_val) {
     auto array_type = get_type_info(&list_column);
     ASSERT_EQ(item_type,
               dynamic_cast<const ArrayTypeInfo*>(array_type.get())->item_type_info()->type());
-
-    { // test deep copy
-        CollectionValue dst_val;
-        Arena pool;
-        array_type->deep_copy((char*)&dst_val, (char*)&src_val, pool);
-        EXPECT_EQ(0, array_type->cmp((char*)&src_val, (char*)&dst_val));
-    }
 }
 
 TEST(ArrayTypeTest, copy_and_equal) {
