@@ -37,7 +37,7 @@ import java.util.Map;
 public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("QueryId").add("ConnectionId").add("Catalog").add("Database").add("User")
-            .add("ExecTime").add("SqlHash").add("Statement")
+            .add("ExecTimeMs").add("SqlHash").add("Statement")
             .add("ScanRows").add("ScanBytes").add("ReturnedRows").add("CpuMs")
             .add("MaxPeakMemoryBytes").add("CurrentUsedMemoryBytes").add("WorkloadGroupId")
             .add("ShuffleSendBytes").add("ShuffleSendRows")
