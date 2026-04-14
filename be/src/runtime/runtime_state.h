@@ -558,6 +558,11 @@ public:
                _query_options.enable_streaming_agg_hash_join_force_passthrough;
     }
 
+    bool enable_local_exchange_before_agg() const {
+        return _query_options.__isset.enable_local_exchange_before_agg &&
+               _query_options.enable_local_exchange_before_agg;
+    }
+
     bool enable_distinct_streaming_agg_force_passthrough() const {
         return _query_options.__isset.enable_distinct_streaming_agg_force_passthrough &&
                _query_options.enable_distinct_streaming_agg_force_passthrough;

@@ -335,8 +335,9 @@ under the License.
         <!--Need to ensure that the version is the same as in arrow/java/pom.xml or compatible with it.-->
         <grpc.version>1.65.1</grpc.version>
         <check.freamework.version>3.53.0</check.freamework.version>
-        <cel.version>0.9.1-proto3</cel.version>
-        <protobuf.version>3.25.8</protobuf.version>
+        <cel.version>0.12.0</cel.version>
+        <!-- FE-only Arrow 19 startup POC: align protobuf runtime with Arrow Java 19's protobuf BOM. -->
+        <protobuf.version>4.33.4</protobuf.version>
         <!-- we use protoc-jar-maven-plugin to generate protobuf generated code -->
         <!-- see https://repo.maven.apache.org/maven2/com/google/protobuf/protoc/ to get correct version -->
         <protoc.artifact.version>3.24.3</protoc.artifact.version>
@@ -371,9 +372,8 @@ under the License.
         <iceberg.version>1.10.1</iceberg.version>
         <!-- 0.56.1 has bug that "SplitMode" in query response may not be set-->
         <maxcompute.version>0.53.2-public</maxcompute.version>
-        <!-- Arrow 19.0.1 will MacOS compile error and decimal type error when convert to Parquet
-         https://github.com/apache/doris/pull/51217-->
-        <arrow.version>17.0.0</arrow.version>
+        <!-- FE-only POC: validate whether Arrow Java 19.0.0 can compile before touching BE/C++ thirdparty. -->
+        <arrow.version>19.0.0</arrow.version>
         <presto.hadoop.version>2.7.4-11</presto.hadoop.version>
         <presto.hive.version>3.0.0-8</presto.hive.version>
         <!-- lakesoul -->

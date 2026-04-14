@@ -24,6 +24,8 @@
 #include "common/status.h"
 #include "exec/common/hash_table/hash.h"
 #include "exec/operator/partition_sort_source_operator.h"
+#include "exprs/vexpr.h"
+#include "exprs/vexpr_context.h"
 
 namespace doris {
 
@@ -32,7 +34,10 @@ Status PartitionSortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<PartitionSortSinkOperatorX>();
-    RETURN_IF_ERROR(p._vsort_exec_exprs.clone(state, _vsort_exec_exprs));
+    _ordering_expr_ctxs.resize(p._ordering_expr_ctxs.size());
+    for (size_t i = 0; i < p._ordering_expr_ctxs.size(); i++) {
+        RETURN_IF_ERROR(p._ordering_expr_ctxs[i]->clone(state, _ordering_expr_ctxs[i]));
+    }
     _partition_expr_ctxs.resize(p._partition_expr_ctxs.size());
     for (size_t i = 0; i < p._partition_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._partition_expr_ctxs[i]->clone(state, _partition_expr_ctxs[i]));
@@ -53,7 +58,7 @@ Status PartitionSortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     _sorted_partition_input_rows_counter =
             ADD_COUNTER(custom_profile(), "SortedPartitionInputRows", TUnit::UNIT);
     _partition_sort_info = std::make_shared<PartitionSortInfo>(
-            &_vsort_exec_exprs, p._limit, 0, p._pool, p._is_asc_order, p._nulls_first,
+            &_ordering_expr_ctxs, p._limit, 0, p._pool, p._is_asc_order, p._nulls_first,
             p._child->row_desc(), state, custom_profile(), p._has_global_limit,
             p._partition_inner_limit, p._top_n_algorithm, p._topn_phase);
     custom_profile()->add_info_string("PartitionTopNPhase", to_string(p._topn_phase));
@@ -83,7 +88,8 @@ Status PartitionSortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* st
 
     //order by key
     if (tnode.partition_sort_node.__isset.sort_info) {
-        RETURN_IF_ERROR(_vsort_exec_exprs.init(tnode.partition_sort_node.sort_info, _pool));
+        RETURN_IF_ERROR(VExpr::create_expr_trees(tnode.partition_sort_node.sort_info.ordering_exprs,
+                                                 _ordering_expr_ctxs));
         _is_asc_order = tnode.partition_sort_node.sort_info.is_asc_order;
         _nulls_first = tnode.partition_sort_node.sort_info.nulls_first;
     }
@@ -98,9 +104,9 @@ Status PartitionSortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* st
 
 Status PartitionSortSinkOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX<PartitionSortSinkLocalState>::prepare(state));
-    RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, _child->row_desc(), _row_descriptor));
+    RETURN_IF_ERROR(VExpr::prepare(_ordering_expr_ctxs, state, _row_descriptor));
     RETURN_IF_ERROR(VExpr::prepare(_partition_expr_ctxs, state, _child->row_desc()));
-    RETURN_IF_ERROR(_vsort_exec_exprs.open(state));
+    RETURN_IF_ERROR(VExpr::open(_ordering_expr_ctxs, state));
     RETURN_IF_ERROR(VExpr::open(_partition_expr_ctxs, state));
     return Status::OK();
 }
