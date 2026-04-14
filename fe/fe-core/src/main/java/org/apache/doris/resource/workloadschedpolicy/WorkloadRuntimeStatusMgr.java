@@ -62,6 +62,7 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
         BeReportInfo(long beLastReportTime) {
             this.beLastReportTime = beLastReportTime;
         }
+
         // query id --> (query last report time, query stats)
         Map<String, Pair<Long, TQueryStatisticsResult>> queryStatsMap = Maps.newConcurrentMap();
     }
@@ -112,11 +113,14 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
         // 3 clear beToQueryStatsMap when be report timeout
         clearReportTimeoutBeStatistics();
     }
-// After the query or insert finished, FE will not audit immediately, it will send an audit event to this queue. And the worker thread
-//  will handle it. If the queue is full, the event will be handled immediately and may miss some statistic info. So the statistic 
-// info of audit event may be not accurate, but it can avoid the case that FE OOM because of too many audit events in queue when QPS
-//  is high.  The event will be logged directly if the queue is full. And the worker thread will get a event from the queue and get 
-// the statistic info for this event from queryStatisticsMap.
+
+    // After the query or insert finished, FE will not audit immediately, it will send an audit
+    // event to this queue. And the worker thread will handle it. If the queue is full, the event
+    // will be handled immediately and may miss some statistic info. So the statistic info of audit
+    // event may be not accurate, but it can avoid the case that FE OOM because of too many audit
+    // events in queue when QPS is high. The event will be logged directly if the queue is full.
+    // And the worker thread will get an event from the queue and get the statistic info for this
+    // event from queryStatisticsMap.
     public void submitFinishQueryToAudit(AuditEvent event) {
         queryAuditEventLogWriteLock();
         try {
@@ -128,9 +132,9 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
                     // if queryAuditEventList is full, we don't put the event to queryAuditEventList.
                     // so that the statistic info of this audit event will be ignored,
                     // and event will be logged directly.
-                    LOG.warn("audit log event queue size {} is full, this may cause audit log missing statistics."
-                                    + "you can check whether qps is too high or "
-                                    + "set audit_event_log_queue_size to a larger value in fe.conf. query id: {}",
+                        LOG.warn("audit log event queue size {} is full, this may cause audit log missing "
+                                + "statistics. you can check whether qps is too high or set "
+                                + "audit_event_log_queue_size to a larger value in fe.conf. query id: {}",
                             queryAuditEventList.size(), event.queryId);
                 }
                 Env.getCurrentAuditEventProcessor().handleAuditEvent(event);
