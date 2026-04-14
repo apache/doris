@@ -20,14 +20,18 @@ package org.apache.doris.mtmv.ivm;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash364;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
-import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
+
+import com.google.common.collect.ImmutableList;
 
 import java.math.BigInteger;
 import java.util.List;
@@ -45,11 +49,16 @@ public class IvmUtil {
     }
 
     /**
-     * Builds a deterministic row-id expression from key expressions:
+     * Builds a null-safe deterministic row-id expression from key expressions:
      * <ul>
      *   <li>Empty list (scalar agg): returns {@code LargeIntLiteral(0)}</li>
-     *   <li>Non-empty (grouped agg): returns {@code CAST(murmur_hash3_64(keys...) AS LARGEINT)}</li>
+     *   <li>Non-empty (grouped agg): returns
+     *       {@code CAST(murmur_hash3_64(ifnull(k1,''), isnull(k1), ifnull(k2,''), isnull(k2), ...) AS LARGEINT)}</li>
      * </ul>
+     *
+     * <p>Each key produces two hash arguments: {@code ifnull(cast(key AS VARCHAR), '')} to prevent
+     * NULL propagation in the hash function, and {@code cast(isnull(key) AS VARCHAR)} to distinguish
+     * groups that differ only in which positions are NULL (e.g. (NULL,'x') vs ('x',NULL)).
      *
      * <p>Used by both normalize (IvmNormalizeMtmv) and delta rewrite (IvmAggDeltaStrategy)
      * to ensure row-id derivation is identical.
@@ -58,17 +67,18 @@ public class IvmUtil {
         if (keyExprs.isEmpty()) {
             return new LargeIntLiteral(BigInteger.ZERO);
         }
-        // murmur_hash3_64 only accepts VARCHAR/STRING arguments.  If every key is already a
-        // CharacterType (VARCHAR or STRING) the cast is unnecessary; otherwise cast to VARCHAR
-        // because this expression is constructed after type-coercion has already completed.
-        boolean allCharacter = keyExprs.stream()
-                .allMatch(e -> e.getDataType() instanceof CharacterType);
-        Expression first = allCharacter ? keyExprs.get(0)
-                : new Cast(keyExprs.get(0), VarcharType.SYSTEM_DEFAULT);
-        Expression[] rest = keyExprs.subList(1, keyExprs.size()).stream()
-                .map(e -> allCharacter ? e : (Expression) new Cast(e, VarcharType.SYSTEM_DEFAULT))
-                .toArray(Expression[]::new);
-        return new Cast(new MurmurHash364(first, rest), LargeIntType.INSTANCE);
+        // For each key, emit two hash arguments:
+        //   1. ifnull(cast(key AS VARCHAR), '') — coalesces NULL to '' so hash never receives NULL
+        //   2. cast(isnull(key) AS VARCHAR)     — encodes NULL position to distinguish
+        //      e.g. (NULL, '') from ('', NULL)
+        ImmutableList.Builder<Expression> hashArgs = ImmutableList.builderWithExpectedSize(keyExprs.size() * 2);
+        for (Expression key : keyExprs) {
+            Expression asVarchar = (key.getDataType() instanceof CharacterType)
+                    ? key : new Cast(key, VarcharType.SYSTEM_DEFAULT);
+            hashArgs.add(new Nvl(asVarchar, new VarcharLiteral("")));
+            hashArgs.add(new Cast(new IsNull(key), VarcharType.SYSTEM_DEFAULT));
+        }
+        return new Cast(new MurmurHash364(hashArgs.build()), LargeIntType.INSTANCE);
     }
 
     /**
@@ -88,18 +98,6 @@ public class IvmUtil {
         ColumnDefinition columnDefinition = new ColumnDefinition(
                 Column.IVM_ROW_ID_COL, type, false, null, isNullable, Optional.empty(),
                 "ivm row id hidden column", false);
-        columnDefinition.setEnableAddHiddenColumn(true);
-        return columnDefinition;
-    }
-
-    /**
-     * Creates a hidden ColumnDefinition for the IVM group-level count.
-     * Type is always BigInt (same as COUNT result), non-nullable.
-     */
-    public static ColumnDefinition newIvmCountColumnDefinition() {
-        ColumnDefinition columnDefinition = new ColumnDefinition(
-                Column.IVM_AGG_COUNT_COL, BigIntType.INSTANCE, false, null, false, Optional.empty(),
-                "ivm group count hidden column", false);
         columnDefinition.setEnableAddHiddenColumn(true);
         return columnDefinition;
     }

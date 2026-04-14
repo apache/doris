@@ -6,13 +6,13 @@ It is strongly recommended to run the following tests before committing IVM chan
 
 ### Regression Tests
 
-Run all IVM regression suites under `regression-test/suites/mtmv_p0/` (all suites whose name contains `ivm`):
+Run all IVM regression suites under `regression-test/suites/mtmv_p0/ivm/`:
 
 ```bash
-./run-regression-test.sh -d mtmv_p0 -s test_ivm_basic_mtmv,test_ivm_agg_mtmv,test_ivm_dup_keys_mtmv,test_ivm_complete_refresh_rowid
+./run-regression-test.sh --run -d mtmv_p0/ivm
 ```
 
-Note: both `-d` and `-s` accept comma-separated values to run multiple suites in one invocation. New IVM suites are added over time — always check `regression-test/suites/mtmv_p0/` for the current set of `test_ivm_*` files.
+This runs every suite in the `ivm` subdirectory. New IVM suites are added over time — the `-d mtmv_p0/ivm` flag automatically picks them up.
 
 ### FE Unit Tests
 
@@ -50,7 +50,7 @@ See `IvmSimpleScanDeltaStrategy.buildDmlFactorExpr()` for the implementation.
 The `__DORIS_IVM_ROW_ID_COL__` column uniquely identifies each row/group in the MV. It is used as the join key when merging deltas into the MV's current state.
 
 - **Simple (non-aggregate) MV**: row_id is injected during normalize (`IvmNormalizeMtmv`) as a hidden column. It is typically a monotonically increasing sequence or hash depending on the scan source.
-- **Aggregate MV (grouped)**: row_id is `CAST(murmur_hash3_64(group_key_1, group_key_2, ...) AS LARGEINT)`. Non-character group keys are first cast to VARCHAR before hashing.
+- **Aggregate MV (grouped)**: row_id is a **null-safe** hash: `CAST(murmur_hash3_64(ifnull(cast(k1 AS VARCHAR),''), cast(isnull(k1) AS VARCHAR), ...) AS LARGEINT)`. Each group key produces two hash arguments — the coalesced value and an isnull flag — so that NULL keys never propagate NULL into the hash and groups differing only in NULL positions (e.g. `(NULL,'x')` vs `('x',NULL)`) produce distinct row_ids. VARCHAR keys skip the inner `CAST`.
 - **Aggregate MV (scalar, no GROUP BY)**: row_id is the literal `0` (only one output row).
 
 The same `IvmUtil.buildRowIdHash()` function is used by both the normalize phase and the delta rewrite phase to ensure identical row_id derivation.
