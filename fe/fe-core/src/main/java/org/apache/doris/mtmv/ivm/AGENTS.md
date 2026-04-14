@@ -58,3 +58,57 @@ The same `IvmUtil.buildRowIdHash()` function is used by both the normalize phase
 ## Backward Compatibility
 
 IVM is not publicly available until July 2026. Before that date, there is no need to maintain backward compatibility with existing IVM materialized views. Breaking changes to IVM metadata, DDL format, or internal storage layout are acceptable without migration support.
+
+## Regression Test Guide: Mocking binlog_op for Delete Operations
+
+When writing IVM regression tests that need to simulate **delete** operations on base tables,
+the base table **must** use a MOW (Merge-on-Write unique key) table. This is because in Doris's
+binlog implementation, only MOW tables can produce `delete` operations in the binlog stream;
+duplicate/detail tables (i.e., `DUPLICATE KEY` tables) only produce `insert` operations.
+
+### How it works
+
+Add a `binlog_op TINYINT` column as the **last column** in the base table schema:
+
+```sql
+CREATE TABLE base_table (
+    k1 INT,
+    v1 INT,
+    binlog_op TINYINT
+)
+UNIQUE KEY(k1)
+DISTRIBUTED BY HASH(k1) BUCKETS 2
+PROPERTIES (
+    "replication_num" = "1",
+    "enable_unique_key_merge_on_write" = "true"    -- MOW is required
+);
+```
+
+### Insert vs Delete
+
+- **Insert a row**: set `binlog_op = 0`
+  ```sql
+  INSERT INTO base_table VALUES (1, 10, 0);
+  ```
+- **Delete a row**: set `binlog_op = 1` (re-insert same key with op=1)
+  ```sql
+  INSERT INTO base_table VALUES (1, 10, 1);
+  ```
+
+The IVM delta strategy reads `binlog_op` to derive `dml_factor`:
+`IF(binlog_op = 0, 1, -1)`, which controls whether a row contributes positively or negatively
+to aggregated state.
+
+### Important notes
+
+1. The `binlog_op` column is part of the **base table schema**, not the MV definition.
+   MV queries should reference only the business columns (exclude `binlog_op`).
+2. After a delete, a "dirty" insert into the same partition is often needed to trigger
+   the INCREMENTAL refresh (the partition must have new data for the refresh to run).
+3. When all rows of a group are deleted, the group-level count
+   (`__DORIS_IVM_AGG_COUNT_COL__`) drops to 0, causing `DELETE_SIGN=1` in the MV
+   (effectively removing the group row).
+4. The mock delta reads the **entire base table** on each INCREMENTAL refresh. To test
+   group deletion correctly, always do a COMPLETE refresh immediately before the deletion
+   scenario to reset group counts to the true physical count. Otherwise, counts may be
+   inflated by prior INCREMENTALs, preventing deletion from driving the count to zero.
