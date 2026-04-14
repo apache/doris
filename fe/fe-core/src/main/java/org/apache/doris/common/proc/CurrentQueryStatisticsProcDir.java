@@ -21,8 +21,8 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.QueryStatisticsFormatter;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryStatisticsItem;
+import org.apache.doris.thrift.TQueryStatistics;
 
-import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
@@ -31,14 +31,17 @@ import java.util.Map;
 
 /*
  * show proc "/current_queries"
- * only set variable "set is_report_success = true" to enable "ScanBytes" and "ProcessRows".
+ * the statistics is same as the data in audit log.
  */
 public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("QueryId").add("ConnectionId").add("Catalog").add("Database").add("User")
-            .add("ScanBytes").add("ProcessRows").add("ExecTime").build();
-
-    private static final int EXEC_TIME_INDEX = 7;
+        .add("ScanRows").add("ScanBytes").add("ReturnedRows").add("CpuMs")
+        .add("MaxPeakMemoryBytes").add("CurrentUsedMemoryBytes").add("WorkloadGroupId")
+        .add("ShuffleSendBytes").add("ShuffleSendRows")
+        .add("ScanBytesFromLocalStorage").add("ScanBytesFromRemoteStorage")
+        .add("SpillWriteBytesToLocalStorage").add("SpillReadBytesFromLocalStorage")
+        .add("BytesWriteIntoCache").build();
 
     @Override
     public boolean register(String name, ProcNodeInterface node) {
@@ -47,15 +50,7 @@ public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
 
     @Override
     public ProcNodeInterface lookup(String name) throws AnalysisException {
-        if (Strings.isNullOrEmpty(name)) {
-            return null;
-        }
-        final Map<String, QueryStatisticsItem> statistic = QeProcessorImpl.INSTANCE.getQueryStatistics();
-        final QueryStatisticsItem item = statistic.get(name);
-        if (item == null) {
-            throw new AnalysisException(name + " doesn't exist.");
-        }
-        return new CurrentQuerySqlProcDir(item);
+        throw new AnalysisException("operation doesn't support.");
     }
 
     @Override
@@ -64,39 +59,32 @@ public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
         final Map<String, QueryStatisticsItem> statistic =
                 QeProcessorImpl.INSTANCE.getQueryStatistics();
         result.setNames(TITLE_NAMES.asList());
-        final List<List<String>> sortedRowData = Lists.newArrayList();
-
-        final CurrentQueryInfoProvider provider = new CurrentQueryInfoProvider();
-        final Map<String, CurrentQueryInfoProvider.QueryStatistics> statisticsMap
-                = provider.getQueryStatistics(statistic.values());
+        final List<List<String>> rowData = Lists.newArrayList();
         for (QueryStatisticsItem item : statistic.values()) {
             final List<String> values = Lists.newArrayList();
+            final TQueryStatistics queryStatistics = item.getQueryStatistics();
             values.add(item.getQueryId());
             values.add(item.getConnId());
             values.add(item.getCatalog());
             values.add(item.getDb());
             values.add(item.getUser());
-            if (item.getIsReportSucc()) {
-                final CurrentQueryInfoProvider.QueryStatistics statistics
-                        = statisticsMap.get(item.getQueryId());
-                values.add(QueryStatisticsFormatter.getScanBytes(
-                        statistics.getScanBytes()));
-                values.add(QueryStatisticsFormatter.getRowsReturned(
-                        statistics.getRowsReturned()));
-            } else {
-                values.add("N/A");
-                values.add("N/A");
-            }
-            values.add(item.getQueryExecTime());
-            sortedRowData.add(values);
+            values.add(QueryStatisticsFormatter.getRowsReturned(queryStatistics.getScanRows()));
+            values.add(QueryStatisticsFormatter.getScanBytes(queryStatistics.getScanBytes()));
+            values.add(QueryStatisticsFormatter.getRowsReturned(queryStatistics.getReturnedRows()));
+            values.add(String.valueOf(queryStatistics.getCpuMs()));
+            values.add(QueryStatisticsFormatter.getScanBytes(queryStatistics.getMaxPeakMemoryBytes()));
+            values.add(QueryStatisticsFormatter.getScanBytes(queryStatistics.getCurrentUsedMemoryBytes()));
+            values.add(String.valueOf(queryStatistics.getWorkloadGroupId()));
+            values.add(QueryStatisticsFormatter.getScanBytes(queryStatistics.getShuffleSendBytes()));
+            values.add(QueryStatisticsFormatter.getRowsReturned(queryStatistics.getShuffleSendRows()));
+            values.add(QueryStatisticsFormatter.getScanBytes(queryStatistics.getScanBytesFromLocalStorage()));
+            values.add(QueryStatisticsFormatter.getScanBytes(queryStatistics.getScanBytesFromRemoteStorage()));
+            values.add(QueryStatisticsFormatter.getScanBytes(queryStatistics.getSpillWriteBytesToLocalStorage()));
+            values.add(QueryStatisticsFormatter.getScanBytes(queryStatistics.getSpillReadBytesFromLocalStorage()));
+            values.add(QueryStatisticsFormatter.getScanBytes(queryStatistics.getBytesWriteIntoCache()));
+            rowData.add(values);
         }
-        // sort according to ExecTime
-        sortedRowData.sort((l1, l2) -> {
-            final long execTime1 = Long.parseLong(l1.get(EXEC_TIME_INDEX));
-            final long execTime2 = Long.parseLong(l2.get(EXEC_TIME_INDEX));
-            return Long.compare(execTime2, execTime1);
-        });
-        result.setRows(sortedRowData);
+        result.setRows(rowData);
         return result;
     }
 }
