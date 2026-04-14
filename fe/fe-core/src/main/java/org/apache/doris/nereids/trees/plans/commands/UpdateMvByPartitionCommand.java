@@ -17,6 +17,10 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.TimestampArithmeticExpr;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.MTMV;
@@ -45,6 +49,10 @@ import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -136,9 +144,10 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
             PartitionItem partitionItem = mv.getPartitionItemOrAnalysisException(partitionName);
             items.add(partitionItem);
         }
+        Optional<Long> inverseOffsetHours = getInverseHourOffsetForBaseFilter(mv);
         ImmutableMap.Builder<TableIf, Set<Expression>> builder = new ImmutableMap.Builder<>();
         tableWithPartKey.forEach((table, colName) ->
-                builder.put(table, constructPredicates(items, colName))
+                builder.put(table, constructPredicates(items, colName, inverseOffsetHours))
         );
         return builder.build();
     }
@@ -153,23 +162,40 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
         return constructPredicates(partitions, slot);
     }
 
+    @VisibleForTesting
+    public static Set<Expression> constructPredicates(Set<PartitionItem> partitions,
+            String colName, Optional<Long> hourOffset) {
+        UnboundSlot slot = new UnboundSlot(colName);
+        return constructPredicates(partitions, slot, hourOffset);
+    }
+
     /**
      * construct predicates for partition items, the min key is the min key of range items.
      * For list partition or less than partition items, the min key is null.
      */
     @VisibleForTesting
     public static Set<Expression> constructPredicates(Set<PartitionItem> partitions, Slot colSlot) {
+        return constructPredicates(partitions, colSlot, Optional.empty());
+    }
+
+    /**
+     * Construct predicates from partition items and apply optional hour shift to date-like bounds.
+     */
+    @VisibleForTesting
+    public static Set<Expression> constructPredicates(Set<PartitionItem> partitions, Slot colSlot,
+            Optional<Long> hourOffset) {
         Set<Expression> predicates = new HashSet<>();
         if (partitions.isEmpty()) {
             return Sets.newHashSet(BooleanLiteral.TRUE);
         }
+        long shiftHours = hourOffset.orElse(0L);
         if (partitions.iterator().next() instanceof ListPartitionItem) {
             for (PartitionItem item : partitions) {
-                predicates.add(convertListPartitionToIn(item, colSlot));
+                predicates.add(convertListPartitionToIn(item, colSlot, shiftHours));
             }
         } else {
             for (PartitionItem item : partitions) {
-                predicates.add(convertRangePartitionToCompare(item, colSlot));
+                predicates.add(convertRangePartitionToCompare(item, colSlot, shiftHours));
             }
         }
         return predicates;
@@ -180,9 +206,10 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                 Type.fromPrimitiveType(key.getTypes().get(0)));
     }
 
-    private static Expression convertListPartitionToIn(PartitionItem item, Slot col) {
+    private static Expression convertListPartitionToIn(PartitionItem item, Slot col, long shiftHours) {
         List<Expression> inValues = ((ListPartitionItem) item).getItems().stream()
                 .map(UpdateMvByPartitionCommand::convertPartitionKeyToLiteral)
+                .map(literal -> shiftDateLikeLiteralByHours(literal, shiftHours))
                 .collect(ImmutableList.toImmutableList());
         List<Expression> predicates = new ArrayList<>();
         if (inValues.stream().anyMatch(NullLiteral.class::isInstance)) {
@@ -201,16 +228,18 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
         return ExpressionUtils.or(predicates);
     }
 
-    private static Expression convertRangePartitionToCompare(PartitionItem item, Slot col) {
+    private static Expression convertRangePartitionToCompare(PartitionItem item, Slot col, long shiftHours) {
         Range<PartitionKey> range = item.getItems();
         List<Expression> expressions = new ArrayList<>();
         if (range.hasLowerBound() && !range.lowerEndpoint().isMinValue()) {
             PartitionKey key = range.lowerEndpoint();
-            expressions.add(new GreaterThanEqual(col, convertPartitionKeyToLiteral(key)));
+            expressions.add(new GreaterThanEqual(col,
+                    shiftDateLikeLiteralByHours(convertPartitionKeyToLiteral(key), shiftHours)));
         }
         if (range.hasUpperBound() && !range.upperEndpoint().isMaxValue()) {
             PartitionKey key = range.upperEndpoint();
-            expressions.add(new LessThan(col, convertPartitionKeyToLiteral(key)));
+            expressions.add(new LessThan(col,
+                    shiftDateLikeLiteralByHours(convertPartitionKeyToLiteral(key), shiftHours)));
         }
         if (expressions.isEmpty()) {
             return BooleanLiteral.of(true);
@@ -222,6 +251,64 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
             predicate = ExpressionUtils.or(predicate, new IsNull(col));
         }
         return predicate;
+    }
+
+    /**
+     * For partition expression like date_trunc(date_add/sub(base_col, INTERVAL N HOUR), unit),
+     * the base-table filter should use inverse offset (target - N / + N).
+     */
+    private static Optional<Long> getInverseHourOffsetForBaseFilter(MTMV mv) {
+        Expr partitionExpr = mv.getMvPartitionInfo().getExpr();
+        if (!(partitionExpr instanceof FunctionCallExpr)) {
+            return Optional.empty();
+        }
+        FunctionCallExpr functionCallExpr = (FunctionCallExpr) partitionExpr;
+        if (!"date_trunc".equalsIgnoreCase(functionCallExpr.getFnName().getFunction())) {
+            return Optional.empty();
+        }
+        List<Expr> params = functionCallExpr.getParams().exprs();
+        if (params.size() != 2 || !(params.get(0) instanceof TimestampArithmeticExpr)) {
+            return Optional.empty();
+        }
+        TimestampArithmeticExpr timestampArithmeticExpr = (TimestampArithmeticExpr) params.get(0);
+        if (timestampArithmeticExpr.getTimeUnit() != TimestampArithmeticExpr.TimeUnit.HOUR
+                || !(timestampArithmeticExpr.getChild(1) instanceof LiteralExpr)) {
+            return Optional.empty();
+        }
+        long offsetHours;
+        try {
+            offsetHours = Long.parseLong(((LiteralExpr) timestampArithmeticExpr.getChild(1)).getStringValue());
+        } catch (NumberFormatException e) {
+            return Optional.empty();
+        }
+        String funcName = timestampArithmeticExpr.getFuncName().toLowerCase();
+        if ("date_sub".equals(funcName)) {
+            offsetHours = -offsetHours;
+        } else if (!"date_add".equals(funcName)) {
+            return Optional.empty();
+        }
+        return Optional.of(-offsetHours);
+    }
+
+    private static Expression shiftDateLikeLiteralByHours(Expression expression, long shiftHours) {
+        if (shiftHours == 0) {
+            return expression;
+        }
+        if (expression instanceof DateTimeV2Literal) {
+            return ((DateTimeV2Literal) expression).plusHours(shiftHours);
+        }
+        if (expression instanceof DateTimeLiteral) {
+            return ((DateTimeLiteral) expression).plusHours(shiftHours);
+        }
+        if (expression instanceof DateV2Literal) {
+            return ((DateV2Literal) expression).toBeginOfTheDay().plusHours(shiftHours);
+        }
+        if (expression instanceof DateLiteral) {
+            DateLiteral dateLiteral = (DateLiteral) expression;
+            return new DateTimeLiteral(dateLiteral.getYear(), dateLiteral.getMonth(), dateLiteral.getDay(),
+                    0, 0, 0).plusHours(shiftHours);
+        }
+        return expression;
     }
 
     /**
