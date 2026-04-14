@@ -28,18 +28,17 @@ namespace doris::io {
 //
 // Return 0 means treat it as non-TTL cache (NORMAL/INDEX/DISPOSABLE) and avoid
 // putting data into TTL queues / TTL-path directories.
-inline int64_t calc_file_cache_expiration_time(int64_t newest_write_timestamp,
-                                               int64_t ttl_seconds) {
-    if (ttl_seconds <= 0 || newest_write_timestamp <= 0) {
+inline int64_t calc_file_cache_expiration_time(int64_t base_timestamp, int64_t ttl_seconds) {
+    if (ttl_seconds <= 0 || base_timestamp <= 0) {
         return 0;
     }
 
     // Overflow protection.
-    if (newest_write_timestamp > std::numeric_limits<int64_t>::max() - ttl_seconds) {
+    if (base_timestamp > std::numeric_limits<int64_t>::max() - ttl_seconds) {
         return 0;
     }
 
-    const int64_t expiration_time = newest_write_timestamp + ttl_seconds;
+    const int64_t expiration_time = base_timestamp + ttl_seconds;
     // Clamp expired TTL to 0 to keep behavior consistent across read/write/warmup.
     return expiration_time > UnixSeconds() ? expiration_time : 0;
 }

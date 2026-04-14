@@ -87,6 +87,7 @@ struct RowsetReaderContext {
     // slots that cast may be eliminated in storage layer
     std::map<std::string, vectorized::DataTypePtr> target_cast_type_for_variants;
     int64_t ttl_seconds = 0;
+    int64_t file_cache_base_timestamp = 0;
 
     std::map<ColumnId, vectorized::VExprContextSPtr> virtual_column_exprs;
     std::map<ColumnId, size_t> vir_cid_to_idx_in_block;
