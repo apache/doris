@@ -28,26 +28,24 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.qe.ConnectContext;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.List;
 
 class IvmDeltaRewriterTest extends IvmDeltaTestBase {
 
-    @Test
-    void testScanOnlyProducesInsertBundle(@Mocked MTMV mtmv) {
-        new Expectations() {
-            {
-                mtmv.getQualifiedDbName();
-                result = "test_db";
-                mtmv.getName();
-                result = "test_mv";
-            }
-        };
+    private static MTMV mockMtmv() {
+        MTMV mtmv = Mockito.mock(MTMV.class);
+        Mockito.when(mtmv.getQualifiedDbName()).thenReturn("test_db");
+        Mockito.when(mtmv.getName()).thenReturn("test_mv");
+        return mtmv;
+    }
 
+    @Test
+    void testScanOnlyProducesInsertBundle() {
+        MTMV mtmv = mockMtmv();
         LogicalOlapScan scan = buildScan();
         IvmDeltaRewriteContext ctx = new IvmDeltaRewriteContext(mtmv, new ConnectContext(), null);
         List<IvmDeltaCommandBundle> bundles = new IvmDeltaRewriter().rewrite(buildScanPlan(scan), ctx);
@@ -57,16 +55,8 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
     }
 
     @Test
-    void testProjectScanProducesInsertBundle(@Mocked MTMV mtmv) {
-        new Expectations() {
-            {
-                mtmv.getQualifiedDbName();
-                result = "test_db";
-                mtmv.getName();
-                result = "test_mv";
-            }
-        };
-
+    void testProjectScanProducesInsertBundle() {
+        MTMV mtmv = mockMtmv();
         LogicalOlapScan scan = buildScan();
         IvmDeltaRewriteContext ctx = new IvmDeltaRewriteContext(mtmv, new ConnectContext(), null);
         List<IvmDeltaCommandBundle> bundles = new IvmDeltaRewriter().rewrite(buildProjectScanPlan(scan), ctx);
@@ -95,7 +85,8 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
     }
 
     @Test
-    void testContextRejectsNulls(@Mocked MTMV mtmv) {
+    void testContextRejectsNulls() {
+        MTMV mtmv = mockMtmv();
         Assertions.assertThrows(NullPointerException.class,
                 () -> new IvmDeltaRewriteContext(null, new ConnectContext(), null));
         Assertions.assertThrows(NullPointerException.class,
@@ -118,16 +109,8 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
     }
 
     @Test
-    void testRouteWithoutAggMetaUsesScanStrategy(@Mocked MTMV mtmv) {
-        new Expectations() {
-            {
-                mtmv.getQualifiedDbName();
-                result = "test_db";
-                mtmv.getName();
-                result = "test_mv";
-            }
-        };
-
+    void testRouteWithoutAggMetaUsesScanStrategy() {
+        MTMV mtmv = mockMtmv();
         LogicalOlapScan scan = buildScan();
         IvmDeltaRewriteContext ctx = new IvmDeltaRewriteContext(mtmv, new ConnectContext(), null);
         InsertIntoTableCommand command = (InsertIntoTableCommand) new IvmDeltaRewriter()
