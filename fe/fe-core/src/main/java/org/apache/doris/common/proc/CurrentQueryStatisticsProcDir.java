@@ -25,6 +25,7 @@ import org.apache.doris.thrift.TQueryStatistics;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import org.apache.commons.codec.digest.DigestUtils;
 
 import java.util.List;
 import java.util.Map;
@@ -36,12 +37,15 @@ import java.util.Map;
 public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("QueryId").add("ConnectionId").add("Catalog").add("Database").add("User")
-        .add("ScanRows").add("ScanBytes").add("ReturnedRows").add("CpuMs")
-        .add("MaxPeakMemoryBytes").add("CurrentUsedMemoryBytes").add("WorkloadGroupId")
-        .add("ShuffleSendBytes").add("ShuffleSendRows")
-        .add("ScanBytesFromLocalStorage").add("ScanBytesFromRemoteStorage")
-        .add("SpillWriteBytesToLocalStorage").add("SpillReadBytesFromLocalStorage")
-        .add("BytesWriteIntoCache").build();
+            .add("ExecTime").add("SqlHash").add("Statement")
+            .add("ScanRows").add("ScanBytes").add("ReturnedRows").add("CpuMs")
+            .add("MaxPeakMemoryBytes").add("CurrentUsedMemoryBytes").add("WorkloadGroupId")
+            .add("ShuffleSendBytes").add("ShuffleSendRows")
+            .add("ScanBytesFromLocalStorage").add("ScanBytesFromRemoteStorage")
+            .add("SpillWriteBytesToLocalStorage").add("SpillReadBytesFromLocalStorage")
+            .add("BytesWriteIntoCache").build();
+
+    private static final int EXEC_TIME_INDEX = 5;
 
     @Override
     public boolean register(String name, ProcNodeInterface node) {
@@ -59,7 +63,7 @@ public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
         final Map<String, QueryStatisticsItem> statistic =
                 QeProcessorImpl.INSTANCE.getQueryStatistics();
         result.setNames(TITLE_NAMES.asList());
-        final List<List<String>> rowData = Lists.newArrayList();
+        final List<List<String>> sortedRowData = Lists.newArrayList();
         for (QueryStatisticsItem item : statistic.values()) {
             final List<String> values = Lists.newArrayList();
             final TQueryStatistics queryStatistics = item.getQueryStatistics();
@@ -68,6 +72,9 @@ public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
             values.add(item.getCatalog());
             values.add(item.getDb());
             values.add(item.getUser());
+            values.add(item.getQueryExecTime());
+            values.add(DigestUtils.md5Hex(item.getSql()));
+            values.add(item.getSql());
             values.add(QueryStatisticsFormatter.getRowsReturned(queryStatistics.getScanRows()));
             values.add(QueryStatisticsFormatter.getScanBytes(queryStatistics.getScanBytes()));
             values.add(QueryStatisticsFormatter.getRowsReturned(queryStatistics.getReturnedRows()));
@@ -82,9 +89,15 @@ public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
             values.add(QueryStatisticsFormatter.getScanBytes(queryStatistics.getSpillWriteBytesToLocalStorage()));
             values.add(QueryStatisticsFormatter.getScanBytes(queryStatistics.getSpillReadBytesFromLocalStorage()));
             values.add(QueryStatisticsFormatter.getScanBytes(queryStatistics.getBytesWriteIntoCache()));
-            rowData.add(values);
+            sortedRowData.add(values);
         }
-        result.setRows(rowData);
+
+        sortedRowData.sort((l1, l2) -> {
+            final long execTime1 = Long.parseLong(l1.get(EXEC_TIME_INDEX));
+            final long execTime2 = Long.parseLong(l2.get(EXEC_TIME_INDEX));
+            return Long.compare(execTime2, execTime1);
+        });
+        result.setRows(sortedRowData);
         return result;
     }
 }
