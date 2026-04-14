@@ -279,11 +279,6 @@ void Scanner::_collect_profile_before_close() {
 
 void Scanner::_update_scan_cpu_timer() {
     int64_t cpu_time = _cpu_watch.elapsed_time();
-    // Reinitialize _cpu_watch after reading. _cpu_watch uses CLOCK_THREAD_CPUTIME_ID
-    // (per-thread CPU clock), so it must only be read on the thread that started it.
-    // Reinitializing here prevents stale cross-thread reads if pause() is called again
-    // from a different thread (e.g., in ScannerScheduler::submit() on the pipeline thread).
-    _cpu_watch = ThreadCpuStopWatch();
     _scan_cpu_timer += cpu_time;
     if (_state && _state->get_query_ctx()) {
         _state->get_query_ctx()->resource_ctx()->cpu_context()->update_cpu_cost_ms(cpu_time);

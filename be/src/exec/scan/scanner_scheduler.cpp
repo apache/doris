@@ -68,7 +68,7 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
     }
 
     scan_task->set_state(ScanTask::State::IN_FLIGHT);
-    scanner_delegate->_scanner->start_queue_wait();
+    scanner_delegate->_scanner->start_wait_worker_timer();
     TabletStorageType type = scanner_delegate->_scanner->get_storage_type();
     auto sumbit_task = [&]() {
         auto work_func = [scanner_ref = scan_task, ctx]() {

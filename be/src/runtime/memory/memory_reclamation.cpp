@@ -120,9 +120,10 @@ int64_t MemoryReclamation::revoke_tasks_memory(
                             resource_ctx->task_controller()->debug_string());
                     // Memory tracker consumption can be slightly negative due to
                     // concurrent batched tracking; clamp to 0 for freed memory accounting.
-                    COUNTER_UPDATE(freed_memory_counter,
-                                   std::max(int64_t(0), resource_ctx->memory_context()
-                                                                 ->current_memory_bytes()));
+                    COUNTER_UPDATE(
+                            freed_memory_counter,
+                            std::max(int64_t(0),
+                                     resource_ctx->memory_context()->current_memory_bytes()));
                 }
                 is_filtered = true;
             }
@@ -164,8 +165,8 @@ int64_t MemoryReclamation::revoke_tasks_memory(
                 // Memory tracker consumption can be slightly negative due to
                 // concurrent batched tracking; clamp to 0 for freed memory accounting.
                 COUNTER_UPDATE(freed_memory_counter,
-                               std::max(int64_t(0), resource_ctx->memory_context()
-                                                             ->current_memory_bytes()));
+                               std::max(int64_t(0),
+                                        resource_ctx->memory_context()->current_memory_bytes()));
                 COUNTER_UPDATE(this_time_revoked_tasks_counter, 1);
                 if (freed_memory_counter->value() > need_free_mem) {
                     break;
