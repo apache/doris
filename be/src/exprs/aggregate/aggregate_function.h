@@ -303,12 +303,33 @@ protected:
     int version {};
 };
 
+/// Marker base for aggregate function classes that intentionally form an inheritance
+/// hierarchy (e.g. AggregateStateUnion -> AggregateStateMerge, or
+/// AggregateFunctionForEach -> AggregateFunctionForEachV2) and therefore cannot be
+/// marked 'final'. Classes that inherit this marker are exempt from the
+/// static_assert in IAggregateFunctionHelper.
+struct AggregateFunctionNonFinalBase {};
+
 /// Implement method to obtain an address of 'add' function.
 template <typename Derived>
 class IAggregateFunctionHelper : public IAggregateFunction {
 public:
     IAggregateFunctionHelper(const DataTypes& argument_types_)
-            : IAggregateFunction(argument_types_) {}
+            : IAggregateFunction(argument_types_) {
+        // The static_assert is placed in the constructor body (not at class scope) because
+        // at class-scope instantiation time Derived is still an incomplete type, whereas
+        // the constructor body is instantiated lazily when a concrete object is constructed,
+        // at which point Derived is fully defined.
+        //
+        // Classes that form deliberate inheritance hierarchies must inherit
+        // AggregateFunctionNonFinalBase to opt out of this check.
+        static_assert(
+                std::is_final_v<Derived> ||
+                        std::is_base_of_v<AggregateFunctionNonFinalBase, Derived>,
+                "Derived must be marked 'final' to ensure correct CRTP devirtualization. "
+                "If the class intentionally has subclasses, inherit AggregateFunctionNonFinalBase "
+                "to opt out of this check.");
+    }
 
     void destroy_vec(AggregateDataPtr __restrict place,
                      const size_t num_rows) const noexcept override {

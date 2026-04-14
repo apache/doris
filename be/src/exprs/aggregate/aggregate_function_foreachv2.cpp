@@ -35,7 +35,7 @@ namespace doris {
 // because we may have already assumed that the array's elements are always nullable types, and many places have such checks.
 // V1 code is kept to ensure compatibility during upgrades and downgrades.
 // V2 code differs from V1 only in the return type and insert_into logic; all other logic is exactly the same.
-class AggregateFunctionForEachV2 : public AggregateFunctionForEach {
+class AggregateFunctionForEachV2 final : public AggregateFunctionForEach {
 public:
     constexpr static auto AGG_FOREACH_SUFFIX = "_foreachv2";
     AggregateFunctionForEachV2(AggregateFunctionPtr nested_function_, const DataTypes& arguments)

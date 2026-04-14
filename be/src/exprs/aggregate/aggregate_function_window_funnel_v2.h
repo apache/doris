@@ -616,7 +616,7 @@ private:
     }
 };
 
-class AggregateFunctionWindowFunnelV2
+class AggregateFunctionWindowFunnelV2 final
         : public IAggregateFunctionDataHelper<WindowFunnelStateV2, AggregateFunctionWindowFunnelV2>,
           MultiExpression,
           NullableAggregateFunction {

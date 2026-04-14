@@ -100,7 +100,7 @@ struct AggregateFunctionHLLUnionAggImpl : Data {
 };
 
 template <typename Data>
-class AggregateFunctionHLLUnion
+class AggregateFunctionHLLUnion final
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionHLLUnion<Data>>,
           UnaryExpression,
           NullableAggregateFunction {
