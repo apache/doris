@@ -78,13 +78,14 @@ suite("test_streaming_job_checkpoint_restart_fe", "docker") {
         """
 
         try {
-            // Wait for streaming job to process data
+            // Wait for all files to be processed. With example_[0-1].csv and
+            // s3.max_batch_files=1, processing completes in two successful tasks.
             Awaitility.await().atMost(300, SECONDS)
                     .pollInterval(1, SECONDS).until(
                     {
                         def jobSucceedCount = sql """ select SucceedTaskCount from jobs("type"="insert") where Name like '%${jobName}%' and ExecuteType='STREAMING' """
                         log.info("jobSucceedCount: " + jobSucceedCount)
-                        jobSucceedCount.size() == 1 && '1' <= jobSucceedCount.get(0).get(0)
+                        jobSucceedCount.size() == 1 && '2' <= jobSucceedCount.get(0).get(0)
                     }
             )
         } catch (Exception ex) {
@@ -127,7 +128,7 @@ suite("test_streaming_job_checkpoint_restart_fe", "docker") {
         def loadStatAfter = parseJson(jobInfoAfter.get(0).get(2))
         log.info("loadStatistic after checkpoint restart: " + jobInfoAfter.get(0).get(2))
 
-        // These assertions verify that fileNumber and fileSize survive the checkpoint.
+        // These assertions verify that all statistics fields survive the checkpoint.
         // Without @SerializedName on these fields, GsonUtils.GSON (which uses
         // HiddenAnnotationExclusionStrategy) would skip them during serialization,
         // causing them to reset to 0 after loading from the checkpoint image.
@@ -135,6 +136,7 @@ suite("test_streaming_job_checkpoint_restart_fe", "docker") {
         assert loadStatAfter.loadBytes == loadStatBefore.loadBytes
         assert loadStatAfter.fileNumber == loadStatBefore.fileNumber
         assert loadStatAfter.fileSize == loadStatBefore.fileSize
+        assert loadStatAfter.filteredRows == loadStatBefore.filteredRows
 
         sql """ DROP JOB IF EXISTS where jobname =  '${jobName}' """
         sql """drop table if exists `${tableName}` force"""
