@@ -82,6 +82,11 @@ suite("test_ivm_agg_3") {
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_multikey_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_multikey_mv")
 
+    // After INCREMENTAL insert: new group (2,'b') appears; (1,'a') inflated due to mock delta.
+    order_qt_multikey_after_insert_incremental """
+        SELECT k1, k2, cnt, sum_v1 FROM test_ivm_agg_mtmv_multikey_mv ORDER BY k1, k2
+    """
+
     // COMPLETE to verify
     // (1,'a'): id=1(10),2(20),5(50) → cnt=3, sum=80
     // (1,'b'): id=3(30) → cnt=1, sum=30
@@ -179,6 +184,12 @@ suite("test_ivm_agg_3") {
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_multiagg_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_multiagg_mv")
 
+    // After INCREMENTAL insert: mock delta inflates counts; output still queryable.
+    order_qt_multiagg_after_insert_incremental """
+        SELECT grp, sum_v1, sum_v2, min_v1, max_v2, cnt
+        FROM test_ivm_agg_mtmv_multiagg_mv ORDER BY grp
+    """
+
     // COMPLETE: grp=1: sum_v1=45, sum_v2=450, min_v1=10, max_v2=200, cnt=3
     //           grp=2: sum_v1=65, sum_v2=550, min_v1=30, max_v2=300, cnt=2
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_multiagg_mv COMPLETE"""
@@ -243,6 +254,11 @@ suite("test_ivm_agg_3") {
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_negval_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_negval_mv")
 
+    // After INCREMENTAL: mock delta reads all 3 rows; SUM inflated but queryable.
+    order_qt_negval_after_first_incremental """
+        SELECT cnt, sum_v1 FROM test_ivm_agg_mtmv_negval_mv
+    """
+
     // COMPLETE: cnt=3, sum=-30
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_negval_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_negval_mv")
@@ -256,6 +272,11 @@ suite("test_ivm_agg_3") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_negval_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_negval_mv")
+
+    // After second INCREMENTAL: 4 rows in delta; output queryable.
+    order_qt_negval_after_second_incremental """
+        SELECT cnt, sum_v1 FROM test_ivm_agg_mtmv_negval_mv
+    """
 
     // COMPLETE: cnt=4, sum=0
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_negval_mv COMPLETE"""
@@ -370,6 +391,12 @@ suite("test_ivm_agg_3") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_types_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_types_mv")
+
+    // After INCREMENTAL: row k1=4 added; all typed aggregates queryable.
+    order_qt_types_after_insert_incremental """
+        SELECT sum_tiny, avg_tiny, sum_dec, avg_dec, sum_dbl, avg_dbl, min_tiny, max_dec, cnt
+        FROM test_ivm_agg_mtmv_types_mv
+    """
 
     // COMPLETE: sum_tiny=25, avg_tiny≈6.25, sum_dec=325.50, avg_dec≈81.375,
     //           sum_dbl=11.5, avg_dbl=2.875, min_tiny=-5, max_dec=100.75, cnt=4

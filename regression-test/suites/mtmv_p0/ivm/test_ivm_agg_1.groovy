@@ -82,12 +82,16 @@ suite("test_ivm_agg_1") {
             (1, 15);
     """
 
-    // 8. INCREMENTAL refresh — verify it completes without a type-mismatch error.
+    // 8. INCREMENTAL refresh — verify it completes and produces queryable data.
     //    NOTE: The current IVM mock reads the full base table as delta, so aggregate values
-    //    after an INCREMENTAL refresh are not semantically correct (group counts may be inflated).
-    //    We only assert that the task finishes in SUCCESS state (no BE crash / type error).
+    //    may be inflated (mock delta counts every row as a new insert).
+    //    We assert that the task finishes in SUCCESS state and output rows are queryable.
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_mv")
+
+    // After first INCREMENTAL: mock delta includes all 4 rows (k1=1,2,3,4), each counted once.
+    // Due to mock full-table delta, counts are inflated — output is queryable but not yet correct.
+    order_qt_agg_after_first_incremental """SELECT k1, cnt, sum_v1 FROM test_ivm_agg_mtmv_mv"""
 
     // 9. Update another row: k1=2 gets new value
     sql """
@@ -95,9 +99,11 @@ suite("test_ivm_agg_1") {
             (2, 25);
     """
 
-    // 10. Second INCREMENTAL refresh — also assert no error
+    // 10. Second INCREMENTAL refresh — also assert no error and check output
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_mv")
+
+    order_qt_agg_after_second_incremental """SELECT k1, cnt, sum_v1 FROM test_ivm_agg_mtmv_mv"""
 
     // 11. COMPLETE refresh — produces correct results (full recomputation)
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_mv COMPLETE"""
@@ -166,12 +172,21 @@ suite("test_ivm_agg_1") {
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_scalar_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_scalar_mv")
 
+    // Output after first INCREMENTAL: mock delta inflates counts, values not semantically correct.
+    order_qt_scalar_after_first_incremental """
+        SELECT total_cnt, total_sum, avg_v1, cnt_v1 FROM test_ivm_agg_mtmv_scalar_mv
+    """
+
     // Insert new row k1=4
     sql """INSERT INTO test_ivm_agg_mtmv_scalar_base VALUES (4, 40);"""
 
     // Second INCREMENTAL refresh — also assert no error
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_scalar_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_scalar_mv")
+
+    order_qt_scalar_after_second_incremental """
+        SELECT total_cnt, total_sum, avg_v1, cnt_v1 FROM test_ivm_agg_mtmv_scalar_mv
+    """
 
     // Final COMPLETE refresh: k1=1(15),2(20),3(30),4(40)
     // total_cnt=4, total_sum=105, avg=26.25, cnt_v1=4
@@ -382,6 +397,11 @@ suite("test_ivm_agg_1") {
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_minmax_op_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_minmax_op_mv")
 
+    // After safe INCREMENTAL: mock delta sees all physical rows; output queryable.
+    order_qt_minmax_op_after_safe_incremental """
+        SELECT min_v1, max_v1, cnt FROM test_ivm_agg_mtmv_minmax_op_mv
+    """
+
     // =========================================================
     // Part 5: Grouped agg MV with NULL values + binlog_op
     //         Tests that SUM/AVG/COUNT(expr)/MIN/MAX handle NULLs correctly
@@ -456,6 +476,12 @@ suite("test_ivm_agg_1") {
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_null_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_null_mv")
 
+    // After INCREMENTAL: mock delta reads all rows; output may be inflated but queryable.
+    order_qt_null_after_incremental """
+        SELECT grp, sum_v1, avg_v1, cnt_v1, min_v1, max_v1, cnt_all
+        FROM test_ivm_agg_mtmv_null_mv ORDER BY grp
+    """
+
     // Step 3: COMPLETE to verify correct final state after NULL-aware incremental
     // grp=1: k1=1(10),2(20),6(NULL) → sum=30, avg=15, cnt_v1=2, min=10, max=20, cnt_all=3
     // grp=2: k1=3(NULL),4(30) → sum=30, avg=30, cnt_v1=1, min=30, max=30, cnt_all=2
@@ -476,6 +502,13 @@ suite("test_ivm_agg_1") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_null_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_null_mv")
+
+    // After INCREMENTAL with NULL-row deletion: mock delta sees k1=6(grp=1,NULL,op=1)
+    // as dml_factor=-1, and k1=8(grp=2,40,op=0) as dml_factor=+1.
+    order_qt_null_after_delete_incremental """
+        SELECT grp, sum_v1, avg_v1, cnt_v1, min_v1, max_v1, cnt_all
+        FROM test_ivm_agg_mtmv_null_mv ORDER BY grp
+    """
 
     // Step 5: COMPLETE to get ground truth after NULL-row deletion
     // grp=1: k1=1(10),2(20),6(NULL,deleted) → effectively k1=1(10),2(20) → sum=30, avg=15, cnt_v1=2, min=10, max=20, cnt_all=2
