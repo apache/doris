@@ -48,8 +48,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
-
 namespace {
 
 int32_t get_segments_key_bounds_truncation_threshold() {
@@ -456,7 +454,5 @@ bool operator==(const RowsetMeta& a, const RowsetMeta& b) {
         return false;
     return true;
 }
-
-#include "common/compile_check_end.h"
 
 } // namespace doris
