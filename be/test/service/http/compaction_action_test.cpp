@@ -165,6 +165,59 @@ TEST_F(CompactionActionTest, RunCumulativeCompactionTabletNotFound) {
     EXPECT_TRUE(st.is<ErrorCode::NOT_FOUND>());
 }
 
+// ==================== force parameter tests ====================
+
+TEST_F(CompactionActionTest, RunCompactionInvalidForceParam) {
+    auto action = _make_run_action();
+    HttpRequest req(_evhttp_req);
+    req._params[TABLET_ID_KEY] = "12345";
+    req._params[PARAM_COMPACTION_TYPE] = PARAM_COMPACTION_FULL;
+    req._params[PARAM_COMPACTION_FORCE] = "invalid_value";
+
+    std::string json_result;
+    Status st = action._handle_run_compaction(&req, &json_result);
+    EXPECT_FALSE(st.ok());
+    EXPECT_TRUE(st.to_string().find("not supported") != std::string::npos);
+}
+
+TEST_F(CompactionActionTest, RunFullCompactionForceTrue) {
+    auto action = _make_run_action();
+    HttpRequest req(_evhttp_req);
+    req._params[TABLET_ID_KEY] = "99999";
+    req._params[PARAM_COMPACTION_TYPE] = PARAM_COMPACTION_FULL;
+    req._params[PARAM_COMPACTION_FORCE] = "true";
+
+    std::string json_result;
+    Status st = action._handle_run_compaction(&req, &json_result);
+    // tablet not found, but force param was parsed successfully
+    EXPECT_TRUE(st.is<ErrorCode::NOT_FOUND>());
+}
+
+TEST_F(CompactionActionTest, RunFullCompactionForceFalse) {
+    auto action = _make_run_action();
+    HttpRequest req(_evhttp_req);
+    req._params[TABLET_ID_KEY] = "99999";
+    req._params[PARAM_COMPACTION_TYPE] = PARAM_COMPACTION_FULL;
+    req._params[PARAM_COMPACTION_FORCE] = "false";
+
+    std::string json_result;
+    Status st = action._handle_run_compaction(&req, &json_result);
+    EXPECT_TRUE(st.is<ErrorCode::NOT_FOUND>());
+}
+
+TEST_F(CompactionActionTest, RunCompactionForceWithTableId) {
+    auto action = _make_run_action();
+    HttpRequest req(_evhttp_req);
+    req._params[TABLE_ID_KEY] = "99999";
+    req._params[PARAM_COMPACTION_TYPE] = PARAM_COMPACTION_FULL;
+    req._params[PARAM_COMPACTION_FORCE] = "true";
+
+    std::string json_result;
+    // table_id path with no matching tablets returns success (empty loop)
+    Status st = action._handle_run_compaction(&req, &json_result);
+    EXPECT_TRUE(st.ok());
+}
+
 // ==================== _handle_show_compaction tests ====================
 
 TEST_F(CompactionActionTest, ShowCompactionMissingTabletId) {
