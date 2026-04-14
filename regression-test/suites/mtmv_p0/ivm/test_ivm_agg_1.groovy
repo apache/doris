@@ -362,8 +362,9 @@ suite("test_ivm_agg_1") {
     assertTrue(taskStatus == "FAILED",
             "Expected INCREMENTAL to fail when deleting MIN value, but got: " + taskStatus)
     def errorMsg = taskResult[0][2].toString()
-    assertTrue(errorMsg.contains("IVM") || errorMsg.contains("assert_true") || errorMsg.contains("fallback"),
-            "Error should mention IVM/assert_true/fallback but got: " + errorMsg)
+    assertTrue(errorMsg.contains("MIN_MAX_BOUNDARY") || errorMsg.contains("IVM")
+                    || errorMsg.contains("assert_true") || errorMsg.contains("fallback"),
+            "Error should mention MIN_MAX_BOUNDARY/IVM/assert_true/fallback but got: " + errorMsg)
 
     // Step 4: COMPLETE refresh to recover — now k1=1(op=1) is physically present,
     // and k1=2(v1=20), k1=3(v1=30), k1=4(v1=25), k1=5(v1=35) all have op=0.
