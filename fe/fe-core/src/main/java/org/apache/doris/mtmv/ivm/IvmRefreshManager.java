@@ -146,6 +146,13 @@ public class IvmRefreshManager {
         } catch (Exception e) {
             String detail = e.getMessage() != null ? e.getMessage()
                     : e.getClass().getName() + " (no message)";
+            if (detail.contains("IVM: deleted row may be current")) {
+                IvmRefreshResult result = IvmRefreshResult.fallback(
+                        IvmFallbackReason.MIN_MAX_BOUNDARY_HIT, detail);
+                LOG.info("IVM MIN/MAX boundary hit for mv={}, falling back to COMPLETE refresh, result={}",
+                        context.getMtmv().getName(), result);
+                return result;
+            }
             IvmRefreshResult result = IvmRefreshResult.fallback(
                     IvmFallbackReason.INCREMENTAL_EXECUTION_FAILED, detail);
             LOG.warn("IVM execution failed for mv={}, result={}", context.getMtmv().getName(), result, e);
