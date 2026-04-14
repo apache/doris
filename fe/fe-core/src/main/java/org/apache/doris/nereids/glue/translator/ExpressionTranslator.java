@@ -767,7 +767,9 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     @Override
     public Expr visitConcatSpark(ConcatSpark concatSpark, PlanTranslatorContext context) {
-        String beName = concatSpark.child(0).getDataType() instanceof org.apache.doris.nereids.types.ArrayType
+        String beName = concatSpark.getArguments().stream()
+                .map(Expression::getDataType)
+                .anyMatch(org.apache.doris.nereids.types.ArrayType.class::isInstance)
                 ? "array_concat" : "concat";
         List<Expr> arguments = concatSpark.getArguments().stream()
                 .map(arg -> arg.accept(this, context))

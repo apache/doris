@@ -50,6 +50,8 @@ import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ConcatSpark;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
@@ -730,6 +732,11 @@ public class TypeCoercionUtils {
         boundFunction.checkLegalityBeforeTypeCoercion();
         if (boundFunction instanceof CreateMap && boundFunction.arity() == 0) {
             return new MapLiteral();
+        }
+        if (boundFunction instanceof ConcatSpark & boundFunction.containsType(Array.class)) {
+            // Keep original argument types for concat_spark. Mixed array/non-array should
+            // reach backend array_concat compatibility check directly.
+            return boundFunction;
         }
 
         // type coercion
