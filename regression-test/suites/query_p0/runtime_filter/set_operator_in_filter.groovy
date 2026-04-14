@@ -21,10 +21,9 @@
 // Before the fix, when runtime_filter_type=1 (IN) and runtime_filter_max_in_num
 // was small, a race between the build sink's close() and the probe's hash table
 // refresh could cause RuntimeFilterWrapper::insert() to fail with InternalError.
-// The fix moves RF processing to sink(eos) before set_ready(), ensuring the hash
-// table size is read before the probe side can modify it. This is safe because
-// Set operators use GATHER distribution (equivalent to broadcast — single instance
-// already has global cardinality), so sync_filter_size is not required.
+// The fix snapshots hash_table_size in sink(eos) before set_ready() and uses the
+// saved value in close() for RF processing. Also overrides finishdependency() so
+// the pipeline task properly waits for sync_filter_size completion.
 
 suite("set_operator_in_filter") {
     sql "DROP TABLE IF EXISTS set_rf_t1"
@@ -136,9 +135,4 @@ suite("set_operator_in_filter") {
             SELECT k1 FROM set_rf_t2
         ) T JOIN set_rf_t3 ON T.k1 = set_rf_t3.k1;
     """
-
-    // Restore session variables to defaults
-    sql "set runtime_filter_type = 12"
-    sql "set runtime_filter_max_in_num = 40960"
-    sql "set disable_join_reorder = false"
 }
