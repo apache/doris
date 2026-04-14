@@ -56,7 +56,8 @@ public class DataSourceConfigValidator {
 
     private static final String TABLE_LEVEL_PREFIX = DataSourceConfigKeys.TABLE + ".";
 
-    public static void validateSource(Map<String, String> input, String dataSourceType) throws IllegalArgumentException {
+    public static void validateSource(Map<String, String> input,
+            String dataSourceType) throws IllegalArgumentException {
         for (Map.Entry<String, String> entry : input.entrySet()) {
             String key = entry.getKey();
             String value = entry.getValue();
