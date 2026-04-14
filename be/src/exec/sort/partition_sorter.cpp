@@ -32,18 +32,13 @@ class RowDescriptor;
 class RuntimeProfile;
 class RuntimeState;
 
-class VSortExecExprs;
-} // namespace doris
-
-namespace doris {
-
-PartitionSorter::PartitionSorter(VSortExecExprs& vsort_exec_exprs, int64_t limit, int64_t offset,
-                                 ObjectPool* pool, std::vector<bool>& is_asc_order,
+PartitionSorter::PartitionSorter(const VExprContextSPtrs& ordering_expr_ctxs, int64_t limit,
+                                 int64_t offset, ObjectPool* pool, std::vector<bool>& is_asc_order,
                                  std::vector<bool>& nulls_first, const RowDescriptor& row_desc,
                                  RuntimeState* state, RuntimeProfile* profile,
                                  bool has_global_limit, int64_t partition_inner_limit,
                                  TopNAlgorithm::type top_n_algorithm, SortCursorCmp* previous_row)
-        : Sorter(vsort_exec_exprs, state, limit, offset, pool, is_asc_order, nulls_first),
+        : Sorter(ordering_expr_ctxs, state, limit, offset, pool, is_asc_order, nulls_first),
           _state(MergeSorterState::create_unique(row_desc, offset)),
           _row_desc(row_desc),
           _partition_inner_limit(partition_inner_limit),

@@ -52,7 +52,7 @@ struct SpillSortSourceTestContext {
 void init_spill_sort_description(SpillSortSharedState* shared_state) {
     auto* sorter = shared_state->in_mem_shared_state->sorter.get();
     auto& sort_desc = sorter->get_mutable_sort_description();
-    sort_desc.resize(sorter->get_vsort_exec_exprs().ordering_expr_ctxs().size());
+    sort_desc.resize(sorter->get_ordering_expr_ctxs().size());
     for (int i = 0; i < static_cast<int>(sort_desc.size()); ++i) {
         sort_desc[i].column_number = i;
         sort_desc[i].direction = 1;
@@ -352,7 +352,7 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpill) {
     auto* sorter = shared_state->in_mem_shared_state->sorter.get();
 
     auto& sort_desc = sorter->get_mutable_sort_description();
-    sort_desc.resize(sorter->get_vsort_exec_exprs().ordering_expr_ctxs().size());
+    sort_desc.resize(sorter->get_ordering_expr_ctxs().size());
     for (int i = 0; i < (int)sort_desc.size(); i++) {
         sort_desc[i].column_number = i;
         sort_desc[i].direction = 1;
@@ -543,7 +543,7 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpill2) {
     auto* sorter = shared_state->in_mem_shared_state->sorter.get();
 
     auto& sort_desc = sorter->get_mutable_sort_description();
-    sort_desc.resize(sorter->get_vsort_exec_exprs().ordering_expr_ctxs().size());
+    sort_desc.resize(sorter->get_ordering_expr_ctxs().size());
     for (int i = 0; i < (int)sort_desc.size(); i++) {
         sort_desc[i].column_number = i;
         sort_desc[i].direction = 1;
@@ -888,7 +888,7 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpillError) {
     auto* sorter = shared_state->in_mem_shared_state->sorter.get();
 
     auto& sort_desc = sorter->get_mutable_sort_description();
-    sort_desc.resize(sorter->get_vsort_exec_exprs().ordering_expr_ctxs().size());
+    sort_desc.resize(sorter->get_ordering_expr_ctxs().size());
     for (int i = 0; i < (int)sort_desc.size(); i++) {
         sort_desc[i].column_number = i;
         sort_desc[i].direction = 1;
@@ -1009,7 +1009,7 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSingleSpillFile) {
 
     auto* sorter = shared_state->in_mem_shared_state->sorter.get();
     auto& sort_desc = sorter->get_mutable_sort_description();
-    sort_desc.resize(sorter->get_vsort_exec_exprs().ordering_expr_ctxs().size());
+    sort_desc.resize(sorter->get_ordering_expr_ctxs().size());
     for (int i = 0; i < (int)sort_desc.size(); i++) {
         sort_desc[i].column_number = i;
         sort_desc[i].direction = 1;
@@ -1153,7 +1153,7 @@ TEST_F(SpillSortSourceOperatorTest, EndToEndSinkAndSource) {
     // Read back from source
     auto* sorter = shared_state->in_mem_shared_state->sorter.get();
     auto& sort_desc = sorter->get_mutable_sort_description();
-    sort_desc.resize(sorter->get_vsort_exec_exprs().ordering_expr_ctxs().size());
+    sort_desc.resize(sorter->get_ordering_expr_ctxs().size());
     for (int i = 0; i < (int)sort_desc.size(); i++) {
         sort_desc[i].column_number = i;
         sort_desc[i].direction = 1;
