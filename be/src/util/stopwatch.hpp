@@ -22,6 +22,8 @@
 
 #include <time.h>
 
+#include "util/time.h"
+
 namespace doris {
 
 // Stop watch for reporting elapsed time in nanosec based on CLOCK_MONOTONIC.
@@ -69,7 +71,7 @@ public:
     }
 
     // Returns time in nanosecond.
-    // Sometimes the time will rollback, so that the value will be negative.
+    // Clamped to 0 to guard against rare CLOCK_MONOTONIC rollbacks.
     int64_t elapsed_time() const {
         if (!_running) {
             return _total_time;
@@ -77,8 +79,13 @@ public:
 
         timespec end;
         clock_gettime(Clock, &end);
-        return (end.tv_sec - _start.tv_sec) * 1000L * 1000L * 1000L +
-               (end.tv_nsec - _start.tv_nsec);
+        auto start_nanos = _start.tv_sec * NANOS_PER_SEC + _start.tv_nsec;
+        auto end_nanos = end.tv_sec * NANOS_PER_SEC + end.tv_nsec;
+        if (end_nanos < start_nanos) {
+            LOG(INFO) << "WARNING: time went backwards from " << start_nanos << " to " << end_nanos;
+            return 0;
+        }
+        return end_nanos - start_nanos;
     }
 
     // Return time in microseconds
@@ -87,10 +94,17 @@ public:
     // Return time in milliseconds
     int64_t elapsed_time_milliseconds() const { return elapsed_time() / 1000 / 1000; }
 
-    // Returns time in nanosecond.
+    // Returns time in seconds.
+    // Clamped to 0 to guard against rare CLOCK_MONOTONIC rollbacks.
     int64_t elapsed_time_seconds(timespec end) const {
         if (!_running) {
             return _total_time / 1000L / 1000L / 1000L;
+        }
+        if (end.tv_sec < _start.tv_sec) {
+            auto start_nanos = _start.tv_sec * NANOS_PER_SEC + _start.tv_nsec;
+            auto end_nanos = end.tv_sec * NANOS_PER_SEC + end.tv_nsec;
+            LOG(INFO) << "WARNING: time went backwards from " << start_nanos << " to " << end_nanos;
+            return 0;
         }
         return end.tv_sec - _start.tv_sec;
     }
