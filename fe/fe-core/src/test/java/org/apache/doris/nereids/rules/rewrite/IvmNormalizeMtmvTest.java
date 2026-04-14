@@ -559,6 +559,71 @@ class IvmNormalizeMtmvTest {
                 () -> new IvmNormalizeMtmv().rewriteRoot(agg, newJobContextForRoot(agg, true)));
     }
 
+    @Test
+    void testExpressionAggArgumentAccepted() {
+        // SUM(id + name) should be accepted — expression args are no longer rejected
+        Slot idSlot = scan.getOutput().get(0);
+        Slot nameSlot = scan.getOutput().get(1);
+        Expression addExpr = new org.apache.doris.nereids.trees.expressions.Add(idSlot, nameSlot);
+        Alias sumAlias = new Alias(new Sum(addExpr), "sum_expr");
+
+        List<Expression> groupBy = ImmutableList.of(idSlot);
+        List<NamedExpression> outputs = ImmutableList.of(idSlot, sumAlias);
+        LogicalAggregate<Plan> agg = new LogicalAggregate<>(
+                groupBy, outputs, true, java.util.Optional.empty(), scan);
+
+        JobContext jobContext = newJobContextForRoot(agg, true);
+        Plan result = new IvmNormalizeMtmv().rewriteRoot(agg, jobContext);
+
+        // Normalization should succeed
+        Assertions.assertInstanceOf(LogicalProject.class, result);
+        IvmAggMeta aggMeta = jobContext.getCascadesContext().getIvmNormalizeResult().get().getAggMeta();
+        Assertions.assertNotNull(aggMeta);
+        Assertions.assertEquals(1, aggMeta.getAggTargets().size());
+
+        AggTarget target = aggMeta.getAggTargets().get(0);
+        Assertions.assertEquals(AggType.SUM, target.getAggType());
+        // exprArgs should contain the Add expression, not a Slot
+        Assertions.assertEquals(1, target.getExprArgs().size());
+        Assertions.assertInstanceOf(org.apache.doris.nereids.trees.expressions.Add.class,
+                target.getExprArgs().get(0));
+    }
+
+    @Test
+    void testExpressionAggArgumentForMinMaxAccepted() {
+        // MIN(id + name) and MAX(id + name) should be accepted
+        Slot idSlot = scan.getOutput().get(0);
+        Slot nameSlot = scan.getOutput().get(1);
+        Expression mulExpr = new org.apache.doris.nereids.trees.expressions.Multiply(idSlot, nameSlot);
+        Alias minAlias = new Alias(new Min(mulExpr), "min_expr");
+        Alias maxAlias = new Alias(new Max(mulExpr), "max_expr");
+
+        List<Expression> groupBy = ImmutableList.of(idSlot);
+        List<NamedExpression> outputs = ImmutableList.of(idSlot, minAlias, maxAlias);
+        LogicalAggregate<Plan> agg = new LogicalAggregate<>(
+                groupBy, outputs, true, java.util.Optional.empty(), scan);
+
+        JobContext jobContext = newJobContextForRoot(agg, true);
+        Plan result = new IvmNormalizeMtmv().rewriteRoot(agg, jobContext);
+
+        Assertions.assertInstanceOf(LogicalProject.class, result);
+        IvmAggMeta aggMeta = jobContext.getCascadesContext().getIvmNormalizeResult().get().getAggMeta();
+        Assertions.assertNotNull(aggMeta);
+        Assertions.assertEquals(2, aggMeta.getAggTargets().size());
+
+        AggTarget minTarget = aggMeta.getAggTargets().get(0);
+        Assertions.assertEquals(AggType.MIN, minTarget.getAggType());
+        Assertions.assertEquals(1, minTarget.getExprArgs().size());
+        Assertions.assertInstanceOf(org.apache.doris.nereids.trees.expressions.Multiply.class,
+                minTarget.getExprArgs().get(0));
+
+        AggTarget maxTarget = aggMeta.getAggTargets().get(1);
+        Assertions.assertEquals(AggType.MAX, maxTarget.getAggType());
+        Assertions.assertEquals(1, maxTarget.getExprArgs().size());
+        Assertions.assertInstanceOf(org.apache.doris.nereids.trees.expressions.Multiply.class,
+                maxTarget.getExprArgs().get(0));
+    }
+
     private JobContext newJobContext(boolean enableIvmNormalRewrite) {
         return newJobContextForScan(scan, enableIvmNormalRewrite);
     }

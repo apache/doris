@@ -235,16 +235,16 @@ public class IvmAggDeltaStrategy extends IvmSimpleScanDeltaStrategy {
                     break;
                 case COUNT_EXPR:
                     deltaAggOutputs.add(new Alias(
-                            new Sum(caseWhenExprNotNull(target.getExprSlots().get(0), dmlFactorSlot)),
+                            new Sum(caseWhenExprNotNull(target.getExprArgs().get(0), dmlFactorSlot)),
                             target.getHiddenStateSlot("COUNT").getName()));
                     break;
                 case SUM:
                 case AVG:
                     deltaAggOutputs.add(new Alias(
-                            new Sum(signedExpr(target.getExprSlots().get(0), dmlFactorSlot)),
+                            new Sum(signedExpr(target.getExprArgs().get(0), dmlFactorSlot)),
                             target.getHiddenStateSlot("SUM").getName()));
                     deltaAggOutputs.add(new Alias(
-                            new Sum(caseWhenExprNotNull(target.getExprSlots().get(0), dmlFactorSlot)),
+                            new Sum(caseWhenExprNotNull(target.getExprArgs().get(0), dmlFactorSlot)),
                             target.getHiddenStateSlot("COUNT").getName()));
                     break;
                 case MIN:
@@ -479,9 +479,9 @@ public class IvmAggDeltaStrategy extends IvmSimpleScanDeltaStrategy {
      * Signs an expression by dml_factor: positive factor → expr, negative → -expr.
      * Uses conditional branch (not multiplication) to avoid TinyInt × Decimal precision loss.
      */
-    private Expression signedExpr(Slot exprSlot, Slot dmlFactorSlot) {
+    private Expression signedExpr(Expression expr, Slot dmlFactorSlot) {
         return new If(new GreaterThan(dmlFactorSlot, new TinyIntLiteral((byte) 0)),
-                exprSlot, new Subtract(zeroOf(exprSlot.getDataType()), exprSlot));
+                expr, new Subtract(zeroOf(expr.getDataType()), expr));
     }
 
     /**
@@ -489,8 +489,8 @@ public class IvmAggDeltaStrategy extends IvmSimpleScanDeltaStrategy {
      * IF(expr IS NULL, 0, dml_factor).
      * Used for COUNT(expr) and hidden count of SUM/AVG targets.
      */
-    private Expression caseWhenExprNotNull(Slot exprSlot, Slot dmlFactorSlot) {
-        return new If(new IsNull(exprSlot), new TinyIntLiteral((byte) 0), dmlFactorSlot);
+    private Expression caseWhenExprNotNull(Expression expr, Slot dmlFactorSlot) {
+        return new If(new IsNull(expr), new TinyIntLiteral((byte) 0), dmlFactorSlot);
     }
 
     /**
@@ -602,18 +602,18 @@ public class IvmAggDeltaStrategy extends IvmSimpleScanDeltaStrategy {
      * Expression for the insert-only stream: IF(dml_factor > 0, expr, NULL).
      * Used for MIN/MAX delta aggregates — only insert rows contribute to the new extreme.
      */
-    private Expression insertOnlyExpr(Slot exprSlot, Slot dmlFactorSlot) {
+    private Expression insertOnlyExpr(Expression expr, Slot dmlFactorSlot) {
         return new If(new GreaterThan(dmlFactorSlot, new TinyIntLiteral((byte) 0)),
-                exprSlot, new NullLiteral(exprSlot.getDataType()));
+                expr, new NullLiteral(expr.getDataType()));
     }
 
     /**
      * Expression for the delete-only stream: IF(dml_factor < 0, expr, NULL).
      * Used as input to MIN/MAX over deleted values, to detect boundary violations.
      */
-    private Expression deleteOnlyExpr(Slot exprSlot, Slot dmlFactorSlot) {
+    private Expression deleteOnlyExpr(Expression expr, Slot dmlFactorSlot) {
         return new If(new LessThan(dmlFactorSlot, new TinyIntLiteral((byte) 0)),
-                exprSlot, new NullLiteral(exprSlot.getDataType()));
+                expr, new NullLiteral(expr.getDataType()));
     }
 
     /**
@@ -639,19 +639,19 @@ public class IvmAggDeltaStrategy extends IvmSimpleScanDeltaStrategy {
         boolean isMin = target.getAggType() == AggType.MIN;
         String stateKey = isMin ? "MIN" : "MAX";
         String delKey = isMin ? "DELMIN" : "DELMAX";
-        Slot exprSlot = target.getExprSlots().get(0);
+        Expression exprArg = target.getExprArgs().get(0);
 
         Expression insertAgg = isMin
-                ? new Min(insertOnlyExpr(exprSlot, dmlFactorSlot))
-                : new Max(insertOnlyExpr(exprSlot, dmlFactorSlot));
+                ? new Min(insertOnlyExpr(exprArg, dmlFactorSlot))
+                : new Max(insertOnlyExpr(exprArg, dmlFactorSlot));
         Expression deleteAgg = isMin
-                ? new Min(deleteOnlyExpr(exprSlot, dmlFactorSlot))
-                : new Max(deleteOnlyExpr(exprSlot, dmlFactorSlot));
+                ? new Min(deleteOnlyExpr(exprArg, dmlFactorSlot))
+                : new Max(deleteOnlyExpr(exprArg, dmlFactorSlot));
 
         deltaAggOutputs.add(new Alias(insertAgg, target.getHiddenStateSlot(stateKey).getName()));
         deltaAggOutputs.add(new Alias(deleteAgg, transientDelHiddenName(target, delKey)));
         deltaAggOutputs.add(new Alias(
-                new Sum(caseWhenExprNotNull(exprSlot, dmlFactorSlot)),
+                new Sum(caseWhenExprNotNull(exprArg, dmlFactorSlot)),
                 target.getHiddenStateSlot("COUNT").getName()));
     }
 
