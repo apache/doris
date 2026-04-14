@@ -32,7 +32,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -43,21 +42,21 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
-import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.List;
 
 class IvmSimpleScanDeltaStrategyTest extends IvmDeltaTestBase {
 
     private static final class TestableIvmSimpleScanDeltaStrategy extends IvmSimpleScanDeltaStrategy {
-        private RewriteResult exposeRewritePlan(Plan plan) {
+        private RewriteResult exposeRewritePlan(org.apache.doris.nereids.trees.plans.Plan plan) {
             return rewritePlan(plan);
         }
 
-        private Plan exposeStripResultSink(Plan plan) {
+        private org.apache.doris.nereids.trees.plans.Plan exposeStripResultSink(
+                org.apache.doris.nereids.trees.plans.Plan plan) {
             return stripResultSink(plan);
         }
 
@@ -65,22 +64,22 @@ class IvmSimpleScanDeltaStrategyTest extends IvmDeltaTestBase {
             return findSlotByName(slots, name);
         }
 
-        private Command exposeBuildInsertCommand(Plan plan, IvmDeltaRewriteContext ctx) {
+        private Command exposeBuildInsertCommand(org.apache.doris.nereids.trees.plans.Plan plan,
+                IvmDeltaRewriteContext ctx) {
             return buildInsertCommandWithDeleteSign(plan, ctx);
         }
     }
 
-    @Test
-    void testRewriteProducesInsertBundle(@Mocked MTMV mtmv) {
-        new Expectations() {
-            {
-                mtmv.getQualifiedDbName();
-                result = "test_db";
-                mtmv.getName();
-                result = "test_mv";
-            }
-        };
+    private static MTMV mockMtmv() {
+        MTMV mtmv = Mockito.mock(MTMV.class);
+        Mockito.when(mtmv.getQualifiedDbName()).thenReturn("test_db");
+        Mockito.when(mtmv.getName()).thenReturn("test_mv");
+        return mtmv;
+    }
 
+    @Test
+    void testRewriteProducesInsertBundle() {
+        MTMV mtmv = mockMtmv();
         LogicalOlapScan scan = buildScan();
         IvmDeltaRewriteContext ctx = new IvmDeltaRewriteContext(mtmv, new ConnectContext(), null);
         InsertIntoTableCommand command = (InsertIntoTableCommand) new IvmSimpleScanDeltaStrategy()
@@ -143,7 +142,8 @@ class IvmSimpleScanDeltaStrategyTest extends IvmDeltaTestBase {
     }
 
     @Test
-    void testVisitUnsupportedPlanThrows(@Mocked MTMV mtmv) {
+    void testVisitUnsupportedPlanThrows() {
+        MTMV mtmv = mockMtmv();
         LogicalOlapScan left = buildScan();
         LogicalOlapScan right = buildScan();
         LogicalJoin<LogicalOlapScan, LogicalOlapScan> join = new LogicalJoin<>(
@@ -185,17 +185,11 @@ class IvmSimpleScanDeltaStrategyTest extends IvmDeltaTestBase {
     }
 
     @Test
-    void testBuildInsertCommandWithDeleteSignAddsDeleteSignColumn(@Mocked MTMV mtmv) {
-        new Expectations() {
-            {
-                mtmv.getQualifiedDbName();
-                result = "test_db";
-                mtmv.getName();
-                result = "test_mv";
-                mtmv.getInsertedColumnNames();
-                result = ImmutableList.of("id");
-            }
-        };
+    void testBuildInsertCommandWithDeleteSignAddsDeleteSignColumn() {
+        MTMV mtmv = Mockito.mock(MTMV.class);
+        Mockito.when(mtmv.getQualifiedDbName()).thenReturn("test_db");
+        Mockito.when(mtmv.getName()).thenReturn("test_mv");
+        Mockito.when(mtmv.getInsertedColumnNames()).thenReturn(ImmutableList.of("id"));
 
         LogicalOlapScan scan = buildScan();
         TestableIvmSimpleScanDeltaStrategy strategy = new TestableIvmSimpleScanDeltaStrategy();
@@ -208,16 +202,8 @@ class IvmSimpleScanDeltaStrategyTest extends IvmDeltaTestBase {
     }
 
     @Test
-    void testRewriteBuildsDeleteSignIfExpression(@Mocked MTMV mtmv) {
-        new Expectations() {
-            {
-                mtmv.getQualifiedDbName();
-                result = "test_db";
-                mtmv.getName();
-                result = "test_mv";
-            }
-        };
-
+    void testRewriteBuildsDeleteSignIfExpression() {
+        MTMV mtmv = mockMtmv();
         LogicalOlapScan scan = buildScan();
         InsertIntoTableCommand command = (InsertIntoTableCommand) new IvmSimpleScanDeltaStrategy()
                 .rewrite(buildScanPlan(scan), new IvmDeltaRewriteContext(mtmv, new ConnectContext(), null))

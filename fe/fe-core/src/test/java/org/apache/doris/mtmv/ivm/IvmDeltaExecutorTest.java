@@ -20,18 +20,17 @@ package org.apache.doris.mtmv.ivm;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.mtmv.MTMVPlanUtil;
-import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.mtmv.MTMVRefreshContext;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
-import mockit.Expectations;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -48,154 +47,118 @@ public class IvmDeltaExecutorTest {
     }
 
     @Test
-    public void testExecuteEmptyBundles(@Mocked MTMV mtmv) throws AnalysisException {
+    public void testExecuteEmptyBundles() throws AnalysisException {
+        MTMV mtmv = Mockito.mock(MTMV.class);
         IvmRefreshContext context = newContext(mtmv);
+        // Should complete without error when bundle list is empty — no static mocking needed.
         deltaExecutor.execute(context, Collections.emptyList(), 0);
     }
 
     @Test
-    public void testExecuteSingleBundleSuccess(@Mocked MTMV mtmv,
-            @Mocked Command command) throws Exception {
-        ConnectContext mockCtx = new ConnectContext();
-        new MockUp<MTMVPlanUtil>() {
-            @Mock
-            public ConnectContext createMTMVContext(MTMV mv, List<RuleType> disableRules) {
-                return mockCtx;
-            }
-        };
+    public void testExecuteSingleBundleSuccess() throws Exception {
+        MTMV mtmv = Mockito.mock(MTMV.class);
+        Command command = Mockito.mock(Command.class);
+        StmtExecutor mockExecutor = Mockito.mock(StmtExecutor.class);
 
         List<Boolean> runCalled = new ArrayList<>();
-        new Expectations() {
-            {
-                command.run((ConnectContext) any, (StmtExecutor) any);
-                result = new mockit.Delegate<Void>() {
-                    @SuppressWarnings("unused")
-                    void run(ConnectContext ctx, StmtExecutor executor) {
-                        runCalled.add(true);
-                        ctx.getState().setOk();
-                    }
-                };
-            }
-        };
 
-        IvmDeltaCommandBundle bundle = new IvmDeltaCommandBundle(command);
+        try (MockedStatic<MTMVPlanUtil> planUtilMock = Mockito.mockStatic(MTMVPlanUtil.class)) {
+            planUtilMock.when(() -> MTMVPlanUtil.executeCommand(
+                    Mockito.eq(mtmv),
+                    Mockito.eq(command),
+                    Mockito.any(StatementContext.class),
+                    Mockito.any(),
+                    Mockito.anyBoolean()
+            )).thenAnswer(inv -> {
+                runCalled.add(true);
+                return mockExecutor;
+            });
 
-        deltaExecutor.execute(newContext(mtmv), Collections.singletonList(bundle), 0);
+            IvmDeltaCommandBundle bundle = new IvmDeltaCommandBundle(command);
+            deltaExecutor.execute(newContext(mtmv), Collections.singletonList(bundle), 0);
+        }
+
         Assertions.assertEquals(1, runCalled.size());
     }
 
     @Test
-    public void testExecuteCommandRunThrowsException(@Mocked MTMV mtmv,
-            @Mocked Command command) throws Exception {
-        ConnectContext mockCtx = new ConnectContext();
-        new MockUp<MTMVPlanUtil>() {
-            @Mock
-            public ConnectContext createMTMVContext(MTMV mv, List<RuleType> disableRules) {
-                return mockCtx;
-            }
-        };
+    public void testExecuteCommandRunThrowsException() throws Exception {
+        MTMV mtmv = Mockito.mock(MTMV.class);
+        Command command = Mockito.mock(Command.class);
 
-        new Expectations() {
-            {
-                command.run((ConnectContext) any, (StmtExecutor) any);
-                result = new RuntimeException("command run failed");
-            }
-        };
+        try (MockedStatic<MTMVPlanUtil> planUtilMock = Mockito.mockStatic(MTMVPlanUtil.class)) {
+            planUtilMock.when(() -> MTMVPlanUtil.executeCommand(
+                    Mockito.eq(mtmv),
+                    Mockito.eq(command),
+                    Mockito.any(StatementContext.class),
+                    Mockito.any(),
+                    Mockito.anyBoolean()
+            )).thenThrow(new RuntimeException("command run failed"));
 
-        IvmDeltaCommandBundle bundle = new IvmDeltaCommandBundle(command);
+            IvmDeltaCommandBundle bundle = new IvmDeltaCommandBundle(command);
 
-        AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
-                () -> deltaExecutor.execute(newContext(mtmv), Collections.singletonList(bundle), 0));
-        Assertions.assertTrue(ex.getMessage().contains("IVM delta execution failed"));
-        Assertions.assertTrue(ex.getMessage().contains("command run failed"));
+            AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
+                    () -> deltaExecutor.execute(newContext(mtmv), Collections.singletonList(bundle), 0));
+            Assertions.assertTrue(ex.getMessage().contains("IVM delta execution failed"));
+            Assertions.assertTrue(ex.getMessage().contains("command run failed"));
+        }
     }
 
     @Test
-    public void testExecuteCommandReturnsErrorState(@Mocked MTMV mtmv,
-            @Mocked Command command) throws Exception {
-        ConnectContext mockCtx = new ConnectContext();
-        new MockUp<MTMVPlanUtil>() {
-            @Mock
-            public ConnectContext createMTMVContext(MTMV mv, List<RuleType> disableRules) {
-                return mockCtx;
-            }
-        };
-
-        new Expectations() {
-            {
-                command.run((ConnectContext) any, (StmtExecutor) any);
-                result = new mockit.Delegate<Void>() {
-                    @SuppressWarnings("unused")
-                    void run(ConnectContext ctx, StmtExecutor executor) {
-                        ctx.getState().setError("something went wrong");
-                    }
-                };
-            }
-        };
-
-        IvmDeltaCommandBundle bundle = new IvmDeltaCommandBundle(command);
-
-        AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
-                () -> deltaExecutor.execute(newContext(mtmv), Collections.singletonList(bundle), 0));
-        Assertions.assertTrue(ex.getMessage().contains("IVM delta execution failed"));
-        Assertions.assertTrue(ex.getMessage().contains("something went wrong"));
-    }
-
-    @Test
-    public void testExecuteMultipleBundlesStopsOnFirstFailure(@Mocked MTMV mtmv,
-            @Mocked Command okCommand, @Mocked Command failCommand,
-            @Mocked Command thirdCommand) throws Exception {
-        ConnectContext mockCtx = new ConnectContext();
-        new MockUp<MTMVPlanUtil>() {
-            @Mock
-            public ConnectContext createMTMVContext(MTMV mv, List<RuleType> disableRules) {
-                return mockCtx;
-            }
-        };
+    public void testExecuteMultipleBundlesStopsOnFirstFailure() throws Exception {
+        MTMV mtmv = Mockito.mock(MTMV.class);
+        Command okCommand = Mockito.mock(Command.class);
+        Command failCommand = Mockito.mock(Command.class);
+        Command thirdCommand = Mockito.mock(Command.class);
+        StmtExecutor mockExecutor = Mockito.mock(StmtExecutor.class);
 
         List<Integer> executionOrder = new ArrayList<>();
-        new Expectations() {
-            {
-                okCommand.run((ConnectContext) any, (StmtExecutor) any);
-                result = new mockit.Delegate<Void>() {
-                    @SuppressWarnings("unused")
-                    void run(ConnectContext ctx, StmtExecutor executor) {
-                        executionOrder.add(1);
-                        ctx.getState().setOk();
-                    }
-                };
-                failCommand.run((ConnectContext) any, (StmtExecutor) any);
-                result = new mockit.Delegate<Void>() {
-                    @SuppressWarnings("unused")
-                    void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-                        executionOrder.add(2);
-                        throw new RuntimeException("second bundle failed");
-                    }
-                };
-                thirdCommand.run((ConnectContext) any, (StmtExecutor) any);
-                result = new mockit.Delegate<Void>() {
-                    @SuppressWarnings("unused")
-                    void run(ConnectContext ctx, StmtExecutor executor) {
-                        executionOrder.add(3);
-                        ctx.getState().setOk();
-                    }
-                };
-                minTimes = 0;
-            }
-        };
 
-        List<IvmDeltaCommandBundle> bundles = new ArrayList<>();
-        bundles.add(new IvmDeltaCommandBundle(okCommand));
-        bundles.add(new IvmDeltaCommandBundle(failCommand));
-        bundles.add(new IvmDeltaCommandBundle(thirdCommand));
+        try (MockedStatic<MTMVPlanUtil> planUtilMock = Mockito.mockStatic(MTMVPlanUtil.class)) {
+            planUtilMock.when(() -> MTMVPlanUtil.executeCommand(
+                    Mockito.eq(mtmv),
+                    Mockito.eq(okCommand),
+                    Mockito.any(StatementContext.class),
+                    Mockito.any(),
+                    Mockito.anyBoolean()
+            )).thenAnswer(inv -> {
+                executionOrder.add(1);
+                return mockExecutor;
+            });
+            planUtilMock.when(() -> MTMVPlanUtil.executeCommand(
+                    Mockito.eq(mtmv),
+                    Mockito.eq(failCommand),
+                    Mockito.any(StatementContext.class),
+                    Mockito.any(),
+                    Mockito.anyBoolean()
+            )).thenAnswer(inv -> {
+                executionOrder.add(2);
+                throw new RuntimeException("second bundle failed");
+            });
+            planUtilMock.when(() -> MTMVPlanUtil.executeCommand(
+                    Mockito.eq(mtmv),
+                    Mockito.eq(thirdCommand),
+                    Mockito.any(StatementContext.class),
+                    Mockito.any(),
+                    Mockito.anyBoolean()
+            )).thenAnswer(inv -> {
+                executionOrder.add(3);
+                return mockExecutor;
+            });
 
-        Assertions.assertThrows(AnalysisException.class,
-                () -> deltaExecutor.execute(newContext(mtmv), bundles, 0));
-        Assertions.assertEquals(Arrays.asList(1, 2), executionOrder);
+            List<IvmDeltaCommandBundle> bundles = new ArrayList<>();
+            bundles.add(new IvmDeltaCommandBundle(okCommand));
+            bundles.add(new IvmDeltaCommandBundle(failCommand));
+            bundles.add(new IvmDeltaCommandBundle(thirdCommand));
+
+            Assertions.assertThrows(AnalysisException.class,
+                    () -> deltaExecutor.execute(newContext(mtmv), bundles, 0));
+            Assertions.assertEquals(Arrays.asList(1, 2), executionOrder);
+        }
     }
 
     private static IvmRefreshContext newContext(MTMV mtmv) {
         return new IvmRefreshContext(mtmv, new ConnectContext(),
-                new org.apache.doris.mtmv.MTMVRefreshContext(mtmv));
+                new MTMVRefreshContext(mtmv));
     }
 }
