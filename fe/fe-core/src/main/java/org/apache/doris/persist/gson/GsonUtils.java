@@ -256,6 +256,7 @@ import com.google.gson.annotations.SerializedName;
 import com.google.gson.reflect.TypeToken;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
+import com.google.protobuf.MessageLite;
 import org.apache.commons.lang3.reflect.TypeUtils;
 
 import java.io.ByteArrayInputStream;
@@ -680,7 +681,10 @@ public class GsonUtils {
                             /* due to java.lang.IllegalArgumentException: com.lmax.disruptor.RingBuffer
                             <org.apache.doris.scheduler.disruptor.TimerTaskEvent> declares multiple
                             JSON fields named p1 */
-                            return clazz.getName().startsWith("com.lmax.disruptor.RingBuffer");
+                            return clazz.getName().startsWith("com.lmax.disruptor.RingBuffer")
+                                    // Protobuf 4 builders expose duplicate internal fields such as
+                                    // "meAsParent". They are runtime-only and must not enter FE metadata.
+                                    || MessageLite.Builder.class.isAssignableFrom(clazz);
                         }
                     });
 
