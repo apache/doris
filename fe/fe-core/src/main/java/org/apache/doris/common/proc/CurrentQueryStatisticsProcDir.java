@@ -78,7 +78,7 @@ public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
             values.add(item.getSql());
             values.add(QueryStatisticsFormatter.getRowsReturned(queryStatistics.getScanRows()));
             values.add(QueryStatisticsFormatter.getScanBytes(queryStatistics.getScanBytes()));
-            values.add(QueryStatisticsFormatter.getRowsReturned(0L));
+            values.add(QueryStatisticsFormatter.getRowsReturned(queryStatistics.getProcessRows()));
             values.add(String.valueOf(queryStatistics.getCpuMs()));
             values.add(QueryStatisticsFormatter.getScanBytes(queryStatistics.getMaxPeakMemoryBytes()));
             values.add(QueryStatisticsFormatter.getScanBytes(queryStatistics.getCurrentUsedMemoryBytes()));
