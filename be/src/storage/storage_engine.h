@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <gtest/gtest_prod.h>
+
 #include <butil/macros.h>
 #include <bvar/bvar.h>
 #include <gen_cpp/Types_types.h>
@@ -160,7 +162,6 @@ public:
     int64_t memory_limitation_bytes_for_build_index() const;
     void notify_build_index_task_begin();
     void notify_build_index_task_end();
-    int32_t running_build_index_tasks() const;
 
     int get_disk_num() { return _disk_num; }
 
@@ -196,6 +197,9 @@ protected:
     std::shared_ptr<Thread> _evict_quering_rowset_thread;
 
     int64_t _memory_limitation_bytes_for_schema_change;
+
+    FRIEND_TEST(BuildIndexMemoryLimitTest, TaskCounting);
+    int32_t running_build_index_tasks() const;
     std::atomic<int32_t> _running_build_index_tasks {0};
 
     int _disk_num {-1};

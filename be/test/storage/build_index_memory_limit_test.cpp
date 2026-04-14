@@ -161,4 +161,57 @@ TEST_F(BuildIndexMemoryLimitTest, ConfigIsMutable) {
     EXPECT_EQ(limit2, 50LL * 1024 * 1024 * 1024);
 }
 
+TEST_F(BuildIndexMemoryLimitTest, ZeroFracReturnsMinLimit) {
+    MemInfo::_s_soft_mem_limit.store(100LL * 1024 * 1024 * 1024);
+    config::build_index_mem_limit_frac = 0.0;
+    config::build_index_min_memory_per_task_bytes = 2LL * 1024 * 1024 * 1024;
+    config::build_index_memory_high_watermark_pct = 100;
+    config::build_index_memory_low_watermark_pct = 100;
+
+    int64_t limit = _engine->memory_limitation_bytes_for_build_index();
+    EXPECT_EQ(limit, 2LL * 1024 * 1024 * 1024);
+}
+
+TEST_F(BuildIndexMemoryLimitTest, FracGreaterThanOneClampedByRemaining) {
+    int64_t soft_limit = 100LL * 1024 * 1024 * 1024;
+    MemInfo::_s_soft_mem_limit.store(soft_limit);
+    config::build_index_mem_limit_frac = 1.5;
+    config::build_index_min_memory_per_task_bytes = 1;
+    config::build_index_memory_high_watermark_pct = 100;
+    config::build_index_memory_low_watermark_pct = 100;
+
+    GlobalMemoryArbitrator::refresh_interval_memory_growth.store(0);
+
+    int64_t limit = _engine->memory_limitation_bytes_for_build_index();
+    EXPECT_LE(limit, soft_limit);
+}
+
+TEST_F(BuildIndexMemoryLimitTest, HighPctLessThanLowPctStillWorks) {
+    int64_t soft_limit = 100LL * 1024 * 1024 * 1024;
+    MemInfo::_s_soft_mem_limit.store(soft_limit);
+    config::build_index_mem_limit_frac = 0.6;
+    config::build_index_min_memory_per_task_bytes = 1LL * 1024 * 1024 * 1024;
+    config::build_index_memory_high_watermark_pct = 50;
+    config::build_index_memory_low_watermark_pct = 90;
+
+    GlobalMemoryArbitrator::refresh_interval_memory_growth.store(soft_limit * 70 / 100);
+
+    int64_t limit = _engine->memory_limitation_bytes_for_build_index();
+    EXPECT_EQ(limit, 1LL * 1024 * 1024 * 1024);
+}
+
+TEST_F(BuildIndexMemoryLimitTest, ZeroMinBytesAllowsZeroLimit) {
+    int64_t soft_limit = 100LL * 1024 * 1024 * 1024;
+    MemInfo::_s_soft_mem_limit.store(soft_limit);
+    config::build_index_mem_limit_frac = 0.6;
+    config::build_index_min_memory_per_task_bytes = 0;
+    config::build_index_memory_high_watermark_pct = 50;
+    config::build_index_memory_low_watermark_pct = 100;
+
+    GlobalMemoryArbitrator::refresh_interval_memory_growth.store(soft_limit * 90 / 100);
+
+    int64_t limit = _engine->memory_limitation_bytes_for_build_index();
+    EXPECT_EQ(limit, 0);
+}
+
 } // namespace doris

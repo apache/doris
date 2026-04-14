@@ -176,7 +176,7 @@ int64_t BaseStorageEngine::memory_limitation_bytes_for_build_index() const {
         limit = std::max(limit / 2, min_limit);
     }
 
-    return limit;
+    return std::max(limit, min_limit);
 }
 
 void BaseStorageEngine::_start_adaptive_thread_controller() {
