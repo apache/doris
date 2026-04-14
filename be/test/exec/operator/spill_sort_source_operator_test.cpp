@@ -1266,7 +1266,8 @@ TEST_F(SpillSortSourceOperatorTest, SpillWriterMemoryTracking) {
     ASSERT_GT(peak_memory, initial_memory)
             << "Peak memory should be greater than initial memory, proving it was incremented";
 
-    writer->close();
+    st = writer->close();
+    ASSERT_TRUE(st.ok());
 }
 
 } // namespace doris
