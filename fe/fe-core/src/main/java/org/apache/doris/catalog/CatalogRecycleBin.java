@@ -1440,12 +1440,10 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         readLock();
         try {
             Map<Long, Pair<Long, Long>> dbToDataSize = new HashMap<>();
-            long currentTimeMs = System.currentTimeMillis();
             List<List<String>> tableInfos = Lists.newArrayList();
             for (Map.Entry<Long, RecycleTableInfo> entry : idToTable.entrySet()) {
-                if (isFEViewExpire(entry.getKey(), currentTimeMs)) {
-                    continue;
-                }
+                // Return all data (both unexpired and expired) because SHOW CATALOG RECYCLE BIN
+                // is an ADMIN-only command and admins should be able to see everything.
                 List<String> info = Lists.newArrayList();
                 info.add("Table");
                 RecycleTableInfo tableInfo = entry.getValue();
@@ -1487,9 +1485,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
             List<List<String>> partitionInfos = Lists.newArrayList();
             for (Map.Entry<Long, RecyclePartitionInfo> entry : idToPartition.entrySet()) {
-                if (isFEViewExpire(entry.getKey(), currentTimeMs)) {
-                    continue;
-                }
+                // Return all data (both unexpired and expired) because SHOW CATALOG RECYCLE BIN
+                // is an ADMIN-only command and admins should be able to see everything.
                 List<String> info = Lists.newArrayList();
                 info.add("Partition");
                 RecyclePartitionInfo partitionInfo = entry.getValue();
@@ -1531,9 +1528,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
             List<List<String>> dbInfos = Lists.newArrayList();
             for (Map.Entry<Long, RecycleDatabaseInfo> entry : idToDatabase.entrySet()) {
-                if (isFEViewExpire(entry.getKey(), currentTimeMs)) {
-                    continue;
-                }
+                // Return all data (both unexpired and expired) because SHOW CATALOG RECYCLE BIN
+                // is an ADMIN-only command and admins should be able to see everything.
                 List<String> info = Lists.newArrayList();
                 info.add("Database");
                 RecycleDatabaseInfo dbInfo = entry.getValue();

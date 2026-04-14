@@ -50,7 +50,7 @@ suite("test_recycle_bin_retention", "p0") {
             ) ENGINE=OLAP
             DUPLICATE KEY(k1)
             DISTRIBUTED BY HASH(k1) BUCKETS 1
-            PROPERTIES ('replication_allocation' = 'tag.location.default: 1')
+            PROPERTIES ('replication_num' = '1')
         """
         sql """ INSERT INTO test_retention_phase1 VALUES (1, 'phase1_a'), (2, 'phase1_b'), (3, 'phase1_c') """
 
@@ -68,6 +68,12 @@ suite("test_recycle_bin_retention", "p0") {
 
         // Phase 1: non-admin user should also be able to recover
         connect("${recoverNormalUser}", "123456", context.config.jdbcUrl) {
+            // Verify that normal user cannot execute SHOW CATALOG RECYCLE BIN
+            test {
+                sql """ SHOW CATALOG RECYCLE BIN WHERE NAME = 'test_retention_phase1' """
+                exception "Admin_priv"
+            }
+            
             sql """ USE ${currentDbName}; RECOVER TABLE test_retention_phase1 """
         }
         def tableAfterRecoverPhase1 = sql """ SHOW TABLES LIKE "test_retention_phase1" """
@@ -86,9 +92,9 @@ suite("test_recycle_bin_retention", "p0") {
         // Wait for FE visible period to expire (30s + buffer)
         sleep(35000)
 
-        // SHOW should NOT display the table now (past FE expire)
+        // SHOW should display the table now for admin (past FE expire)
         def recycleBinPhase2 = sql """ SHOW CATALOG RECYCLE BIN WHERE NAME = 'test_retention_phase1' """
-        assertTrue(recycleBinPhase2.size() == 0, "Phase 2: Table should NOT be visible in recycle bin after FE expire")
+        assertTrue(recycleBinPhase2.size() > 0, "Phase 2: Table should be visible in recycle bin for admin after FE expire")
 
         connect("${recoverNormalUser}", "123456", context.config.jdbcUrl) {
             test {
@@ -139,7 +145,7 @@ suite("test_recycle_bin_retention", "p0") {
                 PARTITION test_recycle_p3 VALUES LESS THAN ('300')
             )
             DISTRIBUTED BY HASH(k1) BUCKETS 1
-            PROPERTIES ('replication_allocation' = 'tag.location.default: 1')
+            PROPERTIES ('replication_num' = '1')
         """
         sql """ INSERT INTO test_retention_partition VALUES (10, 'part_a'), (110, 'part_b'), (210, 'part_c') """
 
@@ -167,9 +173,9 @@ suite("test_recycle_bin_retention", "p0") {
         assertTrue(partitionsAfterDropP2Phase2.find { it.PartitionName == "test_recycle_p2" } == null, "Dropped partition test_recycle_p2 should not be visible before Phase 2 checks")
         sleep(35000)
 
-        // Partition should be hidden from SHOW
+        // Partition should be visible to admin
         def partRecycleHidden = sql """ SHOW CATALOG RECYCLE BIN WHERE NAME = 'test_recycle_p2' """
-        assertTrue(partRecycleHidden.size() == 0, "Partition test_recycle_p2 should be hidden after FE expire")
+        assertTrue(partRecycleHidden.size() > 0, "Partition test_recycle_p2 should be visible to admin after FE expire")
 
         connect("${recoverNormalUser}", "123456", context.config.jdbcUrl) {
             test {
