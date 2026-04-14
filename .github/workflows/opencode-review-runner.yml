@@ -82,7 +82,7 @@ jobs:
 
           ## Final response format
           - After completing the review, you MUST provide a final summary opinion based on the rules defined in AGENTS.md and the code-review skill. The summary must include conclusions for each applicable critical checkpoint.
-          - If the overall quality of PR is good and there are no critical blocking issues (even if there are some tolerable minor issues), submit an opinion on approval using: gh pr review PLACEHOLDER_PR_NUMBER --approve --body "<summary>"
+          - If the overall quality of PR is good and there are no critical blocking issues (even if there are some tolerable minor issues), submit an opinion on approval using: gh pr review PLACEHOLDER_PR_NUMBER --comment --body "<summary>"
           - If issues found, submit a review with inline comments plus a comprehensive summary body. Use GitHub Reviews API to ensure comments are inline:
               - Inline comment bodies may include GitHub suggested changes blocks when you can propose a precise patch.
               - Prefer suggested changes for small, self-contained fixes (for example typos, trivial refactors, or narrowly scoped code corrections).
@@ -90,12 +90,6 @@ jobs:
               - Build a JSON array of comments like: [{ "path": "<file>", "position": <diff_position>, "body": "..." }]
               - Submit via: gh api repos/PLACEHOLDER_REPO/pulls/PLACEHOLDER_PR_NUMBER/reviews --input <json_file>
               - The JSON file should contain: {"event":"REQUEST_CHANGES","body":"<summary>","comments":[...]}
-          - After publish your opinion, your final response MUST end with exactly one machine-readable result block in this format:
-            RESULT_START
-            {
-              "decision": "APPROVE" | "REQUEST_CHANGES"
-            }
-            RESULT_END
           PROMPT
           sed -i "s|PLACEHOLDER_REPO|${REPO}|g" /tmp/review_prompt.txt
           sed -i "s|PLACEHOLDER_PR_NUMBER|${PR_NUMBER}|g" /tmp/review_prompt.txt
@@ -130,29 +124,6 @@ jobs:
             failure_reason="OpenCode exited with status $status"
           fi
 
-          result_json=$(awk '
-            /^RESULT_START$/ {capture=1; current=""; next}
-            /^RESULT_END$/ {capture=0; result=current; found=1; next}
-            capture {current = current $0 ORS}
-            END {
-              if (found) {
-                printf "%s", result
-              }
-            }
-          ' /tmp/opencode-review.log)
-
-          if [ -z "$failure_reason" ] && [ -z "$result_json" ]; then
-            failure_reason="OpenCode did not emit a RESULT_START/RESULT_END result block"
-          fi
-
-          if [ -z "$failure_reason" ] && ! printf '%s' "$result_json" > /tmp/opencode-review-result.json; then
-            failure_reason="Failed to persist OpenCode review result"
-          fi
-
-          if [ -z "$failure_reason" ] && ! jq -e '.decision == "APPROVE" or .decision == "REQUEST_CHANGES"' /tmp/opencode-review-result.json > /dev/null; then
-            failure_reason="OpenCode emitted an invalid review decision"
-          fi
-
           if [ -n "$failure_reason" ]; then
             {
               echo "failure_reason<<EOF"
@@ -162,15 +133,8 @@ jobs:
             exit 1
           fi
 
-          decision=$(jq -r '.decision' /tmp/opencode-review-result.json)
-          echo "decision=$decision" >> "$GITHUB_OUTPUT"
-
-          if [ "$decision" == "REQUEST_CHANGES" ]; then
-            exit 1
-          fi
-
       - name: Comment PR on review failure
-        if: ${{ always() && steps.review.outcome != 'success' && steps.review.outputs.decision != 'REQUEST_CHANGES' }}
+        if: ${{ always() && steps.review.outcome != 'success' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REVIEW_FAILURE_REASON: ${{ steps.review.outputs.failure_reason }}
