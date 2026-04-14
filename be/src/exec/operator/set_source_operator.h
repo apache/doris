@@ -25,7 +25,6 @@
 namespace doris {
 class RuntimeState;
 
-#include "common/compile_check_begin.h"
 template <bool is_intersect>
 class SetSourceOperatorX;
 
@@ -104,5 +103,4 @@ private:
     const size_t _child_quantity;
     const bool _is_colocate;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -252,7 +252,7 @@ public abstract class FileScanNode extends ExternalScanNode {
             nameToSlotDesc.put(slot.getColumn().getName(), slot);
         }
 
-        for (Column column : getColumns()) {
+        for (Column column : desc.getTable().getFullSchema()) {
             Expr expr;
             Expression expression;
             if (column.getDefaultValue() != null) {

@@ -42,7 +42,6 @@
 #include "storage/index/inverted/inverted_index_query_type.h"
 
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 
 Result<IColumn::Ptr> extract_query_vector(std::shared_ptr<VExpr> arg_expr) {
     if (arg_expr->is_constant() == false) {
@@ -187,7 +186,7 @@ Status AnnTopNRuntime::prepare(RuntimeState* state, const RowDescriptor& row_des
 
     _metric_type = segment_v2::string_to_metric(metric_name);
 
-    VLOG_DEBUG << "AnnTopNRuntime: {}" << this->debug_string();
+    VLOG_DEBUG << fmt::format("AnnTopNRuntime: {}", this->debug_string());
     return Status::OK();
 }
 

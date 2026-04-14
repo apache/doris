@@ -36,7 +36,6 @@
 #include "util/trace.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 IndexBuilder::IndexBuilder(StorageEngine& engine, TabletSharedPtr tablet,
                            const std::vector<TColumn>& columns,
@@ -279,7 +278,8 @@ Status IndexBuilder::update_inverted_index_info() {
                 auto idx_file_reader = std::make_unique<IndexFileReader>(
                         context.fs(),
                         std::string {InvertedIndexDescriptor::get_index_file_path_prefix(seg_path)},
-                        output_rs_tablet_schema->get_inverted_index_storage_format());
+                        output_rs_tablet_schema->get_inverted_index_storage_format(),
+                        InvertedIndexFileInfo(), _tablet->tablet_id());
                 auto st = idx_file_reader->init();
                 DBUG_EXECUTE_IF(
                         "IndexBuilder::update_inverted_index_info_index_file_reader_init_not_ok", {
@@ -372,7 +372,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                         fs, std::move(index_path_prefix),
                         output_rowset_meta->rowset_id().to_string(), seg_ptr->id(),
                         output_rowset_schema->get_inverted_index_storage_format(),
-                        std::move(file_writer));
+                        std::move(file_writer), true /* can_use_ram_dir */, _tablet->tablet_id());
                 RETURN_IF_ERROR(index_file_writer->initialize(dirs));
                 // create inverted index writer
                 for (auto& index_meta : _dropped_inverted_indexes) {
@@ -443,12 +443,13 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                 index_file_writer = std::make_unique<IndexFileWriter>(
                         fs, index_path_prefix, output_rowset_meta->rowset_id().to_string(),
                         seg_ptr->id(), output_rowset_schema->get_inverted_index_storage_format(),
-                        std::move(file_writer));
+                        std::move(file_writer), true /* can_use_ram_dir */, _tablet->tablet_id());
                 RETURN_IF_ERROR(index_file_writer->initialize(dirs));
             } else {
                 index_file_writer = std::make_unique<IndexFileWriter>(
                         fs, index_path_prefix, output_rowset_meta->rowset_id().to_string(),
-                        seg_ptr->id(), output_rowset_schema->get_inverted_index_storage_format());
+                        seg_ptr->id(), output_rowset_schema->get_inverted_index_storage_format(),
+                        nullptr, true /* can_use_ram_dir */, _tablet->tablet_id());
             }
             // create inverted index writer, or ann index writer
             for (auto inverted_index : _alter_inverted_indexes) {
@@ -979,5 +980,4 @@ void IndexBuilder::gc_output_rowset() {
     }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

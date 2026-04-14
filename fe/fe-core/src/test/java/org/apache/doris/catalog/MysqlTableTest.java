@@ -23,10 +23,11 @@ import org.apache.doris.common.FeConstants;
 import com.google.common.base.Predicate;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import mockit.Mocked;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 import java.io.BufferedInputStream;
 import java.io.DataInputStream;
@@ -42,8 +43,7 @@ public class MysqlTableTest {
     private List<Column> columns;
     private Map<String, String> properties;
 
-    @Mocked
-    private Env env;
+    private Env env = Mockito.mock(Env.class);
 
     private FakeEnv fakeEnv;
 
@@ -65,6 +65,13 @@ public class MysqlTableTest {
         fakeEnv = new FakeEnv();
         FakeEnv.setEnv(env);
         FakeEnv.setMetaVersion(FeConstants.meta_version);
+    }
+
+    @After
+    public void tearDown() {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
     }
 
     @Test

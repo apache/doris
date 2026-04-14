@@ -29,7 +29,6 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.SinglePartitionInfo;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
@@ -51,9 +50,7 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.Lists;
-import mockit.Expectations;
-import mockit.Mock;
-import mockit.MockUp;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Ignore;
@@ -61,16 +58,18 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
 import org.junit.rules.ExpectedException;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.net.URL;
-import java.util.List;
-import java.util.function.Function;
 
 public class ShowExecutorTest {
     private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
     private ConnectContext ctx;
     private Env env;
     private InternalCatalog catalog;
+    private MockedStatic<Env> mockedEnvStatic;
+    private MockedStatic<ConnectContext> mockedConnectContextStatic;
 
     @Rule
     public ExpectedException expectedEx = ExpectedException.none();
@@ -88,169 +87,77 @@ public class ShowExecutorTest {
         MaterializedIndex index1 = new MaterializedIndex();
 
         // mock partition
-        Partition partition = Deencapsulation.newInstance(Partition.class);
-        new Expectations(partition) {
-            {
-                partition.getBaseIndex();
-                minTimes = 0;
-                result = index1;
-            }
-        };
+        Partition partition = Mockito.spy(Deencapsulation.newInstance(Partition.class));
+        Mockito.doReturn(index1).when(partition).getBaseIndex();
 
         // mock table
-        OlapTable table = new OlapTable();
-        new Expectations(table) {
-            {
-                table.getName();
-                minTimes = 0;
-                result = "testTbl";
-
-                table.getType();
-                minTimes = 0;
-                result = TableType.OLAP;
-
-                table.getBaseSchema();
-                minTimes = 0;
-                result = Lists.newArrayList(column1, column2);
-
-                table.getKeysType();
-                minTimes = 0;
-                result = KeysType.AGG_KEYS;
-
-                table.getPartitionInfo();
-                minTimes = 0;
-                result = new SinglePartitionInfo();
-
-                table.getDefaultDistributionInfo();
-                minTimes = 0;
-                result = new RandomDistributionInfo(10);
-
-                table.getIndexIdByName(anyString);
-                minTimes = 0;
-                result = 0L;
-
-                table.getStorageTypeByIndexId(0L);
-                minTimes = 0;
-                result = TStorageType.COLUMN;
-
-                table.getPartition(anyLong);
-                minTimes = 0;
-                result = partition;
-
-                table.getCopiedBfColumns();
-                minTimes = 0;
-                result = null;
-            }
-        };
+        OlapTable table = Mockito.spy(new OlapTable());
+        Mockito.doReturn("testTbl").when(table).getName();
+        Mockito.doReturn(TableType.OLAP).when(table).getType();
+        Mockito.doReturn(Lists.newArrayList(column1, column2)).when(table).getBaseSchema();
+        Mockito.doReturn(KeysType.AGG_KEYS).when(table).getKeysType();
+        Mockito.doReturn(new SinglePartitionInfo()).when(table).getPartitionInfo();
+        Mockito.doReturn(new RandomDistributionInfo(10)).when(table).getDefaultDistributionInfo();
+        Mockito.doReturn(0L).when(table).getIndexIdByName(Mockito.anyString());
+        Mockito.doReturn(TStorageType.COLUMN).when(table).getStorageTypeByIndexId(0L);
+        Mockito.doReturn(partition).when(table).getPartition(Mockito.anyLong());
+        Mockito.doReturn(null).when(table).getCopiedBfColumns();
 
         // mock database
-        Database db = new Database();
-        new Expectations(db) {
-            {
-                db.readLock();
-                minTimes = 0;
-
-                db.readUnlock();
-                minTimes = 0;
-
-                db.getTableNullable(anyString);
-                minTimes = 0;
-                result = table;
-            }
-        };
+        Database db = Mockito.spy(new Database());
+        Mockito.doNothing().when(db).readLock();
+        Mockito.doNothing().when(db).readUnlock();
+        Mockito.doReturn(table).when(db).getTableNullable(Mockito.anyString());
 
         // mock auth
         AccessControllerManager accessManager = AccessTestUtil.fetchAdminAccess();
 
         // mock catalog
-        catalog = Deencapsulation.newInstance(InternalCatalog.class);
-        new Expectations(catalog) {
-            {
-                catalog.getDbNullable("testDb");
-                minTimes = 0;
-                result = db;
+        catalog = Mockito.spy(Deencapsulation.newInstance(InternalCatalog.class));
+        Mockito.doReturn(db).when(catalog).getDbNullable("testDb");
+        Mockito.doReturn(null).when(catalog).getDbNullable("emptyDb");
 
-                catalog.getDbNullable("emptyDb");
-                minTimes = 0;
-                result = null;
-            }
-        };
-
-        CatalogMgr dsMgr = new CatalogMgr();
-        new Expectations(dsMgr) {
-            {
-                dsMgr.getCatalog((String) any);
-                minTimes = 0;
-                result = catalog;
-
-                dsMgr.getCatalogOrException((String) any, (Function) any);
-                minTimes = 0;
-                result = catalog;
-
-                dsMgr.getCatalogOrAnalysisException((String) any);
-                minTimes = 0;
-                result = catalog;
-            }
-        };
+        CatalogMgr dsMgr = Mockito.spy(new CatalogMgr());
+        Mockito.doReturn(catalog).when(dsMgr).getCatalog(Mockito.anyString());
+        Mockito.doReturn(catalog).when(dsMgr).getCatalogOrException(Mockito.anyString(), Mockito.any());
+        Mockito.doReturn(catalog).when(dsMgr).getCatalogOrAnalysisException(Mockito.anyString());
 
         // mock catalog.
-        env = Deencapsulation.newInstance(Env.class);
-        new Expectations(env) {
-            {
-                env.getInternalCatalog();
-                minTimes = 0;
-                result = catalog;
+        env = Mockito.spy(Deencapsulation.newInstance(Env.class));
+        Mockito.doReturn(catalog).when(env).getInternalCatalog();
+        Mockito.doReturn(catalog).when(env).getCurrentCatalog();
+        Mockito.doReturn(accessManager).when(env).getAccessManager();
+        Mockito.doReturn(dsMgr).when(env).getCatalogMgr();
 
-                env.getCurrentCatalog();
-                minTimes = 0;
-                result = catalog;
-
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessManager;
-
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                Env.getDdlStmt((Table) any, (List) any, (List) any, (List) any, anyBoolean, anyBoolean, anyLong);
-                minTimes = 0;
-
-                Env.getDdlStmt((Table) any, (List) any, null, null, anyBoolean, anyBoolean, anyLong);
-                minTimes = 0;
-
-                env.getCatalogMgr();
-                minTimes = 0;
-                result = dsMgr;
-            }
-        };
+        mockedEnvStatic = Mockito.mockStatic(Env.class, Mockito.CALLS_REAL_METHODS);
+        mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
+        mockedEnvStatic.when(() -> Env.getDdlStmt(
+                Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
+                Mockito.anyBoolean(), Mockito.anyBoolean(), Mockito.anyLong()
+        )).thenAnswer(inv -> null);
 
         // mock scheduler
-        ConnectScheduler scheduler = new ConnectScheduler(10);
-        new Expectations(scheduler) {
-            {
-                scheduler.listConnection("testUser", anyBoolean);
-                minTimes = 0;
-                result = Lists.newArrayList(ctx.toThreadInfo(false));
-            }
-        };
+        ConnectScheduler scheduler = Mockito.spy(new ConnectScheduler(10));
+        Mockito.doReturn(Lists.newArrayList(ctx.toThreadInfo(false))).when(scheduler)
+                .listConnection(Mockito.eq("testUser"), Mockito.anyBoolean());
 
         ctx.changeDefaultCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
         ctx.setConnectScheduler(scheduler);
         ctx.setEnv(AccessTestUtil.fetchAdminCatalog());
         ctx.setCurrentUserIdentity(UserIdentity.ROOT);
 
-        new Expectations(ctx) {
-            {
-                ConnectContext.get();
-                minTimes = 0;
-                result = ctx;
-            }
-        };
+        mockedConnectContextStatic = Mockito.mockStatic(ConnectContext.class, Mockito.CALLS_REAL_METHODS);
+        mockedConnectContextStatic.when(ConnectContext::get).thenReturn(ctx);
+    }
+
+    @After
+    public void tearDown() {
+        if (mockedEnvStatic != null) {
+            mockedEnvStatic.close();
+        }
+        if (mockedConnectContextStatic != null) {
+            mockedConnectContextStatic.close();
+        }
     }
 
     @Test
@@ -366,17 +273,8 @@ public class ShowExecutorTest {
         SystemInfoService clusterInfo = AccessTestUtil.fetchSystemInfoService();
         Env env = AccessTestUtil.fetchAdminCatalog();
 
-        new MockUp<Env>() {
-            @Mock
-            Env getCurrentEnv() {
-                return env;
-            }
-
-            @Mock
-            SystemInfoService getCurrentSystemInfo() {
-                return clusterInfo;
-            }
-        };
+        mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
+        mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(clusterInfo);
 
         TableNameInfo tableNameInfo = new TableNameInfo(internalCtl, "testDb", "testTbl");
         DescribeCommand command = new DescribeCommand(tableNameInfo, false, null);
@@ -432,57 +330,53 @@ public class ShowExecutorTest {
         HelpModule module = new HelpModule();
         URL help = getClass().getClassLoader().getResource("test-help-resource-show-help.zip");
         module.setUpByZip(help.getPath());
-        new Expectations(module) {
-            {
-                HelpModule.getInstance();
-                minTimes = 0;
-                result = module;
-            }
-        };
+        try (MockedStatic<HelpModule> mockedHelpModule = Mockito.mockStatic(HelpModule.class)) {
+            mockedHelpModule.when(HelpModule::getInstance).thenReturn(module);
 
-        // topic
-        HelpCommand command = new HelpCommand("ADD");
-        ShowResultSet resultSet = command.doRun(ctx, null);
+            // topic
+            HelpCommand command = new HelpCommand("ADD");
+            ShowResultSet resultSet = command.doRun(ctx, null);
 
-        Assertions.assertTrue(resultSet.next());
-        Assertions.assertEquals("ADD", resultSet.getString(0));
-        Assertions.assertEquals("add function\n", resultSet.getString(1));
-        Assertions.assertFalse(resultSet.next());
+            Assertions.assertTrue(resultSet.next());
+            Assertions.assertEquals("ADD", resultSet.getString(0));
+            Assertions.assertEquals("add function\n", resultSet.getString(1));
+            Assertions.assertFalse(resultSet.next());
 
-        // topic
-        command = new HelpCommand("logical");
-        resultSet = command.doRun(ctx, null);
+            // topic
+            command = new HelpCommand("logical");
+            resultSet = command.doRun(ctx, null);
 
-        Assertions.assertTrue(resultSet.next());
-        Assertions.assertEquals("OR", resultSet.getString(0));
-        Assertions.assertFalse(resultSet.next());
+            Assertions.assertTrue(resultSet.next());
+            Assertions.assertEquals("OR", resultSet.getString(0));
+            Assertions.assertFalse(resultSet.next());
 
-        // keywords
-        command = new HelpCommand("MATH");
-        resultSet = command.doRun(ctx, null);
+            // keywords
+            command = new HelpCommand("MATH");
+            resultSet = command.doRun(ctx, null);
 
-        Assertions.assertTrue(resultSet.next());
-        Assertions.assertEquals("ADD", resultSet.getString(0));
-        Assertions.assertTrue(resultSet.next());
-        Assertions.assertEquals("MINUS", resultSet.getString(0));
-        Assertions.assertFalse(resultSet.next());
+            Assertions.assertTrue(resultSet.next());
+            Assertions.assertEquals("ADD", resultSet.getString(0));
+            Assertions.assertTrue(resultSet.next());
+            Assertions.assertEquals("MINUS", resultSet.getString(0));
+            Assertions.assertFalse(resultSet.next());
 
-        // category
-        command = new HelpCommand("functions");
-        resultSet = command.doRun(ctx, null);
+            // category
+            command = new HelpCommand("functions");
+            resultSet = command.doRun(ctx, null);
 
-        Assertions.assertTrue(resultSet.next());
-        Assertions.assertEquals("HELP", resultSet.getString(0));
-        Assertions.assertTrue(resultSet.next());
-        Assertions.assertEquals("binary function", resultSet.getString(0));
-        Assertions.assertTrue(resultSet.next());
-        Assertions.assertEquals("bit function", resultSet.getString(0));
-        Assertions.assertFalse(resultSet.next());
+            Assertions.assertTrue(resultSet.next());
+            Assertions.assertEquals("HELP", resultSet.getString(0));
+            Assertions.assertTrue(resultSet.next());
+            Assertions.assertEquals("binary function", resultSet.getString(0));
+            Assertions.assertTrue(resultSet.next());
+            Assertions.assertEquals("bit function", resultSet.getString(0));
+            Assertions.assertFalse(resultSet.next());
 
-        // empty
-        command = new HelpCommand("empty");
-        resultSet = command.doRun(ctx, null);
+            // empty
+            command = new HelpCommand("empty");
+            resultSet = command.doRun(ctx, null);
 
-        Assertions.assertFalse(resultSet.next());
+            Assertions.assertFalse(resultSet.next());
+        }
     }
 }

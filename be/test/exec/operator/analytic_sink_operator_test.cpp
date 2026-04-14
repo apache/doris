@@ -56,7 +56,7 @@ struct AnalyticSinkOperatorTest : public ::testing::Test {
         sink = std::make_unique<AnalyticSinkOperatorX>(&pool);
         source = std::make_unique<AnalyticSourceOperatorX>();
         state = std::make_shared<MockRuntimeState>();
-        state->batsh_size = batch_size;
+        state->_batch_size = batch_size;
         std::cout << "AnalyticSinkOperatorTest::SetUp() batch_size: " << batch_size << std::endl;
         _child_op = std::make_unique<MockAnalyticSinkOperator>();
         for (int i = 0; i < batch_size; i++) {

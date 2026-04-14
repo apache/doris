@@ -17,9 +17,9 @@
 
 package org.apache.doris.datasource.iceberg.fileio;
 
-import org.apache.doris.fs.FileSystem;
-import org.apache.doris.fs.io.DorisOutputFile;
-import org.apache.doris.fs.io.ParsedPath;
+import org.apache.doris.filesystem.DorisOutputFile;
+import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.Location;
 
 import com.google.common.io.CountingOutputStream;
 import org.apache.iceberg.io.InputFile;
@@ -37,24 +37,20 @@ import java.util.Objects;
  * integration between Doris file system and Iceberg's file IO abstraction.
  */
 public class DelegateOutputFile implements OutputFile {
-    /**
-     * The underlying Doris file system used for file operations.
-     */
+    /** The SPI filesystem used to create input files for {@link #toInputFile()}. */
     private final FileSystem fileSystem;
-    /**
-     * The DorisOutputFile instance representing the output file.
-     */
+    /** The underlying Doris output file. */
     private final DorisOutputFile outputFile;
 
     /**
-     * Constructs a DelegateOutputFile with the specified FileSystem and ParsedPath.
+     * Constructs a DelegateOutputFile with the specified SPI FileSystem and Location.
      *
-     * @param fileSystem the Doris file system to delegate operations to
-     * @param path the ParsedPath representing the file location
+     * @param fileSystem the SPI filesystem to delegate operations to
+     * @param location   the file location
      */
-    public DelegateOutputFile(FileSystem fileSystem, ParsedPath path) {
+    public DelegateOutputFile(FileSystem fileSystem, Location location) throws IOException {
         this.fileSystem = Objects.requireNonNull(fileSystem, "fileSystem is null");
-        this.outputFile = fileSystem.newOutputFile(path);
+        this.outputFile = fileSystem.newOutputFile(location);
     }
 
     // ===================== File Creation Methods =====================
@@ -96,7 +92,7 @@ public class DelegateOutputFile implements OutputFile {
      */
     @Override
     public String location() {
-        return outputFile.path().toString();
+        return outputFile.location().toString();
     }
 
     /**
@@ -106,7 +102,11 @@ public class DelegateOutputFile implements OutputFile {
      */
     @Override
     public InputFile toInputFile() {
-        return new DelegateInputFile(fileSystem.newInputFile(outputFile.path()));
+        try {
+            return new DelegateInputFile(fileSystem.newInputFile(outputFile.location()));
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to create InputFile for: " + location(), e);
+        }
     }
 
     // ===================== Object Methods =====================

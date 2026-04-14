@@ -219,7 +219,7 @@ public class DemoMultiBackendsTest {
                         + "\"lastFragmentUpdateTime\":0}",
                 result.getRows().get(0).get(backendsTitleNames.size() - 7));
         Assert.assertEquals("0", result.getRows().get(0).get(backendsTitleNames.size() - 6));
-        Assert.assertEquals(Tag.VALUE_MIX, result.getRows().get(0).get(backendsTitleNames.size() - 5));
+        Assert.assertEquals(Tag.VALUE_MIX, result.getRows().get(0).get(backendsTitleNames.size() - 1));
     }
 
     protected void alterTable(String sql, ConnectContext connectContext) throws Exception {

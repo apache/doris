@@ -18,18 +18,20 @@
 package org.apache.doris.mysql.authenticate;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.mysql.authenticate.password.NativePassword;
 import org.apache.doris.mysql.authenticate.password.NativePasswordResolver;
 import org.apache.doris.mysql.privilege.Auth;
 
-import mockit.Delegate;
-import mockit.Expectations;
-import mockit.Mocked;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.ArgumentMatchers;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.io.IOException;
 import java.util.List;
@@ -38,33 +40,32 @@ public class DefaultAuthenticatorTest {
     private static final String USER_NAME = "user";
     private static final String IP = "192.168.1.1";
 
-    @Mocked
-    private Auth auth;
+    private Auth auth = Mockito.mock(Auth.class);
+    private Env env = Mockito.mock(Env.class);
+    private MockedStatic<Env> mockedEnvStatic;
 
     private DefaultAuthenticator defaultAuthenticator = new DefaultAuthenticator();
     private AuthenticateRequest request = new AuthenticateRequest(USER_NAME,
             new NativePassword(new byte[2], new byte[2]), IP);
 
-
     @Before
     public void setUp() throws DdlException, AuthenticationException, IOException {
+        mockedEnvStatic = Mockito.mockStatic(Env.class);
+        mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
+        Mockito.when(env.getAuth()).thenReturn(auth);
 
-        // mock auth
-        new Expectations() {
-            {
-                auth.checkPassword(anyString, anyString, (byte[]) any, (byte[]) any, (List<UserIdentity>) any);
-                minTimes = 0;
-                result = new Delegate() {
-                    void fakeCheckPassword(String remoteUser, String remoteHost, byte[] remotePasswd,
-                            byte[] randomString, List<UserIdentity> currentUser) {
-                        UserIdentity userIdentity = new UserIdentity(USER_NAME, IP);
-                        currentUser.add(userIdentity);
-                    }
-                };
-            }
-        };
+        Mockito.doAnswer(inv -> {
+            List<UserIdentity> currentUser = inv.getArgument(4);
+            UserIdentity userIdentity = new UserIdentity(USER_NAME, IP);
+            currentUser.add(userIdentity);
+            return null;
+        }).when(auth).checkPassword(ArgumentMatchers.anyString(), ArgumentMatchers.anyString(), ArgumentMatchers.any(byte[].class), ArgumentMatchers.any(byte[].class), ArgumentMatchers.any(List.class));
     }
 
+    @After
+    public void tearDown() {
+        mockedEnvStatic.close();
+    }
 
     @Test
     public void testAuthenticate() throws IOException {
@@ -76,17 +77,11 @@ public class DefaultAuthenticatorTest {
 
     @Test
     public void testAuthenticateFailed() throws IOException, AuthenticationException {
-        new Expectations() {
-            {
-                auth.checkPassword(anyString, anyString, (byte[]) any, (byte[]) any, (List<UserIdentity>) any);
-                minTimes = 0;
-                result = new AuthenticationException("exception");
-            }
-        };
+        Mockito.doThrow(new AuthenticationException("exception"))
+                .when(auth).checkPassword(ArgumentMatchers.anyString(), ArgumentMatchers.anyString(), ArgumentMatchers.any(byte[].class), ArgumentMatchers.any(byte[].class), ArgumentMatchers.any(List.class));
         AuthenticateResponse response = defaultAuthenticator.authenticate(request);
         Assert.assertFalse(response.isSuccess());
     }
-
 
     @Test
     public void testCanDeal() {

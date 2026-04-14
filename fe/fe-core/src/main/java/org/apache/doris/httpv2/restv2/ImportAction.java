@@ -21,7 +21,10 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.parquet.ParquetReader;
-import org.apache.doris.common.util.BrokerUtil;
+import org.apache.doris.filesystem.FileEntry;
+import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.Location;
+import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.rest.RestBaseController;
 import org.apache.doris.thrift.TBrokerFileStatus;
@@ -91,7 +94,15 @@ public class ImportAction extends RestBaseController {
         List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
         try {
             // get file status
-            BrokerUtil.parseFile(fileInfo.getFileUrl(), brokerDesc, fileStatuses);
+            try (FileSystem fs = FileSystemFactory.getFileSystem(brokerDesc)) {
+                for (FileEntry e : fs.listFiles(Location.of(fileInfo.getFileUrl()))) {
+                    fileStatuses.add(new TBrokerFileStatus(
+                            e.location().uri(), e.isDirectory(), e.length(), !e.isDirectory()));
+                }
+            } catch (java.io.IOException e) {
+                throw new UserException(brokerDesc.getName() + " list path exception. path="
+                        + fileInfo.getFileUrl() + ", err: " + e.getMessage(), e);
+            }
             // create response
             FileReviewResponseVo reviewResponseVo = createFileReviewResponse(brokerDesc, fileInfo, fileStatuses);
             return ResponseEntityBuilder.ok(reviewResponseVo);
@@ -126,7 +137,20 @@ public class ImportAction extends RestBaseController {
         fileSample.setSampleFileName(sampleFile.path);
 
         if (fileInfo.format.equalsIgnoreCase(FORMAT_CSV)) {
-            byte[] fileContentBytes = BrokerUtil.readFile(sampleFile.path, brokerDesc, MAX_READ_LEN_BYTES);
+            byte[] fileContentBytes;
+            try (FileSystem fs = FileSystemFactory.getFileSystem(brokerDesc);
+                 java.io.InputStream in = fs.newInputFile(Location.of(sampleFile.path)).newStream()) {
+                byte[] buf = new byte[(int) MAX_READ_LEN_BYTES];
+                int totalRead = 0;
+                int n;
+                while (totalRead < buf.length
+                        && (n = in.read(buf, totalRead, buf.length - totalRead)) != -1) {
+                    totalRead += n;
+                }
+                fileContentBytes = totalRead == buf.length ? buf : java.util.Arrays.copyOf(buf, totalRead);
+            } catch (java.io.IOException e) {
+                throw new UserException("Failed to read file: " + sampleFile.path + ", err: " + e.getMessage(), e);
+            }
             parseContent(fileInfo.columnSeparator, "\n", fileContentBytes, fileSample);
         } else if (fileInfo.format.equalsIgnoreCase(FORMAT_PARQUET)) {
             try {

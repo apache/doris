@@ -119,17 +119,14 @@
 #include "load/stream_load/new_load_stream_mgr.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
-#include "runtime/result_block_buffer.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
-#include "service/backend_options.h"
 #include "util/countdown_latch.h"
 #include "util/debug_util.h"
 #include "util/uid_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 PipelineFragmentContext::PipelineFragmentContext(
         TUniqueId query_id, const TPipelineFragmentParams& request,
         std::shared_ptr<QueryContext> query_ctx, ExecEnv* exec_env,
@@ -257,7 +254,7 @@ void PipelineFragmentContext::cancel(const Status reason) {
 
     for (auto& tasks : _tasks) {
         for (auto& task : tasks) {
-            task.first->terminate();
+            task.first->unblock_all_dependencies();
         }
     }
 }
@@ -2197,5 +2194,4 @@ void PipelineFragmentContext::_release_resource() {
     _op_id_to_shared_state.clear();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

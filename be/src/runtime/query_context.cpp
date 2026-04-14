@@ -73,6 +73,8 @@ const std::string toString(QuerySource queryType) {
         return "ROUTINE_LOAD";
     case QuerySource::EXTERNAL_CONNECTOR:
         return "EXTERNAL_CONNECTOR";
+    case QuerySource::EXTERNAL_FRONTEND:
+        return "EXTERNAL_FRONTEND";
     default:
         return "UNKNOWN";
     }
@@ -138,6 +140,9 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
     }
     clock_gettime(CLOCK_MONOTONIC, &this->_query_arrival_timestamp);
     DorisMetrics::instance()->query_ctx_cnt->increment(1);
+    _mem_arb = MemShareArbitrator::create_shared(
+            query_id, query_options.mem_limit,
+            query_options.__isset.max_scan_mem_ratio ? query_options.max_scan_mem_ratio : 1.0);
 }
 
 void QueryContext::_init_query_mem_tracker() {

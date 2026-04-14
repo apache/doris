@@ -74,7 +74,7 @@ public class CreateIndexOp extends AlterTableOp {
             throw new AnalysisException("index definition expected.");
         }
         if (tableName != null) {
-            tableName.analyze(ctx);
+            tableName.analyze(ctx.getNameSpaceContext());
         }
 
         indexDef.validate();

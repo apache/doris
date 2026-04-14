@@ -309,8 +309,6 @@ suite("aggregate") {
     sql"""create table tempbaseall PROPERTIES("replication_num" = "1")  as select k1, k2 from baseall where k1 is not null;"""
     qt_aggregate32"select k1, k2 from (select k1, max(k2) as k2 from tempbaseall where k1 > 0 group by k1 order by k1)a where k1 > 0 and k1 < 10 order by k1;"
 
-    sql 'set enable_fallback_to_original_planner=false'
-    sql 'set enable_nereids_planner=true'
     qt_aggregate """ select avg(distinct c_bigint), avg(distinct c_double) from regression_test_query_p0_aggregate.${tableName} """
     qt_aggregate """ select count(distinct c_bigint),count(distinct c_double),count(distinct c_string),count(distinct c_date_1),count(distinct c_timestamp_1),count(distinct c_timestamp_2),count(distinct c_timestamp_3),count(distinct c_boolean) from regression_test_query_p0_aggregate.${tableName} """
 
@@ -365,4 +363,79 @@ suite("aggregate") {
     """
 
     sql """ DROP TABLE IF EXISTS sales_data """
+
+    qt_select_quantile_percent """ select QUANTILE_PERCENT(QUANTILE_UNION(TO_QUANTILE_STATE(c_bigint,2048)),0.5) from regression_test_query_p0_aggregate.${tableName};  """
+
+    qt_aggregate """ select count(distinct c_bigint),count(distinct c_boolean) from regression_test_query_p0_aggregate.${tableName} group by c_string order by 1;"""
+
+    sql "select k1 as k, k1 from tempbaseall group by k1 having k1 > 0"
+    sql "select k1 as k, k1 from tempbaseall group by k1 having k > 0"
+    
+    // remove distinct for max, min, any_value
+    def plan = sql(
+            """explain optimized plan SELECT max(distinct c_bigint), 
+            min(distinct c_bigint), 
+            any_value(distinct c_bigint)
+            FROM regression_test_query_p0_aggregate.${tableName};"""
+        ).toString()
+    assertTrue(plan.contains("max(c_bigint"))
+    assertTrue(plan.contains("min(c_bigint"))
+    assertTrue(plan.contains("any_value(c_bigint"))
+
+    test {
+        sql """
+              SELECT k1, k2 FROM tempbaseall
+              GROUP BY k1;
+            """
+        exception "PROJECT expression 'k2' must appear in the GROUP BY clause or be used in an aggregate function"
+    }
+
+    test {
+        sql """
+              SELECT sum(avg(k1)) FROM tempbaseall;
+            """
+        exception "aggregate function cannot contain aggregate parameters"
+    }
+
+    sql " set parallel_pipeline_task_num = 1; "
+    sql " set enable_pipeline_x_engine = 1; "
+    qt_having_with_limit """
+        select k1 as k, avg(k2) as k2  from tempbaseall group by k1 having k2 < -32765 order by k1 limit 1;
+    """
+
+    sql "drop table if exists table_10_undef_partitions2_keys3_properties4_distributed_by5"
+
+    sql """create table table_10_undef_partitions2_keys3_properties4_distributed_by5 (
+            col_bigint_undef_signed bigint/*agg_type_placeholder*/   ,
+                    col_varchar_10__undef_signed varchar(10)/*agg_type_placeholder*/   ,
+            col_varchar_64__undef_signed varchar(64)/*agg_type_placeholder*/   ,
+                    pk int/*agg_type_placeholder*/
+    ) engine=olap
+    distributed by hash(pk) buckets 10
+    properties("replication_num" = "1")"""
+
+    sql "insert into table_10_undef_partitions2_keys3_properties4_distributed_by5(pk,col_bigint_undef_signed,col_varchar_10__undef_signed,col_varchar_64__undef_signed) values (0,111,'from','t'),(1,null,'h','out'),(2,3814,'get','q'),(3,5166561111626303305,'s','right'),(4,2688963514917402600,'b','hey'),(5,-5065987944147755706,'p','mean'),(6,31061,'v','d'),(7,122,'the','t'),(8,-2882446,'going','a'),(9,-43,'y','a');"
+
+    sql "SELECT MIN( `pk` ) FROM table_10_undef_partitions2_keys3_properties4_distributed_by5  WHERE ( col_varchar_64__undef_signed  LIKE CONCAT ('come' , '%' ) OR col_varchar_10__undef_signed  IN ( 'could' , 'was' , 'that' ) ) OR ( `pk` IS  NULL OR  ( `pk` <> 186 ) ) AND ( `pk` IS NOT NULL OR `pk`  BETWEEN 255 AND -99 + 8 ) AND (  ( `pk` != 6 ) OR `pk` IS  NULL );"
+
+    sql "drop table if exists test_four_phase_full_distribute"
+    sql """CREATE TABLE `test_four_phase_full_distribute` (
+          `id` INT NULL,
+          `age` INT NULL,
+          `name` VARCHAR(65533) NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`id`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`id`) BUCKETS 10
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );"""
+
+    sql "insert into test_four_phase_full_distribute values(1, 21, 'hello'), (2, 22, 'world')"
+    sql " sync "
+    order_qt_four_phase_full_distribute """select
+        name, count(distinct name), count(distinct age)
+        from test_four_phase_full_distribute
+        group by name
+        """
 }

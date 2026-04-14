@@ -706,7 +706,7 @@ TEST_F(SchemaUtilRowsetTest, some_test_for_subcolumn_writer) {
     auto size = variant_subcolumn_writer->estimate_buffer_size();
     std::cout << "size: " << size << std::endl;
     // append data
-    auto insert_object = ColumnVariant::create(true);
+    auto insert_object = ColumnVariant::create(0, false);
     fill_varaint_column(insert_object, 1, 1);
     std::cout << insert_object->debug_string() << std::endl;
     std::unique_ptr<VariantColumnData> _variant_column_data = std::make_unique<VariantColumnData>();

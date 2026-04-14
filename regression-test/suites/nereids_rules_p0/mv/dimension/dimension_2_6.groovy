@@ -40,7 +40,7 @@ suite("partition_mv_rewrite_dimension_2_6") {
     ) ENGINE=OLAP
     DUPLICATE KEY(`o_orderkey`, `o_custkey`)
     COMMENT 'OLAP'
-    DISTRIBUTED BY HASH(`o_orderkey`) BUCKETS 96
+    DISTRIBUTED BY HASH(`o_orderkey`) BUCKETS 2
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
     );"""
@@ -69,7 +69,7 @@ suite("partition_mv_rewrite_dimension_2_6") {
     ) ENGINE=OLAP
     DUPLICATE KEY(l_orderkey, l_linenumber, l_partkey, l_suppkey )
     COMMENT 'OLAP'
-    DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 96
+    DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 2
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
     );"""
@@ -87,7 +87,7 @@ suite("partition_mv_rewrite_dimension_2_6") {
     ) ENGINE=OLAP
     DUPLICATE KEY(`ps_partkey`, `ps_suppkey`)
     COMMENT 'OLAP'
-    DISTRIBUTED BY HASH(`ps_partkey`) BUCKETS 24
+    DISTRIBUTED BY HASH(`ps_partkey`) BUCKETS 2
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
     );"""
@@ -137,14 +137,29 @@ suite("partition_mv_rewrite_dimension_2_6") {
     def compare_res = { def stmt ->
         sql "SET enable_materialized_view_rewrite=false"
         def origin_res = sql stmt
-        logger.info("origin_res: " + origin_res)
         sql "SET enable_materialized_view_rewrite=true"
         def mv_origin_res = sql stmt
-        logger.info("mv_origin_res: " + mv_origin_res)
+        boolean logged = false
+        def logResultMismatch = {
+            if (!logged) {
+                logger.info("origin_res: " + origin_res)
+                logger.info("mv_origin_res: " + mv_origin_res)
+                logged = true
+            }
+        }
+        if (!((mv_origin_res == [] && origin_res == []) || (mv_origin_res.size() == origin_res.size()))) {
+            logResultMismatch()
+        }
         assertTrue((mv_origin_res == [] && origin_res == []) || (mv_origin_res.size() == origin_res.size()))
         for (int row = 0; row < mv_origin_res.size(); row++) {
+            if (mv_origin_res[row].size() != origin_res[row].size()) {
+                logResultMismatch()
+            }
             assertTrue(mv_origin_res[row].size() == origin_res[row].size())
             for (int col = 0; col < mv_origin_res[row].size(); col++) {
+                if (mv_origin_res[row][col] != origin_res[row][col]) {
+                    logResultMismatch()
+                }
                 assertTrue(mv_origin_res[row][col] == origin_res[row][col])
             }
         }
@@ -250,8 +265,6 @@ suite("partition_mv_rewrite_dimension_2_6") {
         where l_shipdate >= "2023-10-17"
         group by l_shipdate, l_partkey, l_orderkey"""
     create_async_mv(db, mv_name_5, mv_stmt_5)
-    def job_name_5 = getJobName(db, mv_name_5)
-    waitingMTMVTaskFinished(job_name_5)
 
     def sql_stmt_5 = """select t.l_shipdate, o_orderdate, t.l_partkey 
         from (select l_shipdate, l_partkey, l_orderkey from lineitem_2_6 group by l_shipdate, l_partkey, l_orderkey) t 
@@ -270,8 +283,6 @@ suite("partition_mv_rewrite_dimension_2_6") {
         where l_partkey  > 1 + 1
         group by l_shipdate, l_partkey, l_orderkey"""
     create_async_mv(db, mv_name_6, mv_stmt_6)
-    def job_name_6 = getJobName(db, mv_name_6)
-    waitingMTMVTaskFinished(job_name_6)
 
     def sql_stmt_6 = """select t.l_shipdate, o_orderdate, t.l_partkey * 2
         from (select l_shipdate, l_partkey, l_orderkey from lineitem_2_6 group by l_shipdate, l_partkey, l_orderkey) t
@@ -341,8 +352,6 @@ suite("partition_mv_rewrite_dimension_2_6") {
             on lineitem_2_6.l_orderkey = orders_2_6.o_orderkey 
             where  o_custkey > 1 + 1"""
     create_async_mv(db, mv_name_9, mv_stmt_9)
-    def job_name_9 = getJobName(db, mv_name_9)
-    waitingMTMVTaskFinished(job_name_9)
 
     def sql_stmt_9 = """select o_orderdate, o_shippriority, o_comment, o_shippriority + o_custkey,
             case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end cnt_1,

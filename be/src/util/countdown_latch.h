@@ -26,7 +26,6 @@
 #include "storage/olap_define.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 // This is a C++ implementation of the Java CountDownLatch
 // class.
 // See http://docs.oracle.com/javase/6/docs/api/java/util/concurrent/CountDownLatch.html
@@ -125,5 +124,4 @@ private:
     CountDownOnScopeExit(const CountDownOnScopeExit&) = delete;
     void operator=(const CountDownOnScopeExit&) = delete;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

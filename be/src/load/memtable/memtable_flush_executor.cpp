@@ -27,6 +27,7 @@
 #include "common/logging.h"
 #include "common/metrics/doris_metrics.h"
 #include "common/metrics/metrics.h"
+#include "common/metrics/system_metrics.h"
 #include "common/signal_handler.h"
 #include "load/memtable/memtable.h"
 #include "runtime/thread_context.h"
@@ -295,45 +296,53 @@ void FlushToken::_flush_memtable(std::shared_ptr<MemTable> memtable_ptr, int32_t
     _stats.flush_disk_size_bytes += flush_size;
 }
 
+std::pair<int, int> MemTableFlushExecutor::calc_flush_thread_count(int num_cpus, int num_disk,
+                                                                   int thread_num_per_store) {
+    if (config::enable_adaptive_flush_threads && num_cpus > 0) {
+        int min = std::max(1, (int)(num_cpus * config::min_flush_thread_num_per_cpu));
+        int max = std::max(min, num_cpus * config::max_flush_thread_num_per_cpu);
+        return {min, max};
+    }
+    int min = std::max(1, thread_num_per_store);
+    int max = num_cpus == 0
+                      ? num_disk * min
+                      : std::min(num_disk * min, num_cpus * config::max_flush_thread_num_per_cpu);
+    return {min, max};
+}
+
 void MemTableFlushExecutor::init(int num_disk) {
     _num_disk = std::max(1, num_disk);
     int num_cpus = std::thread::hardware_concurrency();
-    int min_threads = std::max(1, config::flush_thread_num_per_store);
-    int max_threads = num_cpus == 0 ? _num_disk * min_threads
-                                    : std::min(_num_disk * min_threads,
-                                               num_cpus * config::max_flush_thread_num_per_cpu);
+
+    auto [min_threads, max_threads] =
+            calc_flush_thread_count(num_cpus, _num_disk, config::flush_thread_num_per_store);
     static_cast<void>(ThreadPoolBuilder("MemTableFlushThreadPool")
                               .set_min_threads(min_threads)
                               .set_max_threads(max_threads)
                               .build(&_flush_pool));
 
-    min_threads = std::max(1, config::high_priority_flush_thread_num_per_store);
-    max_threads = num_cpus == 0 ? _num_disk * min_threads
-                                : std::min(_num_disk * min_threads,
-                                           num_cpus * config::max_flush_thread_num_per_cpu);
+    auto [hi_min, hi_max] = calc_flush_thread_count(
+            num_cpus, _num_disk, config::high_priority_flush_thread_num_per_store);
     static_cast<void>(ThreadPoolBuilder("MemTableHighPriorityFlushThreadPool")
-                              .set_min_threads(min_threads)
-                              .set_max_threads(max_threads)
+                              .set_min_threads(hi_min)
+                              .set_max_threads(hi_max)
                               .build(&_high_prio_flush_pool));
 }
 
 void MemTableFlushExecutor::update_memtable_flush_threads() {
     int num_cpus = std::thread::hardware_concurrency();
-    int min_threads = std::max(1, config::flush_thread_num_per_store);
-    int max_threads = num_cpus == 0 ? _num_disk * min_threads
-                                    : std::min(_num_disk * min_threads,
-                                               num_cpus * config::max_flush_thread_num_per_cpu);
+
+    auto [min_threads, max_threads] =
+            calc_flush_thread_count(num_cpus, _num_disk, config::flush_thread_num_per_store);
     // Update max_threads first to avoid constraint violation when increasing min_threads
     static_cast<void>(_flush_pool->set_max_threads(max_threads));
     static_cast<void>(_flush_pool->set_min_threads(min_threads));
 
-    min_threads = std::max(1, config::high_priority_flush_thread_num_per_store);
-    max_threads = num_cpus == 0 ? _num_disk * min_threads
-                                : std::min(_num_disk * min_threads,
-                                           num_cpus * config::max_flush_thread_num_per_cpu);
+    auto [hi_min, hi_max] = calc_flush_thread_count(
+            num_cpus, _num_disk, config::high_priority_flush_thread_num_per_store);
     // Update max_threads first to avoid constraint violation when increasing min_threads
-    static_cast<void>(_high_prio_flush_pool->set_max_threads(max_threads));
-    static_cast<void>(_high_prio_flush_pool->set_min_threads(min_threads));
+    static_cast<void>(_high_prio_flush_pool->set_max_threads(hi_max));
+    static_cast<void>(_high_prio_flush_pool->set_min_threads(hi_min));
 }
 
 // NOTE: we use SERIAL mode here to ensure all mem-tables from one tablet are flushed in order.

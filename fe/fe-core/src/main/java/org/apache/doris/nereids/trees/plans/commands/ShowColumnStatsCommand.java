@@ -123,7 +123,7 @@ public class ShowColumnStatsCommand extends ShowCommand {
     }
 
     private void validate(ConnectContext ctx) throws Exception {
-        tableName.analyze(ctx);
+        tableName.analyze(ctx.getNameSpaceContext());
         if (partitionNames != null) {
             partitionNames.validate();
         }

@@ -62,7 +62,7 @@ public class ShowCreateMTMVInfo {
      * @param ctx ConnectContext
      */
     public void analyze(ConnectContext ctx) {
-        mvName.analyze(ctx);
+        mvName.analyze(ctx.getNameSpaceContext());
         if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), mvName.getCtl(), mvName.getDb(),
                 mvName.getTbl(), PrivPredicate.SHOW)) {
             String message = ErrorCode.ERR_TABLEACCESS_DENIED_ERROR.formatErrorMsg("SHOW",

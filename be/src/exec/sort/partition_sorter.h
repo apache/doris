@@ -29,14 +29,12 @@
 #include "exec/sort/sorter.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class ObjectPool;
 class RowDescriptor;
 class RuntimeProfile;
 class RuntimeState;
 
 class Block;
-class VSortExecExprs;
 } // namespace doris
 
 namespace doris {
@@ -75,7 +73,7 @@ class PartitionSorter final : public Sorter {
     ENABLE_FACTORY_CREATOR(PartitionSorter);
 
 public:
-    PartitionSorter(VSortExecExprs& vsort_exec_exprs, int64_t limit, int64_t offset,
+    PartitionSorter(const VExprContextSPtrs& ordering_expr_ctxs, int64_t limit, int64_t offset,
                     ObjectPool* pool, std::vector<bool>& is_asc_order,
                     std::vector<bool>& nulls_first, const RowDescriptor& row_desc,
                     RuntimeState* state, RuntimeProfile* profile, bool has_global_limit,
@@ -123,5 +121,4 @@ private:
     bool _prepared_finish = false;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

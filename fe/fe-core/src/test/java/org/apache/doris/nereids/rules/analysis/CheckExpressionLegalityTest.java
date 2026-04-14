@@ -21,14 +21,23 @@ import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.expression.CheckLegalityAfterRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.WindowFunnelV2;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 
 public class CheckExpressionLegalityTest implements MemoPatternMatchSupported {
     @Test
@@ -70,5 +79,23 @@ public class CheckExpressionLegalityTest implements MemoPatternMatchSupported {
                                 .analyze("select count(distinct id) from (select to_bitmap(1) id) tbl")
                                 .applyBottomUp(new ExpressionRewrite(CheckLegalityAfterRewrite.INSTANCE))
         );
+    }
+
+    @Test
+    public void testWindowFunnelV2TooManyConditions() {
+        List<Expression> arguments = ImmutableList.<Expression>builder()
+                .add(new IntegerLiteral(10))
+                .add(new StringLiteral("default"))
+                .add(new DateTimeLiteral("2022-02-28 00:00:00"))
+                .addAll(ImmutableList.copyOf(java.util.Collections.nCopies(
+                        WindowFunnelV2.MAX_EVENT_CONDITIONS + 1, BooleanLiteral.TRUE)))
+                .build();
+        WindowFunnelV2 expression = new WindowFunnelV2(arguments.get(0), arguments.get(1),
+                arguments.get(2), arguments.get(3), arguments.subList(4, arguments.size())
+                        .toArray(new Expression[0]));
+
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                "supports at most " + WindowFunnelV2.MAX_EVENT_CONDITIONS + " event conditions",
+                expression::checkLegalityBeforeTypeCoercion);
     }
 }

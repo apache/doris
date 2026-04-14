@@ -247,7 +247,6 @@ public class ExportJob implements Writable {
                 for (int i = 0; i < selectStmtPerParallel.size(); ++i) {
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("ExportTaskExecutor {} is responsible for outfile:", i);
-                        LOG.debug("outfile sql: [{}]", selectStmtPerParallel.get(i).get().toSql());
                     }
                 }
             }
@@ -346,7 +345,7 @@ public class ExportJob implements Writable {
         }
 
         StatementBase statementBase = new LogicalPlanAdapter(outfileLogicalPlan, statementContext);
-        statementBase.setOrigStmt(new OriginStatement(statementBase.toSql(), 0));
+        statementBase.setOrigStmt(new OriginStatement("", 0));
         return statementBase;
     }
 

@@ -51,7 +51,6 @@
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
-#include "storage/cache/schema_cache.h"
 #include "storage/id_manager.h"
 #include "storage/index/inverted/inverted_index_profile.h"
 #include "storage/iterator/block_reader.h"
@@ -164,63 +163,24 @@ Status OlapScanner::prepare() {
     // value (e.g. select a from t where a .. and b ... limit 1),
     // it will be very slow when reading data in segment iterator
     _tablet_reader->set_batch_size(_state->batch_size());
-    TabletSchemaSPtr cached_schema;
-    std::string schema_key;
     {
         TOlapScanNode& olap_scan_node = local_state->olap_scan_node();
 
-        const auto check_can_use_cache = [&]() {
-            if (!(olap_scan_node.__isset.schema_version && olap_scan_node.__isset.columns_desc &&
-                  !olap_scan_node.columns_desc.empty() &&
-                  olap_scan_node.columns_desc[0].col_unique_id >= 0 && // Why check first column?
-                  tablet->tablet_schema()->num_variant_columns() == 0 &&
-                  tablet->tablet_schema()->num_virtual_columns() == 0)) {
-                return false;
+        // Each scanner builds its own TabletSchema to avoid concurrent modification.
+        tablet_schema = std::make_shared<TabletSchema>();
+        tablet_schema->copy_from(*tablet->tablet_schema());
+        if (olap_scan_node.__isset.columns_desc && !olap_scan_node.columns_desc.empty() &&
+            olap_scan_node.columns_desc[0].col_unique_id >= 0) {
+            tablet_schema->clear_columns();
+            for (const auto& column_desc : olap_scan_node.columns_desc) {
+                tablet_schema->append_column(TabletColumn(column_desc));
             }
-
-            const bool has_pruned_column =
-                    std::ranges::any_of(_output_tuple_desc->slots(), [](const auto& slot) {
-                        if ((slot->type()->get_primitive_type() == PrimitiveType::TYPE_STRUCT ||
-                             slot->type()->get_primitive_type() == PrimitiveType::TYPE_MAP ||
-                             slot->type()->get_primitive_type() == PrimitiveType::TYPE_ARRAY) &&
-                            !slot->all_access_paths().empty()) {
-                            return true;
-                        }
-                        return false;
-                    });
-            return !has_pruned_column;
-        }();
-
-        if (check_can_use_cache) {
-            schema_key =
-                    SchemaCache::get_schema_key(tablet->tablet_id(), olap_scan_node.columns_desc,
-                                                olap_scan_node.schema_version);
-            cached_schema = SchemaCache::instance()->get_schema(schema_key);
+            if (olap_scan_node.__isset.schema_version) {
+                tablet_schema->set_schema_version(olap_scan_node.schema_version);
+            }
         }
-        if (cached_schema && cached_schema->num_virtual_columns() == 0) {
-            tablet_schema = cached_schema;
-        } else {
-            // If schema is not cached or cached schema has virtual columns,
-            // we need to create a new TabletSchema.
-            tablet_schema = std::make_shared<TabletSchema>();
-            tablet_schema->copy_from(*tablet->tablet_schema());
-            if (olap_scan_node.__isset.columns_desc && !olap_scan_node.columns_desc.empty() &&
-                olap_scan_node.columns_desc[0].col_unique_id >= 0) {
-                // Originally scanner get TabletSchema from tablet object in BE.
-                // To support lightweight schema change for adding / dropping columns,
-                // tabletschema is bounded to rowset and tablet's schema maybe outdated,
-                //  so we have to use schema from a query plan witch FE puts it in query plans.
-                tablet_schema->clear_columns();
-                for (const auto& column_desc : olap_scan_node.columns_desc) {
-                    tablet_schema->append_column(TabletColumn(column_desc));
-                }
-                if (olap_scan_node.__isset.schema_version) {
-                    tablet_schema->set_schema_version(olap_scan_node.schema_version);
-                }
-            }
-            if (olap_scan_node.__isset.indexes_desc) {
-                tablet_schema->update_indexes_from_thrift(olap_scan_node.indexes_desc);
-            }
+        if (olap_scan_node.__isset.indexes_desc) {
+            tablet_schema->update_indexes_from_thrift(olap_scan_node.indexes_desc);
         }
 
         if (_tablet_reader_params.rs_splits.empty()) {
@@ -276,12 +236,6 @@ Status OlapScanner::prepare() {
     if (_state->enable_profile()) {
         _profile->add_info_string("ReadColumns",
                                   read_columns_to_string(tablet_schema, _return_columns));
-    }
-
-    // Add newly created tablet schema to schema cache if it does not have virtual columns.
-    if (cached_schema == nullptr && !schema_key.empty() &&
-        tablet_schema->num_virtual_columns() == 0 && !tablet_schema->has_pruned_columns()) {
-        SchemaCache::instance()->insert_schema(schema_key, tablet_schema);
     }
 
     if (_tablet_reader_params.score_runtime) {
@@ -486,20 +440,41 @@ Status OlapScanner::_init_tablet_reader_params(
             _tablet_reader_params.enable_mor_value_predicate_pushdown = true;
         }
 
-        // order by table keys optimization for topn
-        // will only read head/tail of data file since it's already sorted by keys
-        if (olap_scan_node.__isset.sort_info && !olap_scan_node.sort_info.is_asc_order.empty()) {
-            _limit = _local_state->limit_per_scanner();
-            _tablet_reader_params.read_orderby_key = true;
-            if (!olap_scan_node.sort_info.is_asc_order[0]) {
-                _tablet_reader_params.read_orderby_key_reverse = true;
-            }
-            _tablet_reader_params.read_orderby_key_num_prefix_columns =
-                    olap_scan_node.sort_info.is_asc_order.size();
-            _tablet_reader_params.read_orderby_key_limit = _limit;
+        // Skip topn / general-limit storage-layer optimizations when runtime
+        // filters exist.  Late-arriving filters would re-populate _conjuncts
+        // at the scanner level while the storage layer has already committed
+        // to a row budget counted before those filters, causing the scan to
+        // return fewer rows than the limit requires.
+        if (_total_rf_num == 0) {
+            // order by table keys optimization for topn
+            // will only read head/tail of data file since it's already sorted by keys
+            if (olap_scan_node.__isset.sort_info &&
+                !olap_scan_node.sort_info.is_asc_order.empty()) {
+                _limit = _local_state->limit_per_scanner();
+                _tablet_reader_params.read_orderby_key = true;
+                if (!olap_scan_node.sort_info.is_asc_order[0]) {
+                    _tablet_reader_params.read_orderby_key_reverse = true;
+                }
+                _tablet_reader_params.read_orderby_key_num_prefix_columns =
+                        olap_scan_node.sort_info.is_asc_order.size();
+                _tablet_reader_params.read_orderby_key_limit = _limit;
 
-            if (_tablet_reader_params.read_orderby_key_limit > 0 &&
-                olap_scan_local_state->_storage_no_merge()) {
+                if (_tablet_reader_params.read_orderby_key_limit > 0 &&
+                    olap_scan_local_state->_storage_no_merge()) {
+                    _tablet_reader_params.filter_block_conjuncts = _conjuncts;
+                    _conjuncts.clear();
+                }
+            } else if (_limit > 0 && olap_scan_local_state->_storage_no_merge()) {
+                // General limit pushdown for DUP_KEYS and UNIQUE_KEYS with MOW
+                // (non-merge path). Only when topn optimization is NOT active.
+                // NOTE: _limit is the global query limit (TPlanNode.limit), not a
+                // per-scanner budget. With N scanners each scanner may read up to
+                // _limit rows, so up to N * _limit rows are read in total before
+                // the _shared_scan_limit coordinator stops them. This is
+                // acceptable because _shared_scan_limit guarantees correctness,
+                // and the over-read is bounded by (N-1) * _limit which is small
+                // for typical LIMIT values.
+                _tablet_reader_params.general_read_limit = _limit;
                 _tablet_reader_params.filter_block_conjuncts = _conjuncts;
                 _conjuncts.clear();
             }
@@ -549,11 +524,12 @@ Status OlapScanner::_init_variant_columns() {
         if (slot->type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
             // Such columns are not exist in frontend schema info, so we need to
             // add them into tablet_schema for later column indexing.
+            const auto& dt_variant =
+                    assert_cast<const DataTypeVariant&>(*remove_nullable(slot->type()));
             TabletColumn subcol = TabletColumn::create_materialized_variant_column(
                     tablet_schema->column_by_uid(slot->col_unique_id()).name_lower_case(),
                     slot->column_paths(), slot->col_unique_id(),
-                    assert_cast<const DataTypeVariant&>(*remove_nullable(slot->type()))
-                            .variant_max_subcolumns_count());
+                    dt_variant.variant_max_subcolumns_count(), dt_variant.enable_doc_mode());
             if (tablet_schema->field_index(*subcol.path_info_ptr()) < 0) {
                 tablet_schema->append_column(subcol, TabletSchema::ColumnType::VARIANT);
             }
@@ -912,6 +888,11 @@ void OlapScanner::_collect_profile_before_close() {
                    stats.rows_ann_index_range_filtered);
     COUNTER_UPDATE(local_state->_ann_topn_filter_counter, stats.rows_ann_index_topn_filtered);
     COUNTER_UPDATE(local_state->_ann_index_load_costs, stats.ann_index_load_ns);
+    COUNTER_UPDATE(local_state->_ann_ivf_on_disk_load_costs, stats.ann_ivf_on_disk_load_ns);
+    COUNTER_UPDATE(local_state->_ann_ivf_on_disk_cache_hit_cnt,
+                   stats.ann_ivf_on_disk_cache_hit_cnt);
+    COUNTER_UPDATE(local_state->_ann_ivf_on_disk_cache_miss_cnt,
+                   stats.ann_ivf_on_disk_cache_miss_cnt);
     COUNTER_UPDATE(local_state->_ann_range_search_costs, stats.ann_index_range_search_ns);
     COUNTER_UPDATE(local_state->_ann_range_search_cnt, stats.ann_index_range_search_cnt);
     COUNTER_UPDATE(local_state->_ann_range_engine_search_costs, stats.ann_range_engine_search_ns);

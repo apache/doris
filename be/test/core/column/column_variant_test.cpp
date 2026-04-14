@@ -65,7 +65,7 @@ protected:
         test_data_dir = root_dir + "/be/test/data/vec/columns";
         test_result_dir = root_dir + "/be/test/expected_result/vec/columns";
 
-        column_variant = ColumnVariant::create(true);
+        column_variant = ColumnVariant::create(0, false);
         std::cout << dt_variant->get_name() << std::endl;
 
         load_json_columns_data();
@@ -116,7 +116,7 @@ protected:
 
     template <typename T>
     void column_common_test(T callback) {
-        callback(ColumnVariant(true), column_variant->get_ptr());
+        callback(ColumnVariant(0, false), column_variant->get_ptr());
     }
 
     void hash_common_test(
@@ -765,7 +765,7 @@ TEST_F(ColumnVariantTest, empty_inset_range_from) {
     EXPECT_EQ(src->size(), 6);
 
     // dst is an empty column
-    auto dst = ColumnVariant::create(5);
+    auto dst = ColumnVariant::create(5, false);
 
     // subcolumn->subcolumn          v.a v.b v.c v.f v.e
     dst->insert_range_from(*src, 0, 6);
@@ -951,7 +951,7 @@ TEST_F(ColumnVariantTest, test_insert_indices_from) {
     // Test case 1: Insert from scalar variant source to empty destination
     {
         // Create source column with scalar values
-        auto src_column = ColumnVariant::create(true);
+        auto src_column = ColumnVariant::create(0, false);
         VariantUtil::insert_root_scalar_field(*src_column, Field::create_field<TYPE_INT>(123));
         VariantUtil::insert_root_scalar_field(*src_column, Field::create_field<TYPE_INT>(456));
         src_column->finalize();
@@ -960,7 +960,7 @@ TEST_F(ColumnVariantTest, test_insert_indices_from) {
         EXPECT_EQ(src_column->size(), 2);
 
         // Create empty destination column
-        auto dst_column = ColumnVariant::create(true);
+        auto dst_column = ColumnVariant::create(0, false);
         EXPECT_EQ(dst_column->size(), 0);
 
         // Create indices
@@ -991,14 +991,14 @@ TEST_F(ColumnVariantTest, test_insert_indices_from) {
     // Test case 2: Insert from scalar variant source to non-empty destination of same type
     {
         // Create source column with scalar values
-        auto src_column = ColumnVariant::create(true);
+        auto src_column = ColumnVariant::create(0, false);
         VariantUtil::insert_root_scalar_field(*src_column, Field::create_field<TYPE_INT>(123));
         VariantUtil::insert_root_scalar_field(*src_column, Field::create_field<TYPE_INT>(456));
         src_column->finalize();
         EXPECT_TRUE(src_column->is_scalar_variant());
 
         // Create destination column with same type
-        auto dst_column = ColumnVariant::create(true);
+        auto dst_column = ColumnVariant::create(0, false);
         VariantUtil::insert_root_scalar_field(*dst_column, Field::create_field<TYPE_INT>(789));
         dst_column->finalize();
         EXPECT_TRUE(dst_column->is_scalar_variant());
@@ -1027,7 +1027,7 @@ TEST_F(ColumnVariantTest, test_insert_indices_from) {
     // Test case 3: Insert from non-scalar or different type source (fallback to try_insert)
     {
         // Create source column with object values (non-scalar)
-        auto src_column = ColumnVariant::create(true);
+        auto src_column = ColumnVariant::create(0, false);
 
         // Create a map with {"a": 123}
         Field field_map = Field::create_field<TYPE_VARIANT>(VariantMap());
@@ -1050,7 +1050,7 @@ TEST_F(ColumnVariantTest, test_insert_indices_from) {
         EXPECT_FALSE(src_column->is_scalar_variant());
 
         // Create destination column (empty)
-        auto dst_column = ColumnVariant::create(true);
+        auto dst_column = ColumnVariant::create(0, false);
 
         // Create indices
         std::vector<uint32_t> indices = {1, 0};
@@ -1173,7 +1173,7 @@ TEST_F(ColumnVariantTest, field_test) {
         }
     };
     ColumnVariant::MutablePtr obj;
-    obj = ColumnVariant::create(1);
+    obj = ColumnVariant::create(1, false);
     MutableColumns cols;
     cols.push_back(obj->get_ptr());
     const auto& json_file_obj = test_data_dir_json + "json_variant/object_boundary.jsonl";
@@ -1214,7 +1214,7 @@ TEST_F(ColumnVariantTest, serialize_one_row_to_string) {
     {
         // TEST SCALA_VARAINT
         // 1. create an empty variant column
-        auto v = ColumnVariant::create(true);
+        auto v = ColumnVariant::create(0, false);
         auto dt = DataTypeFactory::instance().create_data_type(FieldType::OLAP_FIELD_TYPE_STRING, 0,
                                                                0);
         auto cs = dt->create_column();
@@ -1663,7 +1663,7 @@ TEST_F(ColumnVariantTest, get_subcolumn) {
 
 TEST_F(ColumnVariantTest, ensure_root_node_type) {
     ColumnVariant::MutablePtr obj;
-    obj = ColumnVariant::create(1);
+    obj = ColumnVariant::create(1, false);
     MutableColumns cols;
     cols.push_back(obj->get_ptr());
     const auto& json_file_obj = test_data_dir_json + "json_variant/object_boundary.jsonl";
@@ -2124,7 +2124,7 @@ TEST_F(ColumnVariantTest, find_path_lower_bound_in_sparse_data) {
         }
     };
     ColumnVariant::MutablePtr obj;
-    obj = ColumnVariant::create(1);
+    obj = ColumnVariant::create(1, false);
     MutableColumns cols;
     cols.push_back(obj->get_ptr());
     const auto& json_file_obj = test_data_dir_json + "json_variant/object_boundary.jsonl";
@@ -2137,7 +2137,7 @@ TEST_F(ColumnVariantTest, find_path_lower_bound_in_sparse_data) {
 // used in BinaryColumnExtractIterator::_fill_path_column
 TEST_F(ColumnVariantTest, fill_path_column_from_sparse_data) {
     ColumnVariant::MutablePtr obj;
-    obj = ColumnVariant::create(1);
+    obj = ColumnVariant::create(1, false);
     MutableColumns cols;
     cols.push_back(obj->get_ptr());
     const auto& json_file_obj = test_data_dir_json + "json_variant/object_boundary.jsonl";
@@ -2164,7 +2164,7 @@ TEST_F(ColumnVariantTest, fill_path_column_from_sparse_data) {
 
 TEST_F(ColumnVariantTest, not_finalized) {
     ColumnVariant::MutablePtr obj;
-    obj = ColumnVariant::create(1);
+    obj = ColumnVariant::create(1, false);
     MutableColumns cols;
     cols.push_back(obj->get_ptr());
 
@@ -2331,7 +2331,7 @@ TEST_F(ColumnVariantTest, array_field_operations) {
         {
             // Test wrapp_array_nullable
             // 1. create an empty variant column
-            auto variant = ColumnVariant::create(2);
+            auto variant = ColumnVariant::create(2, false);
 
             std::vector<std::pair<std::string, doris::Field>> data;
 
@@ -2376,12 +2376,12 @@ TEST_F(ColumnVariantTest, assert_exception_happen) {
         dynamic_subcolumns.add(PathInData("v.b.d"), ColumnVariant::Subcolumn {0, true});
         dynamic_subcolumns.add(PathInData("v.c.d"), ColumnVariant::Subcolumn {0, true});
         std::cout << "dynamic_subcolumns size: " << dynamic_subcolumns.size() << std::endl;
-        EXPECT_ANY_THROW(ColumnVariant::create(2, std::move(dynamic_subcolumns)));
+        EXPECT_ANY_THROW(ColumnVariant::create(2, false, std::move(dynamic_subcolumns)));
     }
 
     {
         // 1. create an empty variant column
-        auto variant = ColumnVariant::create(5);
+        auto variant = ColumnVariant::create(5, false);
 
         std::vector<std::pair<std::string, doris::Field>> data;
 
@@ -2467,7 +2467,7 @@ TEST_F(ColumnVariantTest, try_insert_default_from_nested) {
                            ColumnVariant::Subcolumn {std::move(column), array_type, false, false});
     dynamic_subcolumns.add(PathInData("v.c.d"), ColumnVariant::Subcolumn {0, true});
     std::cout << "dynamic_subcolumns size: " << dynamic_subcolumns.size() << std::endl;
-    auto obj = ColumnVariant::create(5, std::move(dynamic_subcolumns));
+    auto obj = ColumnVariant::create(5, false, std::move(dynamic_subcolumns));
 
     for (auto& entry : obj->get_subcolumns()) {
         std::cout << "entry path: " << entry->path.get_path() << std::endl;
@@ -2504,7 +2504,7 @@ TEST_F(ColumnVariantTest, unnest) {
                            ColumnVariant::Subcolumn {std::move(nested_col),
                                                      ColumnVariant::NESTED_TYPE, true, false});
     std::cout << "dynamic_subcolumns size: " << dynamic_subcolumns.size() << std::endl;
-    auto obj = ColumnVariant::create(2, std::move(dynamic_subcolumns));
+    auto obj = ColumnVariant::create(2, false, std::move(dynamic_subcolumns));
     obj->set_num_rows(2);
     EXPECT_TRUE(!obj->empty());
     std::cout << obj->size() << std::endl;
@@ -2513,7 +2513,7 @@ TEST_F(ColumnVariantTest, unnest) {
 
 TEST_F(ColumnVariantTest, path_in_data_builder_test) {
     // Create a ColumnVariant with nested subcolumns
-    auto variant = ColumnVariant::create(5);
+    auto variant = ColumnVariant::create(5, false);
 
     // Test case 1: Build a nested path with PathInDataBuilder
     {
@@ -3171,7 +3171,7 @@ TEST_F(ColumnVariantTest, subcolumn_operations_coverage) {
         col_arr->insert(an);
         col_arr->insert(an);
         MutableColumnPtr nested_object = ColumnVariant::create(
-                container_variant.max_subcolumns_count(), col_arr->get_data().size());
+                container_variant.max_subcolumns_count(), false, col_arr->get_data().size());
         MutableColumnPtr offset = col_arr->get_offsets_ptr()->assume_mutable(); // [3, 3, 4]
         auto* nested_object_ptr = assert_cast<ColumnVariant*>(nested_object.get());
         // flatten nested arrays
@@ -3203,9 +3203,9 @@ TEST_F(ColumnVariantTest, subcolumn_operations_coverage) {
 
     // Test is_empty_nested
     {
-        auto v = ColumnVariant::create(1);
+        auto v = ColumnVariant::create(1, false);
         auto sub_dt = make_nullable(std::make_unique<DataTypeArray>(
-                make_nullable(std::make_unique<DataTypeVariant>(1))));
+                make_nullable(std::make_unique<DataTypeVariant>(1, false))));
         auto sub_col = sub_dt->create_column();
 
         std::vector<std::pair<std::string, doris::Field>> data;
@@ -3468,7 +3468,7 @@ TEST_F(ColumnVariantTest, subcolumn_insert_range_from_test_advanced) {
 }
 
 TEST_F(ColumnVariantTest, test_variant_no_data_insert) {
-    auto variant = ColumnVariant::create(1);
+    auto variant = ColumnVariant::create(1, false);
     variant->insert_many_defaults(10);
     EXPECT_EQ(variant->size(), 10);
     EXPECT_TRUE(variant->only_have_default_values());

@@ -24,7 +24,6 @@
 #include "exprs/vexpr_context.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class PartitionerBase {
 public:
@@ -192,5 +191,4 @@ private:
     }
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

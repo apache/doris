@@ -200,6 +200,8 @@ public class VariantType extends ScalarType {
         // set the count
         container.getTypes().get(container.getTypes().size() - 1)
                 .scalar_type.setVariantMaxSubcolumnsCount(variantMaxSubcolumnsCount);
+        container.getTypes().get(container.getTypes().size() - 1)
+                .scalar_type.setVariantEnableDocMode(enableVariantDocMode);
     }
 
     @Override

@@ -27,7 +27,6 @@
 #include "util/slice.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 // binary: const flag | row num | read saved num | <size array> | <quantilestate array>
 // <size array>:  quantilestate1 size | quantilestate2 size | ...
 // <quantilestate array>: quantilestate1 | quantilestate2 | ...

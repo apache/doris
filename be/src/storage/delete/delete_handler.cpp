@@ -30,6 +30,7 @@
 #include "core/data_type_serde/data_type_serde.h"
 #include "storage/olap_common.h"
 #include "storage/predicate/block_column_predicate.h"
+#include "storage/predicate/null_predicate.h"
 #include "storage/predicate/predicate_creator.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/utils.h"

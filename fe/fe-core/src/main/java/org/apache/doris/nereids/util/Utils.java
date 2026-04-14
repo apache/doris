@@ -635,7 +635,7 @@ public class Utils {
         for (AliasInfo aliasInfo : selectList) {
             columnJoiner.add(aliasInfo.toString());
         }
-        String sql = "SELECT " + columnJoiner.toString() + " FROM " + tableName.toFullyQualified() + " " + whereClause;
+        String sql = "SELECT " + columnJoiner + " FROM " + tableName.toSql() + " " + whereClause;
         return new NereidsParser().parseSingle(sql);
     }
 

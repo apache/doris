@@ -286,6 +286,9 @@ private:
     // if `_max_subcolumns_count == 0`, all subcolumns are materialized.
     int32_t _max_subcolumns_count = 0;
 
+    // whether this column is configured for doc mode
+    bool _enable_doc_mode = false;
+
     // subcolumns count materialized from typed paths
     size_t typed_path_count = 0;
 
@@ -298,15 +301,16 @@ public:
 private:
     friend class COWHelper<IColumn, ColumnVariant>;
     // always create root: data type nothing
-    explicit ColumnVariant(int32_t max_subcolumns_count);
+    explicit ColumnVariant(int32_t max_subcolumns_count, bool enable_doc_mode);
 
     // always create root: data type nothing
-    explicit ColumnVariant(int32_t max_subcolumns_count, size_t size);
+    explicit ColumnVariant(int32_t max_subcolumns_count, bool enable_doc_mode, size_t size);
 
-    explicit ColumnVariant(int32_t max_subcolumns_count, DataTypePtr root_type,
-                           MutableColumnPtr&& root_column);
+    explicit ColumnVariant(int32_t max_subcolumns_count, bool enable_doc_mode,
+                           DataTypePtr root_type, MutableColumnPtr&& root_column);
 
-    explicit ColumnVariant(int32_t max_subcolumns_count, Subcolumns&& subcolumns_);
+    explicit ColumnVariant(int32_t max_subcolumns_count, bool enable_doc_mode,
+                           Subcolumns&& subcolumns_);
 
 public:
     ~ColumnVariant() override = default;
@@ -380,6 +384,8 @@ public:
     size_t rows() const { return num_rows; }
 
     int32_t max_subcolumns_count() const { return _max_subcolumns_count; }
+
+    bool enable_doc_mode() const { return _enable_doc_mode; }
 
     /// Adds a subcolumn from existing IColumn.
     bool add_sub_column(const PathInData& key, MutableColumnPtr&& subcolumn, DataTypePtr type);

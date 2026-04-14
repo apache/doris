@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.nereids.trees.expressions.functions.table.Backends;
 import org.apache.doris.nereids.trees.expressions.functions.table.Catalogs;
+import org.apache.doris.nereids.trees.expressions.functions.table.CdcStream;
 import org.apache.doris.nereids.trees.expressions.functions.table.File;
 import org.apache.doris.nereids.trees.expressions.functions.table.Frontends;
 import org.apache.doris.nereids.trees.expressions.functions.table.FrontendsDisks;
@@ -27,7 +28,6 @@ import org.apache.doris.nereids.trees.expressions.functions.table.Hdfs;
 import org.apache.doris.nereids.trees.expressions.functions.table.Http;
 import org.apache.doris.nereids.trees.expressions.functions.table.HttpStream;
 import org.apache.doris.nereids.trees.expressions.functions.table.HudiMeta;
-import org.apache.doris.nereids.trees.expressions.functions.table.IcebergMeta;
 import org.apache.doris.nereids.trees.expressions.functions.table.Jobs;
 import org.apache.doris.nereids.trees.expressions.functions.table.Local;
 import org.apache.doris.nereids.trees.expressions.functions.table.MvInfos;
@@ -59,7 +59,6 @@ public class BuiltinTableValuedFunctions implements FunctionHelper {
             tableValued(GroupCommit.class, "group_commit"),
             tableValued(Local.class, "local"),
             tableValued(HudiMeta.class, "hudi_meta"),
-            tableValued(IcebergMeta.class, "iceberg_meta"),
             tableValued(Hdfs.class, "hdfs"),
             tableValued(HttpStream.class, "http_stream"),
             tableValued(Numbers.class, "numbers"),
@@ -75,7 +74,8 @@ public class BuiltinTableValuedFunctions implements FunctionHelper {
             tableValued(ParquetMeta.class, "parquet_meta"),
             tableValued(ParquetFileMetadata.class, "parquet_file_metadata"),
             tableValued(ParquetKvMetadata.class, "parquet_kv_metadata"),
-            tableValued(ParquetBloomProbe.class, "parquet_bloom_probe")
+            tableValued(ParquetBloomProbe.class, "parquet_bloom_probe"),
+            tableValued(CdcStream.class, "cdc_stream")
     );
 
     public static final BuiltinTableValuedFunctions INSTANCE = new BuiltinTableValuedFunctions();

@@ -25,7 +25,6 @@
 #include "runtime/runtime_profile.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 // Work on (hash/corss) join build sink node, RuntimeFilterProducerHelper will manage all RuntimeFilterProducer
 // Used to generate specific predicate and publish it to consumer/merger
 /**
@@ -184,5 +183,4 @@ private:
 
     std::atomic<State> _rf_state;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

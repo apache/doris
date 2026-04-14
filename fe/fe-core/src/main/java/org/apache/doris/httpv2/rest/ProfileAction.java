@@ -18,9 +18,8 @@
 package org.apache.doris.httpv2.rest;
 
 import org.apache.doris.common.profile.ProfileManager;
+import org.apache.doris.httpv2.controller.BaseController.ActionAuthorizationInfo;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
-import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
@@ -44,8 +43,8 @@ public class ProfileAction extends RestBaseController {
 
     @RequestMapping(path = "/api/profile", method = RequestMethod.GET)
     protected Object profile(HttpServletRequest request, HttpServletResponse response) {
-        executeCheckPassword(request, response);
-        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkAdminAuth(authInfo.userIdentity);
 
         String queryId = request.getParameter("query_id");
         if (Strings.isNullOrEmpty(queryId)) {
@@ -64,8 +63,8 @@ public class ProfileAction extends RestBaseController {
 
     @RequestMapping(path = "/api/profile/text", method = RequestMethod.GET)
     protected Object profileText(HttpServletRequest request, HttpServletResponse response) {
-        executeCheckPassword(request, response);
-        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkAdminAuth(authInfo.userIdentity);
 
         String queryId = request.getParameter("query_id");
         if (Strings.isNullOrEmpty(queryId)) {

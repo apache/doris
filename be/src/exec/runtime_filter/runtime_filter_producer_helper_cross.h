@@ -27,7 +27,6 @@
 #include "runtime/runtime_state.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 // this class used in cross join node
 class RuntimeFilterProducerHelperCross : public RuntimeFilterProducerHelper {
 public:
@@ -70,5 +69,4 @@ private:
         _filter_expr_contexts = build_expr_ctxs;
     }
 };
-#include "common/compile_check_end.h"
 } // namespace doris

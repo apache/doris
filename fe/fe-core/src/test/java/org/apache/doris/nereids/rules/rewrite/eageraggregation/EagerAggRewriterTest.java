@@ -311,4 +311,59 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
             connectContext.getSessionVariable().setDisableJoinReorder(false);
         }
     }
+
+    @Test
+    void testNotPushAggLiteralToNullableSideOfOuterJoin() {
+        // sum(literal), min(literal), max(literal) aggregate over all physical rows,
+        // including null-extended rows from the outer join.
+        // Pushing to the nullable side loses the contribution of unmatched rows:
+        //   original: sum(2) on unmatched row = 2
+        //   pushed:   sum(NULL) skips the row (wrong!)
+        // So agg(literal) must NOT be pushed to the nullable side.
+        connectContext.getSessionVariable().setEagerAggregationMode(1);
+        connectContext.getSessionVariable().setDisableJoinReorder(true);
+        try {
+            // RIGHT JOIN: t1 is the nullable side (left side of RIGHT JOIN)
+            // sum(2) should NOT be pushed to t1
+            String sql = "select sum(2), t2.id2 from t1 right join t2"
+                    + " on t1.id1 = t2.id2 group by t2.id2";
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .nonMatch(logicalJoin(logicalAggregate(), any()))
+                    .printlnTree();
+
+            // LEFT JOIN: t2 is the nullable side (right side of LEFT JOIN)
+            // min(1) should NOT be pushed to t2
+            sql = "select min(1), t1.id1 from t1 left join t2"
+                    + " on t1.id1 = t2.id2 group by t1.id1";
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .nonMatch(logicalJoin(any(), logicalAggregate()))
+                    .printlnTree();
+
+            // RIGHT JOIN: max(3) should NOT be pushed to nullable left side
+            sql = "select max(3), t2.id2 from t1 right join t2"
+                    + " on t1.id1 = t2.id2 group by t2.id2";
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .nonMatch(logicalJoin(logicalAggregate(), any()))
+                    .printlnTree();
+
+            // Verify agg(nullable_side_col) is still safe to push (no regression)
+            // max(t1.name) references the left (nullable) side, so push is allowed
+            sql = "select max(t1.name), t2.id2 from t1 right join t2"
+                    + " on t1.id1 = t2.id2 group by t2.id2";
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .matches(logicalAggregate(logicalProject(logicalJoin(logicalAggregate(), any()))))
+                    .printlnTree();
+        } finally {
+            connectContext.getSessionVariable().setEagerAggregationMode(0);
+            connectContext.getSessionVariable().setDisableJoinReorder(false);
+        }
+    }
 }

@@ -34,7 +34,6 @@
 #include "util/thrift_rpc_helper.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 bvar::Adder<uint64_t> group_commit_block_by_memory_counter("group_commit_block_by_memory_counter");
 
@@ -726,6 +725,5 @@ bool LoadBlockQueue::has_enough_wal_disk_space(size_t estimated_wal_bytes) {
         return false;
     }
 }
-#include "common/compile_check_end.h"
 
 } // namespace doris

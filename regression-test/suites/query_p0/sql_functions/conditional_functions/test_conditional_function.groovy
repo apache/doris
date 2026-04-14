@@ -88,6 +88,8 @@ suite("test_conditional_function") {
 
     qt_sql "select ifnull( user_id, '9999') r from ${tbName} order by r"
 
+    qt_sql "select ifnull( user_id, to_date('9999-01-01')) r from ${tbName} order by r"
+
     qt_sql "select ifnull( user_id, 999) r from ${tbName} order by r"
 
     qt_if_true_then_nullable """select IF(true, DAYOFWEEK("2022-12-06 17:48:46"), 1) + 1;"""
@@ -95,6 +97,8 @@ suite("test_conditional_function") {
 
     qt_if_false_then_nullable """select IF(false, DAYOFWEEK("2022-12-06 17:48:46"), 1) + 1;"""
     qt_if_false_else_nullable """select IF(false, 1, DAYOFWEEK("2022-12-06 17:48:46")) + 1;"""
+
+    qt_sql "select date_add('9999-08-01 00:00:00',1);"
 
     sql "DROP TABLE ${tbName};"
 

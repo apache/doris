@@ -96,7 +96,7 @@ struct TColumn {
     23: optional bool is_on_update_current_timestamp = false
     24: optional i32 variant_max_sparse_column_statistics_size = 10000
     25: optional i32 variant_sparse_hash_shard_count
-    26: optional bool variant_enable_doc_mode
+    26: optional bool variant_enable_doc_mode // deprecated, use TColumnType.variant_enable_doc_mode
   27: optional i64 variant_doc_materialization_min_rows
   28: optional i32 variant_doc_hash_shard_count
   29: optional bool variant_enable_nested_group
@@ -217,6 +217,8 @@ enum TSchemaTableType {
     SCH_AUTHENTICATION_INTEGRATIONS = 67;
     SCH_TABLE_STREAMS = 68;
     SCH_TABLE_STREAM_CONSUMPTION = 69;
+    SCH_BE_COMPACTION_TASKS = 70;
+    SCH_ROLE_MAPPINGS = 71;
 }
 
 enum THdfsCompression {

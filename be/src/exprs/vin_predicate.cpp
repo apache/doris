@@ -42,7 +42,6 @@ class RuntimeState;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 VInPredicate::VInPredicate(const TExprNode& node)
         : VExpr(node), _is_not_in(node.in_predicate.is_not_in) {}
@@ -187,5 +186,4 @@ std::string VInPredicate::debug_string() const {
     return out.str();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

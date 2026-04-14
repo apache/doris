@@ -20,14 +20,15 @@ package org.apache.doris.datasource;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.ThreadPoolManager;
 
-import mockit.Mock;
-import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedConstruction;
+import org.mockito.Mockito;
 
 import java.util.Optional;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class ExternalRowCountCacheTest {
     @Test
@@ -35,48 +36,51 @@ public class ExternalRowCountCacheTest {
         ThreadPoolExecutor executor = ThreadPoolManager.newDaemonFixedThreadPool(
                 1, Integer.MAX_VALUE, "TEST", true);
         AtomicInteger counter = new AtomicInteger(0);
+        AtomicReference<ExternalRowCountCache.RowCountCacheLoader> loaderRef = new AtomicReference<>();
 
-        new MockUp<ExternalRowCountCache.RowCountCacheLoader>() {
-            @Mock
-            protected Optional<Long> doLoad(ExternalRowCountCache.RowCountKey rowCountKey) {
-                counter.incrementAndGet();
-                return null;
-            }
-        };
-        ExternalRowCountCache cache = new ExternalRowCountCache(executor);
-        long cachedRowCount = cache.getCachedRowCount(1, 1, 1);
-        Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT, cachedRowCount);
-        for (int i = 0; i < 60; i++) {
-            if (counter.get() == 1) {
-                break;
-            }
-            Thread.sleep(1000);
-        }
-        Assertions.assertEquals(1, counter.get());
+        try (MockedConstruction<ExternalRowCountCache.RowCountCacheLoader> mocked =
+                Mockito.mockConstruction(ExternalRowCountCache.RowCountCacheLoader.class,
+                        Mockito.withSettings().defaultAnswer(Mockito.CALLS_REAL_METHODS),
+                        (mock, context) -> {
+                            loaderRef.set(mock);
+                            Mockito.doAnswer(inv -> {
+                                counter.incrementAndGet();
+                                return null;
+                            }).when(mock).doLoad(Mockito.any());
+                        })) {
 
-        new MockUp<ExternalRowCountCache.RowCountCacheLoader>() {
-            @Mock
-            protected Optional<Long> doLoad(ExternalRowCountCache.RowCountKey rowCountKey) {
+            ExternalRowCountCache cache = new ExternalRowCountCache(executor);
+            long cachedRowCount = cache.getCachedRowCount(1, 1, 1);
+            Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT, cachedRowCount);
+            for (int i = 0; i < 60; i++) {
+                if (counter.get() == 1) {
+                    break;
+                }
+                Thread.sleep(1000);
+            }
+            Assertions.assertEquals(1, counter.get());
+
+            // Re-stub for second behavior
+            Mockito.doAnswer(inv -> {
                 counter.incrementAndGet();
                 return Optional.of(100L);
-            }
-        };
-        cache.getCachedRowCount(1, 1, 1);
-        for (int i = 0; i < 60; i++) {
-            cachedRowCount = cache.getCachedRowCount(1, 1, 1);
-            if (cachedRowCount != TableIf.UNKNOWN_ROW_COUNT) {
-                Assertions.assertEquals(100, cachedRowCount);
-                break;
-            }
-            Thread.sleep(1000);
-        }
-        cachedRowCount = cache.getCachedRowCount(1, 1, 1);
-        Assertions.assertEquals(100, cachedRowCount);
-        Assertions.assertEquals(2, counter.get());
+            }).when(loaderRef.get()).doLoad(Mockito.any());
 
-        new MockUp<ExternalRowCountCache.RowCountCacheLoader>() {
-            @Mock
-            protected Optional<Long> doLoad(ExternalRowCountCache.RowCountKey rowCountKey) {
+            cache.getCachedRowCount(1, 1, 1);
+            for (int i = 0; i < 60; i++) {
+                cachedRowCount = cache.getCachedRowCount(1, 1, 1);
+                if (cachedRowCount != TableIf.UNKNOWN_ROW_COUNT) {
+                    Assertions.assertEquals(100, cachedRowCount);
+                    break;
+                }
+                Thread.sleep(1000);
+            }
+            cachedRowCount = cache.getCachedRowCount(1, 1, 1);
+            Assertions.assertEquals(100, cachedRowCount);
+            Assertions.assertEquals(2, counter.get());
+
+            // Re-stub for third behavior
+            Mockito.doAnswer(inv -> {
                 counter.incrementAndGet();
                 try {
                     Thread.sleep(2000);
@@ -84,19 +88,20 @@ public class ExternalRowCountCacheTest {
                     e.printStackTrace();
                 }
                 return Optional.of(100L);
-            }
-        };
-        cachedRowCount = cache.getCachedRowCount(2, 2, 2);
-        Assertions.assertEquals(100, cachedRowCount);
-        Thread.sleep(1000);
-        cachedRowCount = cache.getCachedRowCount(2, 2, 2);
-        Assertions.assertEquals(100, cachedRowCount);
-        for (int i = 0; i < 60; i++) {
-            if (counter.get() == 3) {
-                break;
-            }
+            }).when(loaderRef.get()).doLoad(Mockito.any());
+
+            cachedRowCount = cache.getCachedRowCount(2, 2, 2);
+            Assertions.assertEquals(100, cachedRowCount);
             Thread.sleep(1000);
+            cachedRowCount = cache.getCachedRowCount(2, 2, 2);
+            Assertions.assertEquals(100, cachedRowCount);
+            for (int i = 0; i < 60; i++) {
+                if (counter.get() == 3) {
+                    break;
+                }
+                Thread.sleep(1000);
+            }
+            Assertions.assertEquals(3, counter.get());
         }
-        Assertions.assertEquals(3, counter.get());
     }
 }

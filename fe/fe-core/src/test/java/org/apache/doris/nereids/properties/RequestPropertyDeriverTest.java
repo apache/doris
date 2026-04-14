@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.properties;
 
-import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.memo.Group;
@@ -27,6 +26,7 @@ import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWindow.WindowFrameGroup;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
@@ -53,17 +53,15 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.List;
 import java.util.Optional;
@@ -84,27 +82,18 @@ class RequestPropertyDeriverTest {
             )
     );
 
-    @Mocked
-    LogicalProperties logicalProperties;
+    LogicalProperties logicalProperties = Mockito.mock(LogicalProperties.class);
 
-    @Mocked
-    ConnectContext connectContext;
+    ConnectContext connectContext = Mockito.mock(ConnectContext.class);
 
-    @Injectable
-    Group group;
+    Group group = Mockito.mock(Group.class);
 
-    @Injectable
-    JobContext jobContext;
+    JobContext jobContext = Mockito.mock(JobContext.class);
 
     @SuppressWarnings("ResultOfMethodCallIgnored")
     @BeforeEach
     public void setUp() {
-        new Expectations() {
-            {
-                jobContext.getRequiredProperties();
-                result = PhysicalProperties.ANY;
-            }
-        };
+        Mockito.when(jobContext.getRequiredProperties()).thenReturn(PhysicalProperties.ANY);
     }
 
     @Test
@@ -127,17 +116,17 @@ class RequestPropertyDeriverTest {
 
     @Test
     void testShuffleHashJoin() {
-        new MockUp<PhysicalHashJoin>() {
-            @Mock
-            Pair<List<ExprId>, List<ExprId>> getHashConjunctsExprIds() {
-                return Pair.of(Lists.newArrayList(new ExprId(0)), Lists.newArrayList(new ExprId(1)));
-            }
-        };
-
+        SlotReference leftKey = new SlotReference("left", IntegerType.INSTANCE);
+        SlotReference rightKey = new SlotReference("right", IntegerType.INSTANCE);
+        GroupPlan leftPlan = new GroupPlan(new Group(GroupId.createGenerator().getNextId(),
+                new GroupExpression(new LogicalOneRowRelation(new RelationId(2), ImmutableList.of(leftKey)))
+                        .getPlan().getLogicalProperties()));
+        GroupPlan rightPlan = new GroupPlan(new Group(GroupId.createGenerator().getNextId(),
+                new GroupExpression(new LogicalOneRowRelation(new RelationId(3), ImmutableList.of(rightKey)))
+                        .getPlan().getLogicalProperties()));
         PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.RIGHT_OUTER_JOIN,
-                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE), Optional.empty(),
-                logicalProperties,
-                groupPlan, groupPlan);
+                ImmutableList.of(new EqualTo(leftKey, rightKey)), ExpressionUtils.EMPTY_CONDITION,
+                new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties, leftPlan, rightPlan);
         GroupExpression groupExpression = new GroupExpression(join, Lists.newArrayList(group, group));
         new Group(null, groupExpression, null);
 
@@ -148,47 +137,55 @@ class RequestPropertyDeriverTest {
         List<List<PhysicalProperties>> expected = Lists.newArrayList();
         expected.add(Lists.newArrayList(
                 new PhysicalProperties(
-                        new DistributionSpecHash(Lists.newArrayList(new ExprId(0)), ShuffleType.REQUIRE)),
-                new PhysicalProperties(new DistributionSpecHash(Lists.newArrayList(new ExprId(1)), ShuffleType.REQUIRE))
+                        new DistributionSpecHash(Lists.newArrayList(leftKey.getExprId()), ShuffleType.REQUIRE)),
+                new PhysicalProperties(new DistributionSpecHash(Lists.newArrayList(rightKey.getExprId()),
+                        ShuffleType.REQUIRE))
         ));
         Assertions.assertEquals(expected, actual);
     }
 
     @Test
     void testShuffleOrBroadcastHashJoin() {
-        new MockUp<PhysicalHashJoin>() {
-            @Mock
-            Pair<List<ExprId>, List<ExprId>> getHashConjunctsExprIds() {
-                return Pair.of(Lists.newArrayList(new ExprId(0)), Lists.newArrayList(new ExprId(1)));
-            }
-        };
+        try (MockedStatic<ConnectContext> mockedConnectContext = Mockito.mockStatic(ConnectContext.class)) {
+            ConnectContext testConnectContext = new ConnectContext();
+            SessionVariable sessionVariable = new SessionVariable();
+            testConnectContext.setSessionVariable(sessionVariable);
+            mockedConnectContext.when(ConnectContext::get).thenReturn(testConnectContext);
+            SlotReference leftKey = new SlotReference("left", IntegerType.INSTANCE);
+            SlotReference rightKey = new SlotReference("right", IntegerType.INSTANCE);
+            GroupPlan leftPlan = new GroupPlan(new Group(GroupId.createGenerator().getNextId(),
+                    new GroupExpression(new LogicalOneRowRelation(new RelationId(4), ImmutableList.of(leftKey)))
+                            .getPlan().getLogicalProperties()));
+            GroupPlan rightPlan = new GroupPlan(new Group(GroupId.createGenerator().getNextId(),
+                    new GroupExpression(new LogicalOneRowRelation(new RelationId(5), ImmutableList.of(rightKey)))
+                            .getPlan().getLogicalProperties()));
+            PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.INNER_JOIN,
+                    ImmutableList.of(new EqualTo(leftKey, rightKey)), ExpressionUtils.EMPTY_CONDITION,
+                    new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties, leftPlan, rightPlan);
+            Group leftGroup = Mockito.mock(Group.class);
+            Group rightGroup = Mockito.mock(Group.class);
+            org.apache.doris.statistics.Statistics stats = Mockito.mock(org.apache.doris.statistics.Statistics.class);
+            Mockito.when(stats.computeSize(Mockito.anyList())).thenReturn(1D);
+            Mockito.when(stats.getRowCount()).thenReturn(1D);
+            Mockito.when(leftGroup.getStatistics()).thenReturn(stats);
+            Mockito.when(rightGroup.getStatistics()).thenReturn(stats);
+            GroupExpression groupExpression = new GroupExpression(join, Lists.newArrayList(leftGroup, rightGroup));
+            new Group(null, groupExpression, null);
 
-        new MockUp<ConnectContext>() {
-            @Mock
-            ConnectContext get() {
-                return connectContext;
-            }
-        };
+            RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(null, jobContext);
+            List<List<PhysicalProperties>> actual
+                    = requestPropertyDeriver.getRequestChildrenPropertyList(groupExpression);
 
-        PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.INNER_JOIN,
-                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE), Optional.empty(),
-                logicalProperties,
-                groupPlan, groupPlan);
-        GroupExpression groupExpression = new GroupExpression(join, Lists.newArrayList(group, group));
-        new Group(null, groupExpression, null);
-
-        RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(null, jobContext);
-        List<List<PhysicalProperties>> actual
-                = requestPropertyDeriver.getRequestChildrenPropertyList(groupExpression);
-
-        List<List<PhysicalProperties>> expected = Lists.newArrayList();
-        expected.add(Lists.newArrayList(
-                new PhysicalProperties(
-                        new DistributionSpecHash(Lists.newArrayList(new ExprId(0)), ShuffleType.REQUIRE)),
-                new PhysicalProperties(new DistributionSpecHash(Lists.newArrayList(new ExprId(1)), ShuffleType.REQUIRE))
-        ));
-        expected.add(Lists.newArrayList(PhysicalProperties.ANY, PhysicalProperties.REPLICATED));
-        Assertions.assertEquals(expected, actual);
+            List<List<PhysicalProperties>> expected = Lists.newArrayList();
+            expected.add(Lists.newArrayList(
+                    new PhysicalProperties(
+                            new DistributionSpecHash(Lists.newArrayList(leftKey.getExprId()), ShuffleType.REQUIRE)),
+                    new PhysicalProperties(new DistributionSpecHash(Lists.newArrayList(rightKey.getExprId()),
+                            ShuffleType.REQUIRE))
+            ));
+            expected.add(Lists.newArrayList(PhysicalProperties.ANY, PhysicalProperties.REPLICATED));
+            Assertions.assertEquals(expected, actual);
+        }
     }
 
     @Test
@@ -215,7 +212,6 @@ class RequestPropertyDeriverTest {
     @Test
     void testGlobalAggregate() {
         SlotReference key = new SlotReference("col1", IntegerType.INSTANCE);
-        SlotReference partition = new SlotReference("partition", IntegerType.INSTANCE);
         PhysicalHashAggregate<GroupPlan> aggregate = new PhysicalHashAggregate<>(
                 Lists.newArrayList(key),
                 Lists.newArrayList(key),
@@ -231,7 +227,7 @@ class RequestPropertyDeriverTest {
                 = requestPropertyDeriver.getRequestChildrenPropertyList(groupExpression);
         List<List<PhysicalProperties>> expected = Lists.newArrayList();
         expected.add(Lists.newArrayList(PhysicalProperties.createHash(new DistributionSpecHash(
-                Lists.newArrayList(partition.getExprId()),
+                Lists.newArrayList(key.getExprId()),
                 ShuffleType.REQUIRE
         ))));
         Assertions.assertEquals(expected, actual);
@@ -392,12 +388,7 @@ class RequestPropertyDeriverTest {
         PhysicalProperties parentProperties = PhysicalProperties.createHash(
                 Lists.newArrayList(key1.getExprId()), ShuffleType.REQUIRE);
 
-        new Expectations() {
-            {
-                jobContext.getRequiredProperties();
-                result = parentProperties;
-            }
-        };
+        Mockito.when(jobContext.getRequiredProperties()).thenReturn(parentProperties);
 
         RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(testConnectContext, jobContext);
         List<List<PhysicalProperties>> actual
@@ -428,25 +419,20 @@ class RequestPropertyDeriverTest {
                 logicalProperties,
                 groupPlan
         );
-        GroupExpression groupExpression = new GroupExpression(aggregate);
+        GroupExpression groupExpression = new GroupExpression(aggregate) {
+            @Override
+            public org.apache.doris.statistics.Statistics childStatistics(int idx) {
+                return null;
+            }
+        };
         new Group(null, groupExpression, null);
 
         // Create a parent hash distribution with key1 only
         PhysicalProperties parentProperties = PhysicalProperties.createHash(
                 Lists.newArrayList(key1.getExprId()), ShuffleType.REQUIRE);
 
-        new Expectations() {
-            {
-                jobContext.getRequiredProperties();
-                result = parentProperties;
-            }
-        };
-        new MockUp<org.apache.doris.nereids.memo.GroupExpression>() {
-            @mockit.Mock
-            org.apache.doris.statistics.Statistics childStatistics(int idx) {
-                return null;
-            }
-        };
+        Mockito.when(jobContext.getRequiredProperties()).thenReturn(parentProperties);
+
         RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(testConnectContext, jobContext);
         List<List<PhysicalProperties>> actual
                 = requestPropertyDeriver.getRequestChildrenPropertyList(groupExpression);

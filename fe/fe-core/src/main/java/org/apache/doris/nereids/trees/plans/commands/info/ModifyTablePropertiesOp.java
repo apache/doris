@@ -26,6 +26,7 @@ import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.common.util.DynamicPartitionUtil;
@@ -241,9 +242,9 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
                     .get(PropertyAnalyzer.PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP);
             try {
                 numColumnsPerGroup = Integer.parseInt(numColumnsPerGroupStr);
-                if (numColumnsPerGroup < 1 || numColumnsPerGroup > 50) {
+                if (numColumnsPerGroup < 1) {
                     throw new AnalysisException(
-                            "vertical_compaction_num_columns_per_group must be between 1 and 50: "
+                            "vertical_compaction_num_columns_per_group must be >= 1: "
                                     + numColumnsPerGroupStr);
                 }
             } catch (NumberFormatException e) {
@@ -278,6 +279,21 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
                         "Property "
                                 + PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION
                                 + " should be set to true or false");
+            }
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_TSO)) {
+            if (!properties.get(PropertyAnalyzer.PROPERTIES_ENABLE_TSO).equalsIgnoreCase("true")
+                    && !properties.get(PropertyAnalyzer.PROPERTIES_ENABLE_TSO).equalsIgnoreCase("false")) {
+                throw new AnalysisException(
+                        "Property "
+                                + PropertyAnalyzer.PROPERTIES_ENABLE_TSO
+                                + " should be set to true or false");
+            }
+            if (properties.get(PropertyAnalyzer.PROPERTIES_ENABLE_TSO).equalsIgnoreCase("true")
+                    && !Config.enable_tso_feature) {
+                throw new AnalysisException(
+                        "Property " + PropertyAnalyzer.PROPERTIES_ENABLE_TSO
+                                + " can not be enabled when experimental_enable_tso_feature is disabled");
             }
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE)) {

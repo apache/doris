@@ -150,6 +150,7 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
                     LOG.debug("connect processor exception because ", e);
                 }
             }
+            LOG.warn("connect processor exception because ", e);
             context.cleanup();
         } finally {
             ConnectContext.remove();

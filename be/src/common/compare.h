@@ -22,7 +22,6 @@
 
 #pragma once
 namespace doris {
-#include "common/compile_check_begin.h"
 struct Compare {
     template <typename T>
     static bool less(const T& a, const T& b) {
@@ -236,5 +235,3 @@ void NormalizeFloat(T& val) {
 }
 
 } // namespace doris
-
-#include "common/compile_check_end.h"

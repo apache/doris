@@ -22,11 +22,12 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlProto;
 
-import mockit.Expectations;
-import mockit.Mocked;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -36,35 +37,27 @@ import java.util.concurrent.atomic.AtomicLong;
 public class ConnectSchedulerTest {
     private static final Logger LOG = LoggerFactory.getLogger(ConnectScheduler.class);
     private static AtomicLong succSubmit;
-    @Mocked
-    SocketChannel socketChannel;
-    @Mocked
-    MysqlChannel channel;
-    @Mocked
-    MysqlProto mysqlProto;
+    private SocketChannel socketChannel = Mockito.mock(SocketChannel.class);
+    private MysqlChannel channel = Mockito.mock(MysqlChannel.class);
+    private MockedStatic<MysqlProto> mockedMysqlProto;
 
     @Before
     public void setUp() throws Exception {
         succSubmit = new AtomicLong(0);
-        new Expectations() {
-            {
-                channel.getRemoteIp();
-                minTimes = 0;
-                result = "192.168.1.1";
+        mockedMysqlProto = Mockito.mockStatic(MysqlProto.class);
+        Mockito.when(channel.getRemoteIp()).thenReturn("192.168.1.1");
+        mockedMysqlProto.when(() -> MysqlProto.negotiate(Mockito.nullable(ConnectContext.class))).thenReturn(true);
+    }
 
-                // mock negotiate
-                MysqlProto.negotiate((ConnectContext) any);
-                minTimes = 0;
-                result = true;
-
-                MysqlProto.sendResponsePacket((ConnectContext) any);
-                minTimes = 0;
-            }
-        };
+    @After
+    public void tearDown() {
+        if (mockedMysqlProto != null) {
+            mockedMysqlProto.close();
+        }
     }
 
     @Test
-    public void testSubmit(@Mocked ConnectProcessor processor) throws Exception {
+    public void testSubmit() throws Exception {
         ConnectScheduler scheduler = new ConnectScheduler(10);
         for (int i = 0; i < 2; ++i) {
             ConnectContext context = new ConnectContext();
@@ -80,7 +73,7 @@ public class ConnectSchedulerTest {
     }
 
     @Test
-    public void testProcessException(@Mocked ConnectProcessor processor) throws Exception {
+    public void testProcessException() throws Exception {
         ConnectScheduler scheduler = new ConnectScheduler(10);
 
         ConnectContext context = new ConnectContext();

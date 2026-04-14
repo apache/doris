@@ -50,31 +50,23 @@ public class SimplifyConditionalFunction implements ExpressionPatternRuleFactory
     }
 
     /*
-     * coalesce(null,null,expr,...) => coalesce(expr,...)
-     * coalesce(expr1(not null able ), expr2, ...., expr_n) => expr1
-     * coalesce(null,null) => null
-     * coalesce(expr1) => expr1
+     * coalesce(null, ..., null, expr, null) => expr
+     * coalesce(a, null, b, null) => coalesce(a, b)
+     * coalesce(a, b_not_nullable, c) => coalesce(a, b_not_nullable)
+     * coalesce(expr_not_nullable, ...) => expr_not_nullable
+     * coalesce(null, null) => null
+     * coalesce(expr) => expr
      * */
     private static Expression rewriteCoalesce(ExpressionMatchingContext<Coalesce> ctx) {
         Coalesce coalesce = ctx.expr;
-        if (1 == coalesce.arity()) {
-            return TypeCoercionUtils.ensureSameResultType(coalesce, coalesce.child(0), ctx.rewriteContext);
-        }
-        if (!(coalesce.child(0) instanceof NullLiteral) && coalesce.child(0).nullable()) {
-            return TypeCoercionUtils.ensureSameResultType(coalesce, coalesce, ctx.rewriteContext);
-        }
         ImmutableList.Builder<Expression> childBuilder = ImmutableList.builder();
         for (int i = 0; i < coalesce.arity(); i++) {
             Expression child = coalesce.children().get(i);
             if (child instanceof NullLiteral) {
                 continue;
             }
+            childBuilder.add(child);
             if (!child.nullable()) {
-                return TypeCoercionUtils.ensureSameResultType(coalesce, child, ctx.rewriteContext);
-            } else {
-                for (int j = i; j < coalesce.arity(); j++) {
-                    childBuilder.add(coalesce.children().get(j));
-                }
                 break;
             }
         }
@@ -82,6 +74,10 @@ public class SimplifyConditionalFunction implements ExpressionPatternRuleFactory
         if (newChildren.isEmpty()) {
             return TypeCoercionUtils.ensureSameResultType(
                     coalesce, new NullLiteral(coalesce.getDataType()), ctx.rewriteContext
+            );
+        } else if (newChildren.size() == 1) {
+            return TypeCoercionUtils.ensureSameResultType(
+                    coalesce, newChildren.get(0), ctx.rewriteContext
             );
         } else {
             return TypeCoercionUtils.ensureSameResultType(

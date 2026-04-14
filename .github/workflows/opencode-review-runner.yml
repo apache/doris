@@ -1,0 +1,199 @@
+name: Code Review Runner
+
+on:
+  workflow_call:
+    inputs:
+      pr_number:
+        required: true
+        type: string
+      head_sha:
+        required: true
+        type: string
+      base_sha:
+        required: true
+        type: string
+
+permissions:
+  pull-requests: write
+  contents: read
+  issues: write
+
+jobs:
+  code-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.head_sha }}
+
+      - name: Install ripgrep
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ripgrep
+
+      - name: Install OpenCode
+        run: |
+          for attempt in 1 2 3; do
+            if curl -fsSL https://opencode.ai/install | bash; then
+              echo "$HOME/.opencode/bin" >> $GITHUB_PATH
+              exit 0
+            fi
+            echo "Install attempt $attempt failed, retrying in 10s..."
+            sleep 10
+          done
+          echo "All install attempts failed"
+          exit 1
+
+      - name: Configure OpenCode auth
+        run: |
+          mkdir -p ~/.local/share/opencode
+          cat > ~/.local/share/opencode/auth.json <<EOF
+          {
+            "github-copilot": {
+              "type": "oauth",
+              "refresh": "${CODE_REVIEW_ZCLLL_COPILOT_OPENCODE_KEY}",
+              "access": "${CODE_REVIEW_ZCLLL_COPILOT_OPENCODE_KEY}",
+              "expires": 0
+            }
+          }
+          EOF
+        env:
+          CODE_REVIEW_ZCLLL_COPILOT_OPENCODE_KEY: ${{ secrets.CODE_REVIEW_ZCLLL_COPILOT_OPENCODE_KEY }}
+
+      - name: Configure OpenCode permission
+        run: |
+          echo '{"permission":"allow"}' > opencode.json
+
+      - name: Prepare review prompt
+        run: |
+          cat > /tmp/review_prompt.txt <<'PROMPT'
+          You are performing an automated code review inside a GitHub Actions runner. The gh CLI is available and authenticated via GH_TOKEN. You can comment on the pull request.
+
+          Context:
+          - Repository: PLACEHOLDER_REPO
+          - PR number: PLACEHOLDER_PR_NUMBER
+          - PR Head SHA: PLACEHOLDER_HEAD_SHA
+          - PR Base SHA: PLACEHOLDER_BASE_SHA
+
+          Before reviewing any code, you MUST read and follow the code review skill in this repository. During review, you must strictly follow those instructions.
+          In addition, you can perform any desired review operations to observe suspicious code and details in order to identify issues as much as possible.
+
+          ## Final response format
+          - After completing the review, you MUST provide a final summary opinion based on the rules defined in AGENTS.md and the code-review skill. The summary must include conclusions for each applicable critical checkpoint.
+          - If the overall quality of PR is good and there are no critical blocking issues (even if there are some tolerable minor issues), submit an opinion on approval using: gh pr review PLACEHOLDER_PR_NUMBER --approve --body "<summary>"
+          - If issues found, submit a review with inline comments plus a comprehensive summary body. Use GitHub Reviews API to ensure comments are inline:
+              - Inline comment bodies may include GitHub suggested changes blocks when you can propose a precise patch.
+              - Prefer suggested changes for small, self-contained fixes (for example typos, trivial refactors, or narrowly scoped code corrections).
+              - Do not force suggested changes for broad, architectural, or multi-file issues; explain those normally.
+              - Build a JSON array of comments like: [{ "path": "<file>", "position": <diff_position>, "body": "..." }]
+              - Submit via: gh api repos/PLACEHOLDER_REPO/pulls/PLACEHOLDER_PR_NUMBER/reviews --input <json_file>
+              - The JSON file should contain: {"event":"REQUEST_CHANGES","body":"<summary>","comments":[...]}
+          - After publish your opinion, your final response MUST end with exactly one machine-readable result block in this format:
+            RESULT_START
+            {
+              "decision": "APPROVE" | "REQUEST_CHANGES"
+            }
+            RESULT_END
+          PROMPT
+          sed -i "s|PLACEHOLDER_REPO|${REPO}|g" /tmp/review_prompt.txt
+          sed -i "s|PLACEHOLDER_PR_NUMBER|${PR_NUMBER}|g" /tmp/review_prompt.txt
+          sed -i "s|PLACEHOLDER_HEAD_SHA|${HEAD_SHA}|g" /tmp/review_prompt.txt
+          sed -i "s|PLACEHOLDER_BASE_SHA|${BASE_SHA}|g" /tmp/review_prompt.txt
+        env:
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+          BASE_SHA: ${{ inputs.base_sha }}
+
+      - name: Run automated code review
+        id: review
+        timeout-minutes: 55
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PROMPT=$(cat /tmp/review_prompt.txt)
+
+          set +e
+          opencode run "$PROMPT" -m "github-copilot/gpt-5.4" 2>&1 | tee /tmp/opencode-review.log
+          status=${PIPESTATUS[0]}
+          set -e
+
+          last_log_line=$(awk 'NF { line = $0 } END { print line }' /tmp/opencode-review.log)
+
+          failure_reason=""
+          if printf '%s\n' "$last_log_line" | rg -q -i '^Error:|SSE read timed out'; then
+            failure_reason="$last_log_line"
+          elif [ "$status" -ne 0 ]; then
+            failure_reason="OpenCode exited with status $status"
+          fi
+
+          result_json=$(awk '
+            /^RESULT_START$/ {capture=1; current=""; next}
+            /^RESULT_END$/ {capture=0; result=current; found=1; next}
+            capture {current = current $0 ORS}
+            END {
+              if (found) {
+                printf "%s", result
+              }
+            }
+          ' /tmp/opencode-review.log)
+
+          if [ -z "$failure_reason" ] && [ -z "$result_json" ]; then
+            failure_reason="OpenCode did not emit a RESULT_START/RESULT_END result block"
+          fi
+
+          if [ -z "$failure_reason" ] && ! printf '%s' "$result_json" > /tmp/opencode-review-result.json; then
+            failure_reason="Failed to persist OpenCode review result"
+          fi
+
+          if [ -z "$failure_reason" ] && ! jq -e '.decision == "APPROVE" or .decision == "REQUEST_CHANGES"' /tmp/opencode-review-result.json > /dev/null; then
+            failure_reason="OpenCode emitted an invalid review decision"
+          fi
+
+          if [ -n "$failure_reason" ]; then
+            {
+              echo "failure_reason<<EOF"
+              printf '%s\n' "$failure_reason"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          decision=$(jq -r '.decision' /tmp/opencode-review-result.json)
+          echo "decision=$decision" >> "$GITHUB_OUTPUT"
+
+          if [ "$decision" == "REQUEST_CHANGES" ]; then
+            exit 1
+          fi
+
+      - name: Comment PR on review failure
+        if: ${{ always() && steps.review.outcome != 'success' && steps.review.outputs.decision != 'REQUEST_CHANGES' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REVIEW_FAILURE_REASON: ${{ steps.review.outputs.failure_reason }}
+          REVIEW_OUTCOME: ${{ steps.review.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          error_msg="${REVIEW_FAILURE_REASON:-Review step was $REVIEW_OUTCOME (possibly timeout or cancelled)}"
+          gh pr comment "${{ inputs.pr_number }}" --body "$(cat <<EOF
+          OpenCode automated review failed and did not complete.
+
+          Error: ${error_msg}
+          Workflow run: ${RUN_URL}
+
+          Please inspect the workflow logs and rerun the review after the underlying issue is resolved.
+          EOF
+          )"
+
+      - name: Fail workflow if review failed
+        if: ${{ always() && steps.review.outcome != 'success' }}
+        env:
+          REVIEW_FAILURE_REASON: ${{ steps.review.outputs.failure_reason }}
+          REVIEW_OUTCOME: ${{ steps.review.outcome }}
+        run: |
+          error_msg="${REVIEW_FAILURE_REASON:-Review step was $REVIEW_OUTCOME (possibly timeout or cancelled)}"
+          echo "OpenCode automated review failed: ${error_msg}"
+          exit 1

@@ -58,7 +58,7 @@ public class AlterViewInfo extends BaseViewInfo {
         if (viewName == null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_TABLES_USED);
         }
-        viewName.analyze(ctx);
+        viewName.analyze(ctx.getNameSpaceContext());
         FeNameFormat.checkTableName(viewName.getTbl());
         // disallow external catalog
         Util.prohibitExternalCatalog(viewName.getCtl(), "AlterViewCommand");

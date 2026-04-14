@@ -31,7 +31,6 @@ class Block;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 const std::string PaimonJniReader::PAIMON_OPTION_PREFIX = "paimon.";
 const std::string PaimonJniReader::HADOOP_OPTION_PREFIX = "hadoop.";
@@ -65,8 +64,15 @@ PaimonJniReader::PaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_d
                       if (range_params->__isset.serialized_table) {
                           params["serialized_table"] = range_params->serialized_table;
                       }
-                      for (const auto& kv : paimon_params.paimon_options) {
-                          params[PAIMON_OPTION_PREFIX + kv.first] = kv.second;
+                      if (range_params->__isset.paimon_options &&
+                          !range_params->paimon_options.empty()) {
+                          for (const auto& kv : range_params->paimon_options) {
+                              params[PAIMON_OPTION_PREFIX + kv.first] = kv.second;
+                          }
+                      } else if (paimon_params.__isset.paimon_options) {
+                          for (const auto& kv : paimon_params.paimon_options) {
+                              params[PAIMON_OPTION_PREFIX + kv.first] = kv.second;
+                          }
                       }
                       if (range_params->__isset.properties && !range_params->properties.empty()) {
                           for (const auto& kv : range_params->properties) {
@@ -117,5 +123,4 @@ Status PaimonJniReader::get_next_block(Block* block, size_t* read_rows, bool* eo
 Status PaimonJniReader::init_reader() {
     return open(_state, _profile);
 }
-#include "common/compile_check_end.h"
 } // namespace doris

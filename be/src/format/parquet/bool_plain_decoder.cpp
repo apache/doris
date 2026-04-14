@@ -27,7 +27,6 @@
 #include "util/bit_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 Status BoolPlainDecoder::skip_values(size_t num_values) {
     int skip_cached =
             std::min(num_unpacked_values_ - unpacked_value_idx_, cast_set<int>(num_values));
@@ -103,6 +102,5 @@ Status BoolPlainDecoder::_decode_values(MutableColumnPtr& doris_column, DataType
     }
     return Status::OK();
 }
-#include "common/compile_check_end.h"
 
 } // namespace doris

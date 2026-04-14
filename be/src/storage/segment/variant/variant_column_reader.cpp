@@ -58,8 +58,6 @@
 
 namespace doris::segment_v2 {
 
-#include "common/compile_check_begin.h"
-
 namespace {
 
 bool is_compaction_or_checksum_reader(const StorageReadOptions* opts) {
@@ -309,8 +307,10 @@ Result<BinaryColumnCacheSPtr> VariantColumnReader::_get_binary_column_cache(
 DataTypePtr create_variant_type(const TabletColumn& target_col) {
     return target_col.is_nullable()
                    ? make_nullable(std::make_shared<DataTypeVariant>(
-                             target_col.variant_max_subcolumns_count()))
-                   : std::make_shared<DataTypeVariant>(target_col.variant_max_subcolumns_count());
+                             target_col.variant_max_subcolumns_count(),
+                             target_col.variant_enable_doc_mode()))
+                   : std::make_shared<DataTypeVariant>(target_col.variant_max_subcolumns_count(),
+                                                       target_col.variant_enable_doc_mode());
 }
 
 Status VariantColumnReader::_build_read_plan_flat_leaves(
@@ -782,8 +782,14 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
     if (_has_prefix_path_unlocked(relative_path)) {
         // Example {"b" : {"c":456,"e":7.111}}
         // b.c is sparse column, b.e is subcolumn, so b is both the prefix of sparse column and
-        // subcolumn
-        plan->kind = ReadKind::HIERARCHICAL;
+        // subcolumn.
+        // Doc mode: prefer extracting hierarchy from doc_value column to preserve doc mode
+        // invariant (root-only + doc_value). Non-doc mode: read from subcolumns + sparse.
+        if (target_col.variant_enable_doc_mode()) {
+            plan->kind = ReadKind::HIERARCHICAL_DOC;
+        } else {
+            plan->kind = ReadKind::HIERARCHICAL;
+        }
         plan->type = create_variant_type(target_col);
         plan->relative_path = relative_path;
         plan->node = node;
@@ -1417,7 +1423,7 @@ Status VariantRootColumnIterator::_process_root_column(MutableColumnPtr& dst,
     }
 
     // add root column to a tmp object column
-    auto tmp = ColumnVariant::create(0, root_column->size());
+    auto tmp = ColumnVariant::create(0, obj.enable_doc_mode(), root_column->size());
     auto& tmp_obj = assert_cast<ColumnVariant&>(*tmp);
     tmp_obj.add_sub_column({}, std::move(root_column), most_common_type);
     // tmp_obj.get_sparse_column()->assume_mutable()->insert_many_defaults(root_column->size());
@@ -1552,7 +1558,5 @@ VariantColumnReader::collect_nested_group_chain(const std::string& path) const {
     auto res = find_in_nested_groups(_nested_group_readers, path, true);
     return {res.found, std::move(res.chain), std::move(res.child_path)};
 }
-
-#include "common/compile_check_end.h"
 
 } // namespace doris::segment_v2

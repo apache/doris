@@ -25,7 +25,6 @@
 #include "util/time.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 void ResourceContext::to_thrift_query_statistics(TQueryStatistics* statistics) const {
     DCHECK(statistics != nullptr);
@@ -64,5 +63,4 @@ void ResourceContext::to_thrift_query_statistics(TQueryStatistics* statistics) c
     }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

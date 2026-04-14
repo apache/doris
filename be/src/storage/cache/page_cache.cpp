@@ -38,9 +38,24 @@ MemoryTrackedPageBase<T>::MemoryTrackedPageBase(size_t size, bool use_cache,
     }
 }
 
+template <typename T>
+MemoryTrackedPageBase<T>::MemoryTrackedPageBase(size_t size,
+                                                std::shared_ptr<MemTrackerLimiter> mem_tracker)
+        : _size(size), _mem_tracker_by_allocator(std::move(mem_tracker)) {}
+
 MemoryTrackedPageWithPageEntity::MemoryTrackedPageWithPageEntity(size_t size, bool use_cache,
                                                                  segment_v2::PageTypePB page_type)
         : MemoryTrackedPageBase<char*>(size, use_cache, page_type), _capacity(size) {
+    {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(this->_mem_tracker_by_allocator);
+        this->_data = reinterpret_cast<char*>(
+                Allocator<false>::alloc(this->_capacity, ALLOCATOR_ALIGNMENT_16));
+    }
+}
+
+MemoryTrackedPageWithPageEntity::MemoryTrackedPageWithPageEntity(
+        size_t size, std::shared_ptr<MemTrackerLimiter> mem_tracker)
+        : MemoryTrackedPageBase<char*>(size, std::move(mem_tracker)), _capacity(size) {
     {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(this->_mem_tracker_by_allocator);
         this->_data = reinterpret_cast<char*>(

@@ -112,6 +112,14 @@ suite("test_string_function", "arrow_flight_sql") {
     qt_sql "select money_format(1123.456);"
     qt_sql "select money_format(1123.4);"
     qt_sql "select money_format(truncate(1000,10))"
+    qt_sql "select money_format(1.1249);"
+    qt_sql_decimal32 "select money_format(cast(concat('1.124', repeat('9', 5)) as DECIMAL(9, 8)));"
+    qt_sql_decimal64 "select money_format(cast(concat('1.124', repeat('9', 6)) as DECIMAL(10, 9)));"
+    qt_sql_decimal64 "select money_format(cast(concat('1.124', repeat('9', 14)) as DECIMAL(18, 17)));"
+    qt_sql_decimal128 "select money_format(cast(concat('1.124', repeat('9', 15)) as DECIMAL(19, 18)));"
+    qt_sql_decimal128 "select money_format(cast(concat('1.124', repeat('9', 34)) as DECIMAL(38, 37)));"
+    qt_sql_float64 "select money_format(cast(concat('1.124', repeat('9', 35)) as DOUBLE));"
+    qt_sql_float64 "select money_format(cast(concat('1.124', repeat('9', 70)) as DOUBLE));"
 
     qt_sql "select null_or_empty(null);"
     qt_sql "select null_or_empty(\"\");"
@@ -347,6 +355,102 @@ suite("test_string_function", "arrow_flight_sql") {
 
     qt_sql "select sub_replace(\"this is origin str\",\"NEW-STR\",1);"
     qt_sql "select sub_replace(\"doris\",\"***\",1,2);"
+    sql """ set debug_skip_fold_constant = true;"""
+    qt_sub_replace_utf8_sql1 " select sub_replace('你好世界','a',1);"
+    qt_sub_replace_utf8_sql2 " select sub_replace('你好世界','ab',1);"
+    qt_sub_replace_utf8_sql3 " select sub_replace('你好世界','ab',1,20);"
+    qt_sub_replace_utf8_sql4 " select sub_replace('你好世界','abcd我',1,2);"
+    qt_sub_replace_utf8_sql5 " select sub_replace('你好世界','a',6);"
+    qt_sub_replace_utf8_sql6 " select sub_replace('你好世界','大家',0);"
+    qt_sub_replace_utf8_sql7 " select sub_replace('你好世界','大家114514',1,20);"
+    qt_sub_replace_utf8_sql8 " select sub_replace('你好世界','大家114514',6,20);"
+    qt_sub_replace_utf8_sql9 " select sub_replace('你好世界','大家',4);"
+    qt_sub_replace_utf8_sql10 " select sub_replace('你好世界','大家',-1);"
+    sql """ set debug_skip_fold_constant = false;"""
+    qt_sub_replace_utf8_sql1 " select sub_replace('你好世界','a',1);"
+    qt_sub_replace_utf8_sql2 " select sub_replace('你好世界','ab',1);"
+    qt_sub_replace_utf8_sql3 " select sub_replace('你好世界','ab',1,20);"
+    qt_sub_replace_utf8_sql4 " select sub_replace('你好世界','abcd我',1,2);"
+    qt_sub_replace_utf8_sql5 " select sub_replace('你好世界','a',6);"
+    qt_sub_replace_utf8_sql6 " select sub_replace('你好世界','大家',0);"
+    qt_sub_replace_utf8_sql7 " select sub_replace('你好世界','大家114514',1,20);"
+    qt_sub_replace_utf8_sql8 " select sub_replace('你好世界','大家114514',6,20);"
+    qt_sub_replace_utf8_sql9 " select sub_replace('你好世界','大家',4);"
+    qt_sub_replace_utf8_sql10 " select sub_replace('你好世界','大家',-1);"
+
+    qt_soundex """SELECT SOUNDEX('Doris');"""
+    qt_soundex """SELECT SOUNDEX('Robert');"""
+    qt_soundex """SELECT SOUNDEX('Rupert');"""
+    qt_soundex """SELECT SOUNDEX('Smith');"""
+    qt_soundex """SELECT SOUNDEX('Smyth');"""
+    qt_soundex """SELECT SOUNDEX('Johnson');"""
+    qt_soundex """SELECT SOUNDEX('Jackson');"""
+    qt_soundex """SELECT SOUNDEX('Ashcraft');"""
+    qt_soundex """SELECT SOUNDEX('Ashcroft');"""
+    qt_soundex """SELECT SOUNDEX('Washington');"""
+    qt_soundex """SELECT SOUNDEX('Lee');"""
+    qt_soundex """SELECT SOUNDEX('Gutierrez');"""
+    qt_soundex """SELECT SOUNDEX('Pfister');"""
+    qt_soundex """SELECT SOUNDEX('Honeyman');"""
+    qt_soundex """SELECT SOUNDEX('Lloyd');"""
+    qt_soundex """SELECT SOUNDEX('Tymczak');"""
+    qt_soundex """SELECT SOUNDEX('A');"""
+    qt_soundex """SELECT SOUNDEX('B');"""
+    qt_soundex """SELECT SOUNDEX('Z');"""
+    qt_soundex """SELECT SOUNDEX('robert');"""
+    qt_soundex """SELECT SOUNDEX('ROBERT');"""
+    qt_soundex """SELECT SOUNDEX('RoBerT');"""
+    qt_soundex """SELECT SOUNDEX('R@bert');"""
+    qt_soundex """SELECT SOUNDEX('Rob3rt');"""
+    qt_soundex """SELECT SOUNDEX('Rob-ert');"""
+    qt_soundex """SELECT SOUNDEX('123Robert');"""
+    qt_soundex """SELECT SOUNDEX('123');"""
+    qt_soundex """SELECT SOUNDEX('~!@#%^&*-+');"""
+    qt_soundex """SELECT SOUNDEX('   ');"""
+    qt_soundex """SELECT SOUNDEX('');"""
+    qt_soundex """SELECT SOUNDEX('Ab_+ %*^cdefghijklmnopqrstuvwxyz');"""
+    qt_soundex """SELECT SOUNDEX('Euler');"""
+    qt_soundex """SELECT SOUNDEX('Gauss');"""
+    qt_soundex """SELECT SOUNDEX('Hilbert');"""
+    qt_soundex """SELECT SOUNDEX('Knuth');"""
+    qt_soundex """SELECT SOUNDEX('Lloyd');"""
+    qt_soundex """SELECT SOUNDEX('Lukasiewicz');"""
+    qt_soundex """SELECT SOUNDEX('Huang');"""
+    qt_soundex """SELECT SOUNDEX('Zhang');"""
+    qt_soundex """SELECT SOUNDEX('Wang');"""
+    qt_soundex """SELECT SOUNDEX(NULL);"""
+
+    // non-ASCII test for soundex
+    qt_soundex """SELECT SOUNDEX('ApacheDoris非 ASCII 测试');"""
+    test{
+        sql """SELECT SOUNDEX('非 ASCII 测试');"""
+        exception "soundex only supports ASCII"
+    }
+    test{
+        sql """SELECT SOUNDEX('Doris中文测试');"""
+        exception "soundex only supports ASCII"
+    }
+
+    sql """
+        DROP TABLE IF EXISTS strings_LOCATE_test
+    """
+
+    sql """
+        CREATE TABLE IF NOT EXISTS strings_LOCATE_test (
+        id int,
+        str VARCHAR
+        )
+        DISTRIBUTED BY HASH(str) BUCKETS 2
+        PROPERTIES (
+        "replication_num"="1"
+        );
+    """
+
+    sql """
+        insert into strings_LOCATE_test values(1,"123456789"),(2,"1234567890"),(3,null),(4,"abcabc"),(5,"789");
+    """
+
+    qt_sql "SELECT id ,  LOCATE('78', str , 2) FROM strings_LOCATE_test order by id;"
 
     // test function char
     test {

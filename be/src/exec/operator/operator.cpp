@@ -99,7 +99,6 @@
 #include "util/string_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RowDescriptor;
 class RuntimeState;
 } // namespace doris
@@ -364,10 +363,8 @@ Status OperatorXBase::do_projections(RuntimeState* state, Block* origin_block,
             VectorizedUtils::build_mutable_mem_reuse_block(output_block, *_output_row_descriptor);
     if (rows != 0) {
         auto& mutable_columns = mutable_block.mutable_columns();
-        const size_t origin_columns_count = input_block.columns();
         DCHECK_EQ(mutable_columns.size(), local_state->_projections.size()) << debug_string();
         for (int i = 0; i < mutable_columns.size(); ++i) {
-            auto result_column_id = -1;
             ColumnPtr column_ptr;
             RETURN_IF_ERROR(local_state->_projections[i]->execute(&input_block, column_ptr));
             if (column_ptr->size() != rows) {
@@ -377,9 +374,7 @@ Status OperatorXBase::do_projections(RuntimeState* state, Block* origin_block,
                         local_state->_projections[i]->root()->debug_string());
             }
             column_ptr = column_ptr->convert_to_full_column_if_const();
-            if (result_column_id >= origin_columns_count) {
-                bytes_usage += column_ptr->allocated_bytes();
-            }
+            bytes_usage += column_ptr->allocated_bytes();
             insert_column_datas(mutable_columns[i], column_ptr, rows);
         }
         DCHECK(mutable_block.rows() == rows);
@@ -947,5 +942,4 @@ template class OperatorX<DummyOperatorLocalState>;
 template class DataSinkOperatorX<DummySinkLocalState>;
 #endif
 
-#include "common/compile_check_end.h"
 } // namespace doris

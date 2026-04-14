@@ -46,7 +46,6 @@
 #include "util/threadpool.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 // Base class for AI-based functions
 template <typename Derived>
@@ -314,5 +313,4 @@ private:
     }
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

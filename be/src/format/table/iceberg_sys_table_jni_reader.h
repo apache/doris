@@ -37,7 +37,6 @@ class Block;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class IcebergSysTableJniReader : public JniReader {
     ENABLE_FACTORY_CREATOR(IcebergSysTableJniReader);
@@ -45,12 +44,16 @@ class IcebergSysTableJniReader : public JniReader {
 public:
     IcebergSysTableJniReader(const std::vector<SlotDescriptor*>& file_slot_descs,
                              RuntimeState* state, RuntimeProfile* profile,
-                             const TMetaScanRange& meta_scan_range);
+                             const TFileRangeDesc& range, const TFileScanRangeParams* range_params);
 
     ~IcebergSysTableJniReader() override = default;
 
+    static Status validate_scan_range(const TFileRangeDesc& range);
+
     Status init_reader();
+
+private:
+    Status _init_status;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

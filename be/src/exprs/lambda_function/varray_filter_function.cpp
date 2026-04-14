@@ -37,7 +37,6 @@
 #include "exprs/lambda_function/lambda_function_factory.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class VExprContext;
 
 class ArrayFilterFunction : public LambdaFunction {
@@ -171,5 +170,4 @@ void register_function_array_filter(doris::LambdaFunctionFactory& factory) {
     factory.register_function<ArrayFilterFunction>();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

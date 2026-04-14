@@ -23,7 +23,6 @@
 #include "runtime/runtime_state.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 Status HudiReader::get_next_block_inner(Block* block, size_t* read_rows, bool* eof) {
     RETURN_IF_ERROR(_file_format_reader->get_next_block(block, read_rows, eof));
@@ -55,5 +54,4 @@ Status HudiParquetReader::init_reader(
                                        slot_id_to_filter_conjuncts, table_info_node_ptr);
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

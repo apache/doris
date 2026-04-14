@@ -90,6 +90,23 @@ suite("test_string_function_like") {
     qt_sql "SELECT k FROM ${tbName} WHERE NOT LIKE(k, \"%\") ORDER BY k;"
 
     // sql "DROP TABLE ${tbName};"
+
+    sql "DROP TABLE IF EXISTS test_string_function_like_t0"
+    sql """
+            CREATE TABLE test_string_function_like_t0 (c0 SMALLINT DEFAULT "1") DISTRIBUTED BY HASH (c0) PROPERTIES ("replication_num" = "1");
+        """
+    qt_sql "select CASE TRUE WHEN CASE FALSE WHEN ( c0 IS NULL) THEN TRUE END THEN NULL WHEN (('') LIKE c0) THEN '1970-04-17 18:47:49' END from test_string_function_like_t0;"
+
+    qt_sql """select
+                CASE TRUE WHEN
+                CASE FALSE
+                WHEN ( c0 IS NULL) THEN
+                TRUE
+                END THEN
+                NULL
+                END
+            FROM test_string_function_like_t0;"""
+
     qt_crc32_1 "select crc32(\"DORIS\");"
     qt_crc32_2 "select crc32(\"APACHE DORIS\");"
     qt_crc32_3 "select crc32(10);"

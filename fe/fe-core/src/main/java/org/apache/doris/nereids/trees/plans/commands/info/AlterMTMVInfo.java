@@ -46,7 +46,7 @@ public abstract class AlterMTMVInfo {
      * analyze alter table info
      */
     public void analyze(ConnectContext ctx) throws AnalysisException {
-        mvName.analyze(ctx);
+        mvName.analyze(ctx.getNameSpaceContext());
         if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, mvName.getCtl(), mvName.getDb(),
                 mvName.getTbl(), PrivPredicate.ALTER)) {
             String message = ErrorCode.ERR_TABLEACCESS_DENIED_ERROR.formatErrorMsg("ALTER",

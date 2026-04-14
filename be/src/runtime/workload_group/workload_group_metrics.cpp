@@ -33,8 +33,6 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(workload_group_total_local_scan_bytes,
                                      doris::MetricUnit::BYTES);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(workload_group_local_scan_bytes, doris::MetricUnit::BYTES);
 
-#include "common/compile_check_begin.h"
-
 WorkloadGroupMetrics::~WorkloadGroupMetrics() {
     DorisMetrics::instance()->metric_registry()->deregister_entity(_entity);
 }

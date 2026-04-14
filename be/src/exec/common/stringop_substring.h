@@ -64,7 +64,6 @@
 #include "util/simd/vstring_function.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 struct StringOP {
     static void push_empty_string(size_t index, ColumnString::Chars& chars,
                                   ColumnString::Offsets& offsets) {
@@ -277,7 +276,5 @@ private:
         }
     }
 };
-
-#include "common/compile_check_end.h"
 
 } // namespace doris

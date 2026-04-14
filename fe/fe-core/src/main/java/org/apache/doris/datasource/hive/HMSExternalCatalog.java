@@ -33,9 +33,7 @@ import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.metastore.AbstractHiveProperties;
-import org.apache.doris.fs.FileSystemProvider;
-import org.apache.doris.fs.FileSystemProviderImpl;
-import org.apache.doris.fs.remote.dfs.DFSFileSystem;
+import org.apache.doris.fs.SpiSwitchingFileSystem;
 import org.apache.doris.transaction.TransactionManagerFactory;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -71,6 +69,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
 
     private static final int FILE_SYSTEM_EXECUTOR_THREAD_NUM = 16;
     private ThreadPoolExecutor fileSystemExecutor;
+    private SpiSwitchingFileSystem spiFileSystem;
 
     //for "type" = "hms" , but is iceberg table.
     private IcebergMetadataOps icebergMetadataOps;
@@ -146,11 +145,12 @@ public class HMSExternalCatalog extends ExternalCatalog {
                 String.format("hms_iceberg_catalog_%s_executor_pool", name),
                 true,
                 executionAuthenticator);
-        FileSystemProvider fileSystemProvider = new FileSystemProviderImpl(Env.getCurrentEnv().getExtMetaCacheMgr(),
-                this.catalogProperty.getStoragePropertiesMap());
+        SpiSwitchingFileSystem spiFileSystem =
+                new SpiSwitchingFileSystem(this.catalogProperty.getStoragePropertiesMap());
+        this.spiFileSystem = spiFileSystem;
         this.fileSystemExecutor = ThreadPoolManager.newDaemonFixedThreadPool(FILE_SYSTEM_EXECUTOR_THREAD_NUM,
                 Integer.MAX_VALUE, String.format("hms_committer_%s_file_system_executor_pool", name), true);
-        transactionManager = TransactionManagerFactory.createHiveTransactionManager(hiveOps, fileSystemProvider,
+        transactionManager = TransactionManagerFactory.createHiveTransactionManager(hiveOps, spiFileSystem,
                 fileSystemExecutor);
         metadataOps = hiveOps;
     }
@@ -158,6 +158,14 @@ public class HMSExternalCatalog extends ExternalCatalog {
     @Override
     public void onClose() {
         super.onClose();
+        if (null != spiFileSystem) {
+            try {
+                spiFileSystem.close();
+            } catch (Exception e) {
+                LOG.warn("Failed to close SpiSwitchingFileSystem for catalog: {}", name, e);
+            }
+            spiFileSystem = null;
+        }
         if (null != fileSystemExecutor) {
             ThreadPoolManager.shutdownExecutorService(fileSystemExecutor);
         }
@@ -228,7 +236,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         super.setDefaultPropsIfMissing(isReplay);
         if (ifNotSetFallbackToSimpleAuth()) {
             // always allow fallback to simple auth, so to support both kerberos and simple auth
-            catalogProperty.addProperty(DFSFileSystem.PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH, "true");
+            catalogProperty.addProperty("ipc.client.fallback-to-simple-auth-allowed", "true");
         }
     }
 

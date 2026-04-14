@@ -26,6 +26,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
 . "${ROOT}/custom_settings.env"
 . "${ROOT}/juicefs-helpers.sh"
+. "${ROOT}/docker-health.sh"
+. "${ROOT}/docker-compose/hive/scripts/bootstrap/bootstrap-groups.sh"
 
 usage() {
     echo "
@@ -220,6 +222,13 @@ for element in "${COMPONENTS_ARR[@]}"; do
     fi
 done
 
+if [[ "${RUN_HIVE2}" -eq 1 ]] && [[ -z "${HIVE2_BOOTSTRAP_GROUPS+x}" ]]; then
+    export HIVE2_BOOTSTRAP_GROUPS="common,hive2_only"
+fi
+if [[ "${RUN_HIVE3}" -eq 1 ]] && [[ -z "${HIVE3_BOOTSTRAP_GROUPS+x}" ]]; then
+    export HIVE3_BOOTSTRAP_GROUPS="common,hive3_only"
+fi
+
 reserve_ports() {
     if [[ "${NEED_RESERVE_PORTS}" -eq 0 ]]; then
         return
@@ -240,7 +249,6 @@ JUICEFS_LOCAL_BIN="${JUICEFS_RUNTIME_ROOT}/bin/juicefs"
 find_juicefs_hadoop_jar() {
     local -a jar_globs=(
         "${JUICEFS_RUNTIME_ROOT}/lib/juicefs-hadoop-[0-9]*.jar"
-        "${ROOT}/docker-compose/hive/scripts/auxlib/juicefs-hadoop-[0-9]*.jar"
         "${DORIS_ROOT}/thirdparty/installed/juicefs_libs/juicefs-hadoop-[0-9]*.jar"
         "${DORIS_ROOT}/output/fe/lib/juicefs/juicefs-hadoop-[0-9]*.jar"
         "${DORIS_ROOT}/output/be/lib/java_extensions/juicefs/juicefs-hadoop-[0-9]*.jar"
@@ -359,6 +367,10 @@ ensure_juicefs_hadoop_jar_for_hive() {
     fi
 
     mkdir -p "${auxlib_dir}"
+    if [[ "${source_jar}" == "${auxlib_dir}/$(basename "${source_jar}")" ]]; then
+        echo "JuiceFS Hadoop jar already exists in hive auxlib: $(basename "${source_jar}")"
+        return 0
+    fi
     cp -f "${source_jar}" "${auxlib_dir}/"
     echo "Synced JuiceFS Hadoop jar to hive auxlib: $(basename "${source_jar}")"
 }
@@ -546,6 +558,12 @@ start_hive2() {
     # If the doris cluster you need to test is single-node, you can use the default values; If the doris cluster you need to test is composed of multiple nodes, then you need to set the IP_HOST according to the actual situation of your machine
     #default value
     export CONTAINER_UID=${CONTAINER_UID}
+    export HIVE_BOOTSTRAP_GROUPS="${HIVE2_BOOTSTRAP_GROUPS:-}"
+    echo "Hive2 bootstrap groups: ${HIVE_BOOTSTRAP_GROUPS:-all}"
+    if [[ "${HIVE_FORCE_RESTART:-0}" -eq 0 ]] && docker_hive_stack_reusable "${CONTAINER_UID}" "hive2" "${HIVE_BOOTSTRAP_GROUPS:-all}"; then
+        echo "Hive2 stack is already healthy with matching bootstrap groups, skip restart"
+        return
+    fi
     . "${ROOT}"/docker-compose/hive/hive-2x_settings.env
     envsubst <"${ROOT}"/docker-compose/hive/hive-2x.yaml.tpl >"${ROOT}"/docker-compose/hive/hive-2x.yaml
     envsubst <"${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl >"${ROOT}"/docker-compose/hive/hadoop-hive-2x.env
@@ -560,6 +578,12 @@ start_hive3() {
     # hive3
     # If the doris cluster you need to test is single-node, you can use the default values; If the doris cluster you need to test is composed of multiple nodes, then you need to set the IP_HOST according to the actual situation of your machine
     export CONTAINER_UID=${CONTAINER_UID}
+    export HIVE_BOOTSTRAP_GROUPS="${HIVE3_BOOTSTRAP_GROUPS:-}"
+    echo "Hive3 bootstrap groups: ${HIVE_BOOTSTRAP_GROUPS:-all}"
+    if [[ "${HIVE_FORCE_RESTART:-0}" -eq 0 ]] && docker_hive_stack_reusable "${CONTAINER_UID}" "hive3" "${HIVE_BOOTSTRAP_GROUPS:-all}"; then
+        echo "Hive3 stack is already healthy with matching bootstrap groups, skip restart"
+        return
+    fi
     . "${ROOT}"/docker-compose/hive/hive-3x_settings.env
     envsubst <"${ROOT}"/docker-compose/hive/hive-3x.yaml.tpl >"${ROOT}"/docker-compose/hive/hive-3x.yaml
     envsubst <"${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl >"${ROOT}"/docker-compose/hive/hadoop-hive-3x.env
@@ -760,7 +784,16 @@ if [[ "$NEED_LOAD_DATA" -eq 1 ]]; then
 fi
 
 if [[ $need_prepare_hive_data -eq 1 ]]; then
+    prepare_hive_bootstrap_groups=()
+    if [[ "${RUN_HIVE2}" -eq 1 ]]; then
+        prepare_hive_bootstrap_groups+=("${HIVE2_BOOTSTRAP_GROUPS:-}")
+    fi
+    if [[ "${RUN_HIVE3}" -eq 1 ]]; then
+        prepare_hive_bootstrap_groups+=("${HIVE3_BOOTSTRAP_GROUPS:-}")
+    fi
+    export HIVE_BOOTSTRAP_GROUPS="$(bootstrap_merge_groups "${prepare_hive_bootstrap_groups[@]}")"
     echo "prepare hive2/hive3 data"
+    echo "Prepare hive bootstrap groups: ${HIVE_BOOTSTRAP_GROUPS}"
     bash "${ROOT}/docker-compose/hive/scripts/prepare-hive-data.sh"
 fi
 

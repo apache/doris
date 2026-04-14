@@ -39,7 +39,6 @@
 #include "util/slice.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class SlotDescriptor;
 class RuntimeProfile;
@@ -285,5 +284,4 @@ private:
     std::vector<Slice> _split_values;
     std::vector<int> _use_nullable_string_opt;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

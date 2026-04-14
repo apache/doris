@@ -95,7 +95,7 @@ public class ShowQueuedAnalyzeJobsCommand extends ShowCommand {
     private void validate(ConnectContext ctx) throws AnalysisException {
         checkShowQueuedAnalyzeJobsPriv(ctx);
         if (tableNameInfo != null) {
-            tableNameInfo.analyze(ctx);
+            tableNameInfo.analyze(ctx.getNameSpaceContext());
             ctl = tableNameInfo.getCtl();
             db = tableNameInfo.getDb();
             table = tableNameInfo.getTbl();

@@ -573,6 +573,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     private Map<Long, List<Long>> updateVersion(CommitTxnResponse commitTxnResponse) {
+        if (DebugPointUtil.isEnable("FE.CloudGlobalTransactionMgr.updateVersion.disabled")) {
+            LOG.info("FE.CloudGlobalTransactionMgr.updateVersion.disabled");
+            return Collections.emptyMap();
+        }
         long dbId = commitTxnResponse.getTxnInfo().getDbId();
         long txnId = commitTxnResponse.getTxnInfo().getTxnId();
         int totalPartitionNum = commitTxnResponse.getPartitionIdsList().size();

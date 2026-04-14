@@ -30,7 +30,6 @@
 namespace doris {
 class RuntimeState;
 
-#include "common/compile_check_begin.h"
 class NestedLoopJoinProbeOperatorX;
 
 /// TODO: Long-term task — the current implementation of this class
@@ -263,4 +262,3 @@ private:
 };
 
 } // namespace doris
-#include "common/compile_check_end.h"

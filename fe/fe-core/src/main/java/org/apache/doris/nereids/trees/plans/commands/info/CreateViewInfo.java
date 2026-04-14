@@ -54,7 +54,7 @@ public class CreateViewInfo extends BaseViewInfo {
 
     /** init */
     public void init(ConnectContext ctx) throws UserException {
-        viewName.analyze(ctx);
+        viewName.analyze(ctx.getNameSpaceContext());
         FeNameFormat.checkTableName(viewName.getTbl());
         // disallow external catalog
         Util.prohibitExternalCatalog(viewName.getCtl(), "CreateViewCommand");

@@ -818,7 +818,6 @@ std::string_view Field::as_string_view() const {
     // MATCH_PRIMITIVE_TYPE(TYPE_MAP);
     // MATCH_PRIMITIVE_TYPE(TYPE_HLL);
     MATCH_PRIMITIVE_TYPE(TYPE_DECIMALV2);
-    MATCH_PRIMITIVE_TYPE(TYPE_TIME);
     // MATCH_PRIMITIVE_TYPE(TYPE_BITMAP);
     // MATCH_PRIMITIVE_TYPE(TYPE_STRING);
     // MATCH_PRIMITIVE_TYPE(TYPE_QUANTILE_STATE);
@@ -951,10 +950,6 @@ std::string Field::to_debug_string(int scale) const {
             typename PrimitiveTypeTraits<TYPE_QUANTILE_STATE>::CppType && rhs);                   \
     template void Field::FUNC_NAME<TYPE_ARRAY>(                                                   \
             typename PrimitiveTypeTraits<TYPE_ARRAY>::CppType && rhs);                            \
-    template void Field::FUNC_NAME<TYPE_TIME>(typename PrimitiveTypeTraits<TYPE_TIME>::CppType && \
-                                              rhs);                                               \
-    template void Field::FUNC_NAME<TYPE_TIME>(                                                    \
-            const typename PrimitiveTypeTraits<TYPE_TIME>::CppType& rhs);                         \
     template void Field::FUNC_NAME<TYPE_NULL>(                                                    \
             const typename PrimitiveTypeTraits<TYPE_NULL>::CppType& rhs);                         \
     template void Field::FUNC_NAME<TYPE_TINYINT>(                                                 \
@@ -1086,7 +1081,6 @@ DECLARE_FUNCTION(TYPE_HLL)
 DECLARE_FUNCTION(TYPE_VARIANT)
 DECLARE_FUNCTION(TYPE_QUANTILE_STATE)
 DECLARE_FUNCTION(TYPE_ARRAY)
-DECLARE_FUNCTION(TYPE_TIME)
 DECLARE_FUNCTION(TYPE_IPV4)
 DECLARE_FUNCTION(TYPE_IPV6)
 DECLARE_FUNCTION(TYPE_BOOLEAN)

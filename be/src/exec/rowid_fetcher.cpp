@@ -73,8 +73,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
-
 Status RowIDFetcher::init() {
     DorisNodesInfo nodes_info;
     nodes_info.setNodes(_fetch_option.t_fetch_opt.nodes_info);
@@ -630,10 +628,6 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
                              external_get_block_avg_ms, external_scan_range_cnt);
     }
 
-    if (request.has_gc_id_map() && request.gc_id_map()) {
-        ExecEnv::GetInstance()->get_id_manager()->remove_id_file_map(request.query_id());
-    }
-
     return Status::OK();
 }
 
@@ -1116,7 +1110,5 @@ Status RowIdStorageReader::read_doris_format_row(
     }
     return Status::OK();
 }
-
-#include "common/compile_check_end.h"
 
 } // namespace doris

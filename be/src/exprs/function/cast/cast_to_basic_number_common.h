@@ -31,7 +31,6 @@
 #include "exprs/function/cast/cast_base.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 template <typename CppT>
 static inline constexpr const char* int_type_name = std::is_same_v<CppT, UInt8>        ? "bool"
@@ -492,5 +491,4 @@ class CastToImpl<Mode, DataTypeString, ToDataType> : public CastToBase {
     }
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

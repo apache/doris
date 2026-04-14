@@ -19,26 +19,27 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.thrift.TQueryOptions;
 
-import mockit.Mock;
-import mockit.MockUp;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.MockedConstruction;
+import org.mockito.Mockito;
 
 public class StmtExecutorInternalQueryTest {
     @Test
     public void testSetSqlHash() {
         StmtExecutor executor = new StmtExecutor(new ConnectContext(), "select * from table1");
-        new MockUp<NereidsPlanner>() {
-            @Mock
-            public void plan(StatementBase queryStmt, org.apache.doris.thrift.TQueryOptions queryOptions) {
-                throw new RuntimeException();
+        try (MockedConstruction<NereidsPlanner> mocked = Mockito.mockConstruction(NereidsPlanner.class,
+                (mock, context) -> {
+                    Mockito.doThrow(new RuntimeException()).when(mock).plan(
+                            Mockito.any(StatementBase.class), Mockito.any(TQueryOptions.class));
+                })) {
+            try {
+                executor.executeInternalQuery();
+            } catch (Exception e) {
+                // do nothing
             }
-        };
-        try {
-            executor.executeInternalQuery();
-        } catch (Exception e) {
-            // do nothing
         }
         Assert.assertEquals("a8ec30e5ad0820f8c5bd16a82a4491ca", executor.getContext().getSqlHash());
     }
