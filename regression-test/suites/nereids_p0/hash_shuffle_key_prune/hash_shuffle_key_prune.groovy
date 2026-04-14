@@ -57,7 +57,7 @@ suite("hash_shuffle_key_prune") {
         alter table t3 modify column j set stats ('row_count'='204000', 'ndv'='20000', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961','hot_values'='' );
 
         set disable_nereids_rules='prune_empty_partition';
-        set enable_agg_shuffle_key_prune=true;
+        set enable_shuffle_key_prune=true;
         set detail_shape_nodes='PhysicalDistribute';
         set runtime_filter_mode=OFF;
         set global enable_auto_analyze=false;
