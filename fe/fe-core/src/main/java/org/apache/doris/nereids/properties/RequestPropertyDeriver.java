@@ -268,8 +268,7 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         return null;
     }
 
-    private void addRequestForShuffleJoin(PhysicalHashJoin<? extends Plan, ? extends Plan> hashJoin,
-            PlanContext context) {
+    private void addRequestForShuffleJoin(PhysicalHashJoin<? extends Plan, ? extends Plan> hashJoin) {
         addShuffleJoinRequestProperty(hashJoin, ShuffleType.REQUIRE);
     }
 
@@ -282,18 +281,17 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
             return null;
         }
         if (hint.distributeType == DistributeType.SHUFFLE_RIGHT && JoinUtils.couldShuffle(hashJoin)) {
-            // shuffle join
             if (hashJoin.getDistributeHint().getSkewInfo() != null) {
                 addShuffleJoinRequestProperty(hashJoin, ShuffleType.REQUIRE_EQUAL);
             } else {
-                addRequestForShuffleJoin(hashJoin, context);
+                addRequestForShuffleJoin(hashJoin);
             }
             hint.setStatus(Hint.HintStatus.SUCCESS);
             return null;
         }
         // for shuffle join
         if (JoinUtils.couldShuffle(hashJoin)) {
-            addRequestForShuffleJoin(hashJoin, context);
+            addRequestForShuffleJoin(hashJoin);
         }
 
         // for broadcast join
@@ -502,8 +500,8 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         } else if (agg.getAggPhase().isGlobal()) {
             // partition expressions already set by rule
             if (agg.getPartitionExpressions().isPresent() && !agg.getPartitionExpressions().get().isEmpty()) {
-                List<Expression> partitionExprs = agg.getPartitionExpressions().get();
-                addRequestPropertyToChildren(PhysicalProperties.createHash(partitionExprs, ShuffleType.REQUIRE));
+                addRequestPropertyToChildren(
+                        PhysicalProperties.createHash(agg.getPartitionExpressions().get(), ShuffleType.REQUIRE));
                 return null;
             }
             if (agg.getGroupByExpressions().isEmpty()) {
@@ -515,8 +513,6 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
                     .map(SlotReference.class::cast)
                     .map(SlotReference::getExprId)
                     .collect(Collectors.toList());
-            // If the request received by agg is (a,b,c,d,e), the request sent by agg is (a,b,c,d,e,f,g,h,i,j),
-            // then agg can send (a,b,c,d,e) or further choose one from (a,b,c,d,e) when canShuffleKeyOpt applies.
             DistributionSpec parentDist = requestPropertyFromParent.getDistributionSpec();
             if (parentDist instanceof DistributionSpecHash) {
                 DistributionSpecHash distributionRequestFromParent = (DistributionSpecHash) parentDist;

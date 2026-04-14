@@ -334,7 +334,7 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
                     intputRowCount / beNumForDist,
                     0,
                     intputRowCount * dataSizeFactor / beNumForDist
-            );
+                    );
         }
 
         // replicate

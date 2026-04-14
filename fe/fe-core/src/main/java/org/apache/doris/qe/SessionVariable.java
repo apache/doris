@@ -3616,7 +3616,6 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableIcebergMergePartitioning = true;
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
-
     @SuppressWarnings("checkstyle:Indentation")
     public void initFuzzyModeVariables() {
         Random random = new SecureRandom();

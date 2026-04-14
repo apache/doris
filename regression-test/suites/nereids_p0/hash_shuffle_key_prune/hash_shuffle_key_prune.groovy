@@ -184,9 +184,9 @@ suite("hash_shuffle_key_prune") {
     explainAndOrderResult "join_scan_scan", "select t1.a,t2.b from t1 join t2 on t1.b=t2.b and t1.d=t2.d order by 1,2"
 
     // 5.7 Disable single key optimization: should use full join column shuffle
-    sql "set enable_agg_shuffle_key_prune=false"
+    sql "set enable_shuffle_key_prune=false"
     explainAndOrderResult "agg_join_no_opt", """select t1.a,t1.b,t1.c,t1.d,t1.e,t1.f,t1.g from (select a,b,c,d,e,f,g from t1 group by a,b,c,d,e,f,g) t1 inner join (select a,b,c,d,e,f,g from t1 group by a,b,c,d,e,f,g) t2 on t1.a=t2.a and t1.b=t2.b and t1.c=t2.c and t1.d=t2.d and t1.e=t2.e and t1.f=t2.f and t1.g=t2.g order by t1.a,t1.b,t1.c,t1.d,t1.e,t1.f,t1.g;"""
-    sql "set enable_agg_shuffle_key_prune=true"
+    sql "set enable_shuffle_key_prune=true"
 
     // No optimization, because under join is project, not agg
     explainAndOrderResult "join_project_agg", """select * from (select a,b,c,e,c+1 col1 ,b+2 col2 from t1 group by a,b,c,e) t1 inner join (select a,b,c,e,e+1 col1,c+2 col2 from t1 group by a,b,c,e) t2 on t1.a=t2.a and t1.b=t2.b and t1.c=t2.c and t1.e=t2.e and t1.col1=t2.col1 and t1.col2=t2.col2 order by t1.a,t1.b,t1.c,t1.e;"""
