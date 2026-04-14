@@ -17,13 +17,12 @@
 
 #pragma once
 
-#include <gtest/gtest_prod.h>
-
 #include <butil/macros.h>
 #include <bvar/bvar.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/olap_file.pb.h>
+#include <gtest/gtest_prod.h>
 
 #include <atomic>
 #include <condition_variable>
