@@ -35,10 +35,11 @@ import java.util.Map;
  * the statistics is same as the data in audit log.
  */
 public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
+    // ProcessRows temp used for doris manager compatibility, will be implemented future.
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("QueryId").add("ConnectionId").add("Catalog").add("Database").add("User")
             .add("ExecTimeMs").add("SqlHash").add("Statement")
-            .add("ScanRows").add("ScanBytes").add("ReturnedRows").add("CpuMs")
+            .add("ScanRows").add("ScanBytes").add("ProcessRows").add("CpuMs")
             .add("MaxPeakMemoryBytes").add("CurrentUsedMemoryBytes").add("WorkloadGroupId")
             .add("ShuffleSendBytes").add("ShuffleSendRows")
             .add("ScanBytesFromLocalStorage").add("ScanBytesFromRemoteStorage")
@@ -77,7 +78,7 @@ public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
             values.add(item.getSql());
             values.add(QueryStatisticsFormatter.getRowsReturned(queryStatistics.getScanRows()));
             values.add(QueryStatisticsFormatter.getScanBytes(queryStatistics.getScanBytes()));
-            values.add(QueryStatisticsFormatter.getRowsReturned(queryStatistics.getReturnedRows()));
+            values.add(QueryStatisticsFormatter.getRowsReturned(0L));
             values.add(String.valueOf(queryStatistics.getCpuMs()));
             values.add(QueryStatisticsFormatter.getScanBytes(queryStatistics.getMaxPeakMemoryBytes()));
             values.add(QueryStatisticsFormatter.getScanBytes(queryStatistics.getCurrentUsedMemoryBytes()));
