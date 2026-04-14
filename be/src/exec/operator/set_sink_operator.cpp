@@ -24,7 +24,6 @@
 #include "exec/operator/operator.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 template <bool is_intersect>
 Status SetSinkLocalState<is_intersect>::terminate(RuntimeState* state) {
@@ -40,6 +39,18 @@ template <bool is_intersect>
 Status SetSinkLocalState<is_intersect>::close(RuntimeState* state, Status exec_status) {
     if (_closed) {
         return Status::OK();
+    }
+
+    if (!_terminated && _runtime_filter_producer_helper && !state->is_cancelled()) {
+        try {
+            RETURN_IF_ERROR(_runtime_filter_producer_helper->process(
+                    state, &_shared_state->build_block, _shared_state->get_hash_table_size()));
+        } catch (Exception& e) {
+            return Status::InternalError(
+                    "rf process meet error: {}, _terminated: {}, _finish_dependency: {}",
+                    e.to_string(), _terminated,
+                    _finish_dependency ? _finish_dependency->debug_string() : "null");
+        }
     }
 
     if (_runtime_filter_producer_helper) {
@@ -88,31 +99,6 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, Block* in_block
         // record hash table
         COUNTER_SET(local_state._hash_table_size, (int64_t)hash_table_size);
         COUNTER_SET(local_state._valid_element_in_hash_table, valid_element_in_hash_tbl);
-
-        // Process runtime filters BEFORE enabling the probe pipeline.
-        //
-        // For Set operators (INTERSECT/EXCEPT), the probe side can shrink the hash table
-        // via _refresh_hash_table() after set_ready() enables it. If RF processing is
-        // deferred to close(), get_hash_table_size() may return the shrunk size, causing
-        // RuntimeFilterWrapper::init() to under-estimate cardinality. This breaks the
-        // invariant (unique_column_values <= hash_table_size <= max_in_num) and triggers
-        // a spurious error in RuntimeFilterWrapper::insert().
-        //
-        // This is safe because Set operators use GATHER distribution (all data routed to
-        // a single instance), which is equivalent to broadcast — the single instance
-        // already has global cardinality, so sync_filter_size is unnecessary.
-        if (local_state._runtime_filter_producer_helper) {
-            try {
-                RETURN_IF_ERROR(local_state._runtime_filter_producer_helper->process(
-                        state, &build_block, hash_table_size));
-            } catch (Exception& e) {
-                return Status::InternalError(
-                        "rf process meet error: {}, _finish_dependency: {}", e.to_string(),
-                        local_state._finish_dependency
-                                ? local_state._finish_dependency->debug_string()
-                                : "null");
-            }
-        }
 
         local_state._shared_state->probe_finished_children_dependency[_cur_child_id + 1]
                 ->set_ready();

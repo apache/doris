@@ -28,7 +28,6 @@
 #include "runtime/runtime_state.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 // this class used in set sink node
 class RuntimeFilterProducerHelperSet : public RuntimeFilterProducerHelper {
 public:
@@ -53,23 +52,5 @@ public:
         RETURN_IF_ERROR(_publish(state));
         return Status::OK();
     }
-
-protected:
-    void _init_expr(const VExprContextSPtrs& build_expr_ctxs,
-                    const std::vector<TRuntimeFilterDesc>& runtime_filter_descs) override {
-        // Set operators use GATHER distribution (all data → single instance), which is
-        // semantically equivalent to broadcast. FE V2 translator currently does not set
-        // is_broadcast_join for Set operators (defaults to false). Validate this assumption.
-        for (const auto& desc : runtime_filter_descs) {
-            if (desc.is_broadcast_join) {
-                throw Exception(ErrorCode::INTERNAL_ERROR,
-                                "Set operator runtime filter: FE sent is_broadcast_join=true "
-                                "which is unexpected, filter_id={}",
-                                desc.filter_id);
-            }
-        }
-        RuntimeFilterProducerHelper::_init_expr(build_expr_ctxs, runtime_filter_descs);
-    }
 };
-#include "common/compile_check_end.h"
 } // namespace doris
