@@ -4,6 +4,12 @@
 1	b	1	30
 2	a	1	40
 
+-- !multikey_after_insert_incremental --
+1	a	5	110
+1	b	2	60
+2	a	2	80
+2	b	1	60
+
 -- !multikey_after_insert_complete --
 1	a	3	80
 1	b	1	30
@@ -25,6 +31,10 @@
 1	30	300	10	200	2
 2	30	300	30	300	1
 
+-- !multiagg_after_insert_incremental --
+1	75	750	10	200	5
+2	95	850	30	300	3
+
 -- !multiagg_after_insert_complete --
 1	45	450	10	200	3
 2	65	550	30	300	2
@@ -32,8 +42,14 @@
 -- !negval_after_complete --
 2	20
 
+-- !negval_after_first_incremental --
+5	-10
+
 -- !negval_after_negative_complete --
 3	-30
+
+-- !negval_after_second_incremental --
+7	-30
 
 -- !negval_after_zero_complete --
 4	0
@@ -43,6 +59,9 @@
 
 -- !types_after_complete --
 25	8.333333333333334	250.50	83.5000	7.5	2.5	-5	100.75	3
+
+-- !types_after_insert_incremental --
+50	7.142857142857143	576.00	82.2857	19	2.714285714285714	-5	100.75	7
 
 -- !types_after_insert_complete --
 25	6.25	325.50	81.3750	11.5	2.875	-5	100.75	4
