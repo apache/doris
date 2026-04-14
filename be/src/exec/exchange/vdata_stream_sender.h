@@ -49,6 +49,7 @@
 #include "runtime/runtime_profile.h"
 #include "service/backend_options.h"
 #include "storage/tablet_info.h"
+#include "util/block_budget.h"
 #include "util/brpc_closure.h"
 #include "util/uid_util.h"
 
@@ -72,7 +73,7 @@ class BlockSerializer {
 public:
     BlockSerializer(ExchangeSinkLocalState* parent, bool is_local = true);
 #ifdef BE_TEST
-    BlockSerializer() : _batch_size(0) {};
+    BlockSerializer() : _parent(nullptr), _is_local(true), _budget(0, 0) {};
 #endif
     Status next_serialized_block(Block* src, PBlock* dest, size_t num_receivers, bool* serialized,
                                  bool eos, const uint32_t* data = nullptr,
@@ -97,7 +98,7 @@ private:
     std::unique_ptr<MutableBlock> _mutable_block;
 
     bool _is_local;
-    const int _batch_size;
+    const BlockBudget _budget;
     std::atomic<size_t> _buffer_mem_limit = UINT64_MAX;
 };
 

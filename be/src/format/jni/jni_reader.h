@@ -93,6 +93,9 @@ public:
         return Status::OK();
     }
 
+    void set_batch_size(size_t batch_size) override;
+    size_t get_batch_size() const override { return _batch_size; }
+
     /**
      * Read next batch from Java scanner and fill the block.
      */
@@ -175,8 +178,10 @@ private:
     Jni::MethodId _jni_scanner_release_column;
     Jni::MethodId _jni_scanner_release_table;
     Jni::MethodId _jni_scanner_get_statistics;
+    Jni::MethodId _jni_scanner_set_batch_size;
 
     JniDataBridge::TableMetaAddress _table_meta;
+    size_t _batch_size = 0;
 
     // Column name to block index map, passed from FileScanner to avoid repeated map creation
     const std::unordered_map<std::string, uint32_t>* _col_name_to_block_idx = nullptr;

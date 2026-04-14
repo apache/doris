@@ -31,8 +31,7 @@ class LocalExchangeSourceLocalState final : public PipelineXLocalState<LocalExch
 public:
     using Base = PipelineXLocalState<LocalExchangeSharedState>;
     ENABLE_FACTORY_CREATOR(LocalExchangeSourceLocalState);
-    LocalExchangeSourceLocalState(RuntimeState* state, OperatorXBase* parent)
-            : Base(state, parent) {}
+    LocalExchangeSourceLocalState(RuntimeState* state, OperatorXBase* parent);
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status close(RuntimeState* state) override;

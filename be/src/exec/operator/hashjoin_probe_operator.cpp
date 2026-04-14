@@ -97,7 +97,7 @@ Status HashJoinProbeLocalState::open(RuntimeState* state) {
                 } else {
                     _process_hashtable_ctx_variants
                             ->emplace<ProcessHashTableProbe<JoinOpType::value>>(
-                                    this, state->batch_size());
+                                    this, state->batch_size(), state->preferred_block_size_bytes());
                 }
             },
             _shared_state->join_op_variants, make_bool_variant(p._have_other_join_conjunct));

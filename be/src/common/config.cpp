@@ -434,6 +434,8 @@ DEFINE_mInt32(pk_index_page_cache_stale_sweep_time_sec, "600");
 DEFINE_mBool(enable_low_cardinality_optimize, "true");
 DEFINE_Bool(enable_low_cardinality_cache_code, "true");
 
+DEFINE_mBool(enable_adaptive_batch_size, "true");
+
 // be policy
 // whether check compaction checksum
 DEFINE_mBool(enable_compaction_checksum, "false");

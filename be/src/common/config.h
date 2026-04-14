@@ -500,6 +500,11 @@ DECLARE_mInt32(pk_index_page_cache_stale_sweep_time_sec);
 DECLARE_mBool(enable_low_cardinality_optimize);
 DECLARE_Bool(enable_low_cardinality_cache_code);
 
+// Adaptive batch size: dynamically adjust SegmentIterator chunk row count using EWMA
+// so that each output block stays close to preferred_block_size_bytes.
+// When false, the fixed batch_size row behaviour is preserved.
+DECLARE_mBool(enable_adaptive_batch_size);
+
 // be policy
 // whether check compaction checksum
 DECLARE_mBool(enable_compaction_checksum);

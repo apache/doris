@@ -101,6 +101,7 @@ private:
     bool _use_simple_count = false;
     bool _reach_limit = false;
     size_t _input_num_rows = 0;
+    size_t _estimated_row_bytes = 0;
 
     int64_t limit = -1;
     int need_do_sort_limit = -1;

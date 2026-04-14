@@ -395,4 +395,60 @@ TEST_F(StreamingAggOperatorTest, test4) {
     { EXPECT_TRUE(local_state->close(state.get()).ok()); }
 }
 
+// Verify streaming aggregation source respects byte budget via BlockBudget::effective_max_rows.
+TEST_F(StreamingAggOperatorTest, ByteBudgetLimitsEffectiveMaxRows) {
+    auto saved = config::enable_adaptive_batch_size;
+    config::enable_adaptive_batch_size = true;
+    state->_batch_size = 4096;
+    state->_query_options.__set_batch_size(4096);
+    state->_query_options.__set_preferred_block_size_bytes(1);
+    state->_query_options.__set_batch_size(65535);
+
+    op->_aggregate_evaluators.push_back(create_mock_agg_fn_evaluator(
+            pool, MockSlotRef::create_mock_contexts(1, std::make_shared<DataTypeInt64>()), false,
+            false));
+    op->_pool = &pool;
+    op->_needs_finalize = true;
+
+    EXPECT_TRUE(op->set_child(child_op));
+    EXPECT_TRUE(op->prepare(state.get()).ok());
+    op->_probe_expr_ctxs = MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
+
+    {
+        auto ls = std::make_unique<MockStreamingAggLocalState>(state.get(), op.get());
+        LocalStateInfo info {.parent_profile = &profile,
+                             .scan_ranges = {},
+                             .shared_state = nullptr,
+                             .shared_state_map = {},
+                             .task_idx = 0};
+        EXPECT_TRUE(ls->init(state.get(), info).ok());
+        state->resize_op_id_to_local_state(-100);
+        state->emplace_local_state(op->operator_id(), std::move(ls));
+    }
+
+    local_state =
+            static_cast<MockStreamingAggLocalState*>(state->get_local_state(op->operator_id()));
+    EXPECT_TRUE(local_state->open(state.get()).ok());
+
+    {
+        Block block {
+                ColumnHelper::create_column_with_name<DataTypeInt64>({1, 1, 2, 2, 2, 3}),
+                ColumnHelper::create_column_with_name<DataTypeInt64>({1, 1, 100, 100, 100, 1000})};
+        EXPECT_TRUE(op->push(state.get(), &block, true).ok());
+    }
+
+    // Pull once — with tiny byte budget but _estimated_row_bytes still 0, effective_max_rows
+    // falls back to block_max_rows=4096, so all 3 groups should be returned in one call.
+    {
+        Block block;
+        bool eos = false;
+        EXPECT_TRUE(op->pull(state.get(), &block, &eos).ok());
+        EXPECT_EQ(block.rows(), 3);
+        EXPECT_TRUE(eos);
+    }
+
+    EXPECT_TRUE(local_state->close(state.get()).ok());
+    config::enable_adaptive_batch_size = saved;
+}
+
 } // namespace doris

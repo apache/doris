@@ -77,7 +77,7 @@ TEST_F(MergeSorterStateTest, test1) {
     {
         Block block;
         bool eos = false;
-        Status status = state->merge_sort_read(&block, 2, &eos);
+        Status status = state->merge_sort_read(&block, 2, /*block_max_bytes=*/0, &eos);
         EXPECT_TRUE(status.ok());
         EXPECT_TRUE(ColumnHelper::block_equal(block,
                                               ColumnHelper::create_block<DataTypeInt64>({1, 2})));
@@ -86,7 +86,7 @@ TEST_F(MergeSorterStateTest, test1) {
     {
         Block block;
         bool eos = false;
-        Status status = state->merge_sort_read(&block, 2, &eos);
+        Status status = state->merge_sort_read(&block, 2, /*block_max_bytes=*/0, &eos);
         EXPECT_TRUE(status.ok());
         EXPECT_TRUE(ColumnHelper::block_equal(block,
                                               ColumnHelper::create_block<DataTypeInt64>({3, 4})));
@@ -95,10 +95,67 @@ TEST_F(MergeSorterStateTest, test1) {
     {
         Block block;
         bool eos = false;
-        Status status = state->merge_sort_read(&block, 2, &eos);
+        Status status = state->merge_sort_read(&block, 2, /*block_max_bytes=*/0, &eos);
         EXPECT_TRUE(status.ok());
         EXPECT_TRUE(ColumnHelper::block_equal(block,
                                               ColumnHelper::create_block<DataTypeInt64>({5, 6})));
     }
+}
+
+TEST_F(MergeSorterStateTest, BLOCK_MAX_BYTES_LIMITS_OUTPUT) {
+    // With block_max_bytes set small, merge_sort_read should produce smaller blocks.
+    // Use multiple sorted blocks so the merge loop iterates multiple times.
+    // Each sorted block: 10 Int64 rows (80 bytes). 10 blocks = 100 rows total.
+    // block_max_bytes=50 triggers the break after consuming the first cursor batch.
+    state.reset(new MergeSorterState(*row_desc, 0));
+    for (int b = 0; b < 10; b++) {
+        std::vector<int64_t> values;
+        for (int i = 0; i < 10; i++) {
+            values.push_back(b * 10 + i);
+        }
+        state->add_sorted_block(create_block(values));
+    }
+    EXPECT_EQ(state->num_rows(), 100);
+
+    SortDescription desc {SortColumnDescription {0, 1, -1}};
+    EXPECT_TRUE(state->build_merge_tree(desc));
+
+    size_t total_rows = 0;
+    int num_blocks = 0;
+    bool eos = false;
+    while (!eos) {
+        Block block;
+        Status status = state->merge_sort_read(&block, 100, /*block_max_bytes=*/50, &eos);
+        EXPECT_TRUE(status.ok());
+        if (block.rows() > 0) {
+            total_rows += block.rows();
+            num_blocks++;
+        }
+    }
+    EXPECT_EQ(total_rows, 100);
+    EXPECT_GT(num_blocks, 1) << "Should produce multiple blocks due to bytes limit";
+}
+
+TEST_F(MergeSorterStateTest, BLOCK_MAX_BYTES_ZERO_DISABLES_CHECK) {
+    // block_max_bytes=0 should not limit — all rows in one call (but eos follows).
+    state.reset(new MergeSorterState(*row_desc, 0));
+    state->add_sorted_block(create_block({1, 2, 3, 4, 5}));
+    state->add_sorted_block(create_block({6, 7, 8, 9, 10}));
+
+    SortDescription desc {SortColumnDescription {0, 1, -1}};
+    EXPECT_TRUE(state->build_merge_tree(desc));
+
+    Block block;
+    bool eos = false;
+    Status status = state->merge_sort_read(&block, 100, /*block_max_bytes=*/0, &eos);
+    EXPECT_TRUE(status.ok());
+    EXPECT_EQ(block.rows(), 10) << "block_max_bytes=0 should not limit rows";
+    // eos is set to (merged_rows == 0), so after reading 10 rows, eos=false
+    // Next call will return 0 rows with eos=true
+    EXPECT_FALSE(eos);
+    Block block2;
+    status = state->merge_sort_read(&block2, 100, /*block_max_bytes=*/0, &eos);
+    EXPECT_TRUE(status.ok());
+    EXPECT_TRUE(eos);
 }
 } // namespace doris

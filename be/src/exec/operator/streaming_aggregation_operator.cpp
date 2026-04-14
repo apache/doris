@@ -31,7 +31,6 @@
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/vectorized_agg_fn.h"
 #include "exprs/vslot_ref.h"
-
 namespace doris {
 class RuntimeState;
 } // namespace doris
@@ -468,6 +467,9 @@ Status StreamingAggLocalState::_get_results_with_serialized_key(RuntimeState* st
         }
     }
 
+    // Compute effective max rows based on estimated bytes per row from previous calls.
+    const size_t effective_max_rows = _budget.effective_max_rows(_estimated_row_bytes);
+
     std::visit(
             Overload {
                     [&](std::monostate& arg) -> void {
@@ -476,7 +478,7 @@ Status StreamingAggLocalState::_get_results_with_serialized_key(RuntimeState* st
                     [&](auto& agg_method) -> void {
                         agg_method.init_iterator();
                         auto& data = *agg_method.hash_table;
-                        const auto size = std::min(data.size(), size_t(state->batch_size()));
+                        const auto size = std::min(data.size(), effective_max_rows);
                         using KeyType = std::decay_t<decltype(agg_method)>::Key;
                         std::vector<KeyType> keys(size);
 
@@ -501,7 +503,7 @@ Status StreamingAggLocalState::_get_results_with_serialized_key(RuntimeState* st
                             {
                                 SCOPED_TIMER(_hash_table_iterate_timer);
                                 auto& it = agg_method.begin;
-                                while (it != agg_method.end && num_rows < state->batch_size()) {
+                                while (it != agg_method.end && num_rows < effective_max_rows) {
                                     keys[num_rows] = it.get_first();
                                     auto inline_count =
                                             reinterpret_cast<const UInt64&>(it.get_second());
@@ -523,7 +525,7 @@ Status StreamingAggLocalState::_get_results_with_serialized_key(RuntimeState* st
                                 if (agg_method.hash_table->has_null_key_data()) {
                                     DCHECK(key_columns.size() == 1);
                                     DCHECK(key_columns[0]->is_nullable());
-                                    if (num_rows < state->batch_size()) {
+                                    if (num_rows < effective_max_rows) {
                                         key_columns[0]->insert_data(nullptr, 0);
                                         auto mapped =
                                                 agg_method.hash_table->template get_null_key_data<
@@ -552,7 +554,7 @@ Status StreamingAggLocalState::_get_results_with_serialized_key(RuntimeState* st
                         {
                             SCOPED_TIMER(_hash_table_iterate_timer);
                             while (iter != _aggregate_data_container->end() &&
-                                   num_rows < state->batch_size()) {
+                                   num_rows < effective_max_rows) {
                                 keys[num_rows] = iter.template get_key<KeyType>();
                                 _values[num_rows] = iter.get_aggregate_data();
                                 ++iter;
@@ -617,6 +619,10 @@ Status StreamingAggLocalState::_get_results_with_serialized_key(RuntimeState* st
             columns_with_schema.emplace_back(std::move(value_columns[i]), value_data_types[i], "");
         }
         *block = Block(columns_with_schema);
+    }
+
+    if (block->rows() > 0) {
+        _estimated_row_bytes = block->bytes() / block->rows();
     }
 
     return Status::OK();
