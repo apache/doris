@@ -548,16 +548,31 @@ class IvmNormalizeMtmvTest {
     }
 
     @Test
-    void testBareGroupByWithoutAggFunctionsThrows() {
+    void testBareGroupByWithoutAggFunctionsSucceeds() {
         Slot idSlot = scan.getOutput().get(0);
-        // GROUP BY id with no aggregate functions
+        // GROUP BY id with no aggregate functions — should produce only group-level count
         List<Expression> groupBy = ImmutableList.of(idSlot);
         List<NamedExpression> outputs = ImmutableList.of(idSlot);
         LogicalAggregate<Plan> agg = new LogicalAggregate<>(
                 groupBy, outputs, true, java.util.Optional.empty(), scan);
 
-        Assertions.assertThrows(AnalysisException.class,
-                () -> new IvmNormalizeMtmv().rewriteRoot(agg, newJobContextForRoot(agg, true)));
+        JobContext jobContext = newJobContextForRoot(agg, true);
+        Plan result = new IvmNormalizeMtmv().rewriteRoot(agg, jobContext);
+
+        // Normalization should succeed with zero agg targets
+        Assertions.assertInstanceOf(LogicalProject.class, result);
+        IvmAggMeta aggMeta = jobContext.getCascadesContext().getIvmNormalizeResult().get().getAggMeta();
+        Assertions.assertNotNull(aggMeta);
+        Assertions.assertEquals(0, aggMeta.getAggTargets().size());
+        Assertions.assertNotNull(aggMeta.getGroupCountSlot());
+        Assertions.assertFalse(aggMeta.isScalarAgg());
+
+        // Output should contain: row_id, group key (id), hidden group count
+        LogicalProject<?> topProject = (LogicalProject<?>) result;
+        Set<String> outputNames = topProject.getOutput().stream()
+                .map(Slot::getName).collect(Collectors.toSet());
+        Assertions.assertTrue(outputNames.contains(Column.IVM_ROW_ID_COL));
+        Assertions.assertTrue(outputNames.contains(Column.IVM_AGG_COUNT_COL));
     }
 
     @Test
