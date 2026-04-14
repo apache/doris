@@ -108,7 +108,19 @@ suite("test_streaming_mysql_job_special_offset", "p0,external,mysql,external_doc
         sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
         sql """drop table if exists ${currentDb}.${table1} force"""
 
-        // ===== Test 3: ALTER JOB to change offset =====
+        // ===== Test 3: ALTER JOB with JSON binlog offset via PROPERTIES =====
+        // Get current binlog position, then create job with initial
+        def alterBinlogFile = ""
+        def alterBinlogPos = ""
+        connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {
+            def masterStatus = sql """SHOW MASTER STATUS"""
+            alterBinlogFile = masterStatus[0][0]
+            alterBinlogPos = masterStatus[0][1].toString()
+            log.info("ALTER test binlog position: file=${alterBinlogFile}, pos=${alterBinlogPos}")
+            // insert data after this position
+            sql """INSERT INTO ${mysqlDb}.${table1} VALUES (20, 'alter_test1')"""
+            sql """INSERT INTO ${mysqlDb}.${table1} VALUES (21, 'alter_test2')"""
+        }
         sql """CREATE JOB ${jobName}
                 ON STREAMING
                 FROM MYSQL (
@@ -129,13 +141,29 @@ suite("test_streaming_mysql_job_special_offset", "p0,external,mysql,external_doc
             def jobStatus = sql """select status from jobs("type"="insert") where Name='${jobName}'"""
             return jobStatus.size() == 1 && jobStatus[0][0] == "RUNNING"
         })
-        // pause, then alter offset to initial
+        // pause, then alter offset to specific binlog position via PROPERTIES
         sql "PAUSE JOB where jobname = '${jobName}'"
         Awaitility.await().atMost(30, SECONDS).pollInterval(1, SECONDS).until({
             def jobStatus = sql """select status from jobs("type"="insert") where Name='${jobName}'"""
             return jobStatus[0][0] == "PAUSED"
         })
+        def alterOffsetJson = """{"file":"${alterBinlogFile}","pos":"${alterBinlogPos}"}"""
+        log.info("ALTER offset: ${alterOffsetJson}")
         sql """ALTER JOB ${jobName}
+                PROPERTIES('offset' = '${alterOffsetJson}')
+            """
+        sql "RESUME JOB where jobname = '${jobName}'"
+        // after alter to specific binlog position, data inserted after that position should sync
+        Awaitility.await().atMost(120, SECONDS).pollInterval(2, SECONDS).until({
+            def result = sql """SELECT count(*) FROM ${currentDb}.${table1} WHERE id IN (20, 21)"""
+            return result[0][0] >= 2
+        })
+        sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
+        sql """drop table if exists ${currentDb}.${table1} force"""
+
+        // ===== Test 3b: ALTER with named mode should fail for CDC =====
+        sql """CREATE JOB ${jobName}
+                ON STREAMING
                 FROM MYSQL (
                     "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
                     "driver_url" = "${driver_url}",
@@ -150,12 +178,21 @@ suite("test_streaming_mysql_job_special_offset", "p0,external,mysql,external_doc
                   "table.create.properties.replication_num" = "1"
                 )
             """
-        sql "RESUME JOB where jobname = '${jobName}'"
-        // after alter to initial, snapshot data should sync
-        Awaitility.await().atMost(120, SECONDS).pollInterval(2, SECONDS).until({
-            def result = sql """SELECT count(*) FROM ${currentDb}.${table1}"""
-            return result[0][0] >= 3
+        Awaitility.await().atMost(60, SECONDS).pollInterval(2, SECONDS).until({
+            def jobStatus = sql """select status from jobs("type"="insert") where Name='${jobName}'"""
+            return jobStatus.size() == 1 && jobStatus[0][0] == "RUNNING"
         })
+        sql "PAUSE JOB where jobname = '${jobName}'"
+        Awaitility.await().atMost(30, SECONDS).pollInterval(1, SECONDS).until({
+            def jobStatus = sql """select status from jobs("type"="insert") where Name='${jobName}'"""
+            return jobStatus[0][0] == "PAUSED"
+        })
+        test {
+            sql """ALTER JOB ${jobName}
+                    PROPERTIES('offset' = 'initial')
+                """
+            exception "ALTER JOB for CDC only supports JSON specific offset"
+        }
         sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
         sql """drop table if exists ${currentDb}.${table1} force"""
 

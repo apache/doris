@@ -780,15 +780,19 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     private void modifyPropertiesInternal(Map<String, String> inputProperties) throws AnalysisException, JobException {
         StreamingJobProperties inputStreamProps = new StreamingJobProperties(inputProperties);
         if (StringUtils.isNotEmpty(inputStreamProps.getOffsetProperty())) {
+            // For CDC jobs, ALTER only supports JSON specific offset (e.g. binlog position or LSN),
+            // named modes like initial/latest/snapshot are only valid at CREATE time.
+            if (offsetProvider instanceof JdbcSourceOffsetProvider
+                    && !DataSourceConfigValidator.isJsonOffset(inputStreamProps.getOffsetProperty())) {
+                throw new AnalysisException(
+                        "ALTER JOB for CDC only supports JSON specific offset, "
+                        + "e.g. '{\"file\":\"binlog.000001\",\"pos\":\"154\"}' for MySQL "
+                        + "or '{\"lsn\":\"12345678\"}' for PostgreSQL");
+            }
             Offset offset = validateOffset(inputStreamProps.getOffsetProperty());
             this.offsetProvider.updateOffset(offset);
             if (Config.isCloudMode()) {
                 resetCloudProgress(offset);
-            }
-            // For FROM...TO path, also update sourceProperties so the CDC client
-            // uses the new offset when building the next task.
-            if (this.sourceProperties != null) {
-                this.sourceProperties.put(DataSourceConfigKeys.OFFSET, inputStreamProps.getOffsetProperty());
             }
         }
         this.properties.putAll(inputProperties);
