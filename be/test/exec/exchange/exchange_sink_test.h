@@ -15,20 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gtest/gtest.h>
-
-#include <memory>
-#include <vector>
-
-#include "common/status.h"
-#include "exec/operator/exchange_sink_buffer.h"
-#include "exec/operator/exchange_sink_operator.h"
-#include "exec/sink/writer/vhive_utils.h"
-#include "runtime/runtime_state.h"
-#include "testutil/mock/mock_runtime_state.h"
-
-namespace doris {
-
 std::map<int64_t, std::queue<AutoReleaseClosure<PTransmitDataParams,
                                                 ExchangeSendCallback<PTransmitDataResult>>*>>
 
