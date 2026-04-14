@@ -30,6 +30,7 @@ void ResourceContext::to_thrift_query_statistics(TQueryStatistics* statistics) c
     statistics->__set_scan_bytes(io_context()->scan_bytes());
     statistics->__set_cpu_ms(cpu_context()->cpu_cost_ms() / NANOS_PER_MILLIS);
     statistics->__set_returned_rows(io_context()->returned_rows());
+    statistics->__set_process_rows(io_context()->process_rows());
     statistics->__set_max_peak_memory_bytes(memory_context()->max_peak_memory_bytes());
     statistics->__set_current_used_memory_bytes(memory_context()->current_memory_bytes());
     statistics->__set_shuffle_send_bytes(io_context()->shuffle_send_bytes());

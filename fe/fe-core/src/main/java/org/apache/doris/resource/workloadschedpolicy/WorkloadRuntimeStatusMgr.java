@@ -283,6 +283,7 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
         dst.cpu_ms += srcStats.cpu_ms;
         dst.shuffle_send_bytes += srcStats.shuffle_send_bytes;
         dst.shuffle_send_rows += srcStats.shuffle_send_rows;
+        dst.process_rows += srcStats.process_rows;
         if (dst.max_peak_memory_bytes < srcStats.max_peak_memory_bytes) {
             dst.max_peak_memory_bytes = srcStats.max_peak_memory_bytes;
         }
