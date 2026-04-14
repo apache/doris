@@ -18,14 +18,19 @@
 package org.apache.doris.job.extensions.insert.streaming;
 
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
+import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.Sets;
 
 import java.util.Map;
 import java.util.Set;
 
 public class DataSourceConfigValidator {
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+
     private static final Set<String> ALLOW_SOURCE_KEYS = Sets.newHashSet(
             DataSourceConfigKeys.JDBC_URL,
             DataSourceConfigKeys.USER,
@@ -51,7 +56,7 @@ public class DataSourceConfigValidator {
 
     private static final String TABLE_LEVEL_PREFIX = DataSourceConfigKeys.TABLE + ".";
 
-    public static void validateSource(Map<String, String> input) throws IllegalArgumentException {
+    public static void validateSource(Map<String, String> input, String dataSourceType) throws IllegalArgumentException {
         for (Map.Entry<String, String> entry : input.entrySet()) {
             String key = entry.getKey();
             String value = entry.getValue();
@@ -79,7 +84,7 @@ public class DataSourceConfigValidator {
                 throw new IllegalArgumentException("Unexpected key: '" + key + "'");
             }
 
-            if (!isValidValue(key, value)) {
+            if (!isValidValue(key, value, dataSourceType)) {
                 throw new IllegalArgumentException("Invalid value for key '" + key + "': " + value);
             }
         }
@@ -103,18 +108,51 @@ public class DataSourceConfigValidator {
         }
     }
 
-    private static boolean isValidValue(String key, String value) {
+    private static boolean isValidValue(String key, String value, String dataSourceType) {
         if (value == null || value.isEmpty()) {
             return false;
         }
 
-        if (key.equals(DataSourceConfigKeys.OFFSET)
-                && !(value.equals(DataSourceConfigKeys.OFFSET_INITIAL)
-                || value.equals(DataSourceConfigKeys.OFFSET_LATEST)
-                || value.equals(DataSourceConfigKeys.OFFSET_SNAPSHOT))) {
-            return false;
+        if (key.equals(DataSourceConfigKeys.OFFSET)) {
+            return isValidOffset(value, dataSourceType);
         }
         return true;
+    }
+
+    /**
+     * Check if the offset value is valid for the given data source type.
+     * Supported: initial, snapshot, latest, JSON binlog/lsn position.
+     * earliest is only supported for MySQL.
+     */
+    public static boolean isValidOffset(String offset, String dataSourceType) {
+        if (offset == null || offset.isEmpty()) {
+            return false;
+        }
+        if (DataSourceConfigKeys.OFFSET_INITIAL.equalsIgnoreCase(offset)
+                || DataSourceConfigKeys.OFFSET_LATEST.equalsIgnoreCase(offset)
+                || DataSourceConfigKeys.OFFSET_SNAPSHOT.equalsIgnoreCase(offset)) {
+            return true;
+        }
+        // earliest only for MySQL
+        if (DataSourceConfigKeys.OFFSET_EARLIEST.equalsIgnoreCase(offset)) {
+            return DataSourceType.MYSQL.name().equalsIgnoreCase(dataSourceType);
+        }
+        if (isJsonOffset(offset)) {
+            return true;
+        }
+        return false;
+    }
+
+    public static boolean isJsonOffset(String offset) {
+        if (offset == null || offset.trim().isEmpty()) {
+            return false;
+        }
+        try {
+            JsonNode node = OBJECT_MAPPER.readTree(offset);
+            return node.isObject();
+        } catch (Exception e) {
+            return false;
+        }
     }
 
 }
