@@ -80,14 +80,14 @@ public class RandSparkTest {
     public void testRejectsVarcharArgument() {
         RandSpark randSpark = new RandSpark(new VarcharLiteral("abc"));
         Assertions.assertThrows(AnalysisException.class,
-            () -> randSpark.checkLegalityBeforeTypeCoercion());
+                () -> randSpark.checkLegalityBeforeTypeCoercion());
     }
 
     @Test
     public void testRejectsStringArgument() {
         RandSpark randSpark = new RandSpark(new StringLiteral("abc"));
         Assertions.assertThrows(AnalysisException.class,
-            () -> randSpark.checkLegalityBeforeTypeCoercion());
+                () -> randSpark.checkLegalityBeforeTypeCoercion());
     }
 
     @Test
