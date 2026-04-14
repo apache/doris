@@ -963,9 +963,10 @@ public class StructInfo {
      *         return null if add filter fail.
      */
     public static Pair<Plan, Boolean> addFilterOnTableScan(Plan queryPlan,
-            Map<BaseColInfo, Set<String>> partitionOnBaseTableMap, CascadesContext parentCascadesContext) {
+            Map<BaseColInfo, Set<String>> partitionOnBaseTableMap, CascadesContext parentCascadesContext,
+            Optional<Long> hourOffset) {
         // Firstly, construct filter form invalid partition, this filter should be added on origin plan
-        PredicateAddContext predicateAddContext = new PredicateAddContext(null, partitionOnBaseTableMap);
+        PredicateAddContext predicateAddContext = new PredicateAddContext(null, partitionOnBaseTableMap, hourOffset);
         Plan queryPlanWithUnionFilter = queryPlan.accept(new PredicateAdder(), predicateAddContext);
         if (!predicateAddContext.isHandleSuccess()) {
             return null;

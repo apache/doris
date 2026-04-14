@@ -257,7 +257,7 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
      * For partition expression like date_trunc(date_add/sub(base_col, INTERVAL N HOUR), unit),
      * the base-table filter should use inverse offset (target - N / + N).
      */
-    private static Optional<Long> getInverseHourOffsetForBaseFilter(MTMV mv) {
+    public static Optional<Long> getInverseHourOffsetForBaseFilter(MTMV mv) {
         Expr partitionExpr = mv.getMvPartitionInfo().getExpr();
         if (!(partitionExpr instanceof FunctionCallExpr)) {
             return Optional.empty();
@@ -438,7 +438,8 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                     if (!partitionHasDataItems.isEmpty()) {
                         return new LogicalFilter<>(
                                 ExpressionUtils.extractConjunctionToSet(
-                                        ExpressionUtils.or(constructPredicates(partitionHasDataItems, partitionSlot))
+                                        ExpressionUtils.or(constructPredicates(partitionHasDataItems, partitionSlot,
+                                                predicates.getHourOffset()))
                                 ),
                                 catalogRelation
                         );
@@ -457,14 +458,21 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
 
         private final Map<TableIf, Set<Expression>> predicates;
         private final Map<BaseColInfo, Set<String>> partitions;
+        private final Optional<Long> hourOffset;
         private boolean handleSuccess = true;
         // when add filter by partition, if partition has no data, doesn't need to add filter. should be false
         private boolean needAddFilter = true;
 
         public PredicateAddContext(Map<TableIf, Set<Expression>> predicates,
                 Map<BaseColInfo, Set<String>> partitions) {
+            this(predicates, partitions, Optional.empty());
+        }
+
+        public PredicateAddContext(Map<TableIf, Set<Expression>> predicates,
+                Map<BaseColInfo, Set<String>> partitions, Optional<Long> hourOffset) {
             this.predicates = predicates;
             this.partitions = partitions;
+            this.hourOffset = hourOffset == null ? Optional.empty() : hourOffset;
         }
 
         public Map<TableIf, Set<Expression>> getPredicates() {
@@ -473,6 +481,10 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
 
         public Map<BaseColInfo, Set<String>> getPartitions() {
             return partitions;
+        }
+
+        public Optional<Long> getHourOffset() {
+            return hourOffset;
         }
 
         public boolean isEmpty() {

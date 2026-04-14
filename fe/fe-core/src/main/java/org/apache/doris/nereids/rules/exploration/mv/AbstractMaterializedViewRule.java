@@ -57,6 +57,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.TableId;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
+import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
@@ -382,8 +383,11 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     return rewriteResults;
                 }
                 if (partitionNeedUnion) {
+                    Optional<Long> inverseOffsetHours =
+                            UpdateMvByPartitionCommand.getInverseHourOffsetForBaseFilter(mtmv);
                     Pair<Plan, Boolean> planAndNeedAddFilterPair =
-                            StructInfo.addFilterOnTableScan(queryPlan, invalidPartitions.value(), cascadesContext);
+                            StructInfo.addFilterOnTableScan(queryPlan, invalidPartitions.value(), cascadesContext,
+                                    inverseOffsetHours);
                     if (planAndNeedAddFilterPair == null) {
                         materializationContext.recordFailReason(queryStructInfo,
                                 "Add filter to base table fail when union rewrite",
