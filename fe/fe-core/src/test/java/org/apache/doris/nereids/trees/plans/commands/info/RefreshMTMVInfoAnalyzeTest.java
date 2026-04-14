@@ -20,9 +20,8 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.NameSpaceContext;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
@@ -33,26 +32,24 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import mockit.Expectations;
-import mockit.Mocked;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 /**
  * Tests for RefreshMTMVInfo.analyze() constraint validation of INCREMENTAL/PARTITIONS modes.
  */
 public class RefreshMTMVInfoAnalyzeTest {
 
-    @Mocked
+    private MockedStatic<Env> mockedEnvStatic;
+
     private Env env;
-    @Mocked
     private InternalCatalog catalog;
-    @Mocked
     private Database db;
-    @Mocked
     private ConnectContext ctx;
-    @Mocked
     private AccessControllerManager accessManager;
 
     private MTMV ivmCapableMtmv;
@@ -60,8 +57,13 @@ public class RefreshMTMVInfoAnalyzeTest {
     private MTMV autoWithIvmMtmv;
 
     @BeforeEach
-    public void setUp() throws DdlException, MetaNotFoundException,
-            org.apache.doris.common.AnalysisException {
+    public void setUp() throws Exception {
+        env = Mockito.mock(Env.class);
+        catalog = Mockito.mock(InternalCatalog.class);
+        db = Mockito.mock(Database.class);
+        ctx = Mockito.mock(ConnectContext.class);
+        accessManager = Mockito.mock(AccessControllerManager.class);
+
         // MV with IVM capability (enableIvm = true)
         ivmCapableMtmv = new MTMV();
         ivmCapableMtmv.getIvmInfo().setEnableIvm(true);
@@ -73,38 +75,40 @@ public class RefreshMTMVInfoAnalyzeTest {
         autoWithIvmMtmv = new MTMV();
         autoWithIvmMtmv.getIvmInfo().setEnableIvm(true);
 
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                result = env;
-                minTimes = 0;
+        // Stub ConnectContext to return a valid NameSpaceContext.
+        // TableNameInfo is always fully-qualified (internal, db1, mv1), so only the no-arg
+        // NameSpaceContext path is used and ctx.getNameSpaceContext() just needs to return
+        // a non-null value.
+        Mockito.when(ctx.getNameSpaceContext())
+                .thenReturn(new NameSpaceContext("internal", "db1", 0L));
 
-                env.getAccessManager();
-                result = accessManager;
-                minTimes = 0;
+        // Allow privilege check to pass
+        Mockito.when(accessManager.checkTblPriv(
+                Mockito.any(ConnectContext.class),
+                Mockito.anyString(), Mockito.anyString(), Mockito.anyString(),
+                Mockito.any(PrivPredicate.class)))
+                .thenReturn(true);
 
-                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString,
-                        anyString, (PrivPredicate) any);
-                result = true;
-                minTimes = 0;
+        Mockito.when(env.getAccessManager()).thenReturn(accessManager);
 
-                Env.getCurrentInternalCatalog();
-                result = catalog;
-                minTimes = 0;
+        // Static mocks for Env factory methods
+        mockedEnvStatic = Mockito.mockStatic(Env.class);
+        mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
+        mockedEnvStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
 
-                catalog.getDbOrDdlException(anyString);
-                result = db;
-                minTimes = 0;
-            }
-        };
+        Mockito.when(catalog.getDbOrDdlException(Mockito.anyString())).thenReturn(db);
     }
 
-    private void expectMvLookup(MTMV mtmv) throws DdlException, MetaNotFoundException,
-            org.apache.doris.common.AnalysisException {
-        new Expectations() {{
-                db.getTableOrMetaException("mv1", TableIf.TableType.MATERIALIZED_VIEW);
-                result = mtmv;
-            }};
+    @AfterEach
+    public void tearDown() {
+        if (mockedEnvStatic != null) {
+            mockedEnvStatic.close();
+        }
+    }
+
+    private void setupMvLookup(MTMV mtmv) throws Exception {
+        Mockito.when(db.getTableOrMetaException("mv1", TableIf.TableType.MATERIALIZED_VIEW))
+                .thenReturn(mtmv);
     }
 
     private AnalysisException analyzeAndGetException(RefreshMTMVInfo info) {
@@ -133,7 +137,7 @@ public class RefreshMTMVInfoAnalyzeTest {
     // TC-8-5: MV without IVM capability executing REFRESH ... INCREMENTAL should error
     @Test
     public void testRefreshIncrementalOnNonIvmMVRejected() throws Exception {
-        expectMvLookup(noIvmMtmv);
+        setupMvLookup(noIvmMtmv);
         RefreshMTMVInfo info = createInfo(RefreshMode.INCREMENTAL);
         AnalysisException exception = analyzeAndGetException(info);
         Assertions.assertTrue(exception.getMessage().contains("INCREMENTAL"));
@@ -142,7 +146,7 @@ public class RefreshMTMVInfoAnalyzeTest {
     // TC-8-6: MV without IVM capability executing REFRESH ... PARTITIONS should error
     @Test
     public void testRefreshPartitionsOnNonIvmMVRejected() throws Exception {
-        expectMvLookup(noIvmMtmv);
+        setupMvLookup(noIvmMtmv);
         RefreshMTMVInfo info = createInfo(RefreshMode.PARTITIONS);
         AnalysisException exception = analyzeAndGetException(info);
         Assertions.assertTrue(exception.getMessage().contains("PARTITIONS"));
@@ -151,7 +155,7 @@ public class RefreshMTMVInfoAnalyzeTest {
     // TC-8-7: IVM-capable MV executing REFRESH ... COMPLETE should succeed
     @Test
     public void testRefreshCompleteOnIvmMVAllowed() throws Exception {
-        expectMvLookup(ivmCapableMtmv);
+        setupMvLookup(ivmCapableMtmv);
         RefreshMTMVInfo info = createInfo(RefreshMode.COMPLETE);
         info.analyze(ctx);
     }
@@ -159,7 +163,7 @@ public class RefreshMTMVInfoAnalyzeTest {
     // TC-8-8: IVM-capable MV executing old PARTITION (p1, p2) partitionSpec should error
     @Test
     public void testPartitionSpecOnIvmMVRejected() throws Exception {
-        expectMvLookup(ivmCapableMtmv);
+        setupMvLookup(ivmCapableMtmv);
         RefreshMTMVInfo info = createInfoWithPartitions(RefreshMode.AUTO);
         AnalysisException exception = analyzeAndGetException(info);
         Assertions.assertTrue(exception.getMessage().contains("partitionSpec"));
@@ -169,7 +173,7 @@ public class RefreshMTMVInfoAnalyzeTest {
     // IVM-capable MV with REFRESH ... AUTO should succeed
     @Test
     public void testRefreshAutoOnIvmMVAllowed() throws Exception {
-        expectMvLookup(ivmCapableMtmv);
+        setupMvLookup(ivmCapableMtmv);
         RefreshMTMVInfo info = createInfo(RefreshMode.AUTO);
         info.analyze(ctx);
     }
@@ -177,7 +181,7 @@ public class RefreshMTMVInfoAnalyzeTest {
     // IVM-capable MV with REFRESH ... INCREMENTAL should succeed
     @Test
     public void testRefreshIncrementalOnIvmMVAllowed() throws Exception {
-        expectMvLookup(ivmCapableMtmv);
+        setupMvLookup(ivmCapableMtmv);
         RefreshMTMVInfo info = createInfo(RefreshMode.INCREMENTAL);
         info.analyze(ctx);
     }
@@ -185,7 +189,7 @@ public class RefreshMTMVInfoAnalyzeTest {
     // MV without IVM capability with REFRESH ... COMPLETE should succeed
     @Test
     public void testRefreshCompleteOnNonIvmMVAllowed() throws Exception {
-        expectMvLookup(noIvmMtmv);
+        setupMvLookup(noIvmMtmv);
         RefreshMTMVInfo info = createInfo(RefreshMode.COMPLETE);
         info.analyze(ctx);
     }
@@ -193,7 +197,7 @@ public class RefreshMTMVInfoAnalyzeTest {
     // AUTO MV with IvmInfo: REFRESH ... INCREMENTAL should succeed (has IVM capability)
     @Test
     public void testRefreshIncrementalOnAutoMVWithIvmAllowed() throws Exception {
-        expectMvLookup(autoWithIvmMtmv);
+        setupMvLookup(autoWithIvmMtmv);
         RefreshMTMVInfo info = createInfo(RefreshMode.INCREMENTAL);
         info.analyze(ctx);
     }
@@ -201,7 +205,7 @@ public class RefreshMTMVInfoAnalyzeTest {
     // AUTO MV with IvmInfo: old partitionSpec should be rejected
     @Test
     public void testPartitionSpecOnAutoMVWithIvmRejected() throws Exception {
-        expectMvLookup(autoWithIvmMtmv);
+        setupMvLookup(autoWithIvmMtmv);
         RefreshMTMVInfo info = createInfoWithPartitions(RefreshMode.AUTO);
         AnalysisException exception = analyzeAndGetException(info);
         Assertions.assertTrue(exception.getMessage().contains("partitionSpec"));
