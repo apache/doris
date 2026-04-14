@@ -59,12 +59,18 @@ export NEED_LOAD_DATA=1
 export LOAD_PARALLEL=$(( $(getconf _NPROCESSORS_ONLN) / 2 ))
 export HIVE_MODE="${HIVE_MODE:-refresh}"
 export HIVE_MODULES="${HIVE_MODULES:-all}"
-export HIVE_BASELINE_VERSION="${HIVE_BASELINE_VERSION:-20260403}"
+export HIVE_BASELINE_VERSION="${HIVE_BASELINE_VERSION:-20260415}"
+export HIVE_SHARED_ID="doris-shared"
+# Base URL for downloading baseline tarballs.  Set to empty string to disable.
+# Individual tarball filenames are constructed as: <hive_version>-baseline-<version>-<arch>.tar.gz
+export HIVE_BASELINE_URL_PREFIX="${HIVE_BASELINE_URL_PREFIX:-https://doris-thirdparty.oss-cn-beijing.aliyuncs.com/thirdparties/hive-baseline}"
 
-if command -v ip >/dev/null 2>&1; then
-    export IP_HOST=$(ip -4 addr show scope global | awk '/inet / {print $2}' | cut -d/ -f1 | head -n 1)
-elif command -v hostname >/dev/null 2>&1; then
-    export IP_HOST=$(hostname -I 2>/dev/null | awk '{print $1}')
+if [[ -z "${IP_HOST:-}" ]]; then
+    if command -v ip >/dev/null 2>&1; then
+        export IP_HOST=$(ip -4 addr show scope global | awk '/inet / {print $2}' | cut -d/ -f1 | head -n 1)
+    elif command -v hostname >/dev/null 2>&1; then
+        export IP_HOST=$(hostname -I 2>/dev/null | awk '{print $1}')
+    fi
 fi
 
 if ! OPTS="$(getopt \
@@ -161,11 +167,17 @@ if [[ "${CONTAINER_UID}"x == "doris--"x ]]; then
     exit 1
 fi
 
+if [[ -z "${HIVE_HOST_ALIAS:-}" ]]; then
+    export HIVE_HOST_ALIAS="hadoop-master-${HIVE_SHARED_ID}"
+fi
+
 echo "Components are: ${COMPONENTS}"
 echo "Container UID: ${CONTAINER_UID}"
 echo "Stop: ${STOP}"
 echo "Hive mode: ${HIVE_MODE}"
 echo "Hive modules: ${HIVE_MODULES}"
+echo "Hive shared id: ${HIVE_SHARED_ID}"
+echo "Hive host alias: ${HIVE_HOST_ALIAS}"
 
 case "${HIVE_MODE}" in
 fast|refresh|rebuild)
@@ -258,6 +270,25 @@ if [[ "${RUN_HIVE2}" -eq 1 ]] && [[ -z "${HIVE2_BOOTSTRAP_GROUPS+x}" ]]; then
 fi
 if [[ "${RUN_HIVE3}" -eq 1 ]] && [[ -z "${HIVE3_BOOTSTRAP_GROUPS+x}" ]]; then
     export HIVE3_BOOTSTRAP_GROUPS="common,hive3_only"
+fi
+
+hive_requires_mysql_component() {
+    local hive_version="$1"
+    local jfs_meta=""
+    local settings_env="${ROOT}/docker-compose/hive/hive-${hive_version#hive}x_settings.env"
+
+    # shellcheck disable=SC1090
+    . "${settings_env}"
+    jfs_meta="${JFS_CLUSTER_META:-}"
+    [[ "${jfs_meta}" == mysql://* ]] || return 1
+    [[ "${jfs_meta}" == *"@(127.0.0.1:3316)/"* || "${jfs_meta}" == *"@(localhost:3316)/"* ]]
+}
+
+if [[ "${RUN_HIVE2}" -eq 1 ]] && hive_requires_mysql_component "hive2"; then
+    RUN_MYSQL=1
+fi
+if [[ "${RUN_HIVE3}" -eq 1 ]] && hive_requires_mysql_component "hive3"; then
+    RUN_MYSQL=1
 fi
 
 reserve_ports() {
@@ -393,8 +424,10 @@ ensure_juicefs_meta_database() {
         fi
 
         pg_candidates=(
-            "${CONTAINER_UID}hive3-metastore-postgresql"
-            "${CONTAINER_UID}hive2-metastore-postgresql"
+            "hive3-metastore-postgresql"
+            "hive2-metastore-postgresql"
+            "${CONTAINER_UID}postgres"
+            "postgres"
         )
 
         for pg_container in "${pg_candidates[@]}"; do
@@ -416,7 +449,7 @@ ensure_juicefs_meta_database() {
             return 0
         done
 
-        echo "WARN: hive metastore postgresql is not running; skip eager JuiceFS metadata database creation for ${meta_db}." >&2
+        echo "WARN: no local postgres container for JuiceFS metadata init; skip eager database creation for ${meta_db}." >&2
         return 0
     fi
 
@@ -425,7 +458,10 @@ ensure_juicefs_meta_database() {
 
 run_juicefs_cli() {
     local juicefs_cli
-    juicefs_cli=$(resolve_juicefs_cli)
+    if ! juicefs_cli=$(resolve_juicefs_cli); then
+        echo "ERROR: JuiceFS CLI is not available (download failed or binary not found)" >&2
+        return 1
+    fi
     "${juicefs_cli}" "$@"
 }
 
@@ -467,6 +503,13 @@ prepare_juicefs_meta_for_hive() {
         return 0
     fi
 
+    # JuiceFS CLI is required; if unavailable (e.g. no network), skip gracefully.
+    if ! resolve_juicefs_cli >/dev/null 2>&1; then
+        echo "WARN: JuiceFS CLI not available; skipping JuiceFS metadata init for ${jfs_meta}." >&2
+        echo "WARN: JuiceFS-dependent tests will fail. Ensure juicefs binary is on PATH or network access to github.com is available." >&2
+        return 0
+    fi
+
     local bucket_dir="${JFS_BUCKET_DIR:-/tmp/jfs-bucket}"
     sudo mkdir -p "${bucket_dir}"
     sudo chmod 777 "${bucket_dir}"
@@ -491,7 +534,7 @@ prepare_juicefs_meta_for_hive() {
     if ! run_juicefs_cli \
         format --storage file --bucket "${bucket_dir}" "${jfs_meta}" "${jfs_cluster_name}"; then
         # If format reports conflict on rerun, verify by status and continue.
-        run_juicefs_cli status "${jfs_meta}" >/dev/null
+        run_juicefs_cli status "${jfs_meta}" >/dev/null 2>&1 || true
     fi
 
     JFS_META_FORMATTED=1
@@ -871,23 +914,82 @@ start_hive3() {
     start_hive_stack "hive3"
 }
 
-hive_state_root_for() {
+hive_volume_prefix_for() {
     local hive_version="$1"
-    local state_prefix="${CONTAINER_UID//[^a-zA-Z0-9-]/-}"
-    echo "/tmp/doris-hive-state/${state_prefix}${hive_version}"
+    echo "${HIVE_SHARED_ID}-${hive_version}"
 }
 
-prepare_hive_state_root() {
-    local hive_state_root="$1"
+HIVE_VOLUME_SUFFIXES=(namenode datanode pgdata state)
 
-    sudo mkdir -p "${hive_state_root}/pgdata" "${hive_state_root}/namenode" "${hive_state_root}/datanode" "${hive_state_root}/state"
-    sudo chmod -R 777 "${hive_state_root}"
+ensure_hive_volumes() {
+    local prefix="$1"
+    local suffix
+    for suffix in "${HIVE_VOLUME_SUFFIXES[@]}"; do
+        if ! sudo docker volume inspect "${prefix}-${suffix}" >/dev/null 2>&1; then
+            sudo docker volume create "${prefix}-${suffix}"
+        fi
+    done
 }
 
-reset_hive_state_root() {
-    local hive_state_root="$1"
+reset_hive_volumes() {
+    local prefix="$1"
+    local suffix
+    for suffix in "${HIVE_VOLUME_SUFFIXES[@]}"; do
+        sudo docker volume rm -f "${prefix}-${suffix}" 2>/dev/null || true
+    done
+}
 
-    sudo rm -rf "${hive_state_root}"
+hive_volume_is_populated() {
+    local prefix="$1"
+    sudo docker run --rm \
+        -v "${prefix}-namenode:/vol:ro" \
+        alpine test -f /vol/current/VERSION 2>/dev/null
+}
+
+maybe_restore_baseline_to_volumes() {
+    local prefix="$1"
+    local hive_version="${2:-hive3}"
+    local baseline_cache="${HIVE_BASELINE_TARBALL_CACHE:-/tmp/hive-baseline-cache}"
+    local cache_file="${baseline_cache}/${hive_version}-baseline-${HIVE_BASELINE_VERSION}.tar.gz"
+
+    # Nothing to do if the named volumes already hold a populated baseline.
+    if hive_volume_is_populated "${prefix}"; then
+        echo "[baseline] volumes already populated, skip restore"
+        return 0
+    fi
+
+    # Ensure a local tarball is available: prefer existing cache, otherwise
+    # download it. HIVE_BASELINE_TARBALL_URL overrides the URL built from
+    # HIVE_BASELINE_URL_PREFIX + hive_version + version + arch.
+    if [[ ! -f "${cache_file}" ]]; then
+        local download_url="${HIVE_BASELINE_TARBALL_URL:-}"
+        if [[ -z "${download_url}" && -n "${HIVE_BASELINE_URL_PREFIX:-}" ]]; then
+            download_url="${HIVE_BASELINE_URL_PREFIX}/${hive_version}-baseline-${HIVE_BASELINE_VERSION}-$(uname -m).tar.gz"
+        fi
+        if [[ -z "${download_url}" ]]; then
+            echo "[baseline] no baseline tarball available, will do full init"
+            return 0
+        fi
+        mkdir -p "${baseline_cache}"
+        echo "[baseline] downloading baseline from ${download_url}"
+        curl -fSL -o "${cache_file}" "${download_url}"
+    else
+        echo "[baseline] using cached tarball: ${cache_file}"
+    fi
+
+    # Restore into all 4 volumes in a single alpine container so tar writes
+    # stream directly into the volume mounts.
+    echo "[baseline] restoring volumes from tarball..."
+    local _t0
+    _t0=$(date +%s)
+    sudo docker run --rm -i \
+        -v "${prefix}-namenode:/restore/namenode" \
+        -v "${prefix}-datanode:/restore/datanode" \
+        -v "${prefix}-pgdata:/restore/pgdata" \
+        -v "${prefix}-state:/restore/state" \
+        alpine sh -c 'tar xzf - -C /restore' \
+        < "${cache_file}"
+    echo "[baseline] restore done took=$(( $(date +%s) - _t0 ))s"
 }
 
 hive_compose_file_for() {
@@ -917,14 +1019,38 @@ hive_settings_env_for() {
 
 hive_metastore_container_for() {
     local hive_version="$1"
-    case "${hive_version}" in
-    hive2)
-        echo "${CONTAINER_UID}hive2-metastore"
-        ;;
-    hive3)
-        echo "${CONTAINER_UID}hive3-metastore"
-        ;;
-    esac
+    echo "${hive_version}-metastore"
+}
+
+ensure_hosts_alias() {
+    local alias_name="$1"
+    local alias_ip="$2"
+    local tmp_hosts
+    local sudo_cmd=()
+
+    if [[ "$(id -u)" -ne 0 ]]; then
+        sudo_cmd=(sudo)
+    fi
+
+    tmp_hosts="$(mktemp)"
+    "${sudo_cmd[@]}" chmod a+w /etc/hosts
+    awk -v alias_name="${alias_name}" '
+        {
+            keep = 1
+            for (i = 2; i <= NF; ++i) {
+                if ($i == alias_name) {
+                    keep = 0
+                    break
+                }
+            }
+            if (keep) {
+                print
+            }
+        }
+    ' /etc/hosts >"${tmp_hosts}"
+    printf "%s %s\n" "${alias_ip}" "${alias_name}" >>"${tmp_hosts}"
+    "${sudo_cmd[@]}" cp "${tmp_hosts}" /etc/hosts
+    rm -f "${tmp_hosts}"
 }
 
 render_hive_compose() {
@@ -988,20 +1114,28 @@ maybe_refresh_hive_data() {
         "${metastore_container}" \
         bash --noprofile --norc -c '. /mnt/scripts/hive-module-lib.sh && baseline_valid'; then
         baseline_missing=1
+        local _t_baseline
+        _t_baseline=$(date +%s)
+        echo "[$(date '+%H:%M:%S')] [${hive_version}] init-hive-baseline begin"
         exec_hive_script "${hive_version}" init-hive-baseline.sh
+        echo "[$(date '+%H:%M:%S')] [${hive_version}] init-hive-baseline done took=$(( $(date +%s) - _t_baseline ))s"
     fi
 
     if [[ "${HIVE_MODE}" == "refresh" || "${HIVE_MODE}" == "rebuild" || "${baseline_missing}" -eq 1 ]]; then
+        local _t_modules
+        _t_modules=$(date +%s)
+        echo "[$(date '+%H:%M:%S')] [${hive_version}] refresh-hive-modules begin (mode=${HIVE_MODE} modules=${HIVE_MODULES})"
         exec_hive_script "${hive_version}" refresh-hive-modules.sh
+        echo "[$(date '+%H:%M:%S')] [${hive_version}] refresh-hive-modules done took=$(( $(date +%s) - _t_modules ))s"
     fi
 }
 
 start_hive_stack() {
     local hive_version="$1"
-    local hive_state_root
+    local volume_prefix
     local stack_healthy=0
 
-    export CONTAINER_UID=${CONTAINER_UID}
+    # Bootstrap groups come from per-version env vars (HIVE2_BOOTSTRAP_GROUPS / HIVE3_BOOTSTRAP_GROUPS).
     if [[ "${hive_version}" == "hive2" ]]; then
         export HIVE_BOOTSTRAP_GROUPS="${HIVE2_BOOTSTRAP_GROUPS:-}"
     else
@@ -1010,8 +1144,12 @@ start_hive_stack() {
     echo "${hive_version} bootstrap groups: ${HIVE_BOOTSTRAP_GROUPS:-all}"
 
     . "$(hive_settings_env_for "${hive_version}")"
-    export HIVE_STATE_ROOT="$(hive_state_root_for "${hive_version}")"
-    hive_state_root="${HIVE_STATE_ROOT}"
+    volume_prefix="$(hive_volume_prefix_for "${hive_version}")"
+    export HIVE_VOLUME_PREFIX="${volume_prefix}"
+
+    # Keep a stable hostname in metastore/HDFS metadata while allowing the
+    # backing host IP to change across restarts.
+    ensure_hosts_alias "${HIVE_HOST_ALIAS}" "${IP_HOST}"
 
     if [[ "${STOP}" -eq 1 ]]; then
         render_hive_compose "${hive_version}"
@@ -1019,26 +1157,39 @@ start_hive_stack() {
         return 0
     fi
 
+    # rebuild: tear down and wipe volumes so the stack starts from a blank slate.
+    # fast/refresh: keep volumes and optionally prime them from the baseline tarball.
     if [[ "${HIVE_MODE}" == "rebuild" ]]; then
         render_hive_compose "${hive_version}"
         hive_compose_cmd "${hive_version}" down || true
-        reset_hive_state_root "${hive_state_root}"
+        reset_hive_volumes "${volume_prefix}"
     fi
 
-    prepare_hive_state_root "${hive_state_root}"
+    ensure_hive_volumes "${volume_prefix}"
+    if [[ "${HIVE_MODE}" != "rebuild" ]]; then
+        maybe_restore_baseline_to_volumes "${volume_prefix}" "${hive_version}"
+    fi
     render_hive_compose "${hive_version}"
 
-    if docker_hive_stack_healthy "${CONTAINER_UID}" "${hive_version}"; then
+    # refresh on an already-healthy stack can skip `compose up` entirely — the
+    # in-container data refresh below is enough.
+    if docker_hive_stack_healthy "${hive_version}"; then
         stack_healthy=1
         echo "${hive_version} stack is already healthy, reconcile compose state without down"
     fi
     if [[ "${HIVE_MODE}" == "refresh" ]] && [[ "${stack_healthy}" -eq 1 ]]; then
         echo "${hive_version} refresh mode with healthy stack: skip compose up"
     else
+        local _t_up
+        _t_up=$(date +%s)
         hive_compose_cmd "${hive_version}" up --build --remove-orphans -d --wait
+        echo "[$(date '+%H:%M:%S')] [${hive_version}] compose up done took=$(( $(date +%s) - _t_up ))s"
     fi
 
+    local _t_data
+    _t_data=$(date +%s)
     maybe_refresh_hive_data "${hive_version}"
+    echo "[$(date '+%H:%M:%S')] [${hive_version}] data refresh done took=$(( $(date +%s) - _t_data ))s"
 }
 
 start_iceberg() {

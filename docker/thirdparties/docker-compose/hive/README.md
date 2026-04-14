@@ -19,151 +19,366 @@ under the License.
 
 # Hive Docker Environment
 
-This directory contains Hive2/Hive3 Docker Compose templates and bootstrap scripts used by Doris thirdparty startup.
+Hive2/Hive3 Docker Compose templates and bootstrap scripts used by Doris thirdparty regression tests.
 
-## Components
+中文版: [README_ZH.md](README_ZH.md)
 
-- `hive-server`: HiveServer2 endpoint
-- `hive-metastore`: Hive Metastore service
-- `hive-metastore-postgresql`: metastore backend database
-- `namenode` / `datanode`: HDFS services for Hive test data
+---
 
-## Component Segmentation
+## Architecture
 
-Hive startup can be understood in 3 layers:
+Hive startup is structured in three independent layers:
 
-### 1) Docker Service Layer
+### Layer 1 — Docker Services
 
-- Compute/SQL entry:
-  - `hive-server`
-- Metadata:
-  - `hive-metastore`
-  - `hive-metastore-postgresql`
-- Storage:
-  - `namenode`
-  - `datanode`
+All services run with `network_mode: host`, so ports are bound directly on the host.
 
-### 2) Refresh Module Layer (`--hive-modules`)
+| Service | Role | Hive3 Port | Hive2 Port |
+|---|---|---|---|
+| `hive-server` | HiveServer2 (SQL/JDBC entry) | `13000` | `10000` |
+| `hive-metastore` | Hive Metastore (HMS) | `9383` | `9083` |
+| `hive-metastore-postgresql` | Metastore backend DB | `5732` | `5432` |
+| `namenode` | HDFS NameNode | `8320` | `8020` |
+| `datanode` | HDFS DataNode | — | — |
 
-- `default`: basic default-db external tables
-- `multi_catalog`: multi-format and multi-path external table cases
-- `partition_type`: partition type coverage cases
-- `statistics`: table stats and empty-table stats cases
-- `tvf`: tvf data/bootstrap cases
-- `regression`: special regression datasets (serde, delimiters, etc.)
-- `test`: lightweight smoke test datasets
-- `preinstalled_hql`: centralized preinstalled HQL scripts (`create_preinstalled_scripts/*.hql`)
-- `view`: view bootstrap (`create_view_scripts/create_view.hql`)
+Container names are prefixed by `CONTAINER_UID` (set in `custom_settings.env`).
+Example: `CONTAINER_UID=doris-jack-` → container name `doris-jack-hive3-server`.
 
-### 3) Bootstrap Group Layer
+### Layer 2 — Refresh Modules (`--hive-modules`)
 
-- `common`: shared items for hive2/hive3
-- `hive2_only`: hive2-only items
-- `hive3_only`: hive3-only items
+Each module maps to a directory under `scripts/data/` or a dedicated script set.
+Modules are refreshed incrementally: only modules whose content SHA changed are re-executed.
 
-By default:
+| Module | Source path | Content |
+|---|---|---|
+| `default` | `scripts/data/default/` | Basic external tables in the `default` database |
+| `multi_catalog` | `scripts/data/multi_catalog/` | Multi-format, multi-path external table cases |
+| `partition_type` | `scripts/data/partition_type/` | Partition type coverage (int, string, date, …) |
+| `statistics` | `scripts/data/statistics/` | Table stats and empty-table stats cases |
+| `tvf` | `scripts/data/tvf/` | TVF test data (HDFS upload) |
+| `regression` | `scripts/data/regression/` | Special regression datasets (serde, delimiters, …) |
+| `test` | `scripts/data/test/` | Lightweight smoke-test datasets |
+| `preinstalled_hql` | `scripts/create_preinstalled_scripts/*.hql` | ~77 HQL files, executed in parallel via `xargs -P` |
+| `view` | `scripts/create_view_scripts/create_view.hql` | View definitions |
 
-- Hive2 uses: `common,hive2_only`
-- Hive3 uses: `common,hive3_only`
+### Layer 3 — Bootstrap Groups (`HIVE_BOOTSTRAP_GROUPS`)
 
-This grouping controls which files are selected during `run.sh`/HQL refresh.
+Controls which files within a module are selected during refresh.
 
-## Start/Stop
+| Group | Meaning |
+|---|---|
+| `common` | Shared by both Hive2 and Hive3 |
+| `hive2_only` | Hive2-specific files (listed in `bootstrap/hive2_only.*.list`) |
+| `hive3_only` | Hive3-specific files (listed in `bootstrap/hive3_only.*.list`) |
+| `all` | All of the above (default when no group is specified) |
+
+Default bootstrap groups per version:
+- Hive2: `common,hive2_only`
+- Hive3: `common,hive3_only`
+
+---
+
+## State: Docker Named Volumes + OSS Baseline
+
+Hive state (HDFS data, Postgres metastore, and the module SHA tracker) lives in four Docker named volumes per version, not host bind mounts:
+
+| Volume | Mounted into |
+|---|---|
+| `<CONTAINER_UID><hive_version>-namenode` | NameNode metadata |
+| `<CONTAINER_UID><hive_version>-datanode` | DataNode blocks |
+| `<CONTAINER_UID><hive_version>-pgdata` | Hive Metastore Postgres data |
+| `<CONTAINER_UID><hive_version>-state` | `/mnt/state` — baseline version + per-module SHA files |
+
+Lifecycle:
+- `--hive-mode fast` / `refresh`: volumes are preserved across runs.
+- `--hive-mode rebuild`: volumes are removed (`docker volume rm`) and recreated empty.
+
+### Baseline restore (first-time startup)
+
+When volumes are empty (fresh CI host, or after `rebuild`), the script primes them from a pre-built baseline tarball instead of bootstrapping from scratch:
+
+1. Look for a cached tarball at `${HIVE_BASELINE_TARBALL_CACHE:-/tmp/hive-baseline-cache}/<hive_version>-baseline.tar.gz`.
+2. If not cached, download from `${HIVE_BASELINE_URL_PREFIX}/<hive_version>-baseline-<version>-<arch>.tar.gz`. Default prefix is `https://doris-thirdparty.oss-cn-beijing.aliyuncs.com/thirdparties/hive-baseline`. `HIVE_BASELINE_TARBALL_URL` overrides the full URL.
+3. Unpack in a single `alpine tar` container that mounts all four volumes — tar streams write directly into the volume mounts.
+
+Relevant env vars:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `HIVE_BASELINE_URL_PREFIX` | `https://doris-thirdparty.oss-cn-beijing.aliyuncs.com/thirdparties/hive-baseline` | Base URL for auto-constructed tarball download |
+| `HIVE_BASELINE_TARBALL_URL` | *(empty)* | Fully qualified URL; overrides the prefix-based construction |
+| `HIVE_BASELINE_TARBALL_CACHE` | `/tmp/hive-baseline-cache` | Local cache dir for downloaded tarballs |
+| `HIVE_BASELINE_VERSION` | `20260415` | Marker written to `/mnt/state/baseline.version`; mismatches force re-bootstrap |
+
+### Producing a new baseline tarball
+
+After bootstrapping a clean Hive stack, stop the containers and run:
 
 ```bash
-# Start Hive3
+sudo docker compose -p "${CONTAINER_UID}hive3" \
+  -f docker/thirdparties/docker-compose/hive/hive-3x.yaml down
+
+bash docker/thirdparties/docker-compose/hive/scripts/snapshot-hive-baseline.sh \
+  "${CONTAINER_UID}hive3" /tmp/hive3-baseline.tar.gz
+```
+
+Then upload the resulting tarball to OSS at `<HIVE_BASELINE_URL_PREFIX>/hive3-baseline-<version>-<arch>.tar.gz` (same convention for `hive2`).
+
+---
+
+## Usage
+
+### Start / Stop
+
+```bash
+# Start Hive3 (default: refresh mode)
 ./docker/thirdparties/run-thirdparties-docker.sh -c hive3
 
 # Start Hive2
 ./docker/thirdparties/run-thirdparties-docker.sh -c hive2
 
+# Start both
+./docker/thirdparties/run-thirdparties-docker.sh -c hive2,hive3
+
 # Stop Hive3
 ./docker/thirdparties/run-thirdparties-docker.sh -c hive3 --stop
 ```
 
-## Startup Modes
+### Startup Modes (`--hive-mode`)
 
-Use `--hive-mode` to control startup behavior:
-
-- `fast`: reuse existing state as much as possible
-- `refresh` (default): refresh only changed modules by SHA
-- `rebuild`: force reset and rebuild hive state
-
-Examples:
+| Mode | Behavior |
+|---|---|
+| `fast` | Skip compose up if stack is already healthy; skip data refresh entirely |
+| `refresh` | Skip compose up if healthy; re-run only modules/HQL files whose SHA changed *(default)* |
+| `rebuild` | Tear down stack, wipe state, full cold start |
 
 ```bash
-# Default mode (refresh)
-./docker/thirdparties/run-thirdparties-docker.sh -c hive3
+# Fast: no data changes, just need the stack running
+./docker/thirdparties/run-thirdparties-docker.sh -c hive3 --hive-mode fast
 
-# Explicit refresh
+# Refresh: pick up changed HQL/scripts without full teardown (default)
 ./docker/thirdparties/run-thirdparties-docker.sh -c hive3 --hive-mode refresh
 
-# Full rebuild
+# Rebuild: clean slate
 ./docker/thirdparties/run-thirdparties-docker.sh -c hive3 --hive-mode rebuild
 ```
 
-## Module Refresh
+### Scoped Module Refresh (`--hive-modules`)
 
-Use `--hive-modules` to limit refresh scope:
-
-- `default,multi_catalog,partition_type,statistics,tvf,regression,test,preinstalled_hql,view`
-- `all` means all modules
-
-Examples:
+Refresh only the modules you care about:
 
 ```bash
-# Refresh only preinstalled HQL scripts
-./docker/thirdparties/run-thirdparties-docker.sh -c hive3 --hive-mode refresh --hive-modules preinstalled_hql
+# Re-run only changed preinstalled HQL files (parallel execution)
+./docker/thirdparties/run-thirdparties-docker.sh -c hive3 \
+  --hive-mode refresh --hive-modules preinstalled_hql
 
-# Refresh selected data modules
-./docker/thirdparties/run-thirdparties-docker.sh -c hive3 --hive-mode refresh --hive-modules default,multi_catalog
+# Refresh two specific modules
+./docker/thirdparties/run-thirdparties-docker.sh -c hive3 \
+  --hive-mode refresh --hive-modules default,multi_catalog
+
+# All modules (explicit)
+./docker/thirdparties/run-thirdparties-docker.sh -c hive3 \
+  --hive-mode refresh --hive-modules all
 ```
 
-## Idempotency Rules
+---
 
-To keep `refresh` repeatable:
+## Developer Guide
 
-- `run.sh` scripts should be idempotent
-- HQL should use `DROP ... IF EXISTS` then `CREATE ...`
-- avoid relying on `CREATE ... IF NOT EXISTS` for table/view recreation
+### How to Add Test Data
 
-## JuiceFS Metadata Backend
+There are two patterns depending on where the data should live.
 
-Hive now defaults JuiceFS metadata to PostgreSQL (Hive metastore DB), so Hive startup no longer auto-requires MySQL.
+#### Pattern A — `run.sh` (HDFS data + DDL)
 
-- Hive2 default (in `hive-2x_settings.env`):
-  - `postgres://postgres@127.0.0.1:${PG_PORT}/juicefs_meta?sslmode=disable`
-- Hive3 default (in `hive-3x_settings.env`):
-  - `postgres://postgres@127.0.0.1:${PG_PORT}/juicefs_meta?sslmode=disable`
+Use this when the test data files need to be uploaded to HDFS.
 
-If your environment still needs MySQL metadata, override before startup:
+1. Create a directory under the appropriate module:
+   ```
+   scripts/data/<module>/<your_dataset>/
+   ├── run.sh          # required: executed during module refresh
+   └── <data files>    # csv, parquet, orc, etc.
+   ```
+
+2. Write `run.sh` to be **idempotent** (safe to run multiple times):
+   ```bash
+   #!/bin/bash
+   set -x
+   CUR_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+
+   # Upload data only if not already present
+   hadoop fs -mkdir -p /user/doris/preinstalled_data/your_dataset
+   if [[ -z "$(hadoop fs -ls /user/doris/preinstalled_data/your_dataset 2>/dev/null)" ]]; then
+       hadoop fs -put "${CUR_DIR}"/data/* /user/doris/preinstalled_data/your_dataset/
+   fi
+
+   # Create table (drop-then-create for idempotency)
+   hive -e "
+     DROP TABLE IF EXISTS your_table;
+     CREATE EXTERNAL TABLE your_table (...)
+     STORED AS PARQUET
+     LOCATION '/user/doris/preinstalled_data/your_dataset';
+   "
+   ```
+
+3. If the dataset is Hive2-only or Hive3-only, add the `run.sh` path to the corresponding list:
+   ```
+   bootstrap/hive2_only.run_sh.list
+   bootstrap/hive3_only.run_sh.list
+   ```
+
+#### Pattern B — `create_preinstalled_scripts/` (HQL only)
+
+Use this when no HDFS file upload is needed (external table pointing to pre-existing HDFS data, or managed table with inline INSERT values).
+
+1. Add a new file `scripts/create_preinstalled_scripts/runNN.hql`:
+   ```sql
+   use default;
+
+   DROP TABLE IF EXISTS `your_new_table`;
+   CREATE EXTERNAL TABLE `your_new_table` (
+     id INT,
+     name STRING
+   )
+   STORED AS PARQUET
+   LOCATION '/user/doris/preinstalled_data/existing_path';
+   ```
+
+2. Rules:
+   - Always use `DROP TABLE IF EXISTS` before `CREATE` — never `CREATE IF NOT EXISTS` alone
+   - Pick the next available `runNN` number
+   - If Hive2-only or Hive3-only, add the relative path to `bootstrap/hive2_only.preinstalled_hql.list` or `bootstrap/hive3_only.preinstalled_hql.list`
+   - If TPCH-related, add to `bootstrap/tpch.preinstalled_hql.list`
+
+3. Trigger a refresh to pick it up:
+   ```bash
+   ./docker/thirdparties/run-thirdparties-docker.sh -c hive3 \
+     --hive-mode refresh --hive-modules preinstalled_hql
+   ```
+
+---
+
+### How to Access HiveServer2 for Debugging
+
+All containers use `network_mode: host`, so ports are directly accessible on the host.
+
+#### Connect via beeline (inside the container)
 
 ```bash
-export JFS_CLUSTER_META="mysql://root:123456@(127.0.0.1:3316)/juicefs_meta"
-./docker/thirdparties/run-thirdparties-docker.sh -c hive3
+# Enter the hive-server container
+docker exec -it ${CONTAINER_UID}hive3-server bash
+
+# Connect via beeline (the hive shim on PATH routes here automatically)
+beeline -u "jdbc:hive2://localhost:13000/default" -n root
+
+# Or use the hive shim shorthand
+hive -e "show databases;"
+hive -e "show tables in default;"
+hive -f /path/to/your.hql
 ```
+
+#### Connect via beeline from the host
+
+```bash
+# Requires beeline on PATH locally; use the host IP
+beeline -u "jdbc:hive2://127.0.0.1:13000/default" -n root
+```
+
+#### Run ad-hoc HQL from outside the container
+
+```bash
+# Execute a single query
+docker exec ${CONTAINER_UID}hive3-server \
+  beeline -u "jdbc:hive2://localhost:13000/default" -n root \
+  -e "SELECT * FROM default.your_table LIMIT 10;"
+
+# Run a HQL file (file must exist inside the container or on a mounted path)
+docker exec ${CONTAINER_UID}hive3-server \
+  hive -f /mnt/scripts/create_preinstalled_scripts/run02.hql
+```
+
+#### Inspect HDFS
+
+```bash
+# List top-level HDFS directories
+docker exec ${CONTAINER_UID}hadoop3-namenode \
+  hadoop fs -ls /user/doris/
+
+# Check if a specific path exists
+docker exec ${CONTAINER_UID}hadoop3-namenode \
+  hadoop fs -ls /user/doris/preinstalled_data/your_dataset/
+```
+
+#### Inspect the Metastore PostgreSQL
+
+```bash
+# Connect to the metastore DB directly (port 5732 for Hive3)
+psql -h 127.0.0.1 -p 5732 -U postgres -d metastore \
+  -c "SELECT TBL_NAME, DB_ID FROM TBLS LIMIT 20;"
+```
+
+---
 
 ## Logs and Debug
 
-- Hive3 startup log: `docker/thirdparties/logs/start_hive3.log`
-- Hive2 startup log: `docker/thirdparties/logs/start_hive2.log`
+| Log file | Content |
+|---|---|
+| `docker/thirdparties/logs/start_hive3.log` | Full Hive3 startup output |
+| `docker/thirdparties/logs/start_hive2.log` | Full Hive2 startup output |
 
-By default, helper scripts keep xtrace off to reduce log noise.
-Enable debug trace when needed:
+Enable verbose xtrace for detailed script execution:
 
 ```bash
-export HIVE_DEBUG=1
-./docker/thirdparties/run-thirdparties-docker.sh -c hive3 --hive-mode refresh
+HIVE_DEBUG=1 ./docker/thirdparties/run-thirdparties-docker.sh -c hive3 --hive-mode refresh
 ```
 
-## Common Troubleshooting
+Startup timing is printed at the end of each phase:
+```
+[14:02:31] [hive3] compose up done took=18s
+[14:02:49] [hive3] init-hive-baseline begin
+[14:03:11] [hive3] init-hive-baseline done took=22s
+[14:03:11] [hive3] refresh-hive-modules begin (mode=refresh modules=all)
+[14:05:44] [hive3] refresh-hive-modules done took=153s
+```
 
-- Metastore health check fails:
-  - check `hive-metastore-postgresql` is healthy
-  - inspect `start_hive3.log` or `start_hive2.log`
-- JuiceFS format/status fails:
-  - verify `JFS_CLUSTER_META` is reachable
-  - ensure target metadata database exists (startup script auto-creates for local MySQL/PostgreSQL)
-- Refresh is unexpectedly slow:
-  - confirm `--hive-mode refresh` is used
-  - use `--hive-modules` to narrow refresh scope
+---
+
+## Troubleshooting
+
+**Metastore health check fails**
+- Verify `${CONTAINER_UID}hive3-metastore-postgresql` is healthy: `docker ps`
+- Inspect the startup log: `tail -100 docker/thirdparties/logs/start_hive3.log`
+
+**HiveServer2 not reachable**
+- Check the container is running: `docker ps | grep hive3-server`
+- Test the port: `nc -z 127.0.0.1 13000`
+- Check HS2 logs inside the container: `docker exec ${CONTAINER_UID}hive3-server tail -50 /tmp/hive-server2.log`
+
+**JuiceFS format/init fails**
+- Verify `JFS_CLUSTER_META` is reachable (default: `mysql://root:123456@(127.0.0.1:3316)/juicefs_meta`)
+- Override if needed: `export JFS_CLUSTER_META=<your_uri>`
+
+**Refresh is unexpectedly slow**
+- Check which modules are being re-run; if all, a SHA mismatch caused full refresh
+- Narrow scope: `--hive-modules preinstalled_hql`
+- Use timing output (see Logs section above) to identify the slow phase
+
+**State is stale after a hard container kill**
+- The state directory may have a partial write; run with `--hive-mode rebuild` to reset cleanly
+
+**Baseline download is slow or fails**
+- Verify connectivity to `HIVE_BASELINE_URL_PREFIX` (default is an Aliyun OSS endpoint)
+- Place the tarball manually at `${HIVE_BASELINE_TARBALL_CACHE:-/tmp/hive-baseline-cache}/<hive_version>-baseline.tar.gz` to skip the download
+- Override with a mirror: `export HIVE_BASELINE_URL_PREFIX=https://your-mirror/path`
+- Disable baseline restore entirely: `export HIVE_BASELINE_URL_PREFIX=` (volumes will bootstrap from scratch)
+
+**Inspect or delete volumes manually**
+```bash
+# List the four volumes for a version
+docker volume ls | grep "${CONTAINER_UID}hive3-"
+
+# Remove all four (equivalent to --hive-mode rebuild's reset step)
+for s in namenode datanode pgdata state; do
+  docker volume rm -f "${CONTAINER_UID}hive3-${s}"
+done
+```

@@ -51,27 +51,26 @@ docker_container_has_env() {
 }
 
 docker_hive_stack_healthy() {
-    local container_uid="$1"
-    local hive_version="$2"
+    local hive_version="$1"
     local containers=()
 
     case "${hive_version}" in
     hive2)
         containers=(
-            "${container_uid}hadoop2-namenode"
-            "${container_uid}hadoop2-datanode"
-            "${container_uid}hive2-server"
-            "${container_uid}hive2-metastore"
-            "${container_uid}hive2-metastore-postgresql"
+            "hadoop2-namenode"
+            "hadoop2-datanode"
+            "hive2-server"
+            "hive2-metastore"
+            "hive2-metastore-postgresql"
         )
         ;;
     hive3)
         containers=(
-            "${container_uid}hadoop3-namenode"
-            "${container_uid}hadoop3-datanode"
-            "${container_uid}hive3-server"
-            "${container_uid}hive3-metastore"
-            "${container_uid}hive3-metastore-postgresql"
+            "hadoop3-namenode"
+            "hadoop3-datanode"
+            "hive3-server"
+            "hive3-metastore"
+            "hive3-metastore-postgresql"
         )
         ;;
     *)
@@ -84,19 +83,18 @@ docker_hive_stack_healthy() {
 }
 
 docker_hive_stack_reusable() {
-    local container_uid="$1"
-    local hive_version="$2"
-    local bootstrap_groups="$3"
+    local hive_version="$1"
+    local bootstrap_groups="$2"
     local metastore_container=""
 
-    docker_hive_stack_healthy "${container_uid}" "${hive_version}" || return 1
+    docker_hive_stack_healthy "${hive_version}" || return 1
 
     case "${hive_version}" in
     hive2)
-        metastore_container="${container_uid}hive2-metastore"
+        metastore_container="hive2-metastore"
         ;;
     hive3)
-        metastore_container="${container_uid}hive3-metastore"
+        metastore_container="hive3-metastore"
         ;;
     *)
         echo "Unsupported hive version: ${hive_version}" >&2

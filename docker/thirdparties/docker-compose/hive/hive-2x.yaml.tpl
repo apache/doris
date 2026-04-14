@@ -20,6 +20,7 @@ services:
   namenode:
     image: bde2020/hadoop-namenode:2.0.0-hadoop2.7.4-java8
     restart: always
+    hostname: ${HIVE_HOST_ALIAS}
     environment:
       - CLUSTER_NAME=test
     env_file:
@@ -33,13 +34,16 @@ services:
       interval: 5s
       timeout: 120s
       retries: 120
+    extra_hosts:
+      - "${HIVE_HOST_ALIAS}:${IP_HOST}"
     volumes:
-      - ${HIVE_STATE_ROOT}/namenode:/hadoop/dfs/name
+      - ${HIVE_VOLUME_PREFIX}-namenode:/hadoop/dfs/name
     network_mode: "host"
 
   datanode:
     image: bde2020/hadoop-datanode:2.0.0-hadoop2.7.4-java8
     restart: always
+    hostname: ${HIVE_HOST_ALIAS}
     env_file:
       - ./hadoop-hive-2x.env
     environment:
@@ -52,12 +56,15 @@ services:
       interval: 5s
       timeout: 60s
       retries: 120
+    extra_hosts:
+      - "${HIVE_HOST_ALIAS}:${IP_HOST}"
     volumes:
-      - ${HIVE_STATE_ROOT}/datanode:/hadoop/dfs/data
+      - ${HIVE_VOLUME_PREFIX}-datanode:/hadoop/dfs/data
     network_mode: "host"
 
   hive-server:
     image: bde2020/hive:2.3.2-postgresql-metastore
+    hostname: ${HIVE_HOST_ALIAS}
     env_file:
       - ./hadoop-hive-2x.env
     environment:
@@ -67,6 +74,8 @@ services:
     container_name: ${CONTAINER_UID}hive2-server
     expose:
       - "${HS_PORT}"
+    extra_hosts:
+      - "${HIVE_HOST_ALIAS}:${IP_HOST}"
     volumes:
       - ./scripts:/mnt/scripts
     depends_on:
@@ -84,6 +93,7 @@ services:
 
   hive-metastore:
     image: bde2020/hive:2.3.2-postgresql-metastore
+    hostname: ${HIVE_HOST_ALIAS}
     env_file:
       - ./hadoop-hive-2x.env
     command: /bin/bash /mnt/scripts/start-hive-metastore.sh
@@ -93,9 +103,11 @@ services:
     container_name: ${CONTAINER_UID}hive2-metastore
     expose:
       - "${HMS_PORT}"
+    extra_hosts:
+      - "${HIVE_HOST_ALIAS}:${IP_HOST}"
     volumes:
       - ./scripts:/mnt/scripts
-      - ${HIVE_STATE_ROOT}/state:/mnt/state
+      - ${HIVE_VOLUME_PREFIX}-state:/mnt/state
     depends_on:
       hive-metastore-postgresql:
         condition: service_healthy
@@ -112,9 +124,19 @@ services:
     ports:
       - "${PG_PORT}:5432"
     volumes:
-      - ${HIVE_STATE_ROOT}/pgdata:/var/lib/postgresql/data
+      - ${HIVE_VOLUME_PREFIX}-pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 60s
       retries: 120
+
+volumes:
+  ${HIVE_VOLUME_PREFIX}-namenode:
+    external: true
+  ${HIVE_VOLUME_PREFIX}-datanode:
+    external: true
+  ${HIVE_VOLUME_PREFIX}-pgdata:
+    external: true
+  ${HIVE_VOLUME_PREFIX}-state:
+    external: true

@@ -22,7 +22,7 @@ set -eo pipefail
 . /mnt/scripts/hive-common-lib.sh
 
 BOOTSTRAP_GROUPS="$(bootstrap_normalize_groups "${HIVE_BOOTSTRAP_GROUPS:-}")"
-HIVE_BASELINE_VERSION="${HIVE_BASELINE_VERSION:-20260403}"
+: "${HIVE_BASELINE_VERSION:?HIVE_BASELINE_VERSION must be set}"
 DEFAULT_MODULES=(default multi_catalog partition_type statistics tvf regression test preinstalled_hql view)
 
 ensure_hive_state_layout
@@ -226,11 +226,11 @@ refresh_run_scripts_in_dir() {
 
 refresh_preinstalled_hql_module() {
     local preinstalled_hqls=()
+    local hqls_to_refresh=()
     local hql_path=""
     local relative_hql_path=""
     local current_sha=""
     local state_file=""
-    local refreshed=0
 
     shopt -s nullglob
     for hql_path in /mnt/scripts/create_preinstalled_scripts/*.hql; do
@@ -241,34 +241,48 @@ refresh_preinstalled_hql_module() {
     done
     shopt -u nullglob
 
-    if (( ${#preinstalled_hqls[@]} > 0 )); then
-        IFS=$'\n' preinstalled_hqls=($(printf '%s\n' "${preinstalled_hqls[@]}" | sort))
-        unset IFS
-        for hql_path in "${preinstalled_hqls[@]}"; do
-            relative_hql_path="${hql_path#/mnt/scripts/}"
-            current_sha="$(calc_preinstalled_hql_sha "${hql_path}")"
-            state_file="$(preinstalled_hql_state_file "${relative_hql_path}")"
+    [[ ${#preinstalled_hqls[@]} -eq 0 ]] && return 0
 
-            if [[ -f "${state_file}" ]] && grep -Fxq "${current_sha}" "${state_file}"; then
-                echo "  [preinstalled_hql] up-to-date ${relative_hql_path}"
-                continue
-            fi
+    IFS=$'\n' preinstalled_hqls=($(printf '%s\n' "${preinstalled_hqls[@]}" | sort))
+    unset IFS
 
-            echo "  [preinstalled_hql] BEGIN ${relative_hql_path}"
-            run_hive_hql "${hql_path}" "${relative_hql_path}"
-            printf '%s\n' "${current_sha}" >"${state_file}"
-            echo "  [preinstalled_hql] END   ${relative_hql_path}"
-            refreshed=1
-        done
-
-        if (( refreshed == 0 )); then
-            echo "  [preinstalled_hql] all selected HQL files are up-to-date"
+    # Phase 1 (serial): SHA check — determine what needs refresh
+    for hql_path in "${preinstalled_hqls[@]}"; do
+        relative_hql_path="${hql_path#/mnt/scripts/}"
+        current_sha="$(calc_preinstalled_hql_sha "${hql_path}")"
+        state_file="$(preinstalled_hql_state_file "${relative_hql_path}")"
+        if [[ -f "${state_file}" ]] && grep -Fxq "${current_sha}" "${state_file}"; then
+            echo "  [preinstalled_hql] up-to-date ${relative_hql_path}"
+        else
+            hqls_to_refresh+=("${hql_path}")
         fi
+    done
+
+    if (( ${#hqls_to_refresh[@]} == 0 )); then
+        echo "  [preinstalled_hql] all selected HQL files are up-to-date"
+        return 0
     fi
+
+    # Phase 2 (parallel): execute changed files via xargs -P
+    echo "  [preinstalled_hql] refreshing ${#hqls_to_refresh[@]} files (parallel=${LOAD_PARALLEL})"
+    printf '%s\0' "${hqls_to_refresh[@]}" | stdbuf -oL -eL xargs -0 -P "${LOAD_PARALLEL}" -I {} \
+        stdbuf -oL -eL bash --noprofile --norc -ec '
+        hql_path="{}"
+        . /mnt/scripts/hive-module-lib.sh
+        relative_hql_path="${hql_path#/mnt/scripts/}"
+        start=$(date +%s)
+        echo "  [preinstalled_hql] BEGIN ${relative_hql_path}"
+        hive -f "${hql_path}"
+        calc_preinstalled_hql_sha "${hql_path}" >"$(preinstalled_hql_state_file "${relative_hql_path}")"
+        echo "  [preinstalled_hql] END   ${relative_hql_path} took=$(( $(date +%s) - start ))s"
+    '
 }
 
 refresh_module() {
     local module="$1"
+    local _t0
+    _t0=$(date +%s)
+    echo "[$(date '+%H:%M:%S')] [module] BEGIN ${module}"
 
     # Invalidate stale sha first so an interrupted refresh forces a redo next time.
     rm -f "$(module_state_file "${module}")"
@@ -279,6 +293,7 @@ refresh_module() {
         ;;
     preinstalled_hql)
         refresh_preinstalled_hql_module
+        echo "[$(date '+%H:%M:%S')] [module] END   ${module} took=$(( $(date +%s) - _t0 ))s"
         return 0
         ;;
     view)
@@ -291,4 +306,5 @@ refresh_module() {
     esac
 
     mark_module_refreshed "${module}"
+    echo "[$(date '+%H:%M:%S')] [module] END   ${module} took=$(( $(date +%s) - _t0 ))s"
 }
