@@ -25,6 +25,7 @@ import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.mtmv.ivm.IvmAggMeta;
 import org.apache.doris.mtmv.ivm.IvmAggMeta.AggTarget;
 import org.apache.doris.mtmv.ivm.IvmAggMeta.AggType;
+import org.apache.doris.mtmv.ivm.IvmAggMeta.StateKey;
 import org.apache.doris.mtmv.ivm.IvmNormalizeResult;
 import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.CascadesContext;
@@ -353,8 +354,8 @@ class IvmNormalizeMtmvTest {
         Assertions.assertEquals(0, target.getOrdinal());
         Assertions.assertEquals(AggType.SUM, target.getAggType());
         Assertions.assertEquals("sum_name", target.getVisibleSlot().getName());
-        Assertions.assertNotNull(target.getHiddenStateSlot("SUM"));
-        Assertions.assertNotNull(target.getHiddenStateSlot("COUNT"));
+        Assertions.assertNotNull(target.getHiddenStateSlot(StateKey.SUM));
+        Assertions.assertNotNull(target.getHiddenStateSlot(StateKey.COUNT));
 
         // Row-id determinism: grouped agg → deterministic
         Assertions.assertTrue(normalizeResult.getRowIdDeterminism().values().iterator().next());
@@ -412,7 +413,7 @@ class IvmNormalizeMtmvTest {
         AggTarget t0 = aggMeta.getAggTargets().get(0);
         Assertions.assertEquals(AggType.COUNT_STAR, t0.getAggType());
         Assertions.assertEquals(1, t0.getHiddenStateSlots().size());
-        Assertions.assertNotNull(t0.getHiddenStateSlot("COUNT"));
+        Assertions.assertNotNull(t0.getHiddenStateSlot(StateKey.COUNT));
 
         // ordinal 1: SUM → hidden: SUM, COUNT
         AggTarget t1 = aggMeta.getAggTargets().get(1);
@@ -507,8 +508,8 @@ class IvmNormalizeMtmvTest {
         Assertions.assertEquals(1, aggMeta.getAggTargets().size());
         AggTarget target = aggMeta.getAggTargets().get(0);
         Assertions.assertEquals(AggType.MIN, target.getAggType());
-        Assertions.assertNotNull(target.getHiddenStateSlot("MIN"));
-        Assertions.assertNotNull(target.getHiddenStateSlot("COUNT"));
+        Assertions.assertNotNull(target.getHiddenStateSlot(StateKey.MIN));
+        Assertions.assertNotNull(target.getHiddenStateSlot(StateKey.COUNT));
 
         LogicalProject<?> topProject = (LogicalProject<?>) result;
         Set<String> outputNames = topProject.getOutput().stream()
@@ -536,8 +537,8 @@ class IvmNormalizeMtmvTest {
         Assertions.assertEquals(1, aggMeta.getAggTargets().size());
         AggTarget target = aggMeta.getAggTargets().get(0);
         Assertions.assertEquals(AggType.MAX, target.getAggType());
-        Assertions.assertNotNull(target.getHiddenStateSlot("MAX"));
-        Assertions.assertNotNull(target.getHiddenStateSlot("COUNT"));
+        Assertions.assertNotNull(target.getHiddenStateSlot(StateKey.MAX));
+        Assertions.assertNotNull(target.getHiddenStateSlot(StateKey.COUNT));
 
         LogicalProject<?> topProject = (LogicalProject<?>) result;
         Set<String> outputNames = topProject.getOutput().stream()
