@@ -57,13 +57,14 @@ public:
 protected:
     void _init_expr(const VExprContextSPtrs& build_expr_ctxs,
                     const std::vector<TRuntimeFilterDesc>& runtime_filter_descs) override {
+        // Set operators use GATHER distribution (all data → single instance), which is
+        // semantically equivalent to broadcast. FE V2 translator currently does not set
+        // is_broadcast_join for Set operators (defaults to false). Validate this assumption.
         for (const auto& desc : runtime_filter_descs) {
-            // Set operators (INTERSECT/EXCEPT) always use HASH_SHUFFLE or BUCKET_HASH_SHUFFLE,
-            // never broadcast. The constructor hardcodes is_broadcast_join=false. Verify that
-            // FE agrees, otherwise the sync_filter_size logic would be incorrect.
             if (desc.is_broadcast_join) {
                 throw Exception(ErrorCode::INTERNAL_ERROR,
-                                "Set operator runtime filter should not be broadcast, filter_id={}",
+                                "Set operator runtime filter: FE sent is_broadcast_join=true "
+                                "which is unexpected, filter_id={}",
                                 desc.filter_id);
             }
         }

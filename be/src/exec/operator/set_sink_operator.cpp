@@ -98,11 +98,9 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, Block* in_block
         // invariant (unique_column_values <= hash_table_size <= max_in_num) and triggers
         // a spurious error in RuntimeFilterWrapper::insert().
         //
-        // This is safe because Set operators always use non-broadcast distribution
-        // (HASH_SHUFFLE / BUCKET_HASH_SHUFFLE), so _need_sync_filter_size is effectively
-        // false — syncing global filter size across instances is not required. Processing
-        // here (before send_filter_size) simply uses local_size, which is equivalent to
-        // broadcast join behavior where each instance sizes its filter independently.
+        // This is safe because Set operators use GATHER distribution (all data routed to
+        // a single instance), which is equivalent to broadcast — the single instance
+        // already has global cardinality, so sync_filter_size is unnecessary.
         if (local_state._runtime_filter_producer_helper) {
             try {
                 RETURN_IF_ERROR(local_state._runtime_filter_producer_helper->process(

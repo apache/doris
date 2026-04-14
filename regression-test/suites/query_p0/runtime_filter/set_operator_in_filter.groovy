@@ -23,8 +23,8 @@
 // refresh could cause RuntimeFilterWrapper::insert() to fail with InternalError.
 // The fix moves RF processing to sink(eos) before set_ready(), ensuring the hash
 // table size is read before the probe side can modify it. This is safe because
-// Set operators always use non-broadcast distribution, so sync_filter_size is
-// not required.
+// Set operators use GATHER distribution (equivalent to broadcast — single instance
+// already has global cardinality), so sync_filter_size is not required.
 
 suite("set_operator_in_filter") {
     sql "DROP TABLE IF EXISTS set_rf_t1"
