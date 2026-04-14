@@ -318,7 +318,7 @@ private:
     RowGroupReader::RowGroupIndex _current_row_group_index {-1, 0, 0};
     // read to the end of current reader
     bool _row_group_eof = true;
-    size_t _total_groups; // num of groups(stripes) of a parquet(orc) file
+    size_t _total_groups = 0; // num of groups(stripes) of a parquet(orc) file
 
     std::shared_ptr<ConditionCacheContext> _condition_cache_ctx;
 
