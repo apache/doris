@@ -267,6 +267,30 @@ abstract class IvmDeltaTestBase {
                 true, Optional.empty(), scan);
     }
 
+    /** SUM(id + name) — expression (non-Slot) aggregate argument. */
+    protected LogicalAggregate<LogicalOlapScan> buildExprAgg(LogicalOlapScan scan) {
+        Slot idSlot = scan.getOutput().get(0);
+        Slot nameSlot = scan.getOutput().get(1);
+        Expression addExpr = new org.apache.doris.nereids.trees.expressions.Add(idSlot, nameSlot);
+        Alias sumAlias = new Alias(new Sum(addExpr), "sum_expr");
+        Alias cntAlias = new Alias(new Count(), "cnt");
+        return new LogicalAggregate<>(ImmutableList.of(idSlot),
+                ImmutableList.of(idSlot, sumAlias, cntAlias),
+                true, Optional.empty(), scan);
+    }
+
+    /** MIN(id + name), MAX(id + name) — expression args for MIN/MAX. */
+    protected LogicalAggregate<LogicalOlapScan> buildExprMinMaxAgg(LogicalOlapScan scan) {
+        Slot idSlot = scan.getOutput().get(0);
+        Slot nameSlot = scan.getOutput().get(1);
+        Expression addExpr = new org.apache.doris.nereids.trees.expressions.Add(idSlot, nameSlot);
+        Alias minAlias = new Alias(new Min(addExpr), "mn_expr");
+        Alias maxAlias = new Alias(new Max(addExpr), "mx_expr");
+        return new LogicalAggregate<>(ImmutableList.of(idSlot),
+                ImmutableList.of(idSlot, minAlias, maxAlias),
+                true, Optional.empty(), scan);
+    }
+
     protected UnboundTableSink<?> getSink(InsertIntoTableCommand command) {
         Assertions.assertInstanceOf(UnboundTableSink.class, command.getLogicalQuery());
         return (UnboundTableSink<?>) command.getLogicalQuery();
