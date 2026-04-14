@@ -1254,14 +1254,37 @@ TEST_F(SpillSortSourceOperatorTest, SpillWriterMemoryTracking) {
     std::iota(data.begin(), data.end(), 0);
     auto block = ColumnHelper::create_block<DataTypeInt32>(data);
 
+    SpillableDebugPointHelper dp_helper("fault_inject::spill_writer::sleep_before_write");
+    std::atomic<int64_t> max_memory_observed = initial_memory;
+    std::atomic<bool> write_done = false;
+
+    // Thread 2: Continuously observe the memory counter while the write is taking place
+    std::thread observer([&]() {
+        while (!write_done) {
+            int64_t current = memory_used_counter->value();
+            if (current > max_memory_observed) {
+                max_memory_observed = current;
+            }
+            std::this_thread::yield();
+        }
+    });
+
     // After write_block, the memory usage should return to initial_memory
     // because the Defer block should have decremented it.
     st = writer->write_block(_helper.runtime_state.get(), block);
     ASSERT_TRUE(st.ok());
 
+    write_done = true;
+    observer.join();
+
     int64_t after_write_memory = memory_used_counter->value();
     ASSERT_EQ(after_write_memory, initial_memory)
             << "Memory should be properly decremented after write_block";
+
+    // We should have observed memory > initial_memory DURING the write!
+    // This perfectly proves that the memory was tracked WHILE the IO was in progress.
+    ASSERT_GT(max_memory_observed.load(), initial_memory)
+            << "Peak memory should be greater than initial memory, proving it was incremented";
 
     st = writer->close();
     ASSERT_TRUE(st.ok());

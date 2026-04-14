@@ -261,6 +261,8 @@ Status SpillFileWriter::_write_internal(const Block& block,
 
         {
             SCOPED_TIMER(_write_file_timer);
+            DBUG_EXECUTE_IF("fault_inject::spill_writer::sleep_before_write",
+                            { std::this_thread::sleep_for(std::chrono::milliseconds(100)); });
             status = _file_writer->append(buff);
             RETURN_IF_ERROR(status);
         }

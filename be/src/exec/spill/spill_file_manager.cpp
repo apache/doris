@@ -362,6 +362,7 @@ bool SpillDataDir::reach_capacity_limit(int64_t incoming_data_size) {
     return false;
 }
 std::string SpillDataDir::debug_string() {
+    std::lock_guard<std::mutex> l(_mutex);
     return fmt::format(
             "path: {}, capacity: {}, limit: {}, used: {}, available: "
             "{}",
