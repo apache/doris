@@ -1461,6 +1461,11 @@ TEST_F(VectorSearchTest, IVFOnDiskSaveLoadAndSearch) {
     EXPECT_GT(result.ivf_on_disk_cache_miss_cnt, 0);
 }
 
+// All threads share a single FaissVectorIndex (and thus a single
+// CachedRandomAccessReader with its _io_mutex).  On the first round
+// (cold cache) threads contend on the same _io_mutex; the first thread
+// through loads from "disk" while the rest hit the double-check cache
+// lookup path (lines 372-375 in faiss_ann_index.cpp).
 TEST_F(VectorSearchTest, IVFOnDiskConcurrentSearchStampedeProtection) {
     AnnIndexIVFListCache::create_global_cache(64 * 1024 * 1024);
     Defer destroy_cache([] { AnnIndexIVFListCache::destroy_global_cache(); });
@@ -1486,16 +1491,13 @@ TEST_F(VectorSearchTest, IVFOnDiskConcurrentSearchStampedeProtection) {
     auto dir = std::make_shared<lucene::store::RAMDirectory>();
     ASSERT_TRUE(index_builder->save(dir.get()).ok());
 
+    auto shared_index = std::make_shared<FaissVectorIndex>();
+    shared_index->set_type(AnnIndexType::IVF_ON_DISK);
+    shared_index->set_ivfdata_cache_key_prefix("ut_stampede_shared");
+    ASSERT_TRUE(shared_index->load(dir.get()).ok());
+
     constexpr int kThreads = 8;
     auto query_vec = vector_search_utils::generate_random_vector(params.dim);
-
-    std::vector<std::unique_ptr<FaissVectorIndex>> indices(kThreads);
-    for (int i = 0; i < kThreads; ++i) {
-        indices[i] = std::make_unique<FaissVectorIndex>();
-        indices[i]->set_type(AnnIndexType::IVF_ON_DISK);
-        indices[i]->set_ivfdata_cache_key_prefix("ut_stampede_concurrent");
-        ASSERT_TRUE(indices[i]->load(dir.get()).ok());
-    }
 
     std::barrier sync_point(kThreads);
     std::vector<IndexSearchResult> results(kThreads);
@@ -1512,7 +1514,7 @@ TEST_F(VectorSearchTest, IVFOnDiskConcurrentSearchStampedeProtection) {
         sync_point.arrive_and_wait();
 
         statuses[tid] =
-                indices[tid]->ann_topn_search(query_vec.data(), 10, search_params, results[tid]);
+                shared_index->ann_topn_search(query_vec.data(), 10, search_params, results[tid]);
     };
 
     std::vector<std::thread> threads;
