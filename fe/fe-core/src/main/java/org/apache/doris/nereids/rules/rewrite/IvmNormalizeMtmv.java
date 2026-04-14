@@ -317,18 +317,13 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
             placeholderHiddenSlots.put(entry.getKey(), entry.getValue().toSlot());
         }
 
-        List<Slot> exprSlots = ImmutableList.of();
+        List<Expression> exprArgs = ImmutableList.of();
         if (!(aggFunc instanceof Count && ((Count) aggFunc).isStar())) {
-            Expression child0 = aggFunc.child(0);
-            if (!(child0 instanceof Slot)) {
-                throw new AnalysisException(
-                        "IVM: aggregate argument must be a Slot after NormalizeAggregate: " + child0);
-            }
-            exprSlots = ImmutableList.of((Slot) child0);
+            exprArgs = ImmutableList.of(aggFunc.child(0));
         }
 
         aggTargets.add(new AggTarget(ordinal, aggType, origAlias.toSlot(),
-                placeholderHiddenSlots.build(), exprSlots));
+                placeholderHiddenSlots.build(), exprArgs));
     }
 
     /**
@@ -364,7 +359,7 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
             }
 
             resolved.add(new AggTarget(target.getOrdinal(), target.getAggType(),
-                    resolvedVisible, resolvedHidden.build(), target.getExprSlots()));
+                    resolvedVisible, resolvedHidden.build(), target.getExprArgs()));
         }
         return resolved;
     }

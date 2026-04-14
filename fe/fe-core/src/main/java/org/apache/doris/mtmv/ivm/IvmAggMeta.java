@@ -17,6 +17,7 @@
 
 package org.apache.doris.mtmv.ivm;
 
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 
 import com.google.common.collect.ImmutableList;
@@ -52,17 +53,17 @@ public class IvmAggMeta {
         private final Slot visibleSlot;
         // hidden state column slots, keyed by state type (e.g. "SUM", "COUNT")
         private final Map<String, Slot> hiddenStateSlots;
-        // the expression slots from the base scan that feed this aggregate
-        // (empty for COUNT_STAR)
-        private final List<Slot> exprSlots;
+        // the expression(s) from the base scan that feed this aggregate
+        // (empty for COUNT_STAR; may be Slot or compound Expression like v1+v2)
+        private final List<Expression> exprArgs;
 
         public AggTarget(int ordinal, AggType aggType, Slot visibleSlot,
-                Map<String, Slot> hiddenStateSlots, List<Slot> exprSlots) {
+                Map<String, Slot> hiddenStateSlots, List<Expression> exprArgs) {
             this.ordinal = ordinal;
             this.aggType = Objects.requireNonNull(aggType);
             this.visibleSlot = Objects.requireNonNull(visibleSlot);
             this.hiddenStateSlots = ImmutableMap.copyOf(hiddenStateSlots);
-            this.exprSlots = ImmutableList.copyOf(exprSlots);
+            this.exprArgs = ImmutableList.copyOf(exprArgs);
         }
 
         public int getOrdinal() {
@@ -85,8 +86,8 @@ public class IvmAggMeta {
             return hiddenStateSlots.get(stateType);
         }
 
-        public List<Slot> getExprSlots() {
-            return exprSlots;
+        public List<Expression> getExprArgs() {
+            return exprArgs;
         }
 
         @Override
