@@ -198,8 +198,6 @@ public class OlapScanNode extends ScanNode {
     private final PartitionPruneV2ForShortCircuitPlan cachedPartitionPruner =
                         new PartitionPruneV2ForShortCircuitPlan();
 
-    private boolean hasPartitionPruningPredicate = false;
-
     private boolean isTopnLazyMaterialize = false;
     private List<Column> topnLazyMaterializeOutputColumns = new ArrayList<>();
 
@@ -287,17 +285,25 @@ public class OlapScanNode extends ScanNode {
         return selectedPartitionIds;
     }
 
-    public boolean hasPartitionPruningPredicate() {
-        return hasPartitionPruningPredicate;
-    }
-
-    public void setHasPartitionPruningPredicate(boolean hasPartitionPruningPredicate) {
-        this.hasPartitionPruningPredicate = hasPartitionPruningPredicate;
-    }
-
     // only used for UT and Nereids
     public void setSelectedPartitionIds(Collection<Long> selectedPartitionIds) {
         this.selectedPartitionIds = selectedPartitionIds;
+    }
+
+    @VisibleForTesting
+    static boolean hasPartitionPredicate(List<Column> partitionColumns, TupleDescriptor tupleDescriptor,
+            List<Expr> conjuncts, PartitionInfo partitionInfo) {
+        for (Column partitionColumn : partitionColumns) {
+            SlotDescriptor slotDescriptor = tupleDescriptor.getColumnSlot(partitionColumn.getName());
+            if (slotDescriptor == null) {
+                continue;
+            }
+            if (createPartitionFilter(slotDescriptor, conjuncts, partitionInfo) != null
+                    || createColumnRange(slotDescriptor, conjuncts, partitionInfo).hasFilter()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -698,11 +704,11 @@ public class OlapScanNode extends ScanNode {
         // Step1: compute partition ids
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
         if (partitionInfo.getType() == PartitionType.RANGE || partitionInfo.getType() == PartitionType.LIST) {
-            hasPartitionPruningPredicate = ScanNode.hasUsablePartitionPruningPredicate(
-                    partitionInfo.getPartitionColumns(), desc, conjuncts, partitionInfo);
+            setHasPartitionPredicate(hasPartitionPredicate(
+                    partitionInfo.getPartitionColumns(), desc, conjuncts, partitionInfo));
             selectedPartitionIds = partitionPrune(partitionInfo);
         } else {
-            hasPartitionPruningPredicate = false;
+            setHasPartitionPredicate(false);
             selectedPartitionIds = olapTable.getPartitionIds();
         }
         selectedPartitionIds = olapTable.selectNonEmptyPartitionIds(selectedPartitionIds);

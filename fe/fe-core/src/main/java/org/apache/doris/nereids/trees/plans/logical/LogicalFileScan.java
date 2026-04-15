@@ -112,6 +112,10 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         return selectedPartitions;
     }
 
+    public boolean hasPartitionPredicate() {
+        return selectedPartitions.hasPartitionPredicate;
+    }
+
     public Optional<TableSample> getTableSample() {
         return tableSample;
     }

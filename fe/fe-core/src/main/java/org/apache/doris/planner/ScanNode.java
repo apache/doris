@@ -56,7 +56,6 @@ import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.MoreObjects;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -97,6 +96,7 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
 
     protected long selectedPartitionNum = 0;
     protected int selectedSplitNum = 0;
+    private boolean hasPartitionPredicate = false;
 
     // support multi topn filter
     protected final List<SortNode> topnFilterSortNodes = Lists.newArrayList();
@@ -194,6 +194,18 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
 
     public TableIf getTableIf() {
         return desc.getTable();
+    }
+
+    public boolean isPartitionedTable() {
+        return getTableIf() != null && getTableIf().isPartitionedTable();
+    }
+
+    public boolean hasPartitionPredicate() {
+        return hasPartitionPredicate;
+    }
+
+    public void setHasPartitionPredicate(boolean hasPartitionPredicate) {
+        this.hasPartitionPredicate = hasPartitionPredicate;
     }
 
     public static ColumnRange createColumnRange(SlotDescriptor desc,
@@ -340,23 +352,7 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         }
     }
 
-    @VisibleForTesting
-    static boolean hasUsablePartitionPruningPredicate(List<Column> partitionColumns, TupleDescriptor tupleDescriptor,
-            List<Expr> conjuncts, PartitionInfo partitionsInfo) {
-        for (Column partitionColumn : partitionColumns) {
-            SlotDescriptor slotDescriptor = tupleDescriptor.getColumnSlot(partitionColumn.getName());
-            if (slotDescriptor == null) {
-                continue;
-            }
-            if (createPartitionFilter(slotDescriptor, conjuncts, partitionsInfo) != null
-                    || createColumnRange(slotDescriptor, conjuncts, partitionsInfo).hasFilter()) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static PartitionColumnFilter createPartitionFilter(SlotDescriptor desc, List<Expr> conjuncts,
+    protected static PartitionColumnFilter createPartitionFilter(SlotDescriptor desc, List<Expr> conjuncts,
             PartitionInfo partitionsInfo) {
         PartitionColumnFilter partitionColumnFilter = null;
         for (Expr expr : conjuncts) {

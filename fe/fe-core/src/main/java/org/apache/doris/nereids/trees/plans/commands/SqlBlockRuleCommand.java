@@ -120,6 +120,32 @@ public abstract class SqlBlockRuleCommand extends Command implements ForwardWith
 
     public abstract void setProperties(Map<String, String> properties) throws UserException;
 
+    protected static boolean getBooleanPropertyOrDefault(Map<String, String> properties,
+            String propertyName, boolean defaultValue) throws AnalysisException {
+        if (!properties.containsKey(propertyName)) {
+            return defaultValue;
+        }
+        return parseBooleanProperty(properties.get(propertyName), propertyName);
+    }
+
+    protected static Boolean getOptionalBooleanProperty(Map<String, String> properties,
+            String propertyName) throws AnalysisException {
+        if (!properties.containsKey(propertyName)) {
+            return null;
+        }
+        return parseBooleanProperty(properties.get(propertyName), propertyName);
+    }
+
+    private static boolean parseBooleanProperty(String value, String propertyName) throws AnalysisException {
+        if ("true".equalsIgnoreCase(value)) {
+            return true;
+        }
+        if ("false".equalsIgnoreCase(value)) {
+            return false;
+        }
+        throw new AnalysisException(propertyName + " should be a boolean");
+    }
+
     public String getRuleName() {
         return ruleName;
     }

@@ -87,16 +87,16 @@ public class SqlBlockRule implements Writable, GsonPostProcessable {
      * Create SqlBlockRule.
      **/
     public SqlBlockRule(String name, String sql, String sqlHash, Long partitionNum, Long tabletNum, Long cardinality,
-            Boolean global, Boolean enable, Boolean requirePartitionFilter) {
+            Boolean requirePartitionFilter, Boolean global, Boolean enable) {
         this.name = name;
         this.sql = sql;
         this.sqlHash = sqlHash;
         this.partitionNum = partitionNum;
         this.tabletNum = tabletNum;
         this.cardinality = cardinality;
+        this.requirePartitionFilter = requirePartitionFilter;
         this.global = global;
         this.enable = enable;
-        this.requirePartitionFilter = requirePartitionFilter;
         if (StringUtils.isNotEmpty(sql)) {
             this.sqlPattern = Pattern.compile(sql);
         }

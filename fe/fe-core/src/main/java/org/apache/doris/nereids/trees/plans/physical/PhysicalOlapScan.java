@@ -62,7 +62,7 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
     private final long selectedIndexId;
     private final ImmutableList<Long> selectedTabletIds;
     private final ImmutableList<Long> selectedPartitionIds;
-    private final boolean hasPartitionPruningPredicate;
+    private final boolean hasPartitionPredicate;
     private final PreAggStatus preAggStatus;
     private final List<Slot> baseOutputs;
     private final Optional<TableSample> tableSample;
@@ -136,7 +136,7 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
      * Constructor for PhysicalOlapScan.
      */
     public PhysicalOlapScan(RelationId id, OlapTable olapTable, List<String> qualifier, long selectedIndexId,
-            List<Long> selectedTabletIds, List<Long> selectedPartitionIds, boolean hasPartitionPruningPredicate,
+            List<Long> selectedTabletIds, List<Long> selectedPartitionIds, boolean hasPartitionPredicate,
             DistributionSpec distributionSpec, PreAggStatus preAggStatus, List<Slot> baseOutputs,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             PhysicalProperties physicalProperties, Statistics statistics,
@@ -149,7 +149,7 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
         this.selectedIndexId = selectedIndexId;
         this.selectedTabletIds = ImmutableList.copyOf(selectedTabletIds);
         this.selectedPartitionIds = ImmutableList.copyOf(selectedPartitionIds);
-        this.hasPartitionPruningPredicate = hasPartitionPruningPredicate;
+        this.hasPartitionPredicate = hasPartitionPredicate;
         this.distributionSpec = distributionSpec;
         this.preAggStatus = preAggStatus;
         this.baseOutputs = ImmutableList.copyOf(baseOutputs);
@@ -177,8 +177,8 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
         return selectedPartitionIds;
     }
 
-    public boolean hasPartitionPruningPredicate() {
-        return hasPartitionPruningPredicate;
+    public boolean hasPartitionPredicate() {
+        return hasPartitionPredicate;
     }
 
     @Override
@@ -298,7 +298,7 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
         }
         PhysicalOlapScan olapScan = (PhysicalOlapScan) o;
         return selectedIndexId == olapScan.selectedIndexId
-                && hasPartitionPruningPredicate == olapScan.hasPartitionPruningPredicate
+                && hasPartitionPredicate == olapScan.hasPartitionPredicate
                 && Objects.equals(distributionSpec, olapScan.distributionSpec)
                 && Objects.equals(selectedTabletIds, olapScan.selectedTabletIds)
                 && Objects.equals(selectedPartitionIds, olapScan.selectedPartitionIds)
@@ -327,7 +327,7 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
     @Override
     public PhysicalOlapScan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalOlapScan(relationId, getTable(), qualifier,
-                selectedIndexId, selectedTabletIds, selectedPartitionIds, hasPartitionPruningPredicate,
+                selectedIndexId, selectedTabletIds, selectedPartitionIds, hasPartitionPredicate,
                 distributionSpec, preAggStatus, baseOutputs, groupExpression, getLogicalProperties(), null, null,
                 tableSample, operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit, scoreRangeInfo,
                 annOrderKeys, annLimit, tableAlias));
@@ -337,7 +337,7 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalOlapScan(relationId, getTable(), qualifier,
-                selectedIndexId, selectedTabletIds, selectedPartitionIds, hasPartitionPruningPredicate,
+                selectedIndexId, selectedTabletIds, selectedPartitionIds, hasPartitionPredicate,
                 distributionSpec, preAggStatus, baseOutputs, groupExpression, logicalProperties.get(), null, null,
                 tableSample, operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit, scoreRangeInfo,
                 annOrderKeys, annLimit, tableAlias));
@@ -347,7 +347,7 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
     public PhysicalOlapScan withPhysicalPropertiesAndStats(
             PhysicalProperties physicalProperties, Statistics statistics) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalOlapScan(relationId, getTable(), qualifier,
-                selectedIndexId, selectedTabletIds, selectedPartitionIds, hasPartitionPruningPredicate,
+                selectedIndexId, selectedTabletIds, selectedPartitionIds, hasPartitionPredicate,
                 distributionSpec, preAggStatus, baseOutputs, groupExpression, getLogicalProperties(),
                 physicalProperties, statistics, tableSample, operativeSlots, virtualColumns, scoreOrderKeys,
                 scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias));
@@ -374,7 +374,7 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
     @Override
     public CatalogRelation withOperativeSlots(Collection<Slot> operativeSlots) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalOlapScan(relationId, (OlapTable) table, qualifier,
-                selectedIndexId, selectedTabletIds, selectedPartitionIds, hasPartitionPruningPredicate,
+                selectedIndexId, selectedTabletIds, selectedPartitionIds, hasPartitionPredicate,
                 distributionSpec, preAggStatus, baseOutputs, groupExpression, getLogicalProperties(),
                 getPhysicalProperties(), statistics, tableSample, operativeSlots, virtualColumns, scoreOrderKeys,
                 scoreLimit,

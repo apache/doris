@@ -67,6 +67,15 @@ public class SqlBlockRuleMgrTest {
     }
 
     @Test
+    public void testConstructorPlaceRequirePartitionFilterBeforeGlobal() {
+        SqlBlockRule rule = new SqlBlockRule("r1", "NULL", "NULL", 0L, 0L, 0L,
+                true, false, true);
+        Assert.assertTrue(rule.getRequirePartitionFilter());
+        Assert.assertFalse(rule.getGlobal());
+        Assert.assertTrue(rule.getEnable());
+    }
+
+    @Test
     public void testRequirePartitionFilterBlocksPartitionedScanWithoutFilter() {
         SqlBlockRuleMgr mgr = new SqlBlockRuleMgr();
         SqlBlockRule rule = new SqlBlockRule("r1", "NULL", "NULL", 0L, 0L, 0L,

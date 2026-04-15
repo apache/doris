@@ -17,9 +17,11 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.qe.ShowResultSetMetaData;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -39,6 +41,8 @@ public class SqlBlockRuleCommandTest {
                     + "\"sqlHash\" = \"abc\", \"global\" = \"true\", \"enable\" = \"true\")";
     private static final String ALTER_RULE =
             "alter sql_block_rule %s properties(\"require_partition_filter\" = \"true\")";
+    private static final String ALTER_RULE_INVALID_REQUIRE_PARTITION_FILTER =
+            "alter sql_block_rule %s properties(\"require_partition_filter\" = \"not_a_bool\")";
 
     @Test
     public void testCreateRequirePartitionFilterRule() throws Exception {
@@ -94,5 +98,27 @@ public class SqlBlockRuleCommandTest {
         command.setProperties(command.properties);
         Assertions.assertEquals(3L, command.getPartitionNum());
         Assertions.assertTrue(command.getRequirePartitionFilter());
+    }
+
+    @Test
+    public void testAlterRequirePartitionFilterRejectInvalidBoolean() {
+        String ruleName = "test_require_partition_filter_invalid_boolean";
+        LogicalPlan alterPlan = new NereidsParser().parseSingle(
+                String.format(ALTER_RULE_INVALID_REQUIRE_PARTITION_FILTER, ruleName));
+        Assertions.assertInstanceOf(AlterSqlBlockRuleCommand.class, alterPlan);
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> ((AlterSqlBlockRuleCommand) alterPlan)
+                        .setProperties(((AlterSqlBlockRuleCommand) alterPlan).properties));
+        Assertions.assertTrue(exception.getMessage().contains("require_partition_filter should be a boolean"));
+    }
+
+    @Test
+    public void testShowSqlBlockRuleRequirePartitionFilterColumnUseBooleanType() {
+        ShowSqlBlockRuleCommand command = new ShowSqlBlockRuleCommand(null);
+        ShowResultSetMetaData metaData = command.getMetaData();
+        Assertions.assertEquals(9, metaData.getColumnCount());
+        Assertions.assertEquals(PrimitiveType.BOOLEAN,
+                metaData.getColumn(8).getType().getPrimitiveType());
     }
 }

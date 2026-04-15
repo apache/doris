@@ -153,11 +153,11 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
     public void testNereidsOlapScanCarryPartitionPredicateSignal() throws Exception {
         OlapScanNode filteredScanNode = getFirstOlapScanNode(
                 "select * from test_db.partitioned_t where p1 = 1");
-        Assertions.assertTrue(filteredScanNode.hasPartitionPruningPredicate());
+        Assertions.assertTrue(filteredScanNode.hasPartitionPredicate());
 
         OlapScanNode nonPartitionFilteredScanNode = getFirstOlapScanNode(
                 "select * from test_db.partitioned_t where k1 = 1");
-        Assertions.assertFalse(nonPartitionFilteredScanNode.hasPartitionPruningPredicate());
+        Assertions.assertFalse(nonPartitionFilteredScanNode.hasPartitionPredicate());
     }
 
     @Test

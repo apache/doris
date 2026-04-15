@@ -103,6 +103,12 @@ public class HiveScanNodeTest {
     }
 
     @Test
+    public void testHiveScanNodeExposePartitionedTableFlag() {
+        HiveScanNode node = createHiveScanNode(true);
+        Assert.assertTrue(node.isPartitionedTable());
+    }
+
+    @Test
     public void testHiveScanNodeExposeMissingPartitionPredicateFlag() {
         HiveScanNode node = createHiveScanNode();
         node.setSelectedPartitions(new SelectedPartitions(3, ImmutableMap.of(), true, false));
@@ -110,12 +116,17 @@ public class HiveScanNodeTest {
     }
 
     private HiveScanNode createHiveScanNode() {
+        return createHiveScanNode(false);
+    }
+
+    private HiveScanNode createHiveScanNode(boolean partitioned) {
         SessionVariable sv = new SessionVariable();
         TupleDescriptor desc = new TupleDescriptor(new TupleId(0));
         HMSExternalTable table = Mockito.mock(HMSExternalTable.class);
         HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
         Mockito.when(table.getCatalog()).thenReturn(catalog);
         Mockito.when(catalog.bindBrokerName()).thenReturn("");
+        Mockito.when(table.isPartitionedTable()).thenReturn(partitioned);
         desc.setTable(table);
         return new HiveScanNode(new PlanNodeId(0), desc, false, sv, null, ScanContext.EMPTY);
     }
