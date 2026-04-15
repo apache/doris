@@ -2621,10 +2621,6 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
             std::min(cast_set<uint32_t>(_row_bitmap.cardinality()), _opts.block_row_max);
     if (_can_opt_limit_reads()) {
         nrows_read_limit = _opts.read_limit.cap(nrows_read_limit);
-    } else if (_opts.read_limit.exhausted()) {
-        // Even without index optimization eligibility, stop reading when
-        // the global limit is fully exhausted — no more rows needed.
-        nrows_read_limit = 0;
     }
     DBUG_EXECUTE_IF("segment_iterator.topn_opt_1", {
         if (nrows_read_limit != 1) {

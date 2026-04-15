@@ -136,38 +136,20 @@ public:
     std::map<std::string, DataTypePtr> target_cast_type_for_variants;
     RowRanges row_ranges;
 
-    // Unified read limit for per-batch row cap in SegmentIterator.
-    //
-    // Two sources can contribute a limit:
-    //   - local_limit  : per-segment static cap (from topn or general_read_limit)
-    //   - global_remaining : cross-scanner dynamic budget (from ScanOperator shared limit)
-    //
-    // When both are set, the effective limit is min(local_limit, *global_remaining).
+    // Per-segment static read limit for per-batch row cap in SegmentIterator.
+    // Set from topn (read_orderby_key_limit) or general limit pushdown.
     struct ReadLimit {
         size_t local_limit = 0;
-        std::atomic<int64_t>* global_remaining = nullptr;
 
-        bool active() const { return local_limit > 0 || global_remaining != nullptr; }
+        bool active() const { return local_limit > 0; }
 
-        // Cap max_rows by the effective limit.
+        // Cap max_rows by the local limit.
         uint32_t cap(uint32_t max_rows) const {
             uint32_t limit = max_rows;
             if (local_limit > 0 && local_limit < limit) {
                 limit = static_cast<uint32_t>(local_limit);
             }
-            if (global_remaining != nullptr) {
-                int64_t remaining = global_remaining->load(std::memory_order_acquire);
-                if (remaining >= 0 && remaining < static_cast<int64_t>(limit)) {
-                    limit = static_cast<uint32_t>(remaining);
-                }
-            }
             return limit;
-        }
-
-        // True when the global budget is fully exhausted (0 or negative).
-        bool exhausted() const {
-            return global_remaining != nullptr &&
-                   global_remaining->load(std::memory_order_acquire) <= 0;
         }
     } read_limit;
 

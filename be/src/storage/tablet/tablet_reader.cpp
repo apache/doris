@@ -200,7 +200,6 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
 
     // Propagate general read limit for DUP_KEYS and UNIQUE_KEYS with MOW
     _reader_context.general_read_limit = read_params.general_read_limit;
-    _reader_context.shared_scan_limit = read_params.shared_scan_limit;
     return Status::OK();
 }
 

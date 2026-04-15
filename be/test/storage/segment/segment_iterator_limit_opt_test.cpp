@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <atomic>
-
 #include "gtest/gtest.h"
 #include "storage/olap_common.h"
 #include "storage/predicate/block_column_predicate.h"
@@ -62,7 +60,6 @@ protected:
 TEST_F(SegmentIteratorLimitOptTest, no_limit_returns_false) {
     auto iter = make_iter();
     iter->_opts.read_limit.local_limit = 0;
-    iter->_opts.read_limit.global_remaining = nullptr;
     EXPECT_FALSE(iter->_can_opt_limit_reads());
 }
 
@@ -72,24 +69,6 @@ TEST_F(SegmentIteratorLimitOptTest, no_limit_returns_false) {
 TEST_F(SegmentIteratorLimitOptTest, topn_limit_no_predicates) {
     auto iter = make_iter();
     iter->_opts.read_limit.local_limit = 100;
-    EXPECT_TRUE(iter->_can_opt_limit_reads());
-}
-
-// global_remaining only (local_limit == 0) → should return true.
-TEST_F(SegmentIteratorLimitOptTest, shared_scan_limit_only) {
-    std::atomic<int64_t> shared_limit(500);
-    auto iter = make_iter();
-    iter->_opts.read_limit.local_limit = 0;
-    iter->_opts.read_limit.global_remaining = &shared_limit;
-    EXPECT_TRUE(iter->_can_opt_limit_reads());
-}
-
-// Both limits set → should return true.
-TEST_F(SegmentIteratorLimitOptTest, both_limits) {
-    std::atomic<int64_t> shared_limit(200);
-    auto iter = make_iter();
-    iter->_opts.read_limit.local_limit = 50;
-    iter->_opts.read_limit.global_remaining = &shared_limit;
     EXPECT_TRUE(iter->_can_opt_limit_reads());
 }
 
@@ -126,16 +105,6 @@ TEST_F(SegmentIteratorLimitOptTest, column_predicate_passed_index) {
     auto pred = NullPredicate::create_shared(0, "k1", true, PrimitiveType::TYPE_INT);
     iter->_column_predicate_index_exec_status[0][pred] = true;
 
-    EXPECT_TRUE(iter->_can_opt_limit_reads());
-}
-
-// global_remaining == 0 → _can_opt_limit_reads() should still return true
-// (the guard checks active(), which is true when global_remaining != nullptr).
-TEST_F(SegmentIteratorLimitOptTest, shared_scan_limit_zero_returns_true) {
-    std::atomic<int64_t> shared_limit(0);
-    auto iter = make_iter();
-    iter->_opts.read_limit.local_limit = 0;
-    iter->_opts.read_limit.global_remaining = &shared_limit;
     EXPECT_TRUE(iter->_can_opt_limit_reads());
 }
 

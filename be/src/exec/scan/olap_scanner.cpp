@@ -447,18 +447,15 @@ Status OlapScanner::_init_tablet_reader_params(
         // Disable shared scan limit for the topn path — each scanner must
         // independently produce its full local top-N candidates.
         if (_tablet_reader_params.read_orderby_key) {
-            // TopN path: each scanner must independently produce full local
-            // top-N candidates, so disable the cross-scanner shared limit
-            // (which was set by Scanner::init() as the default).
             _shared_scan_limit = nullptr;
         }
-        // NOTE: shared_scan_limit is intentionally NOT propagated to the
-        // storage layer.  The scanner-level _shared_scan_limit (set by
-        // Scanner::init()) still provides cross-scanner early termination.
-        // Propagating to storage caused SegmentIterator::cap() to use a
-        // post-filter budget as a pre-filter read cap, leading to severe
-        // read convergence under low-selectivity WHERE clauses and
-        // potentially fewer rows than expected.
+        // NOTE: shared_scan_limit is NOT propagated to the storage layer.
+        // The scanner-level check in Scanner::get_block() provides
+        // cross-scanner early termination.  Propagating to storage is
+        // unsafe because SegmentIterator uses _process_eof() (an
+        // irreversible destroy) when nrows_read_limit reaches 0, and
+        // a concurrently-decremented atomic can hit 0 while the
+        // segment still has unread data.
 
         // set push down topn filter
         _tablet_reader_params.topn_filter_source_node_ids =

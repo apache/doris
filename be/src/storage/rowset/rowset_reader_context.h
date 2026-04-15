@@ -106,9 +106,6 @@ struct RowsetReaderContext {
     // Propagated from ReaderParams.general_read_limit.
     int64_t general_read_limit = -1;
 
-    // Dynamic shared limit pointer from ScanOperatorX.
-    // See ReaderParams.shared_scan_limit for details.
-    std::atomic<int64_t>* shared_scan_limit = nullptr;
 };
 
 } // namespace doris

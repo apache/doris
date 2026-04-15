@@ -217,11 +217,6 @@ public:
         // after returning this many rows. -1 means no limit.
         int64_t general_read_limit = -1;
 
-        // Pointer to the shared remaining-row budget maintained by ScanOperatorX.
-        // Decremented by Scanner::get_block() after each block is produced.
-        // Storage layer uses it as a dynamic hint to reduce I/O.
-        // nullptr when no SQL LIMIT or when the table requires merge reads.
-        std::atomic<int64_t>* shared_scan_limit = nullptr;
     };
 
     TabletReader() = default;

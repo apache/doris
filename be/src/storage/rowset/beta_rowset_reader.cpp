@@ -115,7 +115,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.version = _rowset->version();
     _read_options.tablet_id = _rowset->rowset_meta()->tablet_id();
     _read_options.read_limit.local_limit = _local_read_limit;
-    _read_options.read_limit.global_remaining = _read_context->shared_scan_limit;
+
     if (_read_context->lower_bound_keys != nullptr) {
         for (int i = 0; i < _read_context->lower_bound_keys->size(); ++i) {
             _read_options.key_ranges.emplace_back(&_read_context->lower_bound_keys->at(i),
