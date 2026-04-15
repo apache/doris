@@ -167,6 +167,26 @@ suite("test_streaming_postgres_job_special_offset", "p0,external,pg,external_doc
                 """
             exception "ALTER JOB for CDC only supports JSON specific offset"
         }
+        // ALTER offset via source properties should be rejected
+        test {
+            sql """ALTER JOB ${jobName}
+                    FROM POSTGRES (
+                        "jdbc_url" = "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}",
+                        "driver_url" = "${driver_url}",
+                        "driver_class" = "org.postgresql.Driver",
+                        "user" = "${pgUser}",
+                        "password" = "${pgPassword}",
+                        "database" = "${pgDB}",
+                        "schema" = "${pgSchema}",
+                        "include_tables" = "${table1}",
+                        "offset" = "latest"
+                    )
+                    TO DATABASE ${currentDb} (
+                      "table.create.properties.replication_num" = "1"
+                    )
+                """
+            exception "The offset in source properties cannot be modified in ALTER JOB"
+        }
         sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
         sql """drop table if exists ${currentDb}.${table1} force"""
 
