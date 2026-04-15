@@ -21,6 +21,7 @@ import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.FloatLiteral;
 import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.RedirectStatus;
@@ -588,7 +589,7 @@ public class ConnectContext {
             LiteralExpr literalExpr = userVars.get(varName);
             if (literalExpr instanceof BoolLiteral) {
                 return Literal.of(((BoolLiteral) literalExpr).getValue());
-            } else if (literalExpr instanceof IntLiteral) {
+            } else if (literalExpr instanceof IntLiteral || literalExpr instanceof LargeIntLiteral) {
                 // the value in the IntLiteral should be int, but now is long in old planner literalExpr
                 // so type coercion to generate right new planner int Literal
                 switch (literalExpr.getType().getPrimitiveType()) {

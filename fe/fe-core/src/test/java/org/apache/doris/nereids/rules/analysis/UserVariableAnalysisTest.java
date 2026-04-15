@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundVariable;
 import org.apache.doris.nereids.analyzer.UnboundVariable.VariableType;
@@ -30,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.qe.ConnectContext;
 
@@ -62,6 +64,17 @@ public class UserVariableAnalysisTest {
         Literal l = ConnectContext.get().getLiteralForUserVar("b");
         Assertions.assertNotNull(l);
         Assertions.assertEquals(BigIntType.INSTANCE, l.getDataType());
+    }
+
+    @Test
+    public void testUserVarIntegerTypeLarge() {
+        ConnectContext ctx = MemoTestUtils.createConnectContext();
+        // set user var @b = Long.MAX_VALUE (bigint)
+        ctx.setUserVar("c", new LargeIntLiteral(LargeIntLiteral.LARGE_INT_MAX));
+
+        Literal l = ConnectContext.get().getLiteralForUserVar("c");
+        Assertions.assertNotNull(l);
+        Assertions.assertEquals(LargeIntType.INSTANCE, l.getDataType());
     }
 
     @Test
