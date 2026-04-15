@@ -46,7 +46,11 @@ public class ForEachCombinator extends NullableAggregateFunction
     public static final Set<String> UNSUPPORTED_AGGREGATE_FUNCTION = Collections.unmodifiableSet(new HashSet<String>() {
         {
             add("percentile");
+            add("percentile_v1");
+            add("percentile_v2");
             add("percentile_array");
+            add("percentile_array_v1");
+            add("percentile_array_v2");
             add("percentile_approx");
             add("percentile_approx_weighted");
         }
