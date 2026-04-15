@@ -213,6 +213,14 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
                     sourceProperties.get(DataSourceConfigKeys.EXCLUDE_TABLES)),
                     "The exclude_tables property cannot be modified in ALTER JOB");
         }
+
+        if (sourceProperties.containsKey(DataSourceConfigKeys.OFFSET)
+                && !Objects.equals(originSourceProperties.get(DataSourceConfigKeys.OFFSET),
+                    sourceProperties.get(DataSourceConfigKeys.OFFSET))) {
+            throw new AnalysisException(
+                    "The offset in source properties cannot be modified in ALTER JOB. "
+                    + "Use PROPERTIES('offset'='{...}') to alter offset");
+        }
     }
 
     private void validateProps(StreamingInsertJob streamingJob) throws AnalysisException {
