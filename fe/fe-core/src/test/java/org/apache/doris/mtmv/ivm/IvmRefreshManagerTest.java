@@ -22,10 +22,9 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.qe.ConnectContext;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.Collections;
 import java.util.List;
@@ -33,7 +32,8 @@ import java.util.List;
 public class IvmRefreshManagerTest {
 
     @Test
-    public void testRefreshContextRejectsNulls(@Mocked MTMV mtmv) {
+    public void testRefreshContextRejectsNulls() {
+        MTMV mtmv = Mockito.mock(MTMV.class);
         ConnectContext connectContext = new ConnectContext();
         org.apache.doris.mtmv.MTMVRefreshContext mtmvRefreshContext = new org.apache.doris.mtmv.MTMVRefreshContext(mtmv);
 
@@ -52,7 +52,8 @@ public class IvmRefreshManagerTest {
     }
 
     @Test
-    public void testManagerReturnsNoBundlesFallback(@Mocked MTMV mtmv) {
+    public void testManagerReturnsNoBundlesFallback() {
+        MTMV mtmv = Mockito.mock(MTMV.class);
         TestDeltaExecutor executor = new TestDeltaExecutor();
         TestIvmRefreshManager manager = new TestIvmRefreshManager(executor,
                 newContext(mtmv), Collections.emptyList());
@@ -65,7 +66,9 @@ public class IvmRefreshManagerTest {
     }
 
     @Test
-    public void testManagerExecutesBundles(@Mocked MTMV mtmv, @Mocked Command deltaWriteCommand) {
+    public void testManagerExecutesBundles() {
+        MTMV mtmv = Mockito.mock(MTMV.class);
+        Command deltaWriteCommand = Mockito.mock(Command.class);
         TestDeltaExecutor executor = new TestDeltaExecutor();
         List<IvmDeltaCommandBundle> bundles = makeBundles(deltaWriteCommand, mtmv);
         TestIvmRefreshManager manager = new TestIvmRefreshManager(executor, newContext(mtmv), bundles);
@@ -78,8 +81,9 @@ public class IvmRefreshManagerTest {
     }
 
     @Test
-    public void testManagerReturnsExecutionFallbackOnExecutorFailure(@Mocked MTMV mtmv,
-            @Mocked Command deltaWriteCommand) {
+    public void testManagerReturnsExecutionFallbackOnExecutorFailure() {
+        MTMV mtmv = Mockito.mock(MTMV.class);
+        Command deltaWriteCommand = Mockito.mock(Command.class);
         TestDeltaExecutor executor = new TestDeltaExecutor();
         executor.throwOnExecute = true;
         TestIvmRefreshManager manager = new TestIvmRefreshManager(executor,
@@ -93,7 +97,8 @@ public class IvmRefreshManagerTest {
     }
 
     @Test
-    public void testManagerReturnsSnapshotFallbackWhenBuildContextFails(@Mocked MTMV mtmv) {
+    public void testManagerReturnsSnapshotFallbackWhenBuildContextFails() {
+        MTMV mtmv = Mockito.mock(MTMV.class);
         TestDeltaExecutor executor = new TestDeltaExecutor();
         TestIvmRefreshManager manager = new TestIvmRefreshManager(executor, null, Collections.emptyList());
         manager.throwOnBuild = true;
@@ -106,15 +111,11 @@ public class IvmRefreshManagerTest {
     }
 
     @Test
-    public void testManagerReturnsBinlogBrokenBeforeNereidsFlow(@Mocked MTMV mtmv) {
+    public void testManagerReturnsBinlogBrokenBeforeNereidsFlow() {
+        MTMV mtmv = Mockito.mock(MTMV.class);
         IvmInfo ivmInfo = new IvmInfo();
         ivmInfo.setBinlogBroken(true);
-        new Expectations() {
-            {
-                mtmv.getIvmInfo();
-                result = ivmInfo;
-            }
-        };
+        Mockito.when(mtmv.getIvmInfo()).thenReturn(ivmInfo);
 
         TestDeltaExecutor executor = new TestDeltaExecutor();
         TestIvmRefreshManager manager = new TestIvmRefreshManager(executor,
@@ -129,19 +130,14 @@ public class IvmRefreshManagerTest {
     }
 
     @Test
-    public void testManagerPrecheckPassesWithoutStreamCheck(@Mocked MTMV mtmv) {
+    public void testManagerPrecheckPassesWithoutStreamCheck() {
+        MTMV mtmv = Mockito.mock(MTMV.class);
         // checkStreamSupport is currently disabled (stream/binlog not ready),
         // so precheck only checks binlogBroken.  With binlogBroken=false the
         // precheck passes and the manager proceeds to analyze, which returns
         // empty bundles → PLAN_PATTERN_UNSUPPORTED.
         IvmInfo ivmInfo = new IvmInfo();
-        new Expectations() {
-            {
-                mtmv.getIvmInfo();
-                result = ivmInfo;
-                minTimes = 1;
-            }
-        };
+        Mockito.when(mtmv.getIvmInfo()).thenReturn(ivmInfo);
 
         TestDeltaExecutor executor = new TestDeltaExecutor();
         TestIvmRefreshManager manager = new TestIvmRefreshManager(executor,
@@ -156,18 +152,13 @@ public class IvmRefreshManagerTest {
     }
 
     @Test
-    public void testManagerPassesHealthyPrecheckAndExecutes(@Mocked MTMV mtmv,
-            @Mocked Command deltaWriteCommand) {
+    public void testManagerPassesHealthyPrecheckAndExecutes() {
+        MTMV mtmv = Mockito.mock(MTMV.class);
+        Command deltaWriteCommand = Mockito.mock(Command.class);
         // With checkStreamSupport disabled, precheck only verifies binlogBroken.
         // No relation/table mocking is needed.
         IvmInfo ivmInfo = new IvmInfo();
-        new Expectations() {
-            {
-                mtmv.getIvmInfo();
-                result = ivmInfo;
-                minTimes = 1;
-            }
-        };
+        Mockito.when(mtmv.getIvmInfo()).thenReturn(ivmInfo);
 
         TestDeltaExecutor executor = new TestDeltaExecutor();
         List<IvmDeltaCommandBundle> bundles = makeBundles(deltaWriteCommand, mtmv);
