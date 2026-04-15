@@ -2104,6 +2104,7 @@ message BeginSnapshotRequest {
     optional int64 timeout_seconds = 4;
     optional int64 ttl_seconds = 5;
     optional string request_ip = 6;
+    optional string vault_name = 7;
 }
 
 message BeginSnapshotResponse {
@@ -2172,6 +2173,7 @@ message SnapshotInfoPB {
     optional int64 snapshot_logical_data_size = 17;
     optional int64 snapshot_retained_data_size = 18;
     optional int64 snapshot_billable_data_size = 19;
+    optional string resource_id = 20;
 }
 
 message ListSnapshotRequest {
