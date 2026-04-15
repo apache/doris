@@ -34,21 +34,17 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.ArgumentMatchers;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 public class ExternalFileTableValuedFunctionTest {
-    @Mocked
-    private BackendServiceProxy backendServiceProxy;
-    @Mocked
-    private ConnectContext connectContext;
-
     @Test
     public void testCsvSchemaParse() {
         Config.enable_date_conversion = true;
@@ -137,36 +133,30 @@ public class ExternalFileTableValuedFunctionTest {
     public void testHttpStreamGetTableColumnsShouldNotFallbackDummyColumn() throws Exception {
         Map<String, String> properties = Maps.newHashMap();
         properties.put(FileFormatConstants.PROP_FORMAT, "csv");
+        BackendServiceProxy backendServiceProxy = Mockito.mock(BackendServiceProxy.class);
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
 
         InternalService.PFetchTableSchemaResult fetchResult = InternalService.PFetchTableSchemaResult.newBuilder()
                 .setStatus(Types.PStatus.newBuilder().setStatusCode(TStatusCode.OK.getValue()).build())
                 .setColumnNums(0)
                 .build();
 
-        new Expectations() {
-            {
-                ConnectContext.get();
-                minTimes = 0;
-                result = connectContext;
+        Mockito.when(connectContext.queryId()).thenReturn(new TUniqueId(1L, 2L));
+        Mockito.when(backendServiceProxy.fetchTableStructureAsync(
+                ArgumentMatchers.any(TNetworkAddress.class),
+                ArgumentMatchers.any(InternalService.PFetchTableSchemaRequest.class)))
+                .thenReturn(CompletableFuture.completedFuture(fetchResult));
 
-                connectContext.queryId();
-                minTimes = 0;
-                result = new TUniqueId(1L, 2L);
+        try (MockedStatic<ConnectContext> mockedConnectContext = Mockito.mockStatic(ConnectContext.class);
+                MockedStatic<BackendServiceProxy> mockedBackendServiceProxy =
+                        Mockito.mockStatic(BackendServiceProxy.class)) {
+            mockedConnectContext.when(ConnectContext::get).thenReturn(connectContext);
+            mockedBackendServiceProxy.when(BackendServiceProxy::getInstance).thenReturn(backendServiceProxy);
 
-                BackendServiceProxy.getInstance();
-                minTimes = 0;
-                result = backendServiceProxy;
-
-                backendServiceProxy.fetchTableStructureAsync((TNetworkAddress) any,
-                        (InternalService.PFetchTableSchemaRequest) any);
-                minTimes = 0;
-                result = CompletableFuture.completedFuture(fetchResult);
-            }
-        };
-
-        TestHttpStreamTableValuedFunction tvf = new TestHttpStreamTableValuedFunction(properties);
-        List<Column> columns = tvf.getTableColumns();
-        Assert.assertTrue(columns.isEmpty());
+            TestHttpStreamTableValuedFunction tvf = new TestHttpStreamTableValuedFunction(properties);
+            List<Column> columns = tvf.getTableColumns();
+            Assert.assertTrue(columns.isEmpty());
+        }
     }
 
     private static class TestHttpStreamTableValuedFunction extends HttpStreamTableValuedFunction {
