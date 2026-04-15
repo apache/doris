@@ -1498,6 +1498,16 @@ TEST_F(ColumnStringTest, is_valid_utf8) {
         column->insert_data("world", 5);
         EXPECT_FALSE(column->is_valid_utf8());
     }
+    // cross-row concatenation: "\xE4" + "\xB8\x96" form valid UTF-8 (世) when
+    // concatenated, but each row is invalid individually. Must validate per-row.
+    {
+        auto column = ColumnString::create();
+        const char row1[] = {'\xe4'};
+        const char row2[] = {'\xb8', '\x96'};
+        column->insert_data(row1, 1);
+        column->insert_data(row2, 2);
+        EXPECT_FALSE(column->is_valid_utf8());
+    }
 }
 
 } // namespace doris

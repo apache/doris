@@ -762,7 +762,16 @@ bool ColumnStr<T>::is_ascii() const {
 
 template <typename T>
 bool ColumnStr<T>::is_valid_utf8() const {
-    return validate_utf8(reinterpret_cast<const char*>(chars.data()), chars.size());
+    const auto num_rows = offsets.size();
+    const char* data = reinterpret_cast<const char*>(chars.data());
+    for (size_t i = 0; i < num_rows; ++i) {
+        auto str_offset = offset_at(i);
+        auto str_size = size_at(i);
+        if (!validate_utf8(data + str_offset, str_size)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 template class ColumnStr<uint32_t>;
