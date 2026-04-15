@@ -68,8 +68,8 @@ bool UrlParser::parse_url(const StringRef& url, UrlPart part, StringRef* result)
     switch (part) {
     case AUTHORITY: {
         // Authority ends at first '/'.
-        const char* slash = static_cast<const char*>(
-                memchr(after_protocol, '/', url_end - after_protocol));
+        const char* slash =
+                static_cast<const char*>(memchr(after_protocol, '/', url_end - after_protocol));
         *result = StringRef(after_protocol, (slash ? slash : url_end) - after_protocol);
         break;
     }
@@ -77,8 +77,8 @@ bool UrlParser::parse_url(const StringRef& url, UrlPart part, StringRef* result)
     case FILE:
     case PATH: {
         // Use memchr for fast '/' lookup, then sequential search for terminators.
-        const char* slash_pos = static_cast<const char*>(
-                memchr(after_protocol, '/', url_end - after_protocol));
+        const char* slash_pos =
+                static_cast<const char*>(memchr(after_protocol, '/', url_end - after_protocol));
         if (!slash_pos) {
             // Return empty string. This is what Hive does.
             return true;
@@ -86,18 +86,15 @@ bool UrlParser::parse_url(const StringRef& url, UrlPart part, StringRef* result)
         const size_t remaining = url_end - slash_pos;
         if (part == FILE) {
             // FILE ends at '#' only.
-            const char* hash_pos =
-                    static_cast<const char*>(memchr(slash_pos, '#', remaining));
+            const char* hash_pos = static_cast<const char*>(memchr(slash_pos, '#', remaining));
             *result = StringRef(slash_pos, (hash_pos ? hash_pos : url_end) - slash_pos);
         } else {
             // PATH ends at '?' or '#', whichever comes first.
-            const char* q_pos =
-                    static_cast<const char*>(memchr(slash_pos, '?', remaining));
+            const char* q_pos = static_cast<const char*>(memchr(slash_pos, '?', remaining));
             if (q_pos) {
                 *result = StringRef(slash_pos, q_pos - slash_pos);
             } else {
-                const char* h_pos =
-                        static_cast<const char*>(memchr(slash_pos, '#', remaining));
+                const char* h_pos = static_cast<const char*>(memchr(slash_pos, '#', remaining));
                 *result = StringRef(slash_pos, (h_pos ? h_pos : url_end) - slash_pos);
             }
         }
@@ -105,7 +102,7 @@ bool UrlParser::parse_url(const StringRef& url, UrlPart part, StringRef* result)
     }
 
     case HOST: {
-        // Single pass: track '@' (userinfo separator), stop at ':' '/' '?' '#'.
+        // Single pass: track '@' (userinfo separator), stop at ':' '/' '?'.
         const char* pos = after_protocol;
         const char* start_of_host = after_protocol;
         const char* colon_pos = nullptr;
@@ -120,7 +117,6 @@ bool UrlParser::parse_url(const StringRef& url, UrlPart part, StringRef* result)
                 break;
             case '/':
             case '?':
-            case '#':
                 goto host_done;
             }
         }
@@ -140,14 +136,14 @@ bool UrlParser::parse_url(const StringRef& url, UrlPart part, StringRef* result)
 
     case QUERY: {
         // Use memchr for fast '?' and '#' lookup.
-        const char* q_pos = static_cast<const char*>(
-                memchr(after_protocol, '?', url_end - after_protocol));
+        const char* q_pos =
+                static_cast<const char*>(memchr(after_protocol, '?', url_end - after_protocol));
         if (!q_pos) {
             return false;
         }
         const char* query_start = q_pos + 1;
-        const char* hash_pos = static_cast<const char*>(
-                memchr(query_start, '#', url_end - query_start));
+        const char* hash_pos =
+                static_cast<const char*>(memchr(query_start, '#', url_end - query_start));
         *result = StringRef(query_start, (hash_pos ? hash_pos : url_end) - query_start);
         break;
     }
@@ -175,7 +171,7 @@ bool UrlParser::parse_url(const StringRef& url, UrlPart part, StringRef* result)
     }
 
     case PORT: {
-        // Single pass: track '@' and ':', stop at '/' '?' '#'.
+        // Single pass: track '@' and ':', stop at '/' '?'.
         const char* pos = after_protocol;
         const char* start_of_host = after_protocol;
         const char* colon_pos = nullptr;
@@ -190,7 +186,6 @@ bool UrlParser::parse_url(const StringRef& url, UrlPart part, StringRef* result)
                 break;
             case '/':
             case '?':
-            case '#':
                 goto port_done;
             }
         }
