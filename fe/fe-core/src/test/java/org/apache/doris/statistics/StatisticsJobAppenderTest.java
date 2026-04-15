@@ -24,10 +24,10 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.Lists;

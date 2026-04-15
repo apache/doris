@@ -34,8 +34,8 @@ import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.info.TableNameInfo;
 
 import com.dmetasoul.lakesoul.lakesoul.io.substrait.SubstraitUtil;
 import com.google.common.collect.ArrayListMultimap;

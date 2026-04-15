@@ -19,6 +19,7 @@ package org.apache.doris.load;
 
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
@@ -37,7 +38,6 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.filesystem.FileSystemUtil;
 import org.apache.doris.filesystem.Location;
 import org.apache.doris.fs.FileSystemFactory;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Or;

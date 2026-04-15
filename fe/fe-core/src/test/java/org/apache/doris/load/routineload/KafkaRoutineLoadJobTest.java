@@ -17,7 +17,6 @@
 
 package org.apache.doris.load.routineload;
 
-import org.apache.doris.analysis.ImportSequenceStmt;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
@@ -80,7 +79,7 @@ public class KafkaRoutineLoadJobTest {
 
     private Separator columnSeparator = new Separator(",");
 
-    private ImportSequenceStmt sequenceStmt = new ImportSequenceStmt("source_sequence");
+    private String sequenceColumnName = "source_sequence";
 
     ConnectContext connectContext = Mockito.mock(ConnectContext.class);
     TResourceInfo tResourceInfo = Mockito.mock(TResourceInfo.class);
@@ -254,7 +253,7 @@ public class KafkaRoutineLoadJobTest {
             CreateRoutineLoadInfo createRoutineLoadInfo = initCreateRoutineLoadInfo();
             createRoutineLoadInfo.validate(connectContext);
             RoutineLoadDesc routineLoadDesc = new RoutineLoadDesc(columnSeparator, null, null, null, null, partitionNames, null,
-                    LoadTask.MergeType.APPEND, sequenceStmt.getSequenceColName());
+                    LoadTask.MergeType.APPEND, sequenceColumnName);
             Deencapsulation.setField(createRoutineLoadInfo, "routineLoadDesc", routineLoadDesc);
             List<Pair<Integer, Long>> partitionIdToOffset = Lists.newArrayList();
             List<PartitionInfo> kafkaPartitionInfoList = Lists.newArrayList();
@@ -277,7 +276,7 @@ public class KafkaRoutineLoadJobTest {
             Assert.assertEquals(topicName, Deencapsulation.getField(kafkaRoutineLoadJob, "topic"));
             List<Integer> kafkaPartitionResult = Deencapsulation.getField(kafkaRoutineLoadJob, "customKafkaPartitions");
             Assert.assertEquals(kafkaPartitionString, Joiner.on(",").join(kafkaPartitionResult));
-            Assert.assertEquals(sequenceStmt.getSequenceColName(), kafkaRoutineLoadJob.getSequenceCol());
+            Assert.assertEquals(sequenceColumnName, kafkaRoutineLoadJob.getSequenceCol());
         }
     }
 

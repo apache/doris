@@ -17,11 +17,11 @@
 
 package org.apache.doris.datasource.hive;
 
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.property.metastore.HMSBaseProperties;
-import org.apache.doris.info.TableNameInfo;
 
 import com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient;
 import com.amazonaws.glue.catalog.metastore.AWSCatalogMetastoreClient;

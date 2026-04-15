@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterTableOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;

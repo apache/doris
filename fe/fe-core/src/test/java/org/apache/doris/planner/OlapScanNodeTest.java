@@ -24,9 +24,9 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.info.TableNameInfo;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;

@@ -69,6 +69,7 @@ import org.apache.doris.system.Backend;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Stopwatch;
+import com.google.common.base.Strings;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.base.Throwables;
@@ -84,10 +85,12 @@ import java.io.Closeable;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -316,6 +319,7 @@ public class StatementContext implements Closeable {
     private boolean hasNestedColumns;
 
     private final Set<CTEId> mustInlineCTE = new HashSet<>();
+    private final Set<String> usedAIResourceNames = new LinkedHashSet<>();
 
     private final Map<String, Integer> lowerCaseTableNamesCache = Maps.newHashMap();
     private final Map<String, Integer> lowerCaseDatabaseNamesCache = Maps.newHashMap();
@@ -463,6 +467,17 @@ public class StatementContext implements Closeable {
 
     public ConnectContext getConnectContext() {
         return connectContext;
+    }
+
+    public Set<String> getUsedAIResourceNames() {
+        return Collections.unmodifiableSet(usedAIResourceNames);
+    }
+
+    public void registerUsedAIResourceName(String resourceName) {
+        if (Strings.isNullOrEmpty(resourceName)) {
+            throw new AnalysisException("AI resource name can not be empty");
+        }
+        usedAIResourceNames.add(resourceName);
     }
 
     public void setOriginStatement(OriginStatement originStatement) {

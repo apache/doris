@@ -57,6 +57,18 @@ under the License.
                         <execId>validate</execId>
                     </execIds>
                 </execution>
+                <!-- dependency:copy-dependencies writes JARs to target/lib/ which the build
+                     scripts later copy into the output directory. The cache extension only
+                     restores the primary JAR artifact on a hit, not the target/lib/ tree.
+                     When combined with a clean build, target/lib/ is
+                     deleted by the clean phase and never recreated, causing "cp: cannot stat
+                     target/lib/*" failures. Force this goal to always run so that the lib
+                     directory is always populated regardless of cache state. -->
+                <execution artifactId="maven-dependency-plugin">
+                    <execIds>
+                        <execId>copy-dependencies</execId>
+                    </execIds>
+                </execution>
             </executions>
         </runAlways>
     </executionControl>
