@@ -183,8 +183,8 @@ abstract class IvmDeltaTestBase {
     protected Column toColumn(Slot slot) {
         Type type = slot.getDataType().toCatalogDataType();
         boolean isVisible = !(Column.IVM_ROW_ID_COL.equals(slot.getName()) || IvmUtil.isIvmHiddenColumn(slot.getName()));
-        return new Column(slot.getName(), type, isVisible, AggregateType.NONE, slot.nullable(), "",
-                false, Column.COLUMN_UNIQUE_ID_INIT_VALUE);
+        return new Column(slot.getName(), type, false, AggregateType.NONE, slot.nullable(), "",
+                isVisible, Column.COLUMN_UNIQUE_ID_INIT_VALUE);
     }
 
     protected LogicalAggregate<LogicalOlapScan> buildGroupedAgg(LogicalOlapScan scan) {

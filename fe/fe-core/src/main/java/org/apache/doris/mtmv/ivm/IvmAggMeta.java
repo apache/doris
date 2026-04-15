@@ -45,19 +45,31 @@ public class IvmAggMeta {
     }
 
     /**
-     * Keys used to identify hidden state columns within an {@link AggTarget}.
-     * Each key maps to a hidden column that stores intermediate state needed for incremental
-     * delta computation. The {@code name()} of each constant also serves as the suffix
-     * in generated column names (via {@link IvmUtil#ivmAggHiddenColumnName}).
+     * Keys used to identify state columns within an {@link AggTarget}.
+     *
+     * <p>Physical storage in the MV varies by aggregate type:
+     * <ul>
+     *   <li><b>AVG</b>: both {@code SUM} and {@code COUNT} map to hidden columns in the MV.</li>
+     *   <li><b>SUM, MIN, MAX</b>: only {@code COUNT} is stored as a hidden column; the
+     *       visible column already holds the SUM/MIN/MAX value directly.</li>
+     *   <li><b>COUNT_STAR, COUNT_EXPR</b>: no hidden columns; the visible column holds the
+     *       count value (for COUNT_STAR this equals the global group count).</li>
+     * </ul>
+     *
+     * <p>{@code MIN} and {@code MAX} are transient semantic keys used only in the delta
+     * sub-plan to name the insert-side extremal aggregate.
+     *
+     * <p>The {@code name()} of each constant also serves as the suffix in generated
+     * column names (via {@link IvmUtil#ivmAggHiddenColumnName}).
      */
     public enum StateKey {
-        /** Hidden SUM state (for SUM, AVG targets). */
+        /** Hidden SUM state (physical column only for AVG targets). */
         SUM,
-        /** Hidden COUNT state (for all non-COUNT_STAR targets). */
+        /** Hidden COUNT state (physical column for SUM, AVG, MIN, MAX targets). */
         COUNT,
-        /** Hidden MIN state (for MIN targets). */
+        /** Transient semantic key for MIN delta naming (not stored in MV). */
         MIN,
-        /** Hidden MAX state (for MAX targets). */
+        /** Transient semantic key for MAX delta naming (not stored in MV). */
         MAX
     }
 
@@ -101,6 +113,19 @@ public class IvmAggMeta {
 
         public Slot getHiddenStateSlot(StateKey stateKey) {
             return hiddenStateSlots.get(stateKey);
+        }
+
+        /**
+         * Returns the canonical column name for the given state key.
+         *
+         * <p>If a physical hidden slot exists, its name is returned; otherwise the name
+         * is generated via {@link IvmUtil#ivmAggHiddenColumnName}.  This allows delta
+         * sub-plan code to use a consistent name for both persisted and transient columns.
+         */
+        public String stateColumnName(StateKey stateKey) {
+            Slot slot = hiddenStateSlots.get(stateKey);
+            return slot != null ? slot.getName()
+                    : IvmUtil.ivmAggHiddenColumnName(ordinal, stateKey.name());
         }
 
         public List<Expression> getExprArgs() {
