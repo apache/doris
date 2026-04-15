@@ -300,8 +300,6 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
         eos = true;
     }
 
-    // _cpu_watch uses CLOCK_THREAD_CPUTIME_ID which is per-thread,
-    // so elapsed_time() must be read on the same thread that called resume()/start().
     // Always update scanner profile to properly account for CPU time on the same
     // thread that started the CPU timer (CLOCK_THREAD_CPUTIME_ID is per-thread).
     update_scanner_profile();
