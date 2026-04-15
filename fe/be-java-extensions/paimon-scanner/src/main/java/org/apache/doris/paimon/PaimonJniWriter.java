@@ -105,6 +105,7 @@ public class PaimonJniWriter {
 
     private IOManager ioManager;
     private HeapMemorySegmentPool memorySegmentPool;
+    private boolean isDynamicBucketMode;
 
     public PaimonJniWriter() {
         this.allocator = new RootAllocator(Long.MAX_VALUE);
@@ -198,6 +199,10 @@ public class PaimonJniWriter {
                 }
                 this.targetTypes = buildTargetTypes(columnNames);
                 this.writer = table.newBatchWriteBuilder().newWrite();
+                if (table instanceof org.apache.paimon.table.FileStoreTable) {
+                    this.isDynamicBucketMode =
+                            ((org.apache.paimon.table.FileStoreTable) table).schema().numBuckets() == -1;
+                }
                 boolean spillEnabled = Boolean.parseBoolean(options.getOrDefault("write-buffer-spillable", "false"));
                 if (spillEnabled) {
                     String spillDir = options.get("paimon_jni_spill_dir");
@@ -278,23 +283,15 @@ public class PaimonJniWriter {
                 }
             }
             try {
-                writer.write(reusedRow);
-            } catch (Throwable t) {
-                if (t instanceof IllegalArgumentException
-                        && t.getMessage() != null
-                        && t.getMessage().contains("dynamic bucket mode")) {
-                    try {
-                        writer.write(reusedRow, 0);
-                    } catch (Throwable retryThrowable) {
-                        throw contextException("writeBatch.write",
-                                "row=" + i + ", rowCount=" + rowCount + ", colCount=" + colCount,
-                                retryThrowable);
-                    }
+                if (isDynamicBucketMode) {
+                    writer.write(reusedRow, 0);
                 } else {
-                    throw contextException("writeBatch.write",
-                            "row=" + i + ", rowCount=" + rowCount + ", colCount=" + colCount,
-                            t);
+                    writer.write(reusedRow);
                 }
+            } catch (Throwable t) {
+                throw contextException("writeBatch.write",
+                        "row=" + i + ", rowCount=" + rowCount + ", colCount=" + colCount,
+                        t);
             }
         }
     }
