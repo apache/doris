@@ -23,22 +23,6 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 
 namespace doris {
-StringRef StringRef::trim() const {
-    // Remove leading and trailing spaces.
-    int64_t begin = 0;
-
-    while (begin < size && data[begin] == ' ') {
-        ++begin;
-    }
-
-    int64_t end = size - 1;
-
-    while (end > begin && data[end] == ' ') {
-        --end;
-    }
-
-    return StringRef(data + begin, end - begin + 1);
-}
 
 StringRef StringRef::trim_tail_padding_zero() const {
     // Remove trailing padding zero.

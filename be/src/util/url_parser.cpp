@@ -62,73 +62,74 @@ bool UrlParser::parse_url(const StringRef& url, UrlPart part, StringRef* result)
     }
 
     // Positioned to first char after '://'.
-    StringRef protocol_end = trimmed_url.substring(protocol_pos + _s_protocol.size);
+    const char* after_protocol = trimmed_url.data + protocol_pos + _s_protocol.size;
+    const char* url_end = trimmed_url.data + trimmed_url.size;
 
     switch (part) {
     case AUTHORITY: {
-        // Find first '/'.
-        int32_t end_pos = _s_slash_search.search(&protocol_end);
-        *result = protocol_end.substring(0, end_pos);
+        // Authority ends at first '/'.
+        const char* slash = static_cast<const char*>(
+                memchr(after_protocol, '/', url_end - after_protocol));
+        *result = StringRef(after_protocol, (slash ? slash : url_end) - after_protocol);
         break;
     }
 
     case FILE:
     case PATH: {
-        // Find first '/'.
-        int32_t start_pos = _s_slash_search.search(&protocol_end);
-
-        if (start_pos < 0) {
+        // Use memchr for fast '/' lookup, then sequential search for terminators.
+        const char* slash_pos = static_cast<const char*>(
+                memchr(after_protocol, '/', url_end - after_protocol));
+        if (!slash_pos) {
             // Return empty string. This is what Hive does.
             return true;
         }
-
-        StringRef path_start = protocol_end.substring(start_pos);
-        int32_t end_pos;
-
+        const size_t remaining = url_end - slash_pos;
         if (part == FILE) {
-            // End _s_at '#'.
-            end_pos = _s_hash_search.search(&path_start);
+            // FILE ends at '#' only.
+            const char* hash_pos =
+                    static_cast<const char*>(memchr(slash_pos, '#', remaining));
+            *result = StringRef(slash_pos, (hash_pos ? hash_pos : url_end) - slash_pos);
         } else {
-            // End string _s_at next '?' or '#'.
-            end_pos = _s_question_search.search(&path_start);
-
-            if (end_pos < 0) {
-                // No '?' was found, look for '#'.
-                end_pos = _s_hash_search.search(&path_start);
+            // PATH ends at '?' or '#', whichever comes first.
+            const char* q_pos =
+                    static_cast<const char*>(memchr(slash_pos, '?', remaining));
+            if (q_pos) {
+                *result = StringRef(slash_pos, q_pos - slash_pos);
+            } else {
+                const char* h_pos =
+                        static_cast<const char*>(memchr(slash_pos, '#', remaining));
+                *result = StringRef(slash_pos, (h_pos ? h_pos : url_end) - slash_pos);
             }
         }
-
-        *result = path_start.substring(0, end_pos);
         break;
     }
 
     case HOST: {
-        // Find '@'.
-        int32_t start_pos = _s_at_search.search(&protocol_end);
-
-        if (start_pos < 0) {
-            // No '@' was found, i.e., no user:pass info was given, start after _s_protocol.
-            start_pos = 0;
+        // Single pass: track '@' (userinfo separator), stop at ':' '/' '?' '#'.
+        const char* pos = after_protocol;
+        const char* start_of_host = after_protocol;
+        const char* colon_pos = nullptr;
+        for (; pos < url_end; ++pos) {
+            switch (*pos) {
+            case '@':
+                start_of_host = pos + 1;
+                colon_pos = nullptr; // reset: previous ':' was in userinfo
+                break;
+            case ':':
+                if (!colon_pos) colon_pos = pos;
+                break;
+            case '/':
+            case '?':
+            case '#':
+                goto host_done;
+            }
+        }
+    host_done:
+        if (colon_pos && colon_pos >= start_of_host) {
+            *result = StringRef(start_of_host, colon_pos - start_of_host);
         } else {
-            // Skip '@'.
-            start_pos += _s_at.size;
+            *result = StringRef(start_of_host, pos - start_of_host);
         }
-
-        StringRef host_start = protocol_end.substring(start_pos);
-        // Find first '?'.
-        int32_t query_start_pos = _s_question_search.search(&host_start);
-        if (query_start_pos > 0) {
-            host_start = host_start.substring(0, query_start_pos);
-        }
-        // Find ':' to strip out port.
-        int32_t end_pos = _s_colon_search.search(&host_start);
-
-        if (end_pos < 0) {
-            // No port was given. search for '/' to determine ending position.
-            end_pos = _s_slash_search.search(&host_start);
-        }
-
-        *result = host_start.substring(0, end_pos);
         break;
     }
 
@@ -138,74 +139,66 @@ bool UrlParser::parse_url(const StringRef& url, UrlPart part, StringRef* result)
     }
 
     case QUERY: {
-        // Find first '?'.
-        int32_t start_pos = _s_question_search.search(&protocol_end);
-
-        if (start_pos < 0) {
-            // Indicate no query was found.
+        // Use memchr for fast '?' and '#' lookup.
+        const char* q_pos = static_cast<const char*>(
+                memchr(after_protocol, '?', url_end - after_protocol));
+        if (!q_pos) {
             return false;
         }
-
-        StringRef query_start = protocol_end.substring(start_pos + _s_question.size);
-        // End string _s_at next '#'.
-        int32_t end_pos = _s_hash_search.search(&query_start);
-        *result = query_start.substring(0, end_pos);
+        const char* query_start = q_pos + 1;
+        const char* hash_pos = static_cast<const char*>(
+                memchr(query_start, '#', url_end - query_start));
+        *result = StringRef(query_start, (hash_pos ? hash_pos : url_end) - query_start);
         break;
     }
 
     case REF: {
-        // Find '#'.
-        int32_t start_pos = _s_hash_search.search(&protocol_end);
-
-        if (start_pos < 0) {
-            // Indicate no user and pass were given.
+        // Find '#' using memchr.
+        const char* hash_pos =
+                static_cast<const char*>(memchr(after_protocol, '#', url_end - after_protocol));
+        if (!hash_pos) {
             return false;
         }
-
-        *result = protocol_end.substring(start_pos + _s_hash.size);
+        *result = StringRef(hash_pos + 1, url_end - hash_pos - 1);
         break;
     }
 
     case USERINFO: {
-        // Find '@'.
-        int32_t end_pos = _s_at_search.search(&protocol_end);
-
-        if (end_pos < 0) {
-            // Indicate no user and pass were given.
+        // Find '@' using memchr.
+        const char* at_pos =
+                static_cast<const char*>(memchr(after_protocol, '@', url_end - after_protocol));
+        if (!at_pos) {
             return false;
         }
-
-        *result = protocol_end.substring(0, end_pos);
+        *result = StringRef(after_protocol, at_pos - after_protocol);
         break;
     }
 
     case PORT: {
-        // Find '@'.
-        int32_t start_pos = _s_at_search.search(&protocol_end);
-
-        if (start_pos < 0) {
-            // No '@' was found, i.e., no user:pass info was given, start after _s_protocol.
-            start_pos = 0;
-        } else {
-            // Skip '@'.
-            start_pos += _s_at.size;
+        // Single pass: track '@' and ':', stop at '/' '?' '#'.
+        const char* pos = after_protocol;
+        const char* start_of_host = after_protocol;
+        const char* colon_pos = nullptr;
+        for (; pos < url_end; ++pos) {
+            switch (*pos) {
+            case '@':
+                start_of_host = pos + 1;
+                colon_pos = nullptr; // reset: previous ':' was in userinfo
+                break;
+            case ':':
+                if (!colon_pos) colon_pos = pos;
+                break;
+            case '/':
+            case '?':
+            case '#':
+                goto port_done;
+            }
         }
-
-        StringRef host_start = protocol_end.substring(start_pos);
-        // Find ':' to strip out port.
-        int32_t end_pos = _s_colon_search.search(&host_start);
-        //no port found
-        if (end_pos < 0) {
+    port_done:
+        if (!colon_pos || colon_pos < start_of_host) {
             return false;
         }
-
-        StringRef port_start_str = host_start.substring(end_pos + _s_colon.size);
-        int32_t port_end_pos = _s_slash_search.search(&port_start_str);
-        //if '/' not found, try to find '?'
-        if (port_end_pos < 0) {
-            port_end_pos = _s_question_search.search(&port_start_str);
-        }
-        *result = port_start_str.substring(0, port_end_pos);
+        *result = StringRef(colon_pos + 1, pos - colon_pos - 1);
         break;
     }
 

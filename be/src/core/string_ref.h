@@ -218,7 +218,22 @@ struct StringRef {
     char back() const { return *(data + size - 1); }
 
     // Trims leading and trailing spaces.
-    StringRef trim() const;
+    StringRef trim() const {
+        // Fast path: no leading/trailing spaces.
+        if (size > 0 && data[0] != ' ' && data[size - 1] != ' ') {
+            return *this;
+        }
+        // Slow path.
+        int64_t begin = 0;
+        while (begin < size && data[begin] == ' ') {
+            ++begin;
+        }
+        int64_t end = size - 1;
+        while (end > begin && data[end] == ' ') {
+            --end;
+        }
+        return StringRef(data + begin, end - begin + 1);
+    }
     StringRef trim_tail_padding_zero() const;
     StringRef trim_whitespace() const;
     StringRef trim_quote() const;
