@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.CascadesContext;
@@ -104,13 +105,13 @@ public class AsyncMaterializationContextTest {
         StatementContext statementContext = Mockito.mock(StatementContext.class);
         Mockito.when(cascadesContext.getStatementContext()).thenReturn(statementContext);
         StructInfo structInfo = Mockito.mock(StructInfo.class);
-        Mockito.when(structInfo.getPlanOutputShuttledExpressions()).thenReturn(Collections.<Expression>emptyList());
+        Mockito.doReturn(Collections.<Expression>emptyList()).when(structInfo).getPlanOutputShuttledExpressions();
         Plan plan = Mockito.mock(Plan.class);
         return new AsyncMaterializationContext(mtmv, plan, plan, ImmutableList.of(), ImmutableList.of(),
                 cascadesContext, structInfo);
     }
 
-    private static MTMV mockMtmv(MTMVRelatedTableIf pctTable) {
+    private static MTMV mockMtmv(MTMVRelatedTableIf pctTable) throws AnalysisException {
         MTMV mtmv = Mockito.mock(MTMV.class);
         MTMVPartitionInfo mtmvPartitionInfo = Mockito.mock(MTMVPartitionInfo.class);
         Mockito.when(mtmv.getMvPartitionInfo()).thenReturn(mtmvPartitionInfo);
