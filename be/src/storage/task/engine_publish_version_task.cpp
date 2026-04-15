@@ -282,10 +282,9 @@ Status EnginePublishVersionTask::execute() {
                                                                 &partition_related_tablet_infos);
         Version version(par_ver_info.version, par_ver_info.version);
         for (auto& tablet_info : partition_related_tablet_infos) {
-            TabletSharedPtr tablet =
-                    DORIS_TRY(_engine.tablet_manager()->get_tablet(tablet_info.tablet_id));
+            auto tablet = _engine.tablet_manager()->get_tablet(tablet_info.tablet_id);
             auto tablet_id = tablet_info.tablet_id;
-            if (tablet == nullptr) {
+            if (!tablet.has_value()) {
                 add_error_tablet_id(tablet_id);
                 _succ_tablets->erase(tablet_id);
                 LOG(WARNING) << "publish version failed on transaction, not found tablet. "
@@ -294,7 +293,7 @@ Status EnginePublishVersionTask::execute() {
             } else {
                 // check if the version exist, if not exist, then set publish failed
                 if (_error_tablet_ids->find(tablet_id) == _error_tablet_ids->end()) {
-                    if (tablet->check_version_exist(version)) {
+                    if (tablet.value()->check_version_exist(version)) {
                         // it's better to report the max continous succ version,
                         // but it maybe time cost now.
                         // current just report 0
@@ -307,7 +306,7 @@ Status EnginePublishVersionTask::execute() {
                                        "exists. "
                                     << "transaction_id=" << transaction_id
                                     << ", tablet_id=" << tablet_id << ", tablet_state="
-                                    << tablet_state_name(tablet->tablet_state())
+                                    << tablet_state_name(tablet.value()->tablet_state())
                                     << ", version=" << par_ver_info.version;
                         }
                     }

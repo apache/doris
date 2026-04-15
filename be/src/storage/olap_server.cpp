@@ -815,7 +815,7 @@ void StorageEngine::_update_replica_infos_callback() {
             for (const auto& it : result.tablet_replica_infos) {
                 auto tablet_id = it.first;
                 auto tablet = _tablet_manager->get_tablet(tablet_id);
-                if (tablet == nullptr) {
+                if (!tablet.has_value()) {
                     VLOG_CRITICAL << "tablet ptr is nullptr";
                     continue;
                 }
