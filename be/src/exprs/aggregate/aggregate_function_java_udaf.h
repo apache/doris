@@ -38,7 +38,6 @@
 #include "exec/connector/jni_connector.h"
 #include "exprs/aggregate/aggregate_function.h"
 #include "runtime/user_function_cache.h"
-#include "util/io_helper.h"
 #include "util/jni-util.h"
 
 namespace doris {

@@ -53,7 +53,6 @@
 #include "runtime/thread_context.h"
 #include "storage/id_manager.h"
 #include "storage/storage_engine.h"
-#include "util/io_helper.h"
 #include "util/timezone_utils.h"
 #include "util/uid_util.h"
 
@@ -174,8 +173,11 @@ RuntimeState::RuntimeState(const TQueryGlobals& query_globals)
     } else if (!query_globals.now_string.empty()) {
         _timezone = TimezoneUtils::default_time_zone;
         VecDateTimeValue dt;
-        read_datetime_text_impl(
-                dt, StringRef(query_globals.now_string.data(), query_globals.now_string.size()));
+        CastParameters params;
+        DORIS_CHECK((CastToDateOrDatetime::from_string_strict_mode<DatelikeParseMode::STRICT,
+                                                                   DatelikeTargetType::DATE_TIME>(
+                {query_globals.now_string.c_str(), query_globals.now_string.size()}, dt, nullptr,
+                params)));
         int64_t timestamp;
         dt.unix_timestamp(&timestamp, _timezone);
         _timestamp_ms = timestamp * 1000;
