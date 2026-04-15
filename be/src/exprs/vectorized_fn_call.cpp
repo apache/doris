@@ -39,6 +39,7 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_agg_state.h"
 #include "core/types.h"
 #include "exec/common/util.hpp"
@@ -246,6 +247,17 @@ Status VectorizedFnCall::_do_execute(VExprContext* context, const Block* block, 
         RETURN_IF_ERROR(
                 _children[i]->execute_column(context, block, selector, count, tmp_arg_column));
         auto arg_type = _children[i]->execute_type(block);
+        // Reconcile type/column nullability mismatch: execute_type() returns a
+        // static _data_type for most VExpr subclasses (VCastExpr, etc.) which
+        // may be non-nullable, while execute_column() can produce a nullable
+        // column (e.g. when the cast function wraps output in ColumnNullable
+        // because its input is nullable). Without this fix, have_null_column()
+        // in the function framework sees a non-nullable type, skips nullable
+        // unwrapping via unnest_nullable(), and the raw ColumnNullable reaches
+        // the inner function (e.g. DecimalComparison) which crashes.
+        if (tmp_arg_column && tmp_arg_column->is_nullable() && !arg_type->is_nullable()) {
+            arg_type = make_nullable(arg_type);
+        }
         temp_block.insert({tmp_arg_column, arg_type, _children[i]->expr_name()});
         args[i] = i;
 

@@ -116,7 +116,11 @@ Status VCastExpr::execute_column(VExprContext* context, const Block* block, Sele
     RETURN_IF_ERROR(_children[0]->execute_column(context, block, selector, count, from_column));
 
     Block temp_block;
-    temp_block.insert({from_column, _children[0]->execute_type(block), _children[0]->expr_name()});
+    auto from_type = _children[0]->execute_type(block);
+    if (from_column && from_column->is_nullable() && !from_type->is_nullable()) {
+        from_type = make_nullable(from_type);
+    }
+    temp_block.insert({from_column, from_type, _children[0]->expr_name()});
     temp_block.insert({nullptr, _data_type, _expr_name});
     RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), temp_block, {0}, 1,
                                        temp_block.rows()));
@@ -158,6 +162,9 @@ Status TryCastExpr::execute_column(VExprContext* context, const Block* block, Se
     ColumnPtr from_column;
     RETURN_IF_ERROR(_children[0]->execute_column(context, block, selector, count, from_column));
     auto from_type = _children[0]->execute_type(block);
+    if (from_column && from_column->is_nullable() && !from_type->is_nullable()) {
+        from_type = make_nullable(from_type);
+    }
 
     // prepare block
 

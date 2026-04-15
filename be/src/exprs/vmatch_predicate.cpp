@@ -39,6 +39,7 @@
 #include "core/block/block.h"
 #include "core/block/column_numbers.h"
 #include "core/block/column_with_type_and_name.h"
+#include "core/data_type/data_type_nullable.h"
 #include "exprs/function/match.h"
 #include "exprs/function/simple_function_factory.h"
 #include "exprs/vexpr_context.h"
@@ -187,6 +188,9 @@ Status VMatchPredicate::execute_column(VExprContext* context, const Block* block
         ColumnPtr arg_column;
         RETURN_IF_ERROR(_children[i]->execute_column(context, block, selector, count, arg_column));
         auto arg_type = _children[i]->execute_type(block);
+        if (arg_column && arg_column->is_nullable() && !arg_type->is_nullable()) {
+            arg_type = make_nullable(arg_type);
+        }
         temp_block.insert({arg_column, arg_type, _children[i]->expr_name()});
         arguments[i] = static_cast<uint32_t>(i);
     }

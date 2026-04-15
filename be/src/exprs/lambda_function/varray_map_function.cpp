@@ -114,6 +114,9 @@ public:
                     children[i]->execute_column(context, block, expr_selector, count, column));
             arguments[i - 1].column = column;
             arguments[i - 1].type = children[i]->execute_type(block);
+            if (column && column->is_nullable() && !arguments[i - 1].type->is_nullable()) {
+                arguments[i - 1].type = make_nullable(arguments[i - 1].type);
+            }
             arguments[i - 1].name = children[i]->expr_name();
         }
 
@@ -289,6 +292,9 @@ public:
                                                         lambda_block.rows(), res_col));
             res_col = res_col->convert_to_full_column_if_const();
             res_type = children[0]->execute_type(&lambda_block);
+            if (res_col->is_nullable() && !res_type->is_nullable()) {
+                res_type = make_nullable(res_type);
+            }
 
             if (!result_col) {
                 result_col = res_col->clone_empty();

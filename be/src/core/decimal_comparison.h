@@ -220,7 +220,9 @@ private:
                 if (const ColVecB* c1_vec = check_and_get_column<ColVecB>(c1.get()))
                     constant_vector<scale_left, scale_right>(a, c1_vec->get_data(), vec_res, scale);
                 else {
-                    throw Exception(Status::FatalError("Wrong column in Decimal comparison"));
+                    throw Exception(Status::FatalError(
+                            "Wrong column in Decimal comparison: c1 expected {}, got {}",
+                            type_to_string(B), c1->get_name()));
                 }
             } else if (c1_is_const) {
                 const ColumnConst* c1_const = check_and_get_column_const<ColVecB>(c1.get());
@@ -228,7 +230,9 @@ private:
                 if (const ColVecA* c0_vec = check_and_get_column<ColVecA>(c0.get()))
                     vector_constant<scale_left, scale_right>(c0_vec->get_data(), b, vec_res, scale);
                 else {
-                    throw Exception(Status::FatalError("Wrong column in Decimal comparison"));
+                    throw Exception(Status::FatalError(
+                            "Wrong column in Decimal comparison: c0 expected {}, got {}",
+                            type_to_string(A), c0->get_name()));
                 }
             } else {
                 if (const ColVecA* c0_vec = check_and_get_column<ColVecA>(c0.get())) {
@@ -236,10 +240,14 @@ private:
                         vector_vector<scale_left, scale_right>(c0_vec->get_data(),
                                                                c1_vec->get_data(), vec_res, scale);
                     else {
-                        throw Exception(Status::FatalError("Wrong column in Decimal comparison"));
+                        throw Exception(Status::FatalError(
+                                "Wrong column in Decimal comparison: c1 expected {}, got {}",
+                                type_to_string(B), c1->get_name()));
                     }
                 } else {
-                    throw Exception(Status::FatalError("Wrong column in Decimal comparison"));
+                    throw Exception(Status::FatalError(
+                            "Wrong column in Decimal comparison: c0 expected {}, got {}",
+                            type_to_string(A), c0->get_name()));
                 }
             }
             return c_res;

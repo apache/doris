@@ -30,6 +30,7 @@
 #include "core/block/column_numbers.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/block/columns_with_type_and_name.h"
+#include "core/data_type/data_type_nullable.h"
 #include "exprs/function/simple_function_factory.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
@@ -136,7 +137,11 @@ Status VInPredicate::execute_column(VExprContext* context, const Block* block, S
         ColumnPtr column;
         RETURN_IF_ERROR(_children[i]->execute_column(context, block, selector, count, column));
         arguments.push_back(i);
-        temp_block.insert({column, _children[i]->execute_type(block), _children[i]->expr_name()});
+        auto arg_type = _children[i]->execute_type(block);
+        if (column && column->is_nullable() && !arg_type->is_nullable()) {
+            arg_type = make_nullable(arg_type);
+        }
+        temp_block.insert({column, arg_type, _children[i]->expr_name()});
     }
 
     int num_columns_without_result = temp_block.columns();
