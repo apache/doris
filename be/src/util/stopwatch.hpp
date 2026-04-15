@@ -22,6 +22,10 @@
 
 #include <time.h>
 
+#include <ctime>
+#include <sstream>
+#include <thread>
+
 #include "util/time.h"
 
 namespace doris {
@@ -47,6 +51,7 @@ public:
 
     void start() {
         if (!_running) {
+            _record_start_thread_id();
             clock_gettime(Clock, &_start);
             _running = true;
         }
@@ -64,6 +69,7 @@ public:
         int64_t ret = elapsed_time();
 
         if (_running) {
+            _record_start_thread_id();
             clock_gettime(Clock, &_start);
         }
 
@@ -77,6 +83,7 @@ public:
             return _total_time;
         }
 
+        _check_thread_id();
         timespec end;
         clock_gettime(Clock, &end);
         auto start_nanos = _start.tv_sec * NANOS_PER_SEC + _start.tv_nsec;
@@ -110,9 +117,39 @@ public:
     }
 
 private:
+    static std::string _get_thread_id() {
+        std::stringstream ss;
+        ss << std::this_thread::get_id();
+        return ss.str();
+    }
+    void _record_start_thread_id() {
+#ifndef NDEBUG
+        if constexpr (Clock == CLOCK_THREAD_CPUTIME_ID) {
+            // CLOCK_THREAD_CPUTIME_ID is not supported on some platforms, e.g. macOS.
+            // So that we need to check it at runtime and fallback to CLOCK_MONOTONIC if it is not supported.
+            _start_thread_id = _get_thread_id();
+        }
+#endif
+    }
+
+    void _check_thread_id() const {
+#ifndef NDEBUG
+        if constexpr (Clock == CLOCK_THREAD_CPUTIME_ID) {
+            auto current_thread_id = _get_thread_id();
+            if (current_thread_id != _start_thread_id) {
+                LOG(WARNING) << "StopWatch started in thread " << _start_thread_id
+                             << " but stopped in thread " << current_thread_id;
+            }
+        }
+#endif
+    }
+
     timespec _start;
     int64_t _total_time; // in nanosec
     bool _running;
+#ifndef NDEBUG
+    std::string _start_thread_id;
+#endif
 };
 
 // Stop watch for reporting elapsed time in nanosec based on CLOCK_MONOTONIC.
