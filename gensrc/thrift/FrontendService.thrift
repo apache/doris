@@ -309,9 +309,9 @@ struct TReportExecStatusParams {
   27: optional TQueryProfile query_profile
 
   28: optional list<DataSinks.TIcebergCommitData> iceberg_commit_datas
-
   29: optional i64 txn_id
   30: optional string label
+  34: optional list<DataSinks.TCommitMessage> paimon_commit_messages
 
   31: optional list<TFragmentInstanceReport> fragment_instance_reports;
 

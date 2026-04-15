@@ -101,7 +101,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String MIN_SCAN_SCHEDULER_CONCURRENCY = "min_scan_scheduler_concurrency";
     public static final String QUERY_TIMEOUT = "query_timeout";
     public static final String ANALYZE_TIMEOUT = "analyze_timeout";
-
     public static final String INTERNAL_CACHE_HOT_SPOT_TIMEOUT = "cache_hot_spot_insert_timeout_second";
 
     public static final String MAX_EXECUTION_TIME = "max_execution_time";
@@ -177,6 +176,15 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_BUCKET_SHUFFLE_JOIN = "enable_bucket_shuffle_join";
     public static final String PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM = "parallel_fragment_exec_instance_num";
     public static final String PARALLEL_PIPELINE_TASK_NUM = "parallel_pipeline_task_num";
+    public static final String PAIMON_TARGET_FILE_SIZE = "paimon_target_file_size";
+    public static final String PAIMON_WRITE_BUFFER_SIZE = "paimon_write_buffer_size";
+    public static final String ENABLE_PAIMON_JNI_SPILL = "enable_paimon_jni_spill";
+    public static final String PAIMON_SPILL_MAX_DISK_SIZE = "paimon_spill_max_disk_size";
+    public static final String PAIMON_SPILL_SORT_BUFFER_SIZE = "paimon_spill_sort_buffer_size";
+    public static final String PAIMON_SPILL_SORT_THRESHOLD = "paimon_spill_sort_threshold";
+    public static final String PAIMON_SPILL_COMPRESSION = "paimon_spill_compression";
+    public static final String PAIMON_GLOBAL_MEMORY_POOL_SIZE = "paimon_global_memory_pool_size";
+
     public static final String PROFILE_LEVEL = "profile_level";
     public static final String MAX_INSTANCE_NUM = "max_instance_num";
     public static final String DML_PLAN_RETRY_TIMES = "DML_PLAN_RETRY_TIMES";
@@ -474,7 +482,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_SHARE_HASH_TABLE_FOR_BROADCAST_JOIN
             = "enable_share_hash_table_for_broadcast_join";
-
+    public static final String ENABLE_PAIMON_DISTRIBUTED_BUCKET_SHUFFLE =
+            "enable_paimon_distributed_bucket_shuffle";
+    public static final String PAIMON_WRITER_QUEUE_SIZE = "paimon_writer_queue_size";
+    public static final String ENABLE_HASH_JOIN_EARLY_START_PROBE = "enable_hash_join_early_start_probe";
     // support unicode in label, table, column, common name check
     public static final String ENABLE_UNICODE_NAME_SUPPORT = "enable_unicode_name_support";
 
@@ -617,6 +628,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_UNIQUE_KEY_PARTIAL_UPDATE = "enable_unique_key_partial_update";
 
     public static final String PARTIAL_UPDATE_NEW_KEY_BEHAVIOR = "partial_update_new_key_behavior";
+    public static final String ENABLE_PAIMON_ADAPTIVE_BUFFER_SIZE = "enable_paimon_adaptive_buffer_size";
 
     public static final String INVERTED_INDEX_CONJUNCTION_OPT_THRESHOLD = "inverted_index_conjunction_opt_threshold";
     public static final String INVERTED_INDEX_MAX_EXPANSIONS = "inverted_index_max_expansions";
@@ -1190,6 +1202,39 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = RESOURCE_VARIABLE)
     public String resourceGroup = "";
+
+    @VarAttrDef.VarAttr(name = "enable_paimon_jni_writer", needForward = true)
+    public boolean enablePaimonJniWriter = false;
+
+    @VarAttrDef.VarAttr(name = "enable_paimon_jni_compact", needForward = true)
+    public boolean enablePaimonJniCompact = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_PAIMON_DISTRIBUTED_BUCKET_SHUFFLE, needForward = true)
+    public boolean enablePaimonDistributedBucketShuffle = true;
+
+    @VarAttrDef.VarAttr(name = PAIMON_TARGET_FILE_SIZE, needForward = true)
+    public long paimonTargetFileSize = 268435456L;
+
+    @VarAttrDef.VarAttr(name = PAIMON_WRITE_BUFFER_SIZE, needForward = true)
+    public long paimonWriteBufferSize = 268435456;
+
+    @VarAttrDef.VarAttr(name = ENABLE_PAIMON_JNI_SPILL, needForward = true)
+    public boolean enablePaimonJniSpill = false;
+
+    @VarAttrDef.VarAttr(name = PAIMON_SPILL_MAX_DISK_SIZE, needForward = true)
+    public long paimonSpillMaxDiskSize = 53687091200L; // 50GB
+
+    @VarAttrDef.VarAttr(name = PAIMON_SPILL_SORT_BUFFER_SIZE, needForward = true)
+    public long paimonSpillSortBufferSize = 67108864L; // 64MB
+
+    @VarAttrDef.VarAttr(name = PAIMON_SPILL_SORT_THRESHOLD, needForward = true)
+    public int paimonSpillSortThreshold = 10;
+
+    @VarAttrDef.VarAttr(name = PAIMON_SPILL_COMPRESSION, needForward = true)
+    public String paimonSpillCompression = "zstd";
+
+    @VarAttrDef.VarAttr(name = PAIMON_GLOBAL_MEMORY_POOL_SIZE, needForward = true)
+    public long paimonGlobalMemoryPoolSize = 1073741824L; // 1GB default
 
     // this is used to make mysql client happy
     // autocommit is actually a boolean value, but @@autocommit is type of BIGINT.
@@ -2164,6 +2209,14 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = ENABLE_SHARE_HASH_TABLE_FOR_BROADCAST_JOIN, fuzzy = true)
     public boolean enableShareHashTableForBroadcastJoin = true;
 
+    @VarAttrDef.VarAttr(name = PAIMON_WRITER_QUEUE_SIZE, fuzzy = true, needForward = true)
+    public int paimonWriterQueueSize = 3;
+
+    @VarAttrDef.VarAttr(name = ENABLE_PAIMON_ADAPTIVE_BUFFER_SIZE, fuzzy = true, needForward = true)
+    public boolean enablePaimonAdaptiveBufferSize = false;
+
+    @VarAttrDef.VarAttr(name = ENABLE_HASH_JOIN_EARLY_START_PROBE, fuzzy = false)
+    public boolean enableHashJoinEarlyStartProbe = false;
     @VarAttrDef.VarAttr(name = ENABLE_UNICODE_NAME_SUPPORT, needForward = true)
     public boolean enableUnicodeNameSupport = true;
 
@@ -5358,6 +5411,19 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setReturnObjectDataAsBinary(returnObjectDataAsBinary);
         tResult.setTrimTailingSpacesForExternalTableQuery(trimTailingSpacesForExternalTableQuery);
         tResult.setEnableShareHashTableForBroadcastJoin(enableShareHashTableForBroadcastJoin);
+        tResult.setEnableHashJoinEarlyStartProbe(enableHashJoinEarlyStartProbe);
+        tResult.setEnablePaimonDistributedBucketShuffle(enablePaimonDistributedBucketShuffle);
+        tResult.setEnablePaimonAdaptiveBufferSize(enablePaimonAdaptiveBufferSize);
+        tResult.setPaimonTargetFileSize(paimonTargetFileSize);
+        tResult.setPaimonWriteBufferSize(paimonWriteBufferSize);
+        tResult.setEnablePaimonJniSpill(enablePaimonJniSpill);
+        tResult.setPaimonSpillMaxDiskSize(paimonSpillMaxDiskSize);
+        tResult.setPaimonSpillSortBufferSize(paimonSpillSortBufferSize);
+        tResult.setPaimonSpillSortThreshold(paimonSpillSortThreshold);
+        tResult.setPaimonSpillCompression(paimonSpillCompression);
+        tResult.setPaimonGlobalMemoryPoolSize(paimonGlobalMemoryPoolSize);
+        tResult.setEnablePaimonJniWriter(enablePaimonJniWriter);
+        tResult.setPaimonWriterQueueSize(paimonWriterQueueSize);
 
         tResult.setBatchSize(batchSize);
         tResult.setDisableStreamPreaggregations(disableStreamPreaggregations);

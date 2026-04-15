@@ -171,6 +171,27 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(routine_load_consume_bytes, MetricUnit::BYT
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(memtable_flush_total, MetricUnit::OPERATIONS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(memtable_flush_duration_us, MetricUnit::MICROSECONDS);
 
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(paimon_write_rows, MetricUnit::ROWS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(paimon_write_bytes, MetricUnit::BYTES);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(paimon_partition_writer_created, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(paimon_prepare_commit_messages, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(paimon_commit_payload_chunks, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(paimon_commit_payload_bytes, MetricUnit::BYTES);
+DEFINE_HISTOGRAM_METRIC_PROTOTYPE_2ARG(paimon_write_send_data_latency_ms, MetricUnit::MILLISECONDS);
+DEFINE_HISTOGRAM_METRIC_PROTOTYPE_2ARG(paimon_write_project_latency_ms, MetricUnit::MILLISECONDS);
+DEFINE_HISTOGRAM_METRIC_PROTOTYPE_2ARG(paimon_write_bucket_calc_latency_ms,
+                                       MetricUnit::MILLISECONDS);
+DEFINE_HISTOGRAM_METRIC_PROTOTYPE_2ARG(paimon_write_dispatch_latency_ms, MetricUnit::MILLISECONDS);
+DEFINE_HISTOGRAM_METRIC_PROTOTYPE_2ARG(paimon_write_partitions_latency_ms,
+                                       MetricUnit::MILLISECONDS);
+DEFINE_HISTOGRAM_METRIC_PROTOTYPE_2ARG(paimon_write_arrow_convert_latency_ms,
+                                       MetricUnit::MILLISECONDS);
+DEFINE_HISTOGRAM_METRIC_PROTOTYPE_2ARG(paimon_write_file_store_write_latency_ms,
+                                       MetricUnit::MILLISECONDS);
+DEFINE_HISTOGRAM_METRIC_PROTOTYPE_2ARG(paimon_prepare_commit_latency_ms, MetricUnit::MILLISECONDS);
+DEFINE_HISTOGRAM_METRIC_PROTOTYPE_2ARG(paimon_serialize_commit_messages_latency_ms,
+                                       MetricUnit::MILLISECONDS);
+
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(memory_pool_bytes_total, MetricUnit::BYTES);
 DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(process_thread_num, MetricUnit::NOUNIT);
 DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(process_fd_num_used, MetricUnit::NOUNIT);
@@ -356,6 +377,22 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
 
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, memtable_flush_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, memtable_flush_duration_us);
+
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, paimon_write_rows);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, paimon_write_bytes);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, paimon_partition_writer_created);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, paimon_prepare_commit_messages);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, paimon_commit_payload_chunks);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, paimon_commit_payload_bytes);
+    HISTOGRAM_METRIC_REGISTER(_server_metric_entity, paimon_write_send_data_latency_ms);
+    HISTOGRAM_METRIC_REGISTER(_server_metric_entity, paimon_write_project_latency_ms);
+    HISTOGRAM_METRIC_REGISTER(_server_metric_entity, paimon_write_bucket_calc_latency_ms);
+    HISTOGRAM_METRIC_REGISTER(_server_metric_entity, paimon_write_dispatch_latency_ms);
+    HISTOGRAM_METRIC_REGISTER(_server_metric_entity, paimon_write_partitions_latency_ms);
+    HISTOGRAM_METRIC_REGISTER(_server_metric_entity, paimon_write_arrow_convert_latency_ms);
+    HISTOGRAM_METRIC_REGISTER(_server_metric_entity, paimon_write_file_store_write_latency_ms);
+    HISTOGRAM_METRIC_REGISTER(_server_metric_entity, paimon_prepare_commit_latency_ms);
+    HISTOGRAM_METRIC_REGISTER(_server_metric_entity, paimon_serialize_commit_messages_latency_ms);
 
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, memory_pool_bytes_total);
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, process_thread_num);

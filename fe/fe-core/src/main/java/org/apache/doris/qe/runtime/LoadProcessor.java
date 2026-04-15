@@ -24,6 +24,7 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.hive.HMSTransaction;
 import org.apache.doris.datasource.iceberg.IcebergTransaction;
 import org.apache.doris.datasource.maxcompute.MCTransaction;
+import org.apache.doris.datasource.paimon.PaimonTransaction;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.AbstractJobProcessor;
 import org.apache.doris.qe.CoordinatorContext;
@@ -187,13 +188,19 @@ public class LoadProcessor extends AbstractJobProcessor {
             }
         }
 
+        LoadContext loadContext = coordinatorContext.asLoadProcessor().loadContext;
+        long txnId = loadContext.getTransactionId();
+        if (params.isSetPaimonCommitMessages() && txnId > 0) {
+            ((PaimonTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId))
+                    .updateCommitMessages(params.getPaimonCommitMessages());
+        }
+
         if (!fragmentTask.processReportExecStatus(params)) {
             LOG.debug("Fragment {} is not done, ignore report status: {}",
                     params.getFragmentId(), params.toString());
             return;
         }
 
-        LoadContext loadContext = coordinatorContext.asLoadProcessor().loadContext;
         if (params.isSetDeltaUrls()) {
             loadContext.updateDeltaUrls(params.getDeltaUrls());
         }
@@ -221,7 +228,7 @@ public class LoadProcessor extends AbstractJobProcessor {
         if (params.isSetErrorTabletInfos()) {
             loadContext.updateErrorTabletInfos(params.getErrorTabletInfos());
         }
-        long txnId = loadContext.getTransactionId();
+        txnId = loadContext.getTransactionId();
         if (params.isSetHivePartitionUpdates()) {
             ((HMSTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId))
                     .updateHivePartitionUpdates(params.getHivePartitionUpdates());

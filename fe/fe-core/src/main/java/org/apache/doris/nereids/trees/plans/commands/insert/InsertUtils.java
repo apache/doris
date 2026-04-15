@@ -43,6 +43,7 @@ import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
 import org.apache.doris.nereids.analyzer.UnboundInlineTable;
 import org.apache.doris.nereids.analyzer.UnboundJdbcTableSink;
 import org.apache.doris.nereids.analyzer.UnboundMaxComputeTableSink;
+import org.apache.doris.nereids.analyzer.UnboundPaimonTableSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
@@ -614,9 +615,12 @@ public class InsertUtils {
             unboundTableSink = (UnboundBlackholeSink<? extends Plan>) plan;
         } else if (plan instanceof UnboundMaxComputeTableSink) {
             unboundTableSink = (UnboundMaxComputeTableSink<? extends Plan>) plan;
+        } else if (plan instanceof UnboundPaimonTableSink) {
+            unboundTableSink = (UnboundPaimonTableSink<? extends Plan>) plan;
         } else {
             throw new AnalysisException(
-                    "the root of plan only accept Olap, Dictionary, Hive, Iceberg or Jdbc table sink, but it is "
+                    "the root of plan only accept Olap, Dictionary, Blackhole, Hive, Iceberg, Jdbc,"
+                            + " MaxCompute or Paimon table sink, but it is "
                             + plan.getType());
         }
         return RelationUtil.getQualifierName(ctx, unboundTableSink.getNameParts());

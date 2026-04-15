@@ -93,10 +93,12 @@
 #include "exec/pipeline/pipeline.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
+#include "pipeline/exec/paimon_table_sink_operator.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_profile_counter_names.h"
 #include "util/debug_util.h"
 #include "util/string_util.h"
+#include "vec/sink/vpaimon_table_writer.h"
 
 namespace doris {
 class RowDescriptor;
@@ -807,6 +809,7 @@ DECLARE_OPERATOR(ResultFileSinkLocalState)
 DECLARE_OPERATOR(OlapTableSinkLocalState)
 DECLARE_OPERATOR(OlapTableSinkV2LocalState)
 DECLARE_OPERATOR(HiveTableSinkLocalState)
+DECLARE_OPERATOR(PaimonTableSinkLocalState)
 DECLARE_OPERATOR(TVFTableSinkLocalState)
 DECLARE_OPERATOR(IcebergTableSinkLocalState)
 DECLARE_OPERATOR(SpillIcebergTableSinkLocalState)
@@ -930,6 +933,8 @@ template class AsyncWriterSink<doris::VJdbcTableWriter, JdbcTableSinkOperatorX>;
 template class AsyncWriterSink<doris::VTabletWriter, OlapTableSinkOperatorX>;
 template class AsyncWriterSink<doris::VTabletWriterV2, OlapTableSinkV2OperatorX>;
 template class AsyncWriterSink<doris::VHiveTableWriter, HiveTableSinkOperatorX>;
+template class AsyncWriterSink<doris::vectorized::VPaimonTableWriter,
+                               doris::PaimonTableSinkOperatorX>;
 template class AsyncWriterSink<doris::VIcebergTableWriter, IcebergTableSinkOperatorX>;
 template class AsyncWriterSink<doris::VIcebergTableWriter, SpillIcebergTableSinkOperatorX>;
 template class AsyncWriterSink<doris::VIcebergDeleteSink, IcebergDeleteSinkOperatorX>;
