@@ -232,9 +232,9 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
         // group-by keys (so the output is "complete" per group), we cannot claim
         // EXECUTION_BUCKETED distribution because the 256-bucket hash function differs
         // from the shuffle hash function. Downstream operators expecting shuffle-compatible
-        // distribution would be incorrect. Preserve child distribution instead.
+        // distribution would be incorrect. Preserve distribution ANY.
         PhysicalProperties childOutputProperty = childrenOutputProperties.get(0);
-        return new PhysicalProperties(childOutputProperty.getDistributionSpec());
+        return PhysicalProperties.ANY;
     }
 
     @Override
