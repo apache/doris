@@ -59,7 +59,8 @@ protected:
         return output_exprs;
     }
 
-    void init_writer_context(VPaimonTableWriter* writer, RuntimeState* state, RuntimeProfile* profile) {
+    void init_writer_context(VPaimonTableWriter* writer, RuntimeState* state,
+                             RuntimeProfile* profile) {
         writer->_state = state;
         writer->_profile = profile;
         writer->_written_rows_counter = ADD_COUNTER(profile, "WrittenRows", TUnit::UNIT);
@@ -71,15 +72,18 @@ protected:
                 ADD_CHILD_TIMER(profile, "PartitionsDispatchTime", "SendDataTime");
         writer->_partition_writers_write_timer =
                 ADD_CHILD_TIMER(profile, "PartitionsWriteTime", "SendDataTime");
-        writer->_partition_writers_count = ADD_COUNTER(profile, "PartitionsWriteCount", TUnit::UNIT);
-        writer->_partition_writer_created = ADD_COUNTER(profile, "PartitionWriterCreated", TUnit::UNIT);
+        writer->_partition_writers_count =
+                ADD_COUNTER(profile, "PartitionsWriteCount", TUnit::UNIT);
+        writer->_partition_writer_created =
+                ADD_COUNTER(profile, "PartitionWriterCreated", TUnit::UNIT);
     }
 
     Block build_block(bool with_partition_value = true) {
         Block block;
         auto id_col = ColumnInt32::create();
         id_col->insert_value(1);
-        block.insert(ColumnWithTypeAndName(std::move(id_col), std::make_shared<DataTypeInt32>(), "id"));
+        block.insert(
+                ColumnWithTypeAndName(std::move(id_col), std::make_shared<DataTypeInt32>(), "id"));
 
         auto pt_col = ColumnString::create();
         if (with_partition_value) {
@@ -87,7 +91,8 @@ protected:
         } else {
             pt_col->insert_default();
         }
-        block.insert(ColumnWithTypeAndName(std::move(pt_col), std::make_shared<DataTypeString>(), "pt"));
+        block.insert(
+                ColumnWithTypeAndName(std::move(pt_col), std::make_shared<DataTypeString>(), "pt"));
         return block;
     }
 
@@ -115,7 +120,6 @@ TEST_F(VPaimonTableWriterTest, TestWriteReturnsOkForEmptyBlock) {
     Block block;
     ASSERT_TRUE(writer.write(&state, block).ok());
 }
-
 
 TEST_F(VPaimonTableWriterTest, TestWriteFailsWhenBucketKeysNotProvided) {
     ObjectPool pool;
@@ -153,7 +157,8 @@ TEST_F(VPaimonTableWriterTest, TestWriteFailsWhenBucketKeyMissing) {
     Block block = build_block();
     Status status = writer.write(&state, block);
     ASSERT_FALSE(status.ok());
-    ASSERT_NE(std::string::npos, status.to_string().find("bucket key missing_bucket_col not found"));
+    ASSERT_NE(std::string::npos,
+              status.to_string().find("bucket key missing_bucket_col not found"));
 }
 
 TEST_F(VPaimonTableWriterTest, TestWriteFailsWhenPartitionKeyMissing) {
@@ -172,7 +177,8 @@ TEST_F(VPaimonTableWriterTest, TestWriteFailsWhenPartitionKeyMissing) {
     Block block = build_block();
     Status status = writer.write(&state, block);
     ASSERT_FALSE(status.ok());
-    ASSERT_NE(std::string::npos, status.to_string().find("partition key missing_partition_col not found"));
+    ASSERT_NE(std::string::npos,
+              status.to_string().find("partition key missing_partition_col not found"));
 }
 
 } // namespace doris::vectorized
