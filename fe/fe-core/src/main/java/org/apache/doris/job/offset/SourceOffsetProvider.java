@@ -115,6 +115,13 @@ public interface SourceOffsetProvider {
     Offset deserializeOffsetProperty(String offset);
 
     /**
+     * Validate the offset format for ALTER JOB.
+     * Each provider defines its own rules (e.g. CDC only allows JSON specific offset).
+     */
+    default void validateAlterOffset(String offset) throws Exception {
+    }
+
+    /**
      * Replaying OffsetProvider is currently only required by JDBC.
      *
      * @return
