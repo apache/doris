@@ -69,9 +69,9 @@ public:
 private:
     void _build_fragment_context() {
         int fragment_id = 0;
-        _context = std::make_shared<PipelineFragmentContext>(
-                _query_id, TPipelineFragmentParams(), _query_ctx, ExecEnv::GetInstance(),
-            empty_function);
+        _context = std::make_shared<PipelineFragmentContext>(_query_id, TPipelineFragmentParams(),
+                                                             _query_ctx, ExecEnv::GetInstance(),
+                                                             empty_function);
         _runtime_state = std::make_unique<MockRuntimeState>(
                 _query_id, fragment_id, _query_options, _query_ctx->query_globals,
                 ExecEnv::GetInstance(), _query_ctx.get());
