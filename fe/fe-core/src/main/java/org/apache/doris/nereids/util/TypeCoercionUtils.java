@@ -385,8 +385,7 @@ public class TypeCoercionUtils {
     public static DataType replaceSpecifiedType(DataType dataType,
             Class<? extends DataType> specifiedType, DataType newType) {
         if (dataType instanceof ArrayType) {
-            return ArrayType.of(replaceSpecifiedType(((ArrayType) dataType).getItemType(), specifiedType, newType),
-                    ((ArrayType) dataType).containsNull());
+            return ArrayType.of(replaceSpecifiedType(((ArrayType) dataType).getItemType(), specifiedType, newType));
         } else if (dataType instanceof MapType) {
             return MapType.of(replaceSpecifiedType(((MapType) dataType).getKeyType(), specifiedType, newType),
                     replaceSpecifiedType(((MapType) dataType).getValueType(), specifiedType, newType));

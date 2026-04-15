@@ -5259,7 +5259,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return ParserUtils.withOrigin(ctx, () -> {
             switch (ctx.complex.getType()) {
                 case DorisParser.ARRAY:
-                    return ArrayType.of(typedVisit(ctx.dataType(0)), true);
+                    return ArrayType.of(typedVisit(ctx.dataType(0)));
                 case DorisParser.MAP:
                     return MapType.of(typedVisit(ctx.dataType(0)), typedVisit(ctx.dataType(1)));
                 case DorisParser.STRUCT:
