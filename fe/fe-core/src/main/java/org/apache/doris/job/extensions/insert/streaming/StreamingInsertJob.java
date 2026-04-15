@@ -73,6 +73,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.tablefunction.S3TableValuedFunction;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
 import org.apache.doris.transaction.TransactionException;
@@ -305,8 +306,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             this.offsetProvider = SourceOffsetProviderFactory.createSourceOffsetProvider(currentTvf.getFunctionName());
             this.offsetProvider.ensureInitialized(getJobId(), originTvfProps);
             this.offsetProvider.initOnCreate();
-            // validate offset props
-            if (jobProperties.getOffsetProperty() != null) {
+            // validate offset props, only for s3 cause s3 tvf no offset prop
+            if (jobProperties.getOffsetProperty() != null
+                    && S3TableValuedFunction.NAME.equalsIgnoreCase(tvfType)) {
                 Offset offset = validateOffset(jobProperties.getOffsetProperty());
                 this.offsetProvider.updateOffset(offset);
             }
@@ -354,6 +356,17 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             makeConnectContext();
             LogicalPlan logicalPlan = new NereidsParser().parseSingle(getExecuteSql());
             this.baseCommand = (InsertIntoTableCommand) logicalPlan;
+        }
+    }
+
+    /**
+     * Validate the offset format for ALTER JOB, delegating to the provider.
+     */
+    public void validateAlterOffset(String offset) throws AnalysisException {
+        try {
+            offsetProvider.validateAlterOffset(offset);
+        } catch (Exception ex) {
+            throw new AnalysisException(ex.getMessage());
         }
     }
 
@@ -779,15 +792,6 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     private void modifyPropertiesInternal(Map<String, String> inputProperties) throws AnalysisException, JobException {
         StreamingJobProperties inputStreamProps = new StreamingJobProperties(inputProperties);
         if (StringUtils.isNotEmpty(inputStreamProps.getOffsetProperty())) {
-            // For CDC jobs, ALTER only supports JSON specific offset (e.g. binlog position or LSN),
-            // named modes like initial/latest/snapshot are only valid at CREATE time.
-            if (offsetProvider instanceof JdbcSourceOffsetProvider
-                    && !DataSourceConfigValidator.isJsonOffset(inputStreamProps.getOffsetProperty())) {
-                throw new AnalysisException(
-                        "ALTER JOB for CDC only supports JSON specific offset, "
-                        + "e.g. '{\"file\":\"binlog.000001\",\"pos\":\"154\"}' for MySQL "
-                        + "or '{\"lsn\":\"12345678\"}' for PostgreSQL");
-            }
             Offset offset = validateOffset(inputStreamProps.getOffsetProperty());
             this.offsetProvider.updateOffset(offset);
             if (Config.isCloudMode()) {

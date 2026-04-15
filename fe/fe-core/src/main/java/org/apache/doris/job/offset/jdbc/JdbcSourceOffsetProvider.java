@@ -18,6 +18,7 @@
 package org.apache.doris.job.offset.jdbc;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.rest.RestApiStatusCode;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
@@ -384,6 +385,16 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
             }
         }
         return null;
+    }
+
+    @Override
+    public void validateAlterOffset(String offset) throws Exception {
+        if (!DataSourceConfigValidator.isJsonOffset(offset)) {
+            throw new AnalysisException(
+                    "ALTER JOB for CDC only supports JSON specific offset, "
+                    + "e.g. '{\"file\":\"binlog.000001\",\"pos\":\"154\"}' for MySQL "
+                    + "or '{\"lsn\":\"12345678\"}' for PostgreSQL");
+        }
     }
 
     /**
