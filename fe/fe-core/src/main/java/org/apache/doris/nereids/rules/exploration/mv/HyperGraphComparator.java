@@ -205,12 +205,12 @@ public class HyperGraphComparator {
             if (LongBitmap.getCardinality(eliminatedRight) != 1) {
                 return false;
             }
-            Plan rigthPlan = constructViewPlan(joinEdge.getRightExtendedNodes(), joinEdge.getRightInputSlots());
-            if (rigthPlan == null) {
+            Plan rightPlan = constructViewPlan(joinEdge.getRightExtendedNodes(), joinEdge.getRightInputSlots());
+            if (rightPlan == null) {
                 return false;
             }
             boolean couldEliminateByLeft = JoinUtils.canEliminateByLeft(joinEdge.getJoin(),
-                    rigthPlan.getLogicalProperties().getTrait());
+                    rightPlan.getLogicalProperties().getTrait());
             // if eliminated successfully, should refresh the eliminateViewNodesMap
             if (couldEliminateByLeft) {
                 this.reservedShouldEliminatedViewNodes =
@@ -254,21 +254,30 @@ public class HyperGraphComparator {
     }
 
     private boolean tryEliminateNodesAndEdge() {
-        boolean hasFilterEdgeAbove = viewHyperGraph.getFilterEdges().stream()
-                .filter(e -> LongBitmap.getCardinality(e.getReferenceNodes()) == 1)
-                .anyMatch(e -> LongBitmap.isSubset(e.getReferenceNodes(), shouldEliminateViewNodesMap));
-        if (hasFilterEdgeAbove) {
-            // If there is some filter edge above the eliminated node, we should rebuild a plan
-            // Right now, just reject it.
-            return false;
-        }
         long allCanEliminateNodes = 0;
         for (JoinEdge joinEdge : viewHyperGraph.getJoinEdges()) {
             long canEliminateSideNodes = getCanEliminateSideNodes(joinEdge);
             allCanEliminateNodes = LongBitmap.or(allCanEliminateNodes, canEliminateSideNodes);
-            if (LongBitmap.isOverlap(canEliminateSideNodes, reservedShouldEliminatedViewNodes)
-                    && !canEliminateViewEdge(joinEdge)) {
-                return false;
+            long shouldEliminateNodesOnCurrentEdge =
+                    LongBitmap.newBitmapIntersect(canEliminateSideNodes, reservedShouldEliminatedViewNodes);
+            if (LongBitmap.isOverlap(canEliminateSideNodes, reservedShouldEliminatedViewNodes)) {
+                // For FilterEdge, leftChildEdges records join edges below the filter child. Non-empty means
+                // the filter is above a join result, e.g. WHERE after LEFT JOIN, and may filter preserved rows.
+                // Empty means the filter stays inside a base/nullable-side subtree, which is safe for LOJ.
+                boolean hasUnsafeFilterEdgeOnCurrentEliminatedNode =
+                        LongBitmap.getCardinality(shouldEliminateNodesOnCurrentEdge) > 0
+                        && viewHyperGraph.getFilterEdges().stream()
+                        .filter(e -> e.getExpressions().stream().anyMatch(expr -> !ExpressionUtils.isInferred(expr)))
+                        .filter(e -> LongBitmap.isOverlap(e.getReferenceNodes(), shouldEliminateNodesOnCurrentEdge))
+                        .anyMatch(e -> joinEdge.getJoinType().isInnerJoin() || !e.getLeftChildEdges().isEmpty());
+                // Inner join elimination is unsafe with any filter on the removed side. For left join,
+                // filters inside the nullable side are OK, but filters above the join can filter left rows.
+                if (hasUnsafeFilterEdgeOnCurrentEliminatedNode) {
+                    return false;
+                }
+                if (!canEliminateViewEdge(joinEdge)) {
+                    return false;
+                }
             }
         }
         // check all can eliminateNodes contains all should eliminate nodes, to avoid some nodes can not be eliminated

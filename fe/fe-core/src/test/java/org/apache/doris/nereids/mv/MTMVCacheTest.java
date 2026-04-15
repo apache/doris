@@ -80,6 +80,15 @@ public class MTMVCacheTest extends SqlTestBase {
         Assertions.assertTrue(aggregate.get().getOutputExpressions().stream()
                 .noneMatch(expr -> expr.containsType(SessionVarGuardExpr.class)));
 
+        mtmv.invalidateRewriteCache();
+        MTMVCache cacheAfterInvalidate = mtmv.getOrGenerateCache(connectContext);
+        Assertions.assertNotSame(cacheWithoutGuard, cacheAfterInvalidate);
+        Optional<LogicalAggregate<? extends Plan>> aggregateAfterInvalidate =
+                cacheAfterInvalidate.getAllRulesRewrittenPlanAndStructInfo().key()
+                        .collectFirst(LogicalAggregate.class::isInstance);
+        Assertions.assertTrue(aggregateAfterInvalidate.isPresent());
+
+        // set guard check session var
         connectContext.getSessionVariable().setSqlMode(SqlModeHelper.MODE_NO_UNSIGNED_SUBTRACTION);
         CascadesContext c2 = createCascadesContext(
                 "select T1.id, sum(score) from T1 group by T1.id;",

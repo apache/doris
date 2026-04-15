@@ -405,7 +405,7 @@ public class JoinUtils {
     public static boolean canEliminateByLeft(LogicalJoin<?, ?> join, DataTrait rightFuncDeps) {
         if (join.getJoinType().isLeftOuterJoin() || join.getJoinType().isAsofLeftOuterJoin()) {
             Pair<Set<Slot>, Set<Slot>> njHashKeys = join.extractNullRejectHashKeys();
-            if (!join.getOtherJoinConjuncts().isEmpty() || njHashKeys == null) {
+            if (njHashKeys == null) {
                 return false;
             }
             return rightFuncDeps.isUnique(njHashKeys.second);

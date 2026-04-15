@@ -91,6 +91,7 @@ import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.policy.DropPolicyLog;
@@ -1200,37 +1201,41 @@ public class EditLog {
                 }
                 case OperationType.OP_ADD_CONSTRAINT: {
                     final AlterConstraintLog log = (AlterConstraintLog) journal.getData();
+                    TableNameInfo tni = log.getTableNameInfo();
+                    Constraint constraint = log.getConstraint();
+                    if (tni == null) {
+                        LOG.warn("Skip replaying add constraint {} because table name could not be resolved",
+                                constraint.getName());
+                        break;
+                    }
+                    env.getConstraintManager().addConstraint(
+                            tni, constraint.getName(), constraint, true);
                     try {
-                        TableNameInfo tni = log.getTableNameInfo();
-                        Constraint constraint = log.getConstraint();
-                        if (tni == null) {
-                            LOG.warn("Failed to replay add constraint {}: "
-                                    + "table name could not be resolved",
-                                    constraint.getName());
-                            break;
-                        }
-                        env.getConstraintManager().addConstraint(
-                                tni, constraint.getName(), constraint, true);
+                        MTMVUtil.invalidateRewriteCaches(MTMVUtil.getDependentMtmvsByConstraint(tni, constraint));
                     } catch (Exception e) {
-                        LOG.warn("Failed to replay add constraint", e);
+                        LOG.warn("Failed to invalidate dependent MTMV rewrite caches "
+                                        + "for add constraint {} on table {}",
+                                constraint.getName(), tni, e);
                     }
                     break;
                 }
                 case OperationType.OP_DROP_CONSTRAINT: {
                     final AlterConstraintLog log = (AlterConstraintLog) journal.getData();
+                    TableNameInfo tni = log.getTableNameInfo();
+                    Constraint constraint = log.getConstraint();
+                    if (tni == null) {
+                        LOG.warn("Skip replaying drop constraint {} because table name could not be resolved",
+                                constraint.getName());
+                        break;
+                    }
+                    env.getConstraintManager().dropConstraint(
+                            tni, constraint.getName(), true);
                     try {
-                        TableNameInfo tni = log.getTableNameInfo();
-                        Constraint constraint = log.getConstraint();
-                        if (tni == null) {
-                            LOG.warn("Failed to replay drop constraint {}: "
-                                    + "table name could not be resolved",
-                                    constraint.getName());
-                            break;
-                        }
-                        env.getConstraintManager().dropConstraint(
-                                tni, constraint.getName(), true);
+                        MTMVUtil.invalidateRewriteCaches(MTMVUtil.getDependentMtmvsByConstraint(tni, constraint));
                     } catch (Exception e) {
-                        LOG.warn("Failed to replay drop constraint", e);
+                        LOG.warn("Failed to invalidate dependent MTMV rewrite caches "
+                                        + "for drop constraint {} on table {}",
+                                constraint.getName(), tni, e);
                     }
                     break;
                 }
