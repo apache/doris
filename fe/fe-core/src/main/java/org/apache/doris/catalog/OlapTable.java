@@ -2249,6 +2249,100 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     /**
+     * Get the tabletIds by bucketIds
+     */
+    public List<Long> getTabletIds(List<Long> bucketIds) {
+        List<Long> tabletIds = Lists.newArrayList();
+        for (Partition partition : idToPartition.values()) {
+            List<Tablet> tablets = partition.getBaseIndex().getTablets();
+            for (Long bucketId : bucketIds) {
+                if (bucketId >= 0 && bucketId < tablets.size()) {
+                    tabletIds.add(tablets.get(bucketId.intValue()).id);
+                }
+            }
+        }
+        if (tabletIds.isEmpty() && !bucketIds.isEmpty()) {
+            tabletIds.add(-1L);
+        }
+        return tabletIds;
+    }
+
+    /**
+     * Get the tabletIds by partIds and bucketIds
+     */
+    public List<Long> getTabletIds(List<Long> partIds, List<Long> bucketIds) {
+        List<Long> tabletIds = Lists.newArrayList();
+        for (Long partId : partIds) {
+            Partition partition = idToPartition.get(partId);
+            if (partition == null) {
+                continue;
+            }
+            List<Tablet> tablets = partition.getBaseIndex().getTablets();
+            for (Long bucketId : bucketIds) {
+                if (bucketId >= 0 && bucketId < tablets.size()) {
+                    tabletIds.add(tablets.get(bucketId.intValue()).id);
+                }
+            }
+        }
+        if (tabletIds.isEmpty() && !bucketIds.isEmpty()) {
+            tabletIds.add(-1L);
+        }
+        return tabletIds;
+    }
+
+    /**
+     * Get the tabletIds by indexId and bucketIds
+     */
+    public List<Long> getTabletIds(Long indexId, List<Long> bucketIds) {
+        List<Long> tabletIds = Lists.newArrayList();
+        for (Partition partition : idToPartition.values()) {
+            MaterializedIndex index = partition.getIndex(indexId);
+            if (index == null) {
+                continue;
+            }
+            List<Tablet> tablets = index.getTablets();
+            for (Long bucketId : bucketIds) {
+                if (bucketId >= 0 && bucketId < tablets.size()) {
+                    tabletIds.add(tablets.get(bucketId.intValue()).id);
+                }
+            }
+        }
+        if (tabletIds.isEmpty() && !bucketIds.isEmpty()) {
+            tabletIds.add(-1L);
+        }
+        return tabletIds;
+    }
+
+    /**
+     * Get the tabletIds by partIds, indexId and bucketIds
+     */
+    public List<Long> getTabletIds(List<Long> partIds, Long indexId, List<Long> bucketIds) {
+        List<Long> tabletIds = Lists.newArrayList();
+        for (Long partId : partIds) {
+            Partition partition = idToPartition.get(partId);
+            if (partition == null) {
+                continue;
+            }
+            MaterializedIndex index = partition.getIndex(indexId);
+            if (index == null) {
+                continue;
+            }
+            List<Tablet> tablets = index.getTablets();
+            for (Long bucketId : bucketIds) {
+                if (bucketId >= 0 && bucketId < tablets.size()) {
+                    tabletIds.add(tablets.get(bucketId.intValue()).id);
+                }
+            }
+        }
+        if (tabletIds.isEmpty() && !bucketIds.isEmpty()) {
+            tabletIds.add(-1L);
+        }
+        return tabletIds;
+    }
+
+
+
+    /**
      * Get the proximate row count of this table, if you need accurate row count should select count(*) from table.
      *
      * @return proximate row count

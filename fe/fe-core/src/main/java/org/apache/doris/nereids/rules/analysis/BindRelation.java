@@ -199,7 +199,14 @@ public class BindRelation extends OneAnalysisRuleFactory {
         LogicalOlapScan scan;
         List<Long> partIds = getPartitionIds(table, unboundRelation, qualifier);
         List<Long> tabletIds = unboundRelation.getTabletIds();
+        List<Long> bucketIds = unboundRelation.getBucketIds();
+        Preconditions.checkState((bucketIds.isEmpty() || tabletIds.isEmpty()),
+                "bucket and tablet cannot be specified at the same time.");
+        OlapTable olapTable = (OlapTable) table;
         if (!CollectionUtils.isEmpty(partIds) && !unboundRelation.getIndexName().isPresent()) {
+            if (!bucketIds.isEmpty()) {
+                tabletIds = olapTable.getTabletIds(partIds, bucketIds);
+            }
             scan = new LogicalOlapScan(unboundRelation.getRelationId(),
                     (OlapTable) table, qualifier, partIds,
                     tabletIds, unboundRelation.getHints(),
@@ -209,23 +216,32 @@ public class BindRelation extends OneAnalysisRuleFactory {
             Optional<String> indexName = unboundRelation.getIndexName();
             // For direct mv scan.
             if (indexName.isPresent()) {
-                OlapTable olapTable = (OlapTable) table;
                 Long indexId = olapTable.getIndexIdByName(indexName.get());
                 if (indexId == null) {
                     throw new AnalysisException("Table " + olapTable.getName()
                         + " doesn't have materialized view " + indexName.get());
                 }
+                if (!bucketIds.isEmpty()) {
+                    if (partIds.isEmpty()) {
+                        tabletIds = olapTable.getTabletIds(indexId, bucketIds);
+                    } else {
+                        tabletIds = olapTable.getTabletIds(partIds, indexId, bucketIds);
+                    }
+                }
                 PreAggStatus preAggStatus = olapTable.isDupKeysOrMergeOnWrite() ? PreAggStatus.unset()
                         : PreAggStatus.off("For direct index scan on mor/agg.");
 
                 scan = new LogicalOlapScan(unboundRelation.getRelationId(),
-                    (OlapTable) table, qualifier, tabletIds,
+                    olapTable, qualifier, tabletIds,
                     CollectionUtils.isEmpty(partIds) ? ((OlapTable) table).getPartitionIds() : partIds, indexId,
                     preAggStatus, CollectionUtils.isEmpty(partIds) ? ImmutableList.of() : partIds,
                     unboundRelation.getHints(), unboundRelation.getTableSample(), ImmutableList.of());
             } else {
+                if (!bucketIds.isEmpty()) {
+                    tabletIds = olapTable.getTabletIds(bucketIds);
+                }
                 scan = new LogicalOlapScan(unboundRelation.getRelationId(),
-                    (OlapTable) table, qualifier, tabletIds, unboundRelation.getHints(),
+                    olapTable, qualifier, tabletIds, unboundRelation.getHints(),
                     unboundRelation.getTableSample(), ImmutableList.of());
             }
         }

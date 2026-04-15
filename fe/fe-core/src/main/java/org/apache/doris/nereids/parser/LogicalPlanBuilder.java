@@ -2628,10 +2628,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             indexName = Optional.ofNullable(ctx.materializedViewName().indexName.getText());
         }
 
-        List<Long> tabletIdLists = new ArrayList<>();
+        List<Long> bucketIdList = new ArrayList<>();
+        if (ctx.bucketList() != null) {
+            ctx.bucketList().bucketIdList.stream().forEach(bucketToken -> {
+                bucketIdList.add(Long.parseLong(bucketToken.getText()));
+            });
+        }
+
+        List<Long> tabletIdList = new ArrayList<>();
         if (ctx.tabletList() != null) {
             ctx.tabletList().tabletIdList.stream().forEach(tabletToken -> {
-                tabletIdLists.add(Long.parseLong(tabletToken.getText()));
+                tabletIdList.add(Long.parseLong(tabletToken.getText()));
             });
         }
 
@@ -2664,9 +2671,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
 
         TableSample tableSample = ctx.sample() == null ? null : (TableSample) visit(ctx.sample());
-        UnboundRelation relation = new UnboundRelation(
-                StatementScopeIdGenerator.newRelationId(),
-                nameParts, partitionNames, isTempPart, tabletIdLists, relationHints,
+        UnboundRelation relation = new UnboundRelation(StatementScopeIdGenerator.newRelationId(),
+                nameParts, partitionNames, isTempPart, bucketIdList, tabletIdList, relationHints,
                 Optional.ofNullable(tableSample), indexName, scanParams, Optional.ofNullable(tableSnapshot));
 
         LogicalPlan checkedRelation = LogicalPlanBuilderAssistant.withCheckPolicy(relation);

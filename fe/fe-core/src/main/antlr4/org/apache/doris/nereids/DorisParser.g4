@@ -1443,7 +1443,7 @@ optScanParams
 
 relationPrimary
     : multipartIdentifier optScanParams? materializedViewName? tableSnapshot? specifiedPartition?
-       tabletList? tableAlias sample? relationHint? lateralView*                           #tableName
+       bucketList? tabletList? tableAlias sample? relationHint? lateralView*               #tableName
     | LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*                                 #aliasedQuery
     | tvfName=identifier LEFT_PAREN
       (properties=propertyItemList)?
@@ -1556,6 +1556,10 @@ rollupDef
 
 aggTypeDef
     : MAX | MIN | SUM | REPLACE | REPLACE_IF_NOT_NULL | HLL_UNION | BITMAP_UNION | QUANTILE_UNION | GENERIC
+    ;
+
+bucketList
+    : BUCKET LEFT_PAREN bucketIdList+=INTEGER_VALUE (COMMA bucketIdList+=INTEGER_VALUE)*  RIGHT_PAREN
     ;
 
 tabletList
@@ -1973,6 +1977,7 @@ nonReserved
     | BRANCH
     | BRIEF
     | BROKER
+    | BUCKET
     | BUCKETS
     | BUILD
     | BUILTIN
