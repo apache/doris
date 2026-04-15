@@ -69,7 +69,10 @@ jobs:
       - name: Prepare review prompt
         run: |
           cat > /tmp/review_prompt.txt <<'PROMPT'
-          You are performing an automated code review inside a GitHub Actions runner. The gh CLI is available and authenticated via GH_TOKEN. You can comment on the pull request.
+          You are performing an automated code review inside a GitHub Actions runner. The gh CLI is available and authenticated via GH_TOKEN. 
+          The current directory is the code repository for the PR to be reviewed.
+          You can comment on the pull request.
+          Proceed with all subsequent research at the HIGHEST level of thought, aiming to identify all issues and submit all comments in JSON format.
 
           Context:
           - Repository: PLACEHOLDER_REPO
@@ -90,6 +93,7 @@ jobs:
               - Build a JSON array of comments like: [{ "path": "<file>", "position": <diff_position>, "body": "..." }]
               - Submit via: gh api repos/PLACEHOLDER_REPO/pulls/PLACEHOLDER_PR_NUMBER/reviews --input <json_file>
               - The JSON file should contain: {"event":"REQUEST_CHANGES","body":"<summary>","comments":[...]}
+          - A complete and detailed review of the entire PR must be conducted, identifying all potential issues and submitting corresponding comments. Only then can the review work be considered finished. If this standard is not strictly met, the review of the remaining parts must continue.
           PROMPT
           sed -i "s|PLACEHOLDER_REPO|${REPO}|g" /tmp/review_prompt.txt
           sed -i "s|PLACEHOLDER_PR_NUMBER|${PR_NUMBER}|g" /tmp/review_prompt.txt
@@ -111,7 +115,7 @@ jobs:
           PROMPT=$(cat /tmp/review_prompt.txt)
 
           set +e
-          opencode run "$PROMPT" -m "github-copilot/gpt-5.4" 2>&1 | tee /tmp/opencode-review.log
+          opencode run "$PROMPT" -m "github-copilot/gpt-5.4" --variant "xhigh" 2>&1 | tee /tmp/opencode-review.log
           status=${PIPESTATUS[0]}
           set -e
 
