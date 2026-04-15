@@ -951,6 +951,12 @@ maybe_restore_baseline_to_volumes() {
     local hive_version="${2:-hive3}"
     local baseline_cache="${HIVE_BASELINE_TARBALL_CACHE:-/tmp/hive-baseline-cache}"
     local cache_file="${baseline_cache}/${hive_version}-baseline-${HIVE_BASELINE_VERSION}.tar.gz"
+    local download_url="${HIVE_BASELINE_TARBALL_URL:-}"
+    local tmp_cache_file=""
+
+    if [[ -z "${download_url}" && -n "${HIVE_BASELINE_URL_PREFIX:-}" ]]; then
+        download_url="${HIVE_BASELINE_URL_PREFIX}/${hive_version}-baseline-${HIVE_BASELINE_VERSION}-$(uname -m).tar.gz"
+    fi
 
     # Nothing to do if the named volumes already hold a populated baseline.
     if hive_volume_is_populated "${prefix}"; then
@@ -958,23 +964,36 @@ maybe_restore_baseline_to_volumes() {
         return 0
     fi
 
-    # Ensure a local tarball is available: prefer existing cache, otherwise
-    # download it. HIVE_BASELINE_TARBALL_URL overrides the URL built from
-    # HIVE_BASELINE_URL_PREFIX + hive_version + version + arch.
-    if [[ ! -f "${cache_file}" ]]; then
-        local download_url="${HIVE_BASELINE_TARBALL_URL:-}"
-        if [[ -z "${download_url}" && -n "${HIVE_BASELINE_URL_PREFIX:-}" ]]; then
-            download_url="${HIVE_BASELINE_URL_PREFIX}/${hive_version}-baseline-${HIVE_BASELINE_VERSION}-$(uname -m).tar.gz"
+    # Ensure a local tarball is available: prefer an intact cache, otherwise
+    # download to a temporary file and atomically replace the cache. This avoids
+    # persisting truncated tarballs when curl is interrupted on CI hosts.
+    if [[ -f "${cache_file}" ]]; then
+        if tar -tzf "${cache_file}" >/dev/null 2>&1; then
+            echo "[baseline] using cached tarball: ${cache_file}"
+        else
+            echo "[baseline] cached tarball is corrupt, removing: ${cache_file}"
+            rm -f "${cache_file}"
         fi
+    fi
+
+    if [[ ! -f "${cache_file}" ]]; then
         if [[ -z "${download_url}" ]]; then
             echo "[baseline] no baseline tarball available, will do full init"
             return 0
         fi
         mkdir -p "${baseline_cache}"
+        tmp_cache_file="$(mktemp "${cache_file}.tmp.XXXXXX")"
         echo "[baseline] downloading baseline from ${download_url}"
-        curl -fSL -o "${cache_file}" "${download_url}"
-    else
-        echo "[baseline] using cached tarball: ${cache_file}"
+        if ! curl -fSL -o "${tmp_cache_file}" "${download_url}"; then
+            rm -f "${tmp_cache_file}"
+            return 1
+        fi
+        if ! tar -tzf "${tmp_cache_file}" >/dev/null 2>&1; then
+            echo "[baseline] downloaded tarball is corrupt: ${download_url}" >&2
+            rm -f "${tmp_cache_file}"
+            return 1
+        fi
+        mv -f "${tmp_cache_file}" "${cache_file}"
     fi
 
     # Restore into all 4 volumes in a single alpine container so tar writes
