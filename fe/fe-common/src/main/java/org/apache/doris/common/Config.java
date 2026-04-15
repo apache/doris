@@ -690,6 +690,14 @@ public class Config extends ConfigBase {
             "This specifies the maximum data retention time. After this time, the data will be deleted permanently."})
     public static long catalog_trash_expire_second = 86400L; // 1day
 
+    /**
+     * Whether to allow normal users to use the FORCE drop table/partition command.
+     * If set to false, normal users will get a privilege denied error when using FORCE drop,
+     * while ADMIN users can always use it.
+     */
+    @ConfField(mutable = false)
+    public static boolean enable_normal_user_force_drop = false;
+
     @ConfField(mutable = true, masterOnly = true)
     public static boolean catalog_trash_ignore_min_erase_latency = false;
 

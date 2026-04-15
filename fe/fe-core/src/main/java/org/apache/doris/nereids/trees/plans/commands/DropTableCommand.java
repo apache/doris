@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.InternalDatabaseUtil;
@@ -85,6 +86,12 @@ public class DropTableCommand extends Command implements ForwardWithSync {
                 .checkTblPriv(ConnectContext.get(), tableName.getCtl(), tableName.getDb(),
                 tableName.getTbl(), PrivPredicate.DROP)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "DROP");
+        }
+
+        if (forceDrop && !Config.enable_normal_user_force_drop) {
+            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN for FORCE DROP");
+            }
         }
         Env.getCurrentEnv().dropTable(tableName.getCtl(), tableName.getDb(), tableName.getTbl(), isView,
                 isMaterializedView, false, ifExists, mustTemporary, forceDrop);

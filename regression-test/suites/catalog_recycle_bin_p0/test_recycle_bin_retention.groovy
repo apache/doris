@@ -82,42 +82,15 @@ suite("test_recycle_bin_retention", "p0") {
         assertTrue(recycleBinAfterRecoverPhase1.size() == 0, "Recovered table should be removed from recycle bin")
         order_qt_phase1_recover """ SELECT * FROM test_retention_phase1 """
 
-        // ===== Phase 2: Hidden retention period =====
-        // Drop again and wait for FE expire, table should be hidden but still recoverable
-
-        sql """ DROP TABLE test_retention_phase1 """
-        def tableAfterDropPhase2 = sql """ SHOW TABLES LIKE "test_retention_phase1" """
-        assertTrue(tableAfterDropPhase2.size() == 0, "Dropped table should not be visible before Phase 2 checks")
-
-        // Wait for FE visible period to expire (30s + buffer)
-        sleep(35000)
-
-        // SHOW should display the table now for admin (past FE expire)
-        def recycleBinPhase2 = sql """ SHOW CATALOG RECYCLE BIN WHERE NAME = 'test_retention_phase1' """
-        assertTrue(recycleBinPhase2.size() > 0, "Phase 2: Table should be visible in recycle bin for admin after FE expire")
-
-        connect("${recoverNormalUser}", "123456", context.config.jdbcUrl) {
-            test {
-                sql """ USE ${currentDbName}; RECOVER TABLE test_retention_phase1 """
-                exception "ADMIN"
-            }
-        }
-
-        // But RECOVER should still work (data is still in FE memory, BE hasn't deleted yet)
-        sql """ RECOVER TABLE test_retention_phase1 """
-        def tableAfterRecoverPhase2 = sql """ SHOW TABLES LIKE "test_retention_phase1" """
-        assertTrue(tableAfterRecoverPhase2.size() == 1, "Phase 2 recovered table should be visible in SHOW TABLES")
-        order_qt_phase2_recover """ SELECT * FROM test_retention_phase1 """
-
-        // ===== Phase 3: Physical deletion =====
-        // Drop again and wait for total expiry (FE + BE), table should be permanently gone
+        // ===== Phase 2: Physical deletion =====
+        // Drop again and wait for total expiry, table should be permanently gone
         sql """ ADMIN SET FRONTEND CONFIG ('catalog_trash_ignore_min_erase_latency' = 'true') """
 
         sql """ DROP TABLE test_retention_phase1 """
         def tableAfterDropPhase3 = sql """ SHOW TABLES LIKE "test_retention_phase1" """
         assertTrue(tableAfterDropPhase3.size() == 0, "Dropped table should not be visible before Phase 3 checks")
 
-        sleep(70000)
+        sleep(35000)
 
         def recycleBinPhase3 = sql """ SHOW CATALOG RECYCLE BIN WHERE NAME = 'test_retention_phase1' """
         assertTrue(recycleBinPhase3.size() == 0, "Phase 3: Table should not be visible after physical deletion")
@@ -168,32 +141,11 @@ suite("test_recycle_bin_retention", "p0") {
         order_qt_partition_recover """ SELECT * FROM test_retention_partition """
 
         // Drop partition again and wait for FE expire
-        sql """ ALTER TABLE test_retention_partition DROP PARTITION test_recycle_p2 """
-        def partitionsAfterDropP2Phase2 = sql_return_maparray """ SHOW PARTITIONS FROM test_retention_partition """
-        assertTrue(partitionsAfterDropP2Phase2.find { it.PartitionName == "test_recycle_p2" } == null, "Dropped partition test_recycle_p2 should not be visible before Phase 2 checks")
-        sleep(35000)
-
-        // Partition should be visible to admin
-        def partRecycleHidden = sql """ SHOW CATALOG RECYCLE BIN WHERE NAME = 'test_recycle_p2' """
-        assertTrue(partRecycleHidden.size() > 0, "Partition test_recycle_p2 should be visible to admin after FE expire")
-
-        connect("${recoverNormalUser}", "123456", context.config.jdbcUrl) {
-            test {
-                sql """ USE ${currentDbName}; RECOVER PARTITION test_recycle_p2 FROM test_retention_partition """
-                exception "ADMIN"
-            }
-        }
-        sql """ RECOVER PARTITION test_recycle_p2 FROM test_retention_partition """
-        def partitionsAfterRecoverP2Phase2 = sql_return_maparray """ SHOW PARTITIONS FROM test_retention_partition """
-        assertTrue(partitionsAfterRecoverP2Phase2.find { it.PartitionName == "test_recycle_p2" } != null, "Phase 2 recovered partition test_recycle_p2 should be visible in SHOW PARTITIONS")
-        order_qt_partition_recover_phase2 """ SELECT * FROM test_retention_partition """
-
-        // ===== Partition Phase 3: Physical deletion =====
         sql """ ADMIN SET FRONTEND CONFIG ('catalog_trash_ignore_min_erase_latency' = 'true') """
         sql """ ALTER TABLE test_retention_partition DROP PARTITION test_recycle_p2 """
         def partitionsAfterDropP2Phase3 = sql_return_maparray """ SHOW PARTITIONS FROM test_retention_partition """
         assertTrue(partitionsAfterDropP2Phase3.find { it.PartitionName == "test_recycle_p2" } == null, "Dropped partition test_recycle_p2 should not be visible before Phase 3 checks")
-        sleep(70000)
+        sleep(35000)
 
         def partRecyclePhase3 = sql """ SHOW CATALOG RECYCLE BIN WHERE NAME = 'test_recycle_p2' """
         assertTrue(partRecyclePhase3.size() == 0, "Partition Phase 3: test_recycle_p2 should not be visible after physical deletion")

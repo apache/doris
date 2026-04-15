@@ -21,8 +21,6 @@ import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
@@ -31,7 +29,6 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -292,26 +289,9 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
     private boolean isExpire(long id, long currentTimeMs) {
         long latency = currentTimeMs - idToRecycleTime.get(id);
-        long totalExpireMs = Config.catalog_trash_expire_second * 1000L + getBackendTrashExpireMs();
+        long totalExpireMs = Config.catalog_trash_expire_second * 1000L;
         return (Config.catalog_trash_ignore_min_erase_latency || latency > minEraseLatency)
                 && latency > totalExpireMs;
-    }
-
-    private long getBackendTrashExpireMs() {
-        int expireSec = Env.getCurrentSystemInfo().getMinTrashExpireTimeSec();
-        if (expireSec <= 0) {
-            return 0;
-        }
-        return expireSec * 1000L;
-    }
-
-    private boolean isFEViewExpire(long id, long currentTimeMs) {
-        Long recycleTime = idToRecycleTime.get(id);
-        if (recycleTime == null) {
-            return true;
-        }
-        long latency = currentTimeMs - recycleTime;
-        return latency > Config.catalog_trash_expire_second * 1000L;
     }
 
     private void eraseDatabase(long currentTimeMs, int keepNum) {
@@ -900,9 +880,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                     + db.getFullName());
             }
             ConnectContext connectContext = ConnectContext.get();
-            if (connectContext != null && isFEViewExpire(table.getId(), System.currentTimeMillis())
-                    && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(connectContext, PrivPredicate.ADMIN)) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
+            if (connectContext != null && isExpire(table.getId(), System.currentTimeMillis())) {
+                throw new DdlException("Data has been expired, cannot be recovered.");
             }
 
             if (table.getType() == TableType.MATERIALIZED_VIEW) {
@@ -1038,10 +1017,9 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                         + "' in table " + table.getName());
             }
             ConnectContext connectContext = ConnectContext.get();
-            if (connectContext != null && isFEViewExpire(recoverPartitionInfo.getPartition().getId(),
-                    System.currentTimeMillis())
-                    && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(connectContext, PrivPredicate.ADMIN)) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
+            if (connectContext != null
+                    && isExpire(recoverPartitionInfo.getPartition().getId(), System.currentTimeMillis())) {
+                throw new DdlException("Data has been expired, cannot be recovered.");
             }
 
             PartitionInfo partitionInfo = table.getPartitionInfo();
@@ -1442,8 +1420,6 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             Map<Long, Pair<Long, Long>> dbToDataSize = new HashMap<>();
             List<List<String>> tableInfos = Lists.newArrayList();
             for (Map.Entry<Long, RecycleTableInfo> entry : idToTable.entrySet()) {
-                // Return all data (both unexpired and expired) because SHOW CATALOG RECYCLE BIN
-                // is an ADMIN-only command and admins should be able to see everything.
                 List<String> info = Lists.newArrayList();
                 info.add("Table");
                 RecycleTableInfo tableInfo = entry.getValue();
@@ -1485,8 +1461,6 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
             List<List<String>> partitionInfos = Lists.newArrayList();
             for (Map.Entry<Long, RecyclePartitionInfo> entry : idToPartition.entrySet()) {
-                // Return all data (both unexpired and expired) because SHOW CATALOG RECYCLE BIN
-                // is an ADMIN-only command and admins should be able to see everything.
                 List<String> info = Lists.newArrayList();
                 info.add("Partition");
                 RecyclePartitionInfo partitionInfo = entry.getValue();
@@ -1528,8 +1502,6 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
             List<List<String>> dbInfos = Lists.newArrayList();
             for (Map.Entry<Long, RecycleDatabaseInfo> entry : idToDatabase.entrySet()) {
-                // Return all data (both unexpired and expired) because SHOW CATALOG RECYCLE BIN
-                // is an ADMIN-only command and admins should be able to see everything.
                 List<String> info = Lists.newArrayList();
                 info.add("Database");
                 RecycleDatabaseInfo dbInfo = entry.getValue();
