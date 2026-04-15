@@ -295,6 +295,13 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
 
     @Override
     protected Offset createOffset(Map<String, ?> offset) {
+        // ALTER offset may only contain lsn, supplement ts_usec for PostgresOffsetContext.Loader
+        if (offset.containsKey(SourceInfo.LSN_KEY)
+                && !offset.containsKey(SourceInfo.TIMESTAMP_USEC_KEY)) {
+            Map<String, Object> supplemented = new HashMap<>(offset);
+            supplemented.put(SourceInfo.TIMESTAMP_USEC_KEY, "0");
+            return PostgresOffset.of(supplemented);
+        }
         return PostgresOffset.of(offset);
     }
 

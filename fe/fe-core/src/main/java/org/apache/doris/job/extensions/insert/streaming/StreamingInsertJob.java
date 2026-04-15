@@ -798,6 +798,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             Offset offset = validateOffset(inputStreamProps.getOffsetProperty());
             this.offsetProvider.updateOffset(offset);
             this.offsetProviderPersist = offsetProvider.getPersistInfo();
+            log.info("modifyPropertiesInternal: offset updated to {}, job {}",
+                    inputStreamProps.getOffsetProperty(), getJobId());
             if (Config.isCloudMode()) {
                 resetCloudProgress(offset);
             }

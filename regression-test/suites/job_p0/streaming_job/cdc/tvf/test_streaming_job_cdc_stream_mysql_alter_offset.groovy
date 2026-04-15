@@ -105,44 +105,46 @@ suite("test_streaming_job_cdc_stream_mysql_alter_offset", "p0,external,mysql,ext
             return result[0][0] >= 2
         })
 
-        // Step 2: Get current binlog position and insert new data
-        def binlogFile = ""
-        def binlogPos = ""
-        connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {
-            def masterStatus = sql """SHOW MASTER STATUS"""
-            binlogFile = masterStatus[0][0]
-            binlogPos = masterStatus[0][1].toString()
-            log.info("Binlog position for ALTER: file=${binlogFile}, pos=${binlogPos}")
-            sql """INSERT INTO ${mysqlDb}.${mysqlTable} VALUES (10, 'alter_tvf_1')"""
-            sql """INSERT INTO ${mysqlDb}.${mysqlTable} VALUES (11, 'alter_tvf_2')"""
-        }
-
-        // Step 3: PAUSE -> ALTER with JSON binlog offset -> RESUME
+        // Step 2: PAUSE, insert data before and after a binlog mark, ALTER to that mark
         sql "PAUSE JOB where jobname = '${jobName}'"
         Awaitility.await().atMost(30, SECONDS).pollInterval(1, SECONDS).until({
             def jobStatus = sql """select status from jobs("type"="insert") where Name='${jobName}'"""
             return jobStatus[0][0] == "PAUSED"
         })
+        def binlogFile = ""
+        def binlogPos = ""
+        connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {
+            // insert data BEFORE the binlog mark
+            sql """INSERT INTO ${mysqlDb}.${mysqlTable} VALUES (10, 'before_mark')"""
+            sql """INSERT INTO ${mysqlDb}.${mysqlTable} VALUES (11, 'before_mark')"""
+            // record binlog mark
+            def masterStatus = sql """SHOW MASTER STATUS"""
+            binlogFile = masterStatus[0][0]
+            binlogPos = masterStatus[0][1].toString()
+            log.info("Binlog mark for ALTER: file=${binlogFile}, pos=${binlogPos}")
+            // insert data AFTER the binlog mark
+            sql """INSERT INTO ${mysqlDb}.${mysqlTable} VALUES (20, 'after_mark')"""
+            sql """INSERT INTO ${mysqlDb}.${mysqlTable} VALUES (21, 'after_mark')"""
+        }
         def offsetJson = """{"file":"${binlogFile}","pos":"${binlogPos}"}"""
         log.info("ALTER TVF job offset: ${offsetJson}")
         sql """ALTER JOB ${jobName}
                 PROPERTIES('offset' = '${offsetJson}')
             """
-
-        // verify currentOffset changed in show jobs
-        def jobInfo = sql """select currentOffset from jobs("type"="insert") where Name='${jobName}'"""
-        log.info("currentOffset after ALTER: " + jobInfo[0][0])
-
         sql "RESUME JOB where jobname = '${jobName}'"
 
-        // Step 4: Verify new data synced
+        // Step 3: Verify only data AFTER the mark (id 20,21) is synced
         Awaitility.await().atMost(120, SECONDS).pollInterval(2, SECONDS).until({
-            def result = sql """SELECT count(*) FROM ${currentDb}.${dorisTable} WHERE id IN (10, 11)"""
+            def result = sql """SELECT count(*) FROM ${currentDb}.${dorisTable} WHERE id IN (20, 21)"""
             return result[0][0] >= 2
         })
-        def alterRows = sql """SELECT * FROM ${currentDb}.${dorisTable} WHERE id IN (10, 11) order by id"""
-        log.info("alterRows: " + alterRows)
-        assert alterRows.size() == 2
+        def afterMarkRows = sql """SELECT * FROM ${currentDb}.${dorisTable} WHERE id IN (20, 21) order by id"""
+        log.info("afterMarkRows: " + afterMarkRows)
+        assert afterMarkRows.size() == 2
+        // id 10,11 (before mark) should NOT be synced
+        def beforeMarkRows = sql """SELECT * FROM ${currentDb}.${dorisTable} WHERE id IN (10, 11)"""
+        log.info("beforeMarkRows: " + beforeMarkRows)
+        assert beforeMarkRows.size() == 0
 
         sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
         sql """drop table if exists ${currentDb}.${dorisTable} force"""

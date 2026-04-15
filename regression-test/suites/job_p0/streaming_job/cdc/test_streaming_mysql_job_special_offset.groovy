@@ -49,33 +49,7 @@ suite("test_streaming_mysql_job_special_offset", "p0,external,mysql,external_doc
             sql """INSERT INTO ${mysqlDb}.${table1} VALUES (1, 'alice'), (2, 'bob')"""
         }
 
-        // ===== Test 1: offset = earliest, verify data synced =====
-        sql """CREATE JOB ${jobName}
-                ON STREAMING
-                FROM MYSQL (
-                    "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
-                    "driver_url" = "${driver_url}",
-                    "driver_class" = "com.mysql.cj.jdbc.Driver",
-                    "user" = "root",
-                    "password" = "123456",
-                    "database" = "${mysqlDb}",
-                    "include_tables" = "${table1}",
-                    "offset" = "earliest"
-                )
-                TO DATABASE ${currentDb} (
-                  "table.create.properties.replication_num" = "1"
-                )
-            """
-        Awaitility.await().atMost(120, SECONDS).pollInterval(2, SECONDS).until({
-            def result = sql """SELECT count(*) FROM ${currentDb}.${table1}"""
-            return result[0][0] >= 2
-        })
-        def rows = sql """SELECT * FROM ${currentDb}.${table1} order by id"""
-        assert rows.size() == 2
-        sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
-        sql """drop table if exists ${currentDb}.${table1} force"""
-
-        // ===== Test 2: offset = latest, then insert new data, verify synced =====
+        // ===== Test 1: offset = latest, then insert new data, verify synced =====
         sql """CREATE JOB ${jobName}
                 ON STREAMING
                 FROM MYSQL (
@@ -108,80 +82,84 @@ suite("test_streaming_mysql_job_special_offset", "p0,external,mysql,external_doc
         sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
         sql """drop table if exists ${currentDb}.${table1} force"""
 
-        // ===== Test 3: ALTER JOB with JSON binlog offset via PROPERTIES =====
-        // Get current binlog position, then create job with initial
+        // ===== Test 3: CREATE with JSON binlog offset, then ALTER to earlier offset =====
+        // Pre-create a DUPLICATE KEY table so duplicate rows from re-consuming are visible
+        sql """
+            CREATE TABLE IF NOT EXISTS ${currentDb}.${table1} (
+                `id` int NULL,
+                `name` varchar(100) NULL
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`id`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS AUTO
+            PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+        """
+
+        // Step 1: Get binlog position, insert data, create job from that position
+        def binlogFile = ""
+        def binlogPos = ""
+        connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {
+            def masterStatus = sql """SHOW MASTER STATUS"""
+            binlogFile = masterStatus[0][0]
+            binlogPos = masterStatus[0][1].toString()
+            log.info("CREATE binlog position: file=${binlogFile}, pos=${binlogPos}")
+            sql """INSERT INTO ${mysqlDb}.${table1} VALUES (10, 'specific1')"""
+            sql """INSERT INTO ${mysqlDb}.${table1} VALUES (11, 'specific2')"""
+        }
+        def offsetJson = """{"file":"${binlogFile}","pos":"${binlogPos}"}"""
+        log.info("CREATE with JSON offset: ${offsetJson}")
+        sql """CREATE JOB ${jobName}
+                ON STREAMING
+                FROM MYSQL (
+                    "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
+                    "driver_url" = "${driver_url}",
+                    "driver_class" = "com.mysql.cj.jdbc.Driver",
+                    "user" = "root",
+                    "password" = "123456",
+                    "database" = "${mysqlDb}",
+                    "include_tables" = "${table1}",
+                    "offset" = '${offsetJson}'
+                )
+                TO DATABASE ${currentDb} (
+                  "table.create.properties.replication_num" = "1"
+                )
+            """
+        Awaitility.await().atMost(120, SECONDS).pollInterval(2, SECONDS).until({
+            def result = sql """SELECT count(*) FROM ${currentDb}.${table1}"""
+            return result[0][0] >= 2
+        })
+        // Verify data after CREATE with specific offset
+        qt_select_after_create """ SELECT * FROM ${currentDb}.${table1} ORDER BY id """
+
+        // Step 2: Get a new binlog position (different from CREATE), insert data, ALTER to it
         def alterBinlogFile = ""
         def alterBinlogPos = ""
         connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {
             def masterStatus = sql """SHOW MASTER STATUS"""
             alterBinlogFile = masterStatus[0][0]
             alterBinlogPos = masterStatus[0][1].toString()
-            log.info("ALTER test binlog position: file=${alterBinlogFile}, pos=${alterBinlogPos}")
-            // insert data after this position
-            sql """INSERT INTO ${mysqlDb}.${table1} VALUES (20, 'alter_test1')"""
-            sql """INSERT INTO ${mysqlDb}.${table1} VALUES (21, 'alter_test2')"""
+            log.info("ALTER binlog position: file=${alterBinlogFile}, pos=${alterBinlogPos}")
+            sql """INSERT INTO ${mysqlDb}.${table1} VALUES (20, 'alter1')"""
+            sql """INSERT INTO ${mysqlDb}.${table1} VALUES (21, 'alter2')"""
         }
-        sql """CREATE JOB ${jobName}
-                ON STREAMING
-                FROM MYSQL (
-                    "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
-                    "driver_url" = "${driver_url}",
-                    "driver_class" = "com.mysql.cj.jdbc.Driver",
-                    "user" = "root",
-                    "password" = "123456",
-                    "database" = "${mysqlDb}",
-                    "include_tables" = "${table1}",
-                    "offset" = "latest"
-                )
-                TO DATABASE ${currentDb} (
-                  "table.create.properties.replication_num" = "1"
-                )
-            """
-        Awaitility.await().atMost(60, SECONDS).pollInterval(2, SECONDS).until({
-            def jobStatus = sql """select status from jobs("type"="insert") where Name='${jobName}'"""
-            return jobStatus.size() == 1 && jobStatus[0][0] == "RUNNING"
-        })
-        // pause, then alter offset to specific binlog position via PROPERTIES
         sql "PAUSE JOB where jobname = '${jobName}'"
         Awaitility.await().atMost(30, SECONDS).pollInterval(1, SECONDS).until({
             def jobStatus = sql """select status from jobs("type"="insert") where Name='${jobName}'"""
             return jobStatus[0][0] == "PAUSED"
         })
         def alterOffsetJson = """{"file":"${alterBinlogFile}","pos":"${alterBinlogPos}"}"""
-        log.info("ALTER offset: ${alterOffsetJson}")
+        log.info("ALTER to new offset: ${alterOffsetJson}")
         sql """ALTER JOB ${jobName}
                 PROPERTIES('offset' = '${alterOffsetJson}')
             """
         sql "RESUME JOB where jobname = '${jobName}'"
-        // after alter to specific binlog position, data inserted after that position should sync
+        // After ALTER to new position, id 20,21 should be synced
         Awaitility.await().atMost(120, SECONDS).pollInterval(2, SECONDS).until({
             def result = sql """SELECT count(*) FROM ${currentDb}.${table1} WHERE id IN (20, 21)"""
             return result[0][0] >= 2
         })
-        sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
-        sql """drop table if exists ${currentDb}.${table1} force"""
+        qt_select_after_alter """ SELECT * FROM ${currentDb}.${table1} ORDER BY id """
 
-        // ===== Test 3b: ALTER with named mode should fail for CDC =====
-        sql """CREATE JOB ${jobName}
-                ON STREAMING
-                FROM MYSQL (
-                    "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
-                    "driver_url" = "${driver_url}",
-                    "driver_class" = "com.mysql.cj.jdbc.Driver",
-                    "user" = "root",
-                    "password" = "123456",
-                    "database" = "${mysqlDb}",
-                    "include_tables" = "${table1}",
-                    "offset" = "initial"
-                )
-                TO DATABASE ${currentDb} (
-                  "table.create.properties.replication_num" = "1"
-                )
-            """
-        Awaitility.await().atMost(60, SECONDS).pollInterval(2, SECONDS).until({
-            def jobStatus = sql """select status from jobs("type"="insert") where Name='${jobName}'"""
-            return jobStatus.size() == 1 && jobStatus[0][0] == "RUNNING"
-        })
+        // Step 3: ALTER with named mode should fail for CDC
         sql "PAUSE JOB where jobname = '${jobName}'"
         Awaitility.await().atMost(30, SECONDS).pollInterval(1, SECONDS).until({
             def jobStatus = sql """select status from jobs("type"="insert") where Name='${jobName}'"""
@@ -216,47 +194,6 @@ suite("test_streaming_mysql_job_special_offset", "p0,external,mysql,external_doc
             """
             exception "Invalid value for key 'offset'"
         }
-
-        // ===== Test 5: JSON binlog offset, verify data synced =====
-        // Get current binlog position, insert data after it, then create job from that position
-        def binlogFile = ""
-        def binlogPos = ""
-        connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {
-            def masterStatus = sql """SHOW MASTER STATUS"""
-            binlogFile = masterStatus[0][0]
-            binlogPos = masterStatus[0][1].toString()
-            log.info("Current binlog position: file=${binlogFile}, pos=${binlogPos}")
-            // insert data after this binlog position
-            sql """INSERT INTO ${mysqlDb}.${table1} VALUES (10, 'specific1')"""
-            sql """INSERT INTO ${mysqlDb}.${table1} VALUES (11, 'specific2')"""
-        }
-        def offsetJson = """{"file":"${binlogFile}","pos":"${binlogPos}"}"""
-        log.info("Using JSON offset: ${offsetJson}")
-        sql """CREATE JOB ${jobName}
-                ON STREAMING
-                FROM MYSQL (
-                    "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
-                    "driver_url" = "${driver_url}",
-                    "driver_class" = "com.mysql.cj.jdbc.Driver",
-                    "user" = "root",
-                    "password" = "123456",
-                    "database" = "${mysqlDb}",
-                    "include_tables" = "${table1}",
-                    "offset" = '${offsetJson}'
-                )
-                TO DATABASE ${currentDb} (
-                  "table.create.properties.replication_num" = "1"
-                )
-            """
-        Awaitility.await().atMost(120, SECONDS).pollInterval(2, SECONDS).until({
-            def result = sql """SELECT count(*) FROM ${currentDb}.${table1}"""
-            return result[0][0] >= 2
-        })
-        def specificRows = sql """SELECT * FROM ${currentDb}.${table1} WHERE id IN (10, 11) order by id"""
-        log.info("specificRows: " + specificRows)
-        assert specificRows.size() == 2
-        sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
-        sql """drop table if exists ${currentDb}.${table1} force"""
 
         // cleanup MySQL source table
         connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {
