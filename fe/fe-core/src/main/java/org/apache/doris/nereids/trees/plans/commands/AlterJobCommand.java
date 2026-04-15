@@ -167,7 +167,7 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
                         isPropertiesModified(streamingJob.getSourceProperties(), this.getSourceProperties());
                 if (sourcePropModified) {
                     DataSourceConfigValidator.validateSource(this.getSourceProperties(),
-                            streamingJob.getSourceType());
+                            streamingJob.getDataSourceType().name());
                     checkUnmodifiableSourceProperties(streamingJob.getSourceProperties());
                 }
 
