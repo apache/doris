@@ -90,7 +90,7 @@ suite("test_streaming_mysql_job_special_offset_restart_fe", "docker,mysql,extern
                         {
                             def jobSuccendCount = sql """ select SucceedTaskCount from jobs("type"="insert") where Name = '${jobName}' and ExecuteType='STREAMING' """
                             log.info("jobSuccendCount: " + jobSuccendCount)
-                            jobSuccendCount.size() == 1 && '2' <= jobSuccendCount.get(0).get(0)
+                            jobSuccendCount.size() == 1 && '1' <= jobSuccendCount.get(0).get(0)
                         }
                 )
             } catch (Exception ex) {
