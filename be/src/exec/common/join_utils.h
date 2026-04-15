@@ -72,8 +72,7 @@ template <int JoinOpType>
 inline constexpr bool is_asof_outer_join_op_v = JoinOpType == TJoinOp::ASOF_LEFT_OUTER_JOIN;
 
 template <class T>
-using PrimaryTypeHashTableContext =
-        MethodOneNumber<T, JoinHashMap<T, HashCRC32Return32<T>, false>>;
+using PrimaryTypeHashTableContext = MethodOneNumber<T, JoinHashMap<T, HashCRC32Return32<T>, false>>;
 
 template <class T>
 using DirectPrimaryTypeHashTableContext =
