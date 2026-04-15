@@ -60,10 +60,8 @@ export LOAD_PARALLEL=$(( $(getconf _NPROCESSORS_ONLN) / 2 ))
 export HIVE_MODE="${HIVE_MODE:-refresh}"
 export HIVE_MODULES="${HIVE_MODULES:-all}"
 export HIVE_BASELINE_VERSION="${HIVE_BASELINE_VERSION:-20260415}"
+export HIVE_BASELINE_TARBALL_CACHE="${HIVE_BASELINE_TARBALL_CACHE:-${ROOT}/docker-compose/hive/scripts/cache/baseline}"
 export HIVE_SHARED_ID="doris-shared"
-# Base URL for downloading baseline tarballs.  Set to empty string to disable.
-# Individual tarball filenames are constructed as: <hive_version>-baseline-<version>-<arch>.tar.gz
-export HIVE_BASELINE_URL_PREFIX="${HIVE_BASELINE_URL_PREFIX:-https://doris-thirdparty.oss-cn-beijing.aliyuncs.com/thirdparties/hive-baseline}"
 
 if [[ -z "${IP_HOST:-}" ]]; then
     if command -v ip >/dev/null 2>&1; then
@@ -949,13 +947,14 @@ hive_volume_is_populated() {
 maybe_restore_baseline_to_volumes() {
     local prefix="$1"
     local hive_version="${2:-hive3}"
-    local baseline_cache="${HIVE_BASELINE_TARBALL_CACHE:-/tmp/hive-baseline-cache}"
+    local baseline_cache="${HIVE_BASELINE_TARBALL_CACHE}"
     local cache_file="${baseline_cache}/${hive_version}-baseline-${HIVE_BASELINE_VERSION}.tar.gz"
-    local download_url="${HIVE_BASELINE_TARBALL_URL:-}"
+    local remote_path="hive_baseline/${hive_version}-baseline-${HIVE_BASELINE_VERSION}-$(uname -m).tar.gz"
+    local download_url=""
     local tmp_cache_file=""
 
-    if [[ -z "${download_url}" && -n "${HIVE_BASELINE_URL_PREFIX:-}" ]]; then
-        download_url="${HIVE_BASELINE_URL_PREFIX}/${hive_version}-baseline-${HIVE_BASELINE_VERSION}-$(uname -m).tar.gz"
+    if [[ -n "${s3BucketName:-}" && -n "${s3Endpoint:-}" ]]; then
+        download_url="https://${s3BucketName}.${s3Endpoint}/regression/datalake/pipeline_data/${remote_path}"
     fi
 
     # Nothing to do if the named volumes already hold a populated baseline.
