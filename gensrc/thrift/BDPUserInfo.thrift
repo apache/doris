@@ -33,5 +33,5 @@ struct TBDPAuthContext {
    2: required string erp
    3: required string hadoopUserName
    4: required string userToken
-   5: optional bool viewBased
+   5: required bool viewBased
 }

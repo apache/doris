@@ -98,6 +98,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalView;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.AutoCloseSessionVariable;
+import org.apache.doris.qe.BDPAuthContext;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
@@ -416,10 +417,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     return new LogicalSubQueryAlias<>(qualifiedTableName, logicalView);
                 case HMS_EXTERNAL_TABLE:
                     HMSExternalTable hmsTable = (HMSExternalTable) table;
-                    hmsTable.setIsViewBased(cascadesContext.getConnectContext().isViewBased());
-                    if (cascadesContext.getConnectContext().isViewBased()) {
-                        hmsTable.setIsViewBased(true);
-                    }
+                    hmsTable.setIsViewBased(BDPAuthContext.get().isViewBased());
                     if (Config.enable_query_hive_views && hmsTable.isView()) {
                         isView = true;
                         String hiveCatalog = hmsTable.getCatalog().getName();
@@ -582,8 +580,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
         // so that we can parse and analyze the view sql in external context.
         ctx.changeDefaultCatalog(externalCatalog);
         ctx.setDatabase(externalDb);
-        boolean isViewBased = ctx.isViewBased();
-        ctx.setViewBased(true);
+        boolean isViewBased = ctx.getBdpAuthContext() != null && ctx.getBdpAuthContext().isViewBased();
+        if (ctx.getBdpAuthContext() != null) {
+            ctx.getBdpAuthContext().setViewBased(true);
+        }
         try {
             return new LogicalView<>(new ExternalView(table, ddlSql),
                     parseAndAnalyzeView(table, convertedSql, cascadesContext));
@@ -591,7 +591,9 @@ public class BindRelation extends OneAnalysisRuleFactory {
             // restore catalog and db in connect context
             ctx.changeDefaultCatalog(previousCatalog);
             ctx.setDatabase(previousDb);
-            ctx.setViewBased(isViewBased);
+            if (ctx.getBdpAuthContext() != null) {
+                ctx.getBdpAuthContext().setViewBased(isViewBased);
+            }
         }
     }
 

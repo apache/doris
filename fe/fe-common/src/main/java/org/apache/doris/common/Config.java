@@ -2321,7 +2321,7 @@ public class Config extends ConfigBase {
             "外部表元数据缓存对象在最后写入后过期的时间。",
             "The expiration time of a cache object after last write of it. For external meta cache."
     })
-    public static long external_cache_expire_time_seconds_after_write = 28800L; // 8 hours
+    public static long external_cache_expire_time_seconds_after_write = 180L; // 3 minutes
 
     @ConfField(description = {
             "外部表元数据缓存对象的自动刷新时间",

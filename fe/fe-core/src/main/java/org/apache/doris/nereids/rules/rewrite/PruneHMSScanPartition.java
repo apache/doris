@@ -221,9 +221,8 @@ public class PruneHMSScanPartition extends OneRewriteRuleFactory {
         if (!allPartitionValuesByFilter) {
             BDPAuthContext bdpAuthContext = BDPAuthContext.get();
             BDPAuthContext partitionFilterAuthContext = hiveTable.isViewBased() ? new BDPAuthContext(
-                    bdpAuthContext.getErp(), bdpAuthContext.getSource(),
-                    bdpAuthContext.getHadoopUserName() + "$",
-                    bdpAuthContext.getUserToken()) : bdpAuthContext;
+                    bdpAuthContext.getErp(), bdpAuthContext.getSource(), bdpAuthContext.getHadoopUserName(),
+                    bdpAuthContext.getUserToken(), true) : bdpAuthContext;
             try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(partitionFilterAuthContext)) {
                 partitionPredicate = PartitionPruneExpressionExtractor.extract(filter.getPredicate(),
                     ImmutableSet.copyOf(partitionSlots), ctx);

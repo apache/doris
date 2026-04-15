@@ -2398,11 +2398,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             if (request.isSetBdpAuthContext()) {
                 BDPAuthContext bdpAuthContext = new BDPAuthContext(request.getBdpAuthContext());
                 bdpAuthContext.setThreadLocalInfo();
-                ConnectContext connectContext = new ConnectContext();
-                if (request.getBdpAuthContext().isSetViewBased()) {
-                    connectContext.setViewBased(request.getBdpAuthContext().isViewBased());
-                }
-                connectContext.setThreadLocalInfo();
             }
             if (!request.isSetSchemaTableName()) {
                 return MetadataGenerator.errorResult("Fetch schema table name is not set");
@@ -2420,7 +2415,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } finally {
             if (request.isSetBdpAuthContext()) {
                 BDPAuthContext.clear();
-                ConnectContext.remove();
             }
         }
     }

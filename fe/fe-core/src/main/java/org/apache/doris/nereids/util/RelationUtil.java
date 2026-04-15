@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.qe.BDPAuthContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
@@ -142,8 +143,8 @@ public class RelationUtil {
                             "Table [" + tableName + "] does not exist in database [" + dbName + "]."
                                     + (origin.map(loc -> "(" + loc + ")").orElse("")))
             );
-            if (tbl instanceof HMSExternalTable && ConnectContext.get() != null) {
-                ((HMSExternalTable) tbl).setIsViewBased(ConnectContext.get().isViewBased());
+            if (tbl instanceof HMSExternalTable && BDPAuthContext.get() != null) {
+                ((HMSExternalTable) tbl).setIsViewBased(BDPAuthContext.get().isViewBased());
             }
             Optional<TableValuedFunction> sysTable = tbl.getSysTableFunction(catalogName, dbName, tableName);
             if (!Strings.isNullOrEmpty(tableNameWithSysTableName.second) && !sysTable.isPresent()) {

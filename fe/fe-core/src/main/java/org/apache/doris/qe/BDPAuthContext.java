@@ -28,12 +28,14 @@ public class BDPAuthContext {
     private String hadoopUserName = null;
     private String userToken = null;
     private volatile boolean erpChanged = false;
+    private volatile boolean viewBased = false;
 
     public BDPAuthContext() {
     }
 
     public BDPAuthContext(TBDPAuthContext bdpAuthContext) {
-        this(bdpAuthContext.erp, bdpAuthContext.source, bdpAuthContext.hadoopUserName, bdpAuthContext.userToken);
+        this(bdpAuthContext.erp, bdpAuthContext.source, bdpAuthContext.hadoopUserName, bdpAuthContext.userToken,
+                bdpAuthContext.viewBased);
     }
 
     public BDPAuthContext(String erp, String source, String hadoopUserName, String userToken) {
@@ -41,6 +43,14 @@ public class BDPAuthContext {
         this.source = source;
         this.hadoopUserName = hadoopUserName;
         this.userToken = userToken;
+    }
+
+    public BDPAuthContext(String erp, String source, String hadoopUserName, String userToken, boolean viewBased) {
+        this.erp = erp;
+        this.source = source;
+        this.hadoopUserName = hadoopUserName;
+        this.userToken = userToken;
+        this.viewBased = viewBased;
     }
 
     public void setErpChanged(boolean erpChanged) {
@@ -65,6 +75,10 @@ public class BDPAuthContext {
 
     public void setUserToken(String userToken) {
         this.userToken = userToken;
+    }
+
+    public void setViewBased(boolean viewBased) {
+        this.viewBased = viewBased;
     }
 
     public void setThreadLocalInfo() {
@@ -95,8 +109,12 @@ public class BDPAuthContext {
         return userToken;
     }
 
+    public boolean isViewBased() {
+        return viewBased;
+    }
+
     public String toString() {
-        return String.format("bdp_auth_context[erp: %s, source: %s, hadoop_user_name: %s]",
-            erp, source, hadoopUserName);
+        return String.format("bdp_auth_context[erp: %s, source: %s, hadoop_user_name: %s, view_based: %s]",
+            erp, source, hadoopUserName, viewBased);
     }
 }

@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropTagInfo;
+import org.apache.doris.qe.BDPAuthContext;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -380,7 +381,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
 
     @Override
     public boolean tableExist(String dbName, String tblName) {
-        if (ConnectContext.get() != null && ConnectContext.get().isViewBased()) {
+        if (BDPAuthContext.get() != null && BDPAuthContext.get().isViewBased()) {
             return client.getTableFromView(dbName, tblName) !=  null;
         }
         return client.tableExists(dbName, tblName);

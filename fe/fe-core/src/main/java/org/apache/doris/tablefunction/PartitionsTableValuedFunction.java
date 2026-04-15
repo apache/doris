@@ -196,8 +196,8 @@ public class PartitionsTableValuedFunction extends MetadataTableValuedFunction {
             if (CollectionUtils.isEmpty(((HMSExternalTable) table).getPartitionColumns())) {
                 throw new AnalysisException("Table " + tableName + " is not a partitioned table");
             }
-            if (ConnectContext.get() != null) {
-                ((HMSExternalTable) table).setIsViewBased(ConnectContext.get().isViewBased());
+            if (BDPAuthContext.get() != null) {
+                ((HMSExternalTable) table).setIsViewBased(BDPAuthContext.get().isViewBased());
             }
             return;
         }
@@ -223,10 +223,7 @@ public class PartitionsTableValuedFunction extends MetadataTableValuedFunction {
         if (BDPAuthContext.get() != null) {
             BDPAuthContext bdpAuthContext = BDPAuthContext.get();
             metaScanRange.setBdpAuthContext(new TBDPAuthContext(bdpAuthContext.getSource(), bdpAuthContext.getErp(),
-                    bdpAuthContext.getHadoopUserName(), bdpAuthContext.getUserToken()));
-            if (ConnectContext.get() != null) {
-                metaScanRange.getBdpAuthContext().setViewBased(ConnectContext.get().isViewBased());
-            }
+                    bdpAuthContext.getHadoopUserName(), bdpAuthContext.getUserToken(), bdpAuthContext.isViewBased()));
         }
         metaScanRange.setMetadataType(TMetadataType.PARTITIONS);
         TPartitionsMetadataParams partitionParam = new TPartitionsMetadataParams();

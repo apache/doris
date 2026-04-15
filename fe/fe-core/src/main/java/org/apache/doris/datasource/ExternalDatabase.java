@@ -166,7 +166,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             metaCache = Env.getCurrentEnv().getExtMetaCacheMgr().buildMetaCache(
                     name,
                     OptionalLong.of(Config.external_cache_expire_time_seconds_after_write),
-                    OptionalLong.of(Config.external_cache_refresh_time_minutes * 60L),
+                    OptionalLong.empty(),
                     Math.max(Config.max_meta_object_cache_num, 1),
                     ignored -> listTableNames(),
                     localTableName -> Optional.ofNullable(

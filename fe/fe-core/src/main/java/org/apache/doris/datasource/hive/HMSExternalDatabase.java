@@ -77,10 +77,9 @@ public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> {
         // must use full qualified name to generate id.
         // otherwise, if 2 databases have the same table name, the id will be the same.
         if (!tableName.contains("$")) {
-            Preconditions.checkArgument((ConnectContext.get() != null && BDPAuthContext.get() != null),
-                    "tableName can't be without auth info");
+            Preconditions.checkArgument(BDPAuthContext.get() != null, "tableName can't be without auth info");
             tableName = tableName + "$" + BDPAuthContext.get().getHadoopUserName()
-                    + "$" + ConnectContext.get().isViewBased();
+                    + "$" + BDPAuthContext.get().isViewBased();
         }
 
         return metaCache.getMetaObj(tableName,

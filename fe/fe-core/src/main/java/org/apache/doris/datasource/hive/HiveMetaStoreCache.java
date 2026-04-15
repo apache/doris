@@ -145,7 +145,7 @@ public class HiveMetaStoreCache {
         CacheFactory partitionValuesCacheFactory = new CacheFactory(
                 OptionalLong.of(partitionCacheTtlSecond >= ExternalCatalog.CACHE_TTL_DISABLE_CACHE
                         ? partitionCacheTtlSecond : Config.external_cache_expire_time_seconds_after_write),
-                OptionalLong.of(Config.external_cache_refresh_time_minutes * 60L),
+                OptionalLong.empty(),
                 true,
                 Config.max_hive_partition_table_cache_num
                 * Config.max_partition_num_for_single_hive_table_without_filter,
@@ -162,7 +162,7 @@ public class HiveMetaStoreCache {
 
         CacheFactory partitionNumCacheFactory = new CacheFactory(
                 OptionalLong.of(Config.external_cache_expire_time_seconds_after_write),
-                OptionalLong.of(Config.external_cache_refresh_time_minutes * 60L),
+                OptionalLong.empty(),
                 Config.max_hive_partition_count_cache_num,
                 true,
                 null);
@@ -170,7 +170,7 @@ public class HiveMetaStoreCache {
 
         CacheFactory filterPartitionValuesCacheFactory = new CacheFactory(
                 OptionalLong.of(Config.external_cache_expire_time_seconds_after_write),
-                OptionalLong.of(Config.external_cache_refresh_time_minutes * 60L),
+                OptionalLong.empty(),
                 true,
                 Config.max_filter_hive_partition_cache_num
                 * Config.max_partition_num_for_single_hive_table_without_filter,
@@ -219,7 +219,7 @@ public class HiveMetaStoreCache {
         CacheFactory fileCacheFactory = new CacheFactory(
                 OptionalLong.of(fileMetaCacheTtlSecond >= ExternalCatalog.CACHE_TTL_DISABLE_CACHE
                         ? fileMetaCacheTtlSecond : Config.external_cache_expire_time_seconds_after_write),
-                OptionalLong.of(Config.external_cache_refresh_time_minutes * 60L),
+                OptionalLong.empty(),
                 Config.max_external_file_cache_num,
                 true,
                 null);
