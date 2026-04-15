@@ -88,6 +88,7 @@ import org.json.JSONObject;
 import org.xnio.StreamConnection;
 
 import java.io.IOException;
+import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -590,7 +591,14 @@ public class ConnectContext {
             } else if (literalExpr instanceof IntLiteral) {
                 // the value in the IntLiteral should be int, but now is long in old planner literalExpr
                 // so type coercion to generate right new planner int Literal
-                return Literal.of((int) ((IntLiteral) literalExpr).getValue());
+                switch (literalExpr.getType().getPrimitiveType()) {
+                    case LARGEINT:
+                        return Literal.of(new BigInteger(literalExpr.getStringValue()));
+                    case BIGINT:
+                        return Literal.of(((IntLiteral) literalExpr).getValue());
+                    default:
+                        return Literal.of((int) ((IntLiteral) literalExpr).getValue());
+                }
             } else if (literalExpr instanceof FloatLiteral) {
                 return Literal.of(((FloatLiteral) literalExpr).getValue());
             } else if (literalExpr instanceof DecimalLiteral) {

@@ -219,7 +219,18 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
      * ******************************************************************************************** */
     @Override
     public Expression visitUnboundVariable(UnboundVariable unboundVariable, ExpressionRewriteContext context) {
-        return resolveUnboundVariable(unboundVariable);
+        Variable variable = resolveUnboundVariable(unboundVariable);
+        // Record used variable for SQL cache when context is available.
+        // Defensive null-check: some callers may invoke analysis without a full
+        // ExpressionRewriteContext (e.g. in isolated tests), so guard access.
+        if (context != null && context.cascadesContext != null) {
+            Optional<SqlCacheContext> sqlCacheContext = context.cascadesContext.getStatementContext()
+                    .getSqlCacheContext();
+            if (sqlCacheContext.isPresent()) {
+                sqlCacheContext.get().addUsedVariable(variable);
+            }
+        }
+        return variable.getRealExpression();
     }
 
     /** resolveUnboundVariable */
