@@ -466,19 +466,18 @@ public class CreateMTMVCommandTest extends TestWithFeService {
 
         // hidden trailing agg state columns:
         // __DORIS_IVM_AGG_COUNT_COL__ (group count)
-        // __DORIS_IVM_AGG_0_COUNT_COL__ (COUNT(*) hidden)
-        // __DORIS_IVM_AGG_1_SUM_COL__ (SUM hidden)
         // __DORIS_IVM_AGG_1_COUNT_COL__ (SUM count hidden)
+        // COUNT(*) has no hidden columns; SUM has no hidden SUM (visible stores it)
         List<Column> hiddenCols = cols.stream()
                 .filter(c -> !c.isVisible()).collect(Collectors.toList());
-        int expectedHiddenCols = 6 + (Config.enable_hidden_version_column_by_default ? 1 : 0);
-        Assertions.assertEquals(expectedHiddenCols, hiddenCols.size()); // row_id + 4 agg states + delete_sign [+ version]
+        int expectedHiddenCols = 4 + (Config.enable_hidden_version_column_by_default ? 1 : 0);
+        Assertions.assertEquals(expectedHiddenCols, hiddenCols.size()); // row_id + 2 agg states + delete_sign [+ version]
         List<String> hiddenNames = hiddenCols.stream()
                 .map(Column::getName).collect(Collectors.toList());
         Assertions.assertTrue(hiddenNames.contains(Column.DELETE_SIGN));
         Assertions.assertTrue(hiddenNames.contains(Column.IVM_AGG_COUNT_COL));
-        Assertions.assertTrue(hiddenNames.contains("__DORIS_IVM_AGG_0_COUNT_COL__"));
-        Assertions.assertTrue(hiddenNames.contains("__DORIS_IVM_AGG_1_SUM_COL__"));
+        Assertions.assertFalse(hiddenNames.contains("__DORIS_IVM_AGG_0_COUNT_COL__"));
+        Assertions.assertFalse(hiddenNames.contains("__DORIS_IVM_AGG_1_SUM_COL__"));
         Assertions.assertTrue(hiddenNames.contains("__DORIS_IVM_AGG_1_COUNT_COL__"));
         if (Config.enable_hidden_version_column_by_default) {
             Assertions.assertTrue(hiddenNames.contains(Column.VERSION_COL));
@@ -554,10 +553,11 @@ public class CreateMTMVCommandTest extends TestWithFeService {
                 .filter(Column::isVisible).collect(Collectors.toList());
         Assertions.assertEquals(2, visibleCols.size());
 
-        // hidden: row_id + IVM_AGG_COUNT_COL + AGG_0_COUNT + AGG_1_SUM + AGG_1_COUNT + delete_sign [+ version]
+        // hidden: row_id + IVM_AGG_COUNT_COL + AGG_1_COUNT + delete_sign [+ version]
+        // COUNT(*) has no hidden columns; SUM has no hidden SUM (visible stores it)
         List<Column> hiddenCols = cols.stream()
                 .filter(c -> !c.isVisible()).collect(Collectors.toList());
-        int expectedHiddenCols = 6 + (Config.enable_hidden_version_column_by_default ? 1 : 0);
+        int expectedHiddenCols = 4 + (Config.enable_hidden_version_column_by_default ? 1 : 0);
         Assertions.assertEquals(expectedHiddenCols, hiddenCols.size());
         List<String> hiddenNames = hiddenCols.stream()
                 .map(Column::getName).collect(Collectors.toList());
