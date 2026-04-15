@@ -21,26 +21,26 @@ suite("test_show_processlist") {
     sql """set fetch_all_fe_for_system_table = false;"""
     def result = sql """show processlist;"""
     logger.info("result:${result}")
-    assertTrue(result[0].size() == 15)
+    assertTrue(result[0].size() == 18)
     sql """set fetch_all_fe_for_system_table = true;"""
     result = sql """show processlist;"""
     logger.info("result:${result}")
-    assertTrue(result[0].size() == 15)
+    assertTrue(result[0].size() == 18)
     sql """set fetch_all_fe_for_system_table = false;"""
 
     def url1 = "http://${context.config.feHttpAddress}/rest/v1/session"
     result =  Http.GET(url1, true)
     logger.info("result:${result}")
-    assertTrue(result["data"]["column_names"].size() == 15);
+    assertTrue(result["data"]["column_names"].size() == 18);
 
     def url2 = "http://${context.config.feHttpAddress}/rest/v1/session/all"
     result = Http.GET(url2, true)
     logger.info("result:${result}")
-    assertTrue(result["data"]["column_names"].size() == 15);
+    assertTrue(result["data"]["column_names"].size() == 18);
 
     result = sql """select * from information_schema.processlist"""
     logger.info("result:${result}")
-    assertTrue(result[0].size() == 15)
+    assertTrue(result[0].size() == 18)
 
     
     def result1 = connect('root', context.config.jdbcPassword, context.config.jdbcUrl) {

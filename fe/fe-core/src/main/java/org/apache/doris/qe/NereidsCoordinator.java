@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.ExecutionProfile;
@@ -352,6 +353,41 @@ public class NereidsCoordinator extends Coordinator {
     @Override
     public List<TErrorTabletInfo> getErrorTabletInfos() {
         return coordinatorContext.asLoadProcessor().loadContext.getErrorTabletInfos();
+    }
+
+    // 1. Get the total number of fragment instances for Nereids engine.
+    // 2. Overrides base class to use Nereids-specific CoordinatorContext if primary path fails.
+    @Override
+    public long getFragmentInstanceCount() {
+        Pair<Long, Long> stats = getInstancesNumFromWorkloadRuntimeStatusMgr();
+        if (stats.first > 0) {
+            return stats.first;
+        }
+        return coordinatorContext.instanceNum.get();
+    }
+
+    // 1. Primary path: Use aggregated stats from periodic BE reports (Audit Log path).
+    // 2. Fallback path: Traverse the execution task tree in FE memory to count completed tasks.
+    @Override
+    public long getFragmentInstanceFinishedCount() {
+        Pair<Long, Long> stats = getInstancesNumFromWorkloadRuntimeStatusMgr();
+        if (stats.first > 0) {
+            return stats.second;
+        }
+
+        if (executionTask == null) {
+            return 0;
+        }
+        long finishedInstances = 0;
+        // Deep traverse the execution task tree to sum up finished instances
+        for (MultiFragmentsPipelineTask multiTask : executionTask.getChildrenTasks().values()) {
+            for (SingleFragmentPipelineTask singleTask : multiTask.getChildrenTasks().values()) {
+                if (singleTask.isDone()) {
+                    finishedInstances += singleTask.getInstanceNum();
+                }
+            }
+        }
+        return finishedInstances;
     }
 
     @Override

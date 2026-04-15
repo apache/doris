@@ -47,6 +47,8 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Timer;
+import java.util.TimerTask;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
@@ -187,7 +189,27 @@ public abstract class AbstractInsertExecutor {
         if (LOG.isDebugEnabled()) {
             LOG.debug("insert [{}] with query id {} execution timeout is {}", labelName, queryId, execTimeout);
         }
-        boolean notTimeout = coordinator.join(execTimeout);
+
+        // Create an asynchronous timer to refresh progress for long-running INSERT INTO SELECT jobs.
+        // This is necessary because the main thread will be blocked in coordinator.join().
+        Timer updateTimer = new Timer("InsertLoadJobProgressUpdater", true);
+        updateTimer.scheduleAtFixedRate(new TimerTask() {
+            @Override
+            public void run() {
+                if (!coordinator.isDone()) {
+                    long total = coordinator.getFragmentInstanceCount();
+                    long finished = coordinator.getFragmentInstanceFinishedCount();
+                    insertLoadJob.updateProgress(finished, total);
+                }
+            }
+        }, 100, 500);
+
+        boolean notTimeout;
+        try {
+            notTimeout = coordinator.join(execTimeout);
+        } finally {
+            updateTimer.cancel();
+        }
         executor.getSummaryProfile().freshFetchResultConsumeTime();
         executor.getSummaryProfile().setQueryFetchResultFinishTime(TimeUtils.getStartTimeMs());
         if (!coordinator.isDone()) {
