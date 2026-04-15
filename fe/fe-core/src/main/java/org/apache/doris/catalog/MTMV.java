@@ -92,6 +92,8 @@ public class MTMV extends OlapTable {
     private MTMVCache cacheWithGuard;
     // Cache without SessionVarGuardExpr: used when query session variables match MV creation variables
     private MTMVCache cacheWithoutGuard;
+    // Increased every time rewrite cache is invalidated to prevent publishing stale in-flight cache builds.
+    private transient long rewriteCacheGeneration;
     private long schemaChangeVersion;
     @SerializedName(value = "sv")
     private Map<String, String> sessionVariables;
@@ -212,9 +214,16 @@ public class MTMV extends OlapTable {
         MTMVCache mtmvCacheWithGuard = null;
         MTMVCache mtmvCacheWithoutGuard = null;
         boolean needUpdateCache = false;
+        long cacheGeneration = -1;
         if (task.getStatus() == TaskStatus.SUCCESS && !Env.isCheckpointThread()
                 && !Config.enable_check_compatibility_mode) {
             needUpdateCache = true;
+            readMvLock();
+            try {
+                cacheGeneration = rewriteCacheGeneration;
+            } finally {
+                readMvUnlock();
+            }
             try {
                 // The replay thread may not have initialized the catalog yet to avoid getting stuck due
                 // to connection issues such as S3, so it is directly set to null
@@ -247,10 +256,12 @@ public class MTMV extends OlapTable {
                 this.status.setRefreshState(MTMVRefreshState.SUCCESS);
                 this.relation = relation;
                 if (needUpdateCache) {
-                    // Initialize cacheWithGuard, cacheWithoutGuard will be lazily generated when needed
-                    this.cacheWithGuard = mtmvCacheWithGuard;
-                    // Clear the other cache to ensure consistency
-                    this.cacheWithoutGuard = mtmvCacheWithoutGuard;
+                    if (cacheGeneration == rewriteCacheGeneration) {
+                        // Initialize cacheWithGuard, cacheWithoutGuard will be lazily generated when needed
+                        this.cacheWithGuard = mtmvCacheWithGuard;
+                        // Clear the other cache to ensure consistency
+                        this.cacheWithoutGuard = mtmvCacheWithoutGuard;
+                    }
                 }
             } else {
                 this.status.setRefreshState(MTMVRefreshState.FAIL);
@@ -385,31 +396,38 @@ public class MTMV extends OlapTable {
         boolean sessionVarsMatch = SessionVarGuardRewriter.checkSessionVariablesMatch(
                 currentSessionVars, this.sessionVariables);
 
-        // Select appropriate cache based on session variable match
-        readMvLock();
-        try {
-            MTMVCache cache = getCache(sessionVarsMatch);
-            if (cache != null) {
-                return cache;
+        while (true) {
+            long cacheGeneration;
+            // Select appropriate cache based on session variable match
+            readMvLock();
+            try {
+                MTMVCache cache = getCache(sessionVarsMatch);
+                if (cache != null) {
+                    return cache;
+                }
+                cacheGeneration = rewriteCacheGeneration;
+            } finally {
+                readMvUnlock();
             }
-        } finally {
-            readMvUnlock();
-        }
 
-        // Generate cache if not exists
-        // Concurrent situations may result in duplicate cache generation,
-        // but we tolerate this in order to prevent nested use of readLock and write MvLock for the table
-        MTMVCache mtmvCache = createRewriteCache(connectionContext, false, !sessionVarsMatch);
-        writeMvLock();
-        try {
-            MTMVCache cache = getCache(sessionVarsMatch);
-            if (cache != null) {
-                return cache;
+            // Generate cache if not exists
+            // Concurrent situations may result in duplicate cache generation,
+            // but we tolerate this in order to prevent nested use of readLock and write MvLock for the table
+            MTMVCache mtmvCache = createRewriteCache(connectionContext, false, !sessionVarsMatch);
+            writeMvLock();
+            try {
+                MTMVCache cache = getCache(sessionVarsMatch);
+                if (cache != null) {
+                    return cache;
+                }
+                if (cacheGeneration != rewriteCacheGeneration) {
+                    continue;
+                }
+                setCache(sessionVarsMatch, mtmvCache);
+                return mtmvCache;
+            } finally {
+                writeMvUnlock();
             }
-            setCache(sessionVarsMatch, mtmvCache);
-            return mtmvCache;
-        } finally {
-            writeMvUnlock();
         }
     }
 
@@ -440,12 +458,13 @@ public class MTMV extends OlapTable {
     }
 
     /**
-     * Best-effort cache invalidation after metadata changes such as ADD/DROP CONSTRAINT.
-     * Concurrent queries may rebuild the cache again around this window, which is acceptable.
+     * Invalidate rewrite cache after metadata changes such as ADD/DROP CONSTRAINT.
+     * Bumping the generation prevents any cache built before this call from being published later.
      */
     public void invalidateRewriteCache() {
         writeMvLock();
         try {
+            rewriteCacheGeneration++;
             cacheWithGuard = null;
             cacheWithoutGuard = null;
         } finally {
