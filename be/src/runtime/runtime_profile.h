@@ -199,12 +199,15 @@ public:
             _value.fetch_add(delta, std::memory_order_relaxed);
 #endif
 #ifndef NDEBUG
+            (void)prev_value;
+#if !defined(BE_TEST)
             if (enable_profile_counter_check) {
                 if (delta < 0) {
                     DCHECK_GT(_value.load(std::memory_order_seq_cst), -1L)
                             << " delta: " << delta << " prev_value: " << prev_value;
                 }
             }
+#endif
 #endif
         }
 
@@ -218,10 +221,13 @@ public:
             _value.store(value, std::memory_order_relaxed);
 #endif
 #ifndef NDEBUG
+            (void)prev_value;
+#if !defined(BE_TEST)
             if (enable_profile_counter_check) {
                 DCHECK_GT(_value.load(std::memory_order_seq_cst), -1L)
                         << " new value: " << value << " prev_value: " << prev_value;
             }
+#endif
 #endif
         }
 
@@ -234,10 +240,13 @@ public:
             _value.store(binary_cast<double, int64_t>(value), std::memory_order_relaxed);
 #endif
 #ifndef NDEBUG
+            (void)prev_value;
+#if !defined(BE_TEST)
             if (enable_profile_counter_check) {
                 DCHECK_GT(_value.load(std::memory_order_seq_cst), -1L)
                         << " new value: " << value << " prev_value: " << prev_value;
             }
+#endif
 #endif
         }
 
@@ -388,6 +397,9 @@ public:
 #endif
             UpdateMax(v);
 #ifndef NDEBUG
+            (void)prev_value;
+            (void)prev_max_value;
+#if !defined(BE_TEST)
 
             if (enable_profile_counter_check) {
                 DCHECK_GT(current_value_.load(std::memory_order_seq_cst), -1L)
@@ -395,6 +407,7 @@ public:
                 DCHECK_GT(_value.load(std::memory_order_seq_cst), -1L)
                         << " prev_max_value: " << prev_max_value << " prev_value: " << prev_value;
             }
+#endif
 #endif
         }
 
