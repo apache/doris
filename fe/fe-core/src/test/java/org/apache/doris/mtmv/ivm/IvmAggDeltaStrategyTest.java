@@ -343,7 +343,9 @@ class IvmAggDeltaStrategyTest extends IvmDeltaTestBase {
                 "Should find a boundary guard AssertTrue with Or condition. Found "
                 + allAssertTrue.size() + " AssertTrue(s) with conditions: "
                 + allAssertTrue.stream().map(at -> at.child(0).getClass().getSimpleName())
-                        .collect(Collectors.joining(", ")));
+                        .collect(Collectors.joining(", "))
+                + ". Projects: " + result.finalProject.getProjects().stream()
+                        .map(e -> e.getName()).collect(Collectors.joining(", ")));
 
         // Guard should be: OR(IS_NULL(deltaDel), OR(IS_NULL(old), deltaDel > old))
         Expression guardCondition = boundaryGuard.child(0);
