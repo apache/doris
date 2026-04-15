@@ -22,6 +22,8 @@
 
 #include <crc32c/crc32c.h>
 
+#include "util/utf8_check.h"
+
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <cstring>
@@ -757,6 +759,11 @@ void ColumnStr<T>::insert(const Field& x) {
 template <typename T>
 bool ColumnStr<T>::is_ascii() const {
     return simd::VStringFunctions::is_ascii(StringRef(chars.data(), chars.size()));
+}
+
+template <typename T>
+bool ColumnStr<T>::is_valid_utf8() const {
+    return validate_utf8(reinterpret_cast<const char*>(chars.data()), chars.size());
 }
 
 template class ColumnStr<uint32_t>;
