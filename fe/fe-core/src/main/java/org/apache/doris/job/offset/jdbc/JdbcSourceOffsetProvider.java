@@ -365,14 +365,6 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         if (offset == null || offset.trim().isEmpty()) {
             return null;
         }
-        // Named modes: stored in sourceProperties.offset, CDC client reads it directly.
-        // Return a placeholder JdbcOffset so validateOffset() passes.
-        if (DataSourceConfigKeys.OFFSET_INITIAL.equalsIgnoreCase(offset)
-                || DataSourceConfigKeys.OFFSET_SNAPSHOT.equalsIgnoreCase(offset)
-                || DataSourceConfigKeys.OFFSET_EARLIEST.equalsIgnoreCase(offset)
-                || DataSourceConfigKeys.OFFSET_LATEST.equalsIgnoreCase(offset)) {
-            return new JdbcOffset(Collections.singletonList(new BinlogSplit()));
-        }
         // JSON format: {"file":"binlog.000003","pos":154} or {"lsn":"123456"}
         if (DataSourceConfigValidator.isJsonOffset(offset)) {
             try {
