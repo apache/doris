@@ -190,7 +190,8 @@ public class AsyncMaterializationContext extends MaterializationContext {
             Map<List<String>, Set<String>> queryUsedBaseTablePartitionMap) throws AnalysisException {
         Map<List<String>, Set<String>> effectiveQueryUsedBaseTablePartitionMap
                 = mtmv.getEffectiveQueryUsedBaseTablePartitionMap(queryUsedBaseTablePartitionMap);
-        if (isPartitionMappingsCovered(effectiveQueryUsedBaseTablePartitionMap)) {
+        Set<MTMVRelatedTableIf> pctTables = mtmv.getMvPartitionInfo().getPctTables();
+        if (isPartitionMappingsCovered(effectiveQueryUsedBaseTablePartitionMap, pctTables)) {
             return partitionMultiFlatMap;
         }
         if (partitionMultiFlatMap == null) {
@@ -210,15 +211,16 @@ public class AsyncMaterializationContext extends MaterializationContext {
                         .addAll(set);
             }
         }
-        mergeCoveredPartitions(effectiveQueryUsedBaseTablePartitionMap);
+        mergeCoveredPartitions(effectiveQueryUsedBaseTablePartitionMap, pctTables);
         return partitionMultiFlatMap;
     }
 
-    private boolean isPartitionMappingsCovered(Map<List<String>, Set<String>> effectiveQueryUsedBaseTablePartitionMap) {
+    private boolean isPartitionMappingsCovered(Map<List<String>, Set<String>> effectiveQueryUsedBaseTablePartitionMap,
+            Set<MTMVRelatedTableIf> pctTables) {
         if (partitionMultiFlatMap == null) {
             return false;
         }
-        for (MTMVRelatedTableIf pctTable : mtmv.getMvPartitionInfo().getPctTables()) {
+        for (MTMVRelatedTableIf pctTable : pctTables) {
             List<String> tableQualifiers = pctTable.getFullQualifiers();
             Set<String> queryUsedPartitions = effectiveQueryUsedBaseTablePartitionMap.containsKey(tableQualifiers)
                     ? effectiveQueryUsedBaseTablePartitionMap.get(tableQualifiers)
@@ -241,8 +243,9 @@ public class AsyncMaterializationContext extends MaterializationContext {
         return queryUsedPartitions != null && coveredPartitions.containsAll(queryUsedPartitions);
     }
 
-    private void mergeCoveredPartitions(Map<List<String>, Set<String>> effectiveQueryUsedBaseTablePartitionMap) {
-        for (MTMVRelatedTableIf pctTable : mtmv.getMvPartitionInfo().getPctTables()) {
+    private void mergeCoveredPartitions(Map<List<String>, Set<String>> effectiveQueryUsedBaseTablePartitionMap,
+            Set<MTMVRelatedTableIf> pctTables) {
+        for (MTMVRelatedTableIf pctTable : pctTables) {
             List<String> tableQualifiers = pctTable.getFullQualifiers();
             Set<String> queryUsedPartitions = effectiveQueryUsedBaseTablePartitionMap.containsKey(tableQualifiers)
                     ? effectiveQueryUsedBaseTablePartitionMap.get(tableQualifiers)
