@@ -55,7 +55,7 @@ public class PaimonTableCache {
 
     private static TableExt loadTable(PaimonTableCacheKey key) {
         try {
-            LOG.warn("load table:{}", key);
+            LOG.info("load table:{}", key);
             Catalog catalog = createCatalog(key.getPaimonOptionParams(), key.getHadoopOptionParams());
             Table table = catalog.getTable(Identifier.create(key.getDbName(), key.getTblName()));
             return new TableExt(table, System.currentTimeMillis());

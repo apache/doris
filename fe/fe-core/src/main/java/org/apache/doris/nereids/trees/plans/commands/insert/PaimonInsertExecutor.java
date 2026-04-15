@@ -63,6 +63,7 @@ public class PaimonInsertExecutor extends BaseExternalTableInsertExecutor {
         PaimonTransaction transaction = (PaimonTransaction) transactionManager.getTransaction(txnId);
         transaction.setTransactionId(txnId);
         transaction.beginInsert((PaimonExternalTable) table, insertCtx);
+        LOG.info("paimon: beginInsert txnId={}, table={}", txnId, table.getName());
     }
 
     @Override
@@ -73,6 +74,7 @@ public class PaimonInsertExecutor extends BaseExternalTableInsertExecutor {
             this.loadedRows = updateCnt;
         }
         transaction.finishInsert((PaimonExternalTable) table, insertCtx);
+        LOG.info("paimon: finishInsert txnId={}, table={}, loadedRows={}", txnId, table.getName(), loadedRows);
     }
 
     @Override
