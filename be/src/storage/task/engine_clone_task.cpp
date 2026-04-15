@@ -214,7 +214,7 @@ Status EngineCloneTask::_do_clone() {
         if (tablet->replica_id() < _clone_req.replica_id) {
             // `tablet` may be a dropped replica in FE, e.g:
             //   BE1 migrates replica of tablet_1 to BE2, but before BE1 drop this replica, another new replica of tablet_1 is migrated to BE1.
-            // Clone can still continue in this case. But to keep `replica_id` consitent with FE, MUST reset `replica_id` with request `replica_id`.
+            // Clone can still continue in this case. But to keep `replica_id` consistent with FE, MUST reset `replica_id` with request `replica_id`.
             tablet->tablet_meta()->set_replica_id(_clone_req.replica_id);
         }
 

@@ -599,7 +599,7 @@ public:
     void unix_timestamp(int64_t* timestamp, const cctz::time_zone& ctz) const;
 
     //construct datetime_value from timestamp and timezone
-    //timestamp is an internal timestamp value representing seconds since '1970-01-01 00:00:00' UTC. negative avaliable.
+    //timestamp is an internal timestamp value representing seconds since '1970-01-01 00:00:00' UTC. negative available.
     //we don't do any check in it because it's hot path. any usage want ensure the time legality should check itself.
     bool from_unixtime(int64_t, const std::string& timezone);
     void from_unixtime(int64_t, const cctz::time_zone& ctz);
@@ -1103,7 +1103,7 @@ public:
     void unix_timestamp(std::pair<int64_t, int64_t>* timestamp, const cctz::time_zone& ctz) const;
 
     //construct datetime_value from timestamp and timezone
-    //timestamp is an internal timestamp value representing seconds since '1970-01-01 00:00:00' UTC. negative avaliable.
+    //timestamp is an internal timestamp value representing seconds since '1970-01-01 00:00:00' UTC. negative available.
     //we don't do any check in it because it's hot path. any usage want ensure the time legality should check itself.
     bool from_unixtime(int64_t, const std::string& timezone);
     void from_unixtime(int64_t, const cctz::time_zone& ctz);

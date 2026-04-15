@@ -223,7 +223,7 @@ auto try_any_cast_ret(std::vector<std::any>& any) {
 # define TEST_SYNC_POINT_SINGLETON()
 #else
 // Use TEST_SYNC_POINT to specify sync points inside code base.
-// Sync points can have happens-after depedency on other sync points,
+// Sync points can have happens-after dependency on other sync points,
 // configured at runtime via SyncPoint::load_dependency. This could be
 // utilized to re-produce race conditions between threads.
 # define TEST_SYNC_POINT(x) SYNC_POINT(x)

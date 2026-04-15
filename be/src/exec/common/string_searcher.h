@@ -112,7 +112,7 @@ public:
     template <typename CharT>
     // requires (sizeof(CharT) == 1)
     const CharT* search(const CharT* haystack, size_t haystack_size) const {
-        // cast to unsigned int8 to be consitent with needle type
+        // cast to unsigned int8 to be consistent with needle type
         // ensure unsigned type compare
         return reinterpret_cast<const CharT*>(
                 _search(reinterpret_cast<const uint8_t*>(haystack), haystack_size));
@@ -121,7 +121,7 @@ public:
     template <typename CharT>
     // requires (sizeof(CharT) == 1)
     const CharT* search(const CharT* haystack, const CharT* haystack_end) const {
-        // cast to unsigned int8 to be consitent with needle type
+        // cast to unsigned int8 to be consistent with needle type
         // ensure unsigned type compare
         return reinterpret_cast<const CharT*>(
                 _search(reinterpret_cast<const uint8_t*>(haystack),
@@ -131,7 +131,7 @@ public:
     template <typename CharT>
     // requires (sizeof(CharT) == 1)
     ALWAYS_INLINE bool compare(const CharT* haystack, const CharT* haystack_end, CharT* pos) const {
-        // cast to unsigned int8 to be consitent with needle type
+        // cast to unsigned int8 to be consistent with needle type
         // ensure unsigned type compare
         return _compare(reinterpret_cast<const uint8_t*>(haystack),
                         reinterpret_cast<const uint8_t*>(haystack_end),
