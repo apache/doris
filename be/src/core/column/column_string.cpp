@@ -22,8 +22,6 @@
 
 #include <crc32c/crc32c.h>
 
-#include "util/utf8_check.h"
-
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <cstring>
@@ -38,6 +36,7 @@
 #include "util/simd/bits.h"
 #include "util/simd/vstring_function.h"
 #include "util/unaligned.h"
+#include "util/utf8_check.h"
 namespace doris {
 
 template <typename T>
