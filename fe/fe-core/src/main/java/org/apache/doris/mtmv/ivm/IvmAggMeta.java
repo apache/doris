@@ -36,40 +36,10 @@ public class IvmAggMeta {
 
     /** Supported aggregate types for IVM. */
     public enum AggType {
-        COUNT_STAR,
-        COUNT_EXPR,
+        COUNT,
         SUM,
         AVG,
         MIN,
-        MAX
-    }
-
-    /**
-     * Keys used to identify state columns within an {@link AggTarget}.
-     *
-     * <p>Physical storage in the MV varies by aggregate type:
-     * <ul>
-     *   <li><b>AVG</b>: both {@code SUM} and {@code COUNT} map to hidden columns in the MV.</li>
-     *   <li><b>SUM, MIN, MAX</b>: only {@code COUNT} is stored as a hidden column; the
-     *       visible column already holds the SUM/MIN/MAX value directly.</li>
-     *   <li><b>COUNT_STAR, COUNT_EXPR</b>: no hidden columns; the visible column holds the
-     *       count value (for COUNT_STAR this equals the global group count).</li>
-     * </ul>
-     *
-     * <p>{@code MIN} and {@code MAX} are transient semantic keys used only in the delta
-     * sub-plan to name the insert-side extremal aggregate.
-     *
-     * <p>The {@code name()} of each constant also serves as the suffix in generated
-     * column names (via {@link IvmUtil#ivmAggHiddenColumnName}).
-     */
-    public enum StateKey {
-        /** Hidden SUM state (physical column only for AVG targets). */
-        SUM,
-        /** Hidden COUNT state (physical column for SUM, AVG, MIN, MAX targets). */
-        COUNT,
-        /** Transient semantic key for MIN delta naming (not stored in MV). */
-        MIN,
-        /** Transient semantic key for MAX delta naming (not stored in MV). */
         MAX
     }
 
@@ -80,14 +50,17 @@ public class IvmAggMeta {
         private final int ordinal;
         private final AggType aggType;
         private final Slot visibleSlot;
-        // hidden state column slots, keyed by StateKey
-        private final Map<StateKey, Slot> hiddenStateSlots;
+        // Hidden state column slots, keyed by the AggType of the state they store.
+        // For example, an AVG target has hidden SUM and COUNT slots keyed by AggType.SUM
+        // and AggType.COUNT respectively. Only COUNT, SUM, MIN, MAX are valid keys here
+        // (AVG is never a hidden-state kind — it is derived from SUM/COUNT).
+        private final Map<AggType, Slot> hiddenStateSlots;
         // the expression(s) from the base scan that feed this aggregate
-        // (empty for COUNT_STAR; may be Slot or compound Expression like v1+v2)
+        // (empty for COUNT(*); may be Slot or compound Expression like v1+v2)
         private final List<Expression> exprArgs;
 
         public AggTarget(int ordinal, AggType aggType, Slot visibleSlot,
-                Map<StateKey, Slot> hiddenStateSlots, List<Expression> exprArgs) {
+                Map<AggType, Slot> hiddenStateSlots, List<Expression> exprArgs) {
             this.ordinal = ordinal;
             this.aggType = Objects.requireNonNull(aggType);
             this.visibleSlot = Objects.requireNonNull(visibleSlot);
@@ -107,25 +80,30 @@ public class IvmAggMeta {
             return visibleSlot;
         }
 
-        public Map<StateKey, Slot> getHiddenStateSlots() {
+        /** Whether this is a COUNT(*) target (no expression arguments). */
+        public boolean isCountStar() {
+            return aggType == AggType.COUNT && exprArgs.isEmpty();
+        }
+
+        public Map<AggType, Slot> getHiddenStateSlots() {
             return hiddenStateSlots;
         }
 
-        public Slot getHiddenStateSlot(StateKey stateKey) {
-            return hiddenStateSlots.get(stateKey);
+        public Slot getHiddenStateSlot(AggType stateType) {
+            return hiddenStateSlots.get(stateType);
         }
 
         /**
-         * Returns the canonical column name for the given state key.
+         * Returns the canonical column name for the given state type.
          *
          * <p>If a physical hidden slot exists, its name is returned; otherwise the name
          * is generated via {@link IvmUtil#ivmAggHiddenColumnName}.  This allows delta
          * sub-plan code to use a consistent name for both persisted and transient columns.
          */
-        public String stateColumnName(StateKey stateKey) {
-            Slot slot = hiddenStateSlots.get(stateKey);
+        public String stateColumnName(AggType stateType) {
+            Slot slot = hiddenStateSlots.get(stateType);
             return slot != null ? slot.getName()
-                    : IvmUtil.ivmAggHiddenColumnName(ordinal, stateKey.name());
+                    : IvmUtil.ivmAggHiddenColumnName(ordinal, stateType.name());
         }
 
         public List<Expression> getExprArgs() {

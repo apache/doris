@@ -24,7 +24,6 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.ivm.IvmAggMeta;
 import org.apache.doris.mtmv.ivm.IvmAggMeta.AggTarget;
 import org.apache.doris.mtmv.ivm.IvmAggMeta.AggType;
-import org.apache.doris.mtmv.ivm.IvmAggMeta.StateKey;
 import org.apache.doris.mtmv.ivm.IvmNormalizeResult;
 import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -79,7 +78,7 @@ import java.util.stream.Collectors;
  *         __DORIS_IVM_ROW_ID__  = hash(k1, k2),
  *         k1, k2,
  *         sum(v1+v2),                       -- ordinal 0 visible (SUM)
- *         count(v3+v4),                     -- ordinal 1 visible (COUNT_EXPR, no hidden col)
+ *         count(v3+v4),                     -- ordinal 1 visible (COUNT(expr), no hidden col)
  *         avg(v5+v6),                       -- ordinal 2 visible (AVG)
  *         min(v7+v8),                       -- ordinal 3 visible (MIN)
  *         __DORIS_IVM_AGG_COUNT_COL__,      -- group COUNT(*)
@@ -288,34 +287,31 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
     private void buildHiddenStateForAgg(int ordinal, AggregateFunction aggFunc, Alias origAlias,
             List<NamedExpression> hiddenAggOutputs, List<AggTarget> aggTargets) {
         AggType aggType;
-        Map<StateKey, Alias> hiddenAliases = new LinkedHashMap<>();
+        Map<AggType, Alias> hiddenAliases = new LinkedHashMap<>();
 
         if (aggFunc instanceof Count) {
-            Count countFunc = (Count) aggFunc;
-            if (countFunc.isStar()) {
-                aggType = AggType.COUNT_STAR;
-                // No hidden columns: visible column equals the global group count.
-            } else {
-                aggType = AggType.COUNT_EXPR;
+            aggType = AggType.COUNT;
+            if (!((Count) aggFunc).isStar()) {
                 // No hidden columns: visible column stores COUNT(expr) directly.
+                // (COUNT(*) also has no hidden columns: visible = global group count.)
             }
         } else if (aggFunc instanceof Sum) {
             aggType = AggType.SUM;
             // No hidden SUM column: visible column stores SUM directly.
             // Hidden COUNT is needed for the assertNonNegative guard and null-count logic.
-            addHiddenAlias(hiddenAliases, ordinal, StateKey.COUNT, new Count(aggFunc.child(0)));
+            addHiddenAlias(hiddenAliases, ordinal, AggType.COUNT, new Count(aggFunc.child(0)));
         } else if (aggFunc instanceof Avg) {
             aggType = AggType.AVG;
-            addHiddenAlias(hiddenAliases, ordinal, StateKey.SUM, new Sum(aggFunc.child(0)));
-            addHiddenAlias(hiddenAliases, ordinal, StateKey.COUNT, new Count(aggFunc.child(0)));
+            addHiddenAlias(hiddenAliases, ordinal, AggType.SUM, new Sum(aggFunc.child(0)));
+            addHiddenAlias(hiddenAliases, ordinal, AggType.COUNT, new Count(aggFunc.child(0)));
         } else if (aggFunc instanceof Min) {
             aggType = AggType.MIN;
             // No hidden MIN column: the visible column already stores the extremal value.
             // Only a hidden COUNT is needed for the guard / zero-count NULL logic.
-            addHiddenAlias(hiddenAliases, ordinal, StateKey.COUNT, new Count(aggFunc.child(0)));
+            addHiddenAlias(hiddenAliases, ordinal, AggType.COUNT, new Count(aggFunc.child(0)));
         } else if (aggFunc instanceof Max) {
             aggType = AggType.MAX;
-            addHiddenAlias(hiddenAliases, ordinal, StateKey.COUNT, new Count(aggFunc.child(0)));
+            addHiddenAlias(hiddenAliases, ordinal, AggType.COUNT, new Count(aggFunc.child(0)));
         } else {
             throw new AnalysisException("IVM: unsupported aggregate function: " + aggFunc.getName());
         }
@@ -323,8 +319,8 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
         hiddenAggOutputs.addAll(hiddenAliases.values());
 
         // Build AggTarget with placeholder slots (to be resolved after Aggregate is rebuilt)
-        ImmutableMap.Builder<StateKey, Slot> placeholderHiddenSlots = ImmutableMap.builder();
-        for (Map.Entry<StateKey, Alias> entry : hiddenAliases.entrySet()) {
+        ImmutableMap.Builder<AggType, Slot> placeholderHiddenSlots = ImmutableMap.builder();
+        for (Map.Entry<AggType, Alias> entry : hiddenAliases.entrySet()) {
             placeholderHiddenSlots.put(entry.getKey(), entry.getValue().toSlot());
         }
 
@@ -338,10 +334,10 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
     }
 
     /** Adds a single hidden alias to the map with the standard IVM column name. */
-    private void addHiddenAlias(Map<StateKey, Alias> hiddenAliases, int ordinal,
-            StateKey stateKey, AggregateFunction aggFunc) {
-        hiddenAliases.put(stateKey, new Alias(aggFunc,
-                IvmUtil.ivmAggHiddenColumnName(ordinal, stateKey.name())));
+    private void addHiddenAlias(Map<AggType, Alias> hiddenAliases, int ordinal,
+            AggType stateType, AggregateFunction aggFunc) {
+        hiddenAliases.put(stateType, new Alias(aggFunc,
+                IvmUtil.ivmAggHiddenColumnName(ordinal, stateType.name())));
     }
 
     /**
@@ -366,8 +362,8 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
             }
 
             // Resolve hidden state slots
-            ImmutableMap.Builder<StateKey, Slot> resolvedHidden = ImmutableMap.builder();
-            for (Map.Entry<StateKey, Slot> entry : target.getHiddenStateSlots().entrySet()) {
+            ImmutableMap.Builder<AggType, Slot> resolvedHidden = ImmutableMap.builder();
+            for (Map.Entry<AggType, Slot> entry : target.getHiddenStateSlots().entrySet()) {
                 Slot resolvedSlot = slotByName.get(entry.getValue().getName());
                 if (resolvedSlot == null) {
                     throw new AnalysisException("IVM: failed to resolve hidden state slot '"
