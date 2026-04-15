@@ -64,19 +64,58 @@ import java.util.stream.Collectors;
 
 /**
  * Normalizes the MV define plan for IVM at both CREATE MV and REFRESH MV time.
- * - Injects __DORIS_IVM_ROW_ID_COL__ at index 0 of each OlapScan output via a wrapping LogicalProject:
- *   - MOW (UNIQUE_KEYS + merge-on-write): Alias(cast(murmur_hash3_64(uk...) as LargeInt),
- *     "__DORIS_IVM_ROW_ID_COL__")
- *     → deterministic (stable across refreshes)
- *   - DUP_KEYS: Alias(uuid_numeric(), "__DORIS_IVM_ROW_ID_COL__") → non-deterministic (random per insert)
- *   - Other key types: not supported, throws.
- * - Records (rowIdSlot → isDeterministic) in IvmNormalizeResult on CascadesContext.
- * - visitLogicalProject propagates child's row-id slot if not already in outputs.
- * - visitLogicalFilter recurses into the child and preserves filter predicates/output shape.
- * - visitLogicalResultSink recurses into the child and prepends the row-id to output exprs.
- * - Whitelists supported plan nodes; throws AnalysisException for unsupported nodes.
- * Supported: OlapScan, filter, project, result sink, logical olap table sink.
- * TODO: avg rewrite, join support.
+ *
+ * <h3>Example: aggregate MV rewrite</h3>
+ * <p>Given MV definition:
+ * <pre>{@code
+ *   SELECT sum(v1+v2), count(v3+v4), avg(v5+v6), min(v7+v8)
+ *   FROM t GROUP BY k1, k2
+ * }</pre>
+ *
+ * <p>After IvmNormalizeMtmv the plan shape is:
+ * <pre>{@code
+ * ResultSink [row_id, visible outputs, hidden state cols]
+ *   └── Project [
+ *         __DORIS_IVM_ROW_ID__  = hash(k1, k2),
+ *         k1, k2,
+ *         sum(v1+v2),                       -- ordinal 0 visible (SUM)
+ *         count(v3+v4),                     -- ordinal 1 visible (COUNT_EXPR, no hidden col)
+ *         avg(v5+v6),                       -- ordinal 2 visible (AVG)
+ *         min(v7+v8),                       -- ordinal 3 visible (MIN)
+ *         __DORIS_IVM_AGG_COUNT_COL__,      -- group COUNT(*)
+ *         __DORIS_IVM_AGG_0_COUNT__,        -- SUM:   hidden COUNT(v1+v2) (no hidden SUM; visible stores it)
+ *         __DORIS_IVM_AGG_2_SUM__,          -- AVG:   hidden SUM(v5+v6)
+ *         __DORIS_IVM_AGG_2_COUNT__,        -- AVG:   hidden COUNT(v5+v6)
+ *         __DORIS_IVM_AGG_3_COUNT__         -- MIN:   hidden COUNT(v7+v8) (no hidden MIN; visible stores it)
+ *       ]
+ *         └── Aggregate [GROUP BY k1, k2]
+ *               outputs: [k1, k2,
+ *                 sum(v1+v2), count(v3+v4), avg(v5+v6), min(v7+v8),
+ *                 COUNT(*),    COUNT(v1+v2),
+ *                 SUM(v5+v6), COUNT(v5+v6),
+ *                 COUNT(v7+v8)]
+ *               └── Scan(t) with base-table row-id
+ * }</pre>
+ *
+ * <h3>Hidden column strategy per aggregate type</h3>
+ * <ul>
+ *   <li><b>COUNT(*)</b>: no hidden columns (visible = global group count)</li>
+ *   <li><b>COUNT(expr)</b>: no hidden columns (visible stores the count directly)</li>
+ *   <li><b>SUM</b>: hidden COUNT only (visible stores SUM; COUNT for guard)</li>
+ *   <li><b>AVG</b>: hidden SUM + COUNT (visible is AVG ≠ SUM or COUNT)</li>
+ *   <li><b>MIN/MAX</b>: hidden COUNT only (visible stores extremal value)</li>
+ * </ul>
+ *
+ * <h3>Scan-level row-id injection</h3>
+ * <ul>
+ *   <li>MOW (UNIQUE_KEYS + merge-on-write): hash(uk columns) → deterministic
+ *   <li>DUP_KEYS: uuid_numeric() → non-deterministic
+ *   <li>Other key types: not supported, throws.
+ * </ul>
+ *
+ * <h3>Supported plan nodes</h3>
+ * OlapScan, filter, project, aggregate, result sink, logical olap table sink.
+ * TODO: join support.
  */
 public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements CustomRewriter {
 
@@ -227,23 +266,12 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
         List<Slot> newAggSlots = newAgg.getOutput();
         // groupCountSlot is at origOutputs.size() (first hidden output after original outputs)
         Slot groupCountSlot = newAggSlots.get(origOutputs.size());
-        List<AggTarget> resolvedTargets = resolveAggTargetSlots(aggTargets, hiddenAggOutputs, newAggSlots);
+        List<AggTarget> resolvedTargets = resolveAggTargetSlots(aggTargets, newAggSlots);
 
-        // Resolve group key slots from the new Aggregate output by matching groupByExprs names
-        List<Slot> resolvedGroupKeys = new ArrayList<>();
-        for (Expression groupByExpr : groupByExprs) {
-            String name = ((Slot) groupByExpr).getName();
-            for (Slot newSlot : newAggSlots) {
-                if (newSlot.getName().equals(name)) {
-                    resolvedGroupKeys.add(newSlot);
-                    break;
-                }
-            }
-        }
-        if (resolvedGroupKeys.size() != groupByExprs.size()) {
-            throw new AnalysisException("IVM: failed to resolve all group-by key slots from rebuilt aggregate. "
-                    + "Expected " + groupByExprs.size() + " but resolved " + resolvedGroupKeys.size());
-        }
+        // After NormalizeAggregate, group-by exprs are all Slots; cast directly
+        List<Slot> resolvedGroupKeys = groupByExprs.stream()
+                .map(expr -> (Slot) expr)
+                .collect(ImmutableList.toImmutableList());
 
         IvmAggMeta aggMeta = new IvmAggMeta(scalarAgg, resolvedGroupKeys,
                 groupCountSlot, resolvedTargets);
@@ -266,24 +294,27 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
             Count countFunc = (Count) aggFunc;
             if (countFunc.isStar()) {
                 aggType = AggType.COUNT_STAR;
-                addHiddenAlias(hiddenAliases, ordinal, StateKey.COUNT, new Count());
+                // No hidden columns: visible column equals the global group count.
             } else {
                 aggType = AggType.COUNT_EXPR;
-                addHiddenAlias(hiddenAliases, ordinal, StateKey.COUNT, new Count(aggFunc.child(0)));
+                // No hidden columns: visible column stores COUNT(expr) directly.
             }
         } else if (aggFunc instanceof Sum) {
             aggType = AggType.SUM;
-            addHiddenSumAndCount(hiddenAliases, ordinal, aggFunc.child(0));
+            // No hidden SUM column: visible column stores SUM directly.
+            // Hidden COUNT is needed for the assertNonNegative guard and null-count logic.
+            addHiddenAlias(hiddenAliases, ordinal, StateKey.COUNT, new Count(aggFunc.child(0)));
         } else if (aggFunc instanceof Avg) {
             aggType = AggType.AVG;
-            addHiddenSumAndCount(hiddenAliases, ordinal, aggFunc.child(0));
+            addHiddenAlias(hiddenAliases, ordinal, StateKey.SUM, new Sum(aggFunc.child(0)));
+            addHiddenAlias(hiddenAliases, ordinal, StateKey.COUNT, new Count(aggFunc.child(0)));
         } else if (aggFunc instanceof Min) {
             aggType = AggType.MIN;
-            addHiddenAlias(hiddenAliases, ordinal, StateKey.MIN, new Min(aggFunc.child(0)));
+            // No hidden MIN column: the visible column already stores the extremal value.
+            // Only a hidden COUNT is needed for the guard / zero-count NULL logic.
             addHiddenAlias(hiddenAliases, ordinal, StateKey.COUNT, new Count(aggFunc.child(0)));
         } else if (aggFunc instanceof Max) {
             aggType = AggType.MAX;
-            addHiddenAlias(hiddenAliases, ordinal, StateKey.MAX, new Max(aggFunc.child(0)));
             addHiddenAlias(hiddenAliases, ordinal, StateKey.COUNT, new Count(aggFunc.child(0)));
         } else {
             throw new AnalysisException("IVM: unsupported aggregate function: " + aggFunc.getName());
@@ -306,12 +337,6 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
                 placeholderHiddenSlots.build(), exprArgs));
     }
 
-    /** Adds a SUM + COUNT hidden alias pair — shared by SUM and AVG types. */
-    private void addHiddenSumAndCount(Map<StateKey, Alias> hiddenAliases, int ordinal, Expression child) {
-        addHiddenAlias(hiddenAliases, ordinal, StateKey.SUM, new Sum(child));
-        addHiddenAlias(hiddenAliases, ordinal, StateKey.COUNT, new Count(child));
-    }
-
     /** Adds a single hidden alias to the map with the standard IVM column name. */
     private void addHiddenAlias(Map<StateKey, Alias> hiddenAliases, int ordinal,
             StateKey stateKey, AggregateFunction aggFunc) {
@@ -324,7 +349,7 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
      * Matching is done by column name.
      */
     private List<AggTarget> resolveAggTargetSlots(List<AggTarget> placeholderTargets,
-            List<NamedExpression> hiddenAggOutputs, List<Slot> newAggSlots) {
+            List<Slot> newAggSlots) {
         // Build name→slot map from the new Aggregate output
         Map<String, Slot> slotByName = new LinkedHashMap<>();
         for (Slot slot : newAggSlots) {
@@ -379,15 +404,6 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
                 sink.getSyncMvWhereClauses(), sink.getTargetTableSlots());
     }
 
-    private boolean hasIvmHiddenOutputInOutputs(List<NamedExpression> outputs) {
-        return outputs.stream()
-                .anyMatch(this::isIvmHiddenOutput);
-    }
-
-    private boolean isIvmHiddenOutput(NamedExpression expression) {
-        return IvmUtil.isIvmHiddenColumn(expression.getName());
-    }
-
     /**
      * Rewrites output expressions to include IVM hidden columns from the child.
      * Layout: [row_id, original visible outputs, other hidden cols (count, per-agg states)].
@@ -405,7 +421,7 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
         otherHiddenSlots.remove(Column.IVM_ROW_ID_COL);
 
         ImmutableList.Builder<NamedExpression> rewrittenOutputs = ImmutableList.builder();
-        if (!hasIvmHiddenOutputInOutputs(outputs)) {
+        if (outputs.stream().noneMatch(o -> IvmUtil.isIvmHiddenColumn(o.getName()))) {
             // No hidden outputs in original list: prepend row_id, then originals, then other hidden
             rewrittenOutputs.add(rowIdSlot);
             rewrittenOutputs.addAll(outputs);
@@ -416,7 +432,7 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
         // Outputs already contain some hidden columns (e.g. BindSink placeholders).
         // Replace hidden outputs in-place to preserve positions and ExprIds.
         for (NamedExpression output : outputs) {
-            if (isIvmHiddenOutput(output)) {
+            if (IvmUtil.isIvmHiddenColumn(output.getName())) {
                 rewrittenOutputs.add(rewriteIvmHiddenOutput(output, ivmHiddenSlotsByName));
             } else {
                 rewrittenOutputs.add(output);
