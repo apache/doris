@@ -29,6 +29,7 @@
 #include "core/data_type/primitive_type.h"
 #include "core/types.h"
 #include "exprs/function/cast/cast_base.h"
+#include "util/string_parser.hpp"
 
 namespace doris {
 
@@ -130,11 +131,14 @@ template <typename CppT>
 constexpr bool IsCppTypeDateTime =
         std::is_same_v<CppT, PrimitiveTypeTraits<TYPE_DATETIME>::CppType> ||
         std::is_same_v<CppT, PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType>;
+
 struct CastToInt {
     template <bool is_strict_mode, typename ToCppT>
-        requires(IsCppTypeInt<ToCppT>)
+        requires(IsCppTypeInt<ToCppT> || std::is_unsigned_v<ToCppT>)
     static inline bool from_string(const StringRef& from, ToCppT& to, CastParameters& params) {
-        return try_read_int_text<ToCppT, is_strict_mode>(to, from);
+        StringParser::ParseResult result;
+        to = StringParser::string_to_int<ToCppT, is_strict_mode>(from.data, from.size, &result);
+        return result == StringParser::PARSE_SUCCESS;
     }
 
     template <typename FromCppT, typename ToCppT>
@@ -221,16 +225,14 @@ struct CastToInt {
         constexpr auto min_result = std::numeric_limits<ToCppT>::lowest();
         constexpr auto max_result = std::numeric_limits<ToCppT>::max();
         auto tmp = from.value() / scale_multiplier;
-        if (narrow_integral) {
-            if (tmp < min_result || tmp > max_result) {
-                params.status = Status::Error(
-                        ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
-                        fmt::format("Arithmetic overflow when converting "
-                                    "value {} from type {} to type {}",
-                                    decimal_to_string(from.value(), from_scale),
-                                    type_to_string(FromCppT::PType), int_type_name<ToCppT>));
-                return false;
-            }
+        if (narrow_integral && (tmp < min_result || tmp > max_result)) {
+            params.status = Status::Error(
+                    ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
+                    fmt::format("Arithmetic overflow when converting "
+                                "value {} from type {} to type {}",
+                                decimal_to_string(from.value(), from_scale),
+                                type_to_string(FromCppT::PType), int_type_name<ToCppT>));
+            return false;
         }
         to = static_cast<ToCppT>(tmp);
         return true;
@@ -245,22 +247,19 @@ struct CastToInt {
         constexpr auto min_result = std::numeric_limits<ToCppT>::lowest();
         constexpr auto max_result = std::numeric_limits<ToCppT>::max();
         auto tmp = from.value / scale_multiplier;
-        if (narrow_integral) {
-            if (tmp < min_result || tmp > max_result) {
-                params.status = Status::Error(
-                        ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
-                        fmt::format("Arithmetic overflow when converting "
-                                    "value {} from type {} to type {}",
-                                    decimal_to_string(from.value, from_scale),
-                                    type_to_string(FromCppT::PType), int_type_name<ToCppT>));
-                return false;
-            }
+        if (narrow_integral && (tmp < min_result || tmp > max_result)) {
+            params.status = Status::Error(
+                    ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
+                    fmt::format("Arithmetic overflow when converting "
+                                "value {} from type {} to type {}",
+                                decimal_to_string(from.value, from_scale),
+                                type_to_string(FromCppT::PType), int_type_name<ToCppT>));
+            return false;
         }
         to = static_cast<ToCppT>(tmp);
         return true;
     }
 
-    // cast from date and datetime to int
     template <typename FromCppT, typename ToCppT>
         requires((IsCppTypeDate<FromCppT> && IntAllowCastFromDate<ToCppT>) ||
                  (IsCppTypeDateTime<FromCppT> && IntAllowCastFromDatetime<ToCppT>))
@@ -303,7 +302,9 @@ struct CastToFloat {
     template <typename ToCppT>
         requires(IsCppTypeFloat<ToCppT>)
     static inline bool from_string(const StringRef& from, ToCppT& to, CastParameters& params) {
-        return try_read_float_text(to, from);
+        StringParser::ParseResult result;
+        to = StringParser::string_to_float<ToCppT>(from.data, from.size, &result);
+        return result == StringParser::PARSE_SUCCESS;
     }
     template <typename FromCppT, typename ToCppT>
         requires(IsCppTypeFloat<ToCppT> &&
@@ -329,14 +330,9 @@ struct CastToFloat {
         requires(IsCppTypeFloat<ToCppT> && IsDecimalNumber<FromCppT>)
     static inline bool from_decimal(const FromCppT& from, UInt32 from_scale, ToCppT& to,
                                     CastParameters& params) {
-        if constexpr (IsDecimalV2<FromCppT>) {
-            to = binary_cast<int128_t, DecimalV2Value>(from);
-            return true;
-        } else {
-            typename FromCppT::NativeType scale_multiplier =
-                    DataTypeDecimal<FromCppT::PType>::get_scale_multiplier(from_scale);
-            return _from_decimalv3(from, from_scale, to, scale_multiplier, params);
-        }
+        typename FromCppT::NativeType scale_multiplier =
+                DataTypeDecimal<FromCppT::PType>::get_scale_multiplier(from_scale);
+        return _from_decimalv3(from, from_scale, to, scale_multiplier, params);
     }
     template <typename FromCppT, typename ToCppT>
         requires(IsCppTypeFloat<ToCppT> && IsDecimalNumber<FromCppT> && !IsDecimalV2<FromCppT>)
@@ -356,7 +352,7 @@ struct CastToFloat {
                                  static_cast<double>(scale_multiplier));
         return true;
     }
-    // cast from date and datetime to float/double, will not overflow
+
     template <typename FromCppT, typename ToCppT>
         requires(IsCppTypeFloat<ToCppT> && (IsCppTypeDate<FromCppT> || IsCppTypeDateTime<FromCppT>))
     static inline bool from_datetime(FromCppT from, ToCppT& to, CastParameters& params) {
@@ -364,7 +360,6 @@ struct CastToFloat {
         return true;
     }
 
-    // from time to float/double, will not overflow
     template <typename FromCppT, typename ToCppT>
         requires(IsCppTypeFloat<ToCppT>)
     static inline bool from_time(FromCppT from, ToCppT& to, CastParameters& params) {

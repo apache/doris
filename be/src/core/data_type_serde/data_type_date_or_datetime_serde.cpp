@@ -27,7 +27,6 @@
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_base.h"
 #include "exprs/function/cast/cast_to_date_or_datetime_impl.hpp"
-#include "util/io_helper.h"
 
 namespace doris {
 
@@ -76,9 +75,13 @@ Status DataTypeDateSerDe<T>::deserialize_one_cell_from_json(
         slice.trim_quote();
     }
     VecDateTimeValue val;
-    if (StringRef str(slice.data, slice.size); !read_date_text_impl(val, str)) {
+    StringRef str(slice.data, slice.size);
+    CastParameters params;
+    if (!CastToDateOrDatetime::from_string_non_strict_mode<DatelikeTargetType::DATE>(
+                str, val, nullptr, params)) {
         return Status::InvalidArgument("parse date fail, string: '{}'", str.to_string());
     }
+    val.cast_to_date();
     column_data.insert_value(val);
     return Status::OK();
 }
@@ -123,9 +126,13 @@ Status DataTypeDateTimeSerDe::deserialize_one_cell_from_json(IColumn& column, Sl
         slice.trim_quote();
     }
     VecDateTimeValue val;
-    if (StringRef str(slice.data, slice.size); !read_datetime_text_impl(val, str)) {
+    StringRef str(slice.data, slice.size);
+    CastParameters params;
+    if (!CastToDateOrDatetime::from_string_non_strict_mode<DatelikeTargetType::DATE_TIME>(
+                str, val, nullptr, params)) {
         return Status::InvalidArgument("parse datetime fail, string: '{}'", str.to_string());
     }
+    val.to_datetime();
     column_data.insert_value(val);
     return Status::OK();
 }
@@ -224,10 +231,10 @@ Status DataTypeDateSerDe<T>::_read_column_from_arrow(IColumn& column,
     } else if (arrow_array->type()->id() == arrow::Type::STRING) {
         // to be compatible with old version, we use string type for date.
         const auto* concrete_array = dynamic_cast<const arrow::StringArray*>(arrow_array);
+        CastParameters params;
         for (auto value_i = start; value_i < end; ++value_i) {
             auto val_str = concrete_array->GetString(value_i);
             VecDateTimeValue v;
-            CastParameters params;
             CastToDateOrDatetime::from_string_non_strict_mode<DatelikeTargetType::DATE_TIME>(
                     {val_str.c_str(), val_str.length()}, v, &ctz, params);
             if constexpr (is_date) {

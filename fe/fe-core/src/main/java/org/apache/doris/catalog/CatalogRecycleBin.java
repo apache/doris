@@ -66,7 +66,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     // to avoid erase log ahead of drop log
     private static final long minEraseLatency = 10 * 60 * 1000;  // 10 min
 
-    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
     private void readLock() {
         lock.readLock().lock();

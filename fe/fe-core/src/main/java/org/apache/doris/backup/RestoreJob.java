@@ -71,6 +71,7 @@ import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
 import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.persist.gson.GsonUtilsBase;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.task.AgentBatchTask;
@@ -2753,7 +2754,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     public static RestoreJob read(DataInput in) throws IOException {
         String json = Text.readString(in);
         if (AbstractJob.COMPRESSED_JOB_ID.equals(json)) {
-            return GsonUtils.fromJsonCompressed(in, RestoreJob.class);
+            return GsonUtilsBase.fromJsonCompressed(in, RestoreJob.class, GsonUtils.GSON);
         } else {
             return GsonUtils.GSON.fromJson(json, RestoreJob.class);
         }

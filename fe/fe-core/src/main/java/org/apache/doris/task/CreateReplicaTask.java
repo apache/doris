@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ColumnToThrift;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.IndexToThriftConvertor;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Status;
@@ -366,7 +367,7 @@ public class CreateReplicaTask extends AgentTask {
             } else {
                 tIndexes = new ArrayList<>();
                 for (Index index : indexes) {
-                    tIndexes.add(index.toThrift(index.getColumnUniqueIds(columns)));
+                    tIndexes.add(IndexToThriftConvertor.toThrift(index, columns));
                 }
             }
             tSchema.setIndexes(tIndexes);

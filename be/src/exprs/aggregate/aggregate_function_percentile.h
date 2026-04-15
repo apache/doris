@@ -154,42 +154,40 @@ struct PercentileApproxState {
     float compressions = 10000;
 };
 
-class AggregateFunctionPercentileApprox
-        : public IAggregateFunctionDataHelper<PercentileApproxState,
-                                              AggregateFunctionPercentileApprox> {
+template <typename Derived>
+class AggregateFunctionPercentileApproxBase
+        : public IAggregateFunctionDataHelper<PercentileApproxState, Derived> {
 public:
-    AggregateFunctionPercentileApprox(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<PercentileApproxState,
-                                           AggregateFunctionPercentileApprox>(argument_types_) {}
+    AggregateFunctionPercentileApproxBase(const DataTypes& argument_types_)
+            : IAggregateFunctionDataHelper<PercentileApproxState, Derived>(argument_types_) {}
 
     String get_name() const override { return "percentile_approx"; }
 
-    void reset(AggregateDataPtr __restrict place) const override {
-        AggregateFunctionPercentileApprox::data(place).reset();
-    }
+    void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena&) const override {
-        AggregateFunctionPercentileApprox::data(place).merge(
-                AggregateFunctionPercentileApprox::data(rhs));
+        this->data(place).merge(this->data(rhs));
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
-        AggregateFunctionPercentileApprox::data(place).write(buf);
+        this->data(place).write(buf);
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena&) const override {
-        AggregateFunctionPercentileApprox::data(place).read(buf);
+        this->data(place).read(buf);
     }
 };
 
-class AggregateFunctionPercentileApproxTwoParams final : public AggregateFunctionPercentileApprox,
-                                                         public MultiExpression,
-                                                         public NullableAggregateFunction {
+class AggregateFunctionPercentileApproxTwoParams final
+        : public AggregateFunctionPercentileApproxBase<AggregateFunctionPercentileApproxTwoParams>,
+          public MultiExpression,
+          public NullableAggregateFunction {
 public:
     AggregateFunctionPercentileApproxTwoParams(const DataTypes& argument_types_)
-            : AggregateFunctionPercentileApprox(argument_types_) {}
+            : AggregateFunctionPercentileApproxBase<AggregateFunctionPercentileApproxTwoParams>(
+                      argument_types_) {}
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena&) const override {
         const auto& sources =
@@ -204,7 +202,7 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& col = assert_cast<ColumnFloat64&>(to);
-        double result = AggregateFunctionPercentileApprox::data(place).get();
+        double result = this->data(place).get();
 
         if (std::isnan(result)) {
             col.insert_default();
@@ -214,12 +212,15 @@ public:
     }
 };
 
-class AggregateFunctionPercentileApproxThreeParams final : public AggregateFunctionPercentileApprox,
-                                                           public MultiExpression,
-                                                           public NullableAggregateFunction {
+class AggregateFunctionPercentileApproxThreeParams final
+        : public AggregateFunctionPercentileApproxBase<
+                  AggregateFunctionPercentileApproxThreeParams>,
+          public MultiExpression,
+          public NullableAggregateFunction {
 public:
     AggregateFunctionPercentileApproxThreeParams(const DataTypes& argument_types_)
-            : AggregateFunctionPercentileApprox(argument_types_) {}
+            : AggregateFunctionPercentileApproxBase<AggregateFunctionPercentileApproxThreeParams>(
+                      argument_types_) {}
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena&) const override {
         const auto& sources =
@@ -238,7 +239,7 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& col = assert_cast<ColumnFloat64&>(to);
-        double result = AggregateFunctionPercentileApprox::data(place).get();
+        double result = this->data(place).get();
 
         if (std::isnan(result)) {
             col.insert_default();
@@ -249,12 +250,14 @@ public:
 };
 
 class AggregateFunctionPercentileApproxWeightedThreeParams final
-        : public AggregateFunctionPercentileApprox,
+        : public AggregateFunctionPercentileApproxBase<
+                  AggregateFunctionPercentileApproxWeightedThreeParams>,
           MultiExpression,
           NullableAggregateFunction {
 public:
     AggregateFunctionPercentileApproxWeightedThreeParams(const DataTypes& argument_types_)
-            : AggregateFunctionPercentileApprox(argument_types_) {}
+            : AggregateFunctionPercentileApproxBase<
+                      AggregateFunctionPercentileApproxWeightedThreeParams>(argument_types_) {}
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena&) const override {
@@ -274,7 +277,7 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& col = assert_cast<ColumnFloat64&>(to);
-        double result = AggregateFunctionPercentileApprox::data(place).get();
+        double result = this->data(place).get();
 
         if (std::isnan(result)) {
             col.insert_default();
@@ -285,12 +288,14 @@ public:
 };
 
 class AggregateFunctionPercentileApproxWeightedFourParams final
-        : public AggregateFunctionPercentileApprox,
+        : public AggregateFunctionPercentileApproxBase<
+                  AggregateFunctionPercentileApproxWeightedFourParams>,
           MultiExpression,
           NullableAggregateFunction {
 public:
     AggregateFunctionPercentileApproxWeightedFourParams(const DataTypes& argument_types_)
-            : AggregateFunctionPercentileApprox(argument_types_) {}
+            : AggregateFunctionPercentileApproxBase<
+                      AggregateFunctionPercentileApproxWeightedFourParams>(argument_types_) {}
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena&) const override {
         const auto& sources =
@@ -312,7 +317,7 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& col = assert_cast<ColumnFloat64&>(to);
-        double result = AggregateFunctionPercentileApprox::data(place).get();
+        double result = this->data(place).get();
 
         if (std::isnan(result)) {
             col.insert_default();

@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.NameSpaceContext;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.qe.GlobalVariable;
 
@@ -29,7 +30,7 @@ import org.apache.commons.lang3.StringUtils;
 import java.util.Objects;
 
 /**
- * Utility methods for creating {@link TableNameInfo} from catalog objects.
+ * Utility methods for creating {@link org.apache.doris.catalog.info.TableNameInfo} from catalog objects.
  * Kept separate from {@code TableNameInfo} to avoid coupling that class to
  * {@code Database}/{@code TableIf}/{@code CatalogIf}.
  *

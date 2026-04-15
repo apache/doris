@@ -48,17 +48,40 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
 
+      - name: Fetch base branch for diff
+        if: github.event_name == 'pull_request_target'
+        run: git fetch --no-tags --depth=1 origin ${{ github.base_ref }}
+
       - name: Get changed files
         if: github.event_name == 'pull_request_target'
         id: changed-files
-        uses: tj-actions/changed-files@v45
-        with:
-          separator: "\n"
+        run: |
+          base_sha=$(git rev-parse FETCH_HEAD)
+          if ! all=$(git diff --name-only "${base_sha}...HEAD" 2>/dev/null); then
+            echo "config_file=.licenserc.yaml" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if echo "$all" | grep -qxF '.licenserc.yaml'; then
+            echo "config_file=.licenserc.yaml" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          acmr=$(git diff --name-only --diff-filter=ACMR "${base_sha}...HEAD")
+          if [ -z "$acmr" ]; then
+            exit 0
+          fi
+          {
+            echo "added_modified<<EOF"
+            echo "$acmr"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+          echo "config_file=.licenserc-incremental.yaml" >> "$GITHUB_OUTPUT"
 
       - name: Generate incremental licenserc
-        if: github.event_name == 'pull_request_target' && steps.changed-files.outputs.all_changed_files != ''
+        if: >-
+          github.event_name == 'pull_request_target' &&
+          steps.changed-files.outputs.added_modified != ''
         env:
-          CHANGED_FILES: ${{ steps.changed-files.outputs.all_changed_files }}
+          CHANGED_FILES: ${{ steps.changed-files.outputs.added_modified }}
         run: |
           python3 - <<'EOF'
           import yaml, os
@@ -76,9 +99,11 @@ jobs:
           EOF
 
       - name: Check License
-        if: github.event_name != 'pull_request_target' || steps.changed-files.outputs.all_changed_files != ''
+        if: >-
+          github.event_name != 'pull_request_target' ||
+          steps.changed-files.outputs.config_file != ''
         uses: apache/skywalking-eyes@v0.8.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          config: ${{ github.event_name == 'pull_request_target' && '.licenserc-incremental.yaml' || '.licenserc.yaml' }}
+          config: ${{ steps.changed-files.outputs.config_file || '.licenserc.yaml' }}

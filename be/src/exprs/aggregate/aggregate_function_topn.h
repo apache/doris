@@ -33,18 +33,19 @@
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
+#include "core/column/column_decimal.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
+#include "core/string_buffer.hpp"
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "exec/common/hash_table/phmap_fwd_decl.h"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
-#include "util/io_helper.h"
 
 namespace doris {} // namespace doris
 
@@ -295,14 +296,12 @@ struct AggregateFunctionTopNImplWeight {
 };
 
 //base function
-template <typename Impl>
+template <typename Impl, typename Derived>
 class AggregateFunctionTopNBase
-        : public IAggregateFunctionDataHelper<typename Impl::Data,
-                                              AggregateFunctionTopNBase<Impl>> {
+        : public IAggregateFunctionDataHelper<typename Impl::Data, Derived> {
 public:
     AggregateFunctionTopNBase(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<typename Impl::Data, AggregateFunctionTopNBase<Impl>>(
-                      argument_types_) {}
+            : IAggregateFunctionDataHelper<typename Impl::Data, Derived>(argument_types_) {}
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena&) const override {
@@ -328,12 +327,13 @@ public:
 
 //topn function return string
 template <typename Impl>
-class AggregateFunctionTopN final : public AggregateFunctionTopNBase<Impl>,
-                                    MultiExpression,
-                                    NullableAggregateFunction {
+class AggregateFunctionTopN final
+        : public AggregateFunctionTopNBase<Impl, AggregateFunctionTopN<Impl>>,
+          MultiExpression,
+          NullableAggregateFunction {
 public:
     AggregateFunctionTopN(const DataTypes& argument_types_)
-            : AggregateFunctionTopNBase<Impl>(argument_types_) {}
+            : AggregateFunctionTopNBase<Impl, AggregateFunctionTopN<Impl>>(argument_types_) {}
 
     String get_name() const override { return "topn"; }
 
@@ -347,12 +347,13 @@ public:
 
 //topn function return array
 template <typename Impl>
-class AggregateFunctionTopNArray final : public AggregateFunctionTopNBase<Impl>,
-                                         MultiExpression,
-                                         NullableAggregateFunction {
+class AggregateFunctionTopNArray final
+        : public AggregateFunctionTopNBase<Impl, AggregateFunctionTopNArray<Impl>>,
+          MultiExpression,
+          NullableAggregateFunction {
 public:
     AggregateFunctionTopNArray(const DataTypes& argument_types_)
-            : AggregateFunctionTopNBase<Impl>(argument_types_),
+            : AggregateFunctionTopNBase<Impl, AggregateFunctionTopNArray<Impl>>(argument_types_),
               _argument_type(argument_types_[0]) {}
 
     String get_name() const override { return Impl::get_name(); }

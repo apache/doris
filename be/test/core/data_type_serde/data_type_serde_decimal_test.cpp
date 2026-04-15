@@ -32,6 +32,7 @@
 #include "core/data_type/common_data_type_serder_test.h"
 #include "core/data_type/common_data_type_test.h"
 #include "core/data_type/data_type.h"
+#include "core/data_type/data_type_decimal.h"
 #include "core/data_type_serde/data_type_decimal_serde.h"
 #include "core/types.h"
 #include "testutil/test_util.h"
@@ -329,6 +330,33 @@ TEST_F(DataTypeDecimalSerDeTest, ArrowMemNotAligned) {
     auto st = serde_decimal128v3_2->read_column_from_arrow(*column_decimal128v3_2, arr.get(), 0, 1,
                                                            tz);
     EXPECT_TRUE(st.ok());
+}
+
+TEST_F(DataTypeDecimalSerDeTest, JsonDeserializeKeepsUnderflowCompatibility) {
+    DataTypeDecimal<TYPE_DECIMAL32> decimal_type(1, 0);
+    Decimal32 expected {};
+    ASSERT_TRUE(decimal_type.parse_from_string("-10", &expected));
+
+    auto column = ColumnDecimal32::create(0, 0);
+    DataTypeSerDe::FormatOptions options;
+
+    std::string json_value = "-10";
+    Slice slice(json_value.data(), json_value.size());
+    auto st = serde_decimal32_1->deserialize_one_cell_from_json(*column, slice, options);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(column->size(), 1);
+    EXPECT_EQ(column->get_element(0), expected);
+
+    std::vector<Slice> slices;
+    slices.emplace_back(json_value.data(), json_value.size());
+    auto vector_column = ColumnDecimal32::create(0, 0);
+    uint64_t num_deserialized = 0;
+    st = serde_decimal32_1->deserialize_column_from_json_vector(*vector_column, slices,
+                                                                &num_deserialized, options);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(num_deserialized, 1);
+    ASSERT_EQ(vector_column->size(), 1);
+    EXPECT_EQ(vector_column->get_element(0), expected);
 }
 
 } // namespace doris

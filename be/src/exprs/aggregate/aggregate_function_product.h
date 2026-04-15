@@ -28,7 +28,7 @@
 #include "core/string_buffer.hpp"
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"
-#include "util/io_helper.h"
+#include "exprs/function/cast/cast_to_string.h"
 
 namespace doris {
 
@@ -57,13 +57,21 @@ struct AggregateFunctionProductData {
     void add(typename PrimitiveTypeTraits<T>::CppType value,
              typename PrimitiveTypeTraits<T>::CppType) {
         add_impl(value, product);
-        VLOG_DEBUG << "product: " << product;
+        if constexpr (std::is_same_v<typename PrimitiveTypeTraits<T>::CppType, int128_t>) {
+            VLOG_DEBUG << "product: " << CastToString::from_int128(product);
+        } else {
+            VLOG_DEBUG << "product: " << product;
+        }
     }
 
     void merge(const AggregateFunctionProductData& other,
                typename PrimitiveTypeTraits<T>::CppType) {
         add_impl(other.product, product);
-        VLOG_DEBUG << "product: " << product;
+        if constexpr (std::is_same_v<typename PrimitiveTypeTraits<T>::CppType, int128_t>) {
+            VLOG_DEBUG << "product: " << CastToString::from_int128(product);
+        } else {
+            VLOG_DEBUG << "product: " << product;
+        }
     }
 
     void write(BufferWritable& buffer) const { buffer.write_binary(product); }
