@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "cloud/cloud_schema_change_job.h"
+
 #include <gen_cpp/AgentService_types.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <gtest/gtest.h>
@@ -22,7 +24,6 @@
 #include <memory>
 
 #include "cloud/cloud_cluster_info.h"
-#include "cloud/cloud_schema_change_job.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_mgr.h"
@@ -183,6 +184,156 @@ TEST_F(CloudSchemaChangeJobTest, CrossV1CompactionDetected) {
 
     // abort_tablet_job should have been called to clean up the SC job
     ASSERT_TRUE(abort_called);
+}
+
+// Test: cross-V1 detected but abort_tablet_job fails → return non-retryable INTERNAL_ERROR
+// (not SC_COMPACTION_CONFLICT) to avoid FE burning retries on a stale meta-service job.
+TEST_F(CloudSchemaChangeJobTest, CrossV1CompactionAbortFailed) {
+    int64_t base_tablet_id = 20001;
+    int64_t new_tablet_id = 20002;
+
+    TabletMetaSharedPtr base_meta(new TabletMeta(
+            1, 2, base_tablet_id, base_tablet_id + 100, 4, 5, TTabletSchema(), 6, {{7, 8}},
+            UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F));
+    TabletMetaSharedPtr new_meta(new TabletMeta(
+            1, 2, new_tablet_id, new_tablet_id + 100, 4, 5, TTabletSchema(), 6, {{7, 8}},
+            UniqueId(11, 12), TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F));
+
+    auto base_tablet = std::make_shared<CloudTablet>(_engine, std::move(base_meta));
+    auto new_tablet = std::make_shared<CloudTablet>(_engine, std::move(new_meta));
+    static_cast<void>(new_tablet->set_tablet_state(TABLET_NOTREADY));
+
+    auto* sp = SyncPoint::get_instance();
+    sp->clear_all_call_backs();
+    sp->enable_processing();
+
+    sp->set_call_back("CloudMetaMgr::get_tablet_meta", [&](auto&& args) {
+        auto tablet_id = try_any_cast<int64_t>(args[0]);
+        auto* meta_ptr = try_any_cast<TabletMetaSharedPtr*>(args[1]);
+        if (tablet_id == base_tablet_id) {
+            *meta_ptr = base_tablet->tablet_meta();
+        } else if (tablet_id == new_tablet_id) {
+            *meta_ptr = new_tablet->tablet_meta();
+        }
+        try_any_cast_ret<Status>(args)->second = true;
+    });
+
+    auto cross_v1_rowset = create_rowset(new_tablet->tablet_schema(), new_tablet_id, 5, 10);
+    sp->set_call_back("CloudMetaMgr::sync_tablet_rowsets",
+                      [new_tablet_id, cross_v1_rowset](auto&& outcome) {
+                          auto* tablet = try_any_cast<CloudTablet*>(outcome[0]);
+                          if (tablet->tablet_id() == new_tablet_id) {
+                              std::unique_lock lock(tablet->get_header_lock());
+                              tablet->add_rowsets({cross_v1_rowset}, false, lock);
+                          }
+                          try_any_cast_ret<Status>(outcome)->second = true;
+                      });
+
+    sp->set_call_back("CloudMetaMgr::prepare_tablet_job", [](auto&& outcome) {
+        auto* pairs = try_any_cast_ret<Status>(outcome);
+        pairs->second = true;
+        pairs->first = Status::OK();
+        auto* resp = try_any_cast<cloud::StartTabletJobResponse*>(outcome[1]);
+        resp->mutable_status()->set_code(cloud::MetaServiceCode::OK);
+        resp->set_alter_version(6);
+    });
+
+    // Mock abort_tablet_job → FAIL (simulates meta-service RPC failure)
+    sp->set_call_back("CloudMetaMgr::abort_tablet_job", [](auto&& outcome) {
+        auto* pairs = try_any_cast_ret<Status>(outcome);
+        pairs->second = true;
+        pairs->first = Status::InternalError("mock abort failed");
+    });
+
+    TAlterTabletReqV2 request;
+    request.base_tablet_id = base_tablet_id;
+    request.new_tablet_id = new_tablet_id;
+    request.alter_version = 4;
+
+    CloudSchemaChangeJob sc_job(_engine, "test_job_2", 9999999999);
+    auto status = sc_job.process_alter_tablet(request);
+
+    // Should fail with INTERNAL_ERROR (non-retryable), NOT SC_COMPACTION_CONFLICT
+    ASSERT_FALSE(status.ok());
+    ASSERT_FALSE(status.is<ErrorCode::SC_COMPACTION_CONFLICT>()) << status.to_string();
+    ASSERT_TRUE(status.is<ErrorCode::INTERNAL_ERROR>()) << status.to_string();
+    ASSERT_TRUE(status.to_string().find("failed to abort SC job") != std::string::npos)
+            << status.to_string();
+}
+
+// Test: abort_tablet_job RPC replay sees INVALID_ARGUMENT "no running schema_change"
+// (first ABORT committed but reply lost). Should treat as idempotent success and
+// return SC_COMPACTION_CONFLICT so FE retries.
+TEST_F(CloudSchemaChangeJobTest, CrossV1CompactionAbortIdempotentReplay) {
+    int64_t base_tablet_id = 30001;
+    int64_t new_tablet_id = 30002;
+
+    TabletMetaSharedPtr base_meta(new TabletMeta(
+            1, 2, base_tablet_id, base_tablet_id + 100, 4, 5, TTabletSchema(), 6, {{7, 8}},
+            UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F));
+    TabletMetaSharedPtr new_meta(new TabletMeta(
+            1, 2, new_tablet_id, new_tablet_id + 100, 4, 5, TTabletSchema(), 6, {{7, 8}},
+            UniqueId(11, 12), TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F));
+
+    auto base_tablet = std::make_shared<CloudTablet>(_engine, std::move(base_meta));
+    auto new_tablet = std::make_shared<CloudTablet>(_engine, std::move(new_meta));
+    static_cast<void>(new_tablet->set_tablet_state(TABLET_NOTREADY));
+
+    auto* sp = SyncPoint::get_instance();
+    sp->clear_all_call_backs();
+    sp->enable_processing();
+
+    sp->set_call_back("CloudMetaMgr::get_tablet_meta", [&](auto&& args) {
+        auto tablet_id = try_any_cast<int64_t>(args[0]);
+        auto* meta_ptr = try_any_cast<TabletMetaSharedPtr*>(args[1]);
+        if (tablet_id == base_tablet_id) {
+            *meta_ptr = base_tablet->tablet_meta();
+        } else if (tablet_id == new_tablet_id) {
+            *meta_ptr = new_tablet->tablet_meta();
+        }
+        try_any_cast_ret<Status>(args)->second = true;
+    });
+
+    auto cross_v1_rowset = create_rowset(new_tablet->tablet_schema(), new_tablet_id, 5, 10);
+    sp->set_call_back("CloudMetaMgr::sync_tablet_rowsets",
+                      [new_tablet_id, cross_v1_rowset](auto&& outcome) {
+                          auto* tablet = try_any_cast<CloudTablet*>(outcome[0]);
+                          if (tablet->tablet_id() == new_tablet_id) {
+                              std::unique_lock lock(tablet->get_header_lock());
+                              tablet->add_rowsets({cross_v1_rowset}, false, lock);
+                          }
+                          try_any_cast_ret<Status>(outcome)->second = true;
+                      });
+
+    sp->set_call_back("CloudMetaMgr::prepare_tablet_job", [](auto&& outcome) {
+        auto* pairs = try_any_cast_ret<Status>(outcome);
+        pairs->second = true;
+        pairs->first = Status::OK();
+        auto* resp = try_any_cast<cloud::StartTabletJobResponse*>(outcome[1]);
+        resp->mutable_status()->set_code(cloud::MetaServiceCode::OK);
+        resp->set_alter_version(6);
+    });
+
+    // Mock abort_tablet_job → INVALID_ARGUMENT with "no running schema_change"
+    // (simulates retry_rpc replay after first ABORT already committed)
+    sp->set_call_back("CloudMetaMgr::abort_tablet_job", [](auto&& outcome) {
+        auto* pairs = try_any_cast_ret<Status>(outcome);
+        pairs->second = true;
+        pairs->first = Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
+                "failed to abort tablet job: there is no running schema_change, tablet_id=30001");
+    });
+
+    TAlterTabletReqV2 request;
+    request.base_tablet_id = base_tablet_id;
+    request.new_tablet_id = new_tablet_id;
+    request.alter_version = 4;
+
+    CloudSchemaChangeJob sc_job(_engine, "test_job_3", 9999999999);
+    auto status = sc_job.process_alter_tablet(request);
+
+    // Should treat idempotent replay as success → return SC_COMPACTION_CONFLICT (retryable)
+    ASSERT_FALSE(status.ok());
+    ASSERT_TRUE(status.is<ErrorCode::SC_COMPACTION_CONFLICT>()) << status.to_string();
 }
 
 } // namespace doris
