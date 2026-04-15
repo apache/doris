@@ -23,7 +23,7 @@
 // sed -nr 's/.*tables: (.*)$/\1/gp' /path/to/*.sql | sed -nr 's/,/\n/gp' | sort | uniq
 suite("load") {
     // Map[tableName, rowCount]
-    def tables = [customer: 1500000, lineitem: 59986052, nation: 25, orders: 15000000, part: 2000000, partsupp: 8000000, region: 5, supplier: 100000]
+    def tables = [customer: 15000000, lineitem: 600037902, nation: 25, orders: 150000000, part: 20000000, partsupp: 80000000, region: 5, supplier: 1000000]
     def s3BucketName = getS3BucketName()
     def s3WithProperties = """WITH S3 (
         |"AWS_ACCESS_KEY" = "${getS3AK()}",
