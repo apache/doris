@@ -325,7 +325,8 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
             if (DebugPointUtil.isEnable("FE.ROUTINE_LOAD_TASK_SUBMIT_FAILED.TOO_MANY_TASKS")) {
                 LOG.warn("debug point FE.ROUTINE_LOAD_TASK_SUBMIT_FAILED.TOO_MANY_TASKS,"
                         + "routine load task submit failed");
-                throw new LoadException("TOO_MANY_TASKS");
+                tStatus = new TStatus(TStatusCode.TOO_MANY_TASKS);
+                tStatus.addToErrorMsgs("debug point: too many tasks");
             }
 
             if (tStatus.getStatusCode() != TStatusCode.OK) {
