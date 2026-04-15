@@ -40,7 +40,7 @@ suite("test_hive_lzo_text_format", "p0,external,hive,external_docker,external_do
         sql """use `${catalogName}`.`multi_catalog`"""
 
         // ----------------------------------------------------------------
-        // 1. LzoTextInputFormat — basic read
+        // 1. com.hadoop.mapreduce.LzoTextInputFormat (lzo-hadoop mapreduce API)
         // ----------------------------------------------------------------
         order_qt_lzo_count """
             select count(*) from text_lzo_format
@@ -65,7 +65,7 @@ suite("test_hive_lzo_text_format", "p0,external,hive,external_docker,external_do
         """
 
         // ----------------------------------------------------------------
-        // 2. DeprecatedLzoTextInputFormat — same data, same results
+        // 2. com.hadoop.mapred.DeprecatedLzoTextInputFormat (lzo-hadoop legacy mapred API)
         // ----------------------------------------------------------------
         order_qt_deprecated_lzo_count """
             select count(*) from text_deprecated_lzo_format

@@ -38,8 +38,8 @@ public class HiveUtilTest {
     // -------------------------------------------------------------------------
 
     @Test
-    public void testIsSplittable_LzoTextInputFormat_ReturnsFalse() throws UserException {
-        // LzoTextInputFormat is the primary LZO text input format from hadoop-lzo.
+    public void testIsSplittable_CompressionLzoTextInputFormat_ReturnsFalse() throws UserException {
+        // twitter hadoop-lzo: com.hadoop.compression.lzo.LzoTextInputFormat
         // LZO files have no global index by default, so they cannot be split.
         boolean result = HiveUtil.isSplittable(MOCK_FS,
                 "com.hadoop.compression.lzo.LzoTextInputFormat", DUMMY_LOCATION);
@@ -48,8 +48,18 @@ public class HiveUtilTest {
     }
 
     @Test
+    public void testIsSplittable_MapreduceLzoTextInputFormat_ReturnsFalse() throws UserException {
+        // lzo-hadoop (org.anarres) mapreduce API: com.hadoop.mapreduce.LzoTextInputFormat
+        // LZO files have no global index by default, so they cannot be split.
+        boolean result = HiveUtil.isSplittable(MOCK_FS,
+                "com.hadoop.mapreduce.LzoTextInputFormat", DUMMY_LOCATION);
+        Assertions.assertFalse(result,
+                "com.hadoop.mapreduce.LzoTextInputFormat should not be splittable");
+    }
+
+    @Test
     public void testIsSplittable_DeprecatedLzoTextInputFormat_ReturnsFalse() throws UserException {
-        // DeprecatedLzoTextInputFormat is the legacy mapred-API wrapper around LzoTextInputFormat.
+        // lzo-hadoop (org.anarres) legacy mapred API: com.hadoop.mapred.DeprecatedLzoTextInputFormat
         // It produces the same .lzo file format and is equally non-splittable.
         boolean result = HiveUtil.isSplittable(MOCK_FS,
                 "com.hadoop.mapred.DeprecatedLzoTextInputFormat", DUMMY_LOCATION);

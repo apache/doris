@@ -92,19 +92,30 @@ public class HMSExternalTableTest {
     // -------------------------------------------------------------------------
 
     @Test
-    public void testSupportedFileFormats_ContainsLzoTextInputFormat() {
+    public void testSupportedFileFormats_ContainsCompressionLzoTextInputFormat() {
+        // twitter hadoop-lzo (GPL): com.hadoop.compression.lzo.LzoTextInputFormat
         Assertions.assertTrue(
                 HMSExternalTable.SUPPORTED_HIVE_FILE_FORMATS.contains(
                         "com.hadoop.compression.lzo.LzoTextInputFormat"),
-                "LzoTextInputFormat should be in the supported formats whitelist");
+                "com.hadoop.compression.lzo.LzoTextInputFormat should be in the supported formats whitelist");
+    }
+
+    @Test
+    public void testSupportedFileFormats_ContainsMapreduceLzoTextInputFormat() {
+        // lzo-hadoop (org.anarres) mapreduce API: com.hadoop.mapreduce.LzoTextInputFormat
+        Assertions.assertTrue(
+                HMSExternalTable.SUPPORTED_HIVE_FILE_FORMATS.contains(
+                        "com.hadoop.mapreduce.LzoTextInputFormat"),
+                "com.hadoop.mapreduce.LzoTextInputFormat should be in the supported formats whitelist");
     }
 
     @Test
     public void testSupportedFileFormats_ContainsDeprecatedLzoTextInputFormat() {
+        // lzo-hadoop (org.anarres) legacy mapred API: com.hadoop.mapred.DeprecatedLzoTextInputFormat
         Assertions.assertTrue(
                 HMSExternalTable.SUPPORTED_HIVE_FILE_FORMATS.contains(
                         "com.hadoop.mapred.DeprecatedLzoTextInputFormat"),
-                "DeprecatedLzoTextInputFormat should be in the supported formats whitelist");
+                "com.hadoop.mapred.DeprecatedLzoTextInputFormat should be in the supported formats whitelist");
     }
 
     /**

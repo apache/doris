@@ -158,8 +158,12 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         // So add to SUPPORTED_HIVE_FILE_FORMATS and treat is as a hive table.
         // Then Doris will just list the files from location and read parquet files directly.
         SUPPORTED_HIVE_FILE_FORMATS.add("org.apache.hudi.hadoop.HoodieParquetInputFormatBase");
-        // LZO compressed text formats, treat as text input and use LZOP decompressor
+        // LZO compressed text formats (hadoop-lzo / lzo-hadoop), treat as text input and use LZOP decompressor.
+        // com.hadoop.compression.lzo.LzoTextInputFormat  - twitter hadoop-lzo (GPL)
+        // com.hadoop.mapreduce.LzoTextInputFormat        - lzo-hadoop mapreduce API (org.anarres)
+        // com.hadoop.mapred.DeprecatedLzoTextInputFormat - lzo-hadoop legacy mapred API (org.anarres)
         SUPPORTED_HIVE_FILE_FORMATS.add("com.hadoop.compression.lzo.LzoTextInputFormat");
+        SUPPORTED_HIVE_FILE_FORMATS.add("com.hadoop.mapreduce.LzoTextInputFormat");
         SUPPORTED_HIVE_FILE_FORMATS.add("com.hadoop.mapred.DeprecatedLzoTextInputFormat");
 
         SUPPORTED_HIVE_TRANSACTIONAL_FILE_FORMATS = Sets.newHashSet();
