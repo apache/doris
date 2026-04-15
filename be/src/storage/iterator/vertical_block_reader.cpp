@@ -168,6 +168,15 @@ Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params,
         opts.block_row_max = cast_set<int>(read_params.batch_size);
     }
     RETURN_IF_ERROR(_vcollect_iter->init(opts, sample_info));
+    if (sample_info != nullptr && sample_info->rows > 0) {
+        LOG(INFO) << "vertical compaction block sample after init, tablet_id: "
+                  << read_params.tablet->tablet_id()
+                  << ", is_key_group: " << read_params.is_key_column_group
+                  << ", batch_size: " << read_params.batch_size
+                  << ", sample_bytes: " << sample_info->bytes
+                  << ", sample_rows: " << sample_info->rows
+                  << ", per_row: " << sample_info->bytes / sample_info->rows;
+    }
 
     // In agg keys value columns compact, get first row for _init_agg_state
     if (!read_params.is_key_column_group && read_params.tablet->keys_type() == KeysType::AGG_KEYS) {
