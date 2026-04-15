@@ -93,7 +93,6 @@ public class PaimonTableSinkTest {
         Assertions.assertEquals("hadoop", thriftSink.getOptions().get("hadoop.username"));
     }
 
-
     @Test
     public void testBindDataSinkUsesPartitionShuffleForPartitionedTable() throws Exception {
         ConnectContext ctx = new ConnectContext();
@@ -131,6 +130,7 @@ public class PaimonTableSinkTest {
         Assertions.assertEquals(Arrays.asList("id", "pt"), thriftSink.getBucketKeys());
         Assertions.assertEquals(TPaimonWriteShuffleMode.PAIMON_SHUFFLE_BUCKET, thriftSink.getShuffleMode());
     }
+
     @Test
     public void testBindDataSinkFallsBackToRandomShuffleWithoutBucketOrPartition() throws Exception {
         ConnectContext ctx = new ConnectContext();

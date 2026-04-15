@@ -29,8 +29,8 @@ import org.apache.doris.nereids.types.IntegerType;
 import com.google.common.collect.ImmutableSet;
 import mockit.Expectations;
 import mockit.Mocked;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 import java.util.List;
@@ -60,7 +60,7 @@ public class PhysicalPaimonTableSinkTest {
                 Collections.emptyList(), Collections.emptyList(), Optional.empty(), logicalProperties, child);
 
         PhysicalProperties required = sink.getRequirePhysicalProperties();
-        Assert.assertTrue(required.getDistributionSpec() instanceof DistributionSpecPaimonBucketShuffle);
+        Assertions.assertTrue(required.getDistributionSpec() instanceof DistributionSpecPaimonBucketShuffle);
     }
 
     @Test
@@ -84,6 +84,6 @@ public class PhysicalPaimonTableSinkTest {
         PhysicalPaimonTableSink<PhysicalPlan> sink = new PhysicalPaimonTableSink<>(database, table,
                 Collections.emptyList(), Collections.emptyList(), Optional.empty(), logicalProperties, child);
 
-        Assert.assertSame(PhysicalProperties.SINK_RANDOM_PARTITIONED, sink.getRequirePhysicalProperties());
+        Assertions.assertSame(PhysicalProperties.SINK_RANDOM_PARTITIONED, sink.getRequirePhysicalProperties());
     }
 }
