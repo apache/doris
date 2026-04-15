@@ -44,6 +44,10 @@ VERSION_JAVA="$FE_COMMON/target/generated-sources/build/org/apache/doris/common/
 VERSION_CLASS_DIR="$FE_COMMON/target/classes"
 FE_COMMON_TARGET_JAR="$FE_COMMON/target/doris-fe-common.jar"
 
+# Extract Java release level from fe-core pom.xml (maven-compiler-plugin <release>N</release>)
+JAVA_RELEASE="$(sed -n 's/.*<release>\([0-9]*\)<\/release>.*/\1/p' "$FE_CORE/pom.xml" | head -1)"
+JAVA_RELEASE="${JAVA_RELEASE:-8}"
+
 # Generated source directories — auto-scanned so new directories are picked up automatically
 GEN_SOURCES=()
 for _d in "$FE_CORE/target/generated-sources"/*/; do
@@ -95,7 +99,7 @@ update_version_if_commit_changed() {
     fi
 
     mkdir -p "$VERSION_CLASS_DIR/org/apache/doris/common"
-    javac --release 8 -encoding UTF-8 \
+    javac --release "$JAVA_RELEASE" -encoding UTF-8 \
         -d "$VERSION_CLASS_DIR" "$VERSION_JAVA" \
         || { error "Failed to compile Version.java"; return 1; }
 
@@ -300,7 +304,7 @@ compile_test_files() {
     done
 
     javac \
-        --release 8 \
+        --release "$JAVA_RELEASE" \
         -encoding UTF-8 \
         -cp "$classpath" \
         -d "$TARGET_TEST_CLASSES" \
@@ -355,7 +359,7 @@ compile_files() {
     # populated target/classes, internal project dependencies are resolved from
     # there via -cp, which is sufficient for incremental compilation.
     javac \
-        --release 8 \
+        --release "$JAVA_RELEASE" \
         -encoding UTF-8 \
         -cp "$classpath" \
         -d "$TARGET_CLASSES" \
