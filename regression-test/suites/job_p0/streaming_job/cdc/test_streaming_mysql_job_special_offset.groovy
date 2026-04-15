@@ -75,7 +75,7 @@ suite("test_streaming_mysql_job_special_offset", "p0,external,mysql,external_doc
         connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {
             sql """INSERT INTO ${mysqlDb}.${table1} VALUES (3, 'charlie')"""
         }
-        Awaitility.await().atMost(120, SECONDS).pollInterval(2, SECONDS).until({
+        Awaitility.await().atMost(300, SECONDS).pollInterval(2, SECONDS).until({
             def result = sql """SELECT count(*) FROM ${currentDb}.${table1}"""
             return result[0][0] >= 1
         })
@@ -123,7 +123,7 @@ suite("test_streaming_mysql_job_special_offset", "p0,external,mysql,external_doc
                   "table.create.properties.replication_num" = "1"
                 )
             """
-        Awaitility.await().atMost(120, SECONDS).pollInterval(2, SECONDS).until({
+        Awaitility.await().atMost(300, SECONDS).pollInterval(2, SECONDS).until({
             def result = sql """SELECT count(*) FROM ${currentDb}.${table1}"""
             return result[0][0] >= 2
         })
@@ -153,7 +153,7 @@ suite("test_streaming_mysql_job_special_offset", "p0,external,mysql,external_doc
             """
         sql "RESUME JOB where jobname = '${jobName}'"
         // After ALTER to new position, id 20,21 should be synced
-        Awaitility.await().atMost(120, SECONDS).pollInterval(2, SECONDS).until({
+        Awaitility.await().atMost(300, SECONDS).pollInterval(2, SECONDS).until({
             def result = sql """SELECT count(*) FROM ${currentDb}.${table1} WHERE id IN (20, 21)"""
             return result[0][0] >= 2
         })

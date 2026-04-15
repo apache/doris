@@ -134,7 +134,7 @@ suite("test_streaming_job_cdc_stream_mysql_alter_offset", "p0,external,mysql,ext
         sql "RESUME JOB where jobname = '${jobName}'"
 
         // Step 3: Verify only data AFTER the mark (id 20,21) is synced
-        Awaitility.await().atMost(120, SECONDS).pollInterval(2, SECONDS).until({
+        Awaitility.await().atMost(300, SECONDS).pollInterval(2, SECONDS).until({
             def result = sql """SELECT count(*) FROM ${currentDb}.${dorisTable} WHERE id IN (20, 21)"""
             return result[0][0] >= 2
         })

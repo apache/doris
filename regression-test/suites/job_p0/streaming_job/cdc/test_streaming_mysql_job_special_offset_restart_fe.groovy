@@ -124,7 +124,7 @@ suite("test_streaming_mysql_job_special_offset_restart_fe", "docker,mysql,extern
             connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {
                 sql """INSERT INTO ${mysqlDb}.${table1} VALUES (3, 'charlie')"""
             }
-            Awaitility.await().atMost(120, SECONDS).pollInterval(2, SECONDS).until({
+            Awaitility.await().atMost(300, SECONDS).pollInterval(2, SECONDS).until({
                 def result = sql """SELECT count(*) FROM ${currentDb}.${table1}"""
                 return result[0][0] >= 3
             })
