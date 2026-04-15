@@ -181,6 +181,10 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
         }
     }
 
+    // Use the registered alter_version returned by meta-service instead of the original FE task
+    // version. The task can be created when FE still sees version 1, but by the time BE starts
+    // the schema change new data may already have been published and start_tablet_job can advance
+    // alter_version. In that case we still need to capture historical rowsets in [2, alter_version].
     if (start_resp.alter_version() > 1) {
         // [0-1] is a placeholder rowset, no need to convert
         RETURN_IF_ERROR(_base_tablet->capture_rs_readers({2, start_resp.alter_version()},
