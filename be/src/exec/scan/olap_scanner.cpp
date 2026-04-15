@@ -444,29 +444,21 @@ Status OlapScanner::_init_tablet_reader_params(
             }
         }
 
-        // Propagate shared scan limit to storage layer for dynamic I/O reduction.
-        // Only for the general (non-topn) limit path: the segment iterator can
-        // tighten its per-batch row budget based on how many rows the whole
-        // query still needs, avoiding unnecessary I/O.
-        //
-        // NOT propagated for the topn (ORDER BY key LIMIT) path because each
-        // scanner must independently produce its full local top-N candidates
-        // for the merge step — a global budget would let one scanner starve
-        // others and produce wrong results.  Use read_orderby_key (not
-        // read_orderby_key_limit) to cover the entire topn path including
-        // merge-required tables (e.g. AGG_KEYS) where read_orderby_key_limit
-        // is 0 but per-scanner independence is still required.
+        // Disable shared scan limit for the topn path — each scanner must
+        // independently produce its full local top-N candidates.
         if (_tablet_reader_params.read_orderby_key) {
             // TopN path: each scanner must independently produce full local
             // top-N candidates, so disable the cross-scanner shared limit
             // (which was set by Scanner::init() as the default).
             _shared_scan_limit = nullptr;
-        } else if (olap_scan_local_state->_storage_no_merge()) {
-            // General limit: additionally propagate to storage layer so
-            // SegmentIterator can tighten per-batch I/O.  Scanner-level
-            // _shared_scan_limit is already set by Scanner::init().
-            _tablet_reader_params.shared_scan_limit = _local_state->shared_scan_limit_ptr();
         }
+        // NOTE: shared_scan_limit is intentionally NOT propagated to the
+        // storage layer.  The scanner-level _shared_scan_limit (set by
+        // Scanner::init()) still provides cross-scanner early termination.
+        // Propagating to storage caused SegmentIterator::cap() to use a
+        // post-filter budget as a pre-filter read cap, leading to severe
+        // read convergence under low-selectivity WHERE clauses and
+        // potentially fewer rows than expected.
 
         // set push down topn filter
         _tablet_reader_params.topn_filter_source_node_ids =
