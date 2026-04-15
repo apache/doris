@@ -125,8 +125,6 @@ PROPERTIES (
 );
 ```
 
-> **备注**：§2.3 保留了其他候选方案（A-E）的完整描述供对比参考，最终选择了方案 F（纯 Glob ON TABLES 子句），详见 §2.5。
-
 ### 2.2 业界表过滤模式调研
 
 在选择模式匹配语法之前，调研了业界主流数据同步/CDC 系统对 "db.table" 过滤的实现方式：
@@ -149,363 +147,9 @@ PROPERTIES (
 
 ---
 
-### 2.3 候选方案对比
+### 2.3 最终方案
 
-#### 方案 A：Glob 模式（`*` `?`）
-
-**语法**：单个 `"tables"` 属性，值为逗号分隔的 glob 模式列表，每个模式格式为 `db_pattern.table_pattern`。
-
-| 通配符 | 含义 | 示例 |
-|--------|------|------|
-| `*` | 匹配零个或多个任意字符 | `order_*` 匹配 `order_2024`、`order_detail` |
-| `?` | 匹配恰好一个任意字符 | `log_?` 匹配 `log_a`、`log_1`，不匹配 `log_ab` |
-
-**示例**：
-
-```sql
--- 精确匹配两张表
-"tables" = "db1.orders, db1.customers"
-
--- 整库匹配
-"tables" = "analytics_db.*"
-
--- 前缀匹配
-"tables" = "db1.order_*"
-
--- 跨库匹配
-"tables" = "*.fact_*, *.dim_*"
-
--- 多字符 DB 通配
-"tables" = "db?.table1"
-```
-
-**模式示例汇总**：
-
-| 模式 | 含义 | 匹配示例 |
-|------|------|----------|
-| `db1.table1` | 精确匹配 | `db1.table1` |
-| `db1.*` | 整库匹配 | `db1.table1`, `db1.table2`, ... |
-| `db1.order_*` | 前缀匹配 | `db1.order_2024`, `db1.order_detail` |
-| `db1.*_fact` | 后缀匹配 | `db1.sales_fact`, `db1.user_fact` |
-| `*.*` | 全局匹配（等价于不设置 tables） | 全部 |
-| `*.user_*` | 跨库匹配 | `db1.user_info`, `db2.user_log` |
-| `db?.table1` | DB 名单字符通配 | `db1.table1`, `db2.table1` |
-
-**优点**：
-- `.` 是字面量，**无歧义**，天然做分隔符
-- 语法对 SQL 用户最直观，学习成本最低
-- 不存在转义问题——用户不需要了解正则语法
-- 实现简单：glob→regex 转换仅需将 `*`→`.*`、`?`→`.`，其余字符 escape
-
-**缺点**：
-- 表达能力弱于正则：无法表达"或"（`a|b`）、字符类（`[0-9]`）、量词（`{3,5}`）等
-- 需要一个 glob→regex 的编译层（但代码量极小，约 20 行）
-
-**转义注意**：
-- glob 中 `.` `(` `)` `[` `]` `{` `}` `\` `^` `$` `|` `+` 均为字面量，编译时需要对其进行正则转义
-- 用户**无需关心**任何转义问题
-
----
-
-#### 方案 B：正则模式 + 单属性（Debezium/Canal 风格）
-
-**语法**：单个 `"tables"` 属性，值为逗号分隔的正则表达式列表，每个正则的格式为 `db_regex.table_regex`（以第一个 `.` 为分隔）。
-
-> 参考 Debezium 的 `table.include.list`：逗号分隔的正则列表，每个正则匹配 `databaseName.tableName` 的全限定名。
-
-**示例**：
-
-```sql
--- 精确匹配两张表
-"tables" = "db1.orders, db1.customers"
-
--- 整库匹配（注意 .* 是正则语法）
-"tables" = "analytics_db..*"
-
--- 前缀匹配
-"tables" = "db1.order_.*"
-
--- 跨库匹配（.* 匹配任意 DB）
-"tables" = ".*.fact_.*, .*.dim_.*"
-
--- 更复杂的模式：名称包含数字后缀
-"tables" = "db1.order_[0-9]{4}"
-```
-
-**优点**：
-- 表达能力最强：支持字符类、量词、分组、交替等
-- 与 Debezium 生态一致，Java 开发者熟悉
-- 一个属性搞定，语法结构简单
-
-**缺点 / 注意事项**：
-- **`.` 歧义**是核心问题：在 `db1.order_.*` 中，第一个 `.` 是 db/table 分隔符，但在正则语义中它匹配任意字符
-  - **解析策略**：以**第一个** `.` 作为 db 和 table 的分隔符。这意味着 db 名称的正则中不能包含未转义的 `.`
-  - 实际上，由于 Doris 的 db 名不含 `.`，这在绝大多数场景都没有问题
-  - 但如果用户希望在 db 部分使用 `.`（如匹配 `db.v2` 这样的 db 名），必须写成 `db\.v2.table_regex`，此处 `\.` 表示字面量点号，需要在 SQL 字符串中写为 `db\\.v2.table_regex`（因为 SQL 字符串中 `\` 需要双写）
-- **SQL 字符串中的双重转义**：正则中的 `\` 在 SQL 字符串常量中需要写成 `\\`。例如：
-  - 正则 `db\.table` 在 SQL 中写成 `"tables" = "db\\.table"`
-  - 正则 `order_\d+` 在 SQL 中写成 `"tables" = "db1.order_\\d+"`
-  - 这对不熟悉正则的用户是**显著的认知负担**
-- **全库匹配容易写错**：用户可能写 `db1.*` 期望匹配 db1 下所有表，但在正则中 `*` 是量词（匹配前面的元素零次或多次），写法应为 `db1..*`（`.` 匹配任意字符 + `*` 匹配零次或多次）。不过我们可以检测到这类常见错误并给出提示。
-
-**对比 Canal 的 `\\.` 强制转义风格**：
-- Canal 要求用户写 `canal\\..*` 才能匹配 `canal` 库下所有表
-- 这比 Debezium 更严格，但也更丑陋
-- 我们如果采用正则方案，建议**不要求** `.` 转义（Debezium 风格），而是用第一个 `.` 做分隔
-
----
-
-#### 方案 C：正则模式 + 分离属性（Flink CDC 风格）
-
-**语法**：使用**两个独立属性** `"databases"` 和 `"tables"`，各自为独立的正则表达式。匹配时将它们内部拼接为 `^(databases_regex)\.(tables_regex)$` 进行全限定名匹配。
-
-> 参考 Flink CDC 的 `database-name` 和 `table-name`：各自独立的正则属性，引擎内部拼接为 `database-name + \\. + table-name` 进行全路径匹配。
-
-**示例**：
-
-```sql
--- 精确匹配 db1 下的 orders 和 customers
-PROPERTIES(
-    "sync_mode" = "event_driven",
-    "sync_event" = "load",
-    "databases" = "db1",
-    "tables" = "orders|customers"
-);
-
--- 整库匹配
-PROPERTIES(
-    "sync_mode" = "event_driven",
-    "sync_event" = "load",
-    "databases" = "analytics_db",
-    "tables" = ".*"
-);
-
--- 前缀匹配
-PROPERTIES(
-    "sync_mode" = "event_driven",
-    "sync_event" = "load",
-    "databases" = "db1",
-    "tables" = "order_.*"
-);
-
--- 跨库匹配所有 fact 和 dim 表
-PROPERTIES(
-    "sync_mode" = "event_driven",
-    "sync_event" = "load",
-    "databases" = ".*",
-    "tables" = "fact_.*|dim_.*"
-);
-
--- 精确两个 DB + 各自不同表
-PROPERTIES(
-    "sync_mode" = "event_driven",
-    "sync_event" = "load",
-    "databases" = "db1|db2",
-    "tables" = "order_.*|customer_.*"
-);
-```
-
-**优点**：
-- **彻底消除 `.` 歧义**：db 和 table 的正则各自独立，`.` 不可能被误解为分隔符
-- db 和 table 的正则各自含义清晰，不需要考虑"第一个 `.` 做分隔"的规则
-- 与 Flink CDC 生态一致
-
-**缺点 / 注意事项**：
-- **无法对不同 DB 指定不同表模式**：如果用户需要"db1 下的 order 表 + db2 下的 customer 表"，用单组属性无法表达。上面最后一个示例 `databases=db1|db2, tables=order_.*|customer_.*` 实际匹配的是 `(db1 OR db2) × (order_.* OR customer_.*)` 的笛卡尔积——db2 下的 order 表也会被匹配到。要实现精确控制，需要创建两个不同的 Job。
-- **语法更复杂**：两个属性比一个属性的心智负担更高
-- **SQL 字符串中的转义问题同样存在**：`\d` 需写成 `\\d`，`\.` 需写成 `\\.` 等
-- `"tables"` 属性名与集群级别含义冲突（原来的 `"tables"` 在 ONCE 模式下表示具体表列表），需要改名或做区分
-
----
-
-#### 方案 D：SQL LIKE 模式（MySQL Replication 风格）
-
-**语法**：单个 `"tables"` 属性，值为逗号分隔的 SQL LIKE 模式列表，每个模式格式为 `db_like.table_like`。
-
-| 通配符 | 含义 | 示例 |
-|--------|------|------|
-| `%` | 匹配零个或多个任意字符 | `order_%` 匹配 `order_2024`、`order_detail` |
-| `_` | 匹配恰好一个任意字符 | `log__` 匹配 `log_a`、`log_1`，不匹配 `log_ab` |
-
-> 参考 MySQL 的 `--replicate-wild-do-table`：每行一个 LIKE 模式，格式为 `db.table`。
-
-**示例**：
-
-```sql
--- 精确匹配
-"tables" = "db1.orders, db1.customers"
-
--- 整库匹配
-"tables" = "analytics_db.%"
-
--- 前缀匹配
-"tables" = "db1.order_%"
-
--- 跨库匹配
-"tables" = "%.fact_%, %.dim_%"
-```
-
-**优点**：
-- SQL 用户最熟悉的通配语法（`%` `_`），零学习成本
-- `.` 是字面量，无歧义
-- 与 MySQL 生态一致
-
-**缺点 / 注意事项**：
-- **`_` 在 Doris 表名中极其常见**（如 `order_detail`），但 `_` 在 LIKE 中是"匹配单字符"的通配符。精确匹配含 `_` 的表名时需要转义：`order\_detail`，这在 SQL 字符串中要写成 `order\\_detail`
-  - 例如：想精确匹配 `db1.order_detail`，必须写 `"tables" = "db1.order\\_detail"`
-  - 这是一个**极高频的踩坑点**，严重影响用户体验
-- 表达能力弱于正则和 glob
-
----
-
-#### 方案 E：ON TABLES 子句 + 混合匹配模式（结构化 SQL 风格）
-
-**语法**：在 WARM UP 语句中新增 `ON TABLES (...)` 子句，内部由逗号分隔的规则列表组成。每条规则由 `INCLUDE/EXCLUDE` + 匹配方式 + 模式 构成。
-
-**匹配方式**：
-- `TABLE db.table`：精确匹配（字面量）
-- `GLOB 'pattern'`：glob 通配符匹配（`*` `?`）
-- `REGEX 'pattern'`：正则表达式匹配
-
-**语法约束**：
-- INCLUDE 和 EXCLUDE 规则**可以任意顺序书写**，系统内部自动将其分组为 INCLUDE 集合和 EXCLUDE 集合，与书写顺序无关
-- 不使用 `ON TABLES` 子句 → 集群级别全量预热（兼容现有语法）
-
-**语义（集合运算）**：
-1. **第一步：计算 INCLUDE 集合** — 遍历系统中所有 `db.table`，如果匹配任意一条 INCLUDE 规则，则纳入候选集合
-2. **第二步：计算 EXCLUDE 集合** — 在候选集合中，如果匹配任意一条 EXCLUDE 规则，则从候选集合中移除
-3. **最终结果** = INCLUDE 集合 − EXCLUDE 集合
-4. 不匹配任何 INCLUDE 规则的表**不纳入**预热范围
-
-> 该语义等价于：`result = {t | t ∈ AllTables ∧ matches_any_include(t) ∧ ¬matches_any_exclude(t)}`
-
-**示例**：
-
-```sql
--- 示例 1：数据仓库经典分层架构 — 预热 ODS 层全部表，排除临时表
--- 场景：ODS 层有 ods_order、ods_user、ods_tmp_log 等数百张表，
---       只需排除 ods_tmp_ 开头的临时表
-WARM UP COMPUTE GROUP analytics_cg WITH COMPUTE GROUP ingestion_cg
-ON TABLES (
-    INCLUDE GLOB 'ods.*',
-    EXCLUDE GLOB 'ods.tmp_*'
-)
-PROPERTIES (
-    "sync_mode" = "event_driven",
-    "sync_event" = "load"
-);
--- 解析：
---   INCLUDE 集合 = ods 库下所有表（ods.order, ods.user, ods.tmp_log, ods.tmp_detail, ...）
---   EXCLUDE 集合 = ods 库下 tmp_ 开头的表（ods.tmp_log, ods.tmp_detail）
---   最终预热 = ods.order, ods.user, ...（不含 ods.tmp_*）
-
--- 示例 2：跨库精确指定 — 只预热核心业务表
--- 场景：多个业务库各有几十张表，但只需要预热其中几张关键表
-WARM UP COMPUTE GROUP report_cg WITH COMPUTE GROUP business_cg
-ON TABLES (
-    INCLUDE TABLE sales.orders,
-    INCLUDE TABLE sales.customers,
-    INCLUDE TABLE inventory.stock_level
-)
-PROPERTIES (
-    "sync_mode" = "event_driven",
-    "sync_event" = "load"
-);
-
--- 示例 3：正则匹配事实表和维度表 — 预热 DW 层的 fact_ 和 dim_ 前缀表
--- 场景：DW 库中表命名规范为 fact_xxx、dim_xxx、tmp_xxx、stg_xxx，
---       只需要预热事实表和维度表
-WARM UP COMPUTE GROUP bi_cg WITH COMPUTE GROUP etl_cg
-ON TABLES (
-    INCLUDE REGEX '^dw\.(fact_|dim_).*$'
-)
-PROPERTIES (
-    "sync_mode" = "event_driven",
-    "sync_event" = "load"
-);
-
--- 示例 4：glob + regex 混合 — 预热多层多库，排除特定模式
--- 场景：需要预热 ODS 和 DW 两层，但排除所有库中的 _bak 后缀表和 test_ 前缀表
-WARM UP COMPUTE GROUP query_cg WITH COMPUTE GROUP load_cg
-ON TABLES (
-    INCLUDE GLOB 'ods.*',
-    INCLUDE GLOB 'dw.*',
-    EXCLUDE GLOB '*.*_bak',
-    EXCLUDE REGEX '^(ods|dw)\.test_.*$'
-)
-PROPERTIES (
-    "sync_mode" = "event_driven",
-    "sync_event" = "load"
-);
--- 解析：
---   INCLUDE 集合 = ods.* ∪ dw.*（两个库的所有表）
---   EXCLUDE 集合 = 所有 _bak 后缀表 ∪ ods/dw 库下 test_ 前缀表
---   最终预热 = (ods.* ∪ dw.*) − (*.*_bak ∪ (ods|dw).test_*)
-
--- 示例 5：不使用 ON TABLES → 集群级别全量预热（兼容现有语法）
-WARM UP COMPUTE GROUP read_cg WITH COMPUTE GROUP write_cg
-PROPERTIES (
-    "sync_mode" = "event_driven",
-    "sync_event" = "load"
-);
-```
-
-**规则评估逻辑（集合运算）**：
-
-```
-输入：系统中所有表 AllTables = {(db1, t1), (db1, t2), (db2, t1), ...}
-输入：规则列表 rules = [INCLUDE ..., INCLUDE ..., EXCLUDE ..., EXCLUDE ...]
-
-// 第一步：计算 INCLUDE 集合
-include_set = {}
-for table in AllTables:
-    full_name = table.db + "." + table.name
-    for rule in rules where rule.type == INCLUDE:
-        if rule.matches(full_name):
-            include_set.add(table)
-            break  // 匹配任意一条 INCLUDE 即可
-
-// 第二步：从 INCLUDE 集合中排除 EXCLUDE 匹配的表
-result_set = include_set
-for table in include_set:
-    full_name = table.db + "." + table.name
-    for rule in rules where rule.type == EXCLUDE:
-        if rule.matches(full_name):
-            result_set.remove(table)
-            break  // 匹配任意一条 EXCLUDE 即排除
-
-// result_set 即为最终需要预热的表集合
-```
-
-**优点**：
-- **表达能力最强**：同时支持精确匹配、glob、regex 三种模式，用户按需选择
-- **原生 INCLUDE/EXCLUDE**：不需要正则的 negative lookahead 等复杂语法就能实现排除
-- **语义简单直观**：先算 INCLUDE 再减 EXCLUDE，集合运算逻辑清晰，没有规则顺序依赖
-- **结构化 SQL 语法**：比在 PROPERTIES 字符串里塞模式更符合 SQL 的结构化理念
-- **无 `.` 歧义**：
-  - `TABLE db.table` 中 `.` 是精确字面量
-  - `GLOB 'pattern'` 中 `.` 是 glob 字面量
-  - `REGEX 'pattern'` 中 `.` 是正则语义，但包在引号里，用户清楚自己在写正则
-- **可扩展性好**：未来可以增加更多匹配方式（如 `LIKE 'pattern'`）
-
-**缺点 / 注意事项**：
-- **SQL 语法解析复杂**：需要在 FE parser (ANTLR/CUP) 中新增 `ON TABLES` 子句、`INCLUDE/EXCLUDE` 关键字、`TABLE/GLOB/REGEX` 匹配方式的语法规则，改动较大
-- **REGEX 模式在 SQL 中的转义**：regex 字符串用单引号包裹，如果模式中需要单引号本身，需要 `''` 转义。反斜杠 `\` 的处理取决于 Doris SQL parser 的字符串转义规则：
-  - 如果 parser 处理 `\` 转义（如 `\n`→换行），则 regex `\d` 需写成 `'\\d'`
-  - 如果 parser 按字面量处理字符串，则 `'\d'` 即可
-  - 需要明确定义并文档化
-- **模式→ table_id 解析**：需要先遍历系统所有表算 INCLUDE 集合，再遍历一次算 EXCLUDE 集合。本设计采用定期刷新（默认 60s），每次遍历是常规操作
-
-**转义注意**：
-- `TABLE` 精确匹配：无转义问题
-- `GLOB`：同方案 A，用户无需转义
-- `REGEX`：SQL 字符串中 `\` 的处理依赖 parser。如果 parser 不处理 `\` 转义，regex 写起来最自然（`'\d+'`）；如果处理，则需要 `'\\d+'`
-
----
-
-#### 方案 F：纯 Glob ON TABLES 子句（方案 E 简化版）
-
-**核心思想**：保留方案 E 的 `ON TABLES (INCLUDE/EXCLUDE ...)` 结构化 SQL 子句，但**仅支持 glob 通配符匹配**，去掉 `TABLE`（精确匹配）和 `REGEX`（正则匹配）两种模式。
+采用 `ON TABLES (INCLUDE/EXCLUDE '...')` 的纯 Glob 子句表达表级别过滤规则。
 
 **语法**：
 
@@ -519,131 +163,19 @@ PROPERTIES (
     "sync_mode" = "event_driven",
     "sync_event" = "load"
 );
--- 注：INCLUDE 和 EXCLUDE 可以任意顺序书写，至少包含一条 INCLUDE
 ```
 
-**关键简化**：
-- 移除 `TABLE`/`GLOB`/`REGEX` 关键字——只有一种匹配方式，无需声明
-- 所有模式均为 glob 语法，用单引号包裹
-- 精确匹配通过不使用通配符的 glob 实现：`INCLUDE 'sales.orders'` 等价于原方案 E 的 `INCLUDE TABLE sales.orders`
-- "或"关系通过多条 INCLUDE 规则表达：`INCLUDE 'dw.fact_*', INCLUDE 'dw.dim_*'` 替代原方案 E 的 `INCLUDE REGEX '^dw\.(fact_|dim_).*$'`
+**设计理由**：
+1. 保持 `ON TABLES` 结构化 SQL 形态，支持显式的 INCLUDE/EXCLUDE 集合运算
+2. 所有模式统一为 glob 语法，精确匹配通过不使用通配符实现
+3. `.` 在 glob 中是字面量，`*` 和 `?` 的语义直观，没有正则转义负担
+4. 语法和实现都尽量收敛，避免在 FE parser 和用户侧同时引入多种匹配模式
+5. 结合多条 INCLUDE/EXCLUDE 规则，足以覆盖绝大多数按库名、前后缀、命名规范过滤的场景
 
-**语法约束**（同方案 E）：
-- INCLUDE 和 EXCLUDE 规则可以任意顺序书写，系统内部自动分组、排序和去重，生成规范化的 canonical JSON
-- 至少包含一条 INCLUDE 规则
-- 不使用 `ON TABLES` 子句 → 集群级别全量预热
-
-**语义（集合运算，同方案 E）**：
-1. **第一步：计算 INCLUDE 集合** — 匹配任意一条 INCLUDE 规则的表纳入候选
-2. **第二步：计算 EXCLUDE 集合** — 在候选集合中匹配任意一条 EXCLUDE 规则的表被移除
-3. **最终结果** = INCLUDE 集合 − EXCLUDE 集合
-
-**示例**：
-
-```sql
--- 示例 1：预热 ODS 全库，排除临时表
-WARM UP COMPUTE GROUP analytics_cg WITH COMPUTE GROUP ingestion_cg
-ON TABLES (
-    INCLUDE 'ods.*',
-    EXCLUDE 'ods.tmp_*'
-)
-PROPERTIES ("sync_mode" = "event_driven", "sync_event" = "load");
-
--- 示例 2：精确匹配几张核心表
-WARM UP COMPUTE GROUP report_cg WITH COMPUTE GROUP business_cg
-ON TABLES (
-    INCLUDE 'sales.orders',
-    INCLUDE 'sales.customers',
-    INCLUDE 'inventory.stock_level'
-)
-PROPERTIES ("sync_mode" = "event_driven", "sync_event" = "load");
-
--- 示例 3：事实表 + 维度表（用多条 INCLUDE 替代正则的 "或"）
-WARM UP COMPUTE GROUP bi_cg WITH COMPUTE GROUP etl_cg
-ON TABLES (
-    INCLUDE 'dw.fact_*',
-    INCLUDE 'dw.dim_*'
-)
-PROPERTIES ("sync_mode" = "event_driven", "sync_event" = "load");
-
--- 示例 4：多库预热，排除备份表和测试表
-WARM UP COMPUTE GROUP query_cg WITH COMPUTE GROUP load_cg
-ON TABLES (
-    INCLUDE 'ods.*',
-    INCLUDE 'dw.*',
-    EXCLUDE '*.*_bak',
-    EXCLUDE '*.test_*'
-)
-PROPERTIES ("sync_mode" = "event_driven", "sync_event" = "load");
-```
-
-**与方案 E 的对比**：
-
-| 维度 | 方案 E（混合模式） | 方案 F（纯 Glob） |
-|------|-------------------|-------------------|
-| 匹配方式 | TABLE + GLOB + REGEX | 仅 GLOB |
-| 语法关键字 | `TABLE`/`GLOB`/`REGEX` | 无（仅 `INCLUDE`/`EXCLUDE`） |
-| 学习成本 | 低（但需了解三种模式） | ✅✅ 最低（只需学 `*` 和 `?`） |
-| 转义问题 | REGEX 部分可能有 | ✅ 完全没有 |
-| 表达能力 | 最强（正则无限制） | ✅ 中高（覆盖 95%+ 实际场景） |
-| "或"表达 | 一条 REGEX 规则 | 多条 INCLUDE 规则 |
-| Parser 复杂度 | 需解析 3 种匹配方式 | ✅ 最简单（单引号字符串） |
-| `.` 歧义 | REGEX 部分有（但用户预期） | ✅ 完全没有 |
-| 可扩展性 | 已包含全部模式 | 未来可增加 GLOB/REGEX 关键字 |
-
-**方案 F 无法覆盖而方案 E 可以的场景**：
-
-| 场景 | 方案 E 写法 | 方案 F 替代方案 |
-|------|------------|----------------|
-| 匹配编号库 db1-db99 | `INCLUDE REGEX '^db\d+\..*$'` | 多条 INCLUDE：`'db1.*', 'db2.*', ...`（若数量少可接受） |
-| 复杂字符类 `[a-f]` | `INCLUDE REGEX '^db\.[a-f].*$'` | `?` 只能匹配单个任意字符，无法限定范围 |
-| 否定字符类 `[^tmp]` | `INCLUDE REGEX '^db\.[^t].*$'` | 使用 INCLUDE + EXCLUDE 组合实现 |
-
-> 实际场景中，数据仓库的表命名规范（前缀、后缀）和按库组织的结构，使得 `*` 和 `?` 通配符 + INCLUDE/EXCLUDE 组合足以覆盖绝大多数需求。
-
-**优点**：
-- **语法最简**：用户无需在 TABLE/GLOB/REGEX 三种模式间选择，减少心智负担
-- **零转义问题**：glob 中 `.` 是字面量，`*` `?` 是通配符，无歧义
-- **学习成本最低**：大多数用户已熟悉文件通配符 `*` `?`
-- **实现最简**：Parser 只需解析 `INCLUDE/EXCLUDE` + 单引号字符串，无需多种匹配模式的分支
-- **充分表达力**：INCLUDE/EXCLUDE 集合运算 + glob 通配符覆盖 95% 以上的实际需求
-
-**缺点**：
-- **无法单条规则表达"或"**：`fact_*` 或 `dim_*` 需要两条 INCLUDE，而非一条 REGEX
-- **无字符类/数字范围**：无法用 `[0-9]`、`[a-z]` 等正则字符类
-- 以上两个缺陷在实际使用中很少成为阻碍
-
----
-
-### 2.4 方案对比总结
-
-| 维度 | A. Glob | B. 正则+单属性 | C. 正则+分离属性 | D. SQL LIKE | E. ON TABLES 子句 | F. 纯 Glob ON TABLES |
-|------|---------|--------------|----------------|------------|-----------------|---------------------|
-| **`.` 歧义** | ✅ 无 | ⚠️ 有 | ✅ 无 | ✅ 无 | ✅ 无 | ✅ 无 |
-| **转义问题** | ✅ 无 | ⚠️ `\` 双写 | ⚠️ `\` 双写 | ⚠️ `_` 需转义 | ⚠️ REGEX 部分可能需要 | ✅ 无 |
-| **学习成本** | ✅ 低 | ⚠️ 中 | ⚠️ 中 | ✅ 低 | ✅ 低（集合运算） | ✅✅ 最低 |
-| **表达能力** | ⚠️ 中 | ✅ 强 | ✅ 强（笛卡尔积） | ⚠️ 弱 | ✅✅ 最强（混合+排除） | ✅ 中高（INCLUDE/EXCLUDE） |
-| **INCLUDE/EXCLUDE** | ❌ 不支持 | ❌ 不支持 | ❌ 不支持 | ❌ 不支持 | ✅ 原生支持 | ✅ 原生支持 |
-| **不同 DB 不同表** | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ |
-| **业界对标** | — | Debezium | Flink CDC | MySQL Repl. | — | — |
-| **SQL 结构化程度** | ⚠️ 字符串 | ⚠️ 字符串 | ⚠️ 字符串 | ⚠️ 字符串 | ✅ SQL 子句 | ✅ SQL 子句 |
-| **实现复杂度** | ✅ 低 | ✅ 低 | ⚠️ 中 | ✅ 低 | ⚠️ 较高（parser 改动） | ✅ 低（parser 简单） |
-
-### 2.5 最终选择
-
-> **选择方案 F：纯 Glob ON TABLES 子句（方案 E 简化版）**
->
-> 理由：
-> 1. 继承方案 E 的 ON TABLES 结构化 SQL 子句 + INCLUDE/EXCLUDE 集合运算语义
-> 2. 仅保留 glob 通配符匹配，去掉 TABLE/GLOB/REGEX 关键字选择，语法最简
-> 3. **零转义问题**——glob 中 `.` 是字面量，`*` `?` 是通配符，没有任何歧义
-> 4. **学习成本最低**——用户只需掌握 `*`（匹配任意字符）和 `?`（匹配单个字符）
-> 5. **实现简单**——Parser 仅需解析 INCLUDE/EXCLUDE + 单引号字符串，无需多种匹配模式分支
-> 6. **表达力充分**——INCLUDE/EXCLUDE 集合运算 + glob 覆盖 95% 以上实际场景
-> 7. **可扩展性**——未来如需 REGEX 支持，可增加 `GLOB`/`REGEX` 关键字，向后兼容（无关键字默认为 GLOB）
-> 8. **规则顺序无关**——INCLUDE/EXCLUDE 可自由混写，系统自动规范化为 canonical JSON，降低用户心智负担
->
-> 方案 F 是"够用就好"与"极致简洁"之间的最优平衡。放弃了 REGEX 的极端灵活性，换来了语法统一、零转义、低实现复杂度。
+**局限性**：
+- 不能像正则一样使用字符类、量词和复杂分组
+- 一条规则内不能直接表达"或"，需要使用多条 INCLUDE 规则组合
+- 以上限制对当前预热场景影响可接受，换来更低的使用和维护成本
 
 #### 核心架构决策：动态模式匹配
 
@@ -686,7 +218,7 @@ PROPERTIES ("sync_mode" = "event_driven", "sync_event" = "load");
 > -- {"include":["dw.*","ods.*"],"exclude":["dw.tmp_*"]}
 > ```
 
-### 2.6 完整 SQL 示例
+### 2.4 完整 SQL 示例
 
 ```sql
 -- 示例 1：数据仓库经典分层架构 — 预热 ODS 层全部表，排除临时表
@@ -770,7 +302,7 @@ PROPERTIES (
 );
 ```
 
-### 2.7 SHOW 展示
+### 2.5 SHOW 展示
 
 ```sql
 SHOW WARM UP JOB;
@@ -906,7 +438,7 @@ public List<String> getJobInfo() {
 }
 ```
 
-### 2.8 取消
+### 2.6 取消
 
 ```sql
 CANCEL WARM UP JOB WHERE id = 13418;
@@ -927,7 +459,7 @@ FE 侧将 `ON TABLES (...)` 子句解析为结构化的规则列表：
 ```java
 /**
  * 单条表过滤规则，对应 ON TABLES 子句中的一条 INCLUDE/EXCLUDE 声明。
- * 方案 F 仅支持 glob 匹配，所有模式统一编译为 Java 正则。
+ * 当前方案仅支持 glob 匹配，所有模式统一编译为 Java 正则。
  */
 public class TableFilterRule {
     public enum RuleType { INCLUDE, EXCLUDE }
@@ -2056,7 +1588,7 @@ public static class Builder {
 
 | # | 决策项 | 决定 |
 |---|--------|------|
-| 1 | SQL 语法 | 方案 F：`ON TABLES (INCLUDE/EXCLUDE '...')` 纯 Glob 子句 |
+| 1 | SQL 语法 | `ON TABLES (INCLUDE/EXCLUDE '...')` 纯 Glob 子句 |
 | 2 | 表匹配模式 | 纯 Glob 通配符（`*` `?`），精确匹配通过不使用通配符实现 |
 | 3 | INCLUDE/EXCLUDE 语义 | 集合运算：先算 INCLUDE 集合，再减 EXCLUDE 集合 |
 | 4 | 语法约束 | INCLUDE/EXCLUDE 可任意顺序，内部自动规范化为 canonical JSON |
