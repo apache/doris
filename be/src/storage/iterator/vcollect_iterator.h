@@ -358,10 +358,8 @@ private:
     bool _topn_eof = false;
     std::vector<RowSetSplits> _rs_splits;
 
-
     // Number of rows already returned to the caller (used by GENERAL limit mode).
     int64_t _rows_returned = 0;
-
 
     // Hold reader point to access read params, such as fetch conditions.
     TabletReader* _reader = nullptr;

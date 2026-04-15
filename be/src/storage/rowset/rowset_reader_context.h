@@ -105,7 +105,6 @@ struct RowsetReaderContext {
     // General limit pushdown for DUP_KEYS and UNIQUE_KEYS with MOW.
     // Propagated from ReaderParams.general_read_limit.
     int64_t general_read_limit = -1;
-
 };
 
 } // namespace doris

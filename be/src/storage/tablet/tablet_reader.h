@@ -216,7 +216,6 @@ public:
         // When > 0, the storage layer (VCollectIterator) will stop reading
         // after returning this many rows. -1 means no limit.
         int64_t general_read_limit = -1;
-
     };
 
     TabletReader() = default;

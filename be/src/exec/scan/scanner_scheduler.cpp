@@ -269,7 +269,6 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                 // Or it may cause a crash when the block is not normal.
                 _make_sure_virtual_col_is_materialized(scanner, free_block.get());
 
-
                 // Projection will truncate useless columns, makes block size change.
                 auto free_block_bytes = free_block->allocated_bytes();
                 raw_bytes_read += free_block_bytes;
