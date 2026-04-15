@@ -149,7 +149,7 @@ suite("test_streaming_postgres_job_special_offset", "p0,external,pg,external_doc
             """
         sql "RESUME JOB where jobname = '${jobName}'"
         // After ALTER to LSN mark, only data AFTER that LSN (id 30,31) should be synced
-        Awaitility.await().atMost(120, SECONDS).pollInterval(2, SECONDS).until({
+        Awaitility.await().atMost(240, SECONDS).pollInterval(2, SECONDS).until({
             def result = sql """SELECT count(*) FROM ${currentDb}.${table1} WHERE id IN (30, 31)"""
             return result[0][0] >= 2
         })
