@@ -243,17 +243,7 @@ void FileCacheBlockDownloader::download_file_cache_block(
         // to their actual locations within packed files.
         auto file_system = find_it->second->fs();
         if (!file_system) {
-            LOG(WARNING) << "download_file_cache_block: failed to get file system for tablet_id="
-                         << meta.tablet_id() << ", rowset_id=" << meta.rowset_id();
             decrease_inflight_count();
-            return;
-        }
-        // Use RowsetMeta::fs() instead of storage_resource->fs to support packed file.
-        // RowsetMeta::fs() wraps the underlying FileSystem with PackedFileSystem when
-        // packed_slice_locations is not empty, which correctly maps segment file paths
-        // to their actual locations within packed files.
-        auto file_system = find_it->second->fs();
-        if (!file_system) {
             LOG(WARNING) << "download_file_cache_block: failed to get file system for tablet_id="
                          << meta.tablet_id() << ", rowset_id=" << meta.rowset_id();
             return;
