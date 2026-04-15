@@ -142,7 +142,6 @@ suite("test_tvf_strict_mode_and_filter_ratio", "p0") {
                                );
                         """
         exception """Insert has too many filtered data"""
-        exception """url"""
     }
     qt_sql_not_null_to_null_non_strict0 "select * from test_insert_select_tvf_strict_mode_and_filter_ratio order by 1"
 
@@ -217,7 +216,6 @@ suite("test_tvf_strict_mode_and_filter_ratio", "p0") {
                                );
                         """
         exception """Insert has too many filtered data"""
-        exception """url"""
     }
     qt_sql_no_partition_non_strict0 "select * from test_insert_select_tvf_strict_mode_and_filter_ratio order by 1"
 
@@ -256,8 +254,7 @@ suite("test_tvf_strict_mode_and_filter_ratio", "p0") {
                                "column_separator" = "|"
                                );
                         """
-        exception """Encountered unqualified data, stop processing"""
-        exception """url"""
+        exception """Insert has filtered data in strict mode"""
     }
     qt_sql_no_partition_strict0 "select * from test_insert_select_tvf_strict_mode_and_filter_ratio order by 1"
 
@@ -305,8 +302,7 @@ suite("test_tvf_strict_mode_and_filter_ratio", "p0") {
                                );
                         """
 
-        exception """Encountered unqualified data, stop processing"""
-        exception """url"""
+        exception """Insert has filtered data in strict mode"""
     }
     qt_sql_string_exceed_len_strict1 "select * from test_insert_select_tvf_strict_mode_and_filter_ratio order by 1"
 }

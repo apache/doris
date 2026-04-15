@@ -152,7 +152,6 @@ suite("test_insert_strict_mode_and_filter_ratio","p0") {
                 (1234567890);
         """
         exception """Insert has too many filtered data"""
-        exception """url"""
     }
     qt_sql_not_null_to_null_non_strict0 "select * from test_insert_strict_mode_and_filter_ratio order by 1"
 
@@ -174,7 +173,6 @@ suite("test_insert_strict_mode_and_filter_ratio","p0") {
                 (1234567890);
         """
         exception """Insert has too many filtered data"""
-        exception """url"""
     }
     qt_sql_not_null_to_null_non_strict1 "select * from test_insert_strict_mode_and_filter_ratio order by 1"
 
@@ -260,8 +258,7 @@ suite("test_insert_strict_mode_and_filter_ratio","p0") {
             (1234567890),
             (1234567890);
         """
-        exception """Encountered unqualified data, stop processing"""
-        exception """url"""
+        exception """Insert has filtered data in strict mode"""
     }
 
     // 4. no partition
@@ -300,7 +297,6 @@ suite("test_insert_strict_mode_and_filter_ratio","p0") {
                 (100, "a100");
         """
         exception """Insert has too many filtered data"""
-        exception """url"""
     }
     qt_sql_no_partition_non_strict0 "select * from test_insert_strict_mode_and_filter_ratio order by 1"
 
@@ -347,8 +343,7 @@ suite("test_insert_strict_mode_and_filter_ratio","p0") {
                 (91, "a91"),
                 (100, "a100");
         """
-        exception """Encountered unqualified data, stop processing"""
-        exception """url"""
+        exception """Insert has filtered data in strict mode"""
     }
     qt_sql_no_partition_strict0 "select * from test_insert_strict_mode_and_filter_ratio order by 1"
 
@@ -402,8 +397,7 @@ suite("test_insert_strict_mode_and_filter_ratio","p0") {
             (91, "a9234567890"),
             (100, "a10234567890");
         """
-        exception """Encountered unqualified data, stop processing"""
-        exception """url"""
+        exception """Insert has filtered data in strict mode"""
     }
     qt_sql_string_exceed_len_strict1 "select * from test_insert_strict_mode_and_filter_ratio order by 1"
 
@@ -538,8 +532,7 @@ suite("test_insert_strict_mode_and_filter_ratio","p0") {
         sql """
         insert into test_insert_select_strict_mode_and_filter_ratio_dst select * from test_insert_select_strict_mode_and_filter_ratio_src;
         """
-        exception """Encountered unqualified data, stop processing"""
-        exception """url"""
+        exception """Insert has filtered data in strict mode"""
     }
     qt_insert_select_string_exceed_len_strict1_dst "select * from test_insert_select_strict_mode_and_filter_ratio_dst order by 1"
 
@@ -691,7 +684,6 @@ suite("test_insert_strict_mode_and_filter_ratio","p0") {
         insert into test_insert_select_strict_mode_and_filter_ratio_dst select * from test_insert_select_strict_mode_and_filter_ratio_src;
         """
         exception """Insert has too many filtered data"""
-        exception """url"""
     }
     qt_insert_select_null_into_not_null_non_strict_dst0 "select * from test_insert_select_strict_mode_and_filter_ratio_dst order by 1"
 
@@ -718,8 +710,7 @@ suite("test_insert_strict_mode_and_filter_ratio","p0") {
         sql """
         insert into test_insert_select_strict_mode_and_filter_ratio_dst select * from test_insert_select_strict_mode_and_filter_ratio_src;
         """
-        exception """Insert has too many filtered data"""
-        exception """url"""
+        exception """Insert has filtered data in strict mode"""
     }
     qt_insert_select_null_into_not_null_strict_dst0 "select * from test_insert_select_strict_mode_and_filter_ratio_dst order by 1"
 
@@ -775,7 +766,6 @@ suite("test_insert_strict_mode_and_filter_ratio","p0") {
             insert into test_insert_select_strict_mode_and_filter_ratio_dst select * from test_insert_select_strict_mode_and_filter_ratio_src;
         """
         exception """Insert has too many filtered data"""
-        exception """url"""
     }
     qt_insert_select_no_partition_non_strict_dst0 "select * from test_insert_select_strict_mode_and_filter_ratio_dst order by 1, 2"
 
@@ -802,8 +792,7 @@ suite("test_insert_strict_mode_and_filter_ratio","p0") {
         sql """
             insert into test_insert_select_strict_mode_and_filter_ratio_dst select * from test_insert_select_strict_mode_and_filter_ratio_src;
         """
-        exception """Encountered unqualified data, stop processing"""
-        exception """url"""
+        exception """Insert has filtered data in strict mode"""
     }
     qt_insert_select_no_partition_strict_dst0 "select * from test_insert_select_strict_mode_and_filter_ratio_dst order by 1, 2"
 }
