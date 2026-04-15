@@ -98,8 +98,6 @@ private:
         }
     };
 
-    Status _extract_write_key(const ::doris::Block& block, int row, WriteKey* key) const;
-
     Status _get_or_create_writer(const WriteKey& key,
                                  std::shared_ptr<VPaimonPartitionWriter>* writer);
 

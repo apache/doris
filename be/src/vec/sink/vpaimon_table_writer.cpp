@@ -354,34 +354,6 @@ Status VPaimonTableWriter::_collect_partition_value_columns(
     return Status::OK();
 }
 
-Status VPaimonTableWriter::_extract_write_key(const ::doris::Block& block, int row,
-                                              WriteKey* key) const {
-    key->partition_values.clear();
-    key->bucket_id = -1;
-
-    const TPaimonTableSink& paimon_sink = _t_sink.paimon_table_sink;
-    if (!paimon_sink.__isset.partition_keys || paimon_sink.partition_keys.empty()) {
-        return Status::OK();
-    }
-
-    RETURN_IF_ERROR(_init_partition_column_indices(block));
-    const std::string default_part = _default_partition_name();
-
-    key->partition_values.reserve(_partition_column_indices.size());
-    DataTypeSerDe::FormatOptions options;
-    for (int idx : _partition_column_indices) {
-        const auto& col_with_type = block.get_by_position(idx);
-        const auto& type = col_with_type.type;
-        const auto& col = col_with_type.column;
-        if (col->is_null_at(row)) {
-            key->partition_values.emplace_back(default_part);
-        } else {
-            key->partition_values.emplace_back(type->to_string(*col, row, options));
-        }
-    }
-    return Status::OK();
-}
-
 Status VPaimonTableWriter::_get_or_create_writer(const WriteKey& key,
                                                  std::shared_ptr<VPaimonPartitionWriter>* writer) {
     auto it = _writers.find(key);
