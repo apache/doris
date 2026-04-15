@@ -288,8 +288,8 @@ public class EncryptSQLTest extends ParserTestBase {
             res = "SET PASSWORD FOR 'admin' = PASSWORD('*XXX')";
             parseAndCheck(sql, res);
 
-        // create s3 job
-        sql = "CREATE JOB my_job"
+            // create s3 job
+            sql = "CREATE JOB my_job"
                 + " ON STREAMING"
                 + " DO"
                 + " INSERT INTO test.`student`"
