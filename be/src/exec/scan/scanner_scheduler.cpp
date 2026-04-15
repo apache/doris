@@ -68,6 +68,9 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
     }
 
     scan_task->set_state(ScanTask::State::IN_FLIGHT);
+    // Only starts the wait timer without touching the CPU timer, because the CPU
+    // timer uses CLOCK_THREAD_CPUTIME_ID which must be read on the same thread
+    // that started it.
     scanner_delegate->_scanner->start_wait_worker_timer();
     TabletStorageType type = scanner_delegate->_scanner->get_storage_type();
     auto sumbit_task = [&]() {
