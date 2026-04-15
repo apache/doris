@@ -59,9 +59,9 @@ export NEED_LOAD_DATA=1
 export LOAD_PARALLEL=$(( $(getconf _NPROCESSORS_ONLN) / 2 ))
 export HIVE_MODE="${HIVE_MODE:-refresh}"
 export HIVE_MODULES="${HIVE_MODULES:-all}"
-export HIVE_BASELINE_VERSION="${HIVE_BASELINE_VERSION:-20260415}"
-export HIVE_BASELINE_TARBALL_CACHE="${HIVE_BASELINE_TARBALL_CACHE:-${ROOT}/docker-compose/hive/scripts/cache/baseline}"
-export HIVE_SHARED_ID="doris-shared"
+: "${HIVE_BASELINE_VERSION:?HIVE_BASELINE_VERSION must be set in custom_settings.env}"
+: "${HIVE_BASELINE_TARBALL_CACHE:?HIVE_BASELINE_TARBALL_CACHE must be set in custom_settings.env}"
+: "${HIVE_SHARED_ID:?HIVE_SHARED_ID must be set in custom_settings.env}"
 
 if [[ -z "${IP_HOST:-}" ]]; then
     if command -v ip >/dev/null 2>&1; then
