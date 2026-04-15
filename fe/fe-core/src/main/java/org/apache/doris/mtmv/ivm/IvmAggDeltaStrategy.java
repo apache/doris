@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.mtmv.ivm.IvmAggMeta.AggTarget;
 import org.apache.doris.mtmv.ivm.IvmAggMeta.AggType;
-import org.apache.doris.mtmv.ivm.IvmAggMeta.StateKey;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
@@ -237,21 +236,21 @@ public class IvmAggDeltaStrategy extends IvmSimpleScanDeltaStrategy {
 
         for (AggTarget target : aggMeta.getAggTargets()) {
             switch (target.getAggType()) {
-                case COUNT_STAR:
-                    break;
-                case COUNT_EXPR:
-                    deltaAggOutputs.add(new Alias(
-                            new Sum(caseWhenExprNotNull(target.getExprArgs().get(0), dmlFactorSlot)),
-                            target.stateColumnName(StateKey.COUNT)));
+                case COUNT:
+                    if (!target.isCountStar()) {
+                        deltaAggOutputs.add(new Alias(
+                                new Sum(ifExprNotNull(target.getExprArgs().get(0), dmlFactorSlot)),
+                                target.stateColumnName(AggType.COUNT)));
+                    }
                     break;
                 case SUM:
                 case AVG:
                     deltaAggOutputs.add(new Alias(
                             new Sum(signedExpr(target.getExprArgs().get(0), dmlFactorSlot)),
-                            target.stateColumnName(StateKey.SUM)));
+                            target.stateColumnName(AggType.SUM)));
                     deltaAggOutputs.add(new Alias(
-                            new Sum(caseWhenExprNotNull(target.getExprArgs().get(0), dmlFactorSlot)),
-                            target.stateColumnName(StateKey.COUNT)));
+                            new Sum(ifExprNotNull(target.getExprArgs().get(0), dmlFactorSlot)),
+                            target.stateColumnName(AggType.COUNT)));
                     break;
                 case MIN:
                 case MAX:
@@ -284,20 +283,21 @@ public class IvmAggDeltaStrategy extends IvmSimpleScanDeltaStrategy {
                 outputByName.get(Column.IVM_DELTA_GROUP_COUNT_COL));
         for (AggTarget target : aggMeta.getAggTargets()) {
             switch (target.getAggType()) {
-                case COUNT_STAR:
-                    semanticSlots.put(hiddenKey(target, StateKey.COUNT),
-                            outputByName.get(Column.IVM_DELTA_GROUP_COUNT_COL));
-                    break;
-                case COUNT_EXPR:
-                    semanticSlots.put(hiddenKey(target, StateKey.COUNT),
-                            outputByName.get(target.stateColumnName(StateKey.COUNT)));
+                case COUNT:
+                    if (target.isCountStar()) {
+                        semanticSlots.put(hiddenKey(target, AggType.COUNT),
+                                outputByName.get(Column.IVM_DELTA_GROUP_COUNT_COL));
+                    } else {
+                        semanticSlots.put(hiddenKey(target, AggType.COUNT),
+                                outputByName.get(target.stateColumnName(AggType.COUNT)));
+                    }
                     break;
                 case SUM:
                 case AVG:
-                    semanticSlots.put(hiddenKey(target, StateKey.SUM),
-                            outputByName.get(target.stateColumnName(StateKey.SUM)));
-                    semanticSlots.put(hiddenKey(target, StateKey.COUNT),
-                            outputByName.get(target.stateColumnName(StateKey.COUNT)));
+                    semanticSlots.put(hiddenKey(target, AggType.SUM),
+                            outputByName.get(target.stateColumnName(AggType.SUM)));
+                    semanticSlots.put(hiddenKey(target, AggType.COUNT),
+                            outputByName.get(target.stateColumnName(AggType.COUNT)));
                     break;
                 case MIN:
                 case MAX:
@@ -412,22 +412,22 @@ public class IvmAggDeltaStrategy extends IvmSimpleScanDeltaStrategy {
     private void buildTargetExpressions(Map<String, Expression> finalByColumnName, LogicalOlapScan rawMvScan,
             DeltaPlanParts delta, AggTarget target, Expression newGroupCount) {
         switch (target.getAggType()) {
-            case COUNT_STAR: {
-                // No hidden columns. Visible value equals the global group count.
-                finalByColumnName.put(target.getVisibleSlot().getName(),
-                        castIfNeeded(newGroupCount, target.getVisibleSlot().getDataType()));
-                return;
-            }
-            case COUNT_EXPR: {
-                // No hidden columns. Old count read from visible column.
-                Expression newCount = assertNonNegative(new Add(
-                        coalesceMvSlot(rawMvScan, target.getVisibleSlot().getName()),
-                        delta.semanticSlots.get(hiddenKey(target, StateKey.COUNT))),
-                        "negative count for " + target.getVisibleSlot().getName());
-                finalByColumnName.put(target.getVisibleSlot().getName(),
-                        new If(isPositive(newCount),
-                                castIfNeeded(newCount, target.getVisibleSlot().getDataType()),
-                                zeroOf(target.getVisibleSlot().getDataType())));
+            case COUNT: {
+                if (target.isCountStar()) {
+                    // No hidden columns. Visible value equals the global group count.
+                    finalByColumnName.put(target.getVisibleSlot().getName(),
+                            castIfNeeded(newGroupCount, target.getVisibleSlot().getDataType()));
+                } else {
+                    // No hidden columns. Old count read from visible column.
+                    Expression newCount = assertNonNegative(new Add(
+                            coalesceMvSlot(rawMvScan, target.getVisibleSlot().getName()),
+                            delta.semanticSlots.get(hiddenKey(target, AggType.COUNT))),
+                            "negative count for " + target.getVisibleSlot().getName());
+                    finalByColumnName.put(target.getVisibleSlot().getName(),
+                            new If(isPositive(newCount),
+                                    castIfNeeded(newCount, target.getVisibleSlot().getDataType()),
+                                    zeroOf(target.getVisibleSlot().getDataType())));
+                }
                 return;
             }
             case SUM: {
@@ -435,9 +435,9 @@ public class IvmAggDeltaStrategy extends IvmSimpleScanDeltaStrategy {
                 // Hidden COUNT is persisted for assertNonNegative and null-count logic.
                 Expression newSum = new Add(
                         coalesceMvSlot(rawMvScan, target.getVisibleSlot().getName()),
-                        delta.semanticSlots.get(hiddenKey(target, StateKey.SUM)));
+                        delta.semanticSlots.get(hiddenKey(target, AggType.SUM)));
                 Expression newCount = buildNewCount(rawMvScan, delta, target);
-                finalByColumnName.put(target.getHiddenStateSlot(StateKey.COUNT).getName(), newCount);
+                finalByColumnName.put(target.getHiddenStateSlot(AggType.COUNT).getName(), newCount);
                 Expression visibleValue = castIfNeeded(newSum, target.getVisibleSlot().getDataType());
                 finalByColumnName.put(target.getVisibleSlot().getName(),
                         new If(isPositive(newCount), visibleValue,
@@ -447,11 +447,11 @@ public class IvmAggDeltaStrategy extends IvmSimpleScanDeltaStrategy {
             case AVG: {
                 // Both hidden SUM and COUNT are persisted (visible is AVG ≠ SUM or COUNT).
                 Expression newSum = new Add(
-                        coalesceMvSlot(rawMvScan, target.getHiddenStateSlot(StateKey.SUM).getName()),
-                        delta.semanticSlots.get(hiddenKey(target, StateKey.SUM)));
+                        coalesceMvSlot(rawMvScan, target.getHiddenStateSlot(AggType.SUM).getName()),
+                        delta.semanticSlots.get(hiddenKey(target, AggType.SUM)));
                 Expression newCount = buildNewCount(rawMvScan, delta, target);
-                finalByColumnName.put(target.getHiddenStateSlot(StateKey.SUM).getName(), newSum);
-                finalByColumnName.put(target.getHiddenStateSlot(StateKey.COUNT).getName(), newCount);
+                finalByColumnName.put(target.getHiddenStateSlot(AggType.SUM).getName(), newSum);
+                finalByColumnName.put(target.getHiddenStateSlot(AggType.COUNT).getName(), newCount);
                 Expression divisor = castIfNeeded(newCount, newSum.getDataType());
                 Expression visibleValue = castIfNeeded(new Divide(newSum, divisor),
                         target.getVisibleSlot().getDataType());
@@ -505,7 +505,7 @@ public class IvmAggDeltaStrategy extends IvmSimpleScanDeltaStrategy {
      * IF(expr IS NULL, 0, dml_factor).
      * Used for COUNT(expr) and hidden count of SUM/AVG targets.
      */
-    private Expression caseWhenExprNotNull(Expression expr, Slot dmlFactorSlot) {
+    private Expression ifExprNotNull(Expression expr, Slot dmlFactorSlot) {
         return new If(new IsNull(expr), new TinyIntLiteral((byte) 0), dmlFactorSlot);
     }
 
@@ -563,11 +563,11 @@ public class IvmAggDeltaStrategy extends IvmSimpleScanDeltaStrategy {
         }
         for (AggTarget target : aggMeta.getAggTargets()) {
             if (aggMeta.isScalarAgg()
-                    && slot.getName().equals(target.stateColumnName(StateKey.COUNT))) {
+                    && slot.getName().equals(target.stateColumnName(AggType.COUNT))) {
                 return true;
             }
             if ((target.getAggType() == AggType.SUM || target.getAggType() == AggType.AVG)
-                    && slot.getName().equals(target.stateColumnName(StateKey.SUM))) {
+                    && slot.getName().equals(target.stateColumnName(AggType.SUM))) {
                 return true;
             }
             // MIN/MAX visible values and their transient DELMIN/DELMAX slots carry semantic NULLs
@@ -584,9 +584,9 @@ public class IvmAggDeltaStrategy extends IvmSimpleScanDeltaStrategy {
         return slotByName;
     }
 
-    /** Semantic key for per-target delta slots: "{ordinal}:{stateKey}", e.g. "2:SUM". */
-    private String hiddenKey(AggTarget target, StateKey stateKey) {
-        return target.getOrdinal() + ":" + stateKey.name();
+    /** Semantic key for per-target delta slots: "{ordinal}:{aggType}", e.g. "2:SUM". */
+    private String hiddenKey(AggTarget target, AggType aggType) {
+        return target.getOrdinal() + ":" + aggType.name();
     }
 
     /** Semantic key for transient delta slots: "{ordinal}:{suffix}", e.g. "0:DELMIN". */
@@ -641,15 +641,15 @@ public class IvmAggDeltaStrategy extends IvmSimpleScanDeltaStrategy {
     /**
      * Builds delta aggregate outputs for a MIN or MAX target.
      *
-     * <p>For MIN, produces: MIN(insertOnly), MIN(deleteOnly), SUM(caseWhenNotNull).
-     * For MAX, produces: MAX(insertOnly), MAX(deleteOnly), SUM(caseWhenNotNull).
+     * <p>For MIN, produces: MIN(insertOnly), MIN(deleteOnly), SUM(ifExprNotNull).
+     * For MAX, produces: MAX(insertOnly), MAX(deleteOnly), SUM(ifExprNotNull).
      * The insert-only agg computes the new extremal from inserted rows; the delete-only
      * agg captures deleted extremal values for the boundary guard check.
      */
     private void buildExtremalDeltaOutputs(List<NamedExpression> deltaAggOutputs,
             AggTarget target, Slot dmlFactorSlot) {
         boolean isMin = target.getAggType() == AggType.MIN;
-        StateKey stateKey = isMin ? StateKey.MIN : StateKey.MAX;
+        AggType stateType = isMin ? AggType.MIN : AggType.MAX;
         String delKey = isMin ? DELMIN : DELMAX;
         Expression exprArg = target.getExprArgs().get(0);
 
@@ -661,43 +661,43 @@ public class IvmAggDeltaStrategy extends IvmSimpleScanDeltaStrategy {
                 : new Max(deleteOnlyExpr(exprArg, dmlFactorSlot));
 
         deltaAggOutputs.add(new Alias(insertAgg,
-                IvmUtil.ivmAggHiddenColumnName(target.getOrdinal(), stateKey.name())));
+                IvmUtil.ivmAggHiddenColumnName(target.getOrdinal(), stateType.name())));
         deltaAggOutputs.add(new Alias(deleteAgg, transientDelHiddenName(target, delKey)));
         deltaAggOutputs.add(new Alias(
-                new Sum(caseWhenExprNotNull(exprArg, dmlFactorSlot)),
-                target.getHiddenStateSlot(StateKey.COUNT).getName()));
+                new Sum(ifExprNotNull(exprArg, dmlFactorSlot)),
+                target.getHiddenStateSlot(AggType.COUNT).getName()));
     }
 
     /**
      * Puts semantic slot mappings for a MIN or MAX target into the semantic slots map.
      *
-     * <p>Maps: stateKey (MIN/MAX), delKey (DELMIN/DELMAX), and COUNT.
+     * <p>Maps: stateType (MIN/MAX), delKey (DELMIN/DELMAX), and COUNT.
      */
     private void putExtremalSemanticSlots(Map<String, Slot> semanticSlots,
             Map<String, Slot> outputByName, AggTarget target) {
         boolean isMin = target.getAggType() == AggType.MIN;
-        StateKey stateKey = isMin ? StateKey.MIN : StateKey.MAX;
+        AggType stateType = isMin ? AggType.MIN : AggType.MAX;
         String delKey = isMin ? DELMIN : DELMAX;
 
-        semanticSlots.put(hiddenKey(target, stateKey),
-                outputByName.get(IvmUtil.ivmAggHiddenColumnName(target.getOrdinal(), stateKey.name())));
+        semanticSlots.put(hiddenKey(target, stateType),
+                outputByName.get(IvmUtil.ivmAggHiddenColumnName(target.getOrdinal(), stateType.name())));
         semanticSlots.put(hiddenKey(target, delKey),
                 outputByName.get(transientDelHiddenName(target, delKey)));
-        semanticSlots.put(hiddenKey(target, StateKey.COUNT),
-                outputByName.get(target.getHiddenStateSlot(StateKey.COUNT).getName()));
+        semanticSlots.put(hiddenKey(target, AggType.COUNT),
+                outputByName.get(target.getHiddenStateSlot(AggType.COUNT).getName()));
     }
 
     /**
      * Computes the new count for a target: assertNonNegative(COALESCE(old, 0) + delta).
      *
      * <p>Only called for targets that have a physical hidden COUNT column
-     * (SUM, AVG, MIN, MAX). COUNT_STAR and COUNT_EXPR handle their counts
+     * (SUM, AVG, MIN, MAX). COUNT targets handle their counts
      * directly in {@link #buildTargetExpressions}.
      */
     private Expression buildNewCount(LogicalOlapScan rawMvScan, DeltaPlanParts delta, AggTarget target) {
         return assertNonNegative(new Add(
-                coalesceMvSlot(rawMvScan, target.getHiddenStateSlot(StateKey.COUNT).getName()),
-                delta.semanticSlots.get(hiddenKey(target, StateKey.COUNT))),
+                coalesceMvSlot(rawMvScan, target.getHiddenStateSlot(AggType.COUNT).getName()),
+                delta.semanticSlots.get(hiddenKey(target, AggType.COUNT))),
                 "negative hidden count for " + target.getVisibleSlot().getName());
     }
 
@@ -705,7 +705,7 @@ public class IvmAggDeltaStrategy extends IvmSimpleScanDeltaStrategy {
      * Builds target expressions for a MIN or MAX aggregate target.
      *
      * <p>The structure is identical for MIN and MAX; only the comparison direction,
-     * merge function (LEAST vs GREATEST), and state key differ:
+     * merge function (LEAST vs GREATEST), and aggregate type differ:
      * <ul>
      *   <li><b>Guard</b>: assert_true(deltaDelExtreme IS NULL OR oldExtreme IS NULL
      *       OR deltaDelExtreme {>|<} oldExtreme) — if a deleted row matches the
@@ -717,7 +717,7 @@ public class IvmAggDeltaStrategy extends IvmSimpleScanDeltaStrategy {
     private void buildExtremalTargetExpressions(Map<String, Expression> finalByColumnName,
             LogicalOlapScan rawMvScan, DeltaPlanParts delta, AggTarget target) {
         boolean isMin = target.getAggType() == AggType.MIN;
-        StateKey stateKey = isMin ? StateKey.MIN : StateKey.MAX;
+        AggType stateType = isMin ? AggType.MIN : AggType.MAX;
         String delKey = isMin ? DELMIN : DELMAX;
         String guardMsg = isMin
                 ? "IVM: deleted row may be current MIN value, fallback to COMPLETE"
@@ -725,7 +725,7 @@ public class IvmAggDeltaStrategy extends IvmSimpleScanDeltaStrategy {
 
         Slot oldExtreme = findSlotByName(rawMvScan.getOutput(),
                 target.getVisibleSlot().getName());
-        Expression deltaInsert = delta.semanticSlots.get(hiddenKey(target, stateKey));
+        Expression deltaInsert = delta.semanticSlots.get(hiddenKey(target, stateType));
         Expression deltaDel = delta.semanticSlots.get(hiddenKey(target, delKey));
 
         // Guard: assert_true(deltaDel IS NULL OR old IS NULL OR deltaDel {>|<} old)
@@ -755,7 +755,7 @@ public class IvmAggDeltaStrategy extends IvmSimpleScanDeltaStrategy {
         // No hidden MIN/MAX column: the visible column stores the extremal value directly.
         // When count drops to 0, visible becomes NULL; next refresh reads NULL as old,
         // which is correctly handled by the merge logic (IF old IS NULL, take deltaInsert).
-        finalByColumnName.put(target.getHiddenStateSlot(StateKey.COUNT).getName(), newCount);
+        finalByColumnName.put(target.getHiddenStateSlot(AggType.COUNT).getName(), newCount);
         finalByColumnName.put(target.getVisibleSlot().getName(),
                 new If(isPositive(newCount),
                         castIfNeeded(newExtremeGuarded, target.getVisibleSlot().getDataType()),
