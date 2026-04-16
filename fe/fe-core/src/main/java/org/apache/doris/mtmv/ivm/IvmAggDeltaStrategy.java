@@ -27,6 +27,7 @@ import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -41,6 +42,7 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.Subtract;
+import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
@@ -707,10 +709,13 @@ public class IvmAggDeltaStrategy extends IvmSimpleScanDeltaStrategy {
      * <p>The structure is identical for MIN and MAX; only the comparison direction,
      * merge function (LEAST vs GREATEST), and aggregate type differ:
      * <ul>
-     *   <li><b>Guard</b>: assert_true(deltaDelExtreme IS NULL OR oldExtreme IS NULL
-     *       OR deltaDelExtreme {>|<} oldExtreme) — if a deleted row matches the
-     *       current extreme, incremental computation is impossible.</li>
-     *   <li><b>Merge</b>: new_extreme = null-safe {LEAST|GREATEST}(old, delta_insert).</li>
+     *   <li><b>Guard</b>: assert_true(newCount == 0 OR deltaDelExtreme IS NULL
+     *       OR oldExtreme IS NULL OR deltaDelExtreme {&gt;|&lt;} oldExtreme) — bypassed
+     *       when all non-null rows are deleted (count drops to 0), since the result
+     *       is NULL regardless; otherwise, if a deleted row matches the current
+     *       extreme, incremental computation is impossible and falls back to COMPLETE.</li>
+     *   <li><b>Merge</b>: CASE WHEN newCount=0 THEN NULL WHEN old IS NULL THEN deltaInsert
+     *       WHEN deltaInsert IS NULL THEN old ELSE {LEAST|GREATEST}(old, deltaInsert).</li>
      *   <li><b>Outputs</b>: visible value (guarded extreme or NULL when count=0), and count.</li>
      * </ul>
      */
@@ -728,25 +733,38 @@ public class IvmAggDeltaStrategy extends IvmSimpleScanDeltaStrategy {
         Expression deltaInsert = delta.semanticSlots.get(hiddenKey(target, stateType));
         Expression deltaDel = delta.semanticSlots.get(hiddenKey(target, delKey));
 
-        // Guard: assert_true(deltaDel IS NULL OR old IS NULL OR deltaDel {>|<} old)
+        // Compute new non-null count first — needed for both guard bypass and visible value.
+        Expression newCount = buildNewCount(rawMvScan, delta, target);
+
+        // Guard: when the non-null count drops to 0 (all non-null rows deleted), skip the
+        // boundary check because visible will be set to NULL regardless. Otherwise, assert
+        // that the deleted extremal value does not match the current extreme.
         // For MIN: deleted value must be > current min (otherwise we lose the min).
         // For MAX: deleted value must be < current max (otherwise we lose the max).
         Expression guardComparison = isMin
                 ? new GreaterThan(deltaDel, oldExtreme)
                 : new LessThan(deltaDel, oldExtreme);
-        Expression guardCond = new Or(new IsNull(deltaDel),
-                new Or(new IsNull(oldExtreme), guardComparison));
+        Expression guardCond = new Or(ImmutableList.of(
+                new EqualTo(newCount, new BigIntLiteral(0L)),
+                new IsNull(deltaDel),
+                new IsNull(oldExtreme),
+                guardComparison
+        ));
         Expression guard = new AssertTrue(guardCond, new StringLiteral(guardMsg));
 
-        Expression newCount = buildNewCount(rawMvScan, delta, target);
-
-        // Null-safe merge: IF(old IS NULL, deltaInsert, IF(deltaInsert IS NULL, old, {LEAST|GREATEST}))
+        // Null-safe merge via CASE WHEN with count-zero fallback to NULL:
         Expression mergeFunc = isMin
                 ? new Least(oldExtreme, deltaInsert)
                 : new Greatest(oldExtreme, deltaInsert);
-        Expression newExtremeRaw = new If(new IsNull(oldExtreme), deltaInsert,
-                new If(new IsNull(deltaInsert), oldExtreme, mergeFunc));
-
+        Expression newExtremeRaw = new CaseWhen(
+                ImmutableList.of(
+                        new WhenClause(new EqualTo(newCount, new BigIntLiteral(0L)),
+                                new NullLiteral(oldExtreme.getDataType())),
+                        new WhenClause(new IsNull(oldExtreme), deltaInsert),
+                        new WhenClause(new IsNull(deltaInsert), oldExtreme)
+                ),
+                mergeFunc
+        );
         // Embed guard: false branch uses NullLiteral to prevent IF constant folding.
         // assert_true either returns TRUE (pass) or throws (fail), so false branch is unreachable.
         Expression newExtremeGuarded = new If(guard, newExtremeRaw,
