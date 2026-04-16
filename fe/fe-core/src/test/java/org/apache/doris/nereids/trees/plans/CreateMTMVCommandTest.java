@@ -23,9 +23,13 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateMTMVInfo;
@@ -35,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.LessThanPartition;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionTableInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
@@ -52,9 +57,14 @@ public class CreateMTMVCommandTest extends TestWithFeService {
 
     @Override
     public void createTable(String sql) throws Exception {
+        resetStatementContext(sql);
         LogicalPlan plan = new NereidsParser().parseSingle(sql);
         Assertions.assertTrue(plan instanceof CreateTableCommand);
         ((CreateTableCommand) plan).run(connectContext, null);
+    }
+
+    private void resetStatementContext(String sql) {
+        connectContext.setStatementContext(new StatementContext(connectContext, new OriginStatement(sql, 0)));
     }
 
     @Test
@@ -219,6 +229,7 @@ public class CreateMTMVCommandTest extends TestWithFeService {
     }
 
     private CreateMTMVInfo getPartitionTableInfo(String sql) throws Exception {
+        resetStatementContext(sql);
         NereidsParser nereidsParser = new NereidsParser();
         LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
         Assertions.assertTrue(logicalPlan instanceof CreateMTMVCommand);
@@ -229,9 +240,17 @@ public class CreateMTMVCommandTest extends TestWithFeService {
     }
 
     private void createMtmv(String sql) throws Exception {
+        resetStatementContext(sql);
         LogicalPlan logicalPlan = new NereidsParser().parseSingle(sql);
         Assertions.assertTrue(logicalPlan instanceof CreateMTMVCommand);
         ((CreateMTMVCommand) logicalPlan).run(connectContext, null);
+    }
+
+    private void alterMtmv(String sql) throws Exception {
+        resetStatementContext(sql);
+        LogicalPlan logicalPlan = new NereidsParser().parseSingle(sql);
+        Assertions.assertTrue(logicalPlan instanceof AlterMTMVCommand);
+        ((AlterMTMVCommand) logicalPlan).run(connectContext, null);
     }
 
     private MTMV getMtmv(String mvName) throws Exception {
@@ -711,5 +730,246 @@ public class CreateMTMVCommandTest extends TestWithFeService {
         // IVM overrides distribution to HASH on row-id column
         Assertions.assertTrue(info.getDistribution().isHash());
         Assertions.assertEquals(Column.IVM_ROW_ID_COL, info.getDistribution().getCols().get(0));
+    }
+
+    // --- P0-2: INCREMENTAL MV base table model validation tests ---
+    // CREATE first validates base table models explicitly, then reruns analyzeQuery with IVM normalize enabled.
+
+    @Test
+    public void testCreateIncrementalMVAcceptsDupKeysBaseTable() throws Exception {
+        createTable("create table test.ivm_dup_base (k1 int, v1 int)\n"
+                + "duplicate key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1');");
+        createMtmv("CREATE MATERIALIZED VIEW ivm_dup_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, v1 FROM ivm_dup_base;");
+        MTMV mtmv = getMtmv("ivm_dup_mv");
+        Assertions.assertTrue(mtmv.isIvm());
+    }
+
+    @Test
+    public void testCreateIncrementalMVAcceptsMOWBaseTable() throws Exception {
+        createTable("create table test.ivm_mow_base (k1 int, v1 int)\n"
+                + "unique key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true');");
+        createMtmv("CREATE MATERIALIZED VIEW ivm_mow_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, v1 FROM ivm_mow_base;");
+        MTMV mtmv = getMtmv("ivm_mow_mv");
+        Assertions.assertTrue(mtmv.isIvm());
+    }
+
+    @Test
+    public void testCreateIncrementalMVRejectsUserSpecifiedKeyColumns() throws Exception {
+        createTable("create table test.ivm_explicit_key_base (k1 int, v1 int)\n"
+                + "duplicate key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1');");
+        AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
+                () -> getPartitionTableInfo("CREATE MATERIALIZED VIEW ivm_explicit_unique_key_mv\n"
+                        + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                        + " KEY(k1)\n"
+                        + " DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                        + " PROPERTIES ('replication_num' = '1')\n"
+                        + " AS SELECT k1, v1 FROM ivm_explicit_key_base;"));
+        Assertions.assertTrue(ex.getMessage().contains("does not allow specifying key columns"),
+                "unexpected message: " + ex.getMessage());
+    }
+
+    @Test
+    public void testCreateIncrementalMVRejectsUserSpecifiedDuplicateKey() throws Exception {
+        createTable("create table test.ivm_explicit_dup_base (k1 int, v1 int)\n"
+                + "duplicate key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1');");
+        AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
+                () -> getPartitionTableInfo("CREATE MATERIALIZED VIEW ivm_explicit_dup_key_mv\n"
+                        + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                        + " DUPLICATE KEY(k1)\n"
+                        + " DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                        + " PROPERTIES ('replication_num' = '1')\n"
+                        + " AS SELECT k1, v1 FROM ivm_explicit_dup_base;"));
+        Assertions.assertTrue(ex.getMessage().contains("does not allow specifying key columns"),
+                "unexpected message: " + ex.getMessage());
+    }
+
+    @Test
+    public void testCreateIncrementalMVRejectsAggKeysBaseTable() throws Exception {
+        createTable("create table test.ivm_agg_base (k1 int, v1 int SUM)\n"
+                + "aggregate key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1');");
+        AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
+                () -> getPartitionTableInfo("CREATE MATERIALIZED VIEW ivm_agg_mv\n"
+                        + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                        + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                        + " PROPERTIES ('replication_num' = '1')\n"
+                        + " AS SELECT k1 FROM ivm_agg_base;"));
+        Assertions.assertTrue(ex.getMessage().contains("requires base tables to be"),
+                "unexpected message: " + ex.getMessage());
+    }
+
+    @Test
+    public void testCreateIncrementalMVAllowsAggKeysInExcludedTriggerTables() throws Exception {
+        createTable("create table test.ivm_excluded_agg_base (k1 int, v1 int SUM)\n"
+                + "aggregate key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1');");
+        createMtmv("CREATE MATERIALIZED VIEW ivm_excluded_agg_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1', 'excluded_trigger_tables' = 'ivm_excluded_agg_base')\n"
+                + " AS SELECT k1 FROM ivm_excluded_agg_base;");
+        MTMV mtmv = getMtmv("ivm_excluded_agg_mv");
+        Assertions.assertTrue(mtmv.isIvm());
+    }
+
+    @Test
+    public void testCreateIncrementalMVRejectsUniqueKeyWithoutMOW() throws Exception {
+        createTable("create table test.ivm_nomow_base (k1 int, v1 int)\n"
+                + "unique key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'false');");
+        AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
+                () -> getPartitionTableInfo("CREATE MATERIALIZED VIEW ivm_nomow_mv\n"
+                        + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                        + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                        + " PROPERTIES ('replication_num' = '1')\n"
+                        + " AS SELECT k1, v1 FROM ivm_nomow_base;"));
+        Assertions.assertTrue(ex.getMessage().contains("enable Merge-On-Write"),
+                "unexpected message: " + ex.getMessage());
+    }
+
+    @Test
+    public void testCreateIncrementalMVAllowsBuildDeferred() throws Exception {
+        createTable("create table test.ivm_deferred_base (k1 int)\n"
+                + "duplicate key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1');");
+        createMtmv("CREATE MATERIALIZED VIEW ivm_deferred_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1 FROM ivm_deferred_base;");
+        MTMV mtmv = getMtmv("ivm_deferred_mv");
+        Assertions.assertTrue(mtmv.isIvm());
+    }
+
+    @Test
+    public void testCreateIncrementalMVAllowsPartitionByWhenSupported() throws Exception {
+        createTable("CREATE TABLE test.ivm_partition_base (\n"
+                + " `k1` INT NOT NULL,\n"
+                + " `dt` DATE NOT NULL,\n"
+                + " `v1` INT\n"
+                + " ) ENGINE=OLAP\n"
+                + " DUPLICATE KEY(`k1`, `dt`)\n"
+                + " PARTITION BY RANGE(`dt`)\n"
+                + " (\n"
+                + " PARTITION `p202401` VALUES [(\"2024-01-01\"), (\"2024-02-01\")),\n"
+                + " PARTITION `p202402` VALUES [(\"2024-02-01\"), (\"2024-03-01\"))\n"
+                + " )\n"
+                + " DISTRIBUTED BY HASH(`k1`) BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1');");
+
+        CreateMTMVInfo info = getPartitionTableInfo("CREATE MATERIALIZED VIEW ivm_partition_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " PARTITION BY(`dt`)\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, dt, v1 FROM ivm_partition_base;");
+
+        Assertions.assertNotEquals(PartitionTableInfo.EMPTY, info.getPartitionTableInfo());
+        Assertions.assertEquals(2, info.getPartitionTableInfo().getPartitionDefs().size());
+    }
+
+    @Test
+    public void testCreateIncrementalMVRejectsUnsupportedPartitionIncremental() throws Exception {
+        createTable("create table test.ivm_partition_unsupported_base (\n"
+                + " k1 int,\n"
+                + " v1 int\n"
+                + ")\n"
+                + "duplicate key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1');");
+
+        AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
+                () -> getPartitionTableInfo("CREATE MATERIALIZED VIEW ivm_partition_unsupported_mv\n"
+                        + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                        + " PARTITION BY(`k1`)\n"
+                        + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                        + " PROPERTIES ('replication_num' = '1')\n"
+                        + " AS SELECT k1, v1 FROM ivm_partition_unsupported_base;"));
+        Assertions.assertTrue(ex.getMessage().contains("suitable"),
+                "unexpected message: " + ex.getMessage());
+    }
+
+    @Test
+    public void testAlterExcludedTriggerTablesRejectsShrinkingCoverage() throws Exception {
+        createTable("create table test.ivm_alter_agg_base (k1 int, v1 int SUM)\n"
+                + "aggregate key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1');");
+        createMtmv("CREATE MATERIALIZED VIEW ivm_alter_excluded_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1', 'excluded_trigger_tables' = 'ivm_alter_agg_base')\n"
+                + " AS SELECT k1 FROM ivm_alter_agg_base;");
+        MTMV mtmv = getMtmv("ivm_alter_excluded_mv");
+        Assertions.assertTrue(mtmv.isIvm());
+
+        // Removing the AGG table from excluded_trigger_tables should fail validation
+        AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
+                () -> alterMtmv("ALTER MATERIALIZED VIEW ivm_alter_excluded_mv "
+                        + "SET ('excluded_trigger_tables' = '')"));
+        Assertions.assertTrue(ex.getMessage().contains("can only be expanded"),
+                "unexpected message: " + ex.getMessage());
+    }
+
+    @Test
+    public void testAlterExcludedTriggerTablesAllowsExpandingCoverage() throws Exception {
+        createTable("create table test.ivm_expand_agg_base (k1 int, v1 int SUM)\n"
+                + "aggregate key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1');");
+        createMtmv("CREATE MATERIALIZED VIEW ivm_expand_excluded_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1', 'excluded_trigger_tables' = 'test.ivm_expand_agg_base')\n"
+                + " AS SELECT k1 FROM ivm_expand_agg_base;");
+        MTMV mtmv = getMtmv("ivm_expand_excluded_mv");
+        Assertions.assertTrue(mtmv.isIvm());
+
+        alterMtmv("ALTER MATERIALIZED VIEW ivm_expand_excluded_mv "
+                + "SET ('excluded_trigger_tables' = 'ivm_expand_agg_base')");
+
+        Assertions.assertEquals(1, mtmv.getExcludedTriggerTables().size());
+        Assertions.assertTrue(mtmv.getExcludedTriggerTables().contains(new TableNameInfo("ivm_expand_agg_base")));
+    }
+
+    @Test
+    public void testAlterExcludedTriggerTablesRejectsNarrowingConfiguredScope() throws Exception {
+        createTable("create table test.ivm_narrow_agg_base (k1 int, v1 int SUM)\n"
+                + "aggregate key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1');");
+        createMtmv("CREATE MATERIALIZED VIEW ivm_narrow_excluded_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1', 'excluded_trigger_tables' = 'ivm_narrow_agg_base')\n"
+                + " AS SELECT k1 FROM ivm_narrow_agg_base;");
+        MTMV mtmv = getMtmv("ivm_narrow_excluded_mv");
+        Assertions.assertTrue(mtmv.isIvm());
+
+        AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
+                () -> alterMtmv("ALTER MATERIALIZED VIEW ivm_narrow_excluded_mv "
+                        + "SET ('excluded_trigger_tables' = 'test.ivm_narrow_agg_base')"));
+        Assertions.assertTrue(ex.getMessage().contains("can only be expanded"),
+                "unexpected message: " + ex.getMessage());
     }
 }

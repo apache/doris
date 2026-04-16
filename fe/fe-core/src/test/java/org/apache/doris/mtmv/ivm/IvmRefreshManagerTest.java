@@ -33,7 +33,7 @@ public class IvmRefreshManagerTest {
 
     @Test
     public void testRefreshContextRejectsNulls() {
-        MTMV mtmv = Mockito.mock(MTMV.class);
+        MTMV mtmv = mockMtmv();
         ConnectContext connectContext = new ConnectContext();
         org.apache.doris.mtmv.MTMVRefreshContext mtmvRefreshContext = new org.apache.doris.mtmv.MTMVRefreshContext(mtmv);
 
@@ -53,7 +53,7 @@ public class IvmRefreshManagerTest {
 
     @Test
     public void testManagerReturnsNoBundlesFallback() {
-        MTMV mtmv = Mockito.mock(MTMV.class);
+        MTMV mtmv = mockMtmv();
         TestDeltaExecutor executor = new TestDeltaExecutor();
         TestIvmRefreshManager manager = new TestIvmRefreshManager(executor,
                 newContext(mtmv), Collections.emptyList());
@@ -67,7 +67,7 @@ public class IvmRefreshManagerTest {
 
     @Test
     public void testManagerExecutesBundles() {
-        MTMV mtmv = Mockito.mock(MTMV.class);
+        MTMV mtmv = mockMtmv();
         Command deltaWriteCommand = Mockito.mock(Command.class);
         TestDeltaExecutor executor = new TestDeltaExecutor();
         List<IvmDeltaCommandBundle> bundles = makeBundles(deltaWriteCommand, mtmv);
@@ -82,7 +82,7 @@ public class IvmRefreshManagerTest {
 
     @Test
     public void testManagerReturnsExecutionFallbackOnExecutorFailure() {
-        MTMV mtmv = Mockito.mock(MTMV.class);
+        MTMV mtmv = mockMtmv();
         Command deltaWriteCommand = Mockito.mock(Command.class);
         TestDeltaExecutor executor = new TestDeltaExecutor();
         executor.throwOnExecute = true;
@@ -98,7 +98,7 @@ public class IvmRefreshManagerTest {
 
     @Test
     public void testManagerReturnsSnapshotFallbackWhenBuildContextFails() {
-        MTMV mtmv = Mockito.mock(MTMV.class);
+        MTMV mtmv = mockMtmv();
         TestDeltaExecutor executor = new TestDeltaExecutor();
         TestIvmRefreshManager manager = new TestIvmRefreshManager(executor, null, Collections.emptyList());
         manager.throwOnBuild = true;
@@ -112,7 +112,7 @@ public class IvmRefreshManagerTest {
 
     @Test
     public void testManagerReturnsBinlogBrokenBeforeNereidsFlow() {
-        MTMV mtmv = Mockito.mock(MTMV.class);
+        MTMV mtmv = mockMtmv();
         IvmInfo ivmInfo = new IvmInfo();
         ivmInfo.setBinlogBroken(true);
         Mockito.when(mtmv.getIvmInfo()).thenReturn(ivmInfo);
@@ -130,12 +130,31 @@ public class IvmRefreshManagerTest {
     }
 
     @Test
+    public void testManagerPrecheckDoesNotConsultExcludedTriggerTables() {
+        MTMV mtmv = mockMtmv();
+        IvmInfo ivmInfo = new IvmInfo();
+        Mockito.when(mtmv.getIvmInfo()).thenReturn(ivmInfo);
+
+        TestDeltaExecutor executor = new TestDeltaExecutor();
+        TestIvmRefreshManager manager = new TestIvmRefreshManager(executor,
+                newContext(mtmv), Collections.emptyList());
+        manager.useSuperPrecheck = true;
+
+        IvmRefreshResult result = manager.doRefresh(mtmv);
+
+        Assertions.assertFalse(result.isSuccess());
+        Assertions.assertEquals(IvmFallbackReason.PLAN_PATTERN_UNSUPPORTED, result.getFallbackReason());
+        Assertions.assertFalse(executor.executeCalled);
+        Mockito.verify(mtmv, Mockito.never()).getExcludedTriggerTables();
+    }
+
+    @Test
     public void testManagerPrecheckPassesWithoutStreamCheck() {
-        MTMV mtmv = Mockito.mock(MTMV.class);
         // checkStreamSupport is currently disabled (stream/binlog not ready),
         // so precheck only checks binlogBroken.  With binlogBroken=false the
         // precheck passes and the manager proceeds to analyze, which returns
         // empty bundles → PLAN_PATTERN_UNSUPPORTED.
+        MTMV mtmv = mockMtmv();
         IvmInfo ivmInfo = new IvmInfo();
         Mockito.when(mtmv.getIvmInfo()).thenReturn(ivmInfo);
 
@@ -153,10 +172,10 @@ public class IvmRefreshManagerTest {
 
     @Test
     public void testManagerPassesHealthyPrecheckAndExecutes() {
-        MTMV mtmv = Mockito.mock(MTMV.class);
-        Command deltaWriteCommand = Mockito.mock(Command.class);
         // With checkStreamSupport disabled, precheck only verifies binlogBroken.
         // No relation/table mocking is needed.
+        MTMV mtmv = mockMtmv();
+        Command deltaWriteCommand = Mockito.mock(Command.class);
         IvmInfo ivmInfo = new IvmInfo();
         Mockito.when(mtmv.getIvmInfo()).thenReturn(ivmInfo);
 
@@ -173,6 +192,12 @@ public class IvmRefreshManagerTest {
 
     private static IvmRefreshContext newContext(MTMV mtmv) {
         return new IvmRefreshContext(mtmv, new ConnectContext(), new org.apache.doris.mtmv.MTMVRefreshContext(mtmv));
+    }
+
+    private static MTMV mockMtmv() {
+        MTMV mtmv = Mockito.mock(MTMV.class);
+        Mockito.when(mtmv.getName()).thenReturn("mv");
+        return mtmv;
     }
 
     private static List<IvmDeltaCommandBundle> makeBundles(Command deltaWriteCommand, MTMV mtmv) {

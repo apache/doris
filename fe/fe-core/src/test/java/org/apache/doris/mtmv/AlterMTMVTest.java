@@ -75,4 +75,115 @@ public class AlterMTMVTest extends TestWithFeService {
         Assertions.assertEquals("errCode = 2, detailMessage = replace table[mv_b] cannot be a materialized view",
                 exception.getMessage());
     }
+
+    // --- P0-3: Block ALTER to/from INCREMENTAL refresh method ---
+
+    @Test
+    public void testAlterFromCompleteToIncrementalRejected() throws Exception {
+        createDatabaseAndUse("alter_test");
+        createTable("CREATE TABLE alter_test.alt_base (k1 int, v1 int)\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createMvByNereids("CREATE MATERIALIZED VIEW alt_complete_mv\n"
+                + " BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, v1 FROM alt_base");
+        Exception ex = Assertions.assertThrows(Exception.class,
+                () -> alterMv("ALTER MATERIALIZED VIEW alt_complete_mv\n"
+                        + " REFRESH INCREMENTAL ON MANUAL"));
+        Assertions.assertTrue(ex.getMessage().contains("Cannot ALTER refresh method to INCREMENTAL"),
+                "unexpected message: " + ex.getMessage());
+    }
+
+    @Test
+    public void testAlterFromIncrementalToCompleteRejected() throws Exception {
+        createDatabaseAndUse("alter_test2");
+        createTable("CREATE TABLE alter_test2.alt_base2 (k1 int, v1 int)\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createMvByNereids("CREATE MATERIALIZED VIEW alt_incr_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, v1 FROM alt_base2");
+        Exception ex = Assertions.assertThrows(Exception.class,
+                () -> alterMv("ALTER MATERIALIZED VIEW alt_incr_mv\n"
+                        + " REFRESH COMPLETE ON MANUAL"));
+        Assertions.assertTrue(ex.getMessage().contains("Cannot ALTER refresh method from INCREMENTAL"),
+                "unexpected message: " + ex.getMessage());
+    }
+
+    @Test
+    public void testAlterFromIncrementalToAutoRejected() throws Exception {
+        createDatabaseAndUse("alter_test3");
+        createTable("CREATE TABLE alter_test3.alt_base3 (k1 int, v1 int)\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createMvByNereids("CREATE MATERIALIZED VIEW alt_incr_mv3\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, v1 FROM alt_base3");
+        Exception ex = Assertions.assertThrows(Exception.class,
+                () -> alterMv("ALTER MATERIALIZED VIEW alt_incr_mv3\n"
+                        + " REFRESH AUTO ON MANUAL"));
+        Assertions.assertTrue(ex.getMessage().contains("Cannot ALTER refresh method from INCREMENTAL"),
+                "unexpected message: " + ex.getMessage());
+    }
+
+    @Test
+    public void testAlterFromCompleteToAutoAllowed() throws Exception {
+        createDatabaseAndUse("alter_test4");
+        createTable("CREATE TABLE alter_test4.alt_base4 (k1 int, v1 int)\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createMvByNereids("CREATE MATERIALIZED VIEW alt_complete_mv4\n"
+                + " BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, v1 FROM alt_base4");
+        // Should not throw
+        alterMv("ALTER MATERIALIZED VIEW alt_complete_mv4\n"
+                + " REFRESH AUTO ON MANUAL");
+    }
+
+    @Test
+    public void testAlterFromAutoToCompleteAllowed() throws Exception {
+        createDatabaseAndUse("alter_test_auto_complete");
+        createTable("CREATE TABLE alter_test_auto_complete.alt_base (k1 int, v1 int)\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createMvByNereids("CREATE MATERIALIZED VIEW alt_auto_mv_complete\n"
+                + " BUILD DEFERRED REFRESH AUTO ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, v1 FROM alt_base");
+        alterMv("ALTER MATERIALIZED VIEW alt_auto_mv_complete\n"
+                + " REFRESH COMPLETE ON MANUAL");
+    }
+
+    @Test
+    public void testAlterFromAutoToIncrementalRejected() throws Exception {
+        createDatabaseAndUse("alter_test5");
+        createTable("CREATE TABLE alter_test5.alt_base5 (k1 int, v1 int)\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createMvByNereids("CREATE MATERIALIZED VIEW alt_auto_mv5\n"
+                + " BUILD DEFERRED REFRESH AUTO ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, v1 FROM alt_base5");
+        Exception ex = Assertions.assertThrows(Exception.class,
+                () -> alterMv("ALTER MATERIALIZED VIEW alt_auto_mv5\n"
+                        + " REFRESH INCREMENTAL ON MANUAL"));
+        Assertions.assertTrue(ex.getMessage().contains("Cannot ALTER refresh method to INCREMENTAL"),
+                "unexpected message: " + ex.getMessage());
+    }
 }

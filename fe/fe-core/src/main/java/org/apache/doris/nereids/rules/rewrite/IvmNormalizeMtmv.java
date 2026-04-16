@@ -20,12 +20,16 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.Pair;
+import org.apache.doris.info.TableNameInfoUtils;
+import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.ivm.IvmAggMeta;
 import org.apache.doris.mtmv.ivm.IvmAggMeta.AggTarget;
 import org.apache.doris.mtmv.ivm.IvmAggMeta.AggType;
 import org.apache.doris.mtmv.ivm.IvmNormalizeResult;
 import org.apache.doris.mtmv.ivm.IvmUtil;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -108,6 +112,7 @@ import java.util.stream.Collectors;
  * <h3>Scan-level row-id injection</h3>
  * <ul>
  *   <li>MOW (UNIQUE_KEYS + merge-on-write): hash(uk columns) → deterministic
+ *   <li>Excluded AGG_KEYS table: hash(agg key columns) → deterministic
  *   <li>DUP_KEYS: uuid_numeric() → non-deterministic
  *   <li>Other key types: not supported, throws.
  * </ul>
@@ -122,6 +127,7 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
             ImmutableSet.of(Count.class, Sum.class, Avg.class, Min.class, Max.class);
 
     private final IvmNormalizeResult normalizeResult = new IvmNormalizeResult();
+    private StatementContext statementContext;
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
@@ -133,6 +139,7 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
         if (jobContext.getCascadesContext().getIvmNormalizeResult().isPresent()) {
             return plan;
         }
+        statementContext = jobContext.getCascadesContext().getStatementContext();
         jobContext.getCascadesContext().setIvmNormalizeResult(normalizeResult);
         Plan result = plan.accept(this, true);
         normalizeResult.setNormalizedPlan(result);
@@ -468,31 +475,65 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
 
     /**
      * Builds the row-id expression and returns whether it is deterministic as a pair.
-     * - MOW: (buildRowIdHash(uk...), true)  — stable across refreshes
-     * - DUP_KEYS: (UuidNumeric(), false)    — random per insert
-     * - Other key types: throws AnalysisException
+     * - UNIQUE_KEYS (MOW or excluded): (buildRowIdHash(uk...), true)      — stable across refreshes
+     * - DUP_KEYS: (UuidNumeric(), false)                                  — random per insert
+     * - Excluded AGG_KEYS: (buildRowIdHash(agg key...), true)             — stable across refreshes
+     * - Other key types: throws AnalysisException (unless excluded trigger table)
      */
     private Pair<Expression, Boolean> buildRowId(OlapTable table, LogicalOlapScan scan) {
         KeysType keysType = table.getKeysType();
-        if (keysType == KeysType.UNIQUE_KEYS && table.getEnableUniqueKeyMergeOnWrite()) {
-            List<String> keyColNames = table.getBaseSchemaKeyColumns().stream()
-                    .map(Column::getName)
-                    .collect(Collectors.toList());
-            List<Expression> keySlots = scan.getOutput().stream()
-                    .filter(s -> keyColNames.contains(s.getName()))
-                    .collect(Collectors.toList());
-            if (keySlots.isEmpty()) {
-                throw new AnalysisException("IVM: no unique key columns found for MOW table: "
-                        + table.getName());
+        boolean isExcludedTriggerTable = isExcludedTriggerTable(table);
+        if (keysType == KeysType.UNIQUE_KEYS) {
+            if (!table.getEnableUniqueKeyMergeOnWrite() && !isExcludedTriggerTable) {
+                throw new AnalysisException(
+                        "INCREMENTAL materialized view requires UNIQUE_KEYS base tables "
+                                + "to enable Merge-On-Write. Table '"
+                                + table.getName() + "' has MOW disabled."
+                                + " If this table does not participate in incremental refresh, "
+                                + "add it to 'excluded_trigger_tables'.");
             }
-            return Pair.of(IvmUtil.buildRowIdHash(keySlots), true);
+            return buildDeterministicRowIdFromBaseKeys(table, scan);
         }
         if (keysType == KeysType.DUP_KEYS) {
             return Pair.of(new UuidNumeric(), false);
         }
-        throw new AnalysisException("IVM does not support table key type: " + keysType
-                + " for table: " + table.getName()
-                + ". Only MOW (UNIQUE_KEYS with merge-on-write) and DUP_KEYS are supported.");
+        if (keysType == KeysType.AGG_KEYS && isExcludedTriggerTable) {
+            return buildDeterministicRowIdFromBaseKeys(table, scan);
+        }
+        if (isExcludedTriggerTable) {
+            return Pair.of(new UuidNumeric(), false);
+        }
+        throw new AnalysisException(
+                "INCREMENTAL materialized view requires base tables to be "
+                        + "UNIQUE_KEYS with Merge-On-Write or DUP_KEYS. Table '"
+                        + table.getName() + "' is " + keysType
+                        + ". If this table does not participate in incremental refresh, "
+                        + "add it to 'excluded_trigger_tables'.");
+    }
+
+    private Pair<Expression, Boolean> buildDeterministicRowIdFromBaseKeys(OlapTable table, LogicalOlapScan scan) {
+        Set<String> keyColNames = table.getBaseSchemaKeyColumns().stream()
+                .map(Column::getName)
+                .collect(Collectors.toSet());
+        List<Expression> keySlots = scan.getOutput().stream()
+                .filter(slot -> keyColNames.contains(slot.getName()))
+                .collect(Collectors.toList());
+        if (keySlots.isEmpty()) {
+            throw new AnalysisException("IVM: no key columns found for "
+                    + table.getKeysType() + " table: " + table.getName());
+        }
+        return Pair.of(IvmUtil.buildRowIdHash(keySlots), true);
+    }
+
+    private boolean isExcludedTriggerTable(OlapTable table) {
+        if (statementContext == null || statementContext.getExcludedTriggerTables().isEmpty()) {
+            return false;
+        }
+        TableNameInfo tableNameInfo = TableNameInfoUtils.fromTableOrNull(table);
+        if (tableNameInfo == null) {
+            return false;
+        }
+        return MTMVPartitionUtil.isTableExcluded(statementContext.getExcludedTriggerTables(), tableNameInfo);
     }
 
     /**

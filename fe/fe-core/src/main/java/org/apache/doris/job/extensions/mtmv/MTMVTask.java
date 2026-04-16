@@ -357,6 +357,7 @@ public class MTMVTask extends AbstractTask {
         // StatementContext is null and a NullPointerException is thrown.
         mtmvCtx.setStatementContext(statementContext);
         statementContext.setConnectContext(mtmvCtx);
+        statementContext.setExcludedTriggerTables(mtmv.getExcludedTriggerTables());
         for (Entry<MvccTableInfo, MvccSnapshot> entry : snapshots.entrySet()) {
             statementContext.setSnapshot(entry.getKey(), entry.getValue());
         }
