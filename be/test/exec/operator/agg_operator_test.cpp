@@ -22,6 +22,7 @@
 
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "exec/common/groupby_agg_context.h"
 #include "exec/operator/aggregation_sink_operator.h"
 #include "exec/operator/aggregation_source_operator.h"
 #include "exec/operator/assert_num_rows_operator.h"
@@ -582,17 +583,18 @@ TEST_F(AggOperatorTestWithGroupBy, other_case_2) {
     {
         Block block = ColumnHelper::create_nullable_block<DataTypeInt64>(
                 {1, 2, 3, 1, 2, 3}, {false, false, false, true, true, true});
-        auto* local_state =
-                static_cast<AggSinkOperatorX::LocalState*>(ctx.state.get_sink_local_state());
 
         ColumnRawPtrs key_columns;
         key_columns.push_back(block.get_by_position(0).column.get());
 
-        local_state->_places.resize(block.rows());
-        local_state->_emplace_into_hash_table(local_state->_places.data(), key_columns,
-                                              block.rows());
+        auto* ctx = static_cast<GroupByAggContext*>(
+                static_cast<AggSharedState*>(shared_state.get())->agg_ctx.get());
+        std::vector<AggregateDataPtr> places(block.rows());
+        ctx->emplace_into_hash_table(
+                places.data(), key_columns, block.rows(), ctx->hash_table_compute_timer(),
+                ctx->hash_table_emplace_timer(), ctx->hash_table_input_counter());
 
-        EXPECT_EQ(local_state->get_hash_table_size(), 4); // [1,2,3,null]
+        EXPECT_EQ(ctx->hash_table_size(), 4); // [1,2,3,null]
     }
 }
 

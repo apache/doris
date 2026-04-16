@@ -25,6 +25,7 @@
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "exec/common/groupby_agg_context.h"
 #include "exec/operator/aggregation_source_operator.h"
 #include "exec/operator/operator.h"
 #include "exec/operator/spill_utils.h"
@@ -200,19 +201,17 @@ size_t PartitionedAggSourceOperatorX::revocable_mem_size(RuntimeState* state) co
         bytes += block.allocated_bytes();
     }
     if (local_state._shared_state->_in_mem_shared_state != nullptr &&
-        local_state._shared_state->_in_mem_shared_state->agg_data != nullptr) {
-        auto* agg_data = local_state._shared_state->_in_mem_shared_state->agg_data.get();
+        local_state._shared_state->_in_mem_shared_state->agg_ctx != nullptr) {
+        auto* groupby_ctx = static_cast<GroupByAggContext*>(
+                local_state._shared_state->_in_mem_shared_state->agg_ctx.get());
+        auto* agg_data = groupby_ctx->hash_table_data();
         bytes += std::visit(Overload {[&](std::monostate& arg) -> size_t { return 0; },
                                       [&](auto& agg_method) -> size_t {
                                           return agg_method.hash_table->get_buffer_size_in_bytes();
                                       }},
                             agg_data->method_variant);
 
-        if (auto& aggregate_data_container =
-                    local_state._shared_state->_in_mem_shared_state->aggregate_data_container;
-            aggregate_data_container) {
-            bytes += aggregate_data_container->memory_usage();
-        }
+        bytes += groupby_ctx->agg_data_container()->memory_usage();
     }
     return bytes > state->spill_min_revocable_mem() ? bytes : 0;
 }
@@ -242,7 +241,10 @@ Status PartitionedAggSourceOperatorX::get_block(RuntimeState* state, Block* bloc
     // ── Fast path: not spilled ─────────────────────────────────────────
     if (!local_state._shared_state->_is_spilled) {
         auto* runtime_state = local_state._runtime_state.get();
-        local_state._shared_state->_in_mem_shared_state->aggregate_data_container->init_once();
+        static_cast<GroupByAggContext*>(
+                local_state._shared_state->_in_mem_shared_state->agg_ctx.get())
+                ->agg_data_container()
+                ->init_once();
         status = _agg_source_operator->get_block(runtime_state, block, eos);
         RETURN_IF_ERROR(status);
         if (*eos) {
@@ -320,7 +322,9 @@ Status PartitionedAggSourceOperatorX::get_block(RuntimeState* state, Block* bloc
 
     // Phase 4: All spill files consumed and merged — output aggregated results from hash table.
     auto* runtime_state = local_state._runtime_state.get();
-    local_state._shared_state->_in_mem_shared_state->aggregate_data_container->init_once();
+    static_cast<GroupByAggContext*>(local_state._shared_state->_in_mem_shared_state->agg_ctx.get())
+            ->agg_data_container()
+            ->init_once();
     bool inner_eos = false;
     RETURN_IF_ERROR(_agg_source_operator->get_block(runtime_state, block, &inner_eos));
 
@@ -437,7 +441,7 @@ Status PartitionedAggLocalState::_flush_hash_table_to_sub_spill_files(RuntimeSta
     // setup_output must have been called by the caller (_flush_and_repartition)
     // before calling this function. The repartitioner writes to the persistent output writers.
 
-    in_mem_state->aggregate_data_container->init_once();
+    static_cast<GroupByAggContext*>(in_mem_state->agg_ctx.get())->agg_data_container()->init_once();
     bool inner_eos = false;
     while (!inner_eos && !state->is_cancelled()) {
         Block block;
@@ -482,12 +486,13 @@ Status PartitionedAggLocalState::_flush_and_repartition(RuntimeState* state) {
             static_cast<int>(p._partition_count), output_spill_files));
 
     auto* in_mem_state = _shared_state->_in_mem_shared_state;
-    size_t num_keys = in_mem_state->probe_expr_ctxs.size();
+    auto* groupby_ctx = static_cast<GroupByAggContext*>(in_mem_state->agg_ctx.get());
+    size_t num_keys = groupby_ctx->groupby_expr_ctxs().size();
     std::vector<size_t> key_column_indices(num_keys);
     std::vector<DataTypePtr> key_data_types(num_keys);
     for (size_t i = 0; i < num_keys; ++i) {
         key_column_indices[i] = i;
-        key_data_types[i] = in_mem_state->probe_expr_ctxs[i]->root()->data_type();
+        key_data_types[i] = groupby_ctx->groupby_expr_ctxs()[i]->root()->data_type();
     }
 
     _repartitioner.init_with_key_columns(std::move(key_column_indices), std::move(key_data_types),
