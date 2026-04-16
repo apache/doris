@@ -374,7 +374,7 @@ static HttpResponse process_adjust_rate_limit(MetaServiceImpl* service, brpc::Co
                                    "`qps_limit` should not be less than 0");
         }
         if (cb(qps_limit)) {
-            return http_json_reply(MetaServiceCode::OK, "sucess to adjust rate limit");
+            return http_json_reply(MetaServiceCode::OK, "success to adjust rate limit");
         }
         return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
                                fmt::format("failed to adjust rate limit for qps_limit={}, "
