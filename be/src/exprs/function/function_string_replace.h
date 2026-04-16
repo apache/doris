@@ -174,6 +174,7 @@ private:
                 size_t prefix_len = static_cast<size_t>(match - pos);
                 if (prefix_len > 0) {
                     size_t old_size = dst_chars.size();
+                    ColumnString::check_chars_length(old_size + prefix_len, i + 1);
                     dst_chars.resize(old_size + prefix_len);
                     memcpy(&dst_chars[old_size], pos, prefix_len);
                 }
@@ -183,6 +184,7 @@ private:
                 // Copy replacement
                 if (replacement_size > 0) {
                     size_t old_size = dst_chars.size();
+                    ColumnString::check_chars_length(old_size + replacement_size, i + 1);
                     dst_chars.resize(old_size + replacement_size);
                     memcpy(&dst_chars[old_size], replacement_data, replacement_size);
                 }
