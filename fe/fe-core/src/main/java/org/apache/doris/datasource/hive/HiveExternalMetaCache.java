@@ -928,7 +928,11 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
         private long dummyKey = 0;
         private long catalogId;
         private String location;
-        // Not part of cache identity.
+        // inputFormat is part of cache identity because the cached FileCacheValue is
+        // format-dependent: isSplittable() and file-filtering (e.g. LZO *.lzo.index
+        // exclusion) both depend on the InputFormat class name. Two Hive tables that
+        // share the same partition location but declare different InputFormats must
+        // therefore get independent cache entries.
         private String inputFormat;
         // The values of partitions.
         protected List<String> partitionValues;
@@ -963,6 +967,7 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
             }
             return catalogId == ((FileCacheKey) obj).catalogId
                     && location.equals(((FileCacheKey) obj).location)
+                    && Objects.equals(inputFormat, ((FileCacheKey) obj).inputFormat)
                     && Objects.equals(partitionValues, ((FileCacheKey) obj).partitionValues);
         }
 
@@ -975,7 +980,7 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
             if (dummyKey != 0) {
                 return Objects.hash(dummyKey);
             }
-            return Objects.hash(catalogId, location, partitionValues);
+            return Objects.hash(catalogId, location, inputFormat, partitionValues);
         }
 
         @Override
