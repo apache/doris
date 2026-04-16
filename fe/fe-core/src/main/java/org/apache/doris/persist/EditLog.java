@@ -1522,7 +1522,7 @@ public class EditLog {
             LOG.info("txId {} is equal to or larger than edit_log_roll_num {}, will roll edit.",
                     txId, Config.edit_log_roll_num);
             rollEditLog();
-            txId = 0;
+            txId %= Config.edit_log_roll_num;
         }
     }
 
