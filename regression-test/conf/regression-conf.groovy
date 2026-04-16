@@ -72,12 +72,12 @@ suites = {
 }
 
 // docker image
-image = ""
+image = "bh-cluster"
 dockerCoverageOutputDir = "" // if not empty, will save docker coverage output files
 dockerEndDeleteFiles = false
 dorisComposePath = "${DORIS_HOME}/docker/runtime/doris-compose/doris-compose.py"
 // do run docker test because pipeline not support build image now
-excludeDockerTest = true
+excludeDockerTest = false
 
 // will test <group>/<suite>.groovy
 // empty group will test all group
@@ -95,7 +95,7 @@ excludeSuites = "test_broker_load"
 excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
     "segcompaction_p2," +
     "workload_manager_p1," +
-    "cloud_p0/cache," +
+    // "cloud_p0/cache," +
     "load_p0/msk_load," +
     "zzz_the_end_sentinel_do_not_touch," +
     "dialect_compatible"// keep this line as the last line

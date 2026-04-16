@@ -16,7 +16,7 @@
 // under the License.
 
 import org.apache.doris.regression.suite.ClusterOptions
-import groovy.json.JsonSlurper
+import org.apache.doris.regression.util.WarmupMetricsUtils
 
 suite('test_warm_up_event_on_tables_dynamic', 'docker') {
     def options = new ClusterOptions()
@@ -32,105 +32,9 @@ suite('test_warm_up_event_on_tables_dynamic', 'docker') {
     options.cloudMode = true
     options.beNum = 1
 
-    // ===== Helper closures =====
-    def getBrpcMetrics = { ip, port, name ->
-        def url = "http://${ip}:${port}/brpc_metrics"
-        def metrics = new URL(url).text
-        def matcher = metrics =~ ~"${name}\\s+(\\d+)"
-        if (matcher.find()) {
-            return matcher[0][1] as long
-        } else {
-            throw new RuntimeException("${name} not found for ${ip}:${port}")
-        }
-    }
-
-    def getClusterMetricSum = { clusterName, metricName ->
-        def backends = sql """SHOW BACKENDS"""
-        def clusterBes = backends.findAll { it[19].contains("""\"compute_group_name\" : \"${clusterName}\"""") }
-        long sum = 0
-        for (be in clusterBes) {
-            sum += getBrpcMetrics(be[1], be[5], metricName)
-        }
-        return sum
-    }
-
-    // requested is on SOURCE cluster; submitted/finished/failed on DESTINATION cluster
-    def getWarmupMetrics = { srcCluster, dstCluster ->
-        return [
-            requested: getClusterMetricSum(srcCluster, "file_cache_event_driven_warm_up_requested_segment_num"),
-            submitted: getClusterMetricSum(dstCluster, "file_cache_event_driven_warm_up_submitted_segment_num"),
-            finished : getClusterMetricSum(dstCluster, "file_cache_event_driven_warm_up_finished_segment_num"),
-            failed   : getClusterMetricSum(dstCluster, "file_cache_event_driven_warm_up_failed_segment_num"),
-        ]
-    }
-
-    def logWarmUpMetrics = { srcCluster, dstCluster ->
-        def m = getWarmupMetrics(srcCluster, dstCluster)
-        logger.info("warmup metrics [src=${srcCluster}, dst=${dstCluster}]: requested=${m.requested}, submitted=${m.submitted}, finished=${m.finished}, failed=${m.failed}")
-        return m
-    }
-
-    def parseMatchedTables = { jobInfo ->
-        def raw = jobInfo[0][14]?.toString()?.trim()
-        if (raw == null || raw.isEmpty()) {
-            return [] as Set
-        }
-        return raw.split(/,\s*/).collect { it.trim() }.findAll { !it.isEmpty() }.toSet()
-    }
-
-    def waitForMatchedTables = { jobId, expectedContains, expectedNotContains = [] as Set, timeoutMs = 30000 ->
-        long deadline = System.currentTimeMillis() + timeoutMs
-        Set lastMatched = [] as Set
-        while (System.currentTimeMillis() < deadline) {
-            def info = sql """SHOW WARM UP JOB WHERE ID = ${jobId}"""
-            lastMatched = parseMatchedTables(info)
-            boolean allContained = expectedContains.every { lastMatched.contains(it) }
-            boolean noneExcluded = expectedNotContains.every { !lastMatched.contains(it) }
-            if (allContained && noneExcluded) {
-                return lastMatched
-            }
-            sleep(2000)
-        }
-        return lastMatched
-    }
-
-    def waitForWarmupFinish = { srcCluster, dstCluster, expectedFinished, timeoutMs = 60000 ->
-        long deadline = System.currentTimeMillis() + timeoutMs
-        while (System.currentTimeMillis() < deadline) {
-            def m = getWarmupMetrics(srcCluster, dstCluster)
-            if (m.finished >= expectedFinished && m.finished + m.failed >= m.submitted) {
-                return m
-            }
-            sleep(2000)
-        }
-        logger.warn("waitForWarmupFinish timed out after ${timeoutMs}ms, expected finished >= ${expectedFinished}")
-        return getWarmupMetrics(srcCluster, dstCluster)
-    }
-
-    // Wait for metrics to stabilize (no new submissions for 3 seconds)
-    def waitForMetricsStable = { srcCluster, dstCluster, timeoutMs = 30000 ->
-        long deadline = System.currentTimeMillis() + timeoutMs
-        def prev = getWarmupMetrics(srcCluster, dstCluster)
-        sleep(5000)
-        while (System.currentTimeMillis() < deadline) {
-            def cur = getWarmupMetrics(srcCluster, dstCluster)
-            if (cur.submitted == prev.submitted && cur.finished == prev.finished
-                    && cur.finished + cur.failed >= cur.submitted) {
-                // Double-check: wait 3 more seconds and verify again
-                sleep(3000)
-                def verify = getWarmupMetrics(srcCluster, dstCluster)
-                if (verify.submitted == cur.submitted && verify.finished == cur.finished) {
-                    return verify
-                }
-            }
-            prev = cur
-            sleep(2000)
-        }
-        logger.warn("waitForMetricsStable timed out after ${timeoutMs}ms")
-        return getWarmupMetrics(srcCluster, dstCluster)
-    }
-
     docker(options) {
+        Closure sqlRunner = { String q -> sql(q) }
+
         def clusterName1 = "warmup_source"
         def clusterName2 = "warmup_target"
 
@@ -171,7 +75,7 @@ suite('test_warm_up_event_on_tables_dynamic', 'docker') {
             sleep(3000)
 
             // Verify initial matched tables
-            def initMatched = waitForMatchedTables(jobId,
+            def initMatched = WarmupMetricsUtils.waitForMatchedTables(sqlRunner, jobId,
                     ["${dbName}.fact_orders".toString()] as Set)
             logger.info("Initial MatchedTables: ${initMatched}")
             assert "${dbName}.fact_orders".toString() in initMatched
@@ -188,7 +92,7 @@ suite('test_warm_up_event_on_tables_dynamic', 'docker') {
                    PROPERTIES ("file_cache_ttl_seconds" = "3600")"""
 
             // Poll until new matching table is auto-included
-            def matchedAfterCreate = waitForMatchedTables(jobId,
+            def matchedAfterCreate = WarmupMetricsUtils.waitForMatchedTables(sqlRunner, jobId,
                     ["${dbName}.fact_orders".toString(), "${dbName}.fact_sales".toString()] as Set,
                     ["${dbName}.dim_product".toString()] as Set)
             logger.info("MatchedTables after create: ${matchedAfterCreate}")
@@ -197,15 +101,16 @@ suite('test_warm_up_event_on_tables_dynamic', 'docker') {
             assert !("${dbName}.dim_product".toString() in matchedAfterCreate)
 
             // Verify warmup works for the new table — with quantitative metric check
-            def baseMetrics = getWarmupMetrics(clusterName1, clusterName2)
+            def baseMetrics = WarmupMetricsUtils.getWarmupMetrics(sqlRunner, clusterName1, clusterName2)
             def numInserts = 5
             sql """use ${dbName}"""
             for (int i = 0; i < numInserts; i++) {
                 sql """INSERT INTO fact_sales VALUES (${i}, ${i * 100.0})"""
             }
 
-            def finalMetrics = waitForWarmupFinish(clusterName1, clusterName2, baseMetrics.finished + numInserts)
-            logWarmUpMetrics(clusterName1, clusterName2)
+            def finalMetrics = WarmupMetricsUtils.waitForWarmupFinish(sqlRunner, clusterName1, clusterName2,
+                    baseMetrics.finished + numInserts)
+            WarmupMetricsUtils.logWarmupMetrics(sqlRunner, clusterName1, clusterName2)
 
             def reqDelta = finalMetrics.requested - baseMetrics.requested
             def subDelta = finalMetrics.submitted - baseMetrics.submitted
@@ -218,12 +123,12 @@ suite('test_warm_up_event_on_tables_dynamic', 'docker') {
             assert failDelta == 0 : "Expected 0 failed, got ${failDelta}"
 
             // Negative proof: insert into dim_product (not matched)
-            def metricsBeforeDim = waitForMetricsStable(clusterName1, clusterName2)
+            def metricsBeforeDim = WarmupMetricsUtils.waitForMetricsStable(sqlRunner, clusterName1, clusterName2)
             for (int i = 0; i < numInserts; i++) {
                 sql """INSERT INTO dim_product VALUES (${i}, 'product_${i}')"""
             }
             sleep(5000)
-            def metricsAfterDim = logWarmUpMetrics(clusterName1, clusterName2)
+            def metricsAfterDim = WarmupMetricsUtils.logWarmupMetrics(sqlRunner, clusterName1, clusterName2)
             def dimSubDelta = metricsAfterDim.submitted - metricsBeforeDim.submitted
             def dimFinDelta = metricsAfterDim.finished - metricsBeforeDim.finished
             assert dimSubDelta == 0 : "dim_product inserts should not trigger warmup, submitted delta=${dimSubDelta}"
@@ -236,7 +141,7 @@ suite('test_warm_up_event_on_tables_dynamic', 'docker') {
             sql """DROP TABLE IF EXISTS fact_orders"""
 
             // Poll until dropped table is removed
-            def matchedAfterDrop = waitForMatchedTables(jobId,
+            def matchedAfterDrop = WarmupMetricsUtils.waitForMatchedTables(sqlRunner, jobId,
                     ["${dbName}.fact_sales".toString()] as Set,
                     ["${dbName}.fact_orders".toString()] as Set)
             logger.info("MatchedTables after drop: ${matchedAfterDrop}")
@@ -253,7 +158,7 @@ suite('test_warm_up_event_on_tables_dynamic', 'docker') {
             // Rename fact_sales to archive_sales (no longer matches fact_*)
             sql """ALTER TABLE ${dbName}.fact_sales RENAME archive_sales"""
 
-            def matchedAfterRename = waitForMatchedTables(jobId,
+            def matchedAfterRename = WarmupMetricsUtils.waitForMatchedTables(sqlRunner, jobId,
                     [] as Set,
                     ["${dbName}.fact_sales".toString(), "${dbName}.archive_sales".toString()] as Set)
             logger.info("MatchedTables after rename to archive_sales: ${matchedAfterRename}")
@@ -267,22 +172,22 @@ suite('test_warm_up_event_on_tables_dynamic', 'docker') {
             // Rename back to a matching name
             sql """ALTER TABLE ${dbName}.archive_sales RENAME fact_revenue"""
 
-            def matchedAfterRenameBack = waitForMatchedTables(jobId,
+            def matchedAfterRenameBack = WarmupMetricsUtils.waitForMatchedTables(sqlRunner, jobId,
                     ["${dbName}.fact_revenue".toString()] as Set)
             logger.info("MatchedTables after rename to fact_revenue: ${matchedAfterRenameBack}")
             assert "${dbName}.fact_revenue".toString() in matchedAfterRenameBack
 
             // Verify warmup still works after rename-back — with quantitative metric check
-            def metricsBeforeRenameInsert = getWarmupMetrics(clusterName1, clusterName2)
+            def metricsBeforeRenameInsert = WarmupMetricsUtils.getWarmupMetrics(sqlRunner, clusterName1, clusterName2)
             def numRenameInserts = 5
             sql """use ${dbName}"""
             for (int i = 0; i < numRenameInserts; i++) {
                 sql """INSERT INTO fact_revenue VALUES (${i + 100}, ${i * 50.0})"""
             }
 
-            def metricsAfterRenameInsert = waitForWarmupFinish(clusterName1, clusterName2,
+            def metricsAfterRenameInsert = WarmupMetricsUtils.waitForWarmupFinish(sqlRunner, clusterName1, clusterName2,
                     metricsBeforeRenameInsert.finished + numRenameInserts)
-            logWarmUpMetrics(clusterName1, clusterName2)
+            WarmupMetricsUtils.logWarmupMetrics(sqlRunner, clusterName1, clusterName2)
 
             def renameReqDelta = metricsAfterRenameInsert.requested - metricsBeforeRenameInsert.requested
             def renameSubDelta = metricsAfterRenameInsert.submitted - metricsBeforeRenameInsert.submitted

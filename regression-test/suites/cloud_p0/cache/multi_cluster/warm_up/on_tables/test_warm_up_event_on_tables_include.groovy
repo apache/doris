@@ -16,6 +16,7 @@
 // under the License.
 
 import org.apache.doris.regression.suite.ClusterOptions
+import org.apache.doris.regression.util.WarmupMetricsUtils
 import groovy.json.JsonSlurper
 
 suite('test_warm_up_event_on_tables_include', 'docker') {
@@ -32,66 +33,9 @@ suite('test_warm_up_event_on_tables_include', 'docker') {
     options.cloudMode = true
     options.beNum = 1
 
-    // ===== Helper closures =====
-    def getBrpcMetrics = { ip, port, name ->
-        def url = "http://${ip}:${port}/brpc_metrics"
-        def metrics = new URL(url).text
-        def matcher = metrics =~ ~"${name}\\s+(\\d+)"
-        if (matcher.find()) {
-            return matcher[0][1] as long
-        } else {
-            throw new RuntimeException("${name} not found for ${ip}:${port}")
-        }
-    }
-
-    def getClusterMetricSum = { clusterName, metricName ->
-        def backends = sql """SHOW BACKENDS"""
-        def clusterBes = backends.findAll { it[19].contains("""\"compute_group_name\" : \"${clusterName}\"""") }
-        long sum = 0
-        for (be in clusterBes) {
-            sum += getBrpcMetrics(be[1], be[5], metricName)
-        }
-        return sum
-    }
-
-    // requested is on SOURCE cluster; submitted/finished/failed on DESTINATION cluster
-    def getWarmupMetrics = { srcCluster, dstCluster ->
-        return [
-            requested: getClusterMetricSum(srcCluster, "file_cache_event_driven_warm_up_requested_segment_num"),
-            submitted: getClusterMetricSum(dstCluster, "file_cache_event_driven_warm_up_submitted_segment_num"),
-            finished : getClusterMetricSum(dstCluster, "file_cache_event_driven_warm_up_finished_segment_num"),
-            failed   : getClusterMetricSum(dstCluster, "file_cache_event_driven_warm_up_failed_segment_num"),
-        ]
-    }
-
-    def logWarmUpMetrics = { srcCluster, dstCluster ->
-        def m = getWarmupMetrics(srcCluster, dstCluster)
-        logger.info("warmup metrics [src=${srcCluster}, dst=${dstCluster}]: requested=${m.requested}, submitted=${m.submitted}, finished=${m.finished}, failed=${m.failed}")
-        return m
-    }
-
-    def parseMatchedTables = { jobInfo ->
-        def raw = jobInfo[0][14]?.toString()?.trim()
-        if (raw == null || raw.isEmpty()) {
-            return [] as Set
-        }
-        return raw.split(/,\s*/).collect { it.trim() }.findAll { !it.isEmpty() }.toSet()
-    }
-
-    def waitForWarmupFinish = { srcCluster, dstCluster, expectedFinished, timeoutMs = 60000 ->
-        long deadline = System.currentTimeMillis() + timeoutMs
-        while (System.currentTimeMillis() < deadline) {
-            def m = getWarmupMetrics(srcCluster, dstCluster)
-            if (m.finished >= expectedFinished && m.finished + m.failed >= m.submitted) {
-                return m
-            }
-            sleep(2000)
-        }
-        logger.warn("waitForWarmupFinish timed out after ${timeoutMs}ms, expected finished >= ${expectedFinished}")
-        return getWarmupMetrics(srcCluster, dstCluster)
-    }
-
     docker(options) {
+        Closure sqlRunner = { String q -> sql(q) }
+
         def clusterName1 = "warmup_source"
         def clusterName2 = "warmup_target"
 
@@ -139,7 +83,7 @@ suite('test_warm_up_event_on_tables_include', 'docker') {
 
             sleep(3000)
 
-            def baseMetrics = getWarmupMetrics(clusterName1, clusterName2)
+            def baseMetrics = WarmupMetricsUtils.getWarmupMetrics(sqlRunner, clusterName1, clusterName2)
             logger.info("Baseline metrics: ${baseMetrics}")
 
             // Negative proof: insert ONLY into excluded db
@@ -150,7 +94,7 @@ suite('test_warm_up_event_on_tables_include', 'docker') {
             }
             sleep(5000)
 
-            def metricsAfterExcluded = logWarmUpMetrics(clusterName1, clusterName2)
+            def metricsAfterExcluded = WarmupMetricsUtils.logWarmupMetrics(sqlRunner, clusterName1, clusterName2)
             def excludedSubmittedDelta = metricsAfterExcluded.submitted - baseMetrics.submitted
             def excludedFinishedDelta = metricsAfterExcluded.finished - baseMetrics.finished
             assert excludedSubmittedDelta == 0 : "Excluded inserts should not submit segments, delta=${excludedSubmittedDelta}"
@@ -165,8 +109,9 @@ suite('test_warm_up_event_on_tables_include', 'docker') {
                 sql """INSERT INTO customers VALUES (${i}, 'customer_${i}')"""
             }
 
-            def finalMetrics = waitForWarmupFinish(clusterName1, clusterName2, metricsAfterExcluded.finished + expectedSegments)
-            logWarmUpMetrics(clusterName1, clusterName2)
+            def finalMetrics = WarmupMetricsUtils.waitForWarmupFinish(sqlRunner, clusterName1, clusterName2,
+                    metricsAfterExcluded.finished + expectedSegments)
+            WarmupMetricsUtils.logWarmupMetrics(sqlRunner, clusterName1, clusterName2)
 
             def requestedDelta = finalMetrics.requested - metricsAfterExcluded.requested
             def submittedDelta = finalMetrics.submitted - metricsAfterExcluded.submitted
@@ -194,7 +139,7 @@ suite('test_warm_up_event_on_tables_include', 'docker') {
             assert filterJson.include.contains("${dbName}.*".toString())
             assert !filterJson.containsKey("exclude")
 
-            def matchedSet = parseMatchedTables(jobInfo)
+            def matchedSet = WarmupMetricsUtils.parseMatchedTables(jobInfo)
             logger.info("MatchedTables set: ${matchedSet}")
             assert "${dbName}.orders".toString() in matchedSet
             assert "${dbName}.customers".toString() in matchedSet

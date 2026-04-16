@@ -16,6 +16,7 @@
 // under the License.
 
 import org.apache.doris.regression.suite.ClusterOptions
+import org.apache.doris.regression.util.WarmupMetricsUtils
 import groovy.json.JsonSlurper
 
 suite('test_warm_up_event_on_tables_error_and_lifecycle', 'docker') {
@@ -32,66 +33,9 @@ suite('test_warm_up_event_on_tables_error_and_lifecycle', 'docker') {
     options.cloudMode = true
     options.beNum = 1
 
-    // ===== Helper closures =====
-    def getBrpcMetrics = { ip, port, name ->
-        def url = "http://${ip}:${port}/brpc_metrics"
-        def metrics = new URL(url).text
-        def matcher = metrics =~ ~"${name}\\s+(\\d+)"
-        if (matcher.find()) {
-            return matcher[0][1] as long
-        } else {
-            throw new RuntimeException("${name} not found for ${ip}:${port}")
-        }
-    }
-
-    def getClusterMetricSum = { clusterName, metricName ->
-        def backends = sql """SHOW BACKENDS"""
-        def clusterBes = backends.findAll { it[19].contains("""\"compute_group_name\" : \"${clusterName}\"""") }
-        long sum = 0
-        for (be in clusterBes) {
-            sum += getBrpcMetrics(be[1], be[5], metricName)
-        }
-        return sum
-    }
-
-    // requested is on SOURCE cluster; submitted/finished/failed on DESTINATION cluster
-    def getWarmupMetrics = { srcCluster, dstCluster ->
-        return [
-            requested: getClusterMetricSum(srcCluster, "file_cache_event_driven_warm_up_requested_segment_num"),
-            submitted: getClusterMetricSum(dstCluster, "file_cache_event_driven_warm_up_submitted_segment_num"),
-            finished : getClusterMetricSum(dstCluster, "file_cache_event_driven_warm_up_finished_segment_num"),
-            failed   : getClusterMetricSum(dstCluster, "file_cache_event_driven_warm_up_failed_segment_num"),
-        ]
-    }
-
-    def logWarmUpMetrics = { srcCluster, dstCluster ->
-        def m = getWarmupMetrics(srcCluster, dstCluster)
-        logger.info("warmup metrics [src=${srcCluster}, dst=${dstCluster}]: requested=${m.requested}, submitted=${m.submitted}, finished=${m.finished}, failed=${m.failed}")
-        return m
-    }
-
-    def waitForWarmupFinish = { srcCluster, dstCluster, expectedFinished, timeoutMs = 60000 ->
-        long deadline = System.currentTimeMillis() + timeoutMs
-        while (System.currentTimeMillis() < deadline) {
-            def m = getWarmupMetrics(srcCluster, dstCluster)
-            if (m.finished >= expectedFinished && m.finished + m.failed >= m.submitted) {
-                return m
-            }
-            sleep(2000)
-        }
-        logger.warn("waitForWarmupFinish timed out after ${timeoutMs}ms, expected finished >= ${expectedFinished}")
-        return getWarmupMetrics(srcCluster, dstCluster)
-    }
-
-    def parseMatchedTables = { jobInfo ->
-        def raw = jobInfo[0][14]?.toString()?.trim()
-        if (raw == null || raw.isEmpty()) {
-            return [] as Set
-        }
-        return raw.split(/,\s*/).collect { it.trim() }.findAll { !it.isEmpty() }.toSet()
-    }
-
     docker(options) {
+        Closure sqlRunner = { String q -> sql(q) }
+
         def clusterName1 = "warmup_source"
         def clusterName2 = "warmup_target"
 
@@ -247,7 +191,7 @@ suite('test_warm_up_event_on_tables_error_and_lifecycle', 'docker') {
 
             // Table-level job should have non-empty TableFilter and MatchedTables
             assert tableJobInfo[0][13].length() > 0 : "Table-level job should have non-empty TableFilter"
-            def tableJobMatched = parseMatchedTables(tableJobInfo)
+            def tableJobMatched = WarmupMetricsUtils.parseMatchedTables(tableJobInfo)
             assert "${dbName}.base_table".toString() in tableJobMatched : "Table-level job MatchedTables should contain base_table"
 
             // ===== Lifecycle Test 2: Duplicate detection with normalized rules =====
@@ -344,14 +288,14 @@ suite('test_warm_up_event_on_tables_error_and_lifecycle', 'docker') {
             sleep(3000)
 
             def jobInfoQ = sql """SHOW WARM UP JOB WHERE ID = ${jobIdQ}"""
-            def matchedSetQ = parseMatchedTables(jobInfoQ)
+            def matchedSetQ = WarmupMetricsUtils.parseMatchedTables(jobInfoQ)
             logger.info("MatchedTables for ? wildcard: ${matchedSetQ}")
             assert "${dbName}.log_a".toString() in matchedSetQ : "log_a should match log_? pattern"
             assert "${dbName}.log_b".toString() in matchedSetQ : "log_b should match log_? pattern"
             assert !("${dbName}.log_ab".toString() in matchedSetQ) : "log_ab should NOT match log_? (? matches exactly one char)"
 
             // Quantitative metric verification for ? wildcard
-            def baseMetrics = getWarmupMetrics(clusterName1, clusterName2)
+            def baseMetrics = WarmupMetricsUtils.getWarmupMetrics(sqlRunner, clusterName1, clusterName2)
 
             // Insert into matched tables log_a and log_b
             def numInserts = 3
@@ -367,8 +311,9 @@ suite('test_warm_up_event_on_tables_error_and_lifecycle', 'docker') {
                 sql """INSERT INTO log_ab VALUES (${i}, 'msg_ab_${i}')"""
             }
 
-            def finalMetrics = waitForWarmupFinish(clusterName1, clusterName2, baseMetrics.finished + expectedSegments)
-            logWarmUpMetrics(clusterName1, clusterName2)
+            def finalMetrics = WarmupMetricsUtils.waitForWarmupFinish(sqlRunner, clusterName1, clusterName2,
+                    baseMetrics.finished + expectedSegments)
+            WarmupMetricsUtils.logWarmupMetrics(sqlRunner, clusterName1, clusterName2)
 
             def reqDelta = finalMetrics.requested - baseMetrics.requested
             def subDelta = finalMetrics.submitted - baseMetrics.submitted
