@@ -34,8 +34,8 @@ import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileScanSlotInfo;
 
-import org.junit.Before;
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mockito;
 
