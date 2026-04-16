@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include "core/extended_types.h"
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "core/uint128.h"
@@ -70,52 +69,6 @@ struct HashCRC32Return32<UInt64> {
     uint32_t operator()(UInt64 key) const { return crc32_compute(CRC32_HASH_SEED, key); }
 };
 
-template <>
-struct HashCRC32Return32<Int8> {
-    uint32_t operator()(Int8 key) const {
-        return crc32_compute(CRC32_HASH_SEED, static_cast<uint8_t>(key));
-    }
-};
-
-template <>
-struct HashCRC32Return32<Int16> {
-    uint32_t operator()(Int16 key) const {
-        return crc32_compute(CRC32_HASH_SEED, static_cast<uint16_t>(key));
-    }
-};
-
-template <>
-struct HashCRC32Return32<Int32> {
-    uint32_t operator()(Int32 key) const {
-        return crc32_compute(CRC32_HASH_SEED, static_cast<uint32_t>(key));
-    }
-};
-
-template <>
-struct HashCRC32Return32<Int64> {
-    uint32_t operator()(Int64 key) const {
-        return crc32_compute(CRC32_HASH_SEED, static_cast<uint64_t>(key));
-    }
-};
-
-template <>
-struct HashCRC32Return32<Float32> {
-    uint32_t operator()(Float32 key) const {
-        uint32_t bits;
-        memcpy(&bits, &key, sizeof(bits));
-        return crc32_compute(CRC32_HASH_SEED, bits);
-    }
-};
-
-template <>
-struct HashCRC32Return32<Float64> {
-    uint32_t operator()(Float64 key) const {
-        uint64_t bits;
-        memcpy(&bits, &key, sizeof(bits));
-        return crc32_compute(CRC32_HASH_SEED, bits);
-    }
-};
-
 // --- 128-bit types ---
 
 template <>
@@ -124,26 +77,6 @@ struct HashCRC32Return32<UInt128> {
         uint32_t crc = CRC32_HASH_SEED;
         crc = crc32_compute(crc, x.low());
         crc = crc32_compute(crc, x.high());
-        return crc;
-    }
-};
-
-template <>
-struct HashCRC32Return32<Int128> {
-    uint32_t operator()(Int128 x) const {
-        uint32_t crc = CRC32_HASH_SEED;
-        crc = crc32_compute(crc, static_cast<uint64_t>(x));
-        crc = crc32_compute(crc, static_cast<uint64_t>(x >> 64));
-        return crc;
-    }
-};
-
-template <>
-struct HashCRC32Return32<unsigned __int128> {
-    uint32_t operator()(unsigned __int128 x) const {
-        uint32_t crc = CRC32_HASH_SEED;
-        crc = crc32_compute(crc, static_cast<uint64_t>(x));
-        crc = crc32_compute(crc, static_cast<uint64_t>(x >> 64));
         return crc;
     }
 };
@@ -162,21 +95,7 @@ struct HashCRC32Return32<UInt256> {
     }
 };
 
-template <>
-struct HashCRC32Return32<wide::Int256> {
-    uint32_t operator()(const wide::Int256& x) const {
-        uint32_t crc = CRC32_HASH_SEED;
-        crc = crc32_compute(crc, static_cast<uint64_t>(x.items[0]));
-        crc = crc32_compute(crc, static_cast<uint64_t>(x.items[1]));
-        crc = crc32_compute(crc, static_cast<uint64_t>(x.items[2]));
-        crc = crc32_compute(crc, static_cast<uint64_t>(x.items[3]));
-        return crc;
-    }
-};
-
 // --- Packed compound types (used by FixedKeyHashTableContext) ---
-
-#include "common/compile_check_avoid_begin.h"
 
 template <>
 struct HashCRC32Return32<UInt72> {
@@ -219,8 +138,6 @@ struct HashCRC32Return32<UInt136> {
         return crc;
     }
 };
-
-#include "common/compile_check_avoid_end.h"
 
 // --- StringRef: truncate existing crc32_hash() result ---
 
