@@ -716,7 +716,8 @@ Status TableFunctionLocalState::_get_expanded_block_for_outer_conjuncts(RuntimeS
         ColumnNumbers columns_to_filter(column_count);
         std::iota(columns_to_filter.begin(), columns_to_filter.end(), 0);
         RETURN_IF_ERROR(VExprContext::execute_conjuncts_and_filter_block(
-                _expand_conjuncts_ctxs, output_block, columns_to_filter, column_count, filter));
+                _expand_conjuncts_ctxs, output_block, columns_to_filter, column_count, filter,
+                output_block->rows()));
         size_t remain_row_count = output_block->rows();
         // for outer table function, need to handle those child rows which all expanded rows are filtered out
         auto handled_child_row_count = handled_row_indices.size();
