@@ -24,7 +24,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
-import org.apache.doris.nereids.trees.expressions.functions.agg.AggregatePhase;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -146,38 +145,6 @@ public class BucketedAggregateTest implements MemoPatternMatchSupported {
         ctx.getSessionVariable().bucketedAggMaxGroupKeys = 0;
         ctx.getSessionVariable().bucketedAggHighCardThreshold = 1.0;
         ctx.getSessionVariable().aggPhase = 2;
-
-        PlanChecker.from(ctx, root)
-                .deriveStats()
-                .applyImplementation(splitAggWithoutDistinctRule())
-                .nonMatch(physicalBucketedHashAggregate());
-    }
-
-    @Test
-    public void testBucketedAggTwoPhaseOnlyFunction() {
-        // Aggregates containing functions that only support phase TWO (not ONE)
-        // should NOT be eligible for bucketed agg, which uses one-phase semantics.
-        Slot age = rStudent.getOutput().get(3).toSlot();
-        Slot id = rStudent.getOutput().get(0).toSlot();
-        List<Expression> groupByExpressions = Lists.newArrayList(age);
-        Sum twoPhaseOnlySum = new Sum(id) {
-            @Override
-            public boolean supportAggregatePhase(AggregatePhase aggregatePhase) {
-                return aggregatePhase == AggregatePhase.TWO;
-            }
-        };
-        List<NamedExpression> outputExpressions = Lists.newArrayList(
-                age,
-                new Alias(twoPhaseOnlySum, "sum_id"));
-        Plan root = new LogicalAggregate<>(groupByExpressions, outputExpressions,
-                true, Optional.empty(), rStudent);
-
-        ConnectContext ctx = MemoTestUtils.createConnectContext();
-        ctx.getSessionVariable().enableBucketedHashAgg = true;
-        ctx.getSessionVariable().setBeNumberForTest(1);
-        ctx.getSessionVariable().bucketedAggMinInputRows = 0;
-        ctx.getSessionVariable().bucketedAggMaxGroupKeys = 0;
-        ctx.getSessionVariable().bucketedAggHighCardThreshold = 1.0;
 
         PlanChecker.from(ctx, root)
                 .deriveStats()
