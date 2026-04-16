@@ -44,7 +44,8 @@ public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
             .add("ShuffleSendBytes").add("ShuffleSendRows")
             .add("ScanBytesFromLocalStorage").add("ScanBytesFromRemoteStorage")
             .add("SpillWriteBytesToLocalStorage").add("SpillReadBytesFromLocalStorage")
-            .add("BytesWriteIntoCache").build();
+            .add("BytesWriteIntoCache")
+            .add("TotalInstances").add("FinishedInstances").add("Progress").build();
 
     private static final int EXEC_TIME_INDEX = 5;
 
@@ -90,6 +91,17 @@ public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
             values.add(QueryStatisticsFormatter.getScanBytes(queryStatistics.getSpillWriteBytesToLocalStorage()));
             values.add(QueryStatisticsFormatter.getScanBytes(queryStatistics.getSpillReadBytesFromLocalStorage()));
             values.add(QueryStatisticsFormatter.getScanBytes(queryStatistics.getBytesWriteIntoCache()));
+
+            long total = queryStatistics.isSetTotalInstancesNum() ? queryStatistics.getTotalInstancesNum() : 0;
+            long finished = queryStatistics.isSetFinishedInstancesNum() ? queryStatistics.getFinishedInstancesNum() : 0;
+            values.add(String.valueOf(total));
+            values.add(String.valueOf(finished));
+            if (total > 0) {
+                values.add((finished * 100 / total) + "%");
+            } else {
+                values.add("0%");
+            }
+
             sortedRowData.add(values);
         }
 

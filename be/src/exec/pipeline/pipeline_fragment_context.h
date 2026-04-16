@@ -39,6 +39,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/task_execution_context.h"
 #include "util/stopwatch.hpp"
+#include "util/uid_util.h"
 
 namespace doris {
 struct ReportStatusRequest;
@@ -97,10 +98,14 @@ public:
 
     [[nodiscard]] int get_fragment_id() const { return _fragment_id; }
 
+    [[nodiscard]] int get_total_instances() const { return (int)_tasks.size(); }
+
+    [[nodiscard]] int get_finished_instances() const { return _finished_instances_count.load(); }
+
+    void decrement_running_task(PipelineId pipeline_id, int instance_idx);
+
     uint32_t rec_cte_stage() const { return _rec_cte_stage; }
     void set_rec_cte_stage(uint32_t stage) { _rec_cte_stage = stage; }
-
-    void decrement_running_task(PipelineId pipeline_id);
 
     Status send_report(bool);
 
@@ -226,6 +231,9 @@ private:
     Pipelines _pipelines;
     PipelineId _next_pipeline_id = 0;
     std::mutex _task_mutex;
+    std::atomic<int> _finished_instances_count {0};
+    std::vector<int> _instance_tasks_count;
+    std::unique_ptr<std::atomic<int>[]> _instance_closed_tasks_count;
     int _closed_tasks = 0;
     // After prepared, `_total_tasks` is equal to the size of `_tasks`.
     // When submit fail, `_total_tasks` is equal to the number of tasks submitted.
