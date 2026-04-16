@@ -882,6 +882,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String AGG_SHUFFLE_USE_PARENT_KEY = "agg_shuffle_use_parent_key";
     public static final String DECOMPOSE_REPEAT_SHUFFLE_INDEX_IN_MAX_GROUP
             = "decompose_repeat_shuffle_index_in_max_group";
+    public static final String ENABLE_SHUFFLE_KEY_PRUNE = "enable_shuffle_key_prune";
 
     public static final String HOT_VALUE_COLLECT_COUNT = "hot_value_collect_count";
     @VarAttrDef.VarAttr(name = HOT_VALUE_COLLECT_COUNT, needForward = true,
@@ -2916,6 +2917,9 @@ public class SessionVariable implements Serializable, Writable {
     }, needForward = false)
     public boolean aggShuffleUseParentKey = true;
 
+    @VarAttrDef.VarAttr(name = ENABLE_SHUFFLE_KEY_PRUNE)
+    public boolean enableShuffleKeyPrune = true;
+
     @VarAttrDef.VarAttr(name = ENABLE_PREFER_CACHED_ROWSET, needForward = false,
             description = {"是否启用 prefer cached rowset 功能",
                     "Whether to enable prefer cached rowset feature"})
@@ -3610,9 +3614,9 @@ public class SessionVariable implements Serializable, Writable {
                     "Enable merge partitioning for Iceberg UPDATE/DELETE (INSERT by partition columns, "
                             + "DELETE by row_id)."})
     public boolean enableIcebergMergePartitioning = true;
-
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
+
     @SuppressWarnings("checkstyle:Indentation")
     public void initFuzzyModeVariables() {
         Random random = new SecureRandom();

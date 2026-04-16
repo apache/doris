@@ -197,6 +197,7 @@ class RequestPropertyDeriverTest {
                 new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_RESULT),
                 true,
                 logicalProperties,
+                false,
                 groupPlan
         );
         GroupExpression groupExpression = new GroupExpression(aggregate);
@@ -218,6 +219,7 @@ class RequestPropertyDeriverTest {
                 new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT),
                 true,
                 logicalProperties,
+                false,
                 groupPlan
         );
         GroupExpression groupExpression = new GroupExpression(aggregate);
@@ -242,6 +244,7 @@ class RequestPropertyDeriverTest {
                 new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT),
                 true,
                 logicalProperties,
+                false,
                 groupPlan
         );
         GroupExpression groupExpression = new GroupExpression(aggregate);
@@ -379,6 +382,7 @@ class RequestPropertyDeriverTest {
                 new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT),
                 true,
                 logicalProperties,
+                false,
                 groupPlan
         );
         GroupExpression groupExpression = new GroupExpression(aggregate);
@@ -417,6 +421,7 @@ class RequestPropertyDeriverTest {
                 new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT),
                 true,
                 logicalProperties,
+                false,
                 groupPlan
         );
         GroupExpression groupExpression = new GroupExpression(aggregate) {
