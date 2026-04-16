@@ -181,10 +181,7 @@ public class ColStatsData {
                 columnStatisticBuilder.setMaxValue(Double.POSITIVE_INFINITY);
             }
             columnStatisticBuilder.setUpdatedTime(updateTime);
-            if (ndv > 0) {
-                columnStatisticBuilder.setHotValues(StatisticsUtil.getHotValues(hotValues, col.getType(),
-                        (1.0 / ndv)));
-            }
+            columnStatisticBuilder.setHotValues(StatisticsUtil.getHotValues(hotValues, col.getType()));
             return columnStatisticBuilder.build();
         } catch (Exception e) {
             LOG.warn("Failed to convert column statistics.", e);

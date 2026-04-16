@@ -186,8 +186,8 @@ public class OlapAnalysisTaskTest {
                         + "IS NULL, `t1`.`count`, 0)), 0) * ${scaleFactor} as `null_count`, SUBSTRING(CAST('1' "
                         + "AS STRING), 1, 1024) AS `min`, SUBSTRING(CAST('2' AS STRING), 1, 1024) AS `max`, "
                         + "COUNT(1) * 4 * ${scaleFactor} AS `data_size`, NOW() FROM cte1 t1), cte3 AS (SELECT "
-                        + "GROUP_CONCAT(CONCAT(REPLACE(REPLACE(t2.`col_value`, \":\", \"\\\\:\"), \";\", \"\\\\;\"), "
-                        + "\" :\", ROUND(t2.`count` / ${rowCount2}, 2)), \" ;\") as `hot_value` FROM (SELECT "
+                        + "IFNULL(GROUP_CONCAT(CONCAT(REPLACE(REPLACE(t2.`col_value`, \":\", \"\\\\:\"), \";\", \"\\\\;\"), "
+                        + "\" :\", ROUND(t2.`count` / ${rowCount2}, 2)), \" ;\"), '') as `hot_value` FROM (SELECT "
                         + "`col_value`, `count` FROM cte1 WHERE `col_value` IS NOT NULL ORDER BY `count` DESC LIMIT 10) "
                         + "t2) SELECT * FROM cte2 CROSS JOIN cte3", sql);
             }

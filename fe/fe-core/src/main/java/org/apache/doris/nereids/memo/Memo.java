@@ -839,9 +839,18 @@ public class Memo {
     @Override
     public String toString() {
         StringBuilder builder = new StringBuilder();
-        builder.append("root:").append(getRoot()).append("\n");
+        boolean first = true;
+        Group rootGroup = getRoot();
         for (Group group : groups.values()) {
-            builder.append("\n\n").append(group).append("\n");
+            if (!first) {
+                builder.append("\n").append("═══════════════════════════════════════════════════════════").append("\n");
+            }
+            if (group.equals(rootGroup)) {
+                builder.append("\n").append("ROOT ").append(group);
+            } else {
+                builder.append("\n").append(group);
+            }
+            first = false;
         }
         return builder.toString();
     }
