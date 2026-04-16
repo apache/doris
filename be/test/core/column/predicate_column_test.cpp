@@ -268,7 +268,7 @@ TEST(PredicateColumnTest, InsertDataBigInt) {
 TEST(PredicateColumnTest, InsertDataLargeInt) {
     auto col = PredicateColumnType<TYPE_LARGEINT>::create();
     col->reserve(3);
-    Int128 vals[] = {Int128(-1) << 100, Int128(0), Int128(1) << 100};
+    Int128 vals[] = {-(Int128(1) << 100), Int128(0), Int128(1) << 100};
     for (auto& v : vals) {
         col->insert_data(reinterpret_cast<const char*>(&v), sizeof(v));
     }
