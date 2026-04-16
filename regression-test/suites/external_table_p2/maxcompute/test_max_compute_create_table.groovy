@@ -219,6 +219,27 @@ suite("test_max_compute_create_table", "p2,external,maxcompute,external_remote,e
         qt_test9_show_create_table """SHOW CREATE TABLE ${test9_table} """
 
         // ============================================================================
+        // Test 9.1: ERROR CASE - CREATE TABLE with duplicate table name
+        // ============================================================================
+        String test9_1_table = "test_mc_duplicate_table_name"
+        sql """DROP TABLE IF EXISTS ${test9_1_table}"""
+        sql """
+        CREATE TABLE ${test9_1_table} (
+            id INT,
+            name STRING
+        )
+        """
+        test {
+            sql """
+            CREATE TABLE ${test9_1_table} (
+                id INT,
+                name STRING
+            )
+            """
+            exception "already exists"
+        }
+
+        // ============================================================================
         // Test 10: CREATE TABLE with ARRAY type (supported by MaxCompute)
         // ============================================================================
         String test10_table = "test_mc_array_type_table"
@@ -266,18 +287,32 @@ suite("test_max_compute_create_table", "p2,external,maxcompute,external_remote,e
         qt_test12_show_create_table """SHOW CREATE TABLE ${test12_table} """
 
         // ============================================================================
-        // Test 13: ERROR CASE - CREATE TABLE with unsupported type (IPV4)
+        // Test 13: ERROR CASE - CREATE TABLE with Doris-supported but MaxCompute-unsupported types
         // ============================================================================
-        String test13_table = "test_mc_unsupported_type_table"
-        sql """DROP TABLE IF EXISTS ${test13_table}"""
-        test {
-            sql """
-            CREATE TABLE ${test13_table} (
-                id INT,
-                ip IPV4
-            )
-            """
-            exception "Unsupported"
+        List<Map<String, String>> unsupportedTypeCases = [
+                [suffix: "ipv4", type: "IPV4", exceptionMsg: "Unsupported Doris type for MaxCompute"],
+                [suffix: "ipv6", type: "IPV6", exceptionMsg: "Unsupported Doris type for MaxCompute"],
+                [suffix: "largeint", type: "LARGEINT", exceptionMsg: "Unsupported Doris type for MaxCompute"],
+                [suffix: "hll", type: "HLL", exceptionMsg: "Key column can not set complex type"],
+                [suffix: "bitmap", type: "BITMAP", exceptionMsg: "Key column can not set complex type"],
+                [suffix: "quantile_state", type: "QUANTILE_STATE", exceptionMsg: "Key column can not set complex type"],
+                [suffix: "agg_state", type: "AGG_STATE<sum(INT)>",
+                        exceptionMsg: "Aggregation columns are not supported for MaxCompute tables"],
+                [suffix: "json", type: "JSON", exceptionMsg: "Unsupported Doris type for MaxCompute: JSON"],
+                [suffix: "variant", type: "VARIANT", exceptionMsg: "Unsupported Doris type for MaxCompute: VARIANT"]
+        ]
+        unsupportedTypeCases.each { testCase ->
+            String test13Table = "test_mc_unsupported_type_${testCase.suffix}"
+            sql """DROP TABLE IF EXISTS ${test13Table}"""
+            test {
+                sql """
+                CREATE TABLE ${test13Table} (
+                    id INT,
+                    unsupported_col ${testCase.type}
+                )
+                """
+                exception "${testCase.exceptionMsg}"
+            }
         }
 
         // ============================================================================
@@ -388,6 +423,11 @@ suite("test_max_compute_create_table", "p2,external,maxcompute,external_remote,e
         )
         """
         def schema = sql """SHOW CREATE TABLE ${test25_table}"""
+        String recreatedSchema = schema.collect { row ->
+            row.collect { it == null ? "" : it.toString() }.join(" ")
+        }.join("\n")
+        assertTrue(recreatedSchema.toLowerCase().contains("name") && recreatedSchema.toUpperCase().contains("DOUBLE"),
+                "Recreated table should expose the new schema")
 
         // ============================================================================
         // Test 29: DROP TABLE without IF EXISTS (non-existent)

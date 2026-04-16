@@ -135,6 +135,21 @@ suite("test_mc_write_large_data", "p2,external,maxcompute,external_remote,extern
 
         qt_count_multi_part """ SELECT count(*) FROM ${tb3} """
         order_qt_top10_multi_part """ SELECT * FROM ${tb3} ORDER BY id LIMIT 10 """
+
+        // Test 3b: Oversized field should fail with the default 8 MB field limit
+        String tb4 = "oversize_field_${uuid}"
+        sql """DROP TABLE IF EXISTS ${tb4}"""
+        sql """
+        CREATE TABLE ${tb4} (
+            id INT,
+            payload STRING
+        )
+        """
+        int overDefaultFieldSize = 8 * 1024 * 1024 + 1
+        test {
+            sql """INSERT INTO ${tb4} SELECT 1, repeat('x', ${overDefaultFieldSize})"""
+            exception "ODPS-0020041"
+        }
     } finally {
         sql """drop database if exists ${mc_catalog_name}.${db}"""
         sql """DROP TABLE IF EXISTS internal.${internal_db}.${internal_tb}"""
