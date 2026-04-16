@@ -105,6 +105,13 @@ suite("test_streaming_job_cdc_stream_mysql_alter_offset", "p0,external,mysql,ext
             return result[0][0] >= 2
         })
 
+        // Wait for current task to complete (commit offset successfully) before PAUSE,
+        // otherwise PAUSE may race with a running task and cause commit offset failure.
+        Awaitility.await().atMost(300, SECONDS).pollInterval(2, SECONDS).until({
+            def cnt = sql """select SucceedTaskCount from jobs("type"="insert") where Name='${jobName}' and ExecuteType='STREAMING'"""
+            return cnt.size() == 1 && (cnt.get(0).get(0) as int) >= 2
+        })
+
         // Step 2: PAUSE, insert data before and after a binlog mark, ALTER to that mark
         sql "PAUSE JOB where jobname = '${jobName}'"
         Awaitility.await().atMost(30, SECONDS).pollInterval(1, SECONDS).until({

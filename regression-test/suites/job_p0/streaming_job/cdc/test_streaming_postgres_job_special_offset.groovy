@@ -119,6 +119,13 @@ suite("test_streaming_postgres_job_special_offset", "p0,external,pg,external_doc
         })
         qt_select_after_create """ SELECT * FROM ${currentDb}.${table1} ORDER BY id """
 
+        // Wait for current task to complete (commit offset successfully) before PAUSE,
+        // otherwise PAUSE may race with a running task and cause commit offset failure.
+        Awaitility.await().atMost(300, SECONDS).pollInterval(2, SECONDS).until({
+            def cnt = sql """select SucceedTaskCount from jobs("type"="insert") where Name='${jobName}' and ExecuteType='STREAMING'"""
+            return cnt.size() == 1 && (cnt.get(0).get(0) as int) >= 2
+        })
+
         // Step 2: PAUSE, insert data before and after a LSN mark, ALTER to that LSN
         sql "PAUSE JOB where jobname = '${jobName}'"
         Awaitility.await().atMost(30, SECONDS).pollInterval(1, SECONDS).until({
