@@ -23,6 +23,7 @@ package org.apache.doris.planner;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.datasource.hive.HiveUtil;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TFileCompressType;
@@ -75,6 +76,17 @@ public abstract class BaseExternalTableDataSink extends DataSink {
     }
 
     protected TFileFormatType getTFileFormatType(String format) throws AnalysisException {
+        // LZO InputFormats must be rejected before any other match, because their class names also
+        // contain "text" (e.g. LzoTextInputFormat) and would otherwise silently match FORMAT_CSV_PLAIN.
+        // The BE writer has no LZO codec for Hive sink: it emits plain-text files without a .lzo
+        // suffix, while the read path for LZO partitions filters to *.lzo only — causing every
+        // Doris-written row to become permanently invisible.  Reject here to cover both the
+        // table-level SD (line ~126) and every existing partition SD (line ~223 in HiveTableSink),
+        // since both resolve their write format through this method.
+        if (HiveUtil.isLzoInputFormat(format)) {
+            throw new AnalysisException("INSERT INTO is not supported for LZO Hive tables "
+                    + "(input format: " + format + "). LZO tables are read-only in Doris.");
+        }
         TFileFormatType fileFormatType = TFileFormatType.FORMAT_UNKNOWN;
         String lowerCase = format.toLowerCase();
         if (lowerCase.contains("orc")) {

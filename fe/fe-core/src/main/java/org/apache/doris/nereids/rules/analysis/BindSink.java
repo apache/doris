@@ -659,9 +659,12 @@ public class BindSink implements AnalysisRuleFactory {
             throw new AnalysisException("Not support insert with partition spec in hive catalog.");
         }
 
-        // LZO-based InputFormats are read-only in Doris. The Hive sink writes plain-text files
-        // without a .lzo suffix; the read path then filters out non-*.lzo files, making every
-        // Doris-written row permanently invisible. Reject at bind time to avoid silent data loss.
+        // Fast-fail: if the table-level SD already declares an LZO InputFormat, reject immediately
+        // without entering the expensive partition-lookup path in bindDataSink().
+        // Note: this is a best-effort early check.  The definitive LZO guard lives in
+        // BaseExternalTableDataSink.getTFileFormatType(), which is called for both the table-level
+        // SD and every existing partition SD — covering the case where the table SD is plain text
+        // but individual partitions override it with an LZO InputFormat.
         String inputFormat = table.getRemoteTable().getSd().getInputFormat();
         if (HiveUtil.isLzoInputFormat(inputFormat)) {
             throw new AnalysisException("INSERT INTO is not supported for LZO Hive tables "
