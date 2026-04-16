@@ -291,10 +291,8 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
 
         if (aggFunc instanceof Count) {
             aggType = AggType.COUNT;
-            if (!((Count) aggFunc).isStar()) {
-                // No hidden columns: visible column stores COUNT(expr) directly.
-                // (COUNT(*) also has no hidden columns: visible = global group count.)
-            }
+            // No hidden columns for either COUNT(*) or COUNT(expr).
+            // COUNT(*) visible = global group count; COUNT(expr) visible stores count directly.
         } else if (aggFunc instanceof Sum) {
             aggType = AggType.SUM;
             // No hidden SUM column: visible column stores SUM directly.
@@ -325,7 +323,7 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
         }
 
         List<Expression> exprArgs = ImmutableList.of();
-        if (!(aggFunc instanceof Count && ((Count) aggFunc).isStar())) {
+        if (!(aggFunc instanceof Count && ((Count) aggFunc).isCountStar())) {
             exprArgs = ImmutableList.of(aggFunc.child(0));
         }
 
