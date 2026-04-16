@@ -425,7 +425,7 @@ TEST_F(AggregateFunctionAIAggTest, ai_context_window_size_session_variable_test)
 }
 
 TEST_F(AggregateFunctionAIAggTest, gemini_endpoint_normalize_to_generate_content_test) {
-    TAIResource resource;
+    AIResource resource;
     resource.provider_type = "GEMINI";
     resource.model_name = "gemini-pro";
     resource.endpoint = "https://generativelanguage.googleapis.com/v1beta";
@@ -435,7 +435,7 @@ TEST_F(AggregateFunctionAIAggTest, gemini_endpoint_normalize_to_generate_content
 }
 
 TEST_F(AggregateFunctionAIAggTest, openai_completions_endpoint_normalize_test) {
-    TAIResource resource;
+    AIResource resource;
     resource.provider_type = "OPENAI";
     resource.endpoint = "https://api.openai.com/v1/completions";
     AggregateFunctionAIAggData::normalize_endpoint_for_test(resource);

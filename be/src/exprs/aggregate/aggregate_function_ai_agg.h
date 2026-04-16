@@ -43,11 +43,7 @@ public:
 
     void add(StringRef ref) {
         auto delta_size = ref.size + (inited ? SEPARATOR_SIZE : 0);
-        if (handle_overflow(delta_size)) {
-            throw Exception(ErrorCode::OUT_OF_BOUND,
-                            "Failed to add data: combined context size exceeded "
-                            "maximum limit even after processing");
-        }
+        handle_overflow(delta_size);
         append_data(ref.data, ref.size);
     }
 
@@ -60,11 +56,7 @@ public:
         _task = rhs._task;
 
         size_t delta_size = (inited ? SEPARATOR_SIZE : 0) + rhs.data.size();
-        if (handle_overflow(delta_size)) {
-            throw Exception(ErrorCode::OUT_OF_BOUND,
-                            "Failed to merge data: combined context size exceeded "
-                            "maximum limit even after processing");
-        }
+        handle_overflow(delta_size);
 
         if (!inited) {
             inited = true;
@@ -159,7 +151,7 @@ public:
     const std::string& get_task() const { return _task; }
 
 #ifdef BE_TEST
-    static void normalize_endpoint_for_test(TAIResource& config) { normalize_endpoint(config); }
+    static void normalize_endpoint_for_test(AIResource& config) { normalize_endpoint(config); }
 #endif
 
 private:
@@ -195,17 +187,14 @@ private:
         return client->execute_post_request(request_body, &response);
     }
 
-    // handle overflow situations when adding content.
-    bool handle_overflow(size_t additional_size) {
+    // Treat the context window as a soft batching trigger instead of a hard reject.
+    void handle_overflow(size_t additional_size) {
         const size_t max_context_size = get_ai_context_window_size();
-        if (additional_size + data.size() <= max_context_size) {
-            return false;
+        if (additional_size + data.size() <= max_context_size || !inited) {
+            return;
         }
 
         process_current_context();
-
-        // check if there is still an overflow after replacement.
-        return (additional_size + data.size() > max_context_size);
     }
 
     static size_t get_ai_context_window_size() {
@@ -214,7 +203,7 @@ private:
         return static_cast<size_t>(_ctx->query_options().ai_context_window_size);
     }
 
-    static void normalize_endpoint(TAIResource& config) {
+    static void normalize_endpoint(AIResource& config) {
         if (iequal(config.provider_type, "GEMINI")) {
             if (!config.endpoint.ends_with("v1") && !config.endpoint.ends_with("v1beta")) {
                 return;

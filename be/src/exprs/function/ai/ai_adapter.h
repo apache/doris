@@ -273,7 +273,6 @@ public:
     }
 
     Status build_embedding_request(const std::vector<std::string>& inputs,
-                                   const std::vector<std::string>& /*media_content_types*/,
                                    std::string& request_body) const override {
         rapidjson::Document doc;
         doc.SetObject();
@@ -503,7 +502,6 @@ public:
     }
 
     Status build_embedding_request(const std::vector<std::string>& inputs,
-                                   const std::vector<std::string>& /*media_content_types*/,
                                    std::string& request_body) const override {
         rapidjson::Document doc;
         doc.SetObject();
@@ -909,7 +907,6 @@ protected:
 class DeepSeekAdapter : public OpenAIAdapter {
 public:
     Status build_embedding_request(const std::vector<std::string>& inputs,
-                                   const std::vector<std::string>& /*media_content_types*/,
                                    std::string& request_body) const override {
         return embed_not_supported_status();
     }
@@ -923,7 +920,6 @@ public:
 class MoonShotAdapter : public OpenAIAdapter {
 public:
     Status build_embedding_request(const std::vector<std::string>& inputs,
-                                   const std::vector<std::string>& /*media_content_types*/,
                                    std::string& request_body) const override {
         return embed_not_supported_status();
     }
@@ -937,7 +933,6 @@ public:
 class MinimaxAdapter : public OpenAIAdapter {
 public:
     Status build_embedding_request(const std::vector<std::string>& inputs,
-                                   const std::vector<std::string>& /*media_content_types*/,
                                    std::string& request_body) const override {
         rapidjson::Document doc;
         doc.SetObject();
@@ -1269,7 +1264,6 @@ public:
     }
 
     Status build_embedding_request(const std::vector<std::string>& inputs,
-                                   const std::vector<std::string>& /*media_content_types*/,
                                    std::string& request_body) const override {
         rapidjson::Document doc;
         doc.SetObject();
