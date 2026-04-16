@@ -41,36 +41,34 @@ docker_containers_ready() {
     done
 }
 
-docker_container_has_env() {
-    local container_name="$1"
-    local expected_env="$2"
-    local env_content=""
-
-    env_content="$(docker_container_env_cmd "${container_name}" 2>/dev/null)" || return 1
-    grep -Fxq "${expected_env}" <<<"${env_content}"
+docker_hive_container_name() {
+    local container_uid="$1"
+    local service_name="$2"
+    echo "${container_uid}${service_name}"
 }
 
 docker_hive_stack_healthy() {
-    local hive_version="$1"
+    local container_uid="$1"
+    local hive_version="$2"
     local containers=()
 
     case "${hive_version}" in
     hive2)
         containers=(
-            "hadoop2-namenode"
-            "hadoop2-datanode"
-            "hive2-server"
-            "hive2-metastore"
-            "hive2-metastore-postgresql"
+            "$(docker_hive_container_name "${container_uid}" "hadoop2-namenode")"
+            "$(docker_hive_container_name "${container_uid}" "hadoop2-datanode")"
+            "$(docker_hive_container_name "${container_uid}" "hive2-server")"
+            "$(docker_hive_container_name "${container_uid}" "hive2-metastore")"
+            "$(docker_hive_container_name "${container_uid}" "hive2-metastore-postgresql")"
         )
         ;;
     hive3)
         containers=(
-            "hadoop3-namenode"
-            "hadoop3-datanode"
-            "hive3-server"
-            "hive3-metastore"
-            "hive3-metastore-postgresql"
+            "$(docker_hive_container_name "${container_uid}" "hadoop3-namenode")"
+            "$(docker_hive_container_name "${container_uid}" "hadoop3-datanode")"
+            "$(docker_hive_container_name "${container_uid}" "hive3-server")"
+            "$(docker_hive_container_name "${container_uid}" "hive3-metastore")"
+            "$(docker_hive_container_name "${container_uid}" "hive3-metastore-postgresql")"
         )
         ;;
     *)
@@ -80,27 +78,4 @@ docker_hive_stack_healthy() {
     esac
 
     docker_containers_ready "${containers[@]}"
-}
-
-docker_hive_stack_reusable() {
-    local hive_version="$1"
-    local bootstrap_groups="$2"
-    local metastore_container=""
-
-    docker_hive_stack_healthy "${hive_version}" || return 1
-
-    case "${hive_version}" in
-    hive2)
-        metastore_container="hive2-metastore"
-        ;;
-    hive3)
-        metastore_container="hive3-metastore"
-        ;;
-    *)
-        echo "Unsupported hive version: ${hive_version}" >&2
-        return 1
-        ;;
-    esac
-
-    docker_container_has_env "${metastore_container}" "HIVE_BOOTSTRAP_GROUPS=${bootstrap_groups}"
 }

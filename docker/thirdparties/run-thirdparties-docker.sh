@@ -1191,7 +1191,7 @@ start_hive_stack() {
 
     # refresh on an already-healthy stack can skip `compose up` entirely — the
     # in-container data refresh below is enough.
-    if docker_hive_stack_healthy "${hive_version}"; then
+    if docker_hive_stack_healthy "${CONTAINER_UID}" "${hive_version}"; then
         stack_healthy=1
         echo "${hive_version} stack is already healthy, reconcile compose state without down"
     fi
