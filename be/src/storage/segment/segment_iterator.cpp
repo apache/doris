@@ -2826,20 +2826,8 @@ Status SegmentIterator::_process_eof(Block* block) {
 
 Status SegmentIterator::_process_common_expr(uint16_t* sel_rowid_idx, uint16_t& selected_size,
                                              Block* block) {
-    // Here we just use col0 as row_number indicator. when reach here, we will calculate the predicates first.
-    //  then use the result to reduce our data read(that is, expr push down). there's now row in block means the first
-    //  column is not in common expr. so it's safe to replace it temporarily to provide correct `selected_size`.
     VLOG_DEBUG << fmt::format("Execute common expr. block rows {}, selected size {}", block->rows(),
                               _selected_size);
-
-    bool need_mock_col = block->rows() != selected_size;
-    MutableColumnPtr col0;
-    if (need_mock_col) {
-        col0 = std::move(*block->get_by_position(0).column).mutate();
-        block->replace_by_position(
-                0, block->get_by_position(0).type->create_column_const_with_default_value(
-                           _selected_size));
-    }
 
     std::vector<VExprContext*> common_ctxs;
     common_ctxs.reserve(_common_expr_ctxs_push_down.size());
@@ -2850,10 +2838,6 @@ Status SegmentIterator::_process_common_expr(uint16_t* sel_rowid_idx, uint16_t& 
     block->shrink_char_type_column_suffix_zero(_char_type_idx);
     RETURN_IF_ERROR(_execute_common_expr(_sel_rowid_idx.data(), _selected_size, block));
 
-    if (need_mock_col) {
-        block->replace_by_position(0, std::move(col0));
-    }
-
     VLOG_DEBUG << fmt::format("Execute common expr end. block rows {}, selected size {}",
                               block->rows(), _selected_size);
     return Status::OK();
@@ -2863,14 +2847,15 @@ Status SegmentIterator::_execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& 
                                              Block* block) {
     SCOPED_RAW_TIMER(&_opts.stats->expr_filter_ns);
     DCHECK(!_remaining_conjunct_roots.empty());
-    DCHECK(block->rows() != 0);
+    DCHECK(selected_size > 0);
     int prev_columns = block->columns();
     uint16_t original_size = selected_size;
     _opts.stats->expr_cond_input_rows += original_size;
 
     IColumn::Filter filter;
     RETURN_IF_ERROR(VExprContext::execute_conjuncts_and_filter_block(
-            _common_expr_ctxs_push_down, block, _columns_to_filter, prev_columns, filter));
+            _common_expr_ctxs_push_down, block, _columns_to_filter, prev_columns, filter,
+            selected_size));
 
     selected_size = _evaluate_common_expr_filter(sel_rowid_idx, selected_size, filter);
     _opts.stats->rows_expr_cond_filtered += original_size - selected_size;
@@ -2923,7 +2908,7 @@ void SegmentIterator::_output_index_result_column(const std::vector<VExprContext
                                                   uint16_t* sel_rowid_idx, uint16_t select_size,
                                                   Block* block) {
     SCOPED_RAW_TIMER(&_opts.stats->output_index_result_column_timer);
-    if (block->rows() == 0) {
+    if (select_size == 0) {
         return;
     }
     for (auto* expr_ctx_ptr : expr_ctxs) {
@@ -2937,7 +2922,7 @@ void SegmentIterator::_output_index_result_column(const std::vector<VExprContext
             const auto& index_result_bitmap = result_bitmap.get_data_bitmap();
             auto index_result_column = ColumnUInt8::create();
             ColumnUInt8::Container& vec_match_pred = index_result_column->get_data();
-            vec_match_pred.resize(block->rows());
+            vec_match_pred.resize(select_size);
             std::fill(vec_match_pred.begin(), vec_match_pred.end(), 0);
 
             const auto& null_bitmap = result_bitmap.get_null_bitmap();
@@ -2949,7 +2934,7 @@ void SegmentIterator::_output_index_result_column(const std::vector<VExprContext
             if (has_null_bitmap && expr_returns_nullable) {
                 null_map_column = ColumnUInt8::create();
                 auto& null_map_vec = null_map_column->get_data();
-                null_map_vec.resize(block->rows());
+                null_map_vec.resize(select_size);
                 std::fill(null_map_vec.begin(), null_map_vec.end(), 0);
                 null_map_data = &null_map_column->get_data();
             }
@@ -2966,7 +2951,7 @@ void SegmentIterator::_output_index_result_column(const std::vector<VExprContext
                 }
             }
 
-            DCHECK(block->rows() == vec_match_pred.size());
+            DCHECK(select_size == vec_match_pred.size());
 
             if (null_map_column) {
                 index_ctx->set_index_result_column_for_expr(

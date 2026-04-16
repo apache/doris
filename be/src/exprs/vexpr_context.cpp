@@ -357,12 +357,19 @@ Status VExprContext::execute_conjuncts_and_filter_block(const VExprContextSPtrs&
 
 Status VExprContext::execute_conjuncts_and_filter_block(const VExprContextSPtrs& ctxs, Block* block,
                                                         std::vector<uint32_t>& columns_to_filter,
-                                                        int column_to_keep,
-                                                        IColumn::Filter& filter) {
+                                                        int column_to_keep, IColumn::Filter& filter,
+                                                        size_t num_rows) {
     _reset_memory_usage(ctxs);
-    filter.resize_fill(block->rows(), 1);
-    bool can_filter_all;
-    RETURN_IF_ERROR(execute_conjuncts(ctxs, nullptr, false, block, &filter, &can_filter_all));
+    filter.resize_fill(num_rows, 1);
+    bool can_filter_all = false;
+    auto* __restrict result_filter_data = filter.data();
+    for (const auto& ctx : ctxs) {
+        RETURN_IF_ERROR(
+                ctx->execute_filter(block, result_filter_data, num_rows, false, &can_filter_all));
+        if (can_filter_all) {
+            break;
+        }
+    }
 
     // Accumulate the usage of `result_filter` into the first context.
     if (!ctxs.empty()) {
