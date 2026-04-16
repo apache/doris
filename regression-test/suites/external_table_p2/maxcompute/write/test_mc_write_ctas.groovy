@@ -98,7 +98,7 @@ suite("test_mc_write_ctas", "p2,external") {
         sql """CREATE TABLE ${tb5} AS SELECT count(*) AS cnt, sum(val) AS total FROM ${src}"""
         order_qt_ctas_agg """ SELECT * FROM ${tb5} """
 
-        // Test 6: CTAS from internal catalog (cross-catalog)
+        // Test 6: CTAS from  catalog (cross-catalog)
         String internal_db = "mc_ctas_internal_${uuid}"
         String internal_tb = "ctas_internal_src_${uuid}"
         sql """CREATE DATABASE IF NOT EXISTS internal.${internal_db}"""

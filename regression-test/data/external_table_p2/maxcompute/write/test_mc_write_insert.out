@@ -18,3 +18,8 @@
 2	batch2
 3	batch3
 
+-- !cross_catalog_insert --
+11	internal_alice	110.5
+12	internal_bob	120.3
+13	internal_charlie	130.7
+

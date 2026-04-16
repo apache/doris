@@ -44,10 +44,40 @@ suite("test_mc_write_insert", "p2,external") {
 
     def uuid = UUID.randomUUID().toString().replace("-", "").substring(0, 8)
     String db = "mc_write_insert_${uuid}"
+    String internal_db = "mc_write_internal_${uuid}"
+    String internal_tb = "insert_src_${uuid}"
+    String unsupported_schema = "default"
+    String clustered_tb = "mc_write_unsupported_clustered"
+    String transactional_tb = "mc_write_unsupported_transactional"
+    String delta_tb = "mc_write_unsupported_delta"
+    String external_tb = "mc_write_unsupported_external"
 
     sql """drop database if exists ${db}"""
     sql """create database ${db}"""
     sql """use ${db}"""
+
+    def getProfileTextBySql = { String stmt ->
+        def profileAction = new org.apache.doris.regression.action.ProfileAction(context)
+        String profileId = ""
+        int attempts = 0
+        while (attempts < 10 && (profileId == null || profileId.isEmpty())) {
+            List profileData = profileAction.getProfileList()
+            for (def profileItem : profileData) {
+                if (profileItem["Sql Statement"].toString().contains(stmt)) {
+                    profileId = profileItem["Profile ID"].toString()
+                    break
+                }
+            }
+            if (profileId == null || profileId.isEmpty()) {
+                Thread.sleep(300)
+            }
+            attempts++
+        }
+        assertTrue(profileId != null && !profileId.isEmpty(),
+                "Profile ID of ${stmt} is not found")
+        Thread.sleep(500)
+        return profileAction.getProfile(profileId).toString()
+    }
 
     try {
         // Test 1: Basic INSERT INTO with VALUES
@@ -108,7 +138,108 @@ suite("test_mc_write_insert", "p2,external") {
         sql """INSERT INTO ${tb4} VALUES (2, 'batch2')"""
         sql """INSERT INTO ${tb4} VALUES (3, 'batch3')"""
         order_qt_multi_batch """ SELECT * FROM ${tb4} """
+
+        // Test 5: INSERT INTO MC table from internal catalog table
+        sql """CREATE DATABASE IF NOT EXISTS internal.${internal_db}"""
+        sql """DROP TABLE IF EXISTS internal.${internal_db}.${internal_tb}"""
+        sql """
+        CREATE TABLE internal.${internal_db}.${internal_tb} (
+            id INT,
+            name STRING,
+            value DOUBLE
+        )
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+        """
+        sql """
+        INSERT INTO internal.${internal_db}.${internal_tb} VALUES
+            (11, 'internal_alice', 110.5),
+            (12, 'internal_bob', 120.3),
+            (13, 'internal_charlie', 130.7)
+        """
+
+        String tb5 = "cross_catalog_insert_${uuid}"
+        sql """DROP TABLE IF EXISTS ${tb5}"""
+        sql """
+        CREATE TABLE ${tb5} (
+            id INT,
+            name STRING,
+            value DOUBLE
+        )
+        """
+        sql """INSERT INTO ${tb5} SELECT * FROM internal.${internal_db}.${internal_tb}"""
+        order_qt_cross_catalog_insert """ SELECT * FROM ${tb5} """
+
+        // Test 5b: INSERT INTO SELECT with LIMIT should keep serial read behavior
+        String limit_src = "limit_src_${uuid}"
+        sql """DROP TABLE IF EXISTS internal.${internal_db}.${limit_src}"""
+        sql """
+        CREATE TABLE internal.${internal_db}.${limit_src} (
+            id INT,
+            name STRING
+        )
+        DISTRIBUTED BY HASH(id) BUCKETS 5
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+        """
+        sql """
+        INSERT INTO internal.${internal_db}.${limit_src}
+        SELECT
+            number + 1 AS id,
+            concat('limit_', cast(number + 1 AS STRING)) AS name
+        FROM numbers("number"="200")
+        """
+
+        String tb_limit = "limit_insert_${uuid}"
+        sql """DROP TABLE IF EXISTS ${tb_limit}"""
+        sql """
+        CREATE TABLE ${tb_limit} (
+            id INT,
+            name STRING
+        )
+        """
+        String limitInsertSql = "INSERT INTO ${tb_limit} SELECT id, name "
+                + "FROM internal.${internal_db}.${limit_src} ORDER BY id LIMIT 100"
+        sql """set enable_profile=true"""
+        sql """set profile_level=2"""
+        sql """set parallel_pipeline_task_num=1"""
+        sql limitInsertSql
+        qt_limit_insert_count """ SELECT count(*) FROM ${tb_limit} """
+        order_qt_limit_insert_top10 """ SELECT * FROM ${tb_limit} ORDER BY id LIMIT 10 """
+        String limitInsertProfile = getProfileTextBySql(limitInsertSql)
+        assertTrue(limitInsertProfile.contains("MaxScanConcurrency: 1"),
+                "LIMIT insert should use serial read, profile: ${limitInsertProfile}")
+        sql """set enable_profile=false"""
+
+        sql """USE ${mc_catalog_name}.`${unsupported_schema}`"""
+        // Test 6: INSERT INTO clustered MaxCompute table should fail
+        sql """DESC ${clustered_tb}"""
+        test {
+            sql """INSERT OVERWRITE TABLE ${clustered_tb} VALUES (21, 'clustered_row', 210.5)"""
+            exception "Writing cluster table is not supported yet"
+        }
+        // Test 7: INSERT INTO transactional MaxCompute table should fail
+        sql """DESC ${transactional_tb}"""
+        test {
+            sql """INSERT INTO ${transactional_tb} VALUES (22, 'transactional_row', 220.5)"""
+            exception "not supported by storage api"
+        }
+
+        // Test 8: INSERT INTO Delta MaxCompute table should fail
+        sql """DESC ${delta_tb}"""
+        test {
+            sql """INSERT INTO ${delta_tb} VALUES (23, 'delta_row', 230.5)"""
+            exception "not supported by storage api"
+        }
+
+        // Test 9: INSERT INTO Delta Lake external MaxCompute table should fail
+        sql """DESC ${external_tb}"""
+        test {
+            sql """INSERT INTO ${external_tb} VALUES (24, 'external_row', 240.5)"""
+            exception "mc_write_unsupported_external: No oss endpoint provide"
+        }
     } finally {
+        sql """DROP TABLE IF EXISTS internal.${internal_db}.${internal_tb}"""
+        sql """DROP DATABASE IF EXISTS internal.${internal_db}"""
         sql """drop database if exists ${mc_catalog_name}.${db}"""
     }
 }

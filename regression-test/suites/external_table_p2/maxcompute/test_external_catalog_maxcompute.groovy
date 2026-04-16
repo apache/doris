@@ -332,8 +332,56 @@ suite("test_external_catalog_maxcompute", "p2,external") {
         String ak = context.config.otherConfigs.get("ak")
         String sk = context.config.otherConfigs.get("sk");
         String mc_db = "mc_datalake"
+        String mc_schema_project = "mc_datalake_schema"
         String mc_catalog_name = "test_external_mc_catalog"
+        String mc_optional_catalog_name = "${mc_catalog_name}_optional"
+        String mc_alter_catalog_name = "${mc_optional_catalog_name}_split_strategy"
+        String mc_namespace_schema_catalog_name = "${mc_optional_catalog_name}_namespace_schema"
+        String mc_drop_catalog_name = "${mc_catalog_name}_drop"
+        String mc_invalid_ak_catalog_name = "${mc_catalog_name}_invalid_ak"
+        String mc_invalid_endpoint_catalog_name = "${mc_catalog_name}_invalid_endpoint"
+        String mc_invalid_project_catalog_name = "${mc_catalog_name}_invalid_project"
 
+        def assertCatalogExists = { String catalogName ->
+            List<List<Object>> catalogs = sql """show catalogs"""
+            assertTrue(catalogs.any { it[1].toString() == catalogName },
+                    "catalog ${catalogName} should exist")
+        }
+
+        def assertCatalogNotExists = { String catalogName ->
+            List<List<Object>> catalogs = sql """show catalogs"""
+            assertFalse(catalogs.any { it[1].toString() == catalogName },
+                    "catalog ${catalogName} should not exist")
+        }
+
+        def assertShowCreateCatalogContains = { String catalogName, List<String> fragments ->
+            def result = sql """show create catalog ${catalogName};"""
+            assertEquals(1, result.size())
+            String ddl = result[0][1].toString()
+            fragments.each { fragment ->
+                assertTrue(ddl.contains(fragment),
+                        "show create catalog ${catalogName} should contain '${fragment}', actual ddl: ${ddl}")
+            }
+        }
+
+        def assertCatalogHasErrorMessage = { String catalogName ->
+            List<List<Object>> catalogs = sql """show catalogs"""
+            def target = catalogs.find { it[1].toString() == catalogName }
+            assertTrue(target != null, "catalog ${catalogName} should exist in show catalogs")
+            assertTrue(target[7] != null && !target[7].toString().trim().isEmpty(),
+                    "catalog ${catalogName} should have non-empty error message, actual row: ${target}")
+        }
+
+        def assertCatalogHasTable = { String catalogName, String dbName, String tableName ->
+            sql """switch `${catalogName}`;"""
+            sql """use `${dbName}`;"""
+            List<List<Object>> tables = sql """show tables"""
+            assertTrue(tables.any { it[0].toString() == tableName },
+                    "table ${tableName} should exist in ${catalogName}.${dbName}")
+        }
+
+        // C-01: CREATE CATALOG with required properties: type, mc.default.project,
+        // mc.access_key, mc.secret_key, mc.endpoint
         sql """drop catalog if exists ${mc_catalog_name};"""
         sql """
             create catalog if not exists ${mc_catalog_name} properties (
@@ -344,6 +392,344 @@ suite("test_external_catalog_maxcompute", "p2,external") {
                 "mc.endpoint" = "http://service.cn-beijing-vpc.maxcompute.aliyun-inc.com/api"
             );
         """
+        assertCatalogExists(mc_catalog_name)
+        assertShowCreateCatalogContains(mc_catalog_name, [
+                "\"type\" = \"max_compute\"",
+                "\"mc.default.project\" = \"${mc_db}\"",
+                "\"mc.endpoint\" = \"http://service.cn-beijing-vpc.maxcompute.aliyun-inc.com/api\""
+        ])
+
+        Map<String, String> requiredCatalogProperties = new LinkedHashMap<>([
+                "type": "max_compute",
+                "mc.default.project": "${mc_db}",
+                "mc.access_key": "${ak}",
+                "mc.secret_key": "${sk}",
+                "mc.endpoint": "http://service.cn-beijing-vpc.maxcompute.aliyun-inc.com/api"
+        ])
+        List<Map<String, String>> missingRequiredPropertyCases = [
+                [
+                        "catalogName": "mc_missing_type",
+                        "missingProperty": "type",
+                        "errorMessage": "Missing property 'type' in properties"
+                ],
+                [
+                        "catalogName": "mc_missing_project",
+                        "missingProperty": "mc.default.project",
+                        "errorMessage": "Required property 'mc.default.project' is missing"
+                ],
+                [
+                        "catalogName": "mc_missing_endpoint",
+                        "missingProperty": "mc.endpoint",
+                        "errorMessage": "Required property 'mc.endpoint' is missing"
+                ],
+                [
+                        "catalogName": "mc_missing_access_key",
+                        "missingProperty": "mc.access_key",
+                        "errorMessage": "Missing access key or secret key for AK/SK auth type"
+                ],
+                [
+                        "catalogName": "mc_missing_secret_key",
+                        "missingProperty": "mc.secret_key",
+                        "errorMessage": "Missing access key or secret key for AK/SK auth type"
+                ]
+        ]
+        def renderCatalogProperties = { Map<String, String> properties ->
+            properties.collect { key, value -> "\"${key}\" = \"${value}\"" }.join(",\n                    ")
+        }
+        def assertCreateCatalogMissingRequiredProperty = { Map<String, String> testCase ->
+            Map<String, String> properties = new LinkedHashMap<>(requiredCatalogProperties)
+            properties.remove(testCase.missingProperty)
+            test {
+                sql """drop catalog if exists ${testCase.catalogName};"""
+                sql """
+                    create catalog ${testCase.catalogName} properties (
+                        ${renderCatalogProperties(properties)}
+                    );
+                """
+                exception testCase.errorMessage
+            }
+        }
+        missingRequiredPropertyCases.each(assertCreateCatalogMissingRequiredProperty)
+
+        // C-02: CREATE CATALOG with each McOptionalProperties entry individually
+        List<Map<String, Object>> optionalCatalogCases = [
+                [
+                        "catalogName": "${mc_optional_catalog_name}_tunnel_endpoint",
+                        "optionalProperties": ["mc.tunnel_endpoint": "http://dt.cn-beijing-vpc.maxcompute.aliyun-inc.com"]
+                ],
+                [
+                        "catalogName": "${mc_optional_catalog_name}_odps_endpoint",
+                        "optionalProperties": ["mc.odps_endpoint": "http://service.cn-beijing-vpc.maxcompute.aliyun-inc.com/api"]
+                ],
+                [
+                        "catalogName": "${mc_optional_catalog_name}_quota",
+                        "optionalProperties": ["mc.quota": "pay-as-you-go"]
+                ],
+                [
+                        "catalogName": "${mc_optional_catalog_name}_split_strategy",
+                        "optionalProperties": ["mc.split_strategy": "row_count"]
+                ],
+                [
+                        "catalogName": "${mc_optional_catalog_name}_split_byte_size",
+                        "optionalProperties": ["mc.split_byte_size": "536870912"]
+                ],
+                [
+                        "catalogName": "${mc_optional_catalog_name}_split_row_count",
+                        "optionalProperties": ["mc.split_row_count": "2048"]
+                ],
+                [
+                        "catalogName": "${mc_optional_catalog_name}_split_cross_partition",
+                        "optionalProperties": ["mc.split_cross_partition": "false"]
+                ],
+                [
+                        "catalogName": "${mc_optional_catalog_name}_connect_timeout",
+                        "optionalProperties": ["mc.connect_timeout": "9"]
+                ],
+                [
+                        "catalogName": "${mc_optional_catalog_name}_read_timeout",
+                        "optionalProperties": ["mc.read_timeout": "19"]
+                ],
+                [
+                        "catalogName": "${mc_optional_catalog_name}_retry_count",
+                        "optionalProperties": ["mc.retry_count": "1"]
+                ],
+                [
+                        "catalogName": "${mc_optional_catalog_name}_datetime_pushdown",
+                        "optionalProperties": ["mc.datetime_predicate_push_down": "false"]
+                ],
+                [
+                        "catalogName": "${mc_optional_catalog_name}_account_format",
+                        "optionalProperties": ["mc.account_format": "id"]
+                ],
+                [
+                        // mc_datalake is a non-schema project. Keep it for the existing non-schema coverage.
+                        // For mc.enable.namespace.schema=true, use mc_datalake_schema; using mc_datalake here is
+                        // expected to fail.
+                        "catalogName": mc_namespace_schema_catalog_name,
+                        "baseProperties": ["mc.default.project": mc_schema_project],
+                        "optionalProperties": ["mc.enable.namespace.schema": "true"]
+                ],
+                [
+                        "catalogName": "${mc_optional_catalog_name}_max_field_size",
+                        "optionalProperties": ["mc.max_field_size_bytes": "4194304"]
+                ]
+        ]
+        def assertCreateCatalogWithOptionalProperties = { Map<String, Object> testCase ->
+            Map<String, String> properties = new LinkedHashMap<>(requiredCatalogProperties)
+            Map<String, String> baseProperties = testCase.baseProperties as Map<String, String>
+            if (baseProperties != null) {
+                properties.putAll(baseProperties)
+            }
+            Map<String, String> optionalProperties = testCase.optionalProperties as Map<String, String>
+            properties.putAll(optionalProperties)
+            sql """drop catalog if exists ${testCase.catalogName};"""
+            sql """
+                create catalog if not exists ${testCase.catalogName} properties (
+                    ${renderCatalogProperties(properties)}
+                );
+            """
+            assertCatalogExists(testCase.catalogName as String)
+            assertShowCreateCatalogContains(testCase.catalogName as String,
+                    optionalProperties.collect { key, value -> "\"${key}\" = \"${value}\"" })
+        }
+        optionalCatalogCases.each(assertCreateCatalogWithOptionalProperties)
+
+        String namespaceSchemaSuffix = java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 8)
+        String namespaceSchemaEnabledDb = "mc_ns_db_${namespaceSchemaSuffix}"
+        String namespaceSchemaTableDb = "mc_ns_db_tbl_${namespaceSchemaSuffix}"
+        String namespaceSchemaEnabledTable = "mc_ns_tbl_${namespaceSchemaSuffix}"
+        String namespaceSchemaDisabledDb = "mc_ns_dbf_${namespaceSchemaSuffix}"
+        String namespaceSchemaProjectTable = "mc_ns_project_tbl_${namespaceSchemaSuffix}"
+        def cleanupNamespaceSchemaResources = {
+            try {
+                sql """switch internal"""
+            } catch (Throwable ignored) {
+            }
+            try {
+                sql """
+                    alter catalog ${mc_namespace_schema_catalog_name} set properties (
+                        "mc.enable.namespace.schema" = "true"
+                    );
+                """
+            } catch (Throwable ignored) {
+            }
+            try {
+                sql """switch ${mc_namespace_schema_catalog_name};"""
+            } catch (Throwable ignored) {
+            }
+            try {
+                sql """drop database if exists ${namespaceSchemaEnabledDb} force"""
+            } catch (Throwable ignored) {
+            }
+            try {
+                sql """drop database if exists ${namespaceSchemaTableDb} force"""
+            } catch (Throwable ignored) {
+            }
+            try {
+                sql """switch internal"""
+            } catch (Throwable ignored) {
+            }
+        }
+        try {
+            sql """switch ${mc_namespace_schema_catalog_name};"""
+            sql """drop database if exists ${namespaceSchemaEnabledDb} force"""
+            sql """drop database if exists ${namespaceSchemaTableDb} force"""
+            sql """create database ${namespaceSchemaEnabledDb}"""
+            sql """refresh catalog ${mc_namespace_schema_catalog_name} properties ('invalid_cache'='true')"""
+            sql """switch ${mc_namespace_schema_catalog_name};"""
+            List<List<Object>> namespaceSchemaDatabases =
+                    sql """show databases like '${namespaceSchemaEnabledDb}'"""
+            assertEquals(1, namespaceSchemaDatabases.size())
+            sql """drop database ${namespaceSchemaEnabledDb} force"""
+            sql """refresh catalog ${mc_namespace_schema_catalog_name} properties ('invalid_cache'='true')"""
+            sql """switch ${mc_namespace_schema_catalog_name};"""
+            List<List<Object>> droppedNamespaceSchemaDatabases =
+                    sql """show databases like '${namespaceSchemaEnabledDb}'"""
+            assertEquals(0, droppedNamespaceSchemaDatabases.size())
+            test {
+                sql """use ${namespaceSchemaEnabledDb}"""
+                exception "Unknown database"
+            }
+            sql """create database ${namespaceSchemaTableDb}"""
+            sql """use ${namespaceSchemaTableDb}"""
+            sql """drop table if exists ${namespaceSchemaEnabledTable}"""
+            sql """
+                create table ${namespaceSchemaEnabledTable} (
+                    id int
+                )
+            """
+            List<List<Object>> namespaceSchemaTables = sql """show tables like '${namespaceSchemaEnabledTable}'"""
+            assertEquals(1, namespaceSchemaTables.size())
+            sql """switch internal"""
+
+            sql """
+                alter catalog ${mc_namespace_schema_catalog_name} set properties (
+                    "mc.enable.namespace.schema" = "false"
+                );
+            """
+            assertShowCreateCatalogContains(mc_namespace_schema_catalog_name, [
+                    "\"mc.enable.namespace.schema\" = \"false\""
+            ])
+            sql """switch ${mc_namespace_schema_catalog_name};"""
+            test {
+                sql """create database ${namespaceSchemaDisabledDb}"""
+                exception "Create database is not supported when mc.enable.namespace.schema is false"
+            }
+            sql """use ${mc_schema_project}"""
+            sql """drop table if exists ${namespaceSchemaProjectTable}"""
+            sql """
+                create table ${namespaceSchemaProjectTable} (
+                    id int
+                )
+            """
+            List<List<Object>> namespaceSchemaProjectTables =
+                    sql """show tables like '${namespaceSchemaProjectTable}'"""
+            assertEquals(1, namespaceSchemaProjectTables.size())
+            sql """switch internal"""
+        } finally {
+            cleanupNamespaceSchemaResources()
+        }
+
+        // C-03: ALTER CATALOG based on the C-02 split_strategy catalog
+        sql """
+            alter catalog ${mc_alter_catalog_name} set properties (
+                "mc.split_strategy" = "byte_size",
+                "mc.split_byte_size" = "268435456",
+                "mc.connect_timeout" = "11",
+                "mc.read_timeout" = "21",
+                "mc.retry_count" = "2",
+                "mc.split_cross_partition" = "true",
+                "mc.datetime_predicate_push_down" = "true"
+            );
+        """
+        assertShowCreateCatalogContains(mc_alter_catalog_name, [
+                "\"mc.split_strategy\" = \"byte_size\"",
+                "\"mc.split_byte_size\" = \"268435456\"",
+                "\"mc.connect_timeout\" = \"11\"",
+                "\"mc.read_timeout\" = \"21\"",
+                "\"mc.retry_count\" = \"2\"",
+                "\"mc.split_cross_partition\" = \"true\"",
+                "\"mc.datetime_predicate_push_down\" = \"true\""
+        ])
+        assertCatalogHasTable(mc_alter_catalog_name, mc_db, "web_site")
+        sql """switch internal"""
+
+        // C-05: DROP CATALOG
+        sql """drop catalog if exists ${mc_drop_catalog_name};"""
+        sql """
+            create catalog if not exists ${mc_drop_catalog_name} properties (
+                "type" = "max_compute",
+                "mc.default.project" = "${mc_db}",
+                "mc.access_key" = "${ak}",
+                "mc.secret_key" = "${sk}",
+                "mc.endpoint" = "http://service.cn-beijing-vpc.maxcompute.aliyun-inc.com/api"
+            );
+        """
+        assertCatalogExists(mc_drop_catalog_name)
+        sql """drop catalog ${mc_drop_catalog_name}"""
+        assertCatalogNotExists(mc_drop_catalog_name)
+        test {
+            sql """show create catalog ${mc_drop_catalog_name}"""
+            exception "No catalog found with name test_external_mc_catalog_drop"
+        }
+
+        // C-06: Invalid credentials
+        sql """drop catalog if exists ${mc_invalid_ak_catalog_name};"""
+        sql """
+            create catalog if not exists ${mc_invalid_ak_catalog_name} properties (
+                "type" = "max_compute",
+                "mc.default.project" = "${mc_db}",
+                "mc.access_key" = "invalid_ak_for_regression",
+                "mc.secret_key" = "invalid_sk_for_regression",
+                "mc.endpoint" = "http://service.cn-beijing-vpc.maxcompute.aliyun-inc.com/api"
+            );
+        """
+        test {
+            sql """show databases from ${mc_invalid_ak_catalog_name}"""
+            exception "errCode = 2"
+        }
+        // TODO: re-enable after show catalogs error message is stabilized.
+        // assertCatalogHasErrorMessage(mc_invalid_ak_catalog_name)
+
+        // C-07: Invalid endpoint
+        sql """drop catalog if exists ${mc_invalid_endpoint_catalog_name};"""
+        sql """
+            create catalog if not exists ${mc_invalid_endpoint_catalog_name} properties (
+                "type" = "max_compute",
+                "mc.default.project" = "${mc_db}",
+                "mc.access_key" = "${ak}",
+                "mc.secret_key" = "${sk}",
+                "mc.endpoint" = "http://127.0.0.1:1/api",
+                "mc.connect_timeout" = "1",
+                "mc.read_timeout" = "1",
+                "mc.retry_count" = "1"
+            );
+        """
+        test {
+            sql """show databases from ${mc_invalid_endpoint_catalog_name}"""
+            exception "errCode = 2"
+        }
+        // TODO: re-enable after show catalogs error message is stabilized.
+        // assertCatalogHasErrorMessage(mc_invalid_endpoint_catalog_name)
+
+        // C-08: Invalid project
+        sql """drop catalog if exists ${mc_invalid_project_catalog_name};"""
+        sql """
+            create catalog if not exists ${mc_invalid_project_catalog_name} properties (
+                "type" = "max_compute",
+                "mc.default.project" = "not_exist_project_for_regression",
+                "mc.access_key" = "${ak}",
+                "mc.secret_key" = "${sk}",
+                "mc.endpoint" = "http://service.cn-beijing-vpc.maxcompute.aliyun-inc.com/api",
+                "mc.enable.namespace.schema" = "true"
+            );
+        """
+        test {
+            sql """show databases from ${mc_invalid_project_catalog_name}"""
+            exception "errCode = 2"
+        }
+        // TODO: re-enable after show catalogs error message is stabilized.
+        // assertCatalogHasErrorMessage(mc_invalid_project_catalog_name)
 
         // query data test
         def q01 = {
@@ -364,12 +750,226 @@ suite("test_external_catalog_maxcompute", "p2,external") {
             order_qt_q7 """ select * from mc_parts where dt < '2023-08-03' or (mc_bigint > 1003 and dt > '2023-08-04') order by mc_bigint, dt; """
             qt_q8 """ desc mc_parts """
         }
+        def qQ01 = {
+            explain {
+                sql """
+                    select web_site_sk
+                    from web_site
+                    where web_site_id = 'WS0003'
+                """
+                verbose(true)
+                contains "OUTPUT EXPRS:"
+                contains "web_site_sk[#"
+                contains "web_site_id[#"
+                notContains "web_company_name[#"
+            }
+            explain {
+                sql """
+                    select mc_bigint
+                    from mc_parts
+                    where dt = '2023-08-03'
+                """
+                verbose(true)
+                contains "OUTPUT EXPRS:"
+                contains "mc_bigint[#"
+                contains "dt[#"
+                notContains "mc_string[#"
+            }
+            order_qt_q01_column_prune_web_site_result """
+                    select web_site_sk
+                    from web_site
+                    where web_site_id = 'WS0003'
+                    order by web_site_sk
+            """
+            order_qt_q01_column_prune_mc_parts_result """
+                    select mc_bigint
+                    from mc_parts
+                    where dt = '2023-08-03'
+                    order by mc_bigint
+            """
+        }
+        def qQ02 = {
+            // Q-02: Non-partition predicate coverage. The scan node should retain predicates in explain output.
+            explain {
+                sql """select * from web_site where web_site_id = 'WS0003'"""
+                contains "predicates:"
+                contains "web_site_id"
+                contains "= 'WS0003'"
+            }
+            explain {
+                sql """select * from web_site where web_site_id != 'WS0003'"""
+                contains "predicates:"
+                contains "web_site_id"
+                contains "!= 'WS0003'"
+            }
+            explain {
+                sql """select * from web_site where web_company_id > 203"""
+                contains "predicates:"
+                contains "web_company_id"
+                contains "> 203"
+            }
+            explain {
+                sql """select * from web_site where web_company_id < 203"""
+                contains "predicates:"
+                contains "web_company_id"
+                contains "< 203"
+            }
+            explain {
+                sql """select * from web_site where web_company_id >= 203"""
+                contains "predicates:"
+                contains "web_company_id"
+                contains ">= 203"
+            }
+            explain {
+                sql """select * from web_site where web_company_id <= 203"""
+                contains "predicates:"
+                contains "web_company_id"
+                contains "<= 203"
+            }
+            explain {
+                sql """select * from web_site where web_company_id in (201, 203, 205)"""
+                contains "predicates:"
+                contains "web_company_id"
+                contains "IN (201, 203, 205)"
+            }
+            explain {
+                sql """select * from web_site where web_company_id not in (201, 203, 205)"""
+                contains "predicates:"
+                contains "web_company_id"
+                contains "NOT IN (201, 203, 205)"
+            }
+            explain {
+                sql """select * from mc_test_null where col is null"""
+                contains "predicates:"
+                contains "col"
+                contains "IS NULL"
+            }
+            explain {
+                sql """select * from mc_test_null where col is not null"""
+                contains "predicates:"
+                contains "col"
+                contains "IS NOT NULL"
+            }
+            explain {
+                sql """select * from web_site where web_company_id between 202 and 204"""
+                contains "predicates:"
+                contains "web_company_id"
+                contains ">= 202"
+                contains "<= 204"
+            }
+            explain {
+                sql """select * from web_site where web_name like 'Example Web Site 3%'"""
+                contains "predicates:"
+                contains "web_name"
+                containsAny "LIKE 'Example Web Site 3%'"
+                containsAny "like 'Example Web Site 3%'"
+            }
+            order_qt_q02_non_partition_eq_result """
+                    select web_site_sk, web_site_id
+                    from web_site
+                    where web_site_id = 'WS0003'
+                    order by web_site_sk
+            """
+            order_qt_q02_non_partition_in_result """
+                    select web_site_id, web_company_id
+                    from web_site
+                    where web_company_id in (201, 203, 205)
+                    order by web_company_id
+            """
+            order_qt_q02_non_partition_is_null_result """
+                    select id
+                    from mc_test_null
+                    where col is null
+                    order by id
+            """
+            order_qt_q02_non_partition_between_result """
+                    select web_site_id, web_company_id
+                    from web_site
+                    where web_company_id between 202 and 204
+                    order by web_company_id
+            """
+            order_qt_q02_non_partition_like_result """
+                    select web_site_id
+                    from web_site
+                    where web_name like 'Example Web Site 3%'
+                    order by web_site_id
+            """
+        }
+        def qN05 = {
+            qt_n05_web_site_count """ select count(*) from web_site """
+            order_qt_n05_web_site_slice """ select * from web_site where web_site_id >= 'WS0003' order by web_site_id; """
+            order_qt_n05_mc_parts_eq """ select * from mc_parts where dt = '2023-08-03' order by mc_bigint """
+            order_qt_n05_mc_parts_or """ select * from mc_parts where dt < '2023-08-03'
+                    or (mc_bigint > 1003 and dt > '2023-08-04') order by mc_bigint, dt; """
+            order_qt_n05_multi_partition_datetime """ select pt, yy, mm, dd from multi_partitions
+                    where pt >= 2 and create_time > '2023-08-03 03:11:00' order by pt, yy, mm, dd; """
+        }
 
         sql """ switch `${mc_catalog_name}`; """
         sql """ use `${mc_db}`; """
         q01()
         q02()
         q03()
+        qQ01()
+        qQ02()
+
+        // N-05: Query correctness should stay stable after altering catalog properties.
+        List<Map<String, Object>> alterCatalogQueryCases = [
+                [
+                        "caseName": "row_count_small",
+                        "properties": new LinkedHashMap<String, String>([
+                                "mc.split_strategy": "row_count",
+                                "mc.split_row_count": "1024",
+                                "mc.split_cross_partition": "false",
+                                "mc.datetime_predicate_push_down": "false",
+                                "mc.max_field_size_bytes": "4194304"
+                        ])
+                ],
+                [
+                        "caseName": "row_count_large",
+                        "properties": new LinkedHashMap<String, String>([
+                                "mc.split_strategy": "row_count",
+                                "mc.split_row_count": "4096",
+                                "mc.split_cross_partition": "true",
+                                "mc.datetime_predicate_push_down": "true",
+                                "mc.max_field_size_bytes": "8388608"
+                        ])
+                ],
+                [
+                        "caseName": "byte_size_small",
+                        "properties": new LinkedHashMap<String, String>([
+                                "mc.split_strategy": "byte_size",
+                                "mc.split_byte_size": "134217728",
+                                "mc.split_cross_partition": "false",
+                                "mc.datetime_predicate_push_down": "false",
+                                "mc.max_field_size_bytes": "16777216"
+                        ])
+                ],
+                [
+                        "caseName": "byte_size_large",
+                        "properties": new LinkedHashMap<String, String>([
+                                "mc.split_strategy": "byte_size",
+                                "mc.split_byte_size": "268435456",
+                                "mc.split_cross_partition": "true",
+                                "mc.datetime_predicate_push_down": "true",
+                                "mc.max_field_size_bytes": "8388608"
+                        ])
+                ]
+        ]
+        alterCatalogQueryCases.each { Map<String, Object> testCase ->
+            Map<String, String> properties = testCase.properties as Map<String, String>
+            sql """switch internal"""
+            sql """
+                alter catalog ${mc_alter_catalog_name} set properties (
+                    ${renderCatalogProperties(properties)}
+                );
+            """
+            assertShowCreateCatalogContains(mc_alter_catalog_name,
+                    properties.collect { key, value -> "\"${key}\" = \"${value}\"" })
+            sql """switch `${mc_alter_catalog_name}`;"""
+            sql """use `${mc_db}`;"""
+            qN05()
+        }
 
         // replay test
         sql """drop catalog if exists ${mc_catalog_name};"""
@@ -386,10 +986,14 @@ suite("test_external_catalog_maxcompute", "p2,external") {
         sql """ use `${mc_db}`; """
         order_qt_replay_q6 """ select * from mc_parts where dt >= '2023-08-03' and mc_bigint > 1001  order by mc_bigint """
 
+        // C-04: REFRESH CATALOG
         // test multi partitions prune
         sql """ refresh catalog ${mc_catalog_name} """
         sql """ switch `${mc_catalog_name}`; """
         sql """ use `${mc_db}`; """
+        List<List<Object>> refreshedTables = sql """ show tables """
+        assertTrue(refreshedTables.any { it[0].toString() == "web_site" },
+                "table web_site should still be visible after refresh catalog")
 
         qt_multi_partition_q1 """ desc multi_partitions """
         order_qt_multi_partition_q1 """ show partitions from multi_partitions; """
