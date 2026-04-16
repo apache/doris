@@ -122,18 +122,9 @@ suite("test_streaming_mysql_job_alter_props_restart_fe", "docker,mysql,external_
             //         and target properties (add load.max_filter_ratio)
             sql """ALTER JOB ${jobName}
                     FROM MYSQL (
-                        "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
-                        "driver_url" = "${driver_url}",
-                        "driver_class" = "com.mysql.cj.jdbc.Driver",
-                        "user" = "root",
-                        "password" = "123456",
-                        "database" = "${mysqlDb}",
-                        "include_tables" = "${table1}",
-                        "offset" = "initial",
                         "snapshot_split_size" = "2048"
                     )
                     TO DATABASE ${currentDb} (
-                        "table.create.properties.replication_num" = "1",
                         "load.max_filter_ratio" = "0.5"
                     )
                 """

@@ -772,6 +772,12 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         if (replayJob.getNonTxnJobStatistic() != null) {
             setNonTxnJobStatistic(replayJob.getNonTxnJobStatistic());
         }
+        if (replayJob.getSourceProperties() != null) {
+            this.sourceProperties = replayJob.getSourceProperties();
+        }
+        if (replayJob.getTargetProperties() != null) {
+            this.targetProperties = replayJob.getTargetProperties();
+        }
         setExecuteSql(replayJob.getExecuteSql());
         setSucceedTaskCount(replayJob.getSucceedTaskCount());
         setFailedTaskCount(replayJob.getFailedTaskCount());
