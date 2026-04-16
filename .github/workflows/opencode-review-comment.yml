@@ -81,30 +81,13 @@ jobs:
           PR_NUMBER: ${{ needs.resolve-pr.outputs.pr_number }}
           HEAD_SHA: ${{ needs.resolve-pr.outputs.head_sha }}
         run: |
-          REVIEWS=$(gh api --paginate repos/${REPO}/pulls/${PR_NUMBER}/reviews)
-          review_state=$(printf '%s' "$REVIEWS" | jq -r --arg head_sha "$HEAD_SHA" '
-            ([ .[]
-              | select(.user.login == "github-actions[bot]" or .user.login == "github-actions")
-              | select(.commit_id == $head_sha)
-              | select(.state == "APPROVED" or .state == "CHANGES_REQUESTED")
-            ]
-            | sort_by(.submitted_at)
-            | last
-            | .state) // ""
-          ')
+          state="pending"
+          summary="Trigger /review to start automated review for ${HEAD_SHA}."
 
-          conclusion="failure"
-          summary="No automated approve/request-changes review exists for ${HEAD_SHA}."
-
-          if [ "$review_state" = "APPROVED" ]; then
-            conclusion="success"
-            summary="Automated review approved the PR for ${HEAD_SHA}."
-          elif [ "$review_state" = "CHANGES_REQUESTED" ]; then
-            summary="Automated review requested changes for ${HEAD_SHA}."
+          if [ "${{ needs.code-review.result }}" = "success" ]; then
+            state="success"
+            summary="Automated review was triggered for ${HEAD_SHA}."
           fi
-
-          state="failure"
-          [ "$conclusion" = "success" ] && state="success"
 
           gh api repos/${REPO}/statuses/${HEAD_SHA} \
             -X POST \

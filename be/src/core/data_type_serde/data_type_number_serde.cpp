@@ -35,7 +35,6 @@
 #include "exprs/function/cast/cast_to_string.h"
 #include "storage/olap_common.h"
 #include "storage/types.h"
-#include "util/io_helper.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_document_cast.h"
 #include "util/jsonb_writer.h"
@@ -167,20 +166,23 @@ Status DataTypeNumberSerDe<T>::deserialize_one_cell_from_json(IColumn& column, S
         return Status::InvalidArgument("uint128 is not support");
     } else if constexpr (is_float_or_double(T) || T == TYPE_TIMEV2) {
         typename PrimitiveTypeTraits<T>::CppType val = 0;
-        if (!try_read_float_text(val, str_ref)) {
+        CastParameters params;
+        if (!CastToFloat::from_string(str_ref, val, params)) {
             return Status::InvalidArgument("parse number fail, string: '{}'", slice.to_string());
         }
         column_data.insert_value(val);
     } else if constexpr (T == TYPE_BOOLEAN) {
         // Note: here we should handle the bool type
         typename PrimitiveTypeTraits<T>::CppType val = 0;
-        if (!try_read_bool_text(val, str_ref)) {
+        CastParameters params;
+        if (!CastToBool::from_string(str_ref, val, params)) {
             return Status::InvalidArgument("parse boolean fail, string: '{}'", slice.to_string());
         }
         column_data.insert_value(val);
     } else if constexpr (is_int_or_bool(T)) {
         typename PrimitiveTypeTraits<T>::CppType val = 0;
-        if (!try_read_int_text(val, str_ref)) {
+        CastParameters params;
+        if (!CastToInt::from_string<false>(str_ref, val, params)) {
             return Status::InvalidArgument("parse number fail, string: '{}'", slice.to_string());
         }
         column_data.insert_value(val);
@@ -206,7 +208,7 @@ Status DataTypeNumberSerDe<T>::serialize_one_cell_to_json(const IColumn& column,
     row_num = result.second;
     auto data = assert_cast<const ColumnType&>(*ptr).get_element(row_num);
     if constexpr (T == TYPE_IPV6) {
-        std::string hex = int128_to_string(data);
+        std::string hex = CastToString::from_uint128(data);
         bw.write(hex.data(), hex.size());
     } else if constexpr (T == TYPE_FLOAT || T == TYPE_DOUBLE) {
         auto str = CastToString::from_number(data);
@@ -247,6 +249,7 @@ Status DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
     if (arrow_array->type_id() == arrow::Type::STRING) {
         const auto* concrete_array = dynamic_cast<const arrow::StringArray*>(arrow_array);
         std::shared_ptr<arrow::Buffer> buffer = concrete_array->value_data();
+        CastParameters params;
 
         const auto* offsets_data = concrete_array->value_offsets()->data();
         const size_t offset_size = sizeof(int32_t);
@@ -267,7 +270,7 @@ Status DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
                     if constexpr (T == TYPE_DATETIMEV2 || T == TYPE_TIMESTAMPTZ) {
                         StringRef str_ref(raw_data, raw_data_len);
                         UInt64 val = 0;
-                        if (!try_read_int_text(val, str_ref)) {
+                        if (!CastToInt::from_string<false>(str_ref, val, params)) {
                             return Status::Error(ErrorCode::INVALID_ARGUMENT,
                                                  "parse number fail, string: '{}'",
                                                  std::string(str_ref.data, str_ref.size).c_str());
@@ -277,7 +280,7 @@ Status DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
                     } else if constexpr (T == TYPE_DATE || T == TYPE_DATETIME) {
                         StringRef str_ref(raw_data, raw_data_len);
                         Int64 val = 0;
-                        if (!try_read_int_text(val, str_ref)) {
+                        if (!CastToInt::from_string<false>(str_ref, val, params)) {
                             return Status::Error(ErrorCode::INVALID_ARGUMENT,
                                                  "parse number fail, string: '{}'",
                                                  std::string(str_ref.data, str_ref.size).c_str());
@@ -287,7 +290,7 @@ Status DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
                     } else if constexpr (T == TYPE_DATEV2) {
                         StringRef str_ref(raw_data, raw_data_len);
                         UInt32 val = 0;
-                        if (!try_read_int_text(val, str_ref)) {
+                        if (!CastToInt::from_string<false>(str_ref, val, params)) {
                             return Status::Error(ErrorCode::INVALID_ARGUMENT,
                                                  "parse number fail, string: '{}'",
                                                  std::string(str_ref.data, str_ref.size).c_str());
@@ -297,7 +300,7 @@ Status DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
                     } else {
                         Int128 val = 0;
                         StringRef str_ref(raw_data, raw_data_len);
-                        if (!try_read_int_text(val, str_ref)) {
+                        if (!CastToInt::from_string<false>(str_ref, val, params)) {
                             return Status::Error(ErrorCode::INVALID_ARGUMENT,
                                                  "parse number fail, string: '{}'",
                                                  std::string(str_ref.data, str_ref.size).c_str());
@@ -724,7 +727,7 @@ template <PrimitiveType PT, bool is_strict_mode>
 bool try_parse_impl(typename PrimitiveTypeTraits<PT>::CppType& x, const StringRef& str_ref,
                     CastParameters& params) {
     if constexpr (is_float_or_double(PT)) {
-        return try_read_float_text(x, str_ref);
+        return CastToFloat::from_string(str_ref, x, params);
     } else if constexpr (PT == TYPE_BOOLEAN) {
         return CastToBool::from_string(str_ref, x, params);
     } else if constexpr (is_int(PT)) {

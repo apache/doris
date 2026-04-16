@@ -20,8 +20,8 @@ package org.apache.doris.nereids.trees.plans.commands.execute;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.UserException;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.qe.ResultSet;
 

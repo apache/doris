@@ -44,7 +44,7 @@ Status SetSinkLocalState<is_intersect>::close(RuntimeState* state, Status exec_s
     if (!_terminated && _runtime_filter_producer_helper && !state->is_cancelled()) {
         try {
             RETURN_IF_ERROR(_runtime_filter_producer_helper->process(
-                    state, &_shared_state->build_block, _shared_state->get_hash_table_size()));
+                    state, &_shared_state->build_block, _build_hash_table_size));
         } catch (Exception& e) {
             return Status::InternalError(
                     "rf process meet error: {}, _terminated: {}, _finish_dependency: {}",
@@ -99,6 +99,11 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, Block* in_block
         // record hash table
         COUNTER_SET(local_state._hash_table_size, (int64_t)hash_table_size);
         COUNTER_SET(local_state._valid_element_in_hash_table, valid_element_in_hash_tbl);
+
+        // Snapshot hash table size before enabling the probe pipeline. The probe side
+        // can shrink the hash table via _refresh_hash_table() after set_ready(), so
+        // close() must use this saved value for runtime filter processing.
+        local_state._build_hash_table_size = hash_table_size;
 
         local_state._shared_state->probe_finished_children_dependency[_cur_child_id + 1]
                 ->set_ready();

@@ -405,7 +405,7 @@ struct GroupArrayStringUnionData : public GroupArraySetOpStringBaseData {
 
 /// Puts all values to the hybrid set. Returns an array of unique values
 template <typename ImplData>
-class AggregateFunctionGroupArraySetOp
+class AggregateFunctionGroupArraySetOp final
         : public IAggregateFunctionDataHelper<ImplData, AggregateFunctionGroupArraySetOp<ImplData>>,
           UnaryExpression,
           NotNullableAggregateFunction {

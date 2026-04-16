@@ -25,7 +25,11 @@
 #include <string>
 #include <vector>
 
+#include "core/data_type/data_type_jsonb.h"
+#include "core/data_type/data_type_number.h"
+#include "core/value/jsonb_value.h"
 #include "exprs/function/ai/ai_adapter.h"
+#include "io/fs/obj_storage_client.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_runtime_state.h"
 
@@ -39,6 +43,101 @@ private:
     std::unordered_map<std::string, std::string> _headers;
     std::string _content_type;
 };
+
+class MockEmbedObjStorageClient : public io::ObjStorageClient {
+public:
+    io::ObjectStorageUploadResponse create_multipart_upload(
+            const io::ObjectStoragePathOptions& /*opts*/) override {
+        return {};
+    }
+
+    io::ObjectStorageResponse put_object(const io::ObjectStoragePathOptions& /*opts*/,
+                                         std::string_view /*stream*/) override {
+        return io::ObjectStorageResponse::OK();
+    }
+
+    io::ObjectStorageUploadResponse upload_part(const io::ObjectStoragePathOptions& /*opts*/,
+                                                std::string_view /*stream*/,
+                                                int /*part_num*/) override {
+        return {};
+    }
+
+    io::ObjectStorageResponse complete_multipart_upload(
+            const io::ObjectStoragePathOptions& /*opts*/,
+            const std::vector<io::ObjectCompleteMultiPart>& /*completed_parts*/) override {
+        return io::ObjectStorageResponse::OK();
+    }
+
+    io::ObjectStorageHeadResponse head_object(
+            const io::ObjectStoragePathOptions& /*opts*/) override {
+        return {};
+    }
+
+    io::ObjectStorageResponse get_object(const io::ObjectStoragePathOptions& /*opts*/,
+                                         void* /*buffer*/, size_t /*offset*/, size_t /*bytes_read*/,
+                                         size_t* /*size_return*/) override {
+        return io::ObjectStorageResponse::OK();
+    }
+
+    io::ObjectStorageResponse list_objects(const io::ObjectStoragePathOptions& /*opts*/,
+                                           std::vector<io::FileInfo>* /*files*/) override {
+        return io::ObjectStorageResponse::OK();
+    }
+
+    io::ObjectStorageResponse delete_objects(const io::ObjectStoragePathOptions& /*opts*/,
+                                             std::vector<std::string> /*objs*/) override {
+        return io::ObjectStorageResponse::OK();
+    }
+
+    io::ObjectStorageResponse delete_object(const io::ObjectStoragePathOptions& /*opts*/) override {
+        return io::ObjectStorageResponse::OK();
+    }
+
+    io::ObjectStorageResponse delete_objects_recursively(
+            const io::ObjectStoragePathOptions& /*opts*/) override {
+        return io::ObjectStorageResponse::OK();
+    }
+
+    std::string generate_presigned_url(const io::ObjectStoragePathOptions& opts,
+                                       int64_t expiration_secs, const S3ClientConf& conf) override {
+        last_opts = opts;
+        last_expiration_secs = expiration_secs;
+        last_conf = conf;
+        return fmt::format("mock-s3://{}/{}?ttl={}", opts.bucket, opts.key, expiration_secs);
+    }
+
+    io::ObjectStoragePathOptions last_opts;
+    int64_t last_expiration_secs = 0;
+    S3ClientConf last_conf;
+};
+
+static ColumnString::MutablePtr create_jsonb_column(const std::vector<std::string>& json_rows) {
+    auto column = ColumnString::create();
+    for (const auto& json_row : json_rows) {
+        JsonBinaryValue jsonb_value;
+        Status st = jsonb_value.from_json_string(json_row);
+        EXPECT_TRUE(st.ok()) << st.to_string();
+        column->insert_data(jsonb_value.value(), jsonb_value.size());
+    }
+    return column;
+}
+
+static void assert_mock_embedding_column(const ColumnArray& col_array, size_t row_count) {
+    const auto& offsets = col_array.get_offsets();
+    ASSERT_EQ(offsets.size(), row_count);
+
+    const auto& nested_nullable_col = assert_cast<const ColumnNullable&>(col_array.get_data());
+    const auto& nested_col =
+            assert_cast<const ColumnFloat32&>(*nested_nullable_col.get_nested_column_ptr());
+    ASSERT_EQ(nested_col.size(), row_count * 5);
+
+    for (size_t row = 0; row < row_count; ++row) {
+        ASSERT_EQ(offsets[row], (row + 1) * 5);
+        for (size_t i = 0; i < 5; ++i) {
+            ASSERT_FLOAT_EQ(nested_col.get_element(row * 5 + i), static_cast<float>(i));
+        }
+    }
+}
 
 TEST(EMBED_TEST, embed_function_build_test) {
     FunctionEmbed function;
@@ -73,7 +172,10 @@ TEST(EMBED_TEST, embed_function_test) {
     Block block;
     block.insert({std::move(col_resource), std::make_shared<DataTypeString>(), "resource"});
     block.insert({std::move(col_text), std::make_shared<DataTypeString>(), "text"});
-    block.insert({nullptr, std::make_shared<DataTypeString>(), "result"});
+    block.insert(
+            {nullptr,
+             std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeFloat32>())),
+             "result"});
 
     ColumnNumbers arguments = {0, 1};
     size_t result_idx = 2;
@@ -94,6 +196,316 @@ TEST(EMBED_TEST, embed_function_test) {
     for (int i = 0; i < 5; ++i) {
         ASSERT_FLOAT_EQ(nested_col.get_element(i), static_cast<float>(i));
     }
+}
+
+TEST(EMBED_TEST, embed_function_text_multi_rows) {
+    auto runtime_state = std::make_unique<MockRuntimeState>();
+    auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
+
+    std::vector<std::string> resources = {"mock_resource", "mock_resource"};
+    std::vector<std::string> texts = {"test input 1", "test input 2"};
+    auto col_resource = ColumnHelper::create_column<DataTypeString>(resources);
+    auto col_text = ColumnHelper::create_column<DataTypeString>(texts);
+
+    Block block;
+    block.insert({std::move(col_resource), std::make_shared<DataTypeString>(), "resource"});
+    block.insert({std::move(col_text), std::make_shared<DataTypeString>(), "text"});
+    block.insert(
+            {nullptr,
+             std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeFloat32>())),
+             "result"});
+
+    ColumnNumbers arguments = {0, 1};
+    size_t result_idx = 2;
+
+    auto embed_func = FunctionEmbed::create();
+    Status exec_status =
+            embed_func->execute_impl(ctx.get(), block, arguments, result_idx, texts.size());
+
+    ASSERT_TRUE(exec_status.ok()) << exec_status.to_string();
+    const auto& col_array =
+            assert_cast<const ColumnArray&>(*block.get_by_position(result_idx).column);
+    assert_mock_embedding_column(col_array, texts.size());
+}
+
+TEST(EMBED_TEST, embed_function_multimodal_direct_url) {
+    TQueryOptions query_options = create_fake_query_options();
+    query_options.__set_file_presigned_url_ttl_seconds(0);
+    auto query_ctx = MockQueryContext::create(TUniqueId(), ExecEnv::GetInstance(), query_options);
+    query_ctx->set_mock_ai_resource();
+    TQueryGlobals query_globals;
+    RuntimeState runtime_state(TUniqueId(), 0, query_options, query_globals, nullptr,
+                               query_ctx.get());
+    auto ctx = FunctionContext::create_context(&runtime_state, {}, {});
+
+    std::vector<std::string> resources = {"mock_resource", "mock_resource", "mock_resource"};
+    std::vector<std::string> file_json_rows = {
+            R"({"content_type":"image/png","uri":"https://example.com/a.png"})",
+            R"({"content_type":"video/mp4","uri":"https://example.com/b.mp4"})",
+            R"({"content_type":"audio/mpeg","uri":"https://example.com/c.mp3"})"};
+
+    auto col_resource = ColumnHelper::create_column<DataTypeString>(resources);
+    auto col_file = create_jsonb_column(file_json_rows);
+
+    Block block;
+    block.insert({std::move(col_resource), std::make_shared<DataTypeString>(), "resource"});
+    block.insert({std::move(col_file), std::make_shared<DataTypeJsonb>(), "file"});
+    block.insert(
+            {nullptr,
+             std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeFloat32>())),
+             "result"});
+
+    ColumnNumbers arguments = {0, 1};
+    size_t result_idx = 2;
+
+    auto embed_func = FunctionEmbed::create();
+    Status exec_status = embed_func->execute_impl(ctx.get(), block, arguments, result_idx,
+                                                  file_json_rows.size());
+
+    ASSERT_TRUE(exec_status.ok()) << exec_status.to_string();
+    const auto& col_array =
+            assert_cast<const ColumnArray&>(*block.get_by_position(result_idx).column);
+    assert_mock_embedding_column(col_array, file_json_rows.size());
+}
+
+TEST(EMBED_TEST, embed_function_multimodal_s3_presigned_url) {
+    TQueryOptions query_options = create_fake_query_options();
+    query_options.__set_file_presigned_url_ttl_seconds(123);
+    auto query_ctx = MockQueryContext::create(TUniqueId(), ExecEnv::GetInstance(), query_options);
+    query_ctx->set_mock_ai_resource();
+    TQueryGlobals query_globals;
+    RuntimeState runtime_state(TUniqueId(), 0, query_options, query_globals, nullptr,
+                               query_ctx.get());
+    auto ctx = FunctionContext::create_context(&runtime_state, {}, {});
+
+    auto mock_client = std::make_shared<MockEmbedObjStorageClient>();
+    S3ClientFactory::instance().set_client_creator_for_test(
+            [mock_client](const S3ClientConf&) { return mock_client; });
+
+    std::vector<std::string> resources = {"mock_resource"};
+    std::vector<std::string> file_json_rows = {R"({
+        "content_type":"image/png",
+        "uri":"s3://test-bucket/path/to/image.png",
+        "endpoint":"cos.ap-beijing.myqcloud.com",
+        "region":"ap-beijing",
+        "ak":"test-ak",
+        "sk":"test-sk",
+        "role_arn":"test-role",
+        "external_id":"test-external-id"
+    })"};
+
+    auto col_resource = ColumnHelper::create_column<DataTypeString>(resources);
+    auto col_file = create_jsonb_column(file_json_rows);
+
+    Block block;
+    block.insert({std::move(col_resource), std::make_shared<DataTypeString>(), "resource"});
+    block.insert({std::move(col_file), std::make_shared<DataTypeJsonb>(), "file"});
+    block.insert(
+            {nullptr,
+             std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeFloat32>())),
+             "result"});
+
+    ColumnNumbers arguments = {0, 1};
+    size_t result_idx = 2;
+
+    auto embed_func = FunctionEmbed::create();
+    Status exec_status = embed_func->execute_impl(ctx.get(), block, arguments, result_idx,
+                                                  file_json_rows.size());
+
+    S3ClientFactory::instance().clear_client_creator_for_test();
+
+    ASSERT_TRUE(exec_status.ok()) << exec_status.to_string();
+    const auto& col_array =
+            assert_cast<const ColumnArray&>(*block.get_by_position(result_idx).column);
+    assert_mock_embedding_column(col_array, file_json_rows.size());
+
+    ASSERT_EQ(mock_client->last_opts.bucket, "test-bucket");
+    ASSERT_EQ(mock_client->last_opts.key, "path/to/image.png");
+    ASSERT_EQ(mock_client->last_expiration_secs, 123);
+    ASSERT_EQ(mock_client->last_conf.endpoint, "cos.ap-beijing.myqcloud.com");
+    ASSERT_EQ(mock_client->last_conf.region, "ap-beijing");
+    ASSERT_EQ(mock_client->last_conf.ak, "test-ak");
+    ASSERT_EQ(mock_client->last_conf.sk, "test-sk");
+    ASSERT_EQ(mock_client->last_conf.role_arn, "test-role");
+    ASSERT_EQ(mock_client->last_conf.external_id, "test-external-id");
+}
+
+TEST(EMBED_TEST, embed_function_multimodal_s3_missing_endpoint) {
+    auto runtime_state = std::make_unique<MockRuntimeState>();
+    auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
+
+    std::vector<std::string> resources = {"mock_resource"};
+    std::vector<std::string> file_json_rows = {R"({
+        "content_type":"image/png",
+        "uri":"s3://test-bucket/path/to/image.png",
+        "region":"ap-beijing"
+    })"};
+    auto col_resource = ColumnHelper::create_column<DataTypeString>(resources);
+    auto col_file = create_jsonb_column(file_json_rows);
+
+    Block block;
+    block.insert({std::move(col_resource), std::make_shared<DataTypeString>(), "resource"});
+    block.insert({std::move(col_file), std::make_shared<DataTypeJsonb>(), "file"});
+    block.insert(
+            {nullptr,
+             std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeFloat32>())),
+             "result"});
+
+    ColumnNumbers arguments = {0, 1};
+    size_t result_idx = 2;
+
+    auto embed_func = FunctionEmbed::create();
+    Status exec_status = embed_func->execute_impl(ctx.get(), block, arguments, result_idx,
+                                                  file_json_rows.size());
+
+    ASSERT_FALSE(exec_status.ok());
+    ASSERT_NE(exec_status.to_string().find("field 'endpoint' is required"), std::string::npos);
+}
+
+TEST(EMBED_TEST, embed_function_multimodal_s3_missing_region) {
+    auto runtime_state = std::make_unique<MockRuntimeState>();
+    auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
+
+    std::vector<std::string> resources = {"mock_resource"};
+    std::vector<std::string> file_json_rows = {R"({
+        "content_type":"image/png",
+        "uri":"s3://test-bucket/path/to/image.png",
+        "endpoint":"cos.ap-beijing.myqcloud.com"
+    })"};
+    auto col_resource = ColumnHelper::create_column<DataTypeString>(resources);
+    auto col_file = create_jsonb_column(file_json_rows);
+
+    Block block;
+    block.insert({std::move(col_resource), std::make_shared<DataTypeString>(), "resource"});
+    block.insert({std::move(col_file), std::make_shared<DataTypeJsonb>(), "file"});
+    block.insert(
+            {nullptr,
+             std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeFloat32>())),
+             "result"});
+
+    ColumnNumbers arguments = {0, 1};
+    size_t result_idx = 2;
+
+    auto embed_func = FunctionEmbed::create();
+    Status exec_status = embed_func->execute_impl(ctx.get(), block, arguments, result_idx,
+                                                  file_json_rows.size());
+
+    ASSERT_FALSE(exec_status.ok());
+    ASSERT_NE(exec_status.to_string().find("field 'region' is required"), std::string::npos);
+}
+
+TEST(EMBED_TEST, embed_function_wrong_argument_count) {
+    auto runtime_state = std::make_unique<MockRuntimeState>();
+    auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
+
+    std::vector<std::string> resources = {"mock_resource"};
+    auto col_resource = ColumnHelper::create_column<DataTypeString>(resources);
+
+    Block block;
+    block.insert({std::move(col_resource), std::make_shared<DataTypeString>(), "resource"});
+    block.insert(
+            {nullptr,
+             std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeFloat32>())),
+             "result"});
+
+    ColumnNumbers arguments = {0};
+    size_t result_idx = 1;
+
+    auto embed_func = FunctionEmbed::create();
+    Status exec_status =
+            embed_func->execute_impl(ctx.get(), block, arguments, result_idx, resources.size());
+
+    ASSERT_FALSE(exec_status.ok());
+    ASSERT_NE(exec_status.to_string().find("Function EMBED expects 2 arguments"),
+              std::string::npos);
+}
+
+TEST(EMBED_TEST, embed_function_invalid_input_type) {
+    auto runtime_state = std::make_unique<MockRuntimeState>();
+    auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
+
+    std::vector<std::string> resources = {"mock_resource"};
+    std::vector<Int32> ids = {1};
+    auto col_resource = ColumnHelper::create_column<DataTypeString>(resources);
+    auto col_ids = ColumnHelper::create_column<DataTypeInt32>(ids);
+
+    Block block;
+    block.insert({std::move(col_resource), std::make_shared<DataTypeString>(), "resource"});
+    block.insert({std::move(col_ids), std::make_shared<DataTypeInt32>(), "id"});
+    block.insert(
+            {nullptr,
+             std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeFloat32>())),
+             "result"});
+
+    ColumnNumbers arguments = {0, 1};
+    size_t result_idx = 2;
+
+    auto embed_func = FunctionEmbed::create();
+    Status exec_status =
+            embed_func->execute_impl(ctx.get(), block, arguments, result_idx, resources.size());
+
+    ASSERT_FALSE(exec_status.ok());
+    ASSERT_NE(exec_status.to_string().find(
+                      "Function EMBED expects the second argument to be STRING or JSON"),
+              std::string::npos);
+}
+
+TEST(EMBED_TEST, embed_function_missing_required_json_field) {
+    auto runtime_state = std::make_unique<MockRuntimeState>();
+    auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
+
+    std::vector<std::string> resources = {"mock_resource"};
+    std::vector<std::string> file_json_rows = {R"({"uri":"https://example.com/a.png"})"};
+    auto col_resource = ColumnHelper::create_column<DataTypeString>(resources);
+    auto col_file = create_jsonb_column(file_json_rows);
+
+    Block block;
+    block.insert({std::move(col_resource), std::make_shared<DataTypeString>(), "resource"});
+    block.insert({std::move(col_file), std::make_shared<DataTypeJsonb>(), "file"});
+    block.insert(
+            {nullptr,
+             std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeFloat32>())),
+             "result"});
+
+    ColumnNumbers arguments = {0, 1};
+    size_t result_idx = 2;
+
+    auto embed_func = FunctionEmbed::create();
+    Status exec_status = embed_func->execute_impl(ctx.get(), block, arguments, result_idx,
+                                                  file_json_rows.size());
+
+    ASSERT_FALSE(exec_status.ok());
+    ASSERT_NE(exec_status.to_string().find("field 'content_type' is required"), std::string::npos);
+}
+
+TEST(EMBED_TEST, embed_function_unsupported_content_type) {
+    auto runtime_state = std::make_unique<MockRuntimeState>();
+    auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
+
+    std::vector<std::string> resources = {"mock_resource"};
+    std::vector<std::string> file_json_rows = {
+            R"({"content_type":"text/plain","uri":"https://example.com/a.txt"})"};
+    auto col_resource = ColumnHelper::create_column<DataTypeString>(resources);
+    auto col_file = create_jsonb_column(file_json_rows);
+
+    Block block;
+    block.insert({std::move(col_resource), std::make_shared<DataTypeString>(), "resource"});
+    block.insert({std::move(col_file), std::make_shared<DataTypeJsonb>(), "file"});
+    block.insert(
+            {nullptr,
+             std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeFloat32>())),
+             "result"});
+
+    ColumnNumbers arguments = {0, 1};
+    size_t result_idx = 2;
+
+    auto embed_func = FunctionEmbed::create();
+    Status exec_status = embed_func->execute_impl(ctx.get(), block, arguments, result_idx,
+                                                  file_json_rows.size());
+
+    ASSERT_FALSE(exec_status.ok());
+    ASSERT_NE(exec_status.to_string().find("Unsupported content_type for EMBED"),
+              std::string::npos);
 }
 
 TEST(EMBED_TEST, local_adapter_embedding_request) {

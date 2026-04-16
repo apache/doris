@@ -30,16 +30,17 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "core/assert_cast.h"
 #include "core/column/column.h"
+#include "core/column/column_decimal.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/primitive_type.h"
+#include "core/string_buffer.hpp"
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "core/uint128.h"
 #include "exec/common/hash_table/hash.h"
 #include "exec/common/hash_table/phmap_fwd_decl.h"
 #include "exprs/aggregate/aggregate_function.h"
-#include "util/io_helper.h"
 #include "util/var_int.h"
 
 template <typename T>

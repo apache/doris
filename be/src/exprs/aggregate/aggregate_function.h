@@ -303,12 +303,42 @@ protected:
     int version {};
 };
 
+/// Marker base for aggregate function classes that intentionally form an inheritance
+/// hierarchy (e.g. AggregateStateUnion -> AggregateStateMerge, or
+/// AggregateFunctionForEach -> AggregateFunctionForEachV2) and therefore cannot be
+/// marked 'final'. Classes that inherit this marker are exempt from the
+/// static_assert in IAggregateFunctionHelper.
+struct AggregateFunctionNonFinalBase {};
+
 /// Implement method to obtain an address of 'add' function.
 template <typename Derived>
 class IAggregateFunctionHelper : public IAggregateFunction {
 public:
     IAggregateFunctionHelper(const DataTypes& argument_types_)
-            : IAggregateFunction(argument_types_) {}
+            : IAggregateFunction(argument_types_) {
+        // NOTE: This static_assert is placed in the constructor body (not at class scope)
+        // because at class-scope instantiation time Derived is still an incomplete type,
+        // whereas the constructor body is instantiated lazily when a concrete object is
+        // constructed, at which point Derived is fully defined.
+        //
+        // Marking Derived as 'final' is an *optimization hint*, not a correctness
+        // requirement. add() is virtual in IAggregateFunction, so subclasses always
+        // dispatch correctly through the vtable regardless. However, when Derived is
+        // final, the compiler can see that assert_cast<const Derived*>(this)->add(...)
+        // inside add_batch() / add_batch_single_place() etc. has no further overrides,
+        // allowing it to devirtualize (and potentially inline) the add() call -- which
+        // is critical for hot aggregation paths.
+        //
+        // Classes that intentionally form inheritance hierarchies (and therefore accept
+        // the vtable overhead) must inherit AggregateFunctionNonFinalBase to opt out.
+        static_assert(
+                std::is_final_v<Derived> ||
+                        std::is_base_of_v<AggregateFunctionNonFinalBase, Derived>,
+                "Derived should be marked 'final' to allow the compiler to devirtualize "
+                "add() calls inside add_batch() and related hot paths. "
+                "If the class intentionally has subclasses, inherit AggregateFunctionNonFinalBase "
+                "to opt out of this check.");
+    }
 
     void destroy_vec(AggregateDataPtr __restrict place,
                      const size_t num_rows) const noexcept override {

@@ -972,6 +972,16 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         createOrUpdateRuntimeInfo(tableId, DROP_PARTITION_MSG, DEFAULT_RUNTIME_VALUE);
     }
 
+    /**
+     * DynamicPartitionScheduler keeps two kinds of tables in {@code dynamicPartitionTableInfo}: dynamic partition
+     * tables with scheduling enabled, and auto partition tables that rely on {@code partition.retention_count} for
+     * periodic cleanup.
+     */
+    private boolean isDynamicScheduleTable(Table table) {
+        return table instanceof OlapTable && (((OlapTable) table).getPartitionRetentionCount() > 0
+                || DynamicPartitionUtil.isDynamicPartitionTable(table));
+    }
+
     private void initDynamicPartitionTable() {
         for (Long dbId : Env.getCurrentEnv().getInternalCatalog().getDbIds()) {
             Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
@@ -982,9 +992,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             for (Table table : tableList) {
                 table.readLock();
                 try {
-                    if (table instanceof OlapTable
-                            && (((OlapTable) table).getPartitionRetentionCount() > 0
-                            || DynamicPartitionUtil.isDynamicPartitionTable(table))) {
+                    if (isDynamicScheduleTable(table)) {
                         registerDynamicPartitionTable(db.getId(), table.getId());
                     }
                 } finally {

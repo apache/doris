@@ -439,6 +439,7 @@ struct TQueryOptions {
   200: optional bool enable_adjust_conjunct_order_by_cost;
   // Use paimon-cpp to read Paimon splits on BE
   201: optional bool enable_paimon_cpp_reader = false;
+
   // Whether all fragments of this query are assigned to a single backend.
   // When true, the streaming aggregation operator can use more aggressive
   // hash table expansion thresholds since all data is local.
@@ -474,6 +475,9 @@ struct TQueryOptions {
   210: optional double max_scan_mem_ratio = 0.3;
   211: optional bool enable_adaptive_scan = false;
   212: optional bool enable_local_exchange_before_agg = true;
+
+  213: optional i64 file_presigned_url_ttl_seconds = 3600;
+
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.

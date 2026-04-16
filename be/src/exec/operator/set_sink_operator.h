@@ -45,6 +45,7 @@ public:
     Status open(RuntimeState* state) override;
     Status terminate(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
+    Dependency* finishdependency() override { return _finish_dependency.get(); }
 
 private:
     friend class SetSinkOperatorX<is_intersect>;
@@ -60,6 +61,10 @@ private:
 
     std::shared_ptr<RuntimeFilterProducerHelperSet> _runtime_filter_producer_helper;
     std::shared_ptr<CountedFinishDependency> _finish_dependency;
+    // Snapshot of hash table size taken in sink(eos) before set_ready(). The probe side can
+    // modify the hash table via _refresh_hash_table() after set_ready(), so close() must use
+    // this saved value instead of calling get_hash_table_size() again.
+    uint64_t _build_hash_table_size = 0;
 };
 
 template <bool is_intersect>

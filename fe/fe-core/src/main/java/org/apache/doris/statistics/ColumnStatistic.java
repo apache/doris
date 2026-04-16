@@ -18,6 +18,7 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.LiteralExprUtils;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -373,10 +374,10 @@ public class ColumnStatistic {
             stat.getDouble("DataSize"),
             minValue,
             maxValue,
-            LiteralExpr.create(stat.getString("MinExprValue"),
-                    GsonUtils.GSON.fromJson(stat.getString("MinExprType"), Type.class)),
-            LiteralExpr.create(stat.getString("MaxExprValue"),
-                    GsonUtils.GSON.fromJson(stat.getString("MaxExprType"), Type.class)),
+            LiteralExprUtils.createLiteral(stat.getString("MinExprValue"),
+                GsonUtils.GSON.fromJson(stat.getString("MinExprType"), Type.class)),
+            LiteralExprUtils.createLiteral(stat.getString("MaxExprValue"),
+                GsonUtils.GSON.fromJson(stat.getString("MaxExprType"), Type.class)),
             stat.getBoolean("IsUnKnown"),
             lastUpdatedTime,
             null

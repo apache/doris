@@ -29,13 +29,13 @@ import org.apache.doris.analysis.TableSample;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
-import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ColumnToThrift;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.IndexToThriftConvertor;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -62,6 +62,7 @@ import org.apache.doris.planner.normalize.PartitionRangePredicateNormalizer;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TAggregationType;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
@@ -1093,7 +1094,7 @@ public class OlapScanNode extends ScanNode {
                 TColumn tColumn = new TColumn();
                 tColumn.setColumnName(Column.ROWID_COL);
                 tColumn.setColumnType(ScalarType.createStringType().toColumnTypeThrift());
-                tColumn.setAggregationType(AggregateType.REPLACE.toThrift());
+                tColumn.setAggregationType(TAggregationType.REPLACE);
                 tColumn.setIsKey(false);
                 tColumn.setIsAllowNull(false);
                 // keep compatibility
@@ -1113,7 +1114,7 @@ public class OlapScanNode extends ScanNode {
         }
 
         for (Index index : olapTable.getIndexes()) {
-            TOlapTableIndex tIndex = index.toThrift(index.getColumnUniqueIds(olapTable.getBaseSchema()));
+            TOlapTableIndex tIndex = IndexToThriftConvertor.toThrift(index, olapTable.getBaseSchema());
             indexDesc.add(tIndex);
         }
 

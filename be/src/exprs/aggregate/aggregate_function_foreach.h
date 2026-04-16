@@ -51,7 +51,8 @@ struct AggregateFunctionForEachData {
   *
   * TODO Allow variable number of arguments.
   */
-class AggregateFunctionForEach : public IAggregateFunctionDataHelper<AggregateFunctionForEachData,
+class AggregateFunctionForEach : public AggregateFunctionNonFinalBase,
+                                 public IAggregateFunctionDataHelper<AggregateFunctionForEachData,
                                                                      AggregateFunctionForEach>,
                                  VarargsExpression,
                                  NullableAggregateFunction {

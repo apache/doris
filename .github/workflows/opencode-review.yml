@@ -21,14 +21,12 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          REVIEWS=$(gh api --paginate repos/${REPO}/pulls/${PR_NUMBER}/reviews)
-          review_state=$(printf '%s' "$REVIEWS" | jq -r --arg head_sha "$HEAD_SHA" '
-            ([ .[]
-              | select(.user.login == "github-actions[bot]" or .user.login == "github-actions")
-              | select(.commit_id == $head_sha)
-              | select(.state == "APPROVED" or .state == "CHANGES_REQUESTED")
+          STATUSES=$(gh api --paginate repos/${REPO}/commits/${HEAD_SHA}/status)
+          review_state=$(printf '%s' "$STATUSES" | jq -r '
+            ([ .statuses[]
+              | select(.context == "code-review")
             ]
-            | sort_by(.submitted_at)
+            | sort_by(.created_at)
             | last
             | .state) // ""
           ')
@@ -36,12 +34,9 @@ jobs:
           state="pending"
           summary="Trigger /review to start automated review for ${HEAD_SHA}."
 
-          if [ "$review_state" = "APPROVED" ]; then
+          if [ "$review_state" = "success" ]; then
             state="success"
-            summary="Automated review approved the PR for ${HEAD_SHA}."
-          elif [ "$review_state" = "CHANGES_REQUESTED" ]; then
-            state="failure"
-            summary="Automated review requested changes for ${HEAD_SHA}."
+            summary="Automated review was triggered for ${HEAD_SHA}."
           fi
 
           gh api repos/${REPO}/statuses/${HEAD_SHA} \

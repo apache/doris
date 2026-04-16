@@ -19,7 +19,7 @@
 
 #include "core/types.h"
 #include "exprs/function/cast/cast_base.h"
-#include "util/io_helper.h"
+#include "util/string_parser.hpp"
 
 namespace doris {
 
@@ -113,7 +113,9 @@ inline bool CastToBool::from_decimal(const Decimal256& from, UInt8& to, UInt32, 
 }
 
 inline bool CastToBool::from_string(const StringRef& from, UInt8& to, CastParameters&) {
-    return try_read_bool_text(to, from);
+    StringParser::ParseResult result;
+    to = StringParser::string_to_bool(from.data, from.size, &result);
+    return result == StringParser::PARSE_SUCCESS;
 }
 
 template <CastModeType Mode>
