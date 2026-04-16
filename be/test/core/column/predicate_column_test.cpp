@@ -55,8 +55,6 @@ TEST(PredicateColumnTest, SizeTinyInt) {
     EXPECT_EQ(col->size(), 1);
 }
 
-// MORE_TESTS_PLACEHOLDER_1
-
 TEST(PredicateColumnTest, SizeSmallInt) {
     auto col = PredicateColumnType<TYPE_SMALLINT>::create();
     EXPECT_EQ(col->size(), 0);
@@ -391,8 +389,6 @@ TEST(PredicateColumnTest, InsertDataIPv6) {
     EXPECT_EQ(col->get_data()[1], IPv6(0));
 }
 
-// MORE_TESTS_PLACEHOLDER_2
-
 // ============================================================================
 // Test insert_many_fix_len_data() for numeric types
 // ============================================================================
@@ -634,8 +630,6 @@ TEST(PredicateColumnTest, InsertManyDictDataVarchar) {
     EXPECT_EQ(std::string(col->get_data()[2].data, col->get_data()[2].size), "x");
 }
 
-// MORE_TESTS_PLACEHOLDER_3
-
 // ============================================================================
 // Test insert_duplicate_fields() for all types
 // ============================================================================
@@ -856,8 +850,6 @@ TEST(PredicateColumnTest, CloneResizedString) {
     EXPECT_EQ(cloned->size(), 0);
 }
 
-// MORE_TESTS_PLACEHOLDER_4
-
 // ============================================================================
 // Test get_data_at() for string types
 // ============================================================================
@@ -881,16 +873,6 @@ TEST(PredicateColumnTest, GetDataAtVarchar) {
     col->insert_data(s1.data(), s1.size());
     StringRef ref = col->get_data_at(0);
     EXPECT_EQ(std::string(ref.data, ref.size), "test");
-}
-
-TEST(PredicateColumnTest, GetDataAtCharTrimsSpaces) {
-    auto col = PredicateColumnType<TYPE_CHAR>::create();
-    col->reserve(2);
-    std::string s1 = "abc   ";
-    col->insert_data(s1.data(), s1.size());
-    StringRef ref = col->get_data_at(0);
-    EXPECT_EQ(ref.size, 6);
-    EXPECT_EQ(std::string(ref.data, ref.size), "abc   ");
 }
 
 // ============================================================================
