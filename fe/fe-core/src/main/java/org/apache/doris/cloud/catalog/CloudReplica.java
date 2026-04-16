@@ -68,9 +68,9 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
     @SerializedName(value = "idx")
     private long idx = -1;
     // Packed: bottom 60 bits = lastGetTabletStatsTime, top 4 bits = statsIntervalIndex.
-    // Persisted so stats timing survives checkpoint/restart, avoiding thundering herd.
-    // On upgrade from old images (with separate "gst"/"sii" keys), this field defaults
-    // to 0 — a one-time stats reset, self-correcting within a few stat cycles.
+    // Transient: stats timing state resets to 0 on restart, which is acceptable because
+    // the next stats cycle treats lastGetTabletStatsTime==0 as needing refresh and may
+    // trigger a full or near-full refresh, self-correcting within a few stat cycles.
     private static final long TIMESTAMP_MASK = 0x0FFFFFFFFFFFFFFFL;
     private static final long INTERVAL_MASK = 0xF000000000000000L;
     private static final int INTERVAL_SHIFT = 60;
@@ -590,6 +590,10 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
     }
 
     public void setLastGetTabletStatsTime(long time) {
+        if (time < 0 || time > TIMESTAMP_MASK) {
+            throw new IllegalArgumentException(
+                    "time must be between 0 and " + TIMESTAMP_MASK + ": " + time);
+        }
         packedStatsState = (packedStatsState & INTERVAL_MASK) | (time & TIMESTAMP_MASK);
     }
 
@@ -598,7 +602,11 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
     }
 
     public void setStatsIntervalIndex(int index) {
-        packedStatsState = (((long) (index & 0xF)) << INTERVAL_SHIFT) | (packedStatsState & TIMESTAMP_MASK);
+        if (index < 0 || index > 0xF) {
+            throw new IllegalArgumentException(
+                    "index must be between 0 and 15: " + index);
+        }
+        packedStatsState = (((long) index) << INTERVAL_SHIFT) | (packedStatsState & TIMESTAMP_MASK);
     }
 
     public void updateClusterToPrimaryBe(String cluster, long beId) {
