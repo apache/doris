@@ -927,12 +927,18 @@ hive_volume_prefix_for() {
 
 HIVE_VOLUME_SUFFIXES=(namenode datanode pgdata state)
 
+log_hive_volumes() {
+    local hive_version="$1"
+    local prefix="$2"
+    echo "[${hive_version}] volume_prefix=${prefix} volumes=$(IFS=,; echo "${HIVE_VOLUME_SUFFIXES[*]}")"
+}
+
 ensure_hive_volumes() {
     local prefix="$1"
     local suffix
     for suffix in "${HIVE_VOLUME_SUFFIXES[@]}"; do
         if ! sudo docker volume inspect "${prefix}-${suffix}" >/dev/null 2>&1; then
-            sudo docker volume create "${prefix}-${suffix}"
+            sudo docker volume create "${prefix}-${suffix}" >/dev/null
         fi
     done
 }
@@ -941,7 +947,7 @@ reset_hive_volumes() {
     local prefix="$1"
     local suffix
     for suffix in "${HIVE_VOLUME_SUFFIXES[@]}"; do
-        sudo docker volume rm -f "${prefix}-${suffix}" 2>/dev/null || true
+        sudo docker volume rm -f "${prefix}-${suffix}" >/dev/null 2>&1 || true
     done
 }
 
@@ -1200,6 +1206,7 @@ start_hive_stack() {
     . "$(hive_settings_env_for "${hive_version}")"
     volume_prefix="$(hive_volume_prefix_for "${hive_version}")"
     export HIVE_VOLUME_PREFIX="${volume_prefix}"
+    log_hive_volumes "${hive_version}" "${volume_prefix}"
 
     # Keep a stable hostname in metastore/HDFS metadata while allowing the
     # backing host IP to change across restarts.
