@@ -46,6 +46,11 @@ enum class DownloadType {
 // has_value = table-level filter (only warm up tables in the set)
 using EventDrivenJobFilter = std::optional<std::unordered_set<int64_t>>;
 
+struct JobReplicaInfo {
+    int64_t job_id;
+    TReplicaInfo replica;
+};
+
 struct JobMeta {
     JobMeta() = default;
     JobMeta(const TJobMeta& meta);
@@ -110,11 +115,12 @@ private:
     static void clean_up_expired_mappings(void* arg);
     void handle_jobs();
 
-    Status _do_warm_up_rowset(RowsetMeta& rs_meta, std::vector<TReplicaInfo>& replicas,
+    Status _do_warm_up_rowset(RowsetMeta& rs_meta, int64_t table_id,
+                              std::vector<JobReplicaInfo>& replicas,
                               int64_t sync_wait_timeout_ms, bool skip_existence_check);
 
-    std::vector<TReplicaInfo> get_replica_info(int64_t tablet_id, int64_t table_id,
-                                               bool bypass_cache, bool& cache_hit);
+    std::vector<JobReplicaInfo> get_replica_info(int64_t tablet_id, int64_t table_id,
+                                                 bool bypass_cache, bool& cache_hit);
 
     void _warm_up_rowset(RowsetMeta& rs_meta, int64_t table_id, int64_t sync_wait_timeout_ms);
     void _recycle_cache(int64_t tablet_id, const std::vector<RecycledRowsets>& rowsets);

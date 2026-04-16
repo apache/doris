@@ -56,6 +56,7 @@ public class ShowWarmUpCommand extends ShowCommand {
             .add("Tables")
             .add("TableFilter")
             .add("MatchedTables")
+            .add("SyncStats")
             .build();
     private Expression whereClause;
     private boolean showAllJobs = false;

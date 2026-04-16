@@ -63,6 +63,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 public class CloudWarmUpJob implements Writable {
@@ -150,7 +151,7 @@ public class CloudWarmUpJob implements Writable {
     private transient String tableFilterExpr = "";
     private transient OnTablesFilter onTablesFilter;
     // Maps table ID → "db.table" qualified name for matched tables.
-    private transient Map<Long, String> currentTableIdNames = new HashMap<>();
+    private transient volatile Map<Long, String> currentTableIdNames = new ConcurrentHashMap<>();
 
     /**
      * Serializable rule for GSON persistence.
@@ -437,6 +438,14 @@ public class CloudWarmUpJob implements Writable {
                 .collect(Collectors.joining(", ")));
         info.add(tableFilterExpr == null ? "" : tableFilterExpr);
         info.add(getMatchedTablesString());
+        // SyncStats: only for event-driven jobs
+        if (isEventDriven()) {
+            JobWarmUpStats stats = ((CloudEnv) Env.getCurrentEnv())
+                    .getCacheHotspotMgr().getJobWarmUpStats(jobId);
+            info.add(stats != null ? stats.toJsonString() : "");
+        } else {
+            info.add("");
+        }
         return info;
     }
 

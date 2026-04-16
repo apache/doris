@@ -3233,6 +3233,11 @@ public class Config extends ConfigBase {
             "en: Interval in milliseconds to refresh matched table IDs for table-level warmup jobs"})
     public static long cloud_warm_up_table_filter_refresh_interval_ms = 60000; // 60 seconds
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "zh-CN: 周期性采集 BE warmup 进度统计的时间间隔（毫秒）",
+            "en: Interval in milliseconds for collecting warmup progress stats from BEs"})
+    public static long warmup_progress_collect_interval_ms = 30000; // 30 seconds
+
     @ConfField(mutable = true, masterOnly = true)
     public static boolean cloud_warm_up_force_all_partitions = false;
 

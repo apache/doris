@@ -41,7 +41,9 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.Triple;
 import org.apache.doris.common.util.MasterDaemon;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.httpv2.rest.manager.HttpUtils;
 import org.apache.doris.nereids.trees.plans.commands.CancelWarmUpJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.WarmUpClusterCommand;
 import org.apache.doris.rpc.RpcException;
@@ -56,6 +58,11 @@ import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -69,6 +76,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -80,6 +88,9 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorCompletionService;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -109,6 +120,21 @@ public class CacheHotspotManager extends MasterDaemon {
     private MasterDaemon tableFilterRefreshDaemon;
 
     private boolean startTableFilterRefreshDaemon = false;
+
+    private MasterDaemon progressCollectDaemon;
+
+    private boolean startProgressCollectDaemon = false;
+
+    // Per-job aggregated warmup stats for SHOW WARM UP JOB SyncStats column
+    private final ConcurrentHashMap<Long, JobWarmUpStats> jobWarmUpStatsMap = new ConcurrentHashMap<>();
+
+    // Per-cluster per-(job, table) raw stats — rebuilt each collection round
+    private volatile Map<String, Map<Long, Map<Long, TableWarmUpWindowedStats>>> clusterStats =
+            Collections.emptyMap();
+
+    // Persistent thread pool for concurrent BE HTTP requests
+    private final ExecutorService warmupStatsExecutor = Executors.newFixedThreadPool(16,
+            new ThreadFactoryBuilder().setNameFormat("warmup-stats-collector-%d").setDaemon(true).build());
 
     private ConcurrentMap<Long, CloudWarmUpJob> cloudWarmUpJobs = Maps.newConcurrentMap();
 
@@ -274,6 +300,11 @@ public class CacheHotspotManager extends MasterDaemon {
             tableFilterRefreshDaemon = new TableFilterRefreshDaemon();
             tableFilterRefreshDaemon.start();
             startTableFilterRefreshDaemon = true;
+        }
+        if (!startProgressCollectDaemon) {
+            progressCollectDaemon = new ProgressCollectDaemon();
+            progressCollectDaemon.start();
+            startProgressCollectDaemon = true;
         }
 
         if (!tableCreated) {
@@ -668,6 +699,168 @@ public class CacheHotspotManager extends MasterDaemon {
         public void runAfterCatalogReady() {
             refreshAllTableFilters();
         }
+    }
+
+    private class ProgressCollectDaemon extends MasterDaemon {
+        ProgressCollectDaemon() {
+            super("ProgressCollectDaemon", Config.warmup_progress_collect_interval_ms);
+            LOG.info("start warmup progress collect daemon, interval={}ms",
+                    Config.warmup_progress_collect_interval_ms);
+        }
+
+        @Override
+        public void runAfterCatalogReady() {
+            collectAndAggregate();
+        }
+    }
+
+    /**
+     * Periodically collect warmup stats from all BEs and aggregate per-job.
+     * Collects all clusters involved in event-driven jobs in one pass,
+     * then issues concurrent HTTP requests to all BEs.
+     */
+    private void collectAndAggregate() {
+        // 1. Collect all clusters involved in event-driven jobs
+        Set<String> allClusters = new HashSet<>();
+        for (CloudWarmUpJob job : runnableCloudWarmUpJobs.values()) {
+            if (job.isEventDriven()) {
+                allClusters.add(job.getSrcClusterName());
+                allClusters.add(job.getDstClusterName());
+            }
+        }
+        if (allClusters.isEmpty()) {
+            return;
+        }
+
+        // 2. Enumerate all (cluster, BE) pairs
+        List<Pair<String, Backend>> allTargets = new ArrayList<>();
+        for (String cluster : allClusters) {
+            for (Backend be : getBackendsFromCluster(cluster)) {
+                if (be.isAlive()) {
+                    allTargets.add(Pair.of(cluster, be));
+                }
+            }
+        }
+        if (allTargets.isEmpty()) {
+            return;
+        }
+
+        // 3. Concurrent HTTP requests to all BEs
+        ExecutorCompletionService<Pair<String, String>> completionService =
+                new ExecutorCompletionService<>(warmupStatsExecutor);
+
+        for (Pair<String, Backend> target : allTargets) {
+            String cluster = target.first;
+            Backend be = target.second;
+            completionService.submit(() -> {
+                String url = "http://"
+                        + NetUtils.getHostPortInAccessibleFormat(be.getHost(), be.getHttpPort())
+                        + "/api/warmup_event_driven_stats";
+                String json = HttpUtils.doGet(url, null, 5000);
+                return Pair.of(cluster, json);
+            });
+        }
+
+        // 4. Collect results and merge by cluster → jobId → tableId
+        Map<String, Map<Long, Map<Long, TableWarmUpWindowedStats>>> newClusterStats = new HashMap<>();
+        for (int i = 0; i < allTargets.size(); i++) {
+            try {
+                Future<Pair<String, String>> future = completionService.take();
+                Pair<String, String> result = future.get(10, TimeUnit.SECONDS);
+                String cluster = result.first;
+                String json = result.second;
+                Map<Long, Map<Long, TableWarmUpWindowedStats>> jobTableMap =
+                        newClusterStats.computeIfAbsent(cluster, k -> new HashMap<>());
+                mergeStatsFromJson(jobTableMap, json);
+            } catch (Exception e) {
+                LOG.warn("Failed to collect warmup stats: {}", e.getMessage());
+            }
+        }
+        this.clusterStats = newClusterStats;
+
+        // 5. Aggregate per-job
+        for (CloudWarmUpJob job : runnableCloudWarmUpJobs.values()) {
+            if (!job.isEventDriven()) {
+                continue;
+            }
+            JobWarmUpStats stats = aggregateStatsForJob(job);
+            jobWarmUpStatsMap.put(job.getJobId(), stats);
+        }
+    }
+
+    /**
+     * Parse BE JSON response and merge into jobTableMap.
+     * JSON structure: data[].{job_id, tables[].{table_id, requested, finish, fail, ...}}
+     */
+    private void mergeStatsFromJson(
+            Map<Long, Map<Long, TableWarmUpWindowedStats>> jobTableMap, String json) {
+        try {
+            JsonObject root = JsonParser.parseString(json).getAsJsonObject();
+            JsonArray data = root.getAsJsonArray("data");
+            if (data == null) {
+                return;
+            }
+            for (JsonElement jobElem : data) {
+                JsonObject jobObj = jobElem.getAsJsonObject();
+                long jobId = jobObj.get("job_id").getAsLong();
+                Map<Long, TableWarmUpWindowedStats> tableMap =
+                        jobTableMap.computeIfAbsent(jobId, k -> new HashMap<>());
+
+                JsonArray tables = jobObj.getAsJsonArray("tables");
+                if (tables == null) {
+                    continue;
+                }
+                for (JsonElement tableElem : tables) {
+                    JsonObject obj = tableElem.getAsJsonObject();
+                    long tableId = obj.get("table_id").getAsLong();
+                    TableWarmUpWindowedStats stats = TableWarmUpWindowedStats.fromJson(obj);
+                    tableMap.compute(tableId, (tid, existing) -> {
+                        if (existing == null) {
+                            return stats;
+                        }
+                        existing.merge(stats);
+                        return existing;
+                    });
+                }
+            }
+        } catch (Exception e) {
+            LOG.warn("Failed to parse warmup stats JSON: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Aggregate per-job stats: from srcCluster take requested, from dstCluster take finished.
+     */
+    private JobWarmUpStats aggregateStatsForJob(CloudWarmUpJob job) {
+        JobWarmUpStats result = new JobWarmUpStats();
+        long jobId = job.getJobId();
+        String srcCluster = job.getSrcClusterName();
+        String dstCluster = job.getDstClusterName();
+
+        Map<Long, TableWarmUpWindowedStats> srcJobMap = clusterStats
+                .getOrDefault(srcCluster, Collections.emptyMap())
+                .getOrDefault(jobId, Collections.emptyMap());
+        Map<Long, TableWarmUpWindowedStats> dstJobMap = clusterStats
+                .getOrDefault(dstCluster, Collections.emptyMap())
+                .getOrDefault(jobId, Collections.emptyMap());
+
+        for (Long tableId : job.getCurrentTableIds()) {
+            TableWarmUpWindowedStats srcStat = srcJobMap.get(tableId);
+            TableWarmUpWindowedStats dstStat = dstJobMap.get(tableId);
+            if (srcStat != null) {
+                result.mergeRequested(srcStat);
+            }
+            if (dstStat != null) {
+                result.mergeFinished(dstStat);
+            }
+        }
+        result.computeGap();
+        return result;
+    }
+
+    /** Get aggregated warmup stats for a job (used by SHOW WARM UP JOB). */
+    public JobWarmUpStats getJobWarmUpStats(long jobId) {
+        return jobWarmUpStatsMap.get(jobId);
     }
 
     private void clearFinishedOrCancelCloudWarmUpJob() {
