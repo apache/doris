@@ -1226,14 +1226,6 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         TFileFormatType type = null;
         Table table = getRemoteTable();
         String inputFormatName = table.getSd().getInputFormat();
-        // LZO-based formats are read-only in Doris. Writing LZO-compressed text via the Hive sink
-        // is not supported: the sink emits plain-text files without a .lzo suffix, which the read
-        // path then filters out, making the written rows invisible. Reject early to avoid silent
-        // data loss.
-        if (HiveUtil.isLzoInputFormat(inputFormatName)) {
-            throw new UserException("INSERT INTO is not supported for LZO Hive tables. "
-                    + "Input format: " + inputFormatName);
-        }
         String hiveFormat = HiveMetaStoreClientHelper.HiveFileFormat.getFormat(inputFormatName);
         if (hiveFormat.equals(HiveMetaStoreClientHelper.HiveFileFormat.PARQUET.getDesc())) {
             type = TFileFormatType.FORMAT_PARQUET;

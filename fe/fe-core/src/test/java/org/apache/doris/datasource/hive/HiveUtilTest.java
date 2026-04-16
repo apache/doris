@@ -132,6 +132,12 @@ public class HiveUtilTest {
         Assertions.assertFalse(HiveUtil.isLzoInputFormat("org.apache.hadoop.hive.ql.io.orc.OrcInputFormat"));
     }
 
+    @Test
+    public void testIsLzoInputFormat_Null_ReturnsFalse() {
+        // Null inputFormat (e.g. damaged HMS metadata) must not throw NPE; treat as non-LZO.
+        Assertions.assertFalse(HiveUtil.isLzoInputFormat(null));
+    }
+
     // -------------------------------------------------------------------------
     // isLzoDataFile: sidecar filter
     // -------------------------------------------------------------------------

@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.hive;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.thrift.TFileFormatType;
 
 import org.apache.hadoop.hive.metastore.api.SerDeInfo;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
@@ -142,42 +143,39 @@ public class HMSExternalTableTest {
     }
 
     @Test
-    public void testGetFileFormatType_LzoTextInputFormat_ThrowsUserException() {
-        // com.hadoop.compression.lzo.LzoTextInputFormat must be read-only
+    public void testGetFileFormatType_LzoTextInputFormat_ReturnsText() throws UserException {
+        // LZO tables use the LazySimpleSerDe (text SerDe); getFileFormatType() must return
+        // FORMAT_TEXT so that the read path can decode the CSV-like payload inside each .lzo block.
+        // The INSERT rejection lives in BindSink.bindHiveTableSink(), NOT here.
         String lzoFormat = "com.hadoop.compression.lzo.LzoTextInputFormat";
         Table remoteTable = buildRemoteTableWithInputFormat(lzoFormat);
         TestHMSExternalTableWithRemote lzoTable = new TestHMSExternalTableWithRemote(
                 mockCatalog, mockDb, remoteTable);
-        UserException ex = Assertions.assertThrows(UserException.class,
-                () -> lzoTable.getFileFormatType(null));
-        Assertions.assertTrue(ex.getMessage().contains("INSERT INTO is not supported for LZO Hive tables"),
-                "Error message should explain that LZO tables are read-only");
-        Assertions.assertTrue(ex.getMessage().contains(lzoFormat),
-                "Error message should include the actual input format class");
+        TFileFormatType type = lzoTable.getFileFormatType(null);
+        Assertions.assertEquals(TFileFormatType.FORMAT_TEXT, type,
+                "LZO table with LazySimpleSerDe should resolve to FORMAT_TEXT for reading");
     }
 
     @Test
-    public void testGetFileFormatType_DeprecatedLzoTextInputFormat_ThrowsUserException() {
-        // com.hadoop.mapred.DeprecatedLzoTextInputFormat must also be read-only
+    public void testGetFileFormatType_DeprecatedLzoTextInputFormat_ReturnsText() throws UserException {
         String lzoFormat = "com.hadoop.mapred.DeprecatedLzoTextInputFormat";
         Table remoteTable = buildRemoteTableWithInputFormat(lzoFormat);
         TestHMSExternalTableWithRemote lzoTable = new TestHMSExternalTableWithRemote(
                 mockCatalog, mockDb, remoteTable);
-        Assertions.assertThrows(UserException.class,
-                () -> lzoTable.getFileFormatType(null),
-                "DeprecatedLzoTextInputFormat should also be rejected for INSERT INTO");
+        TFileFormatType type = lzoTable.getFileFormatType(null);
+        Assertions.assertEquals(TFileFormatType.FORMAT_TEXT, type,
+                "DeprecatedLzoTextInputFormat table should also resolve to FORMAT_TEXT for reading");
     }
 
     @Test
-    public void testGetFileFormatType_MapreduceLzoTextInputFormat_ThrowsUserException() {
-        // com.hadoop.mapreduce.LzoTextInputFormat must also be read-only
+    public void testGetFileFormatType_MapreduceLzoTextInputFormat_ReturnsText() throws UserException {
         String lzoFormat = "com.hadoop.mapreduce.LzoTextInputFormat";
         Table remoteTable = buildRemoteTableWithInputFormat(lzoFormat);
         TestHMSExternalTableWithRemote lzoTable = new TestHMSExternalTableWithRemote(
                 mockCatalog, mockDb, remoteTable);
-        Assertions.assertThrows(UserException.class,
-                () -> lzoTable.getFileFormatType(null),
-                "com.hadoop.mapreduce.LzoTextInputFormat should also be rejected for INSERT INTO");
+        TFileFormatType type = lzoTable.getFileFormatType(null);
+        Assertions.assertEquals(TFileFormatType.FORMAT_TEXT, type,
+                "com.hadoop.mapreduce.LzoTextInputFormat table should also resolve to FORMAT_TEXT for reading");
     }
 
     /**

@@ -125,7 +125,7 @@ public final class HiveUtil {
      * These formats only read *.lzo data files and must exclude *.lzo.index sidecar files.
      */
     public static boolean isLzoInputFormat(String inputFormat) {
-        return inputFormat.toLowerCase().contains("lzo");
+        return inputFormat != null && inputFormat.toLowerCase().contains("lzo");
     }
 
     /**

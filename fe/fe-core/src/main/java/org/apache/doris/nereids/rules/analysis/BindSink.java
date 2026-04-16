@@ -36,6 +36,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.hive.HiveUtil;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
@@ -656,6 +657,15 @@ public class BindSink implements AnalysisRuleFactory {
 
         if (!sink.getPartitions().isEmpty()) {
             throw new AnalysisException("Not support insert with partition spec in hive catalog.");
+        }
+
+        // LZO-based InputFormats are read-only in Doris. The Hive sink writes plain-text files
+        // without a .lzo suffix; the read path then filters out non-*.lzo files, making every
+        // Doris-written row permanently invisible. Reject at bind time to avoid silent data loss.
+        String inputFormat = table.getRemoteTable().getSd().getInputFormat();
+        if (HiveUtil.isLzoInputFormat(inputFormat)) {
+            throw new AnalysisException("INSERT INTO is not supported for LZO Hive tables "
+                    + "(input format: " + inputFormat + "). LZO tables are read-only in Doris.");
         }
 
         List<Column> bindColumns;
