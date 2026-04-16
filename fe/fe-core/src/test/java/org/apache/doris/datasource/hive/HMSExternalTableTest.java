@@ -17,6 +17,11 @@
 
 package org.apache.doris.datasource.hive;
 
+import org.apache.doris.common.UserException;
+
+import org.apache.hadoop.hive.metastore.api.SerDeInfo;
+import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
+import org.apache.hadoop.hive.metastore.api.Table;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -116,6 +121,86 @@ public class HMSExternalTableTest {
                 HMSExternalTable.SUPPORTED_HIVE_FILE_FORMATS.contains(
                         "com.hadoop.mapred.DeprecatedLzoTextInputFormat"),
                 "com.hadoop.mapred.DeprecatedLzoTextInputFormat should be in the supported formats whitelist");
+    }
+
+    // -------------------------------------------------------------------------
+    // Tests for getFileFormatType: LZO tables must reject INSERT INTO
+    // -------------------------------------------------------------------------
+
+    /**
+     * Build a minimal Hive Table SD stub with the given InputFormat class name.
+     */
+    private Table buildRemoteTableWithInputFormat(String inputFormatName) {
+        SerDeInfo serDeInfo = new SerDeInfo();
+        serDeInfo.setSerializationLib("org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe");
+        StorageDescriptor sd = new StorageDescriptor();
+        sd.setInputFormat(inputFormatName);
+        sd.setSerdeInfo(serDeInfo);
+        Table remoteTable = new Table();
+        remoteTable.setSd(sd);
+        return remoteTable;
+    }
+
+    @Test
+    public void testGetFileFormatType_LzoTextInputFormat_ThrowsUserException() {
+        // com.hadoop.compression.lzo.LzoTextInputFormat must be read-only
+        String lzoFormat = "com.hadoop.compression.lzo.LzoTextInputFormat";
+        Table remoteTable = buildRemoteTableWithInputFormat(lzoFormat);
+        TestHMSExternalTableWithRemote lzoTable = new TestHMSExternalTableWithRemote(
+                mockCatalog, mockDb, remoteTable);
+        UserException ex = Assertions.assertThrows(UserException.class,
+                () -> lzoTable.getFileFormatType(null));
+        Assertions.assertTrue(ex.getMessage().contains("INSERT INTO is not supported for LZO Hive tables"),
+                "Error message should explain that LZO tables are read-only");
+        Assertions.assertTrue(ex.getMessage().contains(lzoFormat),
+                "Error message should include the actual input format class");
+    }
+
+    @Test
+    public void testGetFileFormatType_DeprecatedLzoTextInputFormat_ThrowsUserException() {
+        // com.hadoop.mapred.DeprecatedLzoTextInputFormat must also be read-only
+        String lzoFormat = "com.hadoop.mapred.DeprecatedLzoTextInputFormat";
+        Table remoteTable = buildRemoteTableWithInputFormat(lzoFormat);
+        TestHMSExternalTableWithRemote lzoTable = new TestHMSExternalTableWithRemote(
+                mockCatalog, mockDb, remoteTable);
+        Assertions.assertThrows(UserException.class,
+                () -> lzoTable.getFileFormatType(null),
+                "DeprecatedLzoTextInputFormat should also be rejected for INSERT INTO");
+    }
+
+    @Test
+    public void testGetFileFormatType_MapreduceLzoTextInputFormat_ThrowsUserException() {
+        // com.hadoop.mapreduce.LzoTextInputFormat must also be read-only
+        String lzoFormat = "com.hadoop.mapreduce.LzoTextInputFormat";
+        Table remoteTable = buildRemoteTableWithInputFormat(lzoFormat);
+        TestHMSExternalTableWithRemote lzoTable = new TestHMSExternalTableWithRemote(
+                mockCatalog, mockDb, remoteTable);
+        Assertions.assertThrows(UserException.class,
+                () -> lzoTable.getFileFormatType(null),
+                "com.hadoop.mapreduce.LzoTextInputFormat should also be rejected for INSERT INTO");
+    }
+
+    /**
+     * Variant that exposes a pre-built remote table for getFileFormatType tests.
+     */
+    private static class TestHMSExternalTableWithRemote extends HMSExternalTable {
+        private final Table remoteTable;
+
+        public TestHMSExternalTableWithRemote(HMSExternalCatalog catalog,
+                HMSExternalDatabase db, Table remoteTable) {
+            super(1L, "test_table", "test_table", catalog, db);
+            this.remoteTable = remoteTable;
+        }
+
+        @Override
+        public Table getRemoteTable() {
+            return remoteTable;
+        }
+
+        @Override
+        protected synchronized void makeSureInitialized() {
+            this.objectCreated = true;
+        }
     }
 
     /**

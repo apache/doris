@@ -658,7 +658,7 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
             }
 
             fileEntry.invalidateKey(new FileCacheKey(nameMapping.getCtlId(), tableId, partition.getPath(),
-                    null, partition.getPartitionValues()));
+                    partition.getInputFormat(), partition.getPartitionValues()));
             partitionEntry.invalidateKey(partKey);
         }
 
