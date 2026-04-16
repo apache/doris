@@ -48,6 +48,8 @@ import org.junit.jupiter.api.Assertions;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class CloudGlobalTransactionMgrTest {
@@ -408,6 +410,41 @@ public class CloudGlobalTransactionMgrTest {
             Mockito.doReturn(response).when(mockProxy).getCurrentMaxTxnId(Mockito.any());
             long result = masterTransMgr.getNextTransactionId();
             Assert.assertEquals(1000, result);
+        }
+    }
+
+    @Test
+    public void testAbortSubTxnUsesSubTxnNumInRequest() throws Exception {
+        CloudGlobalTransactionMgr cloudGlobalTransactionMgr = (CloudGlobalTransactionMgr) masterTransMgr;
+        MetaServiceProxy mockProxy = Mockito.mock(MetaServiceProxy.class);
+        Cloud.AbortSubTxnRequest[] capturedRequest = new Cloud.AbortSubTxnRequest[1];
+        try (MockedStatic<MetaServiceProxy> mockedStatic = Mockito.mockStatic(MetaServiceProxy.class)) {
+            mockedStatic.when(MetaServiceProxy::getInstance).thenReturn(mockProxy);
+            Mockito.doAnswer(invocation -> {
+                capturedRequest[0] = invocation.getArgument(0);
+                TxnInfoPB txnInfo = TxnInfoPB.newBuilder()
+                        .setDbId(CatalogTestUtil.testDbId1)
+                        .addAllTableIds(Lists.newArrayList(CatalogTestUtil.testTableId1))
+                        .setTxnId(100L)
+                        .setLabel("sub_txn_label")
+                        .setStatus(Cloud.TxnStatusPB.TXN_STATUS_ABORTED)
+                        .build();
+                return Cloud.AbortSubTxnResponse.newBuilder()
+                        .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                                .setCode(MetaServiceCode.OK).setMsg("OK"))
+                        .setTxnInfo(txnInfo)
+                        .build();
+            }).when(mockProxy).abortSubTxn(Mockito.any());
+
+            long txnId = 100L;
+            long subTxnId = 7L;
+            long subTxnNum = 3L;
+            cloudGlobalTransactionMgr.abortSubTxn(txnId, subTxnId, CatalogTestUtil.testDbId1,
+                    new HashSet<>(Collections.singleton(CatalogTestUtil.testTableId1)), subTxnNum);
+
+            Assert.assertNotNull(capturedRequest[0]);
+            Assert.assertEquals(subTxnId, capturedRequest[0].getSubTxnId());
+            Assert.assertEquals(subTxnNum, capturedRequest[0].getSubTxnNum());
         }
     }
 }
