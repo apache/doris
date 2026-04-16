@@ -662,6 +662,31 @@ struct TParquetMetadataParams {
   6: optional string bloom_literal
 }
 
+// Partition boundary descriptor for BE-side runtime filter partition pruning.
+// FE sends only partitions that are candidates for pruning; partitions FE does
+// not want pruned (e.g. default catch-all partitions) are simply omitted.
+//
+// Partition type is inferred from which optional fields are set:
+//   - range_start / range_end set  →  Range partition
+//   - list_values set              →  List partition
+//
+// For Range partitions:
+//   - range_start absent  →  no lower-bound constraint (negative infinity)
+//   - range_end   absent  →  no upper-bound constraint (MAXVALUE / positive infinity)
+struct TPartitionBoundary {
+  1: optional Types.TPartitionId partition_id
+  // slot_id of the partition column
+  2: optional Types.TSlotId slot_id
+
+  // Range partition: closed lower bound; absent means unbounded below
+  3: optional Exprs.TExprNode range_start
+  // Range partition: open upper bound; absent means unbounded above (MAXVALUE)
+  4: optional Exprs.TExprNode range_end
+
+  // List partition: set of concrete values in this partition
+  5: optional list<Exprs.TExprNode> list_values
+}
+
 struct TMetaScanRange {
   1: optional Types.TMetadataType metadata_type
   2: optional TIcebergMetadataParams iceberg_params // deprecated
@@ -913,6 +938,13 @@ struct TOlapScanNode {
   24: optional bool enable_mor_value_predicate_pushdown
   // Read MOR table as DUP table: skip merge, skip delete sign
   25: optional bool read_mor_as_dup
+  // Partition-id → tablet-id list mapping; used together with partition_boundaries
+  // for BE-side runtime filter partition pruning.
+  26: optional map<Types.TPartitionId, list<Types.TTabletId>> partiton_to_tablets
+  // Partition boundary descriptors for BE-side runtime filter partition pruning.
+  // Only partitions that are candidates for pruning are included; partitions FE
+  // does not want pruned (e.g. default catch-all) are omitted from this list.
+  27: optional list<TPartitionBoundary> partition_boundaries
 }
 
 struct TEqJoinCondition {
@@ -1386,6 +1418,18 @@ enum TMinMaxRuntimeFilterType {
   MIN_MAX = 4
 }
 
+// Monotonicity of a runtime filter's target expression, used by BE-side
+// partition pruning.  For Range partitions, only MONOTONIC_INCREASING or
+// MONOTONIC_DECREASING target expressions allow safe boundary transformation
+// and pruning.  List partitions can always be pruned regardless of monotonicity.
+// When the target expression is a plain SlotRef (identity), FE may omit this
+// field; BE treats an absent value as NON_MONOTONIC (conservative).
+enum TTargetExprMonotonicity {
+  NON_MONOTONIC = 0,
+  MONOTONIC_INCREASING = 1,
+  MONOTONIC_DECREASING = 2
+}
+
 struct TTopnFilterDesc {
   // topn node id
   1: required i32 source_node_id 
@@ -1452,6 +1496,14 @@ struct TRuntimeFilterDesc {
   16: optional bool sync_filter_size; // Deprecated
   
   17: optional bool build_bf_by_runtime_size;
+
+  // Monotonicity of the target expression for BE-side partition pruning.
+  // For Range partitions, only monotonic target expressions allow boundary
+  // transformation; List partitions can always be pruned regardless.
+  // Absent / NON_MONOTONIC → BE skips Range partition pruning for this RF.
+  // When the target expression is a plain SlotRef, FE should set
+  // MONOTONIC_INCREASING (identity is trivially monotonic increasing).
+  18: optional TTargetExprMonotonicity target_expr_monotonicity;
 }
 
 
