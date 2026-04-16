@@ -195,7 +195,11 @@ public class SqlBlockRule implements Writable, GsonPostProcessable {
                 this.partitionNum == null ? "0" : Long.toString(this.partitionNum),
                 this.tabletNum == null ? "0" : Long.toString(this.tabletNum),
                 this.cardinality == null ? "0" : Long.toString(this.cardinality), String.valueOf(this.global),
-                String.valueOf(this.enable), String.valueOf(this.requirePartitionFilter));
+                String.valueOf(this.enable), toShowBoolean(this.requirePartitionFilter));
+    }
+
+    private static String toShowBoolean(Boolean value) {
+        return Boolean.TRUE.equals(value) ? "1" : "0";
     }
 
     public Histogram getTryBlockHistogram() {

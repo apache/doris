@@ -58,12 +58,17 @@ public class SqlBlockRuleMgrTest {
     }
 
     @Test
-    public void testShowInfoContainRequirePartitionFilter() {
-        SqlBlockRule rule = new SqlBlockRule("r1", "NULL", "NULL", 0L, 0L, 0L,
+    public void testShowInfoUseNumericBooleanForRequirePartitionFilter() {
+        SqlBlockRule enabledRule = new SqlBlockRule("r1", "NULL", "NULL", 0L, 0L, 0L,
                 true, true, true);
-        List<String> showInfo = rule.getShowInfo();
-        Assert.assertEquals(9, showInfo.size());
-        Assert.assertEquals("true", showInfo.get(8));
+        List<String> enabledShowInfo = enabledRule.getShowInfo();
+        Assert.assertEquals(9, enabledShowInfo.size());
+        Assert.assertEquals("1", enabledShowInfo.get(8));
+
+        SqlBlockRule disabledRule = new SqlBlockRule("r2", "NULL", "NULL", 0L, 0L, 0L,
+                false, true, true);
+        List<String> disabledShowInfo = disabledRule.getShowInfo();
+        Assert.assertEquals("0", disabledShowInfo.get(8));
     }
 
     @Test
