@@ -80,22 +80,28 @@ Default bootstrap groups per version:
 
 ## State: Docker Named Volumes + OSS Baseline
 
-Hive state (HDFS data, Postgres metastore, and the module SHA tracker) lives in four Docker named volumes per version, not host bind mounts:
+Hive state (HDFS data, Postgres metastore, and the module SHA tracker) lives in four Docker named volumes per version, not host bind mounts. The shared volume prefix is fixed to `doris-shared`.
 
 | Volume | Mounted into |
 |---|---|
-| `<CONTAINER_UID><hive_version>-namenode` | NameNode metadata |
-| `<CONTAINER_UID><hive_version>-datanode` | DataNode blocks |
-| `<CONTAINER_UID><hive_version>-pgdata` | Hive Metastore Postgres data |
-| `<CONTAINER_UID><hive_version>-state` | `/mnt/state` — baseline version + per-module SHA files |
+| `doris-shared-<hive_version>-namenode` | NameNode metadata |
+| `doris-shared-<hive_version>-datanode` | DataNode blocks |
+| `doris-shared-<hive_version>-pgdata` | Hive Metastore Postgres data |
+| `doris-shared-<hive_version>-state` | `/mnt/state` — baseline version + per-module SHA files |
 
 Lifecycle:
-- `--hive-mode fast` / `refresh`: volumes are preserved across runs.
+- `--hive-mode fast`: volumes are preserved across runs.
+- `--hive-mode refresh`: volumes are reset, then restored from the published baseline tarball before module refresh.
 - `--hive-mode rebuild`: volumes are removed (`docker volume rm`) and recreated empty.
 
-### Baseline restore (first-time startup)
+### Baseline restore
 
-When volumes are empty (fresh CI host, or after `rebuild`), the script primes them from a pre-built baseline tarball instead of bootstrapping from scratch:
+The script primes volumes from a pre-built baseline tarball in two cases:
+
+1. `--hive-mode refresh`: always reset the volumes, then restore the published baseline before reconciling changed modules.
+2. `--hive-mode fast`: restore the baseline only when the volumes are empty (fresh CI host, or after manual cleanup).
+
+Baseline restore flow:
 
 1. Look for a cached tarball at `${HIVE_BASELINE_TARBALL_CACHE:-docker/thirdparties/docker-compose/hive/scripts/cache/baseline}/<hive_version>-baseline-<version>.tar.gz`.
 2. If not cached, download from `https://${s3BucketName}.${s3Endpoint}/regression/datalake/pipeline_data/hive_baseline/<hive_version>-baseline-<version>-<arch>.tar.gz`.
@@ -146,20 +152,20 @@ To publish a new baseline, update `HIVE_BASELINE_VERSION` once in `docker/thirdp
 
 ### Startup Modes (`--hive-mode`)
 
-| Mode | Behavior |
-|---|---|
-| `fast` | Skip compose up if stack is already healthy; skip data refresh entirely |
-| `refresh` | Skip compose up if healthy; re-run only modules/HQL files whose SHA changed *(default)* |
-| `rebuild` | Tear down stack, wipe state, full cold start |
+| Mode | Behavior | When to use |
+|---|---|---|
+| `fast` | Reuse existing volumes, skip compose up if the stack is already healthy, and skip data refresh entirely | Machine reboot / Docker restart recovery when you want the previous Hive environment back as quickly as possible |
+| `refresh` | Reset volumes to the published baseline, then re-run only modules/HQL files whose SHA changed *(default)* | Daily development and PR verification when case scripts or HQL changed and you want a clean baseline before reconciling your changes |
+| `rebuild` | Tear down stack, wipe all volumes, and rebuild everything from scratch without baseline restore | Full local bootstrap from current scripts, typically before exporting or validating a new baseline tarball |
 
 ```bash
-# Fast: no data changes, just need the stack running
+# Fast: reuse the existing volumes and restore the previous docker environment quickly
 ./docker/thirdparties/run-thirdparties-docker.sh -c hive3 --hive-mode fast
 
-# Refresh: pick up changed HQL/scripts without full teardown (default)
+# Refresh: reset to baseline and reconcile changed HQL/scripts (default)
 ./docker/thirdparties/run-thirdparties-docker.sh -c hive3 --hive-mode refresh
 
-# Rebuild: clean slate
+# Rebuild: clean slate from local scripts, typically before exporting a new baseline
 ./docker/thirdparties/run-thirdparties-docker.sh -c hive3 --hive-mode rebuild
 ```
 
@@ -184,6 +190,23 @@ Refresh only the modules you care about:
 ---
 
 ## Developer Guide
+
+### Which Mode Should I Use?
+
+- Use `fast` when the machine or Docker daemon restarted and you only need the previous Hive containers and data back without any refresh work.
+- Use `refresh` for normal development. This is the safe default when you changed Hive case data, `run.sh`, or HQL files and want those changes applied on top of a clean published baseline.
+- Use `rebuild` when you intentionally want to ignore the published baseline and bootstrap everything from the current repository state, usually before generating a new baseline tarball.
+
+### Typical Workflows
+
+- Change one or two Hive HQL files and verify them quickly:
+  `./docker/thirdparties/run-thirdparties-docker.sh -c hive3 --hive-mode refresh --hive-modules preinstalled_hql`
+- Change a small set of module data under `scripts/data/multi_catalog`:
+  `./docker/thirdparties/run-thirdparties-docker.sh -c hive3 --hive-mode refresh --hive-modules multi_catalog`
+- Restore the old environment after a host restart:
+  `./docker/thirdparties/run-thirdparties-docker.sh -c hive3 --hive-mode fast`
+- Prepare to export a new baseline:
+  `./docker/thirdparties/run-thirdparties-docker.sh -c hive3 --hive-mode rebuild`
 
 ### How to Add Test Data
 

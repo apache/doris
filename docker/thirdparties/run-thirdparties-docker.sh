@@ -59,9 +59,9 @@ export NEED_LOAD_DATA=1
 export LOAD_PARALLEL=$(( $(getconf _NPROCESSORS_ONLN) / 2 ))
 export HIVE_MODE="${HIVE_MODE:-refresh}"
 export HIVE_MODULES="${HIVE_MODULES:-all}"
+HIVE_SHARED_ID="doris-shared"
 : "${HIVE_BASELINE_VERSION:?HIVE_BASELINE_VERSION must be set in custom_settings.env}"
 : "${HIVE_BASELINE_TARBALL_CACHE:?HIVE_BASELINE_TARBALL_CACHE must be set in custom_settings.env}"
-: "${HIVE_SHARED_ID:?HIVE_SHARED_ID must be set in custom_settings.env}"
 
 if [[ -z "${IP_HOST:-}" ]]; then
     if command -v ip >/dev/null 2>&1; then
@@ -174,7 +174,6 @@ echo "Container UID: ${CONTAINER_UID}"
 echo "Stop: ${STOP}"
 echo "Hive mode: ${HIVE_MODE}"
 echo "Hive modules: ${HIVE_MODULES}"
-echo "Hive shared id: ${HIVE_SHARED_ID}"
 echo "Hive host alias: ${HIVE_HOST_ALIAS}"
 
 case "${HIVE_MODE}" in
@@ -1151,7 +1150,6 @@ maybe_refresh_hive_data() {
 start_hive_stack() {
     local hive_version="$1"
     local volume_prefix
-    local stack_healthy=0
 
     # Bootstrap groups come from per-version env vars (HIVE2_BOOTSTRAP_GROUPS / HIVE3_BOOTSTRAP_GROUPS).
     if [[ "${hive_version}" == "hive2" ]]; then
@@ -1175,9 +1173,9 @@ start_hive_stack() {
         return 0
     fi
 
-    # rebuild: tear down and wipe volumes so the stack starts from a blank slate.
-    # fast/refresh: keep volumes and optionally prime them from the baseline tarball.
-    if [[ "${HIVE_MODE}" == "rebuild" ]]; then
+    # refresh/rebuild: tear down the stack and clear volumes first.
+    # fast: keep existing volumes and only restore the baseline when they are empty.
+    if [[ "${HIVE_MODE}" == "rebuild" || "${HIVE_MODE}" == "refresh" ]]; then
         render_hive_compose "${hive_version}"
         hive_compose_cmd "${hive_version}" down || true
         reset_hive_volumes "${volume_prefix}"
@@ -1189,14 +1187,9 @@ start_hive_stack() {
     fi
     render_hive_compose "${hive_version}"
 
-    # refresh on an already-healthy stack can skip `compose up` entirely — the
-    # in-container data refresh below is enough.
-    if docker_hive_stack_healthy "${CONTAINER_UID}" "${hive_version}"; then
-        stack_healthy=1
-        echo "${hive_version} stack is already healthy, reconcile compose state without down"
-    fi
-    if [[ "${HIVE_MODE}" == "refresh" ]] && [[ "${stack_healthy}" -eq 1 ]]; then
-        echo "${hive_version} refresh mode with healthy stack: skip compose up"
+    # fast mode is the only mode that reuses the current stack in place.
+    if [[ "${HIVE_MODE}" == "fast" ]] && docker_hive_stack_healthy "${CONTAINER_UID}" "${hive_version}"; then
+        echo "${hive_version} stack is already healthy, fast mode skips compose up"
     else
         local _t_up
         _t_up=$(date +%s)

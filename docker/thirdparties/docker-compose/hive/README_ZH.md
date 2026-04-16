@@ -80,22 +80,28 @@ Hive 启动被拆分为三层互相独立的抽象：
 
 ## 状态存储：Docker 命名卷 + OSS Baseline
 
-Hive 运行态（HDFS 数据、Postgres Metastore、模块 SHA 记录）存放在**每个版本 4 个 Docker 命名卷**中，不再使用宿主机 bind mount：
+Hive 运行态（HDFS 数据、Postgres Metastore、模块 SHA 记录）存放在**每个版本 4 个 Docker 命名卷**中，不再使用宿主机 bind mount。共享卷前缀固定为 `doris-shared`。
 
 | 卷 | 挂载位置 |
 |---|---|
-| `<CONTAINER_UID><hive_version>-namenode` | NameNode 元数据 |
-| `<CONTAINER_UID><hive_version>-datanode` | DataNode 数据块 |
-| `<CONTAINER_UID><hive_version>-pgdata` | Hive Metastore Postgres 数据 |
-| `<CONTAINER_UID><hive_version>-state` | `/mnt/state` — baseline 版本号 + 各模块 SHA 文件 |
+| `doris-shared-<hive_version>-namenode` | NameNode 元数据 |
+| `doris-shared-<hive_version>-datanode` | DataNode 数据块 |
+| `doris-shared-<hive_version>-pgdata` | Hive Metastore Postgres 数据 |
+| `doris-shared-<hive_version>-state` | `/mnt/state` — baseline 版本号 + 各模块 SHA 文件 |
 
 生命周期：
-- `--hive-mode fast` / `refresh`：卷在多次运行间保留。
+- `--hive-mode fast`：卷在多次运行间保留。
+- `--hive-mode refresh`：卷会先被重置，再从已发布的 baseline tarball 恢复，然后再做模块刷新。
 - `--hive-mode rebuild`：卷被删除（`docker volume rm`）后重建为空。
 
-### 首次启动：Baseline 恢复
+### Baseline 恢复
 
-当卷为空时（全新 CI 主机，或执行过 `rebuild`），脚本不会从零完整 bootstrap，而是从预先构建的 baseline tarball 恢复：
+脚本会在两种情况下从预构建的 baseline tarball 恢复卷：
+
+1. `--hive-mode refresh`：每次都先重置卷，再恢复已发布 baseline，然后按需对变化模块做 reconcile。
+2. `--hive-mode fast`：仅当卷为空时（全新 CI 主机，或手动清理过后）才恢复 baseline。
+
+恢复流程：
 
 1. 先在 `${HIVE_BASELINE_TARBALL_CACHE:-docker/thirdparties/docker-compose/hive/scripts/cache/baseline}/<hive_version>-baseline-<version>.tar.gz` 查找本地缓存。
 2. 未命中缓存时，从 `https://${s3BucketName}.${s3Endpoint}/regression/datalake/pipeline_data/hive_baseline/<hive_version>-baseline-<version>-<arch>.tar.gz` 下载。
@@ -146,20 +152,20 @@ bash docker/thirdparties/docker-compose/hive/scripts/snapshot-hive-baseline.sh \
 
 ### 启动模式（`--hive-mode`）
 
-| 模式 | 行为 |
-|---|---|
-| `fast` | 若 stack 已 healthy 则跳过 compose up；完全跳过数据刷新 |
-| `refresh` | stack healthy 时跳过 compose up；只重跑 SHA 发生变化的模块/HQL 文件 *(默认)* |
-| `rebuild` | 拆掉 stack，清空所有卷，冷启动 |
+| 模式 | 行为 | 适用场景 |
+|---|---|---|
+| `fast` | 复用已有卷；若 stack 已 healthy 则跳过 compose up；完全跳过数据刷新 | 机器重启或 Docker 重启后，想尽快把之前的 Hive 环境恢复起来 |
+| `refresh` | 先把卷重置到已发布 baseline，再只重跑 SHA 发生变化的模块/HQL 文件 *(默认)* | 日常开发、PR 验证；改了 case 脚本或 HQL 后，希望先回到干净 baseline 再增量应用改动 |
+| `rebuild` | 拆掉 stack，清空所有卷，不复用 baseline，从本地脚本完整重建 | 明确要忽略已发布 baseline，从当前仓库内容完整构建，通常用于准备导出新的 baseline tarball |
 
 ```bash
-# fast：数据没变，只需要保证 stack 在跑
+# fast：复用已有卷，在机器重启后快速恢复之前的 docker 环境
 ./docker/thirdparties/run-thirdparties-docker.sh -c hive3 --hive-mode fast
 
-# refresh：不拆 stack，增量拾取 HQL/脚本变化（默认）
+# refresh：回到 baseline，并按需拾取 HQL/脚本变化（默认）
 ./docker/thirdparties/run-thirdparties-docker.sh -c hive3 --hive-mode refresh
 
-# rebuild：从零开始
+# rebuild：从零开始完整重建，一般用于准备导出新的 baseline
 ./docker/thirdparties/run-thirdparties-docker.sh -c hive3 --hive-mode rebuild
 ```
 
@@ -184,6 +190,23 @@ bash docker/thirdparties/docker-compose/hive/scripts/snapshot-hive-baseline.sh \
 ---
 
 ## 开发者指南
+
+### 什么时候用哪种模式？
+
+- `fast`：机器或 Docker 服务刚重启，只想把之前的 Hive 容器和数据快速拉起来，不做任何刷新。
+- `refresh`：正常开发默认用这个。改了 Hive case 数据、`run.sh`、HQL 后，用它在干净 published baseline 上增量应用改动。
+- `rebuild`：刻意不使用 published baseline，而是从当前仓库状态完整 bootstrap，一般用于生成新的 baseline tarball 前的准备。
+
+### 典型工作流
+
+- 只改了少量 Hive HQL，想快速验证：
+  `./docker/thirdparties/run-thirdparties-docker.sh -c hive3 --hive-mode refresh --hive-modules preinstalled_hql`
+- 改了 `scripts/data/multi_catalog` 下的一小部分数据：
+  `./docker/thirdparties/run-thirdparties-docker.sh -c hive3 --hive-mode refresh --hive-modules multi_catalog`
+- 主机重启后恢复之前环境：
+  `./docker/thirdparties/run-thirdparties-docker.sh -c hive3 --hive-mode fast`
+- 准备导出新的 baseline：
+  `./docker/thirdparties/run-thirdparties-docker.sh -c hive3 --hive-mode rebuild`
 
 ### 如何添加测试数据
 
