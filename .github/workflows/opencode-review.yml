@@ -61,7 +61,7 @@ jobs:
   sync-status:
     name: Sync review status
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 120
     if: github.event_name == 'pull_request_target'
     steps:
       - name: Check automated review decision for current PR head
