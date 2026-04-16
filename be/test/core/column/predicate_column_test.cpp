@@ -889,7 +889,7 @@ TEST(PredicateColumnTest, GetDataAtCharTrimsSpaces) {
     std::string s1 = "abc   ";
     col->insert_data(s1.data(), s1.size());
     StringRef ref = col->get_data_at(0);
-    EXPECT_EQ(ref.size, 6); // "abc" without trailing spaces
+    EXPECT_EQ(ref.size, 6);
     EXPECT_EQ(std::string(ref.data, ref.size), "abc   ");
 }
 
