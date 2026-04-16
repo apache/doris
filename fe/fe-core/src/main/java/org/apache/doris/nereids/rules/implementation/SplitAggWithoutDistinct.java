@@ -91,10 +91,11 @@ public class SplitAggWithoutDistinct extends OneImplementationRuleFactory {
             default:
                 candidates.addAll(implementOnePhase(aggregate));
                 candidates.addAll(splitTwoPhase(aggregate));
+                // Only add bucketed agg candidate in auto mode (aggPhase == 0).
+                // When the user forces a specific phase, respect that choice.
+                candidates.addAll(implementBucketedPhase(aggregate, ctx));
                 break;
         }
-        // Add bucketed agg candidate when enabled and on single BE with GROUP BY keys
-        candidates.addAll(implementBucketedPhase(aggregate, ctx));
         return candidates.build();
     }
 

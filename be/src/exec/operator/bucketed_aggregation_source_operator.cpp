@@ -614,7 +614,7 @@ Status BucketedAggLocalState::_get_results(RuntimeState* state, Block* block, bo
         }
 
         // Under the lock: merge all finished sink instances into merge target's bucket.
-        _merge_bucket(b, merge_target);
+        int merged_count = _merge_bucket(b, merge_target);
 
         if (all_sinks_done) {
             // All sinks are done — this bucket is fully merged. Output it.
@@ -646,9 +646,13 @@ Status BucketedAggLocalState::_get_results(RuntimeState* state, Block* block, bo
             // Not all sinks done yet — release the lock. We'll come back later
             // when more sinks finish.
             bs.merge_in_progress.store(false, std::memory_order_release);
-            shared_state.state_generation.fetch_add(1, std::memory_order_release);
-            _wake_up_other_sources();
-            did_work = true;
+            if (merged_count > 0) {
+                // We actually merged new data — bump generation and wake others
+                // so they know state changed.
+                shared_state.state_generation.fetch_add(1, std::memory_order_release);
+                _wake_up_other_sources();
+                did_work = true;
+            }
         }
     }
 
