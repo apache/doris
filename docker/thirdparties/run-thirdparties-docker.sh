@@ -957,9 +957,12 @@ maybe_restore_baseline_to_volumes() {
     local hive_version="${2:-hive3}"
     local baseline_cache="${HIVE_BASELINE_TARBALL_CACHE}"
     local cache_file="${baseline_cache}/${hive_version}-baseline-${HIVE_BASELINE_VERSION}.tar.gz"
+    local extracted_dir="${baseline_cache}/${hive_version}-baseline-${HIVE_BASELINE_VERSION}"
+    local extracted_ready_file="${extracted_dir}/.extract.ready"
     local remote_path="hive_baseline/${hive_version}-baseline-${HIVE_BASELINE_VERSION}.tar.gz"
     local download_url=""
     local tmp_cache_file=""
+    local tmp_extract_dir=""
 
     HIVE_BASELINE_RESTORE_RESULT="missing"
 
@@ -1006,18 +1009,51 @@ maybe_restore_baseline_to_volumes() {
         mv -f "${tmp_cache_file}" "${cache_file}"
     fi
 
-    # Restore into all 4 volumes in a single alpine container so tar writes
-    # stream directly into the volume mounts.
-    echo "[baseline] restoring volumes from tarball..."
+    # Cache the extracted baseline tree on disk so repeated refresh runs can
+    # restore directly from files instead of paying the tar.gz decompression
+    # cost every time.
+    if [[ -f "${extracted_ready_file}" ]] \
+        && [[ -d "${extracted_dir}/namenode" ]] \
+        && [[ -d "${extracted_dir}/datanode" ]] \
+        && [[ -d "${extracted_dir}/pgdata" ]] \
+        && [[ -d "${extracted_dir}/state" ]]; then
+        echo "[baseline] using cached extracted baseline: ${extracted_dir}"
+    else
+        if [[ -d "${extracted_dir}" ]]; then
+            echo "[baseline] extracted baseline cache is incomplete, removing: ${extracted_dir}"
+            rm -rf "${extracted_dir}"
+        fi
+        mkdir -p "${baseline_cache}"
+        tmp_extract_dir="$(mktemp -d "${extracted_dir}.tmp.XXXXXX")"
+        echo "[baseline] extracting baseline tarball to cache dir: ${extracted_dir}"
+        if ! tar -xzf "${cache_file}" -C "${tmp_extract_dir}"; then
+            rm -rf "${tmp_extract_dir}"
+            return 1
+        fi
+        if [[ ! -d "${tmp_extract_dir}/namenode" ]] \
+            || [[ ! -d "${tmp_extract_dir}/datanode" ]] \
+            || [[ ! -d "${tmp_extract_dir}/pgdata" ]] \
+            || [[ ! -d "${tmp_extract_dir}/state" ]]; then
+            echo "[baseline] extracted baseline cache is incomplete: ${cache_file}" >&2
+            rm -rf "${tmp_extract_dir}"
+            return 1
+        fi
+        touch "${tmp_extract_dir}/.extract.ready"
+        mv "${tmp_extract_dir}" "${extracted_dir}"
+    fi
+
+    # Restore into all 4 volumes in a single alpine container so data streams
+    # directly from the extracted cache tree into the volume mounts.
+    echo "[baseline] restoring volumes from extracted baseline cache..."
     local _t0
     _t0=$(date +%s)
-    sudo docker run --rm -i \
+    sudo docker run --rm \
+        -v "${extracted_dir}:/baseline:ro" \
         -v "${prefix}-namenode:/restore/namenode" \
         -v "${prefix}-datanode:/restore/datanode" \
         -v "${prefix}-pgdata:/restore/pgdata" \
         -v "${prefix}-state:/restore/state" \
-        alpine sh -c 'tar xzf - -C /restore' \
-        < "${cache_file}"
+        alpine sh -c 'cd /baseline && tar cf - namenode datanode pgdata state | tar xf - -C /restore'
     HIVE_BASELINE_RESTORE_RESULT="restored"
     echo "[baseline] restore done took=$(( $(date +%s) - _t0 ))s"
 }

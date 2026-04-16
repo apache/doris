@@ -99,14 +99,15 @@ Baseline restore flow:
 
 1. Look for a cached tarball at `${HIVE_BASELINE_TARBALL_CACHE:-docker/thirdparties/docker-compose/hive/scripts/baseline}/<hive_version>-baseline-<version>.tar.gz`.
 2. If not cached, download from `https://${s3BucketName}.${s3Endpoint}/regression/datalake/pipeline_data/hive_baseline/<hive_version>-baseline-<version>.tar.gz`.
-3. Unpack in a single `alpine tar` container that mounts all four volumes — tar streams write directly into the volume mounts.
-4. Bumping `HIVE_BASELINE_VERSION` changes both the cache filename and the auto-constructed OSS URL, so CI hosts fetch the newly published tarball instead of reusing an older cached artifact.
+3. Look for an extracted cache directory at `${HIVE_BASELINE_TARBALL_CACHE:-docker/thirdparties/docker-compose/hive/scripts/baseline}/<hive_version>-baseline-<version>/`; if missing, extract the tarball there once.
+4. Restore the four volumes from the extracted cache directory in a single `alpine tar` container.
+5. Bumping `HIVE_BASELINE_VERSION` changes both the cache filename and the auto-constructed OSS URL, so CI hosts fetch the newly published tarball instead of reusing an older cached artifact.
 
 Relevant env vars:
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `HIVE_BASELINE_TARBALL_CACHE` | `docker/thirdparties/docker-compose/hive/scripts/baseline` in `custom_settings.env` | Local cache dir for downloaded tarballs; cache filenames include `HIVE_BASELINE_VERSION` |
+| `HIVE_BASELINE_TARBALL_CACHE` | `docker/thirdparties/docker-compose/hive/scripts/baseline` in `custom_settings.env` | Local cache dir for downloaded tarballs and extracted baseline directories; cache names include `HIVE_BASELINE_VERSION` |
 | `HIVE_BASELINE_VERSION` | `20260415` in `custom_settings.env` | Baseline publication key: embedded in the cache filename and the auto-constructed OSS tarball URL |
 
 ### Producing a new baseline tarball
