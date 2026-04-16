@@ -106,4 +106,64 @@ public class HiveUtilTest {
         Assertions.assertFalse(result,
                 "Unsupported input format should not be splittable");
     }
+
+    // -------------------------------------------------------------------------
+    // isLzoInputFormat: class-name detection
+    // -------------------------------------------------------------------------
+
+    @Test
+    public void testIsLzoInputFormat_CompressionVariant() {
+        Assertions.assertTrue(HiveUtil.isLzoInputFormat("com.hadoop.compression.lzo.LzoTextInputFormat"));
+    }
+
+    @Test
+    public void testIsLzoInputFormat_MapreduceVariant() {
+        Assertions.assertTrue(HiveUtil.isLzoInputFormat("com.hadoop.mapreduce.LzoTextInputFormat"));
+    }
+
+    @Test
+    public void testIsLzoInputFormat_DeprecatedVariant() {
+        Assertions.assertTrue(HiveUtil.isLzoInputFormat("com.hadoop.mapred.DeprecatedLzoTextInputFormat"));
+    }
+
+    @Test
+    public void testIsLzoInputFormat_NonLzo() {
+        Assertions.assertFalse(HiveUtil.isLzoInputFormat("org.apache.hadoop.mapred.TextInputFormat"));
+        Assertions.assertFalse(HiveUtil.isLzoInputFormat("org.apache.hadoop.hive.ql.io.orc.OrcInputFormat"));
+    }
+
+    // -------------------------------------------------------------------------
+    // isLzoDataFile: sidecar filter
+    // -------------------------------------------------------------------------
+
+    @Test
+    public void testIsLzoDataFile_DataFile() {
+        // Real LZO data files must be included
+        Assertions.assertTrue(HiveUtil.isLzoDataFile("hdfs://namenode/warehouse/part-m-00000.lzo"));
+        Assertions.assertTrue(HiveUtil.isLzoDataFile("/data/part-00001.LZO")); // case-insensitive
+    }
+
+    @Test
+    public void testIsLzoDataFile_IndexSidecar_Excluded() {
+        // .lzo.index sidecar files must be excluded
+        Assertions.assertFalse(HiveUtil.isLzoDataFile("hdfs://namenode/warehouse/part-m-00000.lzo.index"));
+        Assertions.assertFalse(HiveUtil.isLzoDataFile("hdfs://namenode/warehouse/part-m-00000.LZO.INDEX"));
+    }
+
+    @Test
+    public void testIsLzoDataFile_OtherExtensions_Excluded() {
+        // Other files in the partition directory must also be excluded for LZO InputFormats
+        Assertions.assertFalse(HiveUtil.isLzoDataFile("hdfs://namenode/warehouse/part-m-00000"));
+        Assertions.assertFalse(HiveUtil.isLzoDataFile("hdfs://namenode/warehouse/part-m-00000.gz"));
+        Assertions.assertFalse(HiveUtil.isLzoDataFile("hdfs://namenode/warehouse/part-m-00000.orc"));
+    }
+
+    @Test
+    public void testIsLzoDataFile_QueryStringStripped() {
+        // Paths with query strings should still be recognised correctly
+        Assertions.assertTrue(
+                HiveUtil.isLzoDataFile("hdfs://namenode/warehouse/part-m-00000.lzo?auth=token"));
+        Assertions.assertFalse(
+                HiveUtil.isLzoDataFile("hdfs://namenode/warehouse/part-m-00000.lzo.index?auth=token"));
+    }
 }

@@ -403,9 +403,16 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
         try {
             RemoteIterator<FileEntry> iterator = directoryLister.listFiles(fs, isRecursiveDirectories,
                     table, path.getNormalizedLocation());
+            boolean isLzoInputFormat = HiveUtil.isLzoInputFormat(inputFormat);
             while (iterator.hasNext()) {
                 FileEntry entry = iterator.next();
                 String srcPath = entry.location().uri().toString();
+                // For LZO text InputFormats, only include *.lzo data files.
+                // *.lzo.index sidecar files and any other non-*.lzo files must be excluded,
+                // mirroring the file filtering semantics of Hive's LzoTextInputFormat.listStatus().
+                if (isLzoInputFormat && !HiveUtil.isLzoDataFile(srcPath)) {
+                    continue;
+                }
                 LocationPath locationPath = LocationPath.of(srcPath, path.getStorageProperties());
                 result.addFile(entry, locationPath);
             }
