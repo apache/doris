@@ -67,8 +67,11 @@ jobs:
             echo "config_file=.licenserc.yaml" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          acmr=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files \
-            --paginate --jq '.[] | select(.status != "removed") | .filename')
+          if ! acmr=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files \
+            --paginate --jq '.[] | select(.status != "removed") | .filename' 2>/dev/null); then
+            echo "config_file=.licenserc.yaml" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           if [ -z "$acmr" ]; then
             exit 0
           fi
