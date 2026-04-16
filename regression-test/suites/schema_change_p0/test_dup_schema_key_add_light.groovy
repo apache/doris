@@ -31,7 +31,7 @@ suite("test_dup_schema_key_add_light", "p0") {
     }
 
 
-    //Test the AGGREGATE model by adding a key column
+    // Test the DUPLICATE model by adding a key column
     sql """ DROP TABLE IF EXISTS ${tbName1} """
     def initTable = " CREATE TABLE IF NOT EXISTS ${tbName1}\n" +
             "          (\n" +
@@ -59,7 +59,7 @@ suite("test_dup_schema_key_add_light", "p0") {
             "               (678901234, 'Frank', 'Hangzhou', 32, 1, 13467985213, 'No. 321 Street, Hangzhou', '2022-06-06 20:00:00')," +
             "               (789012345, 'Grace', 'Xian', 29, 0, 13333333333, 'No. 222 Street, Xian', '2022-07-07 22:00:00');"
 
-    //Test the AGGREGATE model by adding a key column with INT
+    // Test the DUPLICATE model by adding a key column with INT
     sql initTable
     sql initTableData
 
@@ -136,7 +136,7 @@ suite("test_dup_schema_key_add_light", "p0") {
     qt_sql """ select * from ${tbName1} order by user_id; """
 
     insertSql = " insert into ${tbName1} values(923456689, 'heavy_mid', '2020-04-01', 'heavy_sc_insert', 'light-mid', 'Alice', 'Yaan', 22536, 1, 35.01, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
-    // Add a new key column with DATE type after shortkey. Expected is a light schema change.
+    // Add a new DECIMAL key column after shortkey. Expected is a light schema change.
     sql """ alter  table ${tbName1} add column decimal_light DECIMAL KEY; """
     waitForSchemaChangeDone({
         sql getTableStatusSql
@@ -148,8 +148,8 @@ suite("test_dup_schema_key_add_light", "p0") {
 
 
     insertSql = " insert into ${tbName1} values('2025-01-01', 923456689, 'heavy_mid', '2020-04-01', 'heavy_sc_insert', 'light-mid', 'Alice', 'Yaan', 22536, 1, 35.01, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
-    // Add a new key column as the 1st column with DATE type. Expected is a heavy schema change.
-    sql """ alter  table ${tbName1} add column decimal_heavy DATE KEY FIRST; """
+    // Add a new DATE key column as the 1st column. Expected is a heavy schema change.
+    sql """ alter  table ${tbName1} add column date_heavy DATE KEY FIRST; """
     waitForSchemaChangeDone({
         sql getTableStatusSql
         time 600
@@ -160,7 +160,8 @@ suite("test_dup_schema_key_add_light", "p0") {
 
     insertSql = " insert into ${tbName1} values('2025-01-01', 923456689, 'heavy_mid', '2020-04-01', 'heavy_sc_insert', 'light-mid', 'Alice', 'Yaan', 22536, 1, 35.01, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
 
-    sql """ alter  table ${tbName1} rename column decimal_heavy decimal_heavy_new; """
+    // Rename column to verify light schema change for rename operation.
+    sql """ alter  table ${tbName1} rename column date_heavy date_heavy_new; """
     waitForSchemaChangeDone({
         sql getTableStatusSql
         time 600
@@ -169,5 +170,5 @@ suite("test_dup_schema_key_add_light", "p0") {
 
     qt_sql """ select * from ${tbName1} order by user_id; """
 
-    qt_sql """ select * from ${tbName1} where decimal_heavy_new = 0.111; """
+    qt_sql """ select * from ${tbName1} where date_heavy_new = '2025-01-01'; """
 }

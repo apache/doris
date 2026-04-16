@@ -2790,7 +2790,7 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "暂时性配置项，开启后加 key 列采用轻量级实现",
-            "temporary config filed, will enable light weight add key column"
+            "temporary config field, will enable lightweight add key column"
     })
     public static boolean enable_light_add_key = true;
 
