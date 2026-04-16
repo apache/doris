@@ -262,12 +262,21 @@ for element in "${COMPONENTS_ARR[@]}"; do
     fi
 done
 
-if [[ "${RUN_HIVE2}" -eq 1 ]] && [[ -z "${HIVE2_BOOTSTRAP_GROUPS+x}" ]]; then
-    export HIVE2_BOOTSTRAP_GROUPS="common,hive2_only"
-fi
-if [[ "${RUN_HIVE3}" -eq 1 ]] && [[ -z "${HIVE3_BOOTSTRAP_GROUPS+x}" ]]; then
-    export HIVE3_BOOTSTRAP_GROUPS="common,hive3_only"
-fi
+hive_bootstrap_groups_for() {
+    local hive_version="$1"
+    case "${hive_version}" in
+    hive2)
+        echo "common,hive2_only"
+        ;;
+    hive3)
+        echo "common,hive3_only"
+        ;;
+    *)
+        echo "Unsupported hive version: ${hive_version}" >&2
+        return 1
+        ;;
+    esac
+}
 
 hive_requires_mysql_component() {
     local hive_version="$1"
@@ -1151,13 +1160,8 @@ start_hive_stack() {
     local hive_version="$1"
     local volume_prefix
 
-    # Bootstrap groups come from per-version env vars (HIVE2_BOOTSTRAP_GROUPS / HIVE3_BOOTSTRAP_GROUPS).
-    if [[ "${hive_version}" == "hive2" ]]; then
-        export HIVE_BOOTSTRAP_GROUPS="${HIVE2_BOOTSTRAP_GROUPS:-}"
-    else
-        export HIVE_BOOTSTRAP_GROUPS="${HIVE3_BOOTSTRAP_GROUPS:-}"
-    fi
-    echo "${hive_version} bootstrap groups: ${HIVE_BOOTSTRAP_GROUPS:-all}"
+    export HIVE_BOOTSTRAP_GROUPS="$(hive_bootstrap_groups_for "${hive_version}")"
+    echo "${hive_version} selected bootstrap files: ${HIVE_BOOTSTRAP_GROUPS}"
 
     . "$(hive_settings_env_for "${hive_version}")"
     volume_prefix="$(hive_volume_prefix_for "${hive_version}")"
@@ -1409,14 +1413,14 @@ fi
 if [[ $need_prepare_hive_data -eq 1 ]]; then
     prepare_hive_bootstrap_groups=()
     if [[ "${RUN_HIVE2}" -eq 1 ]]; then
-        prepare_hive_bootstrap_groups+=("${HIVE2_BOOTSTRAP_GROUPS:-}")
+        prepare_hive_bootstrap_groups+=("$(hive_bootstrap_groups_for "hive2")")
     fi
     if [[ "${RUN_HIVE3}" -eq 1 ]]; then
-        prepare_hive_bootstrap_groups+=("${HIVE3_BOOTSTRAP_GROUPS:-}")
+        prepare_hive_bootstrap_groups+=("$(hive_bootstrap_groups_for "hive3")")
     fi
     export HIVE_BOOTSTRAP_GROUPS="$(bootstrap_merge_groups "${prepare_hive_bootstrap_groups[@]}")"
     echo "prepare hive2/hive3 data"
-    echo "Prepare hive bootstrap groups: ${HIVE_BOOTSTRAP_GROUPS}"
+    echo "Prepare hive selected bootstrap files: ${HIVE_BOOTSTRAP_GROUPS}"
     bash "${ROOT}/docker-compose/hive/scripts/prepare-hive-data.sh"
 fi
 

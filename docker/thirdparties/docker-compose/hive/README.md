@@ -61,20 +61,14 @@ Modules are refreshed incrementally: only modules whose content SHA changed are 
 | `preinstalled_hql` | `scripts/create_preinstalled_scripts/*.hql` | ~77 HQL files, executed in parallel via `xargs -P` |
 | `view` | `scripts/create_view_scripts/create_view.hql` | View definitions |
 
-### Layer 3 — Bootstrap Groups (`HIVE_BOOTSTRAP_GROUPS`)
+### Layer 3 — Version-Specific File Selection
 
-Controls which files within a module are selected during refresh.
+The startup scripts automatically choose the right file set for each Hive version:
 
-| Group | Meaning |
-|---|---|
-| `common` | Shared by both Hive2 and Hive3 |
-| `hive2_only` | Hive2-specific files (listed in `bootstrap/hive2_only.*.list`) |
-| `hive3_only` | Hive3-specific files (listed in `bootstrap/hive3_only.*.list`) |
-| `all` | All of the above (default when no group is specified) |
+- Hive2 runs shared files plus files listed in `bootstrap/hive2_only.*.list`
+- Hive3 runs shared files plus files listed in `bootstrap/hive3_only.*.list`
 
-Default bootstrap groups per version:
-- Hive2: `common,hive2_only`
-- Hive3: `common,hive3_only`
+This selection is an internal implementation detail; developers normally do not need to configure it manually.
 
 ---
 
@@ -103,7 +97,7 @@ The script primes volumes from a pre-built baseline tarball in two cases:
 
 Baseline restore flow:
 
-1. Look for a cached tarball at `${HIVE_BASELINE_TARBALL_CACHE:-docker/thirdparties/docker-compose/hive/scripts/cache/baseline}/<hive_version>-baseline-<version>.tar.gz`.
+1. Look for a cached tarball at `${HIVE_BASELINE_TARBALL_CACHE:-docker/thirdparties/docker-compose/hive/scripts/baseline}/<hive_version>-baseline-<version>.tar.gz`.
 2. If not cached, download from `https://${s3BucketName}.${s3Endpoint}/regression/datalake/pipeline_data/hive_baseline/<hive_version>-baseline-<version>-<arch>.tar.gz`.
 3. Unpack in a single `alpine tar` container that mounts all four volumes — tar streams write directly into the volume mounts.
 4. Bumping `HIVE_BASELINE_VERSION` changes both the cache filename and the auto-constructed OSS URL, so CI hosts fetch the newly published tarball instead of reusing an older cached artifact.
@@ -112,7 +106,7 @@ Relevant env vars:
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `HIVE_BASELINE_TARBALL_CACHE` | `docker/thirdparties/docker-compose/hive/scripts/cache/baseline` in `custom_settings.env` | Local cache dir for downloaded tarballs; cache filenames include `HIVE_BASELINE_VERSION` |
+| `HIVE_BASELINE_TARBALL_CACHE` | `docker/thirdparties/docker-compose/hive/scripts/baseline` in `custom_settings.env` | Local cache dir for downloaded tarballs; cache filenames include `HIVE_BASELINE_VERSION` |
 | `HIVE_BASELINE_VERSION` | `20260415` in `custom_settings.env` | Single source of truth for baseline rollout: written to `/mnt/state/baseline.version`, embedded in the cache filename, and embedded in the auto-constructed OSS tarball URL |
 
 ### Producing a new baseline tarball
@@ -391,7 +385,7 @@ Startup timing is printed at the end of each phase:
 
 **Baseline download is slow or fails**
 - Verify connectivity to `https://${s3BucketName}.${s3Endpoint}/regression/datalake/pipeline_data/hive_baseline/`
-- Place the tarball manually at `${HIVE_BASELINE_TARBALL_CACHE:-docker/thirdparties/docker-compose/hive/scripts/cache/baseline}/<hive_version>-baseline-<version>.tar.gz` to skip the download
+- Place the tarball manually at `${HIVE_BASELINE_TARBALL_CACHE:-docker/thirdparties/docker-compose/hive/scripts/baseline}/<hive_version>-baseline-<version>.tar.gz` to skip the download
 - Confirm `s3BucketName` and `s3Endpoint` are set correctly in `docker/thirdparties/custom_settings.env`
 
 **Inspect or delete volumes manually**
