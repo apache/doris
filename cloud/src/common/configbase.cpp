@@ -16,6 +16,9 @@
 // under the License.
 
 #include <fmt/core.h>
+#include <rapidjson/document.h>
+#include <rapidjson/stringbuffer.h>
+#include <rapidjson/writer.h>
 
 #include <algorithm>
 #include <cerrno>
@@ -468,9 +471,9 @@ std::string show_config(const std::string& conf_name) {
         return "";
     }
 
-    std::ostringstream oss;
-    oss << "[";
-    bool first = true;
+    rapidjson::Document doc;
+    doc.SetArray();
+    auto& allocator = doc.GetAllocator();
     for (auto& [name, field] : *Register::_s_field_map) {
         if (!conf_name.empty() && name != conf_name) {
             continue;
@@ -478,13 +481,18 @@ std::string show_config(const std::string& conf_name) {
         auto it = full_conf_map->find(name);
         std::string value = (it != full_conf_map->end()) ? it->second : "";
 
-        if (!first) oss << ",";
-        first = false;
-        oss << "[\"" << name << "\",\"" << field.type << "\",\"" << value << "\","
-            << (field.valmutable ? "true" : "false") << "]";
+        rapidjson::Value item(rapidjson::kArrayType);
+        item.PushBack(rapidjson::Value(name.data(), name.size(), allocator), allocator);
+        item.PushBack(rapidjson::Value(field.type, allocator), allocator);
+        item.PushBack(rapidjson::Value(value.data(), value.size(), allocator), allocator);
+        item.PushBack(field.valmutable, allocator);
+        doc.PushBack(item, allocator);
     }
-    oss << "]";
-    return oss.str();
+
+    rapidjson::StringBuffer sb;
+    rapidjson::Writer<rapidjson::StringBuffer> writer(sb);
+    doc.Accept(writer);
+    return sb.GetString();
 }
 
 std::pair<bool, std::string> update_config(const std::string& configs, bool persist,

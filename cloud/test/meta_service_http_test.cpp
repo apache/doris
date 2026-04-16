@@ -2161,6 +2161,53 @@ TEST(MetaServiceHttpTest, UpdateConfig) {
     }
 }
 
+TEST(MetaServiceHttpTest, ShowConfigEscapesJsonSpecialCharacters) {
+    HttpContext ctx;
+
+    const std::string config_key = "idempotent_request_replay_exclusion";
+    const std::string old_value = config::idempotent_request_replay_exclusion;
+    const std::string new_value = R"(Get"Tablet\StatsRequest)";
+    DORIS_CLOUD_DEFER_COPY(config_key, old_value) {
+        auto [succ, cause] = config::set_config({{config_key, old_value}}, false, "");
+        ASSERT_TRUE(succ) << cause;
+    };
+
+    {
+        auto [succ, cause] = config::set_config({{config_key, new_value}}, false, "");
+        ASSERT_TRUE(succ) << cause;
+    }
+
+    {
+        rapidjson::Document d;
+        rapidjson::ParseResult ps = d.Parse(config::show_config(config_key).c_str());
+        ASSERT_TRUE(ps) << rapidjson::GetParseError_En(ps.Code());
+        ASSERT_TRUE(d.IsArray());
+        ASSERT_EQ(d.Size(), 1);
+        ASSERT_TRUE(d[0].IsArray());
+        ASSERT_EQ(d[0].Size(), 4);
+        ASSERT_TRUE(d[0][2].IsString());
+        ASSERT_EQ(d[0][2].GetString(), new_value);
+    }
+
+    {
+        auto [status_code, body] = ctx.query<std::string>("show_config", "conf_key=" + config_key);
+        ASSERT_EQ(status_code, 200);
+
+        rapidjson::Document d;
+        rapidjson::ParseResult ps = d.Parse(body.c_str());
+        ASSERT_TRUE(ps) << rapidjson::GetParseError_En(ps.Code()) << ", body: " << body;
+        ASSERT_TRUE(d.HasMember("code"));
+        ASSERT_STREQ(d["code"].GetString(), "OK");
+        ASSERT_TRUE(d.HasMember("result"));
+        ASSERT_TRUE(d["result"].IsArray());
+        ASSERT_EQ(d["result"].Size(), 1);
+        ASSERT_TRUE(d["result"][0].IsArray());
+        ASSERT_EQ(d["result"][0].Size(), 4);
+        ASSERT_TRUE(d["result"][0][2].IsString());
+        ASSERT_EQ(d["result"][0][2].GetString(), new_value);
+    }
+}
+
 TEST(HttpEncodeKeyTest, ProcessHttpSetValue) {
     auto txn_kv = std::make_shared<MemTxnKv>();
     std::unique_ptr<Transaction> txn;
