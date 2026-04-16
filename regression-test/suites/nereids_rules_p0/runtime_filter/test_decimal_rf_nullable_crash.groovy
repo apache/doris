@@ -147,4 +147,138 @@ suite("test_decimal_rf_nullable_crash") {
         INNER JOIN decimal_rf_build b
         ON p.val = b.val
     """
+
+    // ---- Additional tests for defense-in-depth fixes ----
+
+    // Table with NULLABLE decimal columns to exercise the nullable mismatch
+    // path through various expression types
+    sql "drop table if exists decimal_nullable_probe"
+    sql """
+        CREATE TABLE decimal_nullable_probe (
+            `id` INT NOT NULL,
+            `val` DECIMALV3(15, 2) NULL,
+            `val2` DECIMALV3(27, 9) NULL,
+            `data` VARCHAR(20) NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`id`)
+        DISTRIBUTED BY HASH(`id`) BUCKETS 10
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "storage_format" = "V2"
+        )
+    """
+    sql """
+        INSERT INTO decimal_nullable_probe VALUES
+        (1, 50.12, 50.120000000, 'a'),
+        (2, 100.50, 100.500000000, 'b'),
+        (3, NULL, NULL, 'c'),
+        (4, 175.99, 175.990000000, 'd'),
+        (5, 200.75, 200.750000000, 'e'),
+        (6, NULL, NULL, 'f'),
+        (7, 300.00, 300.000000000, 'g')
+    """
+
+    // Test 5: CAST projection on nullable column
+    // Exercises VExpr::execute() base class path where result_column is
+    // nullable but execute_type() returns non-nullable _data_type.
+    order_qt_decimal_cast_projection """
+        SELECT id, CAST(val AS DECIMALV3(38, 10)) as casted_val
+        FROM decimal_nullable_probe
+        ORDER BY id
+    """
+
+    // Test 6: IF expression with nullable decimal branches
+    // Exercises VectorizedIfExpr fix: different decimal precisions in
+    // then/else branches force VCastExpr, and nullable input causes
+    // column/type mismatch in the IF's temp_block.
+    order_qt_decimal_if_expr """
+        SELECT id,
+            IF(val IS NOT NULL,
+               CAST(val AS DECIMALV3(38, 10)),
+               CAST(0 AS DECIMALV3(38, 10))) as result
+        FROM decimal_nullable_probe
+        ORDER BY id
+    """
+
+    // Test 7: IFNULL with nullable decimal and different precision
+    // Exercises VectorizedIfNullExpr fix.
+    order_qt_decimal_ifnull_expr """
+        SELECT id,
+            IFNULL(CAST(val AS DECIMALV3(38, 10)),
+                   CAST(-1 AS DECIMALV3(38, 10))) as result
+        FROM decimal_nullable_probe
+        ORDER BY id
+    """
+
+    // Test 8: IN predicate with decimal precision mismatch on nullable col
+    // Exercises VInPredicate fix.
+    order_qt_decimal_in_pred """
+        SELECT id, val
+        FROM decimal_nullable_probe
+        WHERE CAST(val AS DECIMALV3(38, 10)) IN (
+            50.1200000000, 100.5000000000, 200.7500000000
+        )
+        ORDER BY id
+    """
+
+    // Test 9: CASE WHEN with decimal comparison and nullable column
+    // CASE WHEN goes through VectorizedFnCall (case function).
+    order_qt_decimal_case_when """
+        SELECT id,
+            CASE
+                WHEN val > 100 THEN CAST(val AS DECIMALV3(38, 10))
+                WHEN val IS NULL THEN CAST(-1 AS DECIMALV3(38, 10))
+                ELSE CAST(0 AS DECIMALV3(38, 10))
+            END as result
+        FROM decimal_nullable_probe
+        ORDER BY id
+    """
+
+    // Test 10: Arithmetic on nullable decimal with precision mismatch
+    // Exercises VectorizedFnCall fix for add/multiply functions.
+    order_qt_decimal_arithmetic """
+        SELECT id,
+            CAST(val AS DECIMALV3(38, 10)) + CAST(val2 AS DECIMALV3(38, 10)) as sum_val
+        FROM decimal_nullable_probe
+        ORDER BY id
+    """
+
+    // Test 11: Nested expression: round(CAST(nullable_decimal))
+    // Exercises VectorizedFnCall with VCastExpr child on nullable column.
+    order_qt_decimal_nested_round """
+        SELECT id, round(CAST(val AS DECIMALV3(38, 10)), 5) as rounded
+        FROM decimal_nullable_probe
+        ORDER BY id
+    """
+
+    // Test 12: Join with nullable probe column exercising runtime filter
+    // on nullable decimal with precision mismatch.
+    order_qt_decimal_nullable_join """
+        SELECT p.id, p.val, b.val as bval
+        FROM decimal_nullable_probe p
+        INNER JOIN decimal_rf_build b
+        ON CAST(p.val AS DECIMALV3(38, 10)) = b.val
+    """
+
+    // Test 13: COALESCE with multiple nullable decimal columns of
+    // different precision — exercises VectorizedFnCall with multiple
+    // nullable args requiring type reconciliation.
+    order_qt_decimal_coalesce """
+        SELECT id,
+            COALESCE(CAST(val AS DECIMALV3(38, 10)),
+                     CAST(val2 AS DECIMALV3(38, 10)),
+                     CAST(0 AS DECIMALV3(38, 10))) as result
+        FROM decimal_nullable_probe
+        ORDER BY id
+    """
+
+    // Test 14: Subquery with nullable decimal cast in filter
+    // Exercises filter_block path with nullable column/type mismatch.
+    order_qt_decimal_subquery_filter """
+        SELECT id, val FROM decimal_nullable_probe
+        WHERE CAST(val AS DECIMALV3(38, 10)) > (
+            SELECT MIN(CAST(val AS DECIMALV3(38, 10))) FROM decimal_rf_build
+        )
+        ORDER BY id
+    """
 }

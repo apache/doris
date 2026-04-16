@@ -188,7 +188,8 @@ Status VMatchPredicate::execute_column(VExprContext* context, const Block* block
         ColumnPtr arg_column;
         RETURN_IF_ERROR(_children[i]->execute_column(context, block, selector, count, arg_column));
         auto arg_type = _children[i]->execute_type(block);
-        if (arg_column && arg_column->is_nullable() && !arg_type->is_nullable()) {
+        if (arg_column && unpack_if_const(arg_column).first->is_nullable() &&
+            !arg_type->is_nullable()) {
             arg_type = make_nullable(arg_type);
         }
         temp_block.insert({arg_column, arg_type, _children[i]->expr_name()});

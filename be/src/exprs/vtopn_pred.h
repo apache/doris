@@ -96,7 +96,8 @@ public:
         ColumnPtr slot_column;
         RETURN_IF_ERROR(_children[0]->execute_column(context, block, selector, count, slot_column));
         auto slot_type = _children[0]->execute_type(block);
-        if (slot_column && slot_column->is_nullable() && !slot_type->is_nullable()) {
+        if (slot_column && unpack_if_const(slot_column).first->is_nullable() &&
+            !slot_type->is_nullable()) {
             slot_type = make_nullable(slot_type);
         }
         temp_block.insert({slot_column, slot_type, _children[0]->expr_name()});

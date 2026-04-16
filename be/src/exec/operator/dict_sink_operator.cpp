@@ -20,6 +20,7 @@
 #include "common/status.h"
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
+#include "core/column/column_const.h"
 #include "exprs/function/complex_hash_map_dictionary.h"
 #include "exprs/function/dictionary_factory.h"
 #include "exprs/function/dictionary_util.h"
@@ -67,6 +68,10 @@ Status DictSinkLocalState::load_dict(RuntimeState* state) {
         ColumnPtr value_column;
         RETURN_IF_ERROR(value_expr_ctx->execute(&input_block, value_column));
         auto value_type = value_expr_ctx->execute_type(&input_block);
+        if (value_column && unpack_if_const(value_column).first->is_nullable() &&
+            !value_type->is_nullable()) {
+            value_type = make_nullable(value_type);
+        }
         value_data.push_back({value_column, value_type, value_name});
     }
 

@@ -476,15 +476,18 @@ Status VectorizedIfExpr::execute_column(VExprContext* context, const Block* bloc
     Block temp_block;
 
     auto cond_type = _children[0]->execute_type(block);
-    if (cond_column && cond_column->is_nullable() && !cond_type->is_nullable()) {
+    if (cond_column && unpack_if_const(cond_column).first->is_nullable() &&
+        !cond_type->is_nullable()) {
         cond_type = make_nullable(cond_type);
     }
     auto then_type = _children[1]->execute_type(block);
-    if (then_column && then_column->is_nullable() && !then_type->is_nullable()) {
+    if (then_column && unpack_if_const(then_column).first->is_nullable() &&
+        !then_type->is_nullable()) {
         then_type = make_nullable(then_type);
     }
     auto else_type = _children[2]->execute_type(block);
-    if (else_column && else_column->is_nullable() && !else_type->is_nullable()) {
+    if (else_column && unpack_if_const(else_column).first->is_nullable() &&
+        !else_type->is_nullable()) {
         else_type = make_nullable(else_type);
     }
     temp_block.insert({cond_column, cond_type, _children[0]->expr_name()});
@@ -536,7 +539,8 @@ Status VectorizedIfNullExpr::execute_column(VExprContext* context, const Block* 
     if (_data_type->is_nullable()) {
         else_column = first_column;
         else_type = _children[0]->execute_type(block);
-        if (else_column && else_column->is_nullable() && !else_type->is_nullable()) {
+        if (else_column && unpack_if_const(else_column).first->is_nullable() &&
+            !else_type->is_nullable()) {
             else_type = make_nullable(else_type);
         }
     } else {
@@ -547,7 +551,8 @@ Status VectorizedIfNullExpr::execute_column(VExprContext* context, const Block* 
     Block temp_block;
     temp_block.insert({cond_column, std::make_shared<DataTypeUInt8>(), "cond column"});
     auto then_type = _children[1]->execute_type(block);
-    if (then_column && then_column->is_nullable() && !then_type->is_nullable()) {
+    if (then_column && unpack_if_const(then_column).first->is_nullable() &&
+        !then_type->is_nullable()) {
         then_type = make_nullable(then_type);
     }
     temp_block.insert({then_column, then_type, _children[1]->expr_name()});

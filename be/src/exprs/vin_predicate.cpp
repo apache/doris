@@ -138,7 +138,7 @@ Status VInPredicate::execute_column(VExprContext* context, const Block* block, S
         RETURN_IF_ERROR(_children[i]->execute_column(context, block, selector, count, column));
         arguments.push_back(i);
         auto arg_type = _children[i]->execute_type(block);
-        if (column && column->is_nullable() && !arg_type->is_nullable()) {
+        if (column && unpack_if_const(column).first->is_nullable() && !arg_type->is_nullable()) {
             arg_type = make_nullable(arg_type);
         }
         temp_block.insert({column, arg_type, _children[i]->expr_name()});

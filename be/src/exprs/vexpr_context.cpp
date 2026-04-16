@@ -87,6 +87,10 @@ Status VExprContext::execute(const Block* block, ColumnWithTypeAndName& result_d
     RETURN_IF_ERROR(st);
     result_data.column = result_column;
     result_data.type = execute_type(block);
+    if (result_data.column && unpack_if_const(result_data.column).first->is_nullable() &&
+        !result_data.type->is_nullable()) {
+        result_data.type = make_nullable(result_data.type);
+    }
     result_data.name = _root->expr_name();
     return Status::OK();
 }
@@ -101,6 +105,10 @@ Status VExprContext::execute_const_expr(ColumnWithTypeAndName& result) {
             { st = _root->execute_column(this, nullptr, nullptr, 1, result.column); });
     RETURN_IF_ERROR(st);
     result.type = _root->execute_type(nullptr);
+    if (result.column && unpack_if_const(result.column).first->is_nullable() &&
+        !result.type->is_nullable()) {
+        result.type = make_nullable(result.type);
+    }
     result.name = _root->expr_name();
     return Status::OK();
 }
@@ -196,7 +204,12 @@ Status VExprContext::filter_block(VExprContext* vexpr_ctx, Block* block) {
     ColumnPtr filter_column;
     RETURN_IF_ERROR(vexpr_ctx->execute(block, filter_column));
     size_t filter_column_id = block->columns();
-    block->insert({filter_column, vexpr_ctx->execute_type(block), "filter_column"});
+    auto filter_type = vexpr_ctx->execute_type(block);
+    if (filter_column && unpack_if_const(filter_column).first->is_nullable() &&
+        !filter_type->is_nullable()) {
+        filter_type = make_nullable(filter_type);
+    }
+    block->insert({filter_column, filter_type, "filter_column"});
     vexpr_ctx->_memory_usage = filter_column->allocated_bytes();
     return Block::filter_block(block, filter_column_id, filter_column_id);
 }
@@ -402,6 +415,10 @@ Status VExprContext::get_output_block_after_execute_exprs(
         RETURN_IF_ERROR(vexpr_ctx->execute(&input_block, result_column));
 
         auto type = vexpr_ctx->execute_type(&input_block);
+        if (result_column && unpack_if_const(result_column).first->is_nullable() &&
+            !type->is_nullable()) {
+            type = make_nullable(type);
+        }
         const auto& name = vexpr_ctx->expr_name();
 
         vexpr_ctx->_memory_usage += result_column->allocated_bytes();

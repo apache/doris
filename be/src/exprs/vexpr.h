@@ -35,6 +35,7 @@
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
+#include "core/column/column_const.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_ipv6.h"
 #include "core/data_type/define_primitive_type.h"
@@ -134,7 +135,12 @@ public:
         ColumnPtr result_column;
         RETURN_IF_ERROR(execute_column(context, block, nullptr, block->rows(), result_column));
         *result_column_id = block->columns();
-        block->insert({result_column, execute_type(block), expr_name()});
+        auto type = execute_type(block);
+        if (result_column && unpack_if_const(result_column).first->is_nullable() &&
+            !type->is_nullable()) {
+            type = make_nullable(type);
+        }
+        block->insert({result_column, type, expr_name()});
         return Status::OK();
     }
 

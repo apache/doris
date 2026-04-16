@@ -39,8 +39,8 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
-#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_agg_state.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/types.h"
 #include "exec/common/util.hpp"
 #include "exec/pipeline/pipeline_task.h"
@@ -255,7 +255,8 @@ Status VectorizedFnCall::_do_execute(VExprContext* context, const Block* block, 
         // in the function framework sees a non-nullable type, skips nullable
         // unwrapping via unnest_nullable(), and the raw ColumnNullable reaches
         // the inner function (e.g. DecimalComparison) which crashes.
-        if (tmp_arg_column && tmp_arg_column->is_nullable() && !arg_type->is_nullable()) {
+        if (tmp_arg_column && unpack_if_const(tmp_arg_column).first->is_nullable() &&
+            !arg_type->is_nullable()) {
             arg_type = make_nullable(arg_type);
         }
         temp_block.insert({tmp_arg_column, arg_type, _children[i]->expr_name()});

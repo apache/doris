@@ -23,6 +23,7 @@
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
+#include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_varbinary.h"
 #include "core/column/column_vector.h"
@@ -78,6 +79,10 @@ public:
         RETURN_IF_ERROR(
                 children[1]->execute_column(context, block, expr_selector, count, column_ptr));
         DataTypePtr type_ptr = children[1]->execute_type(block);
+        if (column_ptr && unpack_if_const(column_ptr).first->is_nullable() &&
+            !type_ptr->is_nullable()) {
+            type_ptr = make_nullable(type_ptr);
+        }
 
         auto column = column_ptr->convert_to_full_column_if_const();
 
