@@ -177,6 +177,14 @@ public class MTMVTest {
         Assert.assertTrue(excludedTriggerTables.contains(new TableNameInfo("ctl1", "db1", "t1")));
         Assert.assertTrue(excludedTriggerTables.contains(new TableNameInfo(null, "db2", "t2")));
         Assert.assertTrue(excludedTriggerTables.contains(new TableNameInfo(null, null, "t3")));
+
+        mvProperties.put(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES,
+                " ctl1.db1.t1 , db2.t2, ,  t3  ");
+        excludedTriggerTables = mtmv.getExcludedTriggerTables();
+        Assert.assertEquals(3, excludedTriggerTables.size());
+        Assert.assertTrue(excludedTriggerTables.contains(new TableNameInfo("ctl1", "db1", "t1")));
+        Assert.assertTrue(excludedTriggerTables.contains(new TableNameInfo(null, "db2", "t2")));
+        Assert.assertTrue(excludedTriggerTables.contains(new TableNameInfo(null, null, "t3")));
     }
 
     @Test

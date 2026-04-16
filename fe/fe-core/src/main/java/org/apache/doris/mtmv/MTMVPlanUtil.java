@@ -34,6 +34,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
@@ -93,6 +94,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -511,7 +513,28 @@ public class MTMVPlanUtil {
             MTMVPartitionDefinition mvPartitionDefinition, DistributionDescriptor distribution,
             List<SimpleColumnDefinition> simpleColumnDefinitions, Map<String, String> properties, List<String> keys,
             LogicalPlan logicalQuery, boolean isIvm) throws UserException {
+        if (!isIvm) {
+            return analyzeQueryInternal(ctx, mvProperties, mvPartitionDefinition, distribution,
+                    simpleColumnDefinitions, properties, keys, logicalQuery, false, Sets.newHashSet());
+        }
+        MTMVAnalyzeQueryInfo queryInfo = analyzeQueryInternal(ctx, mvProperties, mvPartitionDefinition, distribution,
+                simpleColumnDefinitions, properties, keys, logicalQuery, true,
+                getExcludedTriggerTables(mvProperties));
+        return queryInfo;
+    }
+
+    private static MTMVAnalyzeQueryInfo analyzeQueryInternal(ConnectContext ctx, Map<String, String> mvProperties,
+            MTMVPartitionDefinition mvPartitionDefinition, DistributionDescriptor distribution,
+            List<SimpleColumnDefinition> simpleColumnDefinitions, Map<String, String> properties, List<String> keys,
+            LogicalPlan logicalQuery, boolean isIvm, Set<TableNameInfo> excludedTriggerTables)
+            throws UserException {
+        // Reuse the StatementContext already on the ConnectContext (set by NereidsParser during
+        // SQL parsing or by the user session). Do NOT create a new StatementContext here — the
+        // IVM refresh pipeline reads ExprId tracking from ctx.getStatementContext() after this
+        // method returns (IvmRefreshManager.doRefreshInternal reads exprIdStart). Creating a
+        // separate StatementContext and restoring the original would lose ExprId allocations.
         try (StatementContext statementContext = ctx.getStatementContext()) {
+            statementContext.setExcludedTriggerTables(excludedTriggerTables);
             NereidsPlanner planner = new NereidsPlanner(statementContext);
             // this is for expression column name infer when not use alias
             LogicalSink<Plan> logicalSink = new UnboundResultSink<>(logicalQuery);
@@ -582,6 +605,39 @@ public class MTMVPlanUtil {
             }
             return queryInfo;
         }
+    }
+
+    private static Set<TableNameInfo> getExcludedTriggerTables(Map<String, String> mvProperties) {
+        if (mvProperties == null) {
+            return Sets.newHashSet();
+        }
+        return MTMVPropertyUtil.parseTableNameInfos(
+                mvProperties.get(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES));
+    }
+
+    public static void validateAlterExcludedTriggerTables(MTMV mtmv, Map<String, String> mvProperties) {
+        Set<TableNameInfo> oldExcludedTriggerTables = mtmv.getExcludedTriggerTables();
+        Set<TableNameInfo> newExcludedTriggerTables = getExcludedTriggerTables(mvProperties);
+        for (TableNameInfo oldExcludedTriggerTable : oldExcludedTriggerTables) {
+            boolean isCovered = newExcludedTriggerTables.stream()
+                    .anyMatch(newExcludedTriggerTable -> isExcludedTriggerTableScopeCovered(
+                            oldExcludedTriggerTable, newExcludedTriggerTable));
+            if (!isCovered) {
+                throw new AnalysisException(
+                        "Cannot ALTER excluded_trigger_tables to narrow existing entry '"
+                                + oldExcludedTriggerTable
+                                + "'. Existing excluded trigger tables can only be expanded.");
+            }
+        }
+    }
+
+    private static boolean isExcludedTriggerTableScopeCovered(TableNameInfo oldExcludedTriggerTable,
+            TableNameInfo newExcludedTriggerTable) {
+        return oldExcludedTriggerTable.getTbl().equals(newExcludedTriggerTable.getTbl())
+                && (StringUtils.isEmpty(newExcludedTriggerTable.getDb())
+                        || newExcludedTriggerTable.getDb().equals(oldExcludedTriggerTable.getDb()))
+                && (StringUtils.isEmpty(newExcludedTriggerTable.getCtl())
+                        || newExcludedTriggerTable.getCtl().equals(oldExcludedTriggerTable.getCtl()));
     }
 
     /**

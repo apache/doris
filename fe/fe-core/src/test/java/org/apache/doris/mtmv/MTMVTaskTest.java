@@ -19,6 +19,7 @@ package org.apache.doris.mtmv;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -30,10 +31,14 @@ import org.apache.doris.job.extensions.mtmv.MTMVTask.MTMVTaskTriggerMode;
 import org.apache.doris.job.extensions.mtmv.MTMVTaskContext;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo.RefreshMode;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TRow;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -44,7 +49,10 @@ import org.junit.Before;
 import org.junit.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
+import org.mockito.invocation.InvocationOnMock;
+import org.mockito.stubbing.Answer;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 
@@ -254,5 +262,57 @@ public class MTMVTaskTest {
 
         Assert.assertEquals(FeConstants.null_string, row.getColumnValue()
                 .get(MTMVTask.COLUMN_TO_INDEX.get(COMPUTE_GROUP.toLowerCase())).getStringVal());
+    }
+
+    @Test
+    public void testExecCarriesExcludedTriggerTablesIntoStatementContext() throws Exception {
+        Set<TableNameInfo> excludedTriggerTables = Sets.newHashSet(
+                new TableNameInfo("internal", "test_db", "excluded_agg"));
+        Mockito.when(mtmv.getExcludedTriggerTables()).thenReturn(excludedTriggerTables);
+        Mockito.when(mtmv.isIvm()).thenReturn(true);
+        Mockito.when(mtmv.getName()).thenReturn("test_mv");
+        Mockito.when(mtmv.getDatabase()).thenReturn(null);
+        Mockito.when(mtmvPartitionInfo.getPartitionType()).thenReturn(MTMVPartitionType.FOLLOW_BASE_TABLE);
+
+        MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+        ConnectContext mtmvCtx = new ConnectContext();
+        mtmvCtx.setThreadLocalInfo();
+
+        ConnectContext executorCtx = new ConnectContext();
+        executorCtx.setQueryId(new TUniqueId(1L, 2L));
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        Mockito.when(executor.getContext()).thenReturn(executorCtx);
+        UpdateMvByPartitionCommand command = Mockito.mock(UpdateMvByPartitionCommand.class);
+
+        try (MockedStatic<MTMVPlanUtil> mtmvPlanUtilStatic = Mockito.mockStatic(MTMVPlanUtil.class);
+                MockedStatic<UpdateMvByPartitionCommand> updateMvStatic
+                        = Mockito.mockStatic(UpdateMvByPartitionCommand.class)) {
+            mtmvPlanUtilStatic.when(() -> MTMVPlanUtil.createMTMVContext(Mockito.eq(mtmv), Mockito.anyList()))
+                    .thenReturn(mtmvCtx);
+            updateMvStatic.when(() -> UpdateMvByPartitionCommand.from(
+                    Mockito.eq(mtmv), Mockito.anySet(), Mockito.anyMap(), Mockito.any(StatementContext.class)))
+                    .thenAnswer(new Answer<UpdateMvByPartitionCommand>() {
+                        @Override
+                        public UpdateMvByPartitionCommand answer(InvocationOnMock invocation) {
+                            StatementContext statementContext = invocation.getArgument(3);
+                            Assert.assertEquals(excludedTriggerTables, statementContext.getExcludedTriggerTables());
+                            return command;
+                        }
+                    });
+            mtmvPlanUtilStatic.when(() -> MTMVPlanUtil.executeCommand(
+                    Mockito.eq(mtmvCtx), Mockito.eq(command), Mockito.any(StatementContext.class),
+                    Mockito.anyString(), Mockito.eq(true), Mockito.any())).thenAnswer(new Answer<StmtExecutor>() {
+                        @Override
+                        public StmtExecutor answer(InvocationOnMock invocation) {
+                            StatementContext statementContext = invocation.getArgument(2);
+                            Assert.assertEquals(excludedTriggerTables, statementContext.getExcludedTriggerTables());
+                            return executor;
+                        }
+                    });
+
+            Deencapsulation.invoke(task, "exec", Sets.newHashSet(poneName), Collections.emptyMap());
+        } finally {
+            ConnectContext.remove();
+        }
     }
 }
