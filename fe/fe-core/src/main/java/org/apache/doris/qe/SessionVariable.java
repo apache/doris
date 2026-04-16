@@ -960,6 +960,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String DEFAULT_AI_RESOURCE = "default_ai_resource";
     public static final String FILE_PRESIGNED_URL_TTL_SECONDS = "file_presigned_url_ttl_seconds";
     public static final String EMBED_MAX_BATCH_SIZE = "embed_max_batch_size";
+    public static final String AI_CONTEXT_WINDOW_SIZE = "ai_context_window_size";
     public static final String HNSW_EF_SEARCH = "hnsw_ef_search";
     public static final String HNSW_CHECK_RELATIVE_DISTANCE = "hnsw_check_relative_distance";
     public static final String HNSW_BOUNDED_QUEUE = "hnsw_bounded_queue";
@@ -3471,6 +3472,13 @@ public class SessionVariable implements Serializable, Writable {
             })
     public int embedMaxBatchSize = 5;
 
+    @VarAttrDef.VarAttr(name = AI_CONTEXT_WINDOW_SIZE, needForward = true,
+            description = {
+                    "AI 函数批量请求时使用的上下文窗口字节上限。",
+                    "Context window size in bytes for AI function batching."
+            })
+    public long aiContextWindowSize = 128 * 1024;
+
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;
     }
@@ -5445,6 +5453,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnablePaimonCppReader(enablePaimonCppReader);
         tResult.setFilePresignedUrlTtlSeconds(filePresignedUrlTtlSeconds);
         tResult.setEmbedMaxBatchSize(embedMaxBatchSize);
+        tResult.setAiContextWindowSize(aiContextWindowSize);
         tResult.setCheckOrcInitSargsSuccess(checkOrcInitSargsSuccess);
 
         tResult.setTruncateCharOrVarcharColumns(truncateCharOrVarcharColumns);

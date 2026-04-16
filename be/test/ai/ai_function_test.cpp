@@ -909,7 +909,13 @@ TEST(AIFunctionTest, AIFilterBatchInvalidElement) {
 }
 
 TEST(AIFunctionTest, AIFilterBatchSplitByWindow) {
-    auto runtime_state = std::make_unique<MockRuntimeState>();
+    TQueryOptions query_options = create_fake_query_options();
+    query_options.__set_ai_context_window_size(128 * 1024);
+    auto query_ctx = MockQueryContext::create(TUniqueId(), ExecEnv::GetInstance(), query_options);
+    query_ctx->set_mock_ai_resource();
+    TQueryGlobals query_globals;
+    auto runtime_state = std::make_unique<MockRuntimeState>(
+            TUniqueId(), 0, query_options, query_globals, nullptr, query_ctx.get());
     auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
 
     setenv("AI_TEST_RESULT", R"(["1"])", 1);
@@ -945,7 +951,13 @@ TEST(AIFunctionTest, AIFilterBatchSplitByWindow) {
 }
 
 TEST(AIFunctionTest, AIFilterSingleRowExceedsBatchWindow) {
-    auto runtime_state = std::make_unique<MockRuntimeState>();
+    TQueryOptions query_options = create_fake_query_options();
+    query_options.__set_ai_context_window_size(128 * 1024);
+    auto query_ctx = MockQueryContext::create(TUniqueId(), ExecEnv::GetInstance(), query_options);
+    query_ctx->set_mock_ai_resource();
+    TQueryGlobals query_globals;
+    auto runtime_state = std::make_unique<MockRuntimeState>(
+            TUniqueId(), 0, query_options, query_globals, nullptr, query_ctx.get());
     auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
 
     std::vector<std::string> resources = {"mock_resource"};
@@ -978,7 +990,13 @@ TEST(AIFunctionTest, AIFilterSingleRowExceedsBatchWindow) {
 }
 
 TEST(AIFunctionTest, AIFilterOversizedRowFlushesHistoryBatchFirst) {
-    auto runtime_state = std::make_unique<MockRuntimeState>();
+    TQueryOptions query_options = create_fake_query_options();
+    query_options.__set_ai_context_window_size(128 * 1024);
+    auto query_ctx = MockQueryContext::create(TUniqueId(), ExecEnv::GetInstance(), query_options);
+    query_ctx->set_mock_ai_resource();
+    TQueryGlobals query_globals;
+    auto runtime_state = std::make_unique<MockRuntimeState>(
+            TUniqueId(), 0, query_options, query_globals, nullptr, query_ctx.get());
     auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
 
     std::vector<std::string> resources = {"mock_resource", "mock_resource"};
@@ -996,6 +1014,46 @@ TEST(AIFunctionTest, AIFilterOversizedRowFlushesHistoryBatchFirst) {
 
     auto filter_func = FunctionAIFilter::create();
     setenv("AI_TEST_RESULT", R"(["1"])", 1);
+    Status exec_status =
+            filter_func->execute_impl(ctx.get(), block, arguments, result_idx, texts.size());
+
+    ASSERT_TRUE(exec_status.ok()) << exec_status.to_string();
+
+    const auto& res_col =
+            assert_cast<const ColumnUInt8&>(*block.get_by_position(result_idx).column);
+    ASSERT_EQ(res_col.size(), 2);
+    EXPECT_EQ(res_col.get_data()[0], 1);
+    EXPECT_EQ(res_col.get_data()[1], 1);
+
+    unsetenv("AI_TEST_RESULT");
+}
+
+TEST(AIFunctionTest, AIFilterUsesAiContextWindowSizeSessionVariable) {
+    TQueryOptions query_options = create_fake_query_options();
+    query_options.__set_ai_context_window_size(16);
+    auto query_ctx = MockQueryContext::create(TUniqueId(), ExecEnv::GetInstance(), query_options);
+    query_ctx->set_mock_ai_resource();
+    TQueryGlobals query_globals;
+    auto runtime_state = std::make_unique<MockRuntimeState>(
+            TUniqueId(), 0, query_options, query_globals, nullptr, query_ctx.get());
+    auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
+
+    setenv("AI_TEST_RESULT", R"(["1"])", 1);
+
+    std::vector<std::string> resources = {"mock_resource"};
+    std::vector<std::string> texts = {"12345678901234567890", "abcdefghijabcdefghij"};
+    auto col_resource = ColumnHelper::create_column<DataTypeString>(resources);
+    auto col_text = ColumnHelper::create_column<DataTypeString>(texts);
+
+    Block block;
+    block.insert({std::move(col_resource), std::make_shared<DataTypeString>(), "resource"});
+    block.insert({std::move(col_text), std::make_shared<DataTypeString>(), "text"});
+    block.insert({nullptr, std::make_shared<DataTypeBool>(), "result"});
+
+    ColumnNumbers arguments = {0, 1};
+    size_t result_idx = 2;
+
+    auto filter_func = FunctionAIFilter::create();
     Status exec_status =
             filter_func->execute_impl(ctx.get(), block, arguments, result_idx, texts.size());
 
@@ -1251,6 +1309,20 @@ TEST(AIFunctionTest, NormalizeGeminiEndpointNoopForNonBasePath) {
     FunctionAISentimentTestHelper::normalize_endpoint(resource);
     ASSERT_EQ(resource.endpoint,
               "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent");
+}
+
+TEST(AIFunctionTest, NormalizeGeminiEmbedLegacySingleEndpointToBatchEndpoint) {
+    TAIResource resource;
+    resource.provider_type = "gemini";
+    resource.model_name = "gemini-embedding-2-preview";
+    resource.endpoint =
+            "https://generativelanguage.googleapis.com/v1beta/models/"
+            "gemini-embedding-2-preview:embedContent";
+
+    FunctionEmbedTestHelper::normalize_endpoint(resource);
+    ASSERT_EQ(resource.endpoint,
+              "https://generativelanguage.googleapis.com/v1beta/models/"
+              "gemini-embedding-2-preview:batchEmbedContents");
 }
 
 TEST(AIFunctionTest, ExecuteBatchRequestSuccess) {

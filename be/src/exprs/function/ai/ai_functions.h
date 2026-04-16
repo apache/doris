@@ -54,8 +54,6 @@ namespace doris {
 template <typename Derived>
 class AIFunction : public IFunction {
 public:
-    static constexpr size_t max_batch_prompt_size = 128 * 1024;
-
     std::string get_name() const override { return assert_cast<const Derived&>(*this).name; }
 
     // If the user doesn't provide the first arg, `resource_name`
@@ -90,6 +88,17 @@ public:
     }
 
 protected:
+    // Reads the shared AI context window size from query options. String AI batch functions and
+    // ai_agg both use the same byte-based session variable so batching behavior stays consistent.
+    static int64_t get_ai_context_window_size(FunctionContext* context) {
+        DORIS_CHECK(context != nullptr);
+        QueryContext* query_ctx = context->state()->get_query_ctx();
+        DORIS_CHECK(query_ctx != nullptr);
+
+        int64_t context_window_size = query_ctx->query_options().ai_context_window_size;
+        return context_window_size > 0 ? context_window_size : 128 * 1024;
+    }
+
     // Derived classes can override this method for non-text/default behavior.
     // The base implementation handles all string-input/string-output batchable functions.
     Status execute_with_adapter(FunctionContext* context, Block& block,
@@ -117,10 +126,18 @@ protected:
     }
 
     static void normalize_endpoint(TAIResource& config) {
-        // If users configure only the version root like `.../v1` or `.../v1beta`, append
-        // `models/<model>:batchEmbedContents` for `embed`, and `models/<model>:generateContent`
-        // for other AI scalar functions. If the endpoint is already a full method path, keep it.
+        // 1. If users configure only the version root like `.../v1` or `.../v1beta`, append
+        //    `models/<model>:batchEmbedContents` for `embed`, and `models/<model>:generateContent`
+        //    for other AI scalar functions.
+        // 2. `:embedContent` -> `:batchEmbedContents`
         if (iequal(config.provider_type, "GEMINI")) {
+            if (iequal(Derived::name, "embed") && config.endpoint.ends_with(":embedContent")) {
+                static constexpr std::string_view legacy_suffix = ":embedContent";
+                config.endpoint.replace(config.endpoint.size() - legacy_suffix.size(),
+                                        legacy_suffix.size(), ":batchEmbedContents");
+                return;
+            }
+
             if (!config.endpoint.ends_with("v1") && !config.endpoint.ends_with("v1beta")) {
                 return;
             }
@@ -270,6 +287,8 @@ protected:
                                    IColumn& col_result) const {
         std::vector<std::string> batch_prompts;
         size_t current_batch_size = 2; // []
+        const size_t max_batch_prompt_size =
+                static_cast<size_t>(get_ai_context_window_size(context));
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             std::string prompt;

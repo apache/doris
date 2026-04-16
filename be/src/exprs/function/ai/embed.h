@@ -87,6 +87,8 @@ private:
         std::vector<std::string> batch_prompts;
         size_t current_batch_size = 0;
         const int32_t max_batch_size = _get_embed_max_batch_size(context);
+        const size_t max_context_window_size =
+                static_cast<size_t>(get_ai_context_window_size(context));
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             std::string prompt;
@@ -94,7 +96,7 @@ private:
 
             const size_t prompt_size = prompt.size();
 
-            if (prompt_size > max_batch_prompt_size) {
+            if (prompt_size > max_context_window_size) {
                 // flush history batch
                 RETURN_IF_ERROR(_flush_text_embedding_batch(batch_prompts, *col_result, config,
                                                             adapter, context));
@@ -107,7 +109,7 @@ private:
             }
 
             if (!batch_prompts.empty() &&
-                (current_batch_size + prompt_size > max_batch_prompt_size ||
+                (current_batch_size + prompt_size > max_context_window_size ||
                  batch_prompts.size() >= static_cast<size_t>(max_batch_size))) {
                 RETURN_IF_ERROR(_flush_text_embedding_batch(batch_prompts, *col_result, config,
                                                             adapter, context));

@@ -391,6 +391,23 @@ TEST(AI_ADAPTER_TEST, openai_adapter_responses_parse_response) {
     ASSERT_EQ(results[0], "openai response result");
 }
 
+TEST(AI_ADAPTER_TEST, openai_adapter_parse_response_keeps_mask_literals) {
+    OpenAIAdapter adapter;
+    std::string resp = R"({"choices":[{"message":{"content":"[MSKED]"}}]})";
+    std::vector<std::string> results;
+    Status st = adapter.parse_response(resp, results);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    ASSERT_EQ(results.size(), 1);
+    ASSERT_EQ(results[0], "[MSKED]");
+
+    resp = R"({"choices":[{"message":{"content":"[MASK]"}}]})";
+    results.clear();
+    st = adapter.parse_response(resp, results);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    ASSERT_EQ(results.size(), 1);
+    ASSERT_EQ(results[0], "[MASK]");
+}
+
 TEST(AI_ADAPTER_TEST, gemini_adapter_request) {
     GeminiAdapter adapter;
     TAIResource config;

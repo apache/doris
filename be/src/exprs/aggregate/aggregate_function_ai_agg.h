@@ -37,11 +37,6 @@ public:
     static constexpr const char* SEPARATOR = "\n";
     static constexpr uint8_t SEPARATOR_SIZE = sizeof(*SEPARATOR);
 
-    // 128K tokens is a relatively small context limit among mainstream AIs.
-    // currently, token count is conservatively approximated by size; this is a safe lower bound.
-    // a more efficient and accurate token calculation method may be introduced.
-    static constexpr size_t MAX_CONTEXT_SIZE = 128 * 1024;
-
     ColumnString::Chars data;
     bool inited = false;
 
@@ -196,14 +191,22 @@ private:
 
     // handle overflow situations when adding content.
     bool handle_overflow(size_t additional_size) {
-        if (additional_size + data.size() <= MAX_CONTEXT_SIZE) {
+        const size_t max_context_size = get_ai_context_window_size();
+        if (additional_size + data.size() <= max_context_size) {
             return false;
         }
 
         process_current_context();
 
         // check if there is still an overflow after replacement.
-        return (additional_size + data.size() > MAX_CONTEXT_SIZE);
+        return (additional_size + data.size() > max_context_size);
+    }
+
+    static size_t get_ai_context_window_size() {
+        DORIS_CHECK(_ctx);
+
+        int64_t context_window_size = _ctx->query_options().ai_context_window_size;
+        return static_cast<size_t>(context_window_size > 0 ? context_window_size : 128 * 1024);
     }
 
     void append_data(const void* source, size_t size) {

@@ -180,7 +180,8 @@ protected:
             --end;
         }
 
-        if (begin < end && text[begin] == '[' && text[end - 1] == ']') {
+        if (begin < end && text[begin] == '[' && text[end - 1] == ']' && end - begin >= 4 &&
+            (text[begin + 1] == '"' || text[begin + 1] == '\'')) {
             rapidjson::Document doc;
             doc.Parse(text.data() + begin, end - begin);
             if (doc.HasParseError()) {
@@ -216,6 +217,50 @@ protected:
             rapidjson::Value name(param_name.c_str(), allocator);
             doc.AddMember(name, _config.dimensions, allocator);
         }
+    }
+
+    // Validates common multimodal embedding request invariants shared by providers.
+    Status validate_multimodal_embedding_inputs(
+            std::string_view provider_name, const std::vector<MultimodalType>& media_types,
+            const std::vector<std::string>& media_urls,
+            std::initializer_list<MultimodalType> supported_types) const {
+        if (media_urls.empty()) {
+            return Status::InvalidArgument("{} multimodal embed inputs can not be empty",
+                                           provider_name);
+        }
+        if (media_types.size() != media_urls.size()) {
+            return Status::InvalidArgument(
+                    "{} multimodal embed input size mismatch, media_types={}, media_urls={}",
+                    provider_name, media_types.size(), media_urls.size());
+        }
+        for (MultimodalType media_type : media_types) {
+            bool supported = false;
+            for (MultimodalType supported_type : supported_types) {
+                if (media_type == supported_type) {
+                    supported = true;
+                    break;
+                }
+            }
+            if (!supported) [[unlikely]] {
+                return Status::InvalidArgument(
+                        "{} only supports {} multimodal embed, got {}", provider_name,
+                        supported_multimodal_types_to_string(supported_types),
+                        multimodal_type_to_string(media_type));
+            }
+        }
+        return Status::OK();
+    }
+
+    static std::string supported_multimodal_types_to_string(
+            std::initializer_list<MultimodalType> supported_types) {
+        std::string result;
+        for (MultimodalType type : supported_types) {
+            if (!result.empty()) {
+                result += "/";
+            }
+            result += multimodal_type_to_string(type);
+        }
+        return result;
     }
 };
 
@@ -265,22 +310,9 @@ public:
     Status build_multimodal_embedding_request(const std::vector<MultimodalType>& media_types,
                                               const std::vector<std::string>& media_urls,
                                               std::string& request_body) const override {
-        if (media_urls.empty()) {
-            return Status::InvalidArgument("VoyageAI multimodal embed inputs can not be empty");
-        }
-        if (media_types.size() != media_urls.size()) {
-            return Status::InvalidArgument(
-                    "VoyageAI multimodal embed input size mismatch, media_types={}, media_urls={}",
-                    media_types.size(), media_urls.size());
-        }
-        for (MultimodalType media_type : media_types) {
-            if (media_type != MultimodalType::IMAGE && media_type != MultimodalType::VIDEO)
-                    [[unlikely]] {
-                return Status::InvalidArgument(
-                        "VoyageAI only supports image/video multimodal embed, got {}",
-                        multimodal_type_to_string(media_type));
-            }
-        }
+        RETURN_IF_ERROR(validate_multimodal_embedding_inputs(
+                "VoyageAI", media_types, media_urls,
+                {MultimodalType::IMAGE, MultimodalType::VIDEO}));
         if (_config.dimensions != -1) {
             LOG(WARNING) << "VoyageAI multimodal embedding currently ignores dimensions parameter, "
                          << "model=" << _config.model_name << ", dimensions=" << _config.dimensions;
@@ -937,21 +969,8 @@ public:
     Status build_multimodal_embedding_request(const std::vector<MultimodalType>& media_types,
                                               const std::vector<std::string>& media_urls,
                                               std::string& request_body) const override {
-        if (media_urls.empty()) {
-            return Status::InvalidArgument("QWEN multimodal embed inputs can not be empty");
-        }
-        if (media_types.size() != media_urls.size()) {
-            return Status::InvalidArgument(
-                    "QWEN multimodal embed input size mismatch, media_types={}, media_urls={}",
-                    media_types.size(), media_urls.size());
-        }
-        for (MultimodalType media_type : media_types) {
-            if (media_type != MultimodalType::IMAGE && media_type != MultimodalType::VIDEO) {
-                return Status::InvalidArgument(
-                        "QWEN only supports image/video multimodal embed, got {}",
-                        multimodal_type_to_string(media_type));
-            }
-        }
+        RETURN_IF_ERROR(validate_multimodal_embedding_inputs(
+                "QWEN", media_types, media_urls, {MultimodalType::IMAGE, MultimodalType::VIDEO}));
 
         rapidjson::Document doc;
         doc.SetObject();
@@ -1058,22 +1077,8 @@ public:
     Status build_multimodal_embedding_request(const std::vector<MultimodalType>& media_types,
                                               const std::vector<std::string>& media_urls,
                                               std::string& request_body) const override {
-        if (media_urls.empty()) {
-            return Status::InvalidArgument("JINA multimodal embed inputs can not be empty");
-        }
-        if (media_types.size() != media_urls.size()) {
-            return Status::InvalidArgument(
-                    "JINA multimodal embed input size mismatch, media_types={}, media_urls={}",
-                    media_types.size(), media_urls.size());
-        }
-        for (MultimodalType media_type : media_types) {
-            if (media_type != MultimodalType::IMAGE && media_type != MultimodalType::VIDEO)
-                    [[unlikely]] {
-                return Status::InvalidArgument(
-                        "JINA only supports image/video multimodal embed, got {}",
-                        multimodal_type_to_string(media_type));
-            }
-        }
+        RETURN_IF_ERROR(validate_multimodal_embedding_inputs(
+                "JINA", media_types, media_urls, {MultimodalType::IMAGE, MultimodalType::VIDEO}));
 
         rapidjson::Document doc;
         doc.SetObject();
@@ -1318,14 +1323,9 @@ public:
     Status build_multimodal_embedding_request(const std::vector<MultimodalType>& media_types,
                                               const std::vector<std::string>& media_urls,
                                               std::string& request_body) const override {
-        if (media_urls.empty()) {
-            return Status::InvalidArgument("Gemini multimodal embed inputs can not be empty");
-        }
-        if (media_types.size() != media_urls.size()) {
-            return Status::InvalidArgument(
-                    "Gemini multimodal embed input size mismatch, media_types={}, media_urls={}",
-                    media_types.size(), media_urls.size());
-        }
+        RETURN_IF_ERROR(validate_multimodal_embedding_inputs(
+                "Gemini", media_types, media_urls,
+                {MultimodalType::IMAGE, MultimodalType::AUDIO, MultimodalType::VIDEO}));
 
         rapidjson::Document doc;
         doc.SetObject();
