@@ -14,7 +14,7 @@ Event-driven warmup 是存算分离架构下的数据缓存预热功能。当源
 
 - 在 BE 侧使用 `bvar::MultiDimension` + `bvar::Window` 完成 per-table 的窗口统计。窗口指标只展示最近一段时间内的活动，过去的错误自然过期消失
 - 源集群 BE 统计 **requested**（发送了多少数据去预热），目标集群 BE 统计 **finished**（实际完成了多少）
-- FE 从两侧收集，计算 `finished - requested` 差值，反映同步进度缺口。窗口化后差值自然收敛，不会永久积累
+- FE 从两侧收集，计算 `gap = requested - finished` 差值，反映同步积压。gap > 0 表示有数据尚未完成预热。窗口化后 gap 自然收敛，不会永久积累
 
 ---
 
@@ -187,7 +187,7 @@ t=0:15                               0   ← 正常
 /**
  * @brief 多维度窗口化累加器。
  *
- * 为每个维度值（如 table_id）自动创建：
+ * 为每个维度值组合（如 (job_id, table_id)）自动创建：
  *   - 一个 bvar::Adder（通过 MultiDimension 管理的累积计数器）
  *   - 多个 bvar::Window（不同窗口大小的滑动窗口视图）
  *
@@ -196,16 +196,16 @@ t=0:15                               0   ← 正常
  * @example
  *   MBvarWindowedAdder requested_seg_num(
  *       "warmup_ed_requested_segment_num",      // 指标名前缀
- *       {"table_id"},                         // 维度名
+ *       {"job_id", "table_id"},               // 维度名
  *       {300, 1800, 7200}                     // 窗口大小（秒）
  *   );
  *
- *   requested_seg_num.put({"12345"}, 1);
+ *   requested_seg_num.put({"13419", "12345"}, 1);
  *   // 自动暴露:
- *   //   warmup_ed_requested_segment_num_total{table_id="12345"}  (累计)
- *   //   warmup_ed_requested_segment_num_300s_12345               (5min 窗口)
- *   //   warmup_ed_requested_segment_num_1800s_12345              (30min 窗口)
- *   //   warmup_ed_requested_segment_num_7200s_12345              (2h 窗口)
+ *   //   warmup_ed_requested_segment_num_total{job_id="13419",table_id="12345"}  (累计)
+ *   //   warmup_ed_requested_segment_num_300s_13419,12345                        (5min 窗口)
+ *   //   warmup_ed_requested_segment_num_1800s_13419,12345                       (30min 窗口)
+ *   //   warmup_ed_requested_segment_num_7200s_13419,12345                       (2h 窗口)
  */
 class MBvarWindowedAdder {
 public:
@@ -294,24 +294,24 @@ static constexpr int WINDOW_5M  = 300;
 static constexpr int WINDOW_30M = 1800;
 static constexpr int WINDOW_2H  = 7200;
 
-// ---- requested 指标（per table_id, 3 窗口）----
+// ---- requested 指标（per (job_id, table_id), 3 窗口）----
 
 MBvarWindowedAdder g_warmup_ed_requested_segment_num(
-    "warmup_ed_requested_segment_num", {"table_id"}, {WINDOW_5M, WINDOW_30M, WINDOW_2H});
+    "warmup_ed_requested_segment_num", {"job_id", "table_id"}, {WINDOW_5M, WINDOW_30M, WINDOW_2H});
 
 MBvarWindowedAdder g_warmup_ed_requested_segment_size(
-    "warmup_ed_requested_segment_size", {"table_id"}, {WINDOW_5M, WINDOW_30M, WINDOW_2H});
+    "warmup_ed_requested_segment_size", {"job_id", "table_id"}, {WINDOW_5M, WINDOW_30M, WINDOW_2H});
 
 MBvarWindowedAdder g_warmup_ed_requested_index_num(
-    "warmup_ed_requested_index_num", {"table_id"}, {WINDOW_5M, WINDOW_30M, WINDOW_2H});
+    "warmup_ed_requested_index_num", {"job_id", "table_id"}, {WINDOW_5M, WINDOW_30M, WINDOW_2H});
 
 MBvarWindowedAdder g_warmup_ed_requested_index_size(
-    "warmup_ed_requested_index_size", {"table_id"}, {WINDOW_5M, WINDOW_30M, WINDOW_2H});
+    "warmup_ed_requested_index_size", {"job_id", "table_id"}, {WINDOW_5M, WINDOW_30M, WINDOW_2H});
 
 // ---- 瞬态指标 ----
 
 bvar::MultiDimension<bvar::Status<int64_t>> g_warmup_ed_last_trigger_ts(
-    "warmup_ed_last_trigger_ts", {"table_id"});
+    "warmup_ed_last_trigger_ts", {"job_id", "table_id"});
 ```
 
 ### 4.4 目标集群 BE — finished / failed 指标定义
@@ -319,43 +319,49 @@ bvar::MultiDimension<bvar::Status<int64_t>> g_warmup_ed_last_trigger_ts(
 ```cpp
 // be/src/cloud/cloud_internal_service.cpp
 
-// ---- finished 指标（per table_id, 3 窗口）----
+// ---- finished 指标（per (job_id, table_id), 3 窗口）----
 
 MBvarWindowedAdder g_warmup_ed_finish_segment_num(
-    "warmup_ed_finish_segment_num", {"table_id"}, {WINDOW_5M, WINDOW_30M, WINDOW_2H});
+    "warmup_ed_finish_segment_num", {"job_id", "table_id"}, {WINDOW_5M, WINDOW_30M, WINDOW_2H});
 
 MBvarWindowedAdder g_warmup_ed_finish_segment_size(
-    "warmup_ed_finish_segment_size", {"table_id"}, {WINDOW_5M, WINDOW_30M, WINDOW_2H});
+    "warmup_ed_finish_segment_size", {"job_id", "table_id"}, {WINDOW_5M, WINDOW_30M, WINDOW_2H});
 
 MBvarWindowedAdder g_warmup_ed_finish_index_num(
-    "warmup_ed_finish_index_num", {"table_id"}, {WINDOW_5M, WINDOW_30M, WINDOW_2H});
+    "warmup_ed_finish_index_num", {"job_id", "table_id"}, {WINDOW_5M, WINDOW_30M, WINDOW_2H});
 
 MBvarWindowedAdder g_warmup_ed_finish_index_size(
-    "warmup_ed_finish_index_size", {"table_id"}, {WINDOW_5M, WINDOW_30M, WINDOW_2H});
+    "warmup_ed_finish_index_size", {"job_id", "table_id"}, {WINDOW_5M, WINDOW_30M, WINDOW_2H});
 
-// ---- failed 指标（per table_id, 3 窗口）----
+// ---- failed 指标（per (job_id, table_id), 3 窗口）----
 
 MBvarWindowedAdder g_warmup_ed_fail_segment_num(
-    "warmup_ed_fail_segment_num", {"table_id"}, {WINDOW_5M, WINDOW_30M, WINDOW_2H});
+    "warmup_ed_fail_segment_num", {"job_id", "table_id"}, {WINDOW_5M, WINDOW_30M, WINDOW_2H});
 
 MBvarWindowedAdder g_warmup_ed_fail_segment_size(
-    "warmup_ed_fail_segment_size", {"table_id"}, {WINDOW_5M, WINDOW_30M, WINDOW_2H});
+    "warmup_ed_fail_segment_size", {"job_id", "table_id"}, {WINDOW_5M, WINDOW_30M, WINDOW_2H});
 
 MBvarWindowedAdder g_warmup_ed_fail_index_num(
-    "warmup_ed_fail_index_num", {"table_id"}, {WINDOW_5M, WINDOW_30M, WINDOW_2H});
+    "warmup_ed_fail_index_num", {"job_id", "table_id"}, {WINDOW_5M, WINDOW_30M, WINDOW_2H});
 
 MBvarWindowedAdder g_warmup_ed_fail_index_size(
-    "warmup_ed_fail_index_size", {"table_id"}, {WINDOW_5M, WINDOW_30M, WINDOW_2H});
+    "warmup_ed_fail_index_size", {"job_id", "table_id"}, {WINDOW_5M, WINDOW_30M, WINDOW_2H});
 
 // ---- 瞬态指标 ----
 
 bvar::MultiDimension<bvar::Status<int64_t>> g_warmup_ed_last_finish_ts(
-    "warmup_ed_last_finish_ts", {"table_id"});
+    "warmup_ed_last_finish_ts", {"job_id", "table_id"});
 ```
 
-### 4.5 目标 BE 获取 table_id
+### 4.5 BE 获取 job_id 和 table_id
 
-目标 BE 在 `warm_up_rowset` RPC handler 中可从本地 CloudTablet 直接获取 `table_id`，无需修改 protobuf：
+指标维度为 `(job_id, table_id)`。源 BE 和目标 BE 均需获取 job_id：
+
+**源 BE**：`CloudWarmUpManager` 维护一个 `(table_id, dst_cluster) → job_id` 的内存映射。FE 在创建/更新 event-driven Job 时通过 BE 的 `update_warmup_job_mapping` RPC 推送映射关系。当 `_warm_up_rowset` 发送预热请求时，根据 table_id 和目标 replica 所属 cluster 查表得到 job_id。
+
+**目标 BE**：job_id 通过 `PWarmUpRowsetRequest` 的新增字段 `job_id` 传递。源 BE 在构造 RPC 请求时填入。
+
+**table_id**：目标 BE 从本地 CloudTablet 获取，无需通过 RPC 传递：
 
 ```cpp
 // cloud_internal_service.cpp — warm_up_rowset handler
@@ -363,10 +369,10 @@ for (auto& rs_meta_pb : request->rowset_metas()) {
     int64_t tablet_id = rs_meta.tablet_id();
     auto tablet_res = _engine.tablet_mgr().get_tablet(tablet_id);
     if (!tablet_res.ok()) continue;
-    // ★ 直接从本地 tablet 获取 table_id
     int64_t table_id = tablet_res.value()->tablet_meta()->table_id();
     std::string tid = std::to_string(table_id);
-    // ... 后续 per-table 统计 ...
+    std::string jid = std::to_string(request->job_id());  // ★ 从 RPC 请求获取
+    // ... 后续 per-(job, table) 统计 ...
 }
 ```
 
@@ -384,35 +390,41 @@ void CloudWarmUpManager::_warm_up_rowset(RowsetMeta& rs_meta, int64_t table_id,
         return;
     }
 
-    // ★ 记录 per-table requested 统计
+    // ★ 查找 (table_id, dst_cluster) → job_id 映射
+    //    对每组目标 replica，确定 job_id 后记录 per-(job, table) requested 统计
     std::string tid = std::to_string(table_id);
-    g_warmup_ed_requested_segment_num.put({tid}, rs_meta.num_segments());
-    int64_t total_seg_size = 0;
-    for (int64_t i = 0; i < rs_meta.num_segments(); i++) {
-        total_seg_size += rs_meta.segment_file_size(cast_set<int>(i));
-    }
-    g_warmup_ed_requested_segment_size.put({tid}, total_seg_size);
+    for (auto& replica_group : group_replicas_by_cluster(replicas)) {
+        std::string jid = lookup_job_id(table_id, replica_group.cluster_name);
+        if (jid.empty()) jid = "0";  // 无匹配 job 时用 0
 
-    int64_t idx_num = 0, idx_size = 0;
-    auto schema_ptr = rs_meta.tablet_schema();
-    if (schema_ptr && (schema_ptr->has_inverted_index() || schema_ptr->has_ann_index())) {
+        g_warmup_ed_requested_segment_num.put({jid, tid}, rs_meta.num_segments());
+        int64_t total_seg_size = 0;
         for (int64_t i = 0; i < rs_meta.num_segments(); i++) {
-            for (const auto& info :
-                 rs_meta.inverted_index_file_info(cast_set<int>(i)).index_info()) {
-                idx_num++;
-                if (info.index_file_size() != -1) idx_size += info.index_file_size();
+            total_seg_size += rs_meta.segment_file_size(cast_set<int>(i));
+        }
+        g_warmup_ed_requested_segment_size.put({jid, tid}, total_seg_size);
+
+        int64_t idx_num = 0, idx_size = 0;
+        auto schema_ptr = rs_meta.tablet_schema();
+        if (schema_ptr && (schema_ptr->has_inverted_index() || schema_ptr->has_ann_index())) {
+            for (int64_t i = 0; i < rs_meta.num_segments(); i++) {
+                for (const auto& info :
+                     rs_meta.inverted_index_file_info(cast_set<int>(i)).index_info()) {
+                    idx_num++;
+                    if (info.index_file_size() != -1) idx_size += info.index_file_size();
+                }
             }
         }
-    }
-    g_warmup_ed_requested_index_num.put({tid}, idx_num);
-    g_warmup_ed_requested_index_size.put({tid}, idx_size);
+        g_warmup_ed_requested_index_num.put({jid, tid}, idx_num);
+        g_warmup_ed_requested_index_size.put({jid, tid}, idx_size);
 
-    // 更新最近触发时间戳
-    auto* ts = g_warmup_ed_last_trigger_ts.get_stats({tid});
-    if (ts) {
-        ts->set_value(std::chrono::duration_cast<std::chrono::milliseconds>(
-                              std::chrono::system_clock::now().time_since_epoch())
-                              .count());
+        // 更新最近触发时间戳
+        auto* ts = g_warmup_ed_last_trigger_ts.get_stats({jid, tid});
+        if (ts) {
+            ts->set_value(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                  std::chrono::system_clock::now().time_since_epoch())
+                                  .count());
+        }
     }
 
     Status st = _do_warm_up_rowset(rs_meta, replicas, sync_wait_timeout_ms,
@@ -423,10 +435,13 @@ void CloudWarmUpManager::_warm_up_rowset(RowsetMeta& rs_meta, int64_t table_id,
 
 #### 4.6.2 目标集群 BE — finished / failed（`cloud_internal_service.cpp`）
 
-在 `warm_up_rowset` RPC handler 中，从本地 CloudTablet 获取 `table_id`，在下载完成/失败回调中记录：
+在 `warm_up_rowset` RPC handler 中，从 RPC 请求获取 `job_id`，从本地 CloudTablet 获取 `table_id`，在下载完成/失败回调中记录：
 
 ```cpp
 void CloudInternalServiceImpl::warm_up_rowset(...) {
+    // ★ 从 RPC 请求获取 job_id
+    std::string jid = std::to_string(request->job_id());
+
     for (auto& rs_meta_pb : request->rowset_metas()) {
         int64_t tablet_id = rs_meta.tablet_id();
         auto tablet_res = _engine.tablet_mgr().get_tablet(tablet_id);
@@ -436,47 +451,42 @@ void CloudInternalServiceImpl::warm_up_rowset(...) {
         int64_t table_id = tablet_res.value()->tablet_meta()->table_id();
         std::string tid = std::to_string(table_id);
 
-    for (auto& rs_meta_pb : request->rowset_metas()) {
         // ... 现有的处理逻辑 ...
 
         for (int64_t segment_id = 0; segment_id < rs_meta.num_segments(); segment_id++) {
             auto segment_size = rs_meta.segment_file_size(segment_id);
             // ... 现有的 submit_download_task 调用 ...
 
-            // ★ 修改回调：加入 per-table finished/failed 统计
-            auto done_cb = [tid, segment_size](Status st) {
+            // ★ 修改回调：加入 per-(job, table) finished/failed 统计
+            auto done_cb = [jid, tid, segment_size](Status st) {
                 if (st.ok()) {
                     g_file_cache_event_driven_warm_up_finished_segment_num << 1;
                     g_file_cache_event_driven_warm_up_finished_segment_size << segment_size;
-                    // ★ 新增 per-table 统计
+                    // ★ 新增 per-(job, table) 统计
                     if (!tid.empty() && tid != "0") {
-                        g_warmup_ed_finish_segment_num.put({tid}, 1);
-                        g_warmup_ed_finish_segment_size.put({tid}, segment_size);
+                        g_warmup_ed_finish_segment_num.put({jid, tid}, 1);
+                        g_warmup_ed_finish_segment_size.put({jid, tid}, segment_size);
+                    }
+                    // ★ 更新最近完成时间戳（在回调中更新，非提交时）
+                    auto* ts = g_warmup_ed_last_finish_ts.get_stats({jid, tid});
+                    if (ts) {
+                        ts->set_value(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::system_clock::now().time_since_epoch()).count());
                     }
                 } else {
                     g_file_cache_event_driven_warm_up_failed_segment_num << 1;
                     g_file_cache_event_driven_warm_up_failed_segment_size << segment_size;
-                    // ★ 新增 per-table 统计
+                    // ★ 新增 per-(job, table) 统计
                     if (!tid.empty() && tid != "0") {
-                        g_warmup_ed_fail_segment_num.put({tid}, 1);
-                        g_warmup_ed_fail_segment_size.put({tid}, segment_size);
+                        g_warmup_ed_fail_segment_num.put({jid, tid}, 1);
+                        g_warmup_ed_fail_segment_size.put({jid, tid}, segment_size);
                     }
                 }
             };
         }
 
-        // 索引文件回调同理，加入 per-table finished/failed 统计
+        // 索引文件回调同理，加入 per-(job, table) finished/failed 统计
         // ...
-
-        // ★ 更新最近完成时间戳
-        if (!tid.empty() && tid != "0") {
-            auto* ts = g_warmup_ed_last_finish_ts.get_stats({tid});
-            if (ts) {
-                ts->set_value(std::chrono::duration_cast<std::chrono::milliseconds>(
-                                      std::chrono::system_clock::now().time_since_epoch())
-                                      .count());
-            }
-        }
     }
 }
 ```
@@ -489,7 +499,7 @@ void CloudInternalServiceImpl::warm_up_rowset(...) {
 
 #### 4.7.1 BE 侧实现
 
-每个 BE 统一输出全量数据（requested + finish + fail），不区分自身是源还是目标角色。源 BE 的 finish/fail 字段为 0，目标 BE 的 requested 字段为 0，这是自然结果。
+每个 BE 统一输出全量数据（requested + finish + fail），不区分自身是源还是目标角色。源 BE 的 finish/fail 字段为 0，目标 BE 的 requested 字段为 0，这是自然结果。维度为 `(job_id, table_id)`，JSON 按 job_id 分组输出。
 
 ```cpp
 // be/src/http/action/warmup_stats_action.h
@@ -503,61 +513,82 @@ public:
 // 辅助函数：填充一组 MBvarWindowedAdder 到 JSON 对象
 static void fill_windowed(EasyJson& parent, const std::string& key,
                           MBvarWindowedAdder& num_adder, MBvarWindowedAdder& size_adder,
-                          const std::string& tid) {
+                          const std::string& dim_key) {
     EasyJson obj = parent.Set(key, EasyJson::kObject);
     EasyJson num = obj.Set("num", EasyJson::kObject);
-    num["5m"]  = num_adder.get_window_value({tid}, 0);
-    num["30m"] = num_adder.get_window_value({tid}, 1);
-    num["2h"]  = num_adder.get_window_value({tid}, 2);
+    // dim_key 格式为 "job_id,table_id"，需要拆分回 {job_id, table_id}
+    auto dims = split_dim_key(dim_key);
+    num["5m"]  = num_adder.get_window_value(dims, 0);
+    num["30m"] = num_adder.get_window_value(dims, 1);
+    num["2h"]  = num_adder.get_window_value(dims, 2);
     EasyJson size = obj.Set("size", EasyJson::kObject);
-    size["5m"]  = size_adder.get_window_value({tid}, 0);
-    size["30m"] = size_adder.get_window_value({tid}, 1);
-    size["2h"]  = size_adder.get_window_value({tid}, 2);
+    size["5m"]  = size_adder.get_window_value(dims, 0);
+    size["30m"] = size_adder.get_window_value(dims, 1);
+    size["2h"]  = size_adder.get_window_value(dims, 2);
 }
 
 void WarmUpStatsAction::handle(HttpRequest* req) {
     auto& engine = ExecEnv::GetInstance()->storage_engine().to_cloud();
 
-    // 收集所有出现过的 table_id（合并 requested/finish/fail 的维度）
-    std::set<std::string> all_tids;
-    for (auto& t : g_warmup_ed_requested_segment_num.list_dimensions()) all_tids.insert(t);
-    for (auto& t : g_warmup_ed_finish_segment_num.list_dimensions()) all_tids.insert(t);
-    for (auto& t : g_warmup_ed_fail_segment_num.list_dimensions()) all_tids.insert(t);
+    // 收集所有出现过的维度 key "job_id,table_id"
+    std::set<std::string> all_keys;
+    for (auto& k : g_warmup_ed_requested_segment_num.list_dimensions()) all_keys.insert(k);
+    for (auto& k : g_warmup_ed_finish_segment_num.list_dimensions()) all_keys.insert(k);
+    for (auto& k : g_warmup_ed_fail_segment_num.list_dimensions()) all_keys.insert(k);
+
+    // 按 job_id 分组
+    std::map<std::string, std::vector<std::string>> job_to_keys;
+    for (auto& key : all_keys) {
+        auto pos = key.find(',');
+        std::string jid = (pos != std::string::npos) ? key.substr(0, pos) : "0";
+        job_to_keys[jid].push_back(key);
+    }
 
     EasyJson result;
     result["code"] = 0;
-    EasyJson tables = result.Set("data", EasyJson::kArray);
+    EasyJson jobs = result.Set("data", EasyJson::kArray);
 
-    for (auto& tid : all_tids) {
-        EasyJson entry = tables.PushBack(EasyJson::kObject);
-        entry["table_id"] = std::stoll(tid);
+    for (auto& [jid, keys] : job_to_keys) {
+        EasyJson job_entry = jobs.PushBack(EasyJson::kObject);
+        job_entry["job_id"] = std::stoll(jid);
+        EasyJson tables = job_entry.Set("tables", EasyJson::kArray);
 
-        // requested: { seg: { num: {5m,30m,2h}, size: {5m,30m,2h} }, idx: { ... } }
-        EasyJson req_obj = entry.Set("requested", EasyJson::kObject);
-        fill_windowed(req_obj, "seg",
-                      g_warmup_ed_requested_segment_num, g_warmup_ed_requested_segment_size, tid);
-        fill_windowed(req_obj, "idx",
-                      g_warmup_ed_requested_index_num, g_warmup_ed_requested_index_size, tid);
+        for (auto& dim_key : keys) {
+            auto pos = dim_key.find(',');
+            std::string tid = (pos != std::string::npos) ? dim_key.substr(pos + 1) : dim_key;
 
-        // finish
-        EasyJson fin_obj = entry.Set("finish", EasyJson::kObject);
-        fill_windowed(fin_obj, "seg",
-                      g_warmup_ed_finish_segment_num, g_warmup_ed_finish_segment_size, tid);
-        fill_windowed(fin_obj, "idx",
-                      g_warmup_ed_finish_index_num, g_warmup_ed_finish_index_size, tid);
+            EasyJson entry = tables.PushBack(EasyJson::kObject);
+            entry["table_id"] = std::stoll(tid);
 
-        // fail
-        EasyJson fail_obj = entry.Set("fail", EasyJson::kObject);
-        fill_windowed(fail_obj, "seg",
-                      g_warmup_ed_fail_segment_num, g_warmup_ed_fail_segment_size, tid);
-        fill_windowed(fail_obj, "idx",
-                      g_warmup_ed_fail_index_num, g_warmup_ed_fail_index_size, tid);
+            // requested: { seg: { num: {5m,30m,2h}, size: {5m,30m,2h} }, idx: { ... } }
+            EasyJson req_obj = entry.Set("requested", EasyJson::kObject);
+            fill_windowed(req_obj, "seg",
+                          g_warmup_ed_requested_segment_num, g_warmup_ed_requested_segment_size, dim_key);
+            fill_windowed(req_obj, "idx",
+                          g_warmup_ed_requested_index_num, g_warmup_ed_requested_index_size, dim_key);
 
-        // 瞬态
-        auto* trigger_ts = g_warmup_ed_last_trigger_ts.get_stats({tid});
-        entry["last_trigger_ts"] = trigger_ts ? trigger_ts->get_value() : 0;
-        auto* finish_ts = g_warmup_ed_last_finish_ts.get_stats({tid});
-        entry["last_finish_ts"] = finish_ts ? finish_ts->get_value() : 0;
+            // finish
+            EasyJson fin_obj = entry.Set("finish", EasyJson::kObject);
+            fill_windowed(fin_obj, "seg",
+                          g_warmup_ed_finish_segment_num, g_warmup_ed_finish_segment_size, dim_key);
+            fill_windowed(fin_obj, "idx",
+                          g_warmup_ed_finish_index_num, g_warmup_ed_finish_index_size, dim_key);
+
+            // fail
+            EasyJson fail_obj = entry.Set("fail", EasyJson::kObject);
+            fill_windowed(fail_obj, "seg",
+                          g_warmup_ed_fail_segment_num, g_warmup_ed_fail_segment_size, dim_key);
+            fill_windowed(fail_obj, "idx",
+                          g_warmup_ed_fail_index_num, g_warmup_ed_fail_index_size, dim_key);
+
+            // 瞬态
+            auto dims = split_dim_key(dim_key);
+            auto* trigger_ts = g_warmup_ed_last_trigger_ts.get_stats(dims);
+            entry["last_trigger_ts"] = trigger_ts ? trigger_ts->get_value() : 0;
+            auto* finish_ts = g_warmup_ed_last_finish_ts.get_stats(dims);
+            entry["last_finish_ts"] = finish_ts ? finish_ts->get_value() : 0;
+        }
+    }
     }
 
     req->add_output_header(HttpHeaders::CONTENT_TYPE, "application/json");
@@ -584,50 +615,60 @@ $ curl http://be_host:http_port/api/warmup_event_driven_stats
   "code": 0,
   "data": [
     {
-      "table_id": 12345,
-      "requested": {
-        "seg": {
-          "num":  {"5m": 5234, "30m": 28456, "2h": 112000},
-          "size": {"5m": 4500000000, "30m": 24500000000, "2h": 98000000000}
+      "job_id": 13419,
+      "tables": [
+        {
+          "table_id": 12345,
+          "requested": {
+            "seg": {
+              "num":  {"5m": 5234, "30m": 28456, "2h": 112000},
+              "size": {"5m": 4500000000, "30m": 24500000000, "2h": 98000000000}
+            },
+            "idx": {
+              "num":  {"5m": 1200, "30m": 6500, "2h": 25000},
+              "size": {"5m": 500000000, "30m": 2700000000, "2h": 10000000000}
+            }
+          },
+          "finish": {
+            "seg": {
+              "num":  {"5m": 5210, "30m": 28300, "2h": 111200},
+              "size": {"5m": 4480000000, "30m": 24300000000, "2h": 97500000000}
+            },
+            "idx": {
+              "num":  {"5m": 1190, "30m": 6400, "2h": 24800},
+              "size": {"5m": 495000000, "30m": 2650000000, "2h": 9800000000}
+            }
+          },
+          "fail": {
+            "seg": {
+              "num":  {"5m": 0, "30m": 2, "2h": 12},
+              "size": {"5m": 0, "30m": 2500000, "2h": 15000000}
+            },
+            "idx": {
+              "num":  {"5m": 0, "30m": 1, "2h": 5},
+              "size": {"5m": 0, "30m": 500000, "2h": 3000000}
+            }
+          },
+          "last_trigger_ts": 1714000000000,
+          "last_finish_ts": 1714000003000
         },
-        "idx": {
-          "num":  {"5m": 1200, "30m": 6500, "2h": 25000},
-          "size": {"5m": 500000000, "30m": 2700000000, "2h": 10000000000}
+        {
+          "table_id": 67890,
+          ...
         }
-      },
-      "finish": {
-        "seg": {
-          "num":  {"5m": 5210, "30m": 28300, "2h": 111200},
-          "size": {"5m": 4480000000, "30m": 24300000000, "2h": 97500000000}
-        },
-        "idx": {
-          "num":  {"5m": 1190, "30m": 6400, "2h": 24800},
-          "size": {"5m": 495000000, "30m": 2650000000, "2h": 9800000000}
-        }
-      },
-      "fail": {
-        "seg": {
-          "num":  {"5m": 0, "30m": 2, "2h": 12},
-          "size": {"5m": 0, "30m": 2500000, "2h": 15000000}
-        },
-        "idx": {
-          "num":  {"5m": 0, "30m": 1, "2h": 5},
-          "size": {"5m": 0, "30m": 500000, "2h": 3000000}
-        }
-      },
-      "last_trigger_ts": 1714000000000,
-      "last_finish_ts": 1714000003000
+      ]
     },
     {
-      "table_id": 67890,
-      ...
+      "job_id": 13420,
+      "tables": [...]
     }
   ]
 }
 ```
 
 > **每个 BE 输出全量数据，不区分自身角色。** 源 BE 的 `finish`/`fail` 字段自然为 0，目标 BE 的 `requested` 字段自然为 0。
-> JSON 使用三层结构 `{requested|finish|fail}.{seg|idx}.{num|size}.{5m|30m|2h}` 减少字段名长度，同时保持语义清晰。
+> JSON 按 job_id 分组，每个 job 内按 table_id 列出。
+> 层级结构 `job_id → table_id → {requested|finish|fail}.{seg|idx}.{num|size}.{5m|30m|2h}` 减少字段名长度，同时保持语义清晰。
 > 用户可直接 curl 此 API 查看 BE 上的实时 warmup 统计。
 
 ---
@@ -655,7 +696,7 @@ CacheHotspotManager (已有类)
        │   → 并发提交 HTTP 请求（CompletionService）
        │   → 尽可能保证各 BE 采集时间窗口一致
        │   → 等待所有请求完成
-       │   → mergeStats() 写入 clusterStats[cluster][tableId]
+       │   → mergeStats() 写入 clusterStats[cluster][jobId][tableId]
        │
        └─ 所有数据采集完毕后，一次性按 job.matchedTableIds 聚合
            → 对每个 Job：从 srcCluster 取 requested，从 dstCluster 取 finished
@@ -682,10 +723,15 @@ String result = HttpUtils.doGet(url, null);
 // 新增：per-job 聚合后的同步统计
 private final ConcurrentHashMap<Long, JobWarmUpStats> jobWarmUpStatsMap = new ConcurrentHashMap<>();
 
-// 新增：per-cluster per-table 原始采集数据（每轮采集重建）
-// key: clusterName → (tableId → TableWarmUpWindowedStats)
+// 新增：per-cluster per-(job, table) 原始采集数据（每轮采集重建）
+// key: clusterName → (jobId → (tableId → TableWarmUpWindowedStats))
 // 不区分 src/dst，同一个 cluster 只采集一次
-private volatile Map<String, Map<Long, TableWarmUpWindowedStats>> clusterStats = Map.of();
+private volatile Map<String, Map<Long, Map<Long, TableWarmUpWindowedStats>>> clusterStats = Map.of();
+
+// 新增：持久化线程池（避免每轮采集创建/销毁线程）
+private final ExecutorService warmupStatsExecutor =
+        Executors.newFixedThreadPool(16, new ThreadFactoryBuilder()
+                .setNameFormat("warmup-stats-collector-%d").setDaemon(true).build());
 
 // 新增 daemon
 private MasterDaemon progressCollectDaemon;
@@ -739,11 +785,9 @@ private void collectAndAggregate() {
     if (allTargets.isEmpty()) return;
 
     // 3. 并发请求所有 BE，尽可能保证采集时间窗口一致
-    //    使用 CompletionService 并行提交所有 HTTP 请求
-    ExecutorService executor = Executors.newFixedThreadPool(
-            Math.min(allTargets.size(), 16));
+    //    使用 CompletionService + 持久化线程池
     CompletionService<Pair<String, String>> completionService =
-            new ExecutorCompletionService<>(executor);
+            new ExecutorCompletionService<>(warmupStatsExecutor);
 
     for (var target : allTargets) {
         String cluster = target.first;
@@ -758,21 +802,20 @@ private void collectAndAggregate() {
     }
 
     // 4. 等待所有请求完成，收集结果
-    Map<String, Map<Long, TableWarmUpWindowedStats>> newClusterStats = new HashMap<>();
+    // 按 cluster → jobId → tableId 组织
+    Map<String, Map<Long, Map<Long, TableWarmUpWindowedStats>>> newClusterStats = new HashMap<>();
     for (int i = 0; i < allTargets.size(); i++) {
         try {
             var future = completionService.take();
             var result = future.get(10, TimeUnit.SECONDS);
             String cluster = result.first;
             String json = result.second;
-            var tableMap = newClusterStats.computeIfAbsent(cluster, k -> new HashMap<>());
-            mergeStatsFromJson(tableMap, json);
+            var jobTableMap = newClusterStats.computeIfAbsent(cluster, k -> new HashMap<>());
+            mergeStatsFromJson(jobTableMap, json);
         } catch (Exception e) {
             LOG.warn("Failed to collect warmup stats: {}", e.getMessage());
         }
     }
-    executor.shutdown();
-
     this.clusterStats = newClusterStats;
 
     // 5. 所有数据采集完毕后，一次性按 Job 聚合
@@ -788,21 +831,31 @@ private void collectAndAggregate() {
 
 ```java
 /**
- * 解析 BE 返回的 JSON，merge 到 tableMap 中。
+ * 解析 BE 返回的 JSON（按 job_id 分组），merge 到 jobTableMap 中。
+ * JSON 结构：data[].{job_id, tables[].{table_id, requested, finish, fail, ...}}
  * 全量解析所有字段（requested + finish + fail），不区分 src/dst。
  */
-private void mergeStatsFromJson(Map<Long, TableWarmUpWindowedStats> tableMap, String json) {
+private void mergeStatsFromJson(
+        Map<Long, Map<Long, TableWarmUpWindowedStats>> jobTableMap, String json) {
     JsonObject root = GsonUtils.GSON.fromJson(json, JsonObject.class);
     JsonArray data = root.getAsJsonArray("data");
-    for (JsonElement elem : data) {
-        JsonObject obj = elem.getAsJsonObject();
-        long tableId = obj.get("table_id").getAsLong();
-        TableWarmUpWindowedStats stats = TableWarmUpWindowedStats.fromJson(obj);
-        tableMap.compute(tableId, (tid, existing) -> {
-            if (existing == null) return stats;
-            existing.merge(stats);
-            return existing;
-        });
+    for (JsonElement jobElem : data) {
+        JsonObject jobObj = jobElem.getAsJsonObject();
+        long jobId = jobObj.get("job_id").getAsLong();
+        var tableMap = jobTableMap.computeIfAbsent(jobId, k -> new HashMap<>());
+
+        JsonArray tables = jobObj.getAsJsonArray("tables");
+        if (tables == null) continue;
+        for (JsonElement tableElem : tables) {
+            JsonObject obj = tableElem.getAsJsonObject();
+            long tableId = obj.get("table_id").getAsLong();
+            TableWarmUpWindowedStats stats = TableWarmUpWindowedStats.fromJson(obj);
+            tableMap.compute(tableId, (tid, existing) -> {
+                if (existing == null) return stats;
+                existing.merge(stats);
+                return existing;
+            });
+        }
     }
 }
 
@@ -810,20 +863,23 @@ private void mergeStatsFromJson(Map<Long, TableWarmUpWindowedStats> tableMap, St
  * 按 Job 聚合：遍历 matchedTableIds，从 srcCluster 取 requested，
  * 从 dstCluster 取 finished，累加为一个 Job 级别汇总。
  *
- * 由于每个 BE 输出全量数据，同一个 cluster 的 TableWarmUpWindowedStats 同时包含
- * requested 和 finish/fail 字段。聚合时根据 Job 的 src/dst 方向选取对应字段即可。
+ * 使用 job_id 维度直接从 clusterStats 中取出该 job 对应的数据，
+ * 不会混入其他 job 的同表数据。
  */
 private JobWarmUpStats aggregateStatsForJob(CloudWarmUpJob job) {
     JobWarmUpStats result = new JobWarmUpStats();
+    long jobId = job.getJobId();
     String srcCluster = job.getSrcClusterName();
     String dstCluster = job.getDstClusterName();
 
-    var srcTableMap = clusterStats.getOrDefault(srcCluster, Map.of());
-    var dstTableMap = clusterStats.getOrDefault(dstCluster, Map.of());
+    var srcJobMap = clusterStats.getOrDefault(srcCluster, Map.of())
+            .getOrDefault(jobId, Map.of());
+    var dstJobMap = clusterStats.getOrDefault(dstCluster, Map.of())
+            .getOrDefault(jobId, Map.of());
 
     for (Long tableId : job.getCurrentTableIds()) {
-        TableWarmUpWindowedStats srcStat = srcTableMap.get(tableId);
-        TableWarmUpWindowedStats dstStat = dstTableMap.get(tableId);
+        TableWarmUpWindowedStats srcStat = srcJobMap.get(tableId);
+        TableWarmUpWindowedStats dstStat = dstJobMap.get(tableId);
         if (srcStat != null) result.mergeRequested(srcStat);
         if (dstStat != null) result.mergeFinished(dstStat);
     }
@@ -904,8 +960,13 @@ public class TableWarmUpWindowedStats {
         return metricObj.has(window) ? metricObj.get(window).getAsLong() : 0;
     }
 
-    /** 聚合另一个 BE 的统计（同 cluster 多 BE 累加） */
-    public void merge(TableWarmUpWindowedStats other) { /* 所有字段 += */ }
+    /** 聚合另一个 BE 的统计（同 cluster 多 BE 累加；时间戳取 max） */
+    public void merge(TableWarmUpWindowedStats other) {
+        // 所有 num/size 字段 +=
+        // 时间戳字段取 max
+        this.lastTriggerTs = Math.max(this.lastTriggerTs, other.lastTriggerTs);
+        this.lastFinishTs  = Math.max(this.lastFinishTs,  other.lastFinishTs);
+    }
 }
 ```
 
@@ -931,24 +992,29 @@ public class JobWarmUpStats {
     public long failIndexSize5m, failIndexSize30m, failIndexSize2h;
     public long lastFinishTs;
 
-    // gap = finished - requested
+    // gap = requested - finished（正值表示积压，负值通常不出现）
     public long gapSegmentNum5m, gapSegmentNum30m, gapSegmentNum2h;
     public long gapSegmentSize5m, gapSegmentSize30m, gapSegmentSize2h;
     public long gapIndexNum5m, gapIndexNum30m, gapIndexNum2h;
     public long gapIndexSize5m, gapIndexSize30m, gapIndexSize2h;
 
-    /** 累加一张表的 requested 统计 */
-    public void mergeRequested(TableWarmUpWindowedStats tableStat) { /* 累加 requested 字段 */ }
-
-    /** 累加一张表的 finished/failed 统计 */
-    public void mergeFinished(TableWarmUpWindowedStats tableStat) { /* 累加 finished/failed 字段 */ }
-
-    /** 计算 gap */
+    /** 计算 gap = requested - finished */
     public void computeGap() {
-        gapSegmentNum5m  = finishSegmentNum5m  - requestedSegmentNum5m;
-        gapSegmentNum30m = finishSegmentNum30m - requestedSegmentNum30m;
-        gapSegmentNum2h  = finishSegmentNum2h  - requestedSegmentNum2h;
+        gapSegmentNum5m  = requestedSegmentNum5m  - finishSegmentNum5m;
+        gapSegmentNum30m = requestedSegmentNum30m - finishSegmentNum30m;
+        gapSegmentNum2h  = requestedSegmentNum2h  - finishSegmentNum2h;
         // seg_size, idx_num, idx_size 同理
+    }
+
+    /** 聚合时间戳取 max */
+    public void mergeRequested(TableWarmUpWindowedStats tableStat) {
+        // 累加 requested 字段
+        this.lastTriggerTs = Math.max(this.lastTriggerTs, tableStat.lastTriggerTs);
+    }
+
+    public void mergeFinished(TableWarmUpWindowedStats tableStat) {
+        // 累加 finished/failed 字段
+        this.lastFinishTs = Math.max(this.lastFinishTs, tableStat.lastFinishTs);
     }
 
     /** 序列化为 SyncStats JSON，用于 SHOW WARM UP JOB 输出 */
@@ -956,7 +1022,7 @@ public class JobWarmUpStats {
 }
 ```
 
-> **gap 可以为负**：FE 采集时序差异可能导致 finished 略大于 requested。用户关注的是 gap 的数量级和趋势，不是绝对值。
+> **gap 的含义**：`gap = requested - finished`。正值表示有 segment 尚未完成下载（传输中或积压）。窗口化后 gap 自然收敛，BE crash 造成的 gap 在窗口过期后消失。负值理论上不出现，但 FE 采集时序差异可能导致瞬时负值。
 
 ---
 
@@ -976,9 +1042,9 @@ SHOW WARM UP JOB;
 +-------+---------+---------+-----------+-----------------------------------------------------------+
 | 13418 | RUNNING | CLUSTER | EVENT..   |                                                           |
 | 13419 | RUNNING | CLUSTER | EVENT..   | {"seg_num":{"requested_5m":15234,"finish_5m":15180,          |
-|       |         |         |           |  "gap_5m":-54,"fail_5m":3,"requested_30m":89234,...},         |
+|       |         |         |           |  "gap_5m":54,"fail_5m":3,"requested_30m":89234,...},          |
 |       |         |         |           |  "seg_size":{"requested_5m":"12.5GB","finish_5m":"12.4GB",   |
-|       |         |         |           |  "gap_5m":"-100MB","fail_5m":"2.5MB",...},                 |
+|       |         |         |           |  "gap_5m":"100MB","fail_5m":"2.5MB",...},                  |
 |       |         |         |           |  "idx_num":{...},"idx_size":{...},                         |
 |       |         |         |           |  "last_trigger_ts":"10:30:25","last_finish_ts":"10:30:28"} |
 +-------+---------+---------+-----------+-----------------------------------------------------------+
@@ -994,22 +1060,22 @@ SHOW WARM UP JOB;
   "seg_num": {
     "requested_5m":   15234,       // 最近 5min 源端提交 segment 个数
     "finish_5m":   15180,       // 最近 5min 目标端完成 segment 个数
-    "gap_5m":      -54,         // finish_5m - requested_5m
+    "gap_5m":      54,          // requested_5m - finish_5m（正值=积压）
     "fail_5m":     3,           // 最近 5min 目标端失败 segment 个数
     "requested_30m":  89234,       // 最近 30min ...
     "finish_30m":  88900,
-    "gap_30m":     -334,
+    "gap_30m":     334,
     "fail_30m":    12,
     "requested_2h":   345678,      // 最近 2h ...
     "finish_2h":   344000,
-    "gap_2h":      -1678,
+    "gap_2h":      1678,
     "fail_2h":     45
   },
   "seg_size": {
     // 同结构，值为人类可读大小字符串 "12.5GB"
     "requested_5m":   "12.5 GB",
     "finish_5m":   "12.4 GB",
-    "gap_5m":      "-100 MB",
+    "gap_5m":      "100 MB",
     "fail_5m":     "2.5 MB",
     ...
   },
@@ -1026,7 +1092,7 @@ SHOW WARM UP JOB;
 }
 ```
 
-> **gap 的含义**：`gap = finish - requested`。负值表示有 segment 尚未完成下载（在传输中或丢失）。窗口化后 gap 自然收敛，BE crash 造成的 gap 在窗口过期后消失。
+> **gap 的含义**：`gap = requested - finished`。正值表示有 segment 尚未完成下载（传输中或积压）。窗口化后 gap 自然收敛，BE crash 造成的 gap 在窗口过期后消失。
 
 ---
 
@@ -1034,29 +1100,30 @@ SHOW WARM UP JOB;
 
 ```
 源 BE (commit_rowset)
-  │  → g_warmup_ed_requested_segment_num.put({table_id}, N)
-  │  → g_warmup_ed_requested_segment_size.put({table_id}, bytes)
-  │  → g_warmup_ed_requested_index_num.put({table_id}, N)
-  │  → g_warmup_ed_requested_index_size.put({table_id}, bytes)
+  │  → g_warmup_ed_requested_segment_num.put({job_id, table_id}, N)
+  │  → g_warmup_ed_requested_segment_size.put({job_id, table_id}, bytes)
+  │  → g_warmup_ed_requested_index_num.put({job_id, table_id}, N)
+  │  → g_warmup_ed_requested_index_size.put({job_id, table_id}, bytes)
   │  ★ bvar::Window 自动维护 5min/30min/2h 窗口
-  │  ★ /api/warmup_event_driven_stats HTTP API 暴露全量 JSON
+  │  ★ /api/warmup_event_driven_stats HTTP API 暴露全量 JSON（按 job_id 分组）
   │
-  │  _do_warm_up_rowset → PWarmUpRowsetRequest → RPC
+  │  _do_warm_up_rowset → PWarmUpRowsetRequest(含 job_id) → RPC
   │                                                    │
 ────────────────────────────────────────────────────┘    │
                                                         ▼
 目标 BE (warm_up_rowset RPC handler)
-  │  → g_warmup_ed_finish_segment_num.put({table_id}, 1)     [下载完成回调]
-  │  → g_warmup_ed_finish_segment_size.put({table_id}, bytes)
-  │  → g_warmup_ed_fail_segment_num.put({table_id}, 1)       [下载失败回调]
-  │  → g_warmup_ed_fail_segment_size.put({table_id}, bytes)
+  │  → g_warmup_ed_finish_segment_num.put({job_id, table_id}, 1)     [下载完成回调]
+  │  → g_warmup_ed_finish_segment_size.put({job_id, table_id}, bytes)
+  │  → g_warmup_ed_fail_segment_num.put({job_id, table_id}, 1)       [下载失败回调]
+  │  → g_warmup_ed_fail_segment_size.put({job_id, table_id}, bytes)
   │  ★ 索引文件同理
   │  ★ bvar::Window 自动维护 5min/30min/2h 窗口
-  │  ★ /api/warmup_event_driven_stats HTTP API 暴露全量 JSON
+  │  ★ /api/warmup_event_driven_stats HTTP API 暴露全量 JSON（按 job_id 分组）
   │
   ▼
 FE (CacheHotspotManager.progressCollectDaemon)
   │  每 N 秒执行（MasterDaemon）
+  │  ★ 使用持久化线程池 warmupStatsExecutor（不再每轮创建/销毁）
   │
   │  一次性收集所有 event-driven Job 涉及的 cluster 并集
   │  allClusters = union(所有 job 的 srcCluster, dstCluster)
@@ -1064,14 +1131,14 @@ FE (CacheHotspotManager.progressCollectDaemon)
   │  枚举所有 (cluster, BE) 对，并发提交 HTTP 请求
   │  （CompletionService, 保证采集时间窗口一致）
   │    GET http://be_host:http_port/api/warmup_event_driven_stats
-  │    → 全量解析 JSON（不区分 src/dst）
+  │    → 全量解析 JSON（按 job_id, table_id 二维聚合）
   │    → 等待所有请求完成
-  │    → mergeStatsFromJson 累加同 cluster 所有 BE
-  │    → 写入 clusterStats[cluster][tableId]
+  │    → mergeStatsFromJson 累加同 cluster 所有 BE（时间戳取 max）
+  │    → 写入 clusterStats[cluster][jobId][tableId]
   │
   │  所有数据采集完毕后，一次性按 job 聚合：
-  │    clusterStats[srcCluster][tableId] → requested
-  │    clusterStats[dstCluster][tableId] → finished
+  │    clusterStats[srcCluster][jobId][tableId] → requested
+  │    clusterStats[dstCluster][jobId][tableId] → finished
   │    → JobWarmUpStats（gap = requested - finished）
   │    → 存入 jobWarmUpStatsMap[jobId]
   │
@@ -1079,7 +1146,7 @@ FE (CacheHotspotManager.progressCollectDaemon)
   │
   ▼
 用户
-  ├─ curl BE: /api/warmup_event_driven_stats   ← 直接查看 BE per-table 原始数据
+  ├─ curl BE: /api/warmup_event_driven_stats   ← 直接查看 BE per-(job, table) 原始数据
   └─ SHOW WARM UP JOB                          ← 查看 per-job 聚合后的 SyncStats
 ```
 
@@ -1092,36 +1159,36 @@ FE (CacheHotspotManager.progressCollectDaemon)
 ### 场景 1：系统正常运行，gap ≈ 0
 
 ```json
-"seg_num": {"requested_5m": 15234, "finish_5m": 15200, "gap_5m": -34, "fail_5m": 0}
+"seg_num": {"requested_5m": 15234, "finish_5m": 15200, "gap_5m": 34, "fail_5m": 0}
 ```
 → gap 很小，系统跟得上
 
 ### 场景 2：BE crash 后恢复
 
 ```
-t=0:00  gap_5m=-50     ← 正常微小延迟
+t=0:00  gap_5m=34      ← 正常微小延迟
 t=0:03  BE crash
 t=0:05  窗口轮转，旧值过期
 t=0:07  gap_5m=0        ← 窗口内无活动（BE 重启中）
 t=0:11  BE 重启完成
-t=0:15  gap_5m=-20      ← 恢复正常
+t=0:15  gap_5m=20       ← 恢复正常
 ```
 → 窗口指标自动恢复，无永久残留
 
 ### 场景 3：目标端处理能力不足
 
 ```json
-"seg_num": {"requested_5m": 50000, "finish_5m": 12000, "gap_5m": -38000, "fail_5m": 50}
+"seg_num": {"requested_5m": 50000, "finish_5m": 12000, "gap_5m": 38000, "fail_5m": 50}
 ```
 → gap 持续增长，目标端跟不上。可能需要扩容或限速
 
 ### 场景 4：多 Job 对比
 
 ```
-Job 13419: gap_5m=-34,   fail_5m=0    ← 正常
-Job 13420: gap_5m=-38000, fail_5m=50   ← 异常，目标端跟不上
+Job 13419: gap_5m=34,    fail_5m=0    ← 正常
+Job 13420: gap_5m=38000, fail_5m=50   ← 异常，目标端跟不上
 ```
-→ 不同 Job 可以对比，定位哪个 (src, dst) 对有问题
+→ 不同 Job 独立跟踪（job_id 维度），精准定位哪个 (src, dst) 对有问题
 
 ---
 
@@ -1131,13 +1198,13 @@ Job 13420: gap_5m=-38000, fail_5m=50   ← 异常，目标端跟不上
 |------|------|------|
 | 源 BE `put()` | O(1) + 首次 O(W) | W=3 个 Window 实例，延迟创建 |
 | 目标 BE `put()` | O(1) + 首次 O(W) | 在下载完成/失败回调中 |
-| BE HTTP API `/api/warmup_event_driven_stats` | O(T) | T 为活跃表数，读内存 bvar |
+| BE HTTP API `/api/warmup_event_driven_stats` | O(J×T) | J 为活跃 Job 数，T 为活跃表数 |
 | `bvar::Window` 运行时 | 每窗口一个定时器 | bvar 框架管理，开销可忽略 |
-| FE HTTP 采集 | O(B × T) | B = 涉及的 BE 数，T = 每台 BE 的活跃表数 |
+| FE HTTP 采集 | O(B × J × T) | B = 涉及的 BE 数，J = Job 数，T = 每台 BE 的活跃表数 |
 | FE `aggregateStatsForJob()` | O(K) | K = Job 匹配的表数 |
-| 用户 curl BE API | O(T) | 直接查 BE，不经过 FE |
+| 用户 curl BE API | O(J×T) | 直接查 BE，不经过 FE |
 
-> **bvar 指标数量**：源 BE 4 个 MBvarWindowedAdder × N 张表 × (1 cumulative + 3 windows) = 16N 个 bvar。目标 BE 8 个 × N × 4 = 32N。100 张表共约 4800 个 bvar 指标，在常规负载范围内。
+> **bvar 指标数量**：维度为 `(job_id, table_id)`。源 BE 4 个 MBvarWindowedAdder × J 个 Job × N 张表 × (1 cumulative + 3 windows) = 16JN 个 bvar。目标 BE 8 个 × J × N × 4 = 32JN。假设 J=3 个 Job、N=100 张表，共约 14400 个 bvar 指标，在常规负载范围内。实际 J 一般较小（1~5），主要变量是 N。
 
 ---
 
@@ -1147,6 +1214,8 @@ Job 13420: gap_5m=-38000, fail_5m=50   ← 异常，目标端跟不上
 |--------|--------|------|
 | BE 新增 HTTP API `/api/warmup_event_driven_stats` | ✅ | 新端点，不影响已有 API |
 | `MBvarWindowedAdder` | ✅ | 纯内存，不涉及持久化 |
+| `PWarmUpRowsetRequest` 新增 `job_id` 字段 | ✅ | protobuf 可选字段，旧版 BE 忽略；缺失时按 0 处理 |
+| 源 BE 新增 `update_warmup_job_mapping` RPC | ✅ | 新增 RPC，旧版 BE 不接收此调用 |
 | `SHOW WARM UP JOB` 新增 SyncStats 列 | ✅ | 非 event-driven Job 新增列为空，不引入新 SQL 语法 |
 | FE `CacheHotspotManager` 新增 `progressCollectDaemon` | ✅ | 参照现有 daemon 模式，不影响已有功能 |
 | **滚动升级建议** | — | 先升级所有 BE（源+目标），再升级所有 FE |
