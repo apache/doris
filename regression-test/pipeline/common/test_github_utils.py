@@ -161,6 +161,57 @@ main
         finally:
             os.unlink(trace_path)
 
+    def _run_external_final_stop_case(self, exit_flag, summary=None):
+        with tempfile.NamedTemporaryFile("w", delete=False) as trace:
+            trace_path = trace.name
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                fake_bin = os.path.join(tmpdir, "bin")
+                os.makedirs(fake_bin)
+                with open(os.path.join(fake_bin, "bash"), "w") as bash_file:
+                    bash_file.write("#!/bin/bash\n")
+                    bash_file.write('echo "bash:$*" >> "{}"\n'.format(trace_path))
+                os.chmod(os.path.join(fake_bin, "bash"), 0o755)
+
+                if summary is not None:
+                    log_dir = os.path.join(tmpdir, "output", "regression-test", "log")
+                    os.makedirs(log_dir)
+                    with open(os.path.join(log_dir, "doris-regression-test.fake.log"), "w") as log_file:
+                        log_file.write(summary + "\n")
+
+                result = self._run_raw(
+                    """
+export teamcity_build_checkoutDir="{root}"
+export DORIS_HOME="{doris_home}"
+export PATH="{fake_bin}:$PATH"
+
+main() {{
+    if false; then
+        bash deploy_cluster.sh test_cluster
+        echo "START EXTERNAL DOCKER"
+        echo "RUN EXTERNAL CASE"
+        echo "COLLECT DOCKER LOGS"
+    fi
+    exit_flag="{exit_flag}"
+    source "{github_helper}"
+    bash /tmp/fake/stop_cluster_grace.sh Cluster0
+}}
+
+main
+""".format(
+                        root=ROOT,
+                        doris_home=os.path.join(tmpdir, "output"),
+                        fake_bin=fake_bin,
+                        exit_flag=exit_flag,
+                        github_helper=GITHUB_HELPER,
+                    )
+                )
+                with open(trace_path) as trace_file:
+                    trace_output = trace_file.read()
+                return result, trace_output
+        finally:
+            os.unlink(trace_path)
+
     def test_skip_collect_docker_logs_on_success_by_default(self):
         result, trace_output = self._run_external_collect_logs_case(
             exit_flag="0",
@@ -231,6 +282,23 @@ main
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertIn("timeout:-v 10m bash /tmp/fake/be/bin/stop_be.sh --grace", trace_output)
         self.assertIn("sleep:300", trace_output)
+
+    def test_force_final_stop_on_tolerated_success(self):
+        result, trace_output = self._run_external_final_stop_case(
+            exit_flag="1",
+            summary="Test 496 suites, failed 4 suites, fatal 0 scripts, skipped 0 scripts",
+        )
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("Use force stop_cluster.sh on tolerated success.", result.stdout)
+        self.assertIn("bash:/tmp/fake/stop_cluster.sh Cluster0", trace_output)
+
+    def test_keep_graceful_final_stop_on_failure(self):
+        result, trace_output = self._run_external_final_stop_case(
+            exit_flag="2",
+            summary="Test 496 suites, failed 40 suites, fatal 1 scripts, skipped 0 scripts",
+        )
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("bash:/tmp/fake/stop_cluster_grace.sh Cluster0", trace_output)
 
 
 if __name__ == "__main__":

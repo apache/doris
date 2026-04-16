@@ -92,6 +92,7 @@ false
                 "run-regression-test.sh",
                 "stop_be.sh",
                 "start_cluster.sh",
+                "stop_cluster.sh",
                 "stop_cluster_grace.sh",
             ):
                 script_path = os.path.join(tmpdir, name)

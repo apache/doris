@@ -507,6 +507,16 @@ github_utils__external_is_grace_timeout_target() {
     return 1
 }
 
+github_utils__external_is_final_grace_stop_target() {
+    if [[ "$#" -ge 1 && "$1" == */stop_cluster_grace.sh ]]; then
+        return 0
+    fi
+    if [[ "$#" -ge 1 && "$1" == "stop_cluster_grace.sh" ]]; then
+        return 0
+    fi
+    return 1
+}
+
 github_utils__maybe_optimize_external_shutdown_waits() {
     if ! github_utils__is_external_inline_shell; then
         return 0
@@ -529,6 +539,19 @@ github_utils__maybe_optimize_external_shutdown_waits() {
             fi
         fi
         command timeout "${args[@]}"
+    }
+
+    bash() {
+        local state=""
+        local -a args=("$@")
+        local forced_target=""
+
+        if state="$(github_utils__external_success_state)" && github_utils__external_is_final_grace_stop_target "${args[@]}"; then
+            forced_target="${args[0]%stop_cluster_grace.sh}stop_cluster.sh"
+            echo "Use force stop_cluster.sh on ${state}."
+            args[0]="${forced_target}"
+        fi
+        command bash "${args[@]}"
     }
 
     sleep() {
