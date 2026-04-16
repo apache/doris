@@ -98,7 +98,7 @@ The script primes volumes from a pre-built baseline tarball in two cases:
 Baseline restore flow:
 
 1. Look for a cached tarball at `${HIVE_BASELINE_TARBALL_CACHE:-docker/thirdparties/docker-compose/hive/scripts/baseline}/<hive_version>-baseline-<version>.tar.gz`.
-2. If not cached, download from `https://${s3BucketName}.${s3Endpoint}/regression/datalake/pipeline_data/hive_baseline/<hive_version>-baseline-<version>-<arch>.tar.gz`.
+2. If not cached, download from `https://${s3BucketName}.${s3Endpoint}/regression/datalake/pipeline_data/hive_baseline/<hive_version>-baseline-<version>.tar.gz`.
 3. Unpack in a single `alpine tar` container that mounts all four volumes — tar streams write directly into the volume mounts.
 4. Bumping `HIVE_BASELINE_VERSION` changes both the cache filename and the auto-constructed OSS URL, so CI hosts fetch the newly published tarball instead of reusing an older cached artifact.
 
@@ -121,7 +121,7 @@ bash docker/thirdparties/docker-compose/hive/scripts/snapshot-hive-baseline.sh \
   "${CONTAINER_UID}hive3" /tmp/hive3-baseline.tar.gz
 ```
 
-Then upload the resulting tarball to OSS at `oss://<s3BucketName>/regression/datalake/pipeline_data/hive_baseline/hive3-baseline-<version>-<arch>.tar.gz` (same convention for `hive2`).
+Then upload the resulting tarball to OSS at `oss://<s3BucketName>/regression/datalake/pipeline_data/hive_baseline/hive3-baseline-<version>.tar.gz` (same convention for `hive2`).
 To publish a new baseline, update `HIVE_BASELINE_VERSION` once in `docker/thirdparties/custom_settings.env`, produce the new tarballs, and upload them with the matching versioned filenames.
 
 ---

@@ -957,7 +957,7 @@ maybe_restore_baseline_to_volumes() {
     local hive_version="${2:-hive3}"
     local baseline_cache="${HIVE_BASELINE_TARBALL_CACHE}"
     local cache_file="${baseline_cache}/${hive_version}-baseline-${HIVE_BASELINE_VERSION}.tar.gz"
-    local remote_path="hive_baseline/${hive_version}-baseline-${HIVE_BASELINE_VERSION}-$(uname -m).tar.gz"
+    local remote_path="hive_baseline/${hive_version}-baseline-${HIVE_BASELINE_VERSION}.tar.gz"
     local download_url=""
     local tmp_cache_file=""
 
