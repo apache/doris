@@ -563,6 +563,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Translate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Trim;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TrimIn;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Truncate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.TypeOf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Uncompress;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Unhex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UnhexNull;
@@ -2657,6 +2658,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitTruncate(Truncate truncate, C context) {
         return visitScalarFunction(truncate, context);
+    }
+
+    default R visitTypeOf(TypeOf typeOf, C context) {
+        return visitScalarFunction(typeOf, context);
     }
 
     default R visitUnhex(Unhex unhex, C context) {
