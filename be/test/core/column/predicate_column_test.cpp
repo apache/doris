@@ -268,7 +268,7 @@ TEST(PredicateColumnTest, InsertDataBigInt) {
 TEST(PredicateColumnTest, InsertDataLargeInt) {
     auto col = PredicateColumnType<TYPE_LARGEINT>::create();
     col->reserve(3);
-    Int128 vals[] = {-(Int128(1) << 100), Int128(0), Int128(1) << 100};
+    Int128 vals[] = {Int128(-1) << 100, Int128(0), Int128(1) << 100};
     for (auto& v : vals) {
         col->insert_data(reinterpret_cast<const char*>(&v), sizeof(v));
     }
@@ -645,6 +645,8 @@ TEST(PredicateColumnTest, InsertDuplicateFieldsString) {
     std::string test_str = "hello";
     Field field = Field::create_field<TYPE_STRING>(test_str);
     col->insert_duplicate_fields(field, 5);
+    EXPECT_EQ(col->get_data()[col->size() - 1].data,
+              col->get_data()[0].data + (col->size() - 1) * test_str.size());
     EXPECT_EQ(col->size(), 5);
     for (size_t i = 0; i < 5; i++) {
         StringRef ref = col->get_data()[i];
@@ -884,7 +886,6 @@ TEST(PredicateColumnTest, GetDataAtVarchar) {
 TEST(PredicateColumnTest, GetDataAtCharTrimsSpaces) {
     auto col = PredicateColumnType<TYPE_CHAR>::create();
     col->reserve(2);
-    // CHAR type trims trailing spaces in get_data_at
     std::string s1 = "abc   ";
     col->insert_data(s1.data(), s1.size());
     StringRef ref = col->get_data_at(0);
