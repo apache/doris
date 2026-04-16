@@ -8,7 +8,7 @@
 
 ### 1.1 测试框架与公共工具
 
-所有回归测试位于 `regression-test/suites/cloud_p0/cache/multi_cluster/warm_up/on_tables/` 目录下，共 6 个独立的 Docker 测试文件。每个文件在独立的 Docker 环境中运行（1 个 BE 节点），确保 bvar 指标互不干扰。
+所有回归测试位于 `regression-test/suites/cloud_p0/cache/multi_cluster/warm_up/on_tables/` 目录下，共 7 个独立的 Docker 测试文件。每个文件在独立的 Docker 环境中运行（1 个 BE 节点），确保 bvar 指标互不干扰。
 
 **公共工具类：** `WarmupMetricsUtils.groovy`（位于 `regression-test/framework/src/main/groovy/org/apache/doris/regression/util/`），提供以下核心方法：
 
@@ -125,7 +125,36 @@
 
 ---
 
-#### Case 6：`test_warm_up_event_on_tables_error_and_lifecycle` — 错误处理与生命周期管理
+#### Case 6：`test_warm_up_event_on_tables_multi_dst` — 多目标集群同步
+
+**测试目标：** 验证同一张表可以同时被预热到多个不同的目标集群，且各目标集群的预热过程独立，过滤规则互不影响。
+
+**测试步骤：**
+1. 创建 3 个集群：`warmup_source`（源）、`warmup_target_1`（目标 1）、`warmup_target_2`（目标 2）
+2. 创建数据库，包含 `orders` 和 `logs` 两张表
+3. 创建 Job1：source → target1，`INCLUDE 'db.orders'`（仅匹配 orders）
+4. 创建 Job2：source → target2，`INCLUDE 'db.*'`（匹配所有表）
+
+**验证方式：**
+
+**子测试 1 — orders 同时预热到两个目标：**
+- 向 `orders` 插入 5 行
+- 分别等待 target1 和 target2 的 finished 指标 ≥ 5
+- 两个目标集群的 submitted、finished 增量独立验证，failed == 0
+
+**子测试 2 — logs 仅预热到 target2（负测试）：**
+- 等待 target1 指标稳定（`waitForMetricsStable`）后记录基线
+- 向 `logs` 插入 5 行
+- target2 的 finished ≥ 5（logs 被 `db.*` 匹配）
+- target1 的 submitted 和 finished 增量为 0（logs 不被 `db.orders` 匹配）
+
+**元数据验证：**
+- Job1 的 TableFilter 为 `{"include":["db.orders"]}`，目标集群为 target1
+- Job2 的 TableFilter 为 `{"include":["db.*"]}`，目标集群为 target2
+
+---
+
+#### Case 7：`test_warm_up_event_on_tables_error_and_lifecycle` — 错误处理与生命周期管理
 
 **测试目标：** 覆盖所有错误场景、集群级与表级任务共存、重复检测、取消与重建。
 
@@ -153,14 +182,15 @@
 
 ### 1.3 回归测试覆盖矩阵
 
-| Case | INCLUDE | EXCLUDE | 多规则 | 跨库 | 通配符 * | 通配符 ? | 动态表变更 | 错误校验 | 生命周期 | 指标验证 |
-|------|---------|---------|--------|------|----------|----------|-----------|----------|----------|----------|
-| 1. include | ✅ | — | — | ✅ | ✅ | — | — | — | — | ✅ |
-| 2. include_exclude | ✅ | ✅ | ✅ | — | ✅ | — | — | — | — | ✅ |
-| 3. multi_include | ✅ | — | ✅ | ✅ | — | — | — | — | — | ✅ |
-| 4. canonicalization | ✅ | ✅ | ✅ | ✅ | ✅ | — | — | ✅ | — | — |
-| 5. dynamic | ✅ | — | — | — | ✅ | ✅ | ✅ | — | — | ✅ |
-| 6. error_lifecycle | ✅ | ✅ | — | — | ✅ | ✅ | — | ✅ | ✅ | ✅ |
+| Case | INCLUDE | EXCLUDE | 多规则 | 跨库 | 通配符 * | 通配符 ? | 动态表变更 | 多目标集群 | 错误校验 | 生命周期 | 指标验证 |
+|------|---------|---------|--------|------|----------|----------|-----------|-----------|----------|----------|----------|
+| 1. include | ✅ | — | — | ✅ | ✅ | — | — | — | — | — | ✅ |
+| 2. include_exclude | ✅ | ✅ | ✅ | — | ✅ | — | — | — | — | — | ✅ |
+| 3. multi_include | ✅ | — | ✅ | ✅ | — | — | — | — | — | — | ✅ |
+| 4. canonicalization | ✅ | ✅ | ✅ | ✅ | ✅ | — | — | — | ✅ | — | — |
+| 5. dynamic | ✅ | — | — | — | ✅ | ✅ | ✅ | — | — | — | ✅ |
+| 6. multi_dst | ✅ | — | ✅ | — | ✅ | — | — | ✅ | — | — | ✅ |
+| 7. error_lifecycle | ✅ | ✅ | — | — | ✅ | ✅ | — | — | ✅ | ✅ | ✅ |
 
 ---
 
@@ -341,8 +371,8 @@
 |------|--------|-----------|---------|
 | FE 单元测试 | 7 | ~65 | SQL 解析、模式匹配、规则标准化、动态刷新、序列化、元数据 |
 | BE 单元测试 | 1 | 11 | 过滤器管理、副本过滤、事件处理 |
-| 回归测试 (Docker) | 6 | ~20 个子场景 | 端到端功能验证、bvar 指标链路、多集群交互 |
-| **合计** | **14** | **~96** | |
+| 回归测试 (Docker) | 7 | ~22 个子场景 | 端到端功能验证、bvar 指标链路、多集群交互 |
+| **合计** | **15** | **~98** | |
 
 ### 3.2 按功能覆盖
 
@@ -361,6 +391,7 @@
 | SHOW WARM UP JOB 输出 | ✅ | — | ✅ |
 | 集群级与表级任务共存 | ✅ | — | ✅ |
 | 任务取消与重建 | — | — | ✅ |
+| 多目标集群同步 | — | — | ✅ |
 | BE 过滤器管理 | — | ✅ | — |
 | BE 副本过滤 | — | ✅ | — |
 | bvar 指标端到端验证 | — | — | ✅ |
