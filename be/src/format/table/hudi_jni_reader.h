@@ -35,7 +35,6 @@ class Block;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class HudiJniReader : public JniReader {
     ENABLE_FACTORY_CREATOR(HudiJniReader);
 
@@ -51,5 +50,4 @@ public:
 
     Status init_reader();
 };
-#include "common/compile_check_end.h"
 } // namespace doris

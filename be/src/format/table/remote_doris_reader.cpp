@@ -44,7 +44,6 @@ class Block;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 RemoteDorisReader::RemoteDorisReader(const std::vector<SlotDescriptor*>& file_slot_descs,
                                      RuntimeState* state, RuntimeProfile* profile,
@@ -124,5 +123,4 @@ arrow::Status RemoteDorisReader::init_stream() {
     return arrow::Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -24,12 +24,10 @@
 #include "core/value/jsonb_value.h"
 #include "exprs/function/cast/cast_base.h"
 #include "exprs/function/cast/cast_to_string.h"
-#include "util/io_helper.h"
 #include "util/jsonb_utils.h"
 #include "util/jsonb_writer.h"
 
 namespace doris::CastWrapper {
-#include "common/compile_check_begin.h"
 
 struct ConvertImplGenericFromJsonb {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -243,5 +241,4 @@ WrapperType create_cast_to_jsonb_wrapper(const DataTypePtr& from_type, const Dat
         return Status::OK();
     };
 }
-#include "common/compile_check_end.h"
 } // namespace doris::CastWrapper

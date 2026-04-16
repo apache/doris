@@ -35,7 +35,6 @@
 #include "util/slice.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 RowCursor::RowCursor() = default;
@@ -314,5 +313,4 @@ void RowCursor::encode_key(std::string* buf, size_t num_keys) const {
 template void RowCursor::encode_key<false>(std::string*, size_t) const;
 template void RowCursor::encode_key<true>(std::string*, size_t) const;
 
-#include "common/compile_check_end.h"
 } // namespace doris

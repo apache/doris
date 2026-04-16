@@ -111,25 +111,17 @@ TEST_F(DataTypeTimeStampTzTest, test_sort) {
 
     ObjectPool pool;
 
-    VSortExecExprs sort_exec_exprs;
+    VExprContextSPtrs ordering_expr_ctxs;
 
     std::vector<bool> is_asc_order {true};
     std::vector<bool> nulls_first {false};
 
     row_desc.reset(new MockRowDescriptor({std::make_shared<DataTypeTimeStampTz>()}, &pool));
 
-    sort_exec_exprs._sort_tuple_slot_expr_ctxs =
+    ordering_expr_ctxs =
             MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeTimeStampTz>());
 
-    sort_exec_exprs._materialize_tuple = false;
-
-    sort_exec_exprs._ordering_expr_ctxs =
-            MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeTimeStampTz>());
-
-    sort_exec_exprs._sort_tuple_slot_expr_ctxs =
-            MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeTimeStampTz>());
-
-    sorter = FullSorter::create_unique(sort_exec_exprs, 3, 3, &pool, is_asc_order, nulls_first,
+    sorter = FullSorter::create_unique(ordering_expr_ctxs, 3, 3, &pool, is_asc_order, nulls_first,
                                        *row_desc, &_state, nullptr);
     sorter->init_profile(&_profile);
     {

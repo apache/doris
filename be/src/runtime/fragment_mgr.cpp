@@ -93,7 +93,6 @@
 #include "util/uid_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(fragment_instance_count, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(timeout_canceled_fragment_count, MetricUnit::NOUNIT);
@@ -1630,7 +1629,5 @@ Status FragmentMgr::reset_global_rf(const TUniqueId& query_id,
                 print_id(query_id));
     }
 }
-
-#include "common/compile_check_end.h"
 
 } // namespace doris

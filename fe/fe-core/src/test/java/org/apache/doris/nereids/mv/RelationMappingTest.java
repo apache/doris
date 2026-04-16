@@ -25,9 +25,9 @@ import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.HashSet;
 import java.util.List;
@@ -35,8 +35,7 @@ import java.util.Set;
 
 public class RelationMappingTest {
 
-    @Mocked
-    public CatalogRelation catalogRelation;
+    public CatalogRelation catalogRelation = Mockito.mock(CatalogRelation.class, Mockito.RETURNS_DEEP_STUBS);
 
     /**
      * Permutation and remove duplicated element

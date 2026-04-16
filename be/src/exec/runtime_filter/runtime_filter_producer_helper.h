@@ -29,7 +29,6 @@
 #include "runtime/runtime_state.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 // this class used in hash join node
 /**
  * init -> (skip_runtime_filters ->) send_filter_size -> build filter -> publish filter
@@ -90,5 +89,4 @@ protected:
 
     std::vector<std::shared_ptr<VExprContext>> _filter_expr_contexts;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

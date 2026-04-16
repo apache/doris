@@ -29,7 +29,6 @@
 #include "format/format_common.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class FileScanner;
 } // namespace doris
 
@@ -131,5 +130,4 @@ private:
     bool _batch_split_mode = false;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

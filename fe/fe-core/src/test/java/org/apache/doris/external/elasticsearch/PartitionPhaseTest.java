@@ -29,10 +29,9 @@ import org.apache.doris.datasource.es.SearchContext;
 
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import mockit.Expectations;
-import mockit.Injectable;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -42,7 +41,8 @@ import java.util.Map;
 public class PartitionPhaseTest extends EsTestCase {
 
     @Test
-    public void testWorkFlow(@Injectable EsRestClient client) throws Exception {
+    public void testWorkFlow() throws Exception {
+        EsRestClient client = Mockito.mock(EsRestClient.class);
         final EsShardPartitions[] esShardPartitions = {null};
         ExceptionChecker.expectThrowsNoException(() ->
                 esShardPartitions[0] = EsShardPartitions.findShardPartitions("doe",
@@ -59,17 +59,8 @@ public class PartitionPhaseTest extends EsTestCase {
             }
         }
 
-        new Expectations(client) {
-            {
-                client.getHttpNodes();
-                minTimes = 0;
-                result = nodesMap;
-
-                client.searchShards("doe");
-                minTimes = 0;
-                result = esShardPartitions[0];
-            }
-        };
+        Mockito.when(client.getHttpNodes()).thenReturn(nodesMap);
+        Mockito.when(client.searchShards("doe")).thenReturn(esShardPartitions[0]);
         List<Column> columns = new ArrayList<>();
         Column k1 = new Column("k1", PrimitiveType.BIGINT);
         columns.add(k1);

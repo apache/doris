@@ -35,7 +35,6 @@
 #include "util/slice.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class Arena;
 class BufferReadable;
 class BufferWritable;
@@ -101,7 +100,7 @@ struct AggregateFunctionHLLUnionAggImpl : Data {
 };
 
 template <typename Data>
-class AggregateFunctionHLLUnion
+class AggregateFunctionHLLUnion final
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionHLLUnion<Data>>,
           UnaryExpression,
           NullableAggregateFunction {
@@ -146,5 +145,3 @@ AggregateFunctionPtr create_aggregate_function_HLL(const std::string& name,
                                                    const bool result_is_nullable);
 
 } // namespace doris
-
-#include "common/compile_check_end.h"

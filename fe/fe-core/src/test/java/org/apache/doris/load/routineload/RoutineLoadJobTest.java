@@ -22,29 +22,28 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.InternalErrorCode;
-import org.apache.doris.common.LoadException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.kafka.KafkaUtil;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
+import org.apache.doris.persist.EditLog;
 import org.apache.doris.thrift.TKafkaRLTaskProgress;
 import org.apache.doris.thrift.TUniqueKeyUpdateMode;
+import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
+import org.apache.doris.transaction.TxnStateCallbackFactory;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
 import org.apache.kafka.common.PartitionInfo;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -52,43 +51,38 @@ import java.util.Map;
 
 public class RoutineLoadJobTest {
     @Test
-    public void testAfterAbortedReasonOffsetOutOfRange(@Mocked Env env,
-                                                       @Injectable TransactionState transactionState,
-                                                       @Injectable RoutineLoadTaskInfo routineLoadTaskInfo)
-            throws UserException {
+    public void testAfterAbortedReasonOffsetOutOfRange() throws UserException {
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        TransactionState transactionState = Mockito.mock(TransactionState.class);
+        RoutineLoadTaskInfo routineLoadTaskInfo = Mockito.mock(RoutineLoadTaskInfo.class);
 
         List<RoutineLoadTaskInfo> routineLoadTaskInfoList = Lists.newArrayList();
         routineLoadTaskInfoList.add(routineLoadTaskInfo);
         long txnId = 1L;
 
-        new Expectations() {
-            {
-                transactionState.getTransactionId();
-                minTimes = 0;
-                result = txnId;
-                routineLoadTaskInfo.getTxnId();
-                minTimes = 0;
-                result = txnId;
-            }
-        };
+        Mockito.when(transactionState.getTransactionId()).thenReturn(txnId);
+        Mockito.when(routineLoadTaskInfo.getTxnId()).thenReturn(txnId);
 
-        new MockUp<RoutineLoadJob>() {
-            @Mock
-            void writeUnlock() {
-            }
-        };
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
 
-        String txnStatusChangeReasonString = TransactionState.TxnStatusChangeReason.OFFSET_OUT_OF_RANGE.toString();
-        RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
-        Deencapsulation.setField(routineLoadJob, "routineLoadTaskInfoList", routineLoadTaskInfoList);
-        routineLoadJob.afterAborted(transactionState, true, txnStatusChangeReasonString);
+            String txnStatusChangeReasonString = TransactionState.TxnStatusChangeReason.OFFSET_OUT_OF_RANGE.toString();
+            RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
+            Deencapsulation.setField(routineLoadJob, "routineLoadTaskInfoList", routineLoadTaskInfoList);
+            routineLoadJob.writeLock();
+            routineLoadJob.afterAborted(transactionState, true, txnStatusChangeReasonString);
 
-        Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, routineLoadJob.getState());
+            Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, routineLoadJob.getState());
+        }
     }
 
     @Test
-    public void testAfterAborted(@Injectable TransactionState transactionState,
-                                 @Injectable KafkaTaskInfo routineLoadTaskInfo) throws UserException {
+    public void testAfterAborted() throws UserException {
+        TransactionState transactionState = Mockito.mock(TransactionState.class);
+        KafkaTaskInfo routineLoadTaskInfo = Mockito.mock(KafkaTaskInfo.class);
+
         List<RoutineLoadTaskInfo> routineLoadTaskInfoList = Lists.newArrayList();
         routineLoadTaskInfoList.add(routineLoadTaskInfo);
         long txnId = 1L;
@@ -101,34 +95,17 @@ public class RoutineLoadJobTest {
 
         KafkaProgress currentProgress = new KafkaProgress(tKafkaRLTaskProgress);
 
-        new Expectations() {
-            {
-                transactionState.getTransactionId();
-                minTimes = 0;
-                result = txnId;
-                routineLoadTaskInfo.getTxnId();
-                minTimes = 0;
-                result = txnId;
-                transactionState.getTxnCommitAttachment();
-                minTimes = 0;
-                result = attachment;
-                routineLoadTaskInfo.getPartitions();
-                minTimes = 0;
-                result = Lists.newArrayList();
-            }
-        };
-
-        new MockUp<RoutineLoadJob>() {
-            @Mock
-            void writeUnlock() {
-            }
-        };
+        Mockito.when(transactionState.getTransactionId()).thenReturn(txnId);
+        Mockito.when(routineLoadTaskInfo.getTxnId()).thenReturn(txnId);
+        Mockito.doReturn(attachment).when(transactionState).getTxnCommitAttachment();
+        Mockito.when(routineLoadTaskInfo.getPartitions()).thenReturn(Lists.newArrayList());
 
         String txnStatusChangeReasonString = "no data";
         RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
         Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.RUNNING);
         Deencapsulation.setField(routineLoadJob, "routineLoadTaskInfoList", routineLoadTaskInfoList);
         Deencapsulation.setField(routineLoadJob, "progress", currentProgress);
+        routineLoadJob.writeLock();
         routineLoadJob.afterAborted(transactionState, true, txnStatusChangeReasonString);
         RoutineLoadStatistic jobStatistic = Deencapsulation.getField(routineLoadJob, "jobStatistic");
 
@@ -137,31 +114,22 @@ public class RoutineLoadJobTest {
     }
 
     @Test
-    public void testAfterCommittedWhileTaskAborted(@Mocked Env env,
-                                                   @Injectable TransactionState transactionState,
-                                                   @Injectable KafkaProgress progress) throws UserException {
+    public void testAfterCommittedWhileTaskAborted() throws UserException {
+        Mockito.mock(Env.class);
+        TransactionState transactionState = Mockito.mock(TransactionState.class);
+        KafkaProgress progress = Mockito.mock(KafkaProgress.class);
+
         List<RoutineLoadTaskInfo> routineLoadTaskInfoList = Lists.newArrayList();
         long txnId = 1L;
 
-        new Expectations() {
-            {
-                transactionState.getTransactionId();
-                minTimes = 0;
-                result = txnId;
-            }
-        };
-
-        new MockUp<RoutineLoadJob>() {
-            @Mock
-            void writeUnlock() {
-            }
-        };
+        Mockito.when(transactionState.getTransactionId()).thenReturn(txnId);
 
         RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
         Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.RUNNING);
         Deencapsulation.setField(routineLoadJob, "routineLoadTaskInfoList", routineLoadTaskInfoList);
         Deencapsulation.setField(routineLoadJob, "progress", progress);
         try {
+            routineLoadJob.writeLock();
             routineLoadJob.afterCommitted(transactionState, true);
         } catch (TransactionException e) {
             Assert.fail();
@@ -169,14 +137,12 @@ public class RoutineLoadJobTest {
     }
 
     @Test
-    public void testGetShowInfo(@Mocked KafkaProgress kafkaProgress, @Injectable UserIdentity userIdentity) {
-        new Expectations() {
-            {
-                userIdentity.getQualifiedUser();
-                minTimes = 0;
-                result = "root";
-            }
-        };
+    public void testGetShowInfo() {
+        KafkaProgress kafkaProgress = Mockito.mock(KafkaProgress.class);
+        UserIdentity userIdentity = Mockito.mock(UserIdentity.class);
+
+        Mockito.when(userIdentity.getQualifiedUser()).thenReturn("root");
+
         RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
         Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.PAUSED);
         ErrorReason errorReason = new ErrorReason(InternalErrorCode.INTERNAL_ERR,
@@ -191,108 +157,111 @@ public class RoutineLoadJobTest {
     }
 
     @Test
-    public void testUpdateWhileDbDeleted(@Mocked Env env, @Mocked InternalCatalog catalog) throws UserException {
-        new Expectations() {
-            {
-                env.getInternalCatalog();
-                minTimes = 0;
-                result = catalog;
-            }
-        };
+    public void testUpdateWhileDbDeleted() throws UserException {
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        GlobalTransactionMgrIface globalTxnMgr = Mockito.mock(GlobalTransactionMgrIface.class);
+        TxnStateCallbackFactory callbackFactory = Mockito.mock(TxnStateCallbackFactory.class);
 
-        new Expectations() {
-            {
-                catalog.getDbNullable(anyLong);
-                minTimes = 0;
-                result = null;
-            }
-        };
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            envStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+            envStatic.when(Env::getCurrentGlobalTransactionMgr).thenReturn(globalTxnMgr);
+            Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
+            Mockito.when(globalTxnMgr.getCallbackFactory()).thenReturn(callbackFactory);
+            Mockito.doReturn(null).when(catalog).getDbNullable(Mockito.anyLong());
 
-        RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
-        routineLoadJob.update();
+            RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
+            routineLoadJob.update();
 
-        Assert.assertEquals(RoutineLoadJob.JobState.CANCELLED, routineLoadJob.getState());
+            Assert.assertEquals(RoutineLoadJob.JobState.CANCELLED, routineLoadJob.getState());
+        }
     }
 
     @Test
-    public void testUpdateWhileTableDeleted(@Mocked Env env, @Mocked InternalCatalog catalog,
-            @Injectable Database database) throws UserException {
-        new Expectations() {
-            {
-                env.getInternalCatalog();
-                minTimes = 0;
-                result = catalog;
-                catalog.getDbNullable(anyLong);
-                minTimes = 0;
-                result = database;
-                database.getTableNullable(anyLong);
-                minTimes = 0;
-                result = null;
-            }
-        };
-        RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
-        routineLoadJob.update();
+    public void testUpdateWhileTableDeleted() throws UserException {
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Database database = Mockito.mock(Database.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        GlobalTransactionMgrIface globalTxnMgr = Mockito.mock(GlobalTransactionMgrIface.class);
+        TxnStateCallbackFactory callbackFactory = Mockito.mock(TxnStateCallbackFactory.class);
 
-        Assert.assertEquals(RoutineLoadJob.JobState.CANCELLED, routineLoadJob.getState());
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            envStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+            envStatic.when(Env::getCurrentGlobalTransactionMgr).thenReturn(globalTxnMgr);
+            Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
+            Mockito.when(globalTxnMgr.getCallbackFactory()).thenReturn(callbackFactory);
+            Mockito.doReturn(database).when(catalog).getDbNullable(Mockito.anyLong());
+            Mockito.doReturn(null).when(database).getTableNullable(Mockito.anyLong());
+
+            RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
+            routineLoadJob.update();
+
+            Assert.assertEquals(RoutineLoadJob.JobState.CANCELLED, routineLoadJob.getState());
+        }
     }
 
     @Test
-    public void testUpdateWhilePartitionChanged(@Mocked Env env, @Mocked InternalCatalog catalog,
-            @Injectable Database database, @Injectable Table table, @Injectable PartitionInfo partitionInfo,
-            @Injectable KafkaProgress kafkaProgress) throws UserException {
+    public void testUpdateWhilePartitionChanged() throws UserException {
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Database database = Mockito.mock(Database.class);
+        Table table = Mockito.mock(Table.class);
+        PartitionInfo partitionInfo = Mockito.mock(PartitionInfo.class);
+        KafkaProgress kafkaProgress = Mockito.mock(KafkaProgress.class);
+
         List<PartitionInfo> partitionInfoList = Lists.newArrayList();
         partitionInfoList.add(partitionInfo);
 
-        new Expectations() {
-            {
-                env.getInternalCatalog();
-                minTimes = 0;
-                result = catalog;
-                catalog.getDbNullable(anyLong);
-                minTimes = 0;
-                result = database;
-                database.getTableNullable(anyLong);
-                minTimes = 0;
-                result = table;
-            }
-        };
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedStatic<KafkaUtil> kafkaUtilStatic = Mockito.mockStatic(KafkaUtil.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            envStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+            Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+            Mockito.doReturn(database).when(catalog).getDbNullable(Mockito.anyLong());
+            Mockito.doReturn(table).when(database).getTableNullable(Mockito.anyLong());
 
-        new MockUp<KafkaUtil>() {
-            @Mock
-            public List<Integer> getAllKafkaPartitions(String brokerList, String topic,
-                    Map<String, String> convertedCustomProperties) throws UserException {
-                return Lists.newArrayList(1, 2, 3);
-            }
-        };
+            kafkaUtilStatic.when(() -> KafkaUtil.getAllKafkaPartitions(
+                    Mockito.anyString(), Mockito.anyString(), Mockito.anyMap()))
+                    .thenReturn(Lists.newArrayList(1, 2, 3));
 
-        new MockUp<KafkaUtil>() {
-            @Mock
-            public List<Pair<Integer, Long>> getRealOffsets(String brokerList, String topic,
-                                                             Map<String, String> convertedCustomProperties,
-                                                             List<Pair<Integer, Long>> offsetFlags)
-                                                             throws LoadException {
-                List<Pair<Integer, Long>> pairList = new ArrayList<>();
-                pairList.add(Pair.of(1, 0L));
-                return pairList;
-            }
-        };
+            kafkaUtilStatic.when(() -> KafkaUtil.getRealOffsets(
+                    Mockito.anyString(), Mockito.anyString(), Mockito.anyMap(), Mockito.anyList()))
+                    .thenAnswer(inv -> {
+                        List<Pair<Integer, Long>> pairList = new ArrayList<>();
+                        pairList.add(Pair.of(1, 0L));
+                        return pairList;
+                    });
 
-        RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
-        Deencapsulation.setField(routineLoadJob, "progress", kafkaProgress);
-        routineLoadJob.update();
+            RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
+            Deencapsulation.setField(routineLoadJob, "progress", kafkaProgress);
+            routineLoadJob.update();
 
-        Assert.assertEquals(RoutineLoadJob.JobState.NEED_SCHEDULE, routineLoadJob.getState());
+            Assert.assertEquals(RoutineLoadJob.JobState.NEED_SCHEDULE, routineLoadJob.getState());
+        }
     }
 
     @Test
-    public void testUpdateNumOfDataErrorRowMoreThanMax(@Mocked Env env) {
-        RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
-        Deencapsulation.setField(routineLoadJob, "maxErrorNum", 0);
-        Deencapsulation.setField(routineLoadJob, "maxBatchRows", 0);
-        Deencapsulation.invoke(routineLoadJob, "updateNumOfData", 1L, 1L, 0L, 1L, 1L, false);
+    public void testUpdateNumOfDataErrorRowMoreThanMax() {
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
 
-        Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, Deencapsulation.getField(routineLoadJob, "state"));
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
 
+            RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
+            Deencapsulation.setField(routineLoadJob, "maxErrorNum", 0);
+            Deencapsulation.setField(routineLoadJob, "maxBatchRows", 0);
+            Deencapsulation.invoke(routineLoadJob, "updateNumOfData", 1L, 1L, 0L, 1L, 1L, false);
+
+            Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, Deencapsulation.getField(routineLoadJob, "state"));
+        }
     }
 
     @Test
@@ -313,24 +282,18 @@ public class RoutineLoadJobTest {
     }
 
     @Test
-    public void testGetBeIdToConcurrentTaskNum(@Injectable RoutineLoadTaskInfo routineLoadTaskInfo,
-                                               @Injectable RoutineLoadTaskInfo routineLoadTaskInfo1) {
+    public void testGetBeIdToConcurrentTaskNum() {
+        RoutineLoadTaskInfo routineLoadTaskInfo = Mockito.mock(RoutineLoadTaskInfo.class);
+        RoutineLoadTaskInfo routineLoadTaskInfo1 = Mockito.mock(RoutineLoadTaskInfo.class);
+
         RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
         List<RoutineLoadTaskInfo> routineLoadTaskInfoList = Lists.newArrayList();
         routineLoadTaskInfoList.add(routineLoadTaskInfo);
         routineLoadTaskInfoList.add(routineLoadTaskInfo1);
         Deencapsulation.setField(routineLoadJob, "routineLoadTaskInfoList", routineLoadTaskInfoList);
 
-        new Expectations() {
-            {
-                routineLoadTaskInfo.getBeId();
-                minTimes = 0;
-                result = 1L;
-                routineLoadTaskInfo1.getBeId();
-                minTimes = 0;
-                result = 1L;
-            }
-        };
+        Mockito.when(routineLoadTaskInfo.getBeId()).thenReturn(1L);
+        Mockito.when(routineLoadTaskInfo1.getBeId()).thenReturn(1L);
 
         Map<Long, Integer> beIdConcurrentTasksNum = routineLoadJob.getBeCurrentTasksNumMap();
         Assert.assertEquals(2, (int) beIdConcurrentTasksNum.get(1L));

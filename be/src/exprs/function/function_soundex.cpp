@@ -24,7 +24,6 @@
 #include "exprs/function/simple_function_factory.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class FunctionSoundex : public IFunction {
 public:
@@ -127,5 +126,4 @@ void register_function_soundex(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionSoundex>();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -21,6 +21,7 @@ import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.NameSpaceContext;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.AnalysisException;
@@ -28,7 +29,6 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
@@ -39,7 +39,6 @@ import org.apache.doris.nereids.trees.expressions.BinaryOperator;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
 import com.google.common.base.Function;
@@ -113,13 +112,11 @@ public class DataDescription {
     // this only used in multi load, all filePaths is file not dir
     private List<Long> fileSize;
     // column names of source files
-    private List<String> fileFieldNames;
-    // Used for mini load
-    private TNetworkAddress beAddr;
+    private final List<String> fileFieldNames;
     private String columnDef;
     private long backendId;
 
-    private String sequenceCol;
+    private final String sequenceCol;
 
     // Merged from fileFieldNames, columnsFromPath and columnMappingList
     // ImportColumnDesc: column name to (expr or null)
@@ -367,14 +364,6 @@ public class DataDescription {
         return isNegative;
     }
 
-    public TNetworkAddress getBeAddr() {
-        return beAddr;
-    }
-
-    public void setBeAddr(TNetworkAddress addr) {
-        beAddr = addr;
-    }
-
     public String getSequenceCol() {
         return sequenceCol;
     }
@@ -413,14 +402,6 @@ public class DataDescription {
 
     public List<ImportColumnDesc> getParsedColumnExprList() {
         return parsedColumnExprList;
-    }
-
-    public void setIsHadoopLoad(boolean isHadoopLoad) {
-        this.isHadoopLoad = isHadoopLoad;
-    }
-
-    public boolean isHadoopLoad() {
-        return isHadoopLoad;
     }
 
     public boolean isClientLocal() {
@@ -652,7 +633,7 @@ public class DataDescription {
 
         // check auth
         if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, fullDbName, tableName,
+                .checkTblPriv(ConnectContext.get(), NameSpaceContext.INTERNAL_CATALOG_NAME, fullDbName, tableName,
                         PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                     ConnectContext.get().getQualifiedUser(),
@@ -662,8 +643,8 @@ public class DataDescription {
         // check hive table auth
         if (isLoadFromTable()) {
             if (!Env.getCurrentEnv().getAccessManager()
-                    .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, fullDbName, srcTableName,
-                            PrivPredicate.SELECT)) {
+                    .checkTblPriv(ConnectContext.get(), NameSpaceContext.INTERNAL_CATALOG_NAME, fullDbName,
+                            srcTableName, PrivPredicate.SELECT)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
                         ConnectContext.get().getQualifiedUser(),
                         ConnectContext.get().getRemoteIP(), fullDbName + ": " + srcTableName);
@@ -740,12 +721,7 @@ public class DataDescription {
         } else {
             sb.append(mergeType.toString());
             sb.append(" DATA INFILE (");
-            Joiner.on(", ").appendTo(sb, Lists.transform(filePaths, new Function<String, String>() {
-                @Override
-                public String apply(String s) {
-                    return "'" + s + "'";
-                }
-            })).append(")");
+            Joiner.on(", ").appendTo(sb, Lists.transform(filePaths, s -> "'" + s + "'")).append(")");
         }
         if (isNegative) {
             sb.append(" NEGATIVE");
@@ -769,7 +745,7 @@ public class DataDescription {
                     .append("'");
         }
         if (!Strings.isNullOrEmpty(analysisMap.get(FileFormatProperties.PROP_FORMAT))) {
-            sb.append(" FORMAT AS '" + analysisMap.get(FileFormatProperties.PROP_FORMAT) + "'");
+            sb.append(" FORMAT AS '").append(analysisMap.get(FileFormatProperties.PROP_FORMAT)).append("'");
         }
         if (fileFieldNames != null && !fileFieldNames.isEmpty()) {
             sb.append(" (");
@@ -781,12 +757,9 @@ public class DataDescription {
         }
         if (columnMappingList != null && !columnMappingList.isEmpty()) {
             sb.append(" SET (");
-            Joiner.on(", ").appendTo(sb, Lists.transform(columnMappingList, new Function<Expr, Object>() {
-                @Override
-                public Object apply(Expr expr) {
-                    return expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE);
-                }
-            })).append(")");
+            Joiner.on(", ").appendTo(sb, Lists.transform(columnMappingList,
+                    (Function<Expr, Object>) expr -> expr.accept(
+                            ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE))).append(")");
         }
         if (whereExpr != null) {
             sb.append(" WHERE ").append(whereExpr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));

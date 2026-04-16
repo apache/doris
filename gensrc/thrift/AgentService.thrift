@@ -222,7 +222,7 @@ struct TCreateTabletReq {
     21: optional TBinlogConfig binlog_config
     22: optional string compaction_policy = "size_based"
     23: optional i64 time_series_compaction_goal_size_mbytes = 1024
-    24: optional i64 time_series_compaction_file_count_threshold = 2000
+    24: optional i64 time_series_compaction_file_count_threshold = 1000
     25: optional i64 time_series_compaction_time_threshold_seconds = 3600
     26: optional i64 time_series_compaction_empty_rowsets_threshold = 5
     27: optional i64 time_series_compaction_level_threshold = 1

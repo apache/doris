@@ -57,7 +57,6 @@
 #include "util/time.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 BaseDeltaWriter::BaseDeltaWriter(const WriteRequest& req, RuntimeProfile* profile,
@@ -386,5 +385,4 @@ int64_t BaseDeltaWriter::num_rows_filtered() const {
     return rowset_writer == nullptr ? 0 : rowset_writer->num_rows_filtered();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

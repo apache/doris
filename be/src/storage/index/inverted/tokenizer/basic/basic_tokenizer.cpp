@@ -20,7 +20,6 @@
 #include <unicode/unistr.h>
 
 namespace doris::segment_v2::inverted_index {
-#include "common/compile_check_begin.h"
 
 #define IS_IN_RANGE(c, start, end) ((uint32_t)((c) - (start)) <= ((end) - (start)))
 
@@ -124,5 +123,4 @@ void BasicTokenizer::cut() {
     }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

@@ -61,7 +61,6 @@
 #include "util/debug_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 VOrcOutputStream::VOrcOutputStream(doris::io::FileWriter* file_writer)
         : _file_writer(file_writer), _cur_pos(0), _written_len(0), _name("VOrcOutputStream") {}
 

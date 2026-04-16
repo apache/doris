@@ -35,11 +35,8 @@
 #include "exec/common/histogram_helpers.hpp"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
-#include "util/io_helper.h"
 
-namespace doris {
-#include "common/compile_check_begin.h"
-} // namespace doris
+namespace doris {} // namespace doris
 
 namespace doris {
 
@@ -232,5 +229,3 @@ private:
 };
 
 } // namespace doris
-
-#include "common/compile_check_end.h"

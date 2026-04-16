@@ -17,33 +17,24 @@
 
 package org.apache.doris.datasource.jdbc.util;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 import java.sql.ResultSetMetaData;
 import java.sql.Types;
 
 public class JdbcFieldSchemaTest {
 
-    @Mocked
-    private ResultSetMetaData metaData;
+    private ResultSetMetaData metaData = Mockito.mock(ResultSetMetaData.class);
 
     @Test
     public void testUseColumnLabelForQueryAlias() throws Exception {
-        new Expectations() {{
-                metaData.getColumnLabel(1);
-                result = "t1";
-                metaData.getColumnType(1);
-                result = Types.VARCHAR;
-                metaData.getColumnTypeName(1);
-                result = "VARCHAR";
-                metaData.getPrecision(1);
-                result = 64;
-                metaData.getScale(1);
-                result = 0;
-            }};
+        Mockito.when(metaData.getColumnLabel(1)).thenReturn("t1");
+        Mockito.when(metaData.getColumnType(1)).thenReturn(Types.VARCHAR);
+        Mockito.when(metaData.getColumnTypeName(1)).thenReturn("VARCHAR");
+        Mockito.when(metaData.getPrecision(1)).thenReturn(64);
+        Mockito.when(metaData.getScale(1)).thenReturn(0);
 
         JdbcFieldSchema schema = new JdbcFieldSchema(metaData, 1);
 
@@ -52,20 +43,12 @@ public class JdbcFieldSchemaTest {
 
     @Test
     public void testFallbackToColumnNameWhenLabelMissing() throws Exception {
-        new Expectations() {{
-                metaData.getColumnLabel(1);
-                result = "";
-                metaData.getColumnName(1);
-                result = "username";
-                metaData.getColumnType(1);
-                result = Types.VARCHAR;
-                metaData.getColumnTypeName(1);
-                result = "VARCHAR";
-                metaData.getPrecision(1);
-                result = 64;
-                metaData.getScale(1);
-                result = 0;
-            }};
+        Mockito.when(metaData.getColumnLabel(1)).thenReturn("");
+        Mockito.when(metaData.getColumnName(1)).thenReturn("username");
+        Mockito.when(metaData.getColumnType(1)).thenReturn(Types.VARCHAR);
+        Mockito.when(metaData.getColumnTypeName(1)).thenReturn("VARCHAR");
+        Mockito.when(metaData.getPrecision(1)).thenReturn(64);
+        Mockito.when(metaData.getScale(1)).thenReturn(0);
 
         JdbcFieldSchema schema = new JdbcFieldSchema(metaData, 1);
 

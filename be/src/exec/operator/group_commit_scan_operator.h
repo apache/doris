@@ -27,7 +27,6 @@
 #include "load/group_commit/group_commit_mgr.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class GroupCommitOperatorX;
 class GroupCommitLocalState final : public ScanLocalState<GroupCommitLocalState> {
@@ -62,5 +61,4 @@ protected:
     const int64_t _table_id;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

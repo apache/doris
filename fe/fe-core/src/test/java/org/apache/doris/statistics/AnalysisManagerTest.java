@@ -19,14 +19,10 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -37,11 +33,9 @@ import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.thrift.TQueryColumn;
 
 import com.google.common.collect.ImmutableList;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -54,27 +48,14 @@ import java.util.concurrent.atomic.AtomicInteger;
 // CHECKSTYLE OFF
 public class AnalysisManagerTest {
     @Test
-    public void testUpdateTaskStatus(@Mocked BaseAnalysisTask task1,
-            @Mocked BaseAnalysisTask task2) {
+    public void testUpdateTaskStatus() {
+        BaseAnalysisTask task1 = Mockito.mock(BaseAnalysisTask.class);
+        BaseAnalysisTask task2 = Mockito.mock(BaseAnalysisTask.class);
 
-        new MockUp<AnalysisManager>() {
-            @Mock
-            public void logCreateAnalysisTask(AnalysisInfo job) {}
-
-            @Mock
-            public void logCreateAnalysisJob(AnalysisInfo job) {}
-
-            @Mock
-            public void updateTableStats(AnalysisInfo jobInfo) {}
-
-        };
-
-        new MockUp<AnalysisInfo>() {
-            @Mock
-            public String toString() {
-                return "";
-            }
-        };
+        AnalysisManager manager = Mockito.spy(new AnalysisManager());
+        Mockito.doNothing().when(manager).logCreateAnalysisTask(Mockito.any());
+        Mockito.doNothing().when(manager).logCreateAnalysisJob(Mockito.any());
+        Mockito.doNothing().when(manager).updateTableStats(Mockito.any());
 
         AnalysisInfo job = new AnalysisInfoBuilder().setJobId(1)
                 .setState(AnalysisState.PENDING).setAnalysisType(AnalysisType.FUNDAMENTALS)
@@ -85,7 +66,6 @@ public class AnalysisManagerTest {
         AnalysisInfo taskInfo2 = new AnalysisInfoBuilder().setJobId(1)
                 .setTaskId(3).setAnalysisType(AnalysisType.FUNDAMENTALS).setJobType(JobType.MANUAL)
                 .setState(AnalysisState.PENDING).build();
-        AnalysisManager manager = new AnalysisManager();
         manager.replayCreateAnalysisJob(job);
         manager.replayCreateAnalysisTask(taskInfo1);
         manager.replayCreateAnalysisTask(taskInfo2);
@@ -146,26 +126,17 @@ public class AnalysisManagerTest {
         OlapTable table = new OlapTable(200, "testTable", schema, null, null, null);
         db.createTableWithLock(table, true, false);
 
-        new MockUp<Table>() {
-            @Mock
-            public DatabaseIf getDatabase() {
-                return db;
-            }
-        };
-
-        new MockUp<Database>() {
-            @Mock
-            public CatalogIf getCatalog() {
-                return testCatalog;
-            }
-        };
+        OlapTable spyTable = Mockito.spy(table);
+        Database spyDb = Mockito.spy(db);
+        Mockito.doReturn(spyDb).when(spyTable).getDatabase();
+        Mockito.doReturn(testCatalog).when(spyDb).getCatalog();
 
         SlotReference slot1 = new SlotReference(new ExprId(1), "slot1", IntegerType.INSTANCE, true,
-                new ArrayList<>(), table, column1, table, column1, ImmutableList.of());
+                new ArrayList<>(), spyTable, column1, spyTable, column1, ImmutableList.of());
         SlotReference slot2 = new SlotReference(new ExprId(2), "slot2", IntegerType.INSTANCE, true,
-                new ArrayList<>(), table, column2, table, column2, ImmutableList.of());
+                new ArrayList<>(), spyTable, column2, spyTable, column2, ImmutableList.of());
         SlotReference slot3 = new SlotReference(new ExprId(3), "slot3", IntegerType.INSTANCE, true,
-                new ArrayList<>(), table, column3, table, column3, ImmutableList.of());
+                new ArrayList<>(), spyTable, column3, spyTable, column3, ImmutableList.of());
         Set<Slot> set1 = new HashSet<>();
         set1.add(slot1);
         set1.add(slot2);
@@ -284,19 +255,18 @@ public class AnalysisManagerTest {
     @Test
     public void testAsyncDropStats() throws InterruptedException {
         AtomicInteger count = new AtomicInteger(0);
-        new MockUp<AnalysisManager>() {
-            @Mock
-            public void invalidateLocalStats(long catalogId, long dbId, long tableId, Set<String> columns,
-                                             TableStatsMeta tableStats, PartitionNamesInfo partitionNames) {
-                try {
-                    Thread.sleep(1000);
-                    count.incrementAndGet();
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
+        AnalysisManager analysisManager = Mockito.spy(new AnalysisManager());
+        Mockito.doAnswer(invocation -> {
+            try {
+                Thread.sleep(1000);
+                count.incrementAndGet();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
             }
-        };
-        AnalysisManager analysisManager = new AnalysisManager();
+            return null;
+        }).when(analysisManager).invalidateLocalStats(
+                Mockito.anyLong(), Mockito.anyLong(), Mockito.anyLong(),
+                Mockito.any(), Mockito.any(), Mockito.any());
         for (int i = 0; i < 20; i++) {
             System.out.println("Submit " + i);
             analysisManager.submitAsyncDropStatsTask(0, 0, 0, null, false);

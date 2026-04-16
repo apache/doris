@@ -22,11 +22,12 @@ import org.apache.doris.thrift.TBinlogType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import mockit.Mock;
-import mockit.MockUp;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
 import java.util.List;
@@ -39,6 +40,7 @@ public class DbBinlogTest {
     private int tableNum = 5;
     private int gcTableNum = 2;
     private List<Long> tableIds;
+    private MockedStatic<BinlogUtils> mockedBinlogUtils;
 
     private int totalBinlogNum = 10;
     private int expiredBinlogNum = 3;
@@ -57,12 +59,16 @@ public class DbBinlogTest {
             tableIds.add(baseTableId + i);
         }
 
-        new MockUp<BinlogUtils>() {
-            @Mock
-            public long getExpiredMs(long direct) {
-                return direct;
-            }
-        };
+        mockedBinlogUtils = Mockito.mockStatic(BinlogUtils.class, Mockito.CALLS_REAL_METHODS);
+        mockedBinlogUtils.when(() -> BinlogUtils.getExpiredMs(Mockito.anyLong()))
+                .thenAnswer(invocation -> (long) invocation.getArgument(0));
+    }
+
+    @After
+    public void tearDown() {
+        if (mockedBinlogUtils != null) {
+            mockedBinlogUtils.close();
+        }
     }
 
     @Test
@@ -258,17 +264,9 @@ public class DbBinlogTest {
         int maxValue = 12;
 
         // mock up
-        new MockUp<BinlogConfigCache>() {
-            @Mock
-            boolean isEnableDB(long dbId) {
-                return true;
-            }
-
-            @Mock
-            boolean isEnableTable(long dbId, long tableId) {
-                return true;
-            }
-        };
+        BinlogConfigCache mockCache = Mockito.mock(BinlogConfigCache.class);
+        Mockito.when(mockCache.isEnableDB(Mockito.anyLong())).thenReturn(true);
+        Mockito.when(mockCache.isEnableTable(Mockito.anyLong(), Mockito.anyLong())).thenReturn(true);
 
         // reflect field
         Field allBinlogsField = DBBinlog.class.getDeclaredField("allBinlogs");
@@ -284,7 +282,7 @@ public class DbBinlogTest {
             }
             TBinlog binlog = BinlogTestUtils.newBinlog(dbId, baseTableId, 1, 1);
             binlog.setType(type);
-            DBBinlog dbBinlog = new DBBinlog(new BinlogConfigCache(), binlog);
+            DBBinlog dbBinlog = new DBBinlog(mockCache, binlog);
 
             dbBinlog.addBinlog(binlog, null);
 

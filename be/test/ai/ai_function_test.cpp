@@ -15,16 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <arpa/inet.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gtest/gtest.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
 #include <string>
+#include <thread>
 
 #include "core/block/block.h"
 #include "core/column/column_array.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
+#include "exprs/function/ai/ai_adapter.h"
 #include "exprs/function/ai/ai_classify.h"
 #include "exprs/function/ai/ai_extract.h"
 #include "exprs/function/ai/ai_filter.h"
@@ -40,6 +46,118 @@
 #include "testutil/mock/mock_runtime_state.h"
 
 namespace doris {
+
+class FunctionAITransportTestHelper : public FunctionAISentiment {
+public:
+    using FunctionAISentiment::do_send_request;
+    using FunctionAISentiment::execute_embedding_request;
+};
+
+class EmptyEmbeddingResultAdapter : public MockAdapter {
+public:
+    Status parse_embedding_response(const std::string& /*response_body*/,
+                                    std::vector<std::vector<float>>& /*results*/) const override {
+        return Status::OK();
+    }
+};
+
+class OneShotHttpServer {
+public:
+    OneShotHttpServer(int status_code, std::string response_body)
+            : _status_code(status_code), _response_body(std::move(response_body)) {
+        _listen_fd = socket(AF_INET, SOCK_STREAM, 0);
+        DCHECK_GE(_listen_fd, 0);
+
+        int reuse_addr = 1;
+        int ret = setsockopt(_listen_fd, SOL_SOCKET, SO_REUSEADDR, &reuse_addr, sizeof(reuse_addr));
+        DCHECK_EQ(ret, 0);
+
+        sockaddr_in addr {};
+        addr.sin_family = AF_INET;
+        addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        addr.sin_port = 0;
+        ret = bind(_listen_fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
+        DCHECK_EQ(ret, 0);
+        ret = listen(_listen_fd, 1);
+        DCHECK_EQ(ret, 0);
+
+        socklen_t addr_len = sizeof(addr);
+        ret = getsockname(_listen_fd, reinterpret_cast<sockaddr*>(&addr), &addr_len);
+        DCHECK_EQ(ret, 0);
+        _port = ntohs(addr.sin_port);
+
+        _thread = std::thread([this] { _serve_once(); });
+    }
+
+    ~OneShotHttpServer() {
+        if (_thread.joinable()) {
+            _thread.join();
+        }
+        if (_listen_fd >= 0) {
+            close(_listen_fd);
+        }
+    }
+
+    std::string endpoint() const { return "http://127.0.0.1:" + std::to_string(_port); }
+
+    std::string join_and_get_request() {
+        if (_thread.joinable()) {
+            _thread.join();
+        }
+        return _request;
+    }
+
+private:
+    void _serve_once() {
+        int client_fd = accept(_listen_fd, nullptr, nullptr);
+        DCHECK_GE(client_fd, 0);
+
+        char buffer[4096];
+        while (true) {
+            ssize_t read_bytes = recv(client_fd, buffer, sizeof(buffer), 0);
+            if (read_bytes <= 0) {
+                break;
+            }
+            _request.append(buffer, read_bytes);
+            if (_request.find("\r\n\r\n") != std::string::npos) {
+                auto header_end = _request.find("\r\n\r\n");
+                size_t body_length = 0;
+                size_t length_pos = _request.find("Content-Length:");
+                if (length_pos != std::string::npos) {
+                    size_t value_begin = length_pos + sizeof("Content-Length:") - 1;
+                    size_t value_end = _request.find("\r\n", value_begin);
+                    std::string length_str = _request.substr(value_begin, value_end - value_begin);
+                    body_length = std::stoul(length_str);
+                }
+                if (_request.size() >= header_end + 4 + body_length) {
+                    break;
+                }
+            }
+        }
+
+        std::string status_text = _status_code == 200 ? "OK" : "Internal Server Error";
+        std::string response = "HTTP/1.1 " + std::to_string(_status_code) + " " + status_text +
+                               "\r\nContent-Type: application/json\r\nContent-Length: " +
+                               std::to_string(_response_body.size()) +
+                               "\r\nConnection: close\r\n\r\n" + _response_body;
+        size_t sent_bytes = 0;
+        while (sent_bytes < response.size()) {
+            ssize_t sent =
+                    send(client_fd, response.data() + sent_bytes, response.size() - sent_bytes, 0);
+            DCHECK_GT(sent, 0);
+            sent_bytes += sent;
+        }
+        shutdown(client_fd, SHUT_RDWR);
+        close(client_fd);
+    }
+
+    int _listen_fd = -1;
+    uint16_t _port = 0;
+    int _status_code;
+    std::string _response_body;
+    std::string _request;
+    std::thread _thread;
+};
 
 TEST(AIFunctionTest, AISummarizeTest) {
     FunctionAISummarize function;
@@ -369,6 +487,43 @@ TEST(AIFunctionTest, AISimilarityTrimWhitespace) {
     unsetenv("AI_TEST_RESULT");
 }
 
+TEST(AIFunctionTest, AISimilarityInvalidValue) {
+    auto runtime_state = std::make_unique<MockRuntimeState>();
+    auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
+
+    std::vector<std::string> invalid_cases = {"abc", "1.2x", "", " ", "\n\t", "1,2"};
+
+    for (const auto& invalid_value : invalid_cases) {
+        setenv("AI_TEST_RESULT", invalid_value.c_str(), 1);
+
+        std::vector<std::string> resources = {"mock_resource"};
+        std::vector<std::string> text1 = {"Test text 1"};
+        std::vector<std::string> text2 = {"Test text 2"};
+        auto col_resource = ColumnHelper::create_column<DataTypeString>(resources);
+        auto col_text1 = ColumnHelper::create_column<DataTypeString>(text1);
+        auto col_text2 = ColumnHelper::create_column<DataTypeString>(text2);
+
+        Block block;
+        block.insert({std::move(col_resource), std::make_shared<DataTypeString>(), "resource"});
+        block.insert({std::move(col_text1), std::make_shared<DataTypeString>(), "text1"});
+        block.insert({std::move(col_text2), std::make_shared<DataTypeString>(), "text2"});
+        block.insert({nullptr, std::make_shared<DataTypeFloat32>(), "result"});
+
+        ColumnNumbers arguments = {0, 1, 2};
+        size_t result_idx = 3;
+
+        auto similarity_func = FunctionAISimilarity::create();
+        Status exec_status = similarity_func->execute_impl(ctx.get(), block, arguments, result_idx,
+                                                           text1.size());
+
+        ASSERT_FALSE(exec_status.ok())
+                << "Should have failed for invalid value: '" << invalid_value << "'";
+        ASSERT_NE(exec_status.to_string().find("Failed to parse float value"), std::string::npos);
+    }
+
+    unsetenv("AI_TEST_RESULT");
+}
+
 TEST(AIFunctionTest, AIFilterTest) {
     FunctionAIFilter function;
 
@@ -415,6 +570,39 @@ TEST(AIFunctionTest, AIFilterExecuteTest) {
             assert_cast<const ColumnUInt8&>(*block.get_by_position(result_idx).column);
     UInt8 val = res_col.get_data()[0];
     ASSERT_TRUE(val == 0);
+}
+
+TEST(AIFunctionTest, AIFilterExecuteMultipleRows) {
+    auto runtime_state = std::make_unique<MockRuntimeState>();
+    auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
+
+    setenv("AI_TEST_RESULT", " 1 ", 1);
+
+    std::vector<std::string> resources = {"mock_resource", "mock_resource"};
+    std::vector<std::string> texts = {"This is valid.", "This is also valid."};
+    auto col_resource = ColumnHelper::create_column<DataTypeString>(resources);
+    auto col_text = ColumnHelper::create_column<DataTypeString>(texts);
+
+    Block block;
+    block.insert({std::move(col_resource), std::make_shared<DataTypeString>(), "resource"});
+    block.insert({std::move(col_text), std::make_shared<DataTypeString>(), "text"});
+    block.insert({nullptr, std::make_shared<DataTypeBool>(), "result"});
+
+    ColumnNumbers arguments = {0, 1};
+    size_t result_idx = 2;
+
+    auto filter_func = FunctionAIFilter::create();
+    Status exec_status =
+            filter_func->execute_impl(ctx.get(), block, arguments, result_idx, texts.size());
+
+    unsetenv("AI_TEST_RESULT");
+
+    ASSERT_TRUE(exec_status.ok()) << exec_status.to_string();
+    const auto& res_col =
+            assert_cast<const ColumnUInt8&>(*block.get_by_position(result_idx).column);
+    ASSERT_EQ(res_col.size(), 2);
+    ASSERT_EQ(res_col.get_data()[0], 1);
+    ASSERT_EQ(res_col.get_data()[1], 1);
 }
 
 TEST(AIFunctionTest, AIFilterTrimWhitespace) {
@@ -660,6 +848,139 @@ TEST(AIFunctionTest, NormalizeEndpointNoopForOtherPaths) {
     resource.endpoint = "https://localhost/v1/responses";
     FunctionAISentimentTestHelper::normalize_endpoint(resource);
     ASSERT_EQ(resource.endpoint, "https://localhost/v1/responses");
+}
+
+TEST(AIFunctionTest, DoSendRequestTransportError) {
+    TQueryOptions query_options = create_fake_query_options();
+    query_options.__set_query_timeout(5);
+    auto query_ctx = MockQueryContext::create(TUniqueId(), ExecEnv::GetInstance(), query_options);
+    TQueryGlobals query_globals;
+    RuntimeState runtime_state(TUniqueId(), 0, query_options, query_globals, nullptr,
+                               query_ctx.get());
+    auto ctx = FunctionContext::create_context(&runtime_state, {}, {});
+
+    TAIResource config;
+    config.endpoint = "http://127.0.0.1:1";
+    config.provider_type = "OPENAI";
+    config.model_name = "test-model";
+    config.api_key = "secret";
+
+    std::shared_ptr<AIAdapter> adapter = std::make_shared<OpenAIAdapter>();
+    adapter->init(config);
+
+    HttpClient client;
+    std::string response;
+    FunctionAITransportTestHelper helper;
+    Status st = helper.do_send_request(&client, "{}", response, config, adapter, ctx.get());
+
+    ASSERT_FALSE(st.ok());
+    ASSERT_EQ(response, "");
+}
+
+TEST(AIFunctionTest, DoSendRequestNon200) {
+    TQueryOptions query_options = create_fake_query_options();
+    query_options.__set_query_timeout(5);
+    auto query_ctx = MockQueryContext::create(TUniqueId(), ExecEnv::GetInstance(), query_options);
+    TQueryGlobals query_globals;
+    RuntimeState runtime_state(TUniqueId(), 0, query_options, query_globals, nullptr,
+                               query_ctx.get());
+    auto ctx = FunctionContext::create_context(&runtime_state, {}, {});
+
+    OneShotHttpServer server(500, R"({"error":"bad request"})");
+
+    TAIResource config;
+    config.endpoint = server.endpoint();
+    config.provider_type = "OPENAI";
+    config.model_name = "test-model";
+    config.api_key = "secret";
+
+    std::shared_ptr<AIAdapter> adapter = std::make_shared<OpenAIAdapter>();
+    adapter->init(config);
+
+    HttpClient client;
+    std::string response;
+    FunctionAITransportTestHelper helper;
+    Status st = helper.do_send_request(&client, R"({"message":"hello"})", response, config, adapter,
+                                       ctx.get());
+
+    ASSERT_FALSE(st.ok());
+    ASSERT_NE(st.to_string().find("http status code is not 200"), std::string::npos);
+    ASSERT_EQ(response, R"({"error":"bad request"})");
+
+    std::string request = server.join_and_get_request();
+    ASSERT_NE(request.find("Authorization: Bearer secret"), std::string::npos);
+    ASSERT_NE(request.find("Content-Type: application/json"), std::string::npos);
+}
+
+TEST(AIFunctionTest, DoSendRequestSuccess) {
+    TQueryOptions query_options = create_fake_query_options();
+    query_options.__set_query_timeout(5);
+    auto query_ctx = MockQueryContext::create(TUniqueId(), ExecEnv::GetInstance(), query_options);
+    TQueryGlobals query_globals;
+    RuntimeState runtime_state(TUniqueId(), 0, query_options, query_globals, nullptr,
+                               query_ctx.get());
+    auto ctx = FunctionContext::create_context(&runtime_state, {}, {});
+
+    OneShotHttpServer server(200, R"({"ok":true})");
+
+    TAIResource config;
+    config.endpoint = server.endpoint();
+    config.provider_type = "OPENAI";
+    config.model_name = "test-model";
+    config.api_key = "secret";
+
+    std::shared_ptr<AIAdapter> adapter = std::make_shared<OpenAIAdapter>();
+    adapter->init(config);
+
+    HttpClient client;
+    std::string response;
+    FunctionAITransportTestHelper helper;
+    Status st = helper.do_send_request(&client, R"({"message":"hello"})", response, config, adapter,
+                                       ctx.get());
+
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    ASSERT_EQ(response, R"({"ok":true})");
+
+    std::string request = server.join_and_get_request();
+    ASSERT_NE(request.find("POST "), std::string::npos);
+    ASSERT_NE(request.find(R"({"message":"hello"})"), std::string::npos);
+}
+
+TEST(AIFunctionTest, ExecuteEmbeddingRequestMockSuccess) {
+    auto runtime_state = std::make_unique<MockRuntimeState>();
+    auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
+
+    TAIResource config;
+    config.provider_type = "MOCK";
+    std::shared_ptr<AIAdapter> adapter = std::make_shared<MockAdapter>();
+    adapter->init(config);
+
+    FunctionAITransportTestHelper helper;
+    std::vector<float> result;
+    Status st = helper.execute_embedding_request("{}", result, config, adapter, ctx.get());
+
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    ASSERT_EQ(result.size(), 5);
+    for (size_t i = 0; i < result.size(); ++i) {
+        ASSERT_FLOAT_EQ(result[i], static_cast<float>(i));
+    }
+}
+
+TEST(AIFunctionTest, ExecuteEmbeddingRequestEmptyResult) {
+    auto runtime_state = std::make_unique<MockRuntimeState>();
+    auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
+
+    TAIResource config;
+    config.provider_type = "MOCK";
+    std::shared_ptr<AIAdapter> adapter = std::make_shared<EmptyEmbeddingResultAdapter>();
+    adapter->init(config);
+
+    FunctionAITransportTestHelper helper;
+    std::vector<float> result;
+    Status st = helper.execute_embedding_request("{}", result, config, adapter, ctx.get());
+
+    ASSERT_FALSE(st.ok());
+    ASSERT_NE(st.to_string().find("AI returned empty result"), std::string::npos);
 }
 
 } // namespace doris

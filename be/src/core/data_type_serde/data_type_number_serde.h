@@ -36,7 +36,6 @@
 
 namespace doris {
 class JsonbOutStream;
-#include "common/compile_check_begin.h"
 class Arena;
 
 // special data type using, maybe has various serde actions, so use specific date serde
@@ -312,5 +311,4 @@ Status DataTypeNumberSerDe<T>::write_column_to_pb(const IColumn& column, PValues
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -54,7 +54,6 @@
 #include "util/coding.h"
 
 namespace cctz {
-#include "common/compile_check_begin.h"
 class time_zone;
 } // namespace cctz
 namespace doris {
@@ -1253,5 +1252,4 @@ Status IcebergOrcReader::_process_equality_delete(
     }
     return Status::OK();
 }
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -36,7 +36,6 @@ class ColumnDecimal;
 template <typename T>
 class ColumnStr;
 using ColumnString = ColumnStr<UInt32>;
-#include "common/compile_check_begin.h"
 class ByteArrayDictDecoder final : public BaseDictDecoder {
 public:
     ByteArrayDictDecoder() = default;
@@ -63,6 +62,5 @@ protected:
     DorisVector<uint8_t> _dict_data;
     size_t _max_value_length;
 };
-#include "common/compile_check_end.h"
 
 } // namespace doris

@@ -26,7 +26,6 @@
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
 #include "core/data_type/data_type.h"
-#include "storage/cache/schema_cache.h"
 #include "storage/field.h"
 #include "storage/iterators.h"
 #include "storage/olap_common.h"
@@ -39,8 +38,6 @@ namespace doris {
 class RuntimeProfile;
 
 using namespace ErrorCode;
-
-#include "common/compile_check_begin.h"
 
 Status VStatisticsIterator::init(const StorageReadOptions& opts) {
     if (!_init) {
@@ -480,7 +477,5 @@ RowwiseIterator* new_vstatistics_iterator(std::shared_ptr<Segment> segment, cons
 RowwiseIteratorUPtr new_auto_increment_iterator(const Schema& schema, size_t num_rows) {
     return std::make_unique<VAutoIncrementIterator>(schema, num_rows);
 }
-
-#include "common/compile_check_end.h"
 
 } // namespace doris

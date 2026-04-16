@@ -23,7 +23,6 @@
 #include "exprs/aggregate/helpers.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 template <bool nullable>
 AggregateFunctionPtr create_with_int_data_type(const DataTypes& argument_types) {

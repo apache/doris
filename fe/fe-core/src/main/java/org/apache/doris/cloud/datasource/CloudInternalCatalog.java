@@ -27,6 +27,7 @@ import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.IndexToPbConvertor;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
@@ -354,7 +355,8 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
         if (indexes != null) {
             for (Index index : indexes) {
-                schemaBuilder.addIndex(index.toPb(columnMap, index.getColumnUniqueIds(schemaColumns)));
+                schemaBuilder.addIndex(
+                        IndexToPbConvertor.toPb(index, columnMap, index.getColumnUniqueIds(schemaColumns)));
             }
         }
 

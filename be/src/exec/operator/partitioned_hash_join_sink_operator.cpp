@@ -35,7 +35,6 @@
 #include "util/pretty_printer.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 Status PartitionedHashJoinSinkLocalState::init(doris::RuntimeState* state,
                                                doris::LocalSinkStateInfo& info) {
@@ -576,5 +575,4 @@ bool PartitionedHashJoinSinkLocalState::is_blockable() const {
     return _shared_state->_is_spilled;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

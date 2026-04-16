@@ -28,11 +28,11 @@ import org.apache.doris.filesystem.RemoteIterator;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
+import org.mockito.Mockito;
 
 import java.util.Iterator;
 import java.util.List;
@@ -47,8 +47,9 @@ public class TransactionScopeCachingDirectoryListerTest {
     }
 
     @Test
-    public void testConcurrentDirectoryListing(@Mocked TableIf table)
+    public void testConcurrentDirectoryListing()
             throws FileSystemIOException {
+        TableIf table = Mockito.mock(TableIf.class);
         FileEntry firstFile = fileEntry("file:/x/x");
         FileEntry secondFile = fileEntry("file:/x/y");
         FileEntry thirdFile = fileEntry("file:/y/z");
@@ -94,8 +95,9 @@ public class TransactionScopeCachingDirectoryListerTest {
     }
 
     @Test
-    public void testConcurrentDirectoryListingException(@Mocked TableIf table)
+    public void testConcurrentDirectoryListingException()
             throws FileSystemIOException {
+        TableIf table = Mockito.mock(TableIf.class);
         FileEntry file = fileEntry("file:/x/x");
 
         String path = "file:/x";

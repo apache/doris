@@ -158,7 +158,7 @@ private:
     const RowDescriptor* _row_desc = nullptr;
     ObjectPool _pool;
     TSortInfo _sort_info;
-    VSortExecExprs _vsort_exec_exprs;
+    VExprContextSPtrs _ordering_expr_ctxs;
     // The underlying partition writer that handles actual Parquet/ORC file I/O
     std::shared_ptr<VIcebergPartitionWriter> _iceberg_partition_writer;
     // Lambda for creating new writers when file splitting occurs

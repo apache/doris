@@ -36,7 +36,6 @@
 #include "util/md5.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 CheckRPCChannelAction::CheckRPCChannelAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
                                              TPrivilegeType::type type)
@@ -110,5 +109,4 @@ void CheckRPCChannelAction::handle(HttpRequest* req) {
     }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

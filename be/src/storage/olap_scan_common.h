@@ -51,10 +51,8 @@
 #include "storage/olap_tuple.h"
 #include "storage/olap_utils.h"
 #include "storage/predicate/filter_olap_param.h"
-#include "util/io_helper.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 /**
  * @brief Column's value range
@@ -1045,5 +1043,4 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -36,7 +36,6 @@ class OffsetIndex;
 } // namespace tparquet
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class PageIndex {
 public:
     PageIndex() = default;
@@ -54,6 +53,5 @@ private:
     int64_t _offset_index_start;
     int64_t _offset_index_size;
 };
-#include "common/compile_check_end.h"
 
 } // namespace doris

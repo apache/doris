@@ -28,7 +28,6 @@
 #include "exec/common/endian.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 Status Decompressor::create_decompressor(CompressType type,
                                          std::unique_ptr<Decompressor>* decompressor) {
@@ -714,5 +713,4 @@ std::string SnappyBlockDecompressor::debug_info() {
     return ss.str();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -31,13 +31,13 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -172,13 +172,13 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
     }
 
     /**getWhereClauseItemColumn*/
-    public Column getWhereClauseItemColumn(OlapTable olapTable) throws DdlException {
+    public Column getWhereClauseItemColumn() throws DdlException {
         if (whereClauseItem == null) {
             return null;
         }
         // sessionVars is null because in BindSink, the where clause guard expr
         // can directly use the session var in materialized view metadata.
-        return whereClauseItem.toMVColumn(olapTable, null);
+        return whereClauseItem.toMVColumn(null);
     }
 
     public MVColumnItem getWhereClauseItem() {

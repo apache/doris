@@ -58,7 +58,6 @@
 #include "storage/tablet/tablet_schema.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 void TabletReader::ReaderParams::check_validation() const {
@@ -576,5 +575,4 @@ Status TabletReader::init_reader_params_and_create_block(
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

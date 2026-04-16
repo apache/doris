@@ -25,7 +25,6 @@
 
 #include "core/pod_array.h"
 #include "core/string_buffer.hpp"
-#include "util/io_helper.h"
 
 namespace doris {
 

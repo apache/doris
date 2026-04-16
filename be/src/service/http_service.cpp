@@ -85,7 +85,6 @@
 #include "storage/storage_engine.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 namespace {
 std::shared_ptr<bufferevent_rate_limit_group> get_rate_limit_group(event_base* event_base) {
     auto rate_limit = config::download_binlog_rate_limit_kbs;
@@ -541,5 +540,4 @@ int HttpService::get_real_port() const {
     return _ev_http_server->get_real_port();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

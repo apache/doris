@@ -45,7 +45,6 @@ namespace doris {
 class PColumnMeta;
 enum PGenericType_TypeId : int;
 
-#include "common/compile_check_begin.h"
 class IDataType;
 class IColumn;
 class BufferWritable;
@@ -236,5 +235,4 @@ char* serialize_const_flag_and_row_num(const IColumn** column, char* buf,
 const char* deserialize_const_flag_and_row_num(const char* buf, MutableColumnPtr* column,
                                                size_t* real_have_saved_num);
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -21,7 +21,6 @@ import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.FakeEditLog;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
@@ -45,14 +44,14 @@ import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-import mockit.Expectations;
+import org.mockito.Mockito;
 
 import java.util.LinkedList;
 import java.util.List;
 import java.util.function.Function;
 
 public class AccessTestUtil {
-    private static FakeEditLog fakeEditLog;
+    // FakeEditLog field removed - using Mockito.mock(EditLog.class) directly
 
     public static SystemInfoService fetchSystemInfoService() {
         SystemInfoService clusterInfo = new SystemInfoService();
@@ -60,50 +59,32 @@ public class AccessTestUtil {
     }
 
     public static AccessControllerManager fetchAdminAccess() {
-        Auth auth = new Auth();
-        AccessControllerManager accessManager = new AccessControllerManager(auth);
+        Auth auth = Mockito.spy(new Auth());
         try {
-            new Expectations(auth) {
-                {
-                    auth.setPassword((UserIdentity) any, (byte[]) any);
-                    minTimes = 0;
-                }
-            };
-
-            new Expectations(accessManager) {
-                {
-                    accessManager.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
-                    minTimes = 0;
-                    result = true;
-
-                    accessManager.checkDbPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
-                    minTimes = 0;
-                    result = true;
-
-                    accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, anyString,
-                            (PrivPredicate) any);
-                    minTimes = 0;
-                    result = true;
-
-                    accessManager.getAuth();
-                    minTimes = 0;
-                    result = auth;
-                }
-            };
+            Mockito.doNothing().when(auth).setPassword(Mockito.any(UserIdentity.class), Mockito.any(byte[].class));
         } catch (DdlException e) {
             e.printStackTrace();
         }
+        AccessControllerManager accessManager = Mockito.spy(new AccessControllerManager(auth));
+        Mockito.doReturn(true).when(accessManager).checkGlobalPriv(Mockito.nullable(ConnectContext.class),
+                Mockito.any(PrivPredicate.class));
+        Mockito.doReturn(true).when(accessManager).checkDbPriv(Mockito.nullable(ConnectContext.class),
+                Mockito.anyString(), Mockito.anyString(), Mockito.any(PrivPredicate.class));
+        Mockito.doReturn(true).when(accessManager).checkTblPriv(Mockito.nullable(ConnectContext.class),
+                Mockito.anyString(), Mockito.anyString(), Mockito.anyString(),
+                Mockito.any(PrivPredicate.class));
+        Mockito.doReturn(auth).when(accessManager).getAuth();
         return accessManager;
     }
 
     public static Env fetchAdminCatalog() {
         try {
-            Env env = Deencapsulation.newInstance(Env.class);
+            Env env = Mockito.spy(Deencapsulation.newInstance(Env.class));
 
             AccessControllerManager accessManager = fetchAdminAccess();
 
-            fakeEditLog = new FakeEditLog();
-            EditLog editLog = new EditLog("name");
+            EditLog editLog = Mockito.mock(EditLog.class);
+            Mockito.when(editLog.getNumEditStreams()).thenReturn(1);
             env.setEditLog(editLog);
 
             Database db = new Database(50000L, "testDb");
@@ -121,86 +102,28 @@ public class AccessTestUtil {
             table.setBaseIndexId(baseIndex.getId());
             db.registerTable(table);
 
-            InternalCatalog catalog = Deencapsulation.newInstance(InternalCatalog.class);
-            new Expectations(catalog) {
-                {
-                    catalog.getDbNullable(50000L);
-                    minTimes = 0;
-                    result = db;
+            InternalCatalog catalog = Mockito.spy(Deencapsulation.newInstance(InternalCatalog.class));
+            Mockito.doReturn(db).when(catalog).getDbNullable(50000L);
+            Mockito.doReturn(new Database()).when(catalog).getDbNullable(Mockito.anyString());
+            Mockito.doReturn(db).when(catalog).getDbNullable("testDb");
+            Mockito.doReturn(null).when(catalog).getDbNullable("emptyDb");
+            Mockito.doReturn(Lists.newArrayList("testDb")).when(catalog).getDbNames();
 
-                    catalog.getDbNullable("testDb");
-                    minTimes = 0;
-                    result = db;
+            CatalogMgr dsMgr = Mockito.spy(new CatalogMgr());
+            Mockito.doReturn(catalog).when(dsMgr).getCatalog(Mockito.anyString());
+            Mockito.doReturn(catalog).when(dsMgr).getCatalogOrException(Mockito.anyString(),
+                    Mockito.any(Function.class));
+            Mockito.doReturn(catalog).when(dsMgr).getCatalogOrAnalysisException(Mockito.anyString());
 
-                    catalog.getDbNullable("emptyDb");
-                    minTimes = 0;
-                    result = null;
-
-                    catalog.getDbNullable(anyString);
-                    minTimes = 0;
-                    result = new Database();
-
-                    catalog.getDbNames();
-                    minTimes = 0;
-                    result = Lists.newArrayList("testDb");
-                }
-            };
-
-            CatalogMgr dsMgr = new CatalogMgr();
-            new Expectations(dsMgr) {
-                {
-                    dsMgr.getCatalog((String) any);
-                    minTimes = 0;
-                    result = catalog;
-
-                    dsMgr.getCatalogOrException((String) any, (Function) any);
-                    minTimes = 0;
-                    result = catalog;
-
-                    dsMgr.getCatalogOrAnalysisException((String) any);
-                    minTimes = 0;
-                    result = catalog;
-                }
-            };
-
-            new Expectations(env, catalog) {
-                {
-                    env.getAccessManager();
-                    minTimes = 0;
-                    result = accessManager;
-
-                    env.getCurrentCatalog();
-                    minTimes = 0;
-                    result = catalog;
-
-                    env.getInternalCatalog();
-                    minTimes = 0;
-                    result = catalog;
-
-                    env.getEditLog();
-                    minTimes = 0;
-                    result = editLog;
-
-                    env.changeDb((ConnectContext) any, "blockDb");
-                    minTimes = 0;
-                    result = new DdlException("failed");
-
-                    env.changeDb((ConnectContext) any, anyString);
-                    minTimes = 0;
-
-                    env.getBrokerMgr();
-                    minTimes = 0;
-                    result = new BrokerMgr();
-
-                    env.getCatalogMgr();
-                    minTimes = 0;
-                    result = dsMgr;
-
-                    env.isCheckpointThread();
-                    minTimes = 0;
-                    result = false;
-                }
-            };
+            Mockito.doReturn(accessManager).when(env).getAccessManager();
+            Mockito.doReturn(catalog).when(env).getCurrentCatalog();
+            Mockito.doReturn(catalog).when(env).getInternalCatalog();
+            Mockito.doReturn(editLog).when(env).getEditLog();
+            Mockito.doNothing().when(env).changeDb(Mockito.nullable(ConnectContext.class), Mockito.anyString());
+            Mockito.doThrow(new DdlException("failed")).when(env).changeDb(Mockito.nullable(ConnectContext.class),
+                    Mockito.eq("blockDb"));
+            Mockito.doReturn(new BrokerMgr()).when(env).getBrokerMgr();
+            Mockito.doReturn(dsMgr).when(env).getCatalogMgr();
             return env;
         } catch (DdlException e) {
             return null;
@@ -211,22 +134,13 @@ public class AccessTestUtil {
 
     public static AccessControllerManager fetchBlockAccess() {
         Auth auth = new Auth();
-        AccessControllerManager accessManager = new AccessControllerManager(auth);
-        new Expectations(accessManager) {
-            {
-                accessManager.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
-                minTimes = 0;
-                result = false;
-
-                accessManager.checkDbPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
-                minTimes = 0;
-                result = false;
-
-                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, anyString, (PrivPredicate) any);
-                minTimes = 0;
-                result = false;
-            }
-        };
+        AccessControllerManager accessManager = Mockito.spy(new AccessControllerManager(auth));
+        Mockito.doReturn(false).when(accessManager).checkGlobalPriv(Mockito.nullable(ConnectContext.class),
+                Mockito.any(PrivPredicate.class));
+        Mockito.doReturn(false).when(accessManager).checkDbPriv(Mockito.nullable(ConnectContext.class),
+                Mockito.anyString(), Mockito.anyString(), Mockito.any(PrivPredicate.class));
+        Mockito.doReturn(false).when(accessManager).checkTblPriv(Mockito.nullable(ConnectContext.class),
+                Mockito.anyString(), Mockito.anyString(), Mockito.anyString(), Mockito.any(PrivPredicate.class));
         return accessManager;
     }
 
@@ -238,183 +152,66 @@ public class AccessTestUtil {
         Column column5 = new Column("k3", PrimitiveType.VARCHAR);
         Column column6 = new Column("k4", PrimitiveType.BIGINT);
 
-        MaterializedIndex index = new MaterializedIndex();
-        new Expectations(index) {
-            {
-                index.getId();
-                minTimes = 0;
-                result = 30000L;
-            }
-        };
+        MaterializedIndex index = Mockito.spy(new MaterializedIndex());
+        Mockito.doReturn(30000L).when(index).getId();
 
-        Partition partition = Deencapsulation.newInstance(Partition.class);
-        new Expectations(partition) {
-            {
-                partition.getBaseIndex();
-                minTimes = 0;
-                result = index;
+        Partition partition = Mockito.spy(Deencapsulation.newInstance(Partition.class));
+        Mockito.doReturn(index).when(partition).getBaseIndex();
+        Mockito.doReturn(index).when(partition).getIndex(30000L);
 
-                partition.getIndex(30000L);
-                minTimes = 0;
-                result = index;
-            }
-        };
-
-        OlapTable table = new OlapTable();
-        new Expectations(table) {
-            {
-                table.getBaseSchema();
-                minTimes = 0;
-                result = Lists.newArrayList(column1, column2);
-
-                table.getPartition(40000L);
-                minTimes = 0;
-                result = partition;
-
-                table.getColumn("k1");
-                minTimes = 0;
-                result = column3;
-
-                table.getColumn("k2");
-                minTimes = 0;
-                result = column4;
-
-                table.getColumn("k3");
-                minTimes = 0;
-                result = column5;
-
-                table.getColumn("k4");
-                minTimes = 0;
-                result = column6;
-            }
-        };
+        OlapTable table = Mockito.spy(new OlapTable());
+        Mockito.doReturn(Lists.newArrayList(column1, column2)).when(table).getBaseSchema();
+        Mockito.doReturn(partition).when(table).getPartition(40000L);
+        Mockito.doReturn(column3).when(table).getColumn("k1");
+        Mockito.doReturn(column4).when(table).getColumn("k2");
+        Mockito.doReturn(column5).when(table).getColumn("k3");
+        Mockito.doReturn(column6).when(table).getColumn("k4");
         return table;
     }
 
     public static Database mockDb(String name) {
-        Database db = new Database();
+        Database db = Mockito.spy(new Database());
         OlapTable olapTable = mockTable("testTable");
 
-        new Expectations(db) {
-            {
-                db.getTableNullable("testTable");
-                minTimes = 0;
-                result = olapTable;
-
-                db.getTableNullable("t");
-                minTimes = 0;
-                result = olapTable;
-
-                db.getTableNullable("emptyTable");
-                minTimes = 0;
-                result = null;
-
-                db.getTableNamesWithLock();
-                minTimes = 0;
-                result = Sets.newHashSet("testTable");
-
-                db.getTables();
-                minTimes = 0;
-                result = Lists.newArrayList(olapTable);
-
-                db.readLock();
-                minTimes = 0;
-
-                db.readUnlock();
-                minTimes = 0;
-
-                db.getFullName();
-                minTimes = 0;
-                result = name;
-            }
-        };
+        Mockito.doReturn(olapTable).when(db).getTableNullable("testTable");
+        Mockito.doReturn(olapTable).when(db).getTableNullable("t");
+        Mockito.doReturn(null).when(db).getTableNullable("emptyTable");
+        Mockito.doReturn(Sets.newHashSet("testTable")).when(db).getTableNamesWithLock();
+        Mockito.doReturn(Lists.newArrayList(olapTable)).when(db).getTables();
+        Mockito.doNothing().when(db).readLock();
+        Mockito.doNothing().when(db).readUnlock();
+        Mockito.doReturn(name).when(db).getFullName();
         return db;
     }
 
     public static Env fetchBlockCatalog() {
         try {
-            Env env = Deencapsulation.newInstance(Env.class);
+            Env env = Mockito.spy(Deencapsulation.newInstance(Env.class));
 
             AccessControllerManager accessManager = fetchBlockAccess();
             Database db = mockDb("testDb");
 
-            InternalCatalog catalog = Deencapsulation.newInstance(InternalCatalog.class);
-            new Expectations(catalog) {
-                {
-                    catalog.getDbNullable("testDb");
-                    minTimes = 0;
-                    result = db;
+            InternalCatalog catalog = Mockito.spy(Deencapsulation.newInstance(InternalCatalog.class));
+            Mockito.doReturn(new Database()).when(catalog).getDbNullable(Mockito.anyString());
+            Mockito.doReturn(db).when(catalog).getDbNullable("testDb");
+            Mockito.doReturn(db).when(catalog).getDbNullable("testdb");
+            Mockito.doReturn(null).when(catalog).getDbNullable("emptyDb");
+            Mockito.doReturn(null).when(catalog).getDbNullable("emptyCluster");
+            Mockito.doReturn(db).when(catalog).getDbOrAnalysisException("testdb");
+            Mockito.doReturn(Lists.newArrayList("testDb")).when(catalog).getDbNames();
 
-                    catalog.getDbNullable("testdb");
-                    minTimes = 0;
-                    result = db;
+            CatalogMgr ctlMgr = Mockito.spy(new CatalogMgr());
+            Mockito.doReturn(catalog).when(ctlMgr).getCatalog(Mockito.anyString());
+            Mockito.doReturn(catalog).when(ctlMgr).getCatalogOrException(Mockito.anyString(),
+                    Mockito.any(Function.class));
+            Mockito.doReturn(catalog).when(ctlMgr).getCatalogOrAnalysisException(Mockito.anyString());
 
-                    catalog.getDbOrAnalysisException("testdb");
-                    minTimes = 0;
-                    result = db;
-
-                    catalog.getDbNullable("emptyDb");
-                    minTimes = 0;
-                    result = null;
-
-                    catalog.getDbNullable(anyString);
-                    minTimes = 0;
-                    result = new Database();
-
-                    catalog.getDbNames();
-                    minTimes = 0;
-                    result = Lists.newArrayList("testDb");
-
-                    catalog.getDbNullable("emptyCluster");
-                    minTimes = 0;
-                    result = null;
-                }
-            };
-
-            CatalogMgr ctlMgr = new CatalogMgr();
-            new Expectations(ctlMgr) {
-                {
-                    ctlMgr.getCatalog((String) any);
-                    minTimes = 0;
-                    result = catalog;
-
-                    ctlMgr.getCatalogOrException((String) any, (Function) any);
-                    minTimes = 0;
-                    result = catalog;
-
-                    ctlMgr.getCatalogOrAnalysisException((String) any);
-                    minTimes = 0;
-                    result = catalog;
-                }
-            };
-
-            new Expectations(env) {
-                {
-                    env.getAccessManager();
-                    minTimes = 0;
-                    result = accessManager;
-
-                    env.changeDb((ConnectContext) any, anyString);
-                    minTimes = 0;
-                    result = new DdlException("failed");
-
-                    env.getInternalCatalog();
-                    minTimes = 0;
-                    result = catalog;
-
-                    env.getCurrentCatalog();
-                    minTimes = 0;
-                    result = catalog;
-
-                    env.getCatalogMgr();
-                    minTimes = 0;
-                    result = ctlMgr;
-
-                    env.isCheckpointThread();
-                    minTimes = 0;
-                    result = false;
-                }
-            };
+            Mockito.doReturn(accessManager).when(env).getAccessManager();
+            Mockito.doThrow(new DdlException("failed")).when(env).changeDb(Mockito.nullable(ConnectContext.class),
+                    Mockito.anyString());
+            Mockito.doReturn(catalog).when(env).getInternalCatalog();
+            Mockito.doReturn(catalog).when(env).getCurrentCatalog();
+            Mockito.doReturn(ctlMgr).when(env).getCatalogMgr();
             return env;
         } catch (DdlException e) {
             return null;

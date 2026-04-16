@@ -30,7 +30,6 @@
 #include "exprs/function/array/function_array_utils.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 struct AggregateFunctionForEachData {
     size_t dynamic_array_size = 0;
@@ -52,7 +51,8 @@ struct AggregateFunctionForEachData {
   *
   * TODO Allow variable number of arguments.
   */
-class AggregateFunctionForEach : public IAggregateFunctionDataHelper<AggregateFunctionForEachData,
+class AggregateFunctionForEach : public AggregateFunctionNonFinalBase,
+                                 public IAggregateFunctionDataHelper<AggregateFunctionForEachData,
                                                                      AggregateFunctionForEach>,
                                  VarargsExpression,
                                  NullableAggregateFunction {
@@ -261,5 +261,3 @@ public:
     }
 };
 } // namespace doris
-
-#include "common/compile_check_end.h"

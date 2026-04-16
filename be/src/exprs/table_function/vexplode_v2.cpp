@@ -41,7 +41,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
 #include "core/column/column_struct.h"
 
 VExplodeV2TableFunction::VExplodeV2TableFunction() {
@@ -291,7 +290,5 @@ int VExplodeV2TableFunction::get_value(MutableColumnPtr& column, int max_step) {
     forward(max_step);
     return max_step;
 }
-
-#include "common/compile_check_end.h"
 
 } // namespace doris

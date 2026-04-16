@@ -62,7 +62,6 @@ template <typename, typename>
 struct DefaultHash;
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class FunctionArrayEnumerateUniq : public IFunction {
 private:
@@ -273,5 +272,4 @@ private:
 void register_function_array_enumerate_uniq(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayEnumerateUniq>();
 }
-#include "common/compile_check_end.h"
 } // namespace doris

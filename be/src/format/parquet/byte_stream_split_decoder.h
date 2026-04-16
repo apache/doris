@@ -20,7 +20,6 @@
 #include "format/parquet/decoder.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class ByteStreamSplitDecoder final : public Decoder {
 public:
     ByteStreamSplitDecoder() = default;
@@ -35,6 +34,5 @@ public:
 
     Status skip_values(size_t num_values) override;
 };
-#include "common/compile_check_end.h"
 
 } // namespace doris

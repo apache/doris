@@ -17,10 +17,10 @@
 
 package org.apache.doris.datasource.hive;
 
-import mockit.Injectable;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 
 /**
@@ -37,8 +37,7 @@ public class HMSExternalTableTest {
     // Expected SQL query after decoding and parsing
     private static final String EXPECTED_SQL = "SELECT\n  department\n, length(department) department_length\n, date_trunc('year', hire_date) year\nFROM\n  employees\n";
 
-    @Injectable
-    private HMSExternalCatalog mockCatalog;
+    private HMSExternalCatalog mockCatalog = Mockito.mock(HMSExternalCatalog.class);
 
     private HMSExternalDatabase mockDb;
 

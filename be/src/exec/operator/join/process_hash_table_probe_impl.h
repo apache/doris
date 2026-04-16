@@ -32,7 +32,6 @@
 #include "util/simd/bits.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 static bool check_all_match_one(const auto& vecs) {
     size_t size = vecs.size();
@@ -1089,5 +1088,4 @@ struct ExtractType<T(U)> {
     INSTANTIATION(JoinOpType, (FixedKeyHashTableContext<UInt136>));          \
     INSTANTIATION(JoinOpType, (FixedKeyHashTableContext<UInt256>));          \
     INSTANTIATION(JoinOpType, (MethodOneString));
-#include "common/compile_check_end.h"
 } // namespace doris

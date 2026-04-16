@@ -116,7 +116,6 @@ bool should_enable_compaction_cache_index_only(bool write_file_cache, ReaderType
 }
 
 namespace {
-#include "common/compile_check_begin.h"
 
 bool is_rowset_tidy(std::string& pre_max_key, bool& pre_rs_key_bounds_truncated,
                     const RowsetSharedPtr& rhs) {
@@ -1956,5 +1955,4 @@ bool CloudCompactionMixin::should_cache_compaction_output() {
     return false;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

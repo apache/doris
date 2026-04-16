@@ -21,12 +21,11 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.LdapConfig;
 import org.apache.doris.common.util.NetUtils;
 
-import mockit.Expectations;
-import mockit.Tested;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.Mockito;
 import org.springframework.ldap.query.LdapQuery;
 import org.springframework.ldap.support.LdapEncoder;
 
@@ -34,8 +33,7 @@ import java.util.Arrays;
 import java.util.List;
 
 public class LdapClientTest {
-    @Tested
-    private LdapClient ldapClient;
+    private LdapClient ldapClient = Mockito.spy(new LdapClient());
 
     @Before
     public void setUp() {
@@ -52,13 +50,7 @@ public class LdapClientTest {
     @Test
     public void testDoesUserExist() {
         List<String> list = Arrays.asList("zhangsan");
-
-        new Expectations(ldapClient) {
-            {
-                ldapClient.getDn((LdapQuery) any);
-                result = list;
-            }
-        };
+        Mockito.doReturn(list).when(ldapClient).getDn(Mockito.any(LdapQuery.class));
 
         boolean result = ldapClient.doesUserExist("zhangsan");
         Assert.assertTrue(result);
@@ -66,24 +58,14 @@ public class LdapClientTest {
 
     @Test
     public void testDoesUserExistFail() {
-        new Expectations(ldapClient) {
-            {
-                ldapClient.getDn((LdapQuery) any);
-                result = null;
-            }
-        };
+        Mockito.doReturn(null).when(ldapClient).getDn(Mockito.any(LdapQuery.class));
         Assert.assertFalse(ldapClient.doesUserExist("zhangsan"));
     }
 
     @Test(expected = RuntimeException.class)
     public void testDoesUserExistException() {
         List<String> list = Arrays.asList("zhangsan", "zhangsan");
-        new Expectations(ldapClient) {
-            {
-                ldapClient.getDn((LdapQuery) any);
-                result = list;
-            }
-        };
+        Mockito.doReturn(list).when(ldapClient).getDn(Mockito.any(LdapQuery.class));
         Assert.assertTrue(ldapClient.doesUserExist("zhangsan"));
         Assert.fail("No Exception throws.");
     }
@@ -91,18 +73,12 @@ public class LdapClientTest {
     @Test
     public void testGetGroups() {
         List<String> list = Arrays.asList("cn=groupName,ou=groups,dc=example,dc=com");
-        new Expectations(ldapClient) {
-            {
-                ldapClient.getDn((LdapQuery) any);
-                result = list;
-            }
-        };
+        Mockito.doReturn(list).when(ldapClient).getDn(Mockito.any(LdapQuery.class));
         Assert.assertEquals(1, ldapClient.getGroups("zhangsan").size());
     }
 
     @Test
     public void testSecuredProtocolIsUsed() {
-        //testing default case with not specified property ldap_use_ssl or it is specified as false
         String insecureUrl = LdapConfig.getConnectionURL(
                 NetUtils.getHostPortInAccessibleFormat(LdapConfig.ldap_host, LdapConfig.ldap_port));
 
@@ -110,7 +86,6 @@ public class LdapClientTest {
         Assert.assertTrue("with ldap_use_ssl = false or not specified URL should start with ldap, but received: " + insecureUrl,
                           insecureUrl.startsWith("ldap://"));
 
-        //testing new case with specified property ldap_use_ssl as true
         LdapConfig.ldap_use_ssl = true;
         String secureUrl = LdapConfig.getConnectionURL(
                 NetUtils.getHostPortInAccessibleFormat(LdapConfig.ldap_host, LdapConfig.ldap_port));
@@ -150,6 +125,6 @@ public class LdapClientTest {
 
     @After
     public void tearDown() {
-        LdapConfig.ldap_use_ssl = false; // restoring default value for other tests
+        LdapConfig.ldap_use_ssl = false;
     }
 }

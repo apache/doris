@@ -60,7 +60,6 @@ class FunctionContext;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class FunctionArrayElement : public IFunction {
 public:
@@ -386,5 +385,4 @@ private:
     }
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

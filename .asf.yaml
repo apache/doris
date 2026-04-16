@@ -46,7 +46,6 @@ github:
       required_status_checks:
         strict: false
         contexts:
-          - License Check
           - Check for secrets
           - Clang Formatter
           - CheckStyle
@@ -62,7 +61,7 @@ github:
           - Build Third Party Libraries (macOS)
           - Build Third Party Libraries (macOS-arm64)
           - COMPILE (DORIS_COMPILE)
-          - Need_2_Approval
+          - code-review
           - Cloud UT (Doris Cloud UT)
           - performance (Doris Performance)
           - check_coverage (Coverage)

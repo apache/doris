@@ -32,7 +32,6 @@
 #include "core/uint24.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 /**
  * used to keep predicate column in storage layer
@@ -434,5 +433,4 @@ private:
     std::vector<StringRef> _refs;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

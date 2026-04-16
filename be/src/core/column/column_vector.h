@@ -63,7 +63,6 @@ class ColumnSorter;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 /** A template for columns that use a simple array to store.
  */
@@ -431,4 +430,3 @@ using ColumnOffset32 = ColumnVector<TYPE_UINT32>;
 using ColumnOffset64 = ColumnVector<TYPE_UINT64>;
 
 } // namespace doris
-#include "common/compile_check_end.h"

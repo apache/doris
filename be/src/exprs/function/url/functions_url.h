@@ -24,7 +24,6 @@
 #include "core/memcpy_small.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 /** URL processing functions. See implementation in separate .cpp files.
   * All functions are not strictly follow RFC, instead they are maximally simplified for performance reasons.
   *
@@ -151,5 +150,4 @@ struct CutSubstringImpl {
         res_data.append(start + length, data.data() + data.size());
     }
 };
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -21,6 +21,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.cost.CostCalculator;
 import org.apache.doris.nereids.jobs.JobContext;
+import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.stats.StatsCalculator;
@@ -229,9 +230,24 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
     * no matter x.ndv is high or not, it is not worthwhile to shuffle A and B by x
     * and hence we forbid one phase agg */
     private boolean banAggUnionAll(PhysicalHashAggregate<? extends Plan> aggregate) {
-        return aggregate.getAggMode() == AggMode.INPUT_TO_RESULT
-                && children.get(0).getPlan() instanceof PhysicalUnion
-                && !((PhysicalUnion) children.get(0).getPlan()).isDistinct();
+        if (aggregate.getAggMode() == AggMode.INPUT_TO_RESULT && children.get(0).getPlan() instanceof PhysicalUnion
+                && !((PhysicalUnion) children.get(0).getPlan()).isDistinct()) {
+            GroupExpression gExprUnion = children.get(0);
+            List<Group> groups = gExprUnion.children();
+            Pair<Cost, List<PhysicalProperties>> pair = gExprUnion.getLowestCostTable().get(requiredProperties.get(0));
+            int i = 0;
+            // If none of the union inputs have PhysicalDistribute, allow one-phase aggregation
+            for (Group group : groups) {
+                GroupExpression groupExpression = group.getBestPlan(pair.second.get(i));
+                i++;
+                if (groupExpression != null && groupExpression.getPlan() instanceof PhysicalDistribute) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+        return false;
     }
 
     @Override

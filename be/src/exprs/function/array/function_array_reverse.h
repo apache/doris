@@ -19,6 +19,7 @@
 // and modified by Doris
 #pragma once
 
+#include "core/block/block.h"
 #include "core/column/column_array.h"
 #include "core/column/column_const.h"
 #include "core/data_type/data_type_array.h"

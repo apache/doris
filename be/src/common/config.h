@@ -395,7 +395,7 @@ DECLARE_mInt32(thrift_connect_timeout_seconds);
 DECLARE_mInt64(thrift_client_retry_interval_ms);
 // max message size of thrift request
 // default: 100 * 1024 * 1024
-DECLARE_mInt64(thrift_max_message_size);
+DECLARE_mInt32(thrift_max_message_size);
 // max bytes number for single scan range, used in segmentv2
 DECLARE_mInt32(doris_scan_range_max_mb);
 // single read execute fragment row number
@@ -1346,9 +1346,6 @@ DECLARE_mInt64(file_cache_max_file_reader_cache_size);
 DECLARE_mInt64(hdfs_write_batch_buffer_size_mb);
 //enable shrink memory
 DECLARE_mBool(enable_shrink_memory);
-// enable cache for high concurrent point query work load
-DECLARE_mInt32(schema_cache_capacity);
-DECLARE_mInt32(schema_cache_sweep_time_sec);
 
 // max number of segment cache
 DECLARE_Int32(segment_cache_capacity);
@@ -1820,6 +1817,7 @@ DECLARE_mInt32(concurrency_stats_dump_interval_ms);
 DECLARE_mBool(cloud_mow_sync_rowsets_when_load_txn_begin);
 
 DECLARE_mBool(enable_cloud_make_rs_visible_on_be);
+DECLARE_mInt32(file_handles_deplenish_frequency_times);
 
 #ifdef BE_TEST
 // test s3

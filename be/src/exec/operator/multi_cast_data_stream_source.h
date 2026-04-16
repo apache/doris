@@ -30,7 +30,6 @@ class RuntimeState;
 
 class Block;
 
-#include "common/compile_check_begin.h"
 class MultiCastDataStreamer;
 class MultiCastDataStreamerSourceOperatorX;
 
@@ -124,4 +123,3 @@ private:
 };
 
 } // namespace doris
-#include "common/compile_check_end.h"

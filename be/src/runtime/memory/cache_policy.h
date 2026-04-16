@@ -24,7 +24,6 @@
 #include "runtime/runtime_profile.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 static constexpr int32_t CACHE_MIN_PRUNE_SIZE = 67108864; // 64M
 static constexpr int32_t CACHE_MIN_PRUNE_NUMBER = 1024;
@@ -150,8 +149,8 @@ public:
         }
     }
 
-    inline static std::vector<CacheType> MetadataCache {
-            CacheType::SEGMENT_CACHE, CacheType::SCHEMA_CACHE, CacheType::TABLET_SCHEMA_CACHE};
+    inline static std::vector<CacheType> MetadataCache {CacheType::SEGMENT_CACHE,
+                                                        CacheType::TABLET_SCHEMA_CACHE};
 
     CachePolicy(CacheType type, size_t capacity, uint32_t stale_sweep_time_s, bool enable_prune);
     virtual ~CachePolicy();
@@ -196,5 +195,4 @@ protected:
     bool _enable_prune = true;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -21,7 +21,6 @@
 #include "runtime/runtime_profile.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class MemoryProfile {
 public:
@@ -116,5 +115,4 @@ private:
     std::atomic<bool> _enable_print_log_process_usage {true};
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

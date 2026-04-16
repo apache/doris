@@ -20,7 +20,6 @@
 #include "common/exception.h"
 
 namespace doris::segment_v2::inverted_index {
-#include "common/compile_check_begin.h"
 
 NGramTokenizer::NGramTokenizer(int32_t min_gram, int32_t max_gram, bool edges_only) {
     init(min_gram, max_gram, edges_only);
@@ -146,5 +145,4 @@ void NGramTokenizer::to_chars(const std::vector<UChar32>& buffer, int32_t start,
     unistr.toUTF8String(_utf8_buffer);
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

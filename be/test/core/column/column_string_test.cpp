@@ -32,7 +32,7 @@
 #include "core/field.h"
 #include "core/string_ref.h"
 #include "core/types.h"
-#include "exprs/function/function_string.h"
+#include "exprs/function/function_string_concat.h"
 
 using namespace doris;
 namespace doris {

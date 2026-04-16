@@ -24,6 +24,7 @@ import org.apache.doris.job.exception.JobException;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VariableMgr;
 
+import com.google.common.base.Strings;
 import lombok.Data;
 import org.json.simple.JSONObject;
 
@@ -60,10 +61,23 @@ public class StreamingJobProperties implements JobProperties {
 
     public StreamingJobProperties(Map<String, String> jobProperties) {
         this.properties = jobProperties;
-        if (properties.isEmpty()) {
-            this.maxIntervalSecond = DEFAULT_MAX_INTERVAL_SECOND;
-            this.s3BatchFiles = DEFAULT_MAX_S3_BATCH_FILES;
-            this.s3BatchBytes = DEFAULT_MAX_S3_BATCH_BYTES;
+        this.maxIntervalSecond = parseLongOrDefault(
+                properties.get(MAX_INTERVAL_SECOND_PROPERTY), DEFAULT_MAX_INTERVAL_SECOND);
+        this.s3BatchFiles = parseLongOrDefault(
+                properties.get(S3_MAX_BATCH_FILES_PROPERTY), DEFAULT_MAX_S3_BATCH_FILES);
+        this.s3BatchBytes = parseLongOrDefault(
+                properties.get(S3_MAX_BATCH_BYTES_PROPERTY), DEFAULT_MAX_S3_BATCH_BYTES);
+    }
+
+    private static long parseLongOrDefault(String valStr, long defaultVal) {
+        if (Strings.isNullOrEmpty(valStr)) {
+            return defaultVal;
+        }
+        try {
+            long val = Long.parseLong(valStr);
+            return val >= 1 ? val : defaultVal;
+        } catch (NumberFormatException e) {
+            return defaultVal;
         }
     }
 

@@ -33,8 +33,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
-
 std::vector<SchemaScanner::ColumnDesc> SchemaCompactionTasksScanner::_s_tbls_columns = {
         //   name,       type,          size,     is_null
         {"BACKEND_ID", TYPE_BIGINT, sizeof(int64_t), true},

@@ -21,8 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.es.EsExternalTable;
 import org.apache.doris.datasource.es.EsUtil;
 
-import mockit.Expectations;
-import mockit.Mocked;
+import org.mockito.Mockito;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -39,8 +38,7 @@ import java.util.List;
  **/
 public class EsTestCase {
 
-    @Mocked
-    protected EsExternalTable mockEsExternalTable;
+    protected EsExternalTable mockEsExternalTable = Mockito.mock(EsExternalTable.class);
 
     protected String loadJsonFromFile(String fileName)
             throws IOException, URISyntaxException {
@@ -60,45 +58,15 @@ public class EsTestCase {
 
     protected EsExternalTable fakeEsTable(String table, String index,
             String type, List<Column> columns) {
-        new Expectations(mockEsExternalTable) {
-            {
-                mockEsExternalTable.getIndexName();
-                result = index;
-                minTimes = 0;
-
-                mockEsExternalTable.getMappingType();
-                result = type;
-                minTimes = 0;
-
-                mockEsExternalTable.isEnableDocValueScan();
-                result = true;
-                minTimes = 0;
-
-                mockEsExternalTable.isEnableKeywordSniff();
-                result = true;
-                minTimes = 0;
-
-                mockEsExternalTable.getMaxDocValueFields();
-                result = 20;
-                minTimes = 0;
-
-                mockEsExternalTable.getColumn2typeMap();
-                result = new HashMap<>();
-                minTimes = 0;
-
-                mockEsExternalTable.getFullSchema();
-                result = columns;
-                minTimes = 0;
-
-                mockEsExternalTable.isNodesDiscovery();
-                result = true;
-                minTimes = 0;
-
-                mockEsExternalTable.getName();
-                result = table;
-                minTimes = 0;
-            }
-        };
+        Mockito.when(mockEsExternalTable.getIndexName()).thenReturn(index);
+        Mockito.when(mockEsExternalTable.getMappingType()).thenReturn(type);
+        Mockito.when(mockEsExternalTable.isEnableDocValueScan()).thenReturn(true);
+        Mockito.when(mockEsExternalTable.isEnableKeywordSniff()).thenReturn(true);
+        Mockito.when(mockEsExternalTable.getMaxDocValueFields()).thenReturn(20);
+        Mockito.when(mockEsExternalTable.getColumn2typeMap()).thenReturn(new HashMap<>());
+        Mockito.when(mockEsExternalTable.getFullSchema()).thenReturn(columns);
+        Mockito.when(mockEsExternalTable.isNodesDiscovery()).thenReturn(true);
+        Mockito.when(mockEsExternalTable.getName()).thenReturn(table);
         return mockEsExternalTable;
     }
 }

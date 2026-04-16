@@ -152,6 +152,11 @@ public:
         _update_scan_cpu_timer();
         _start_wait_worker_timer();
     }
+    // Called when submitting the scanner to the thread pool queue.
+    // Only starts the wait timer without touching the CPU timer, because the CPU
+    // timer uses CLOCK_THREAD_CPUTIME_ID which must be read on the same thread
+    // that started it.
+    void start_queue_wait() { _start_wait_worker_timer(); }
     int64_t get_time_cost_ns() const { return _per_scanner_timer; }
 
     int64_t projection_time() const { return _projection_timer; }

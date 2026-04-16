@@ -22,7 +22,6 @@
 #include "orc/MemoryPool.hh"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 #if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
 using ORC_MEMORY_ALLOCATOR = RecordSizeMemoryAllocator;
@@ -52,5 +51,4 @@ private:
     Allocator<false, false, false, ORC_MEMORY_ALLOCATOR> _allocator;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

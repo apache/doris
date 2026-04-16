@@ -2595,7 +2595,7 @@ public class Config extends ConfigBase {
                     + "2. For auto-bucket feature (Dynamic Partition): "
                     + "bucket number will be capped at autobucket_max_buckets automatically. "
                     + "Set to 0 or negative value to disable this limit for user-specified buckets."})
-    public static int max_bucket_num_per_partition = autobucket_max_buckets;
+    public static int max_bucket_num_per_partition = 768;
 
     @ConfField(description = {"Maximum number of connections for the Arrow Flight Server per FE."})
     public static int arrow_flight_max_connections = 4096;
@@ -2805,7 +2805,7 @@ public class Config extends ConfigBase {
             options = {"default", "password", "ldap", "<plugin_name>"})
     public static String authentication_type = "default";
 
-    @ConfField(description = {
+    @ConfField(mutable = true, description = {
             "Specifies the authentication chain used after primary authentication failure, "
                     + "multiple integration names are comma-separated"})
     public static String authentication_chain = "";
@@ -3471,10 +3471,12 @@ public class Config extends ConfigBase {
                     + "detailed information of all replicas of the tablet will be printed."})
     public static boolean sql_block_rule_ignore_admin = false;
 
-    @ConfField(description = {"Authentication plugin directory."})
+    @ConfField(description = {"Authentication plugin root directories. Use a comma-separated list to configure "
+            + "multiple roots."})
     public static String authentication_plugins_dir = EnvUtils.getDorisHome() + "/plugins/authentication";
 
-    @ConfField(description = {"Authorization plugin directory."})
+    @ConfField(description = {"Authorization plugin root directories. Use a comma-separated list to configure "
+            + "multiple roots."})
     public static String authorization_plugins_dir = EnvUtils.getDorisHome() + "/plugins/authorization";
 
     @ConfField(description = {"Security plugin directory."})

@@ -20,44 +20,36 @@ package org.apache.doris.cloud.master;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.catalog.CloudEnv;
 
-import mockit.Expectations;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
-import mockit.Verifications;
+import org.junit.After;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.HashMap;
 
 public class CloudReportHandlerTest {
 
-    @Mocked
-    private CloudEnv mockCloudEnv;
+    private CloudEnv mockCloudEnv = Mockito.mock(CloudEnv.class);
+    private MockedStatic<Env> mockedEnvStatic;
+
+    @After
+    public void tearDown() {
+        if (mockedEnvStatic != null) {
+            mockedEnvStatic.close();
+            mockedEnvStatic = null;
+        }
+    }
 
     @Test
     public void testTabletReportWhenTabletRebalancerNotInitialized() {
-        new MockUp<Env>() {
-            @Mock
-            public Env getCurrentEnv() {
-                return mockCloudEnv;
-            }
-        };
-        new Expectations() {
-            {
-                mockCloudEnv.isRebalancerInited();
-                result = false;
-            }
-        };
+        mockedEnvStatic = Mockito.mockStatic(Env.class);
+        mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(mockCloudEnv);
+        Mockito.when(mockCloudEnv.isRebalancerInited()).thenReturn(false);
 
         CloudReportHandler handler = new CloudReportHandler();
         handler.tabletReport(1001L, new HashMap<>(), new HashMap<>(), 1L, 10L);
         // If the tabletRebalancer is not initialized,
         // the tabletReport should not call mockCloudEnv.getCurrentSystemInfo
-        new Verifications() {
-            {
-                mockCloudEnv.getCurrentSystemInfo();
-                times = 0;
-            }
-        };
+        Mockito.verify(mockCloudEnv, Mockito.never()).getCurrentSystemInfo();
     }
 }

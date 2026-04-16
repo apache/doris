@@ -33,7 +33,6 @@
 #include "util/string_parser.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 // NOLINTBEGIN(readability-function-size)
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
@@ -134,7 +133,9 @@ struct CastToDateOrDatetime {
 
         static_cast<void>(to_scale);
         if constexpr (is_datelike_target_datetime(TargetType)) {
+#include "common/compile_check_avoid_begin.h"
             int ms_part_7 = (float_value - (double)int_part) * common::exp10_i32(7);
+#include "common/compile_check_avoid_end.h"
             if (!microsecond_carry_on<ParseMode>(ms_part_7, 7, val, params)) [[unlikely]] {
                 return false; // status set in microsecond_carry_on
             }
@@ -907,5 +908,4 @@ inline bool CastToDateOrDatetime::from_string_non_strict_mode_impl(
 
 // NOLINTEND(readability-function-cognitive-complexity)
 // NOLINTEND(readability-function-size)
-#include "common/compile_check_end.h"
 } // namespace doris

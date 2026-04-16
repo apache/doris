@@ -23,7 +23,6 @@
 #include "exec/operator/operator.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeState;
 
 class Block;
@@ -132,5 +131,4 @@ private:
     using OperatorBase::_child;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris
