@@ -166,6 +166,9 @@ public:
     }
 
     CloudWarmUpManager& cloud_warm_up_manager() const { return *_cloud_warm_up_manager; }
+    std::shared_ptr<CloudWarmUpManager> cloud_warm_up_manager_ptr() const {
+        return _cloud_warm_up_manager;
+    }
 
     TabletHotspot& tablet_hotspot() const { return *_tablet_hotspot; }
 
@@ -228,7 +231,7 @@ private:
     // Components for cache warmup
     std::unique_ptr<io::FileCacheBlockDownloader> _file_cache_block_downloader;
     // Depended by `FileCacheBlockDownloader`
-    std::unique_ptr<CloudWarmUpManager> _cloud_warm_up_manager;
+    std::shared_ptr<CloudWarmUpManager> _cloud_warm_up_manager;
     std::unique_ptr<TabletHotspot> _tablet_hotspot;
     std::unique_ptr<ThreadPool> _sync_load_for_tablets_thread_pool;
     std::unique_ptr<ThreadPool> _warmup_cache_async_thread_pool;

@@ -23,6 +23,8 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <filesystem>
 #include <fstream>
 #include <mutex>
@@ -60,6 +62,7 @@ namespace {
 
 constexpr size_t kPeerTestBlockSize = 4;
 constexpr int64_t kPeerTestTabletId = 10001;
+constexpr int64_t kCrossTabletId = 12345;
 
 std::shared_ptr<WorkloadGroup> create_peer_test_workload_group(int remote_read_bytes_per_second) {
     static std::atomic<uint64_t> next_workload_group_id {90000};
@@ -202,12 +205,20 @@ public:
     explicit MockPeerCacheService(std::string content, MockPeerCacheServiceOptions options = {})
             : _content(std::move(content)), _options(options) {}
 
+    bool wait_for_rpc_count_at_least(int expected_count, std::chrono::milliseconds timeout) {
+        std::unique_lock lock(_rpc_mu);
+        return _rpc_cv.wait_for(lock, timeout, [&] {
+            return rpc_count.load(std::memory_order_acquire) >= expected_count;
+        });
+    }
+
     void fetch_peer_data(google::protobuf::RpcController* controller,
                          const PFetchPeerDataRequest* request, PFetchPeerDataResponse* response,
                          google::protobuf::Closure* done) override {
         brpc::ClosureGuard done_guard(done);
         auto* cntl = static_cast<brpc::Controller*>(controller);
         ++rpc_count;
+        _rpc_cv.notify_all();
         request_block_count = request->cache_req_size();
         support_attachment = request->has_support_attachment() && request->support_attachment();
         request_fill = request->has_request_cache_fill() && request->request_cache_fill();
@@ -322,6 +333,8 @@ public:
 private:
     std::string _content;
     MockPeerCacheServiceOptions _options;
+    std::mutex _rpc_mu;
+    std::condition_variable _rpc_cv;
     mutable std::mutex _request_mu;
     std::string last_fill_resource_id;
 };
@@ -2041,8 +2054,7 @@ TEST_F(CachedRemoteFileReaderPeerTest, read_at_falls_back_to_remote_when_peer_re
 namespace doris::io {
 namespace {
 
-// Tablet id embedded in every cross-CG test path.
-constexpr int64_t kCrossTabletId = 12345;
+constexpr auto kPeerRpcWaitTimeout = std::chrono::seconds(2);
 
 // Create an actual file at a path parseable by extract_tablet_id():
 // Format: caches_dir/data/{tablet_id}/{name}
@@ -2211,9 +2223,7 @@ TEST_F(CrossCGWinnerRaceTest, cross_cg_peer_wins_race) {
             "CachedRemoteFileReader::_execute_winner_race::s3_before_read",
             [&](auto&&) {
                 // Wait until mock peer server has received and processed at least one RPC.
-                while (service.rpc_count.load(std::memory_order_acquire) == 0) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
-                }
+                service.wait_for_rpc_count_at_least(1, kPeerRpcWaitTimeout);
                 // Extra margin: let peer bthread acquire race->mtx and set winner=0.
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
             },
@@ -2287,9 +2297,7 @@ TEST_F(CrossCGWinnerRaceTest, cross_cg_peer_race_updates_workload_group_remote_s
                 // WG remote-scan throttling inside winner-race execution. Waiting until the peer
                 // RPC is already in flight guarantees the peer branch has first paid the ~500 ms
                 // IOThrottle delay, then adding a small extra sleep keeps the winner stable.
-                while (service.rpc_count.load(std::memory_order_acquire) == 0) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
-                }
+                service.wait_for_rpc_count_at_least(1, kPeerRpcWaitTimeout);
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
             },
             &s3_block_guard);
@@ -2379,9 +2387,7 @@ TEST_F(CrossCGWinnerRaceTest, cross_cg_peer_race_respects_workload_group_remote_
     sp->set_call_back(
             "CachedRemoteFileReader::_execute_winner_race::s3_before_read",
             [&](auto&&) {
-                while (service.rpc_count.load(std::memory_order_acquire) == 0) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
-                }
+                service.wait_for_rpc_count_at_least(1, kPeerRpcWaitTimeout);
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
             },
             &s3_block_guard);
@@ -2501,6 +2507,7 @@ TEST_F(CrossCGWinnerRaceTest,
     read_thread.join();
 
     ASSERT_TRUE(read_status.ok()) << read_status;
+    EXPECT_TRUE(fail_service.wait_for_rpc_count_at_least(1, kPeerRpcWaitTimeout));
 
     EXPECT_EQ(buffer, content.substr(1, 10));
     EXPECT_EQ(bytes_read, 10);
@@ -2750,9 +2757,7 @@ TEST_F(CrossCGWinnerRaceTest, same_cg_candidate_peer_wins_race_no_cross_cg_stats
     sp->set_call_back(
             "CachedRemoteFileReader::_execute_winner_race::s3_before_read",
             [&](auto&&) {
-                while (service.rpc_count.load(std::memory_order_acquire) == 0) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
-                }
+                service.wait_for_rpc_count_at_least(1, kPeerRpcWaitTimeout);
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
             },
             &s3_block_guard);
@@ -2842,9 +2847,7 @@ TEST_F(CrossCGWinnerRaceTest, mixed_candidates_peer_retries_to_same_cg_hit) {
     sp->set_call_back(
             "CachedRemoteFileReader::_execute_winner_race::s3_before_read",
             [&](auto&&) {
-                while (cross_cg_service.rpc_count.load(std::memory_order_acquire) == 0) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
-                }
+                cross_cg_service.wait_for_rpc_count_at_least(1, kPeerRpcWaitTimeout);
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
             },
             &s3_block_guard);
@@ -2953,9 +2956,7 @@ TEST_F(CrossCGWinnerRaceTest, cross_cg_cache_miss_rotates_not_evicts_candidate) 
     sp->set_call_back(
             "CachedRemoteFileReader::_execute_winner_race::s3_before_read",
             [&](auto&&) {
-                while (miss_service.rpc_count.load(std::memory_order_acquire) == 0) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
-                }
+                miss_service.wait_for_rpc_count_at_least(1, kPeerRpcWaitTimeout);
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
             },
             &s3_block_guard);
@@ -3321,6 +3322,80 @@ TEST_F(CrossCGWinnerRaceTest, race_peer_stops_when_s3_wins) {
     // Candidate 1 was tried (cache miss), candidate 2 was NOT tried (S3 already won).
     EXPECT_EQ(miss_service1.rpc_count.load(), 1) << "candidate 1 should have been tried";
     EXPECT_EQ(miss_service2.rpc_count.load(), 0) << "candidate 2 should be skipped (S3 won)";
+}
+
+// ----------------------------------------------------------------
+// Test: cross-CG peer wins race and timer metrics are non-zero.
+//
+// Verifies that peer_io_timer and cross_cg_peer_io_timer are populated
+// when peer wins the race — regression test for the bug where both
+// timers were always 0 in race mode.
+// ----------------------------------------------------------------
+TEST_F(CrossCGWinnerRaceTest, cross_cg_peer_wins_race_records_timer_metrics) {
+    const std::string content = "abcdefghijklmnop";
+    const fs::path file_path = create_cross_cg_test_file("peer_timer_0.dat", content);
+    Defer cleanup_file {[&]() {
+        std::error_code ec;
+        fs::remove(file_path, ec);
+    }};
+
+    const fs::path cache_path = caches_dir / "cross_cg_peer_timer_cache";
+    Defer cleanup_cache {[&]() {
+        std::error_code ec;
+        fs::remove_all(cache_path, ec);
+    }};
+
+    clear_cached_remote_reader_factory();
+    create_peer_test_cache(cache_path, kPeerTestBlockSize);
+
+    MockPeerCacheService service(content);
+    brpc::Server server;
+    auto addr = start_peer_test_server(&server, &service);
+    Defer stop_server {[&]() { stop_peer_test_server(&server); }};
+
+    register_cross_cg_candidate("127.0.0.1", addr.port);
+
+    // Block S3 so peer always wins the race.
+    auto sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    SyncPoint::CallbackGuard s3_block_guard;
+    sp->set_call_back(
+            "CachedRemoteFileReader::_execute_winner_race::s3_before_read",
+            [&](auto&&) {
+                service.wait_for_rpc_count_at_least(1, kPeerRpcWaitTimeout);
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            },
+            &s3_block_guard);
+    Defer disable_sp {[&]() { sp->disable_processing(); }};
+
+    FileReaderSPtr local_reader;
+    ASSERT_TRUE(global_local_filesystem()->open_file(file_path.string(), &local_reader).ok());
+
+    FileReaderOptions opts;
+    opts.cache_type = FileCachePolicy::FILE_BLOCK_CACHE;
+    opts.is_doris_table = true;
+    opts.mtime = 1;
+    opts.tablet_id = kCrossTabletId;
+    // Use shared_ptr because _execute_winner_race calls shared_from_this().
+    auto reader = std::make_shared<CachedRemoteFileReader>(local_reader, opts);
+
+    std::string buffer(10, '#');
+    size_t bytes_read = 0;
+    IOContext io_ctx;
+    FileCacheStatistics cache_stats;
+    io_ctx.file_cache_stats = &cache_stats;
+
+    ASSERT_TRUE(reader->read_at(1, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx).ok());
+
+    EXPECT_EQ(buffer, content.substr(1, 10));
+    EXPECT_EQ(bytes_read, 10);
+    // Peer won the race.
+    EXPECT_EQ(cache_stats.num_peer_race_peer_win, 1);
+    EXPECT_GE(cache_stats.num_cross_cg_peer_io_total, 1);
+    // Timer metrics must be non-zero when peer read actually occurred.
+    EXPECT_GT(cache_stats.peer_io_timer, 0) << "peer_io_timer should be non-zero after peer win";
+    EXPECT_GT(cache_stats.cross_cg_peer_io_timer, 0)
+            << "cross_cg_peer_io_timer should be non-zero after cross-CG peer win";
 }
 
 } // namespace doris::io

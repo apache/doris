@@ -289,8 +289,8 @@ void FileCacheBlockDownloader::download_file_cache_block(
 }
 
 void FileCacheBlockDownloader::download_segment_file(const DownloadFileMeta& meta) {
-    LOG(INFO) << "download_segment_file: start, path=" << meta.path << ", offset=" << meta.offset
-              << ", download_size=" << meta.download_size << ", file_size=" << meta.file_size;
+    VLOG_DEBUG << "download_segment_file: start, path=" << meta.path << ", offset=" << meta.offset
+               << ", download_size=" << meta.download_size << ", file_size=" << meta.file_size;
     DBUG_EXECUTE_IF("FileCacheBlockDownloader::download_segment_file.skip_warmup", {
         if (meta.ctx.is_warmup) {
             LOG(INFO) << "download_segment_file: skip warmup download by debug point, path="

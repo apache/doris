@@ -346,6 +346,7 @@ struct RaceState {
 // when S3 wins the race and the caller returns before this bthread finishes.
 void run_peer_race(std::shared_ptr<RaceState> race, std::vector<FileBlockSPtr> empty_blocks,
                    const std::string& file_path, size_t file_sz, bool is_doris,
+                   std::shared_ptr<CloudWarmUpManager> manager,
                    std::vector<doris::PeerCandidate> candidates, int64_t tablet_id,
                    std::string resource_id,
                    std::shared_ptr<ResourceContext> parent_resource_ctx) {
@@ -354,7 +355,6 @@ void run_peer_race(std::shared_ptr<RaceState> race, std::vector<FileBlockSPtr> e
         attach_task = std::make_unique<AttachTask>(parent_resource_ctx);
     }
 
-    auto& manager = get_warm_up_manager();
     bool all_tried = true;
     MonotonicStopWatch peer_sw;
     peer_sw.start();
@@ -384,7 +384,7 @@ void run_peer_race(std::shared_ptr<RaceState> race, std::vector<FileBlockSPtr> e
         auto st = peer_reader.fetch_blocks(empty_blocks, &local_peer_res, file_sz,
                                            /*ctx=*/nullptr, request_fill, tablet_id, resource_id);
         if (st.ok()) {
-            manager.update_peer_candidate_on_success(tablet_id, cand.compute_group_id);
+            manager->update_peer_candidate_on_success(tablet_id, cand.compute_group_id);
             std::unique_lock<bthread::Mutex> lk(race->mtx);
             if (race->winner < 0) {
                 race->winner = 0;
@@ -409,19 +409,19 @@ void run_peer_race(std::shared_ptr<RaceState> race, std::vector<FileBlockSPtr> e
             // Pull-through fill already told us this designated fill CG could not serve the block
             // in time. Do not serially retry additional candidates in the same race; let S3 win
             // instead of paying more peer RPC latency.
-            manager.rotate_peer_candidate_on_cache_miss(tablet_id, cand.host, cand.brpc_port);
+            manager->rotate_peer_candidate_on_cache_miss(tablet_id, cand.host, cand.brpc_port);
             all_tried = false;
             break;
         }
         if (st.template is<ErrorCode::NOT_FOUND>()) {
-            manager.rotate_peer_candidate_on_cache_miss(tablet_id, cand.host, cand.brpc_port);
+            manager->rotate_peer_candidate_on_cache_miss(tablet_id, cand.host, cand.brpc_port);
         } else {
-            manager.update_peer_candidate_on_rpc_failure(tablet_id, cand.host, cand.brpc_port);
+            manager->update_peer_candidate_on_rpc_failure(tablet_id, cand.host, cand.brpc_port);
         }
     }
 
     if (all_tried) {
-        manager.record_peer_all_miss(tablet_id);
+        manager->record_peer_all_miss(tablet_id);
     }
     std::unique_lock<bthread::Mutex> lk(race->mtx);
     race->peer_done = true;
@@ -662,9 +662,10 @@ Status CachedRemoteFileReader::_execute_remote_read(const std::vector<FileBlockS
         if (!manager.is_peer_cooldown(tablet_id)) {
             // Cold miss: trigger background FE fetch and fall back to S3.
             g_peer_lazy_fetch_triggered << 1;
-            start_bthread([tablet_id]() {
-                auto& mgr = get_warm_up_manager();
-                mgr.fetch_candidates_from_fe(tablet_id);
+            auto manager_ptr =
+                    ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager_ptr();
+            start_bthread([manager_ptr = std::move(manager_ptr), tablet_id]() {
+                manager_ptr->fetch_candidates_from_fe(tablet_id);
             });
         }
         return _execute_s3_fallback(empty_start, span_size, buffer, peer_result, stats, io_ctx);
@@ -696,6 +697,7 @@ Status CachedRemoteFileReader::_execute_winner_race(
     }
 
     auto race = std::make_shared<RaceState>();
+    auto manager = ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager_ptr();
 
     // Capture context for child threads.
     const std::string file_path = path().native();
@@ -711,11 +713,11 @@ Status CachedRemoteFileReader::_execute_winner_race(
     // Launch peer bthread.
     start_bthread(
             [race, empty_blocks = std::move(empty_blocks), file_path, file_sz, is_doris,
-             candidates = std::move(candidates), tablet_id, resource_id = _storage_resource_id,
-             parent_resource_ctx]() mutable {
+             manager = std::move(manager), candidates = std::move(candidates), tablet_id,
+             resource_id = _storage_resource_id, parent_resource_ctx]() mutable {
                 run_peer_race(race, std::move(empty_blocks), file_path, file_sz, is_doris,
-                              std::move(candidates), tablet_id, std::move(resource_id),
-                              parent_resource_ctx);
+                              std::move(manager), std::move(candidates), tablet_id,
+                              std::move(resource_id), parent_resource_ctx);
             },
             /*init_thread_ctx=*/true);
 
