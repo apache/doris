@@ -315,7 +315,23 @@ public class BDBEnvironment {
         try {
             for (Iterator<Database> iter = openedDatabases.iterator(); iter.hasNext();) {
                 Database db = iter.next();
-                String name = db.getDatabaseName();
+                String name;
+                try {
+                    name = db.getDatabaseName();
+                } catch (Exception e) {
+                    // Database handle may have been preempted by a replicated remove
+                    // (DatabasePreemptedException). Mirror the cleanup pattern from
+                    // openDatabase(): close the stale handle, remove it, and continue.
+                    LOG.warn("get exception when getting database name in removeDatabase. "
+                            + "close and remove the stale handle", e);
+                    try {
+                        db.close();
+                    } catch (Exception ce) {
+                        LOG.warn("failed to close stale database handle", ce);
+                    }
+                    iter.remove();
+                    continue;
+                }
                 if (dbName.equals(name)) {
                     db.close();
                     LOG.info("database {} has been closed", name);
