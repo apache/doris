@@ -184,11 +184,21 @@ public abstract class FileQueryScanNode extends FileScanNode {
     }
 
     private void updateRequiredSlots() throws UserException {
+        Map<Integer, TFileScanSlotInfo> existingSlotInfoById = Maps.newHashMap();
+        if (params.getRequiredSlots() != null) {
+            for (TFileScanSlotInfo slotInfo : params.getRequiredSlots()) {
+                existingSlotInfoById.put(slotInfo.getSlotId(), slotInfo);
+            }
+        }
         params.unsetRequiredSlots();
+        List<String> partitionKeys = getPathPartitionKeys();
         for (SlotDescriptor slot : desc.getSlots()) {
-            TFileScanSlotInfo slotInfo = new TFileScanSlotInfo();
+            TFileScanSlotInfo slotInfo = existingSlotInfoById.get(slot.getId().asInt());
+            if (slotInfo == null) {
+                slotInfo = new TFileScanSlotInfo();
+            }
             slotInfo.setSlotId(slot.getId().asInt());
-            TColumnCategory category = classifyColumn(slot, getPathPartitionKeys());
+            TColumnCategory category = classifyColumn(slot, partitionKeys);
             slotInfo.setCategory(category);
             slotInfo.setIsFileSlot(category == TColumnCategory.REGULAR || category == TColumnCategory.GENERATED);
             params.addToRequiredSlots(slotInfo);
