@@ -159,9 +159,14 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         // Then Doris will just list the files from location and read parquet files directly.
         SUPPORTED_HIVE_FILE_FORMATS.add("org.apache.hudi.hadoop.HoodieParquetInputFormatBase");
         // LZO compressed text formats (hadoop-lzo / lzo-hadoop), treat as text input and use LZOP decompressor.
-        // com.hadoop.compression.lzo.LzoTextInputFormat  - twitter hadoop-lzo (GPL)
-        // com.hadoop.mapreduce.LzoTextInputFormat        - lzo-hadoop mapreduce API (org.anarres)
-        // com.hadoop.mapred.DeprecatedLzoTextInputFormat - lzo-hadoop legacy mapred API (org.anarres)
+        // LZO text InputFormats (read-only; INSERT INTO these tables is explicitly blocked at planning time).
+        // All three class names contain "text", so HiveFileFormat.getFormat() correctly resolves
+        // them to TEXT_FILE, which combined with LazySimpleSerDe yields FORMAT_TEXT for reading.
+        // isSplittable() recognises all three via isLzoInputFormat() and returns false.
+        // File listing filters *.lzo files only (*.lzo.index sidecars are excluded).
+        //   com.hadoop.compression.lzo.LzoTextInputFormat  - twitter hadoop-lzo (GPL)
+        //   com.hadoop.mapreduce.LzoTextInputFormat        - lzo-hadoop mapreduce API (org.anarres)
+        //   com.hadoop.mapred.DeprecatedLzoTextInputFormat - lzo-hadoop legacy mapred API (org.anarres)
         SUPPORTED_HIVE_FILE_FORMATS.add("com.hadoop.compression.lzo.LzoTextInputFormat");
         SUPPORTED_HIVE_FILE_FORMATS.add("com.hadoop.mapreduce.LzoTextInputFormat");
         SUPPORTED_HIVE_FILE_FORMATS.add("com.hadoop.mapred.DeprecatedLzoTextInputFormat");
