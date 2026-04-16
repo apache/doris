@@ -3,16 +3,66 @@ name: Code Review
 on:
   pull_request_target:
     types: [opened, synchronize, reopened, ready_for_review]
+  issue_comment:
+    types: [created, edited]
 
 permissions:
   pull-requests: read
   statuses: write
 
 jobs:
+  skip-on-comment:
+    name: Skip review via skip buildall comment
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'issue_comment' &&
+      github.event.issue.pull_request != null &&
+      contains(github.event.comment.body, 'skip buildall')
+    steps:
+      - name: Check user permission and mark review as success
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          COMMENT_USER_ID: ${{ github.event.comment.user.id }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          PR_INFO=$(gh api repos/${REPO}/pulls/${PR_NUMBER})
+          HEAD_SHA=$(echo "${PR_INFO}" | jq -r '.head.sha')
+          TARGET_BRANCH=$(echo "${PR_INFO}" | jq -r '.base.ref')
+
+          ALLOWED=false
+          if [[ "${COMMENT_USER_ID}" == '27881198' || "${COMMENT_USER_ID}" == '37901441' || "${COMMENT_USER_ID}" == '61408379' ]]; then
+              ALLOWED=true
+          elif [[ "${COMMENT_USER_ID}" == '9208457' && "${TARGET_BRANCH}" == *'branch-2.1'* ]]; then
+              ALLOWED=true
+          elif [[ "${COMMENT_USER_ID}" == '98214048' && "${TARGET_BRANCH}" == *'branch-3.0'* ]]; then
+              ALLOWED=true
+          elif [[ "${COMMENT_USER_ID}" == '101034200' && "${TARGET_BRANCH}" == *'branch-3.1'* ]]; then
+              ALLOWED=true
+          elif [[ ("${COMMENT_USER_ID}" == '9208457' || "${COMMENT_USER_ID}" == '2899462') && "${TARGET_BRANCH}" == *'branch-4.0'* ]]; then
+              ALLOWED=true
+          elif [[ "${COMMENT_USER_ID}" == '9208457' && "${TARGET_BRANCH}" == *'branch-4.1'* ]]; then
+              ALLOWED=true
+          fi
+
+          if [[ "${ALLOWED}" != 'true' ]]; then
+              echo "COMMENT_USER_ID ${COMMENT_USER_ID} is not allowed to skip code review."
+              exit 0
+          fi
+
+          echo "COMMENT_USER_ID ${COMMENT_USER_ID} is allowed to skip code review for ${TARGET_BRANCH}."
+          gh api repos/${REPO}/statuses/${HEAD_SHA} \
+            -X POST \
+            -f state="success" \
+            -f context='code-review' \
+            -f description="Code review skipped via 'skip buildall' comment." \
+            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
   sync-status:
     name: Sync review status
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    if: github.event_name == 'pull_request_target'
     steps:
       - name: Check automated review decision for current PR head
         env:
