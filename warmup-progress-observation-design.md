@@ -651,11 +651,13 @@ CacheHotspotManager (已有类)
        ├─ 一次性收集所有 event-driven Job 涉及的 cluster 并集
        │   allClusters = union(所有 job 的 srcCluster, dstCluster)
        │
-       ├─ 对 allClusters 中每个 cluster 的每个存活 BE：
-       │   GET http://be_host:http_port/api/warmup_event_driven_stats
-       │   → 解析 JSON → mergeStats()（全量写入，不区分 src/dst）
+       ├─ 枚举所有 (cluster, BE) 对
+       │   → 并发提交 HTTP 请求（CompletionService）
+       │   → 尽可能保证各 BE 采集时间窗口一致
+       │   → 等待所有请求完成
+       │   → mergeStats() 写入 clusterStats[cluster][tableId]
        │
-       └─ 数据采集完毕后，按 job.matchedTableIds 聚合
+       └─ 所有数据采集完毕后，一次性按 job.matchedTableIds 聚合
            → 对每个 Job：从 srcCluster 取 requested，从 dstCluster 取 finished
            → 存入 per-job 的 JobWarmUpStats 内存
            → SHOW WARM UP JOB 时直接读取
@@ -710,7 +712,10 @@ public void startProgressCollectDaemon() {
 /**
  * 周期性采集并聚合。
  *
- * 核心思路：先一次性收集所有涉及的 cluster 的全量 BE 数据，再按 job 计算。
+ * 核心思路：
+ * 1. 先一次性收集所有涉及的 cluster，枚举所有需要请求的 BE
+ * 2. 并发地对所有 BE 发起 HTTP 请求，尽可能保证采集时间相近
+ * 3. 等待所有请求完成后，一次性聚合计算
  * 不按 job 逐个遍历采集，避免同一个 cluster 被重复请求。
  */
 private void collectAndAggregate() {
@@ -724,28 +729,53 @@ private void collectAndAggregate() {
     }
     if (allClusters.isEmpty()) return;
 
-    // 2. 一次性采集所有 cluster 的所有 BE 数据（全量，不区分 src/dst）
-    Map<String, Map<Long, TableWarmUpWindowedStats>> newClusterStats = new HashMap<>();
+    // 2. 枚举所有需要请求的 (cluster, BE) 对
+    List<Pair<String, Backend>> allTargets = new ArrayList<>();
     for (String cluster : allClusters) {
-        Map<Long, TableWarmUpWindowedStats> tableMap = new HashMap<>();
-        List<Backend> backends = getBackendsByCluster(cluster);
-        for (Backend be : backends) {
-            try {
-                String url = "http://"
-                    + NetUtils.getHostPortInAccessibleFormat(be.getHost(), be.getHttpPort())
-                    + "/api/warmup_event_driven_stats";
-                String json = HttpUtils.doGet(url, null, 5000);
-                mergeStatsFromJson(tableMap, json);
-            } catch (Exception e) {
-                LOG.warn("Failed to collect warmup stats from BE {} in cluster {}: {}",
-                         be.getId(), cluster, e.getMessage());
-            }
+        for (Backend be : getBackendsByCluster(cluster)) {
+            allTargets.add(Pair.of(cluster, be));
         }
-        newClusterStats.put(cluster, tableMap);
     }
+    if (allTargets.isEmpty()) return;
+
+    // 3. 并发请求所有 BE，尽可能保证采集时间窗口一致
+    //    使用 CompletionService 并行提交所有 HTTP 请求
+    ExecutorService executor = Executors.newFixedThreadPool(
+            Math.min(allTargets.size(), 16));
+    CompletionService<Pair<String, String>> completionService =
+            new ExecutorCompletionService<>(executor);
+
+    for (var target : allTargets) {
+        String cluster = target.first;
+        Backend be = target.second;
+        completionService.submit(() -> {
+            String url = "http://"
+                + NetUtils.getHostPortInAccessibleFormat(be.getHost(), be.getHttpPort())
+                + "/api/warmup_event_driven_stats";
+            String json = HttpUtils.doGet(url, null, 5000);
+            return Pair.of(cluster, json);
+        });
+    }
+
+    // 4. 等待所有请求完成，收集结果
+    Map<String, Map<Long, TableWarmUpWindowedStats>> newClusterStats = new HashMap<>();
+    for (int i = 0; i < allTargets.size(); i++) {
+        try {
+            var future = completionService.take();
+            var result = future.get(10, TimeUnit.SECONDS);
+            String cluster = result.first;
+            String json = result.second;
+            var tableMap = newClusterStats.computeIfAbsent(cluster, k -> new HashMap<>());
+            mergeStatsFromJson(tableMap, json);
+        } catch (Exception e) {
+            LOG.warn("Failed to collect warmup stats: {}", e.getMessage());
+        }
+    }
+    executor.shutdown();
+
     this.clusterStats = newClusterStats;
 
-    // 3. 按 Job 聚合
+    // 5. 所有数据采集完毕后，一次性按 Job 聚合
     for (var job : runnableCloudWarmUpJobs.values()) {
         if (!job.isEventDriven()) continue;
         JobWarmUpStats stats = aggregateStatsForJob(job);
@@ -1031,13 +1061,15 @@ FE (CacheHotspotManager.progressCollectDaemon)
   │  一次性收集所有 event-driven Job 涉及的 cluster 并集
   │  allClusters = union(所有 job 的 srcCluster, dstCluster)
   │
-  │  对 allClusters 中每个 cluster 的每个存活 BE：
+  │  枚举所有 (cluster, BE) 对，并发提交 HTTP 请求
+  │  （CompletionService, 保证采集时间窗口一致）
   │    GET http://be_host:http_port/api/warmup_event_driven_stats
   │    → 全量解析 JSON（不区分 src/dst）
+  │    → 等待所有请求完成
   │    → mergeStatsFromJson 累加同 cluster 所有 BE
   │    → 写入 clusterStats[cluster][tableId]
   │
-  │  数据采集完毕后，按 job 聚合：
+  │  所有数据采集完毕后，一次性按 job 聚合：
   │    clusterStats[srcCluster][tableId] → requested
   │    clusterStats[dstCluster][tableId] → finished
   │    → JobWarmUpStats（gap = requested - finished）
