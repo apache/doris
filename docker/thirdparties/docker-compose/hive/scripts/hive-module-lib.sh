@@ -22,8 +22,8 @@ set -eo pipefail
 . /mnt/scripts/hive-common-lib.sh
 
 BOOTSTRAP_GROUPS="$(bootstrap_normalize_groups "${HIVE_BOOTSTRAP_GROUPS:-}")"
-: "${HIVE_BASELINE_VERSION:?HIVE_BASELINE_VERSION must be set}"
 DEFAULT_MODULES=(default multi_catalog partition_type statistics tvf regression test preinstalled_hql view)
+LAST_REFRESH_DETAIL=""
 
 ensure_hive_state_layout
 
@@ -70,18 +70,24 @@ preinstalled_hql_state_file() {
     echo "${HIVE_STATE_DIR}/modules/preinstalled_hql__${safe_name}.sha"
 }
 
-baseline_version_file() {
-    echo "${HIVE_STATE_DIR}/baseline.version"
-}
+format_refresh_preview() {
+    local limit="$1"
+    shift
+    local items=("$@")
+    local total=${#items[@]}
 
-baseline_valid() {
-    local version_file
-    version_file="$(baseline_version_file)"
-    [[ -f "${version_file}" ]] && grep -Fxq "${HIVE_BASELINE_VERSION}" "${version_file}"
-}
+    if (( total == 0 )); then
+        printf 'none'
+        return 0
+    fi
 
-mark_baseline_ready() {
-    printf '%s\n' "${HIVE_BASELINE_VERSION}" >"$(baseline_version_file)"
+    if (( total <= limit )); then
+        printf '%s' "$(IFS=,; echo "${items[*]}")"
+        return 0
+    fi
+
+    local preview=("${items[@]:0:limit}")
+    printf '%s,+%d-more' "$(IFS=,; echo "${preview[*]}")" "$((total - limit))"
 }
 
 hash_files() {
@@ -208,6 +214,7 @@ refresh_run_scripts_in_dir() {
     done < <(find "${module_dir}" -type f -name 'run.sh' -print0 | sort -z)
 
     local total=${#run_scripts[@]}
+    LAST_REFRESH_DETAIL="run_sh=${total}"
     if (( total > 0 )); then
         echo "  [run.sh] dir=${module_dir} count=${total} parallel=${LOAD_PARALLEL}"
         export RUN_SH_TOTAL="${total}"
@@ -227,6 +234,7 @@ refresh_run_scripts_in_dir() {
 refresh_preinstalled_hql_module() {
     local preinstalled_hqls=()
     local hqls_to_refresh=()
+    local refresh_rel_paths=()
     local hql_path=""
     local relative_hql_path=""
     local current_sha=""
@@ -255,13 +263,17 @@ refresh_preinstalled_hql_module() {
             echo "  [preinstalled_hql] up-to-date ${relative_hql_path}"
         else
             hqls_to_refresh+=("${hql_path}")
+            refresh_rel_paths+=("${relative_hql_path}")
         fi
     done
 
     if (( ${#hqls_to_refresh[@]} == 0 )); then
+        LAST_REFRESH_DETAIL="files=0"
         echo "  [preinstalled_hql] all selected HQL files are up-to-date"
         return 0
     fi
+
+    LAST_REFRESH_DETAIL="files=${#hqls_to_refresh[@]}($(format_refresh_preview 5 "${refresh_rel_paths[@]}"))"
 
     # Phase 2 (parallel): execute changed files via xargs -P
     echo "  [preinstalled_hql] refreshing ${#hqls_to_refresh[@]} files (parallel=${LOAD_PARALLEL})"
@@ -282,6 +294,7 @@ refresh_module() {
     local module="$1"
     local _t0
     _t0=$(date +%s)
+    LAST_REFRESH_DETAIL=""
     echo "[$(date '+%H:%M:%S')] [module] BEGIN ${module}"
 
     # Invalidate stale sha first so an interrupted refresh forces a redo next time.
@@ -297,6 +310,7 @@ refresh_module() {
         return 0
         ;;
     view)
+        LAST_REFRESH_DETAIL="create_view.hql"
         run_hive_hql /mnt/scripts/create_view_scripts/create_view.hql "create_view.hql"
         ;;
     *)

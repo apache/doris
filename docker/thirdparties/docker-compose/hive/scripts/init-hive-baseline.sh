@@ -23,11 +23,6 @@ fi
 
 . /mnt/scripts/hive-module-lib.sh
 
-if baseline_valid; then
-    echo "Hive baseline version ${HIVE_BASELINE_VERSION} is already valid"
-    exit 0
-fi
-
 hadoop fs -mkdir -p /user/doris/
 hadoop fs -mkdir -p /user/doris/suites/
 
@@ -39,5 +34,3 @@ copy_to_hdfs_if_selected "preinstalled_data"
 if [[ ${enablePaimonHms:-false} == "true" ]]; then
     run_hive_hql /mnt/scripts/create_external_paimon_scripts/create_paimon_tables.hql "create_paimon_table.hql"
 fi
-
-mark_baseline_ready

@@ -81,7 +81,7 @@ Hive state (HDFS data, Postgres metastore, and the module SHA tracker) lives in 
 | `doris-shared-<hive_version>-namenode` | NameNode metadata |
 | `doris-shared-<hive_version>-datanode` | DataNode blocks |
 | `doris-shared-<hive_version>-pgdata` | Hive Metastore Postgres data |
-| `doris-shared-<hive_version>-state` | `/mnt/state` — baseline version + per-module SHA files |
+| `doris-shared-<hive_version>-state` | `/mnt/state` — per-module SHA files used for incremental refresh |
 
 Lifecycle:
 - `--hive-mode fast`: volumes are preserved across runs.
@@ -107,7 +107,7 @@ Relevant env vars:
 | Variable | Default | Purpose |
 |---|---|---|
 | `HIVE_BASELINE_TARBALL_CACHE` | `docker/thirdparties/docker-compose/hive/scripts/baseline` in `custom_settings.env` | Local cache dir for downloaded tarballs; cache filenames include `HIVE_BASELINE_VERSION` |
-| `HIVE_BASELINE_VERSION` | `20260415` in `custom_settings.env` | Single source of truth for baseline rollout: written to `/mnt/state/baseline.version`, embedded in the cache filename, and embedded in the auto-constructed OSS tarball URL |
+| `HIVE_BASELINE_VERSION` | `20260415` in `custom_settings.env` | Baseline publication key: embedded in the cache filename and the auto-constructed OSS tarball URL |
 
 ### Producing a new baseline tarball
 
@@ -179,6 +179,13 @@ Refresh only the modules you care about:
 # All modules (explicit)
 ./docker/thirdparties/run-thirdparties-docker.sh -c hive3 \
   --hive-mode refresh --hive-modules all
+```
+
+Each refresh ends with a summary line showing what was actually re-executed, for example:
+
+```text
+[hive-refresh] summary refreshed_modules=2 modules=multi_catalog,preinstalled_hql
+[hive-refresh] summary details=multi_catalog:run_sh=74;preinstalled_hql:files=3(create_preinstalled_scripts/run40.hql,create_preinstalled_scripts/run69.hql,create_preinstalled_scripts/run76.hql)
 ```
 
 ---

@@ -48,14 +48,19 @@ done
 _t0=$(date +%s)
 
 # Mount all 4 volumes read-only into a single alpine container and tar them
-# in one pass. This avoids the concurrent-write corruption that plagued the
-# previous host-level tar approach.
+# in one pass. Copy only the small state volume to ephemeral container storage
+# so legacy baseline.version files can be dropped from newly exported tarballs.
 sudo docker run --rm \
     -v "${VOLUME_PREFIX}-namenode:/snapshot/namenode:ro" \
     -v "${VOLUME_PREFIX}-datanode:/snapshot/datanode:ro" \
     -v "${VOLUME_PREFIX}-pgdata:/snapshot/pgdata:ro" \
     -v "${VOLUME_PREFIX}-state:/snapshot/state:ro" \
-    alpine tar czf - -C /snapshot namenode datanode pgdata state \
+    alpine sh -c '
+        mkdir -p /work/state
+        cp -a /snapshot/state/. /work/state/
+        rm -f /work/state/baseline.version
+        tar czf - -C /snapshot namenode datanode pgdata -C /work state
+    ' \
     > "${OUTPUT_PATH}"
 
 size=$(du -h "${OUTPUT_PATH}" | cut -f1)

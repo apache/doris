@@ -28,6 +28,8 @@ module=""
 total=${#DEFAULT_MODULES[@]}
 idx=0
 overall_start=$(date +%s)
+refreshed_modules=()
+refresh_details=()
 
 for module in "${DEFAULT_MODULES[@]}"; do
     idx=$((idx + 1))
@@ -39,6 +41,8 @@ for module in "${DEFAULT_MODULES[@]}"; do
         module_start=$(date +%s)
         echo "[hive-refresh ${idx}/${total}] BEGIN module=${module} ts=$(date -Is)"
         refresh_module "${module}"
+        refreshed_modules+=("${module}")
+        refresh_details+=("${module}:${LAST_REFRESH_DETAIL:-updated}")
         module_end=$(date +%s)
         echo "[hive-refresh ${idx}/${total}] END   module=${module} took=$((module_end - module_start))s"
     else
@@ -46,4 +50,10 @@ for module in "${DEFAULT_MODULES[@]}"; do
     fi
 done
 
+if (( ${#refreshed_modules[@]} == 0 )); then
+    echo "[hive-refresh] summary refreshed_modules=0 details=none"
+else
+    echo "[hive-refresh] summary refreshed_modules=${#refreshed_modules[@]} modules=$(IFS=,; echo "${refreshed_modules[*]}")"
+    echo "[hive-refresh] summary details=$(IFS=';'; echo "${refresh_details[*]}")"
+fi
 echo "[hive-refresh] all done in $(( $(date +%s) - overall_start ))s"

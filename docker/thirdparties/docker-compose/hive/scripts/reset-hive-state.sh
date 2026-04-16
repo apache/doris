@@ -23,6 +23,5 @@ fi
 
 . /mnt/scripts/hive-common-lib.sh
 
-rm -f "${HIVE_STATE_DIR}/baseline.version"
 rm -rf "${HIVE_STATE_DIR}/modules"
 mkdir -p "${HIVE_STATE_DIR}/modules"

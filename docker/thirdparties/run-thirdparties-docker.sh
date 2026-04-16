@@ -961,6 +961,8 @@ maybe_restore_baseline_to_volumes() {
     local download_url=""
     local tmp_cache_file=""
 
+    HIVE_BASELINE_RESTORE_RESULT="missing"
+
     if [[ -n "${s3BucketName:-}" && -n "${s3Endpoint:-}" ]]; then
         download_url="https://${s3BucketName}.${s3Endpoint}/regression/datalake/pipeline_data/${remote_path}"
     fi
@@ -968,6 +970,7 @@ maybe_restore_baseline_to_volumes() {
     # Nothing to do if the named volumes already hold a populated baseline.
     if hive_volume_is_populated "${prefix}"; then
         echo "[baseline] volumes already populated, skip restore"
+        HIVE_BASELINE_RESTORE_RESULT="existing"
         return 0
     fi
 
@@ -1015,6 +1018,7 @@ maybe_restore_baseline_to_volumes() {
         -v "${prefix}-state:/restore/state" \
         alpine sh -c 'tar xzf - -C /restore' \
         < "${cache_file}"
+    HIVE_BASELINE_RESTORE_RESULT="restored"
     echo "[baseline] restore done took=$(( $(date +%s) - _t0 ))s"
 }
 
@@ -1125,35 +1129,14 @@ exec_hive_script() {
 
 maybe_refresh_hive_data() {
     local hive_version="$1"
-    local metastore_container
-    local baseline_missing=0
-    local actual_baseline_version=""
+    local baseline_restore_result="${2:-missing}"
 
     if [[ "${NEED_LOAD_DATA}" -eq 0 ]]; then
         echo "Skip Hive data refresh because --no-load-data is set"
         return 0
     fi
 
-    metastore_container="$(hive_metastore_container_for "${hive_version}")"
-    if ! sudo docker exec \
-        -e HIVE_BASELINE_VERSION="${HIVE_BASELINE_VERSION}" \
-        -e HIVE_STATE_DIR="/mnt/state" \
-        "${metastore_container}" \
-        bash --noprofile --norc -c '. /mnt/scripts/hive-module-lib.sh && baseline_valid'; then
-        if [[ "${HIVE_MODE}" != "rebuild" ]] && sudo docker exec \
-            -e HIVE_STATE_DIR="/mnt/state" \
-            "${metastore_container}" \
-            bash --noprofile --norc -c 'test -f "${HIVE_STATE_DIR}/baseline.version"'; then
-            actual_baseline_version="$(sudo docker exec \
-                -e HIVE_STATE_DIR="/mnt/state" \
-                "${metastore_container}" \
-                bash --noprofile --norc -c 'cat "${HIVE_STATE_DIR}/baseline.version"')"
-            echo "[baseline] ERROR: expected baseline version ${HIVE_BASELINE_VERSION} but found ${actual_baseline_version} in /mnt/state/baseline.version" >&2
-            echo "[baseline] Refusing to auto-reinitialize from a mismatched baseline. Fix the cached tarball or rebuild the baseline volumes." >&2
-            return 1
-        fi
-
-        baseline_missing=1
+    if [[ "${HIVE_MODE}" == "rebuild" || "${baseline_restore_result}" == "missing" ]]; then
         local _t_baseline
         _t_baseline=$(date +%s)
         echo "[$(date '+%H:%M:%S')] [${hive_version}] init-hive-baseline begin"
@@ -1161,7 +1144,7 @@ maybe_refresh_hive_data() {
         echo "[$(date '+%H:%M:%S')] [${hive_version}] init-hive-baseline done took=$(( $(date +%s) - _t_baseline ))s"
     fi
 
-    if [[ "${HIVE_MODE}" == "refresh" || "${HIVE_MODE}" == "rebuild" || "${baseline_missing}" -eq 1 ]]; then
+    if [[ "${HIVE_MODE}" == "refresh" || "${HIVE_MODE}" == "rebuild" ]]; then
         local _t_modules
         _t_modules=$(date +%s)
         echo "[$(date '+%H:%M:%S')] [${hive_version}] refresh-hive-modules begin (mode=${HIVE_MODE} modules=${HIVE_MODULES})"
@@ -1173,6 +1156,7 @@ maybe_refresh_hive_data() {
 start_hive_stack() {
     local hive_version="$1"
     local volume_prefix
+    local baseline_restore_result="missing"
 
     export HIVE_BOOTSTRAP_GROUPS="$(hive_bootstrap_groups_for "${hive_version}")"
     echo "${hive_version} selected bootstrap files: ${HIVE_BOOTSTRAP_GROUPS}"
@@ -1202,6 +1186,11 @@ start_hive_stack() {
     ensure_hive_volumes "${volume_prefix}"
     if [[ "${HIVE_MODE}" != "rebuild" ]]; then
         maybe_restore_baseline_to_volumes "${volume_prefix}" "${hive_version}"
+        baseline_restore_result="${HIVE_BASELINE_RESTORE_RESULT}"
+    fi
+    if [[ "${HIVE_MODE}" == "fast" && "${baseline_restore_result}" == "missing" ]]; then
+        echo "[baseline] ERROR: fast mode requires existing populated volumes or an available baseline tarball" >&2
+        return 1
     fi
     render_hive_compose "${hive_version}"
 
@@ -1217,7 +1206,7 @@ start_hive_stack() {
 
     local _t_data
     _t_data=$(date +%s)
-    maybe_refresh_hive_data "${hive_version}"
+    maybe_refresh_hive_data "${hive_version}" "${baseline_restore_result}"
     echo "[$(date '+%H:%M:%S')] [${hive_version}] data refresh done took=$(( $(date +%s) - _t_data ))s"
 }
 
