@@ -264,13 +264,14 @@ public class EditLog {
             System.exit(-1);
         }
 
-        txId.addAndGet(batch.size());
+        long newTxId = txId.addAndGet(batch.size());
         // update statistics, etc. (optional, can be added as needed)
-        if (txId.get() >= Config.edit_log_roll_num) {
-            LOG.info("txId {} is equal to or larger than edit_log_roll_num {}, will roll edit.", txId.get(),
+        if (newTxId >= Config.edit_log_roll_num) {
+            LOG.info("txId {} is equal to or larger than edit_log_roll_num {}, will roll edit.", newTxId,
                     Config.edit_log_roll_num);
             rollEditLog();
-            txId.set(0);
+            // Atomically apply modulo to preserve increments from concurrent threads
+            txId.updateAndGet(v -> v % Config.edit_log_roll_num);
         }
         if (MetricRepo.isInit) {
             MetricRepo.COUNTER_EDIT_LOG_WRITE.increase(Long.valueOf(batch.size()));
@@ -1660,7 +1661,8 @@ public class EditLog {
             LOG.info("txId {} is equal to or larger than edit_log_roll_num {}, will roll edit.", newTxId,
                     Config.edit_log_roll_num);
             rollEditLog();
-            txId.set(0);
+            // Atomically apply modulo to preserve increments from concurrent threads
+            txId.updateAndGet(v -> v % Config.edit_log_roll_num);
         }
 
         return logId;
