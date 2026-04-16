@@ -123,7 +123,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
     protected Long2ObjectOpenHashMap<List<Column>> indexSchemaMap = new Long2ObjectOpenHashMap<>();
     // shadow index id -> (shadow index schema version : schema hash)
     @SerializedName(value = "indexSchemaVersionAndHashMap")
-    protected Long2ObjectOpenHashMap<SchemaVersionAndHash> indexSchemaVersionAndHashMap = new Long2ObjectOpenHashMap<>();
+    protected Long2ObjectOpenHashMap<SchemaVersionAndHash> indexSchemaVersionAndHashMap =
+            new Long2ObjectOpenHashMap<>();
     // shadow index id -> shadow index short key count
     @SerializedName(value = "indexShortKeyMap")
     protected Long2ObjectOpenHashMap<Short> indexShortKeyMap = new Long2ObjectOpenHashMap<>();

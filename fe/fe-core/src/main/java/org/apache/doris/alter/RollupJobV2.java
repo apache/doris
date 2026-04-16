@@ -102,7 +102,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
     // partition id -> (rollup tablet id -> base tablet id)
     @SerializedName(value = "partitionIdToBaseRollupTabletIdMap")
-    protected Long2ObjectOpenHashMap<Map<Long, Long>> partitionIdToBaseRollupTabletIdMap = new Long2ObjectOpenHashMap<>();
+    protected Long2ObjectOpenHashMap<Map<Long, Long>> partitionIdToBaseRollupTabletIdMap =
+            new Long2ObjectOpenHashMap<>();
     @SerializedName(value = "partitionIdToRollupIndex")
     protected Long2ObjectOpenHashMap<MaterializedIndex> partitionIdToRollupIndex = new Long2ObjectOpenHashMap<>();
 
