@@ -2499,6 +2499,12 @@ bool ColumnVariant::try_insert_default_from_nested(const Subcolumns::NodePtr& en
         return false;
     }
 
+    // Preserve the original null guard: if the donor leaf's last row is NULL,
+    // fall back to insert_default() so that a missing sibling stays NULL too.
+    if (leaf->data.is_null_at(leaf_size - 1)) {
+        return false;
+    }
+
     FieldInfo field_info = {
             .scalar_type_id = entry->data.least_common_type.get_base_type_id(),
             .num_dimensions = entry->data.get_dimensions(),
