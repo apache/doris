@@ -95,6 +95,7 @@ public:
         int64_t parse_page_index_time = 0;
         int64_t predicate_filter_time = 0;
         int64_t dict_filter_rewrite_time = 0;
+        int64_t fill_columns_time = 0;
         int64_t bloom_filter_read_time = 0;
     };
 
@@ -235,6 +236,9 @@ private:
         RuntimeProfile::Counter* parse_page_header_num = nullptr;
         RuntimeProfile::Counter* predicate_filter_time = nullptr;
         RuntimeProfile::Counter* dict_filter_rewrite_time = nullptr;
+        RuntimeProfile::Counter* convert_time = nullptr;
+        RuntimeProfile::Counter* column_read_io_time = nullptr;
+        RuntimeProfile::Counter* fill_columns_time = nullptr;
         RuntimeProfile::Counter* bloom_filter_read_time = nullptr;
     };
 
