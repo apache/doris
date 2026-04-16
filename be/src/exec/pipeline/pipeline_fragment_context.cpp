@@ -29,6 +29,7 @@
 // IWYU pragma: no_include <bits/chrono.h>
 #include <fmt/format.h>
 #include <thrift/Thrift.h>
+#include <thrift/protocol/TDebugProtocol.h>
 #include <thrift/transport/TTransportException.h>
 
 #include <chrono> // IWYU pragma: keep
