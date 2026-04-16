@@ -214,22 +214,15 @@ public class ReplicaTest {
     }
 
     @Test
-    public void testBaseReplicaSchemaHashReturnsNegativeOne() {
-        // Base Replica (and by extension CloudReplica) should return -1 for schemaHash
-        // since schemaHash is only meaningful for LocalReplica
-        Replica baseReplica = new Replica();
-        Assert.assertEquals(-1, baseReplica.getSchemaHash());
-
-        // setSchemaHash is a no-op on base Replica
-        baseReplica.setSchemaHash(999);
-        Assert.assertEquals(-1, baseReplica.getSchemaHash());
-    }
-
-    @Test
     public void testCloudReplicaSchemaHashReturnsNegativeOne() {
-        // CloudReplica extends Replica (not LocalReplica), so it inherits the -1 stub
+        // CloudReplica extends Replica (not LocalReplica), so it inherits the base -1 stub.
+        // schemaHash=12345 is passed to the constructor but ignored by the base class.
         CloudReplica cloudReplica = new CloudReplica(10000L, 20000L, ReplicaState.NORMAL,
                 3, 12345, 1, 2, 3, 4, -1);
+        Assert.assertEquals(-1, cloudReplica.getSchemaHash());
+
+        // setSchemaHash is a no-op on base Replica, so CloudReplica stays at -1
+        cloudReplica.setSchemaHash(999);
         Assert.assertEquals(-1, cloudReplica.getSchemaHash());
     }
 }
