@@ -104,6 +104,11 @@ public class AddColumnOp extends AlterTableOp {
     }
 
     @Override
+    public boolean allowOpRowBinlog() {
+        return true;
+    }
+
+    @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("ADD COLUMN ").append(columnDef.toSql());

@@ -15,21 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+package org.apache.doris.catalog;
 
-#include <memory>
+import com.google.common.base.Preconditions;
 
-namespace doris {
+/**
+ * A lightweight wrapper base for read binlog<row> of table
+ */
+public class RowBinlogTableWrapper extends OlapTableWrapper {
 
-class Rowset;
-using RowsetSharedPtr = std::shared_ptr<Rowset>;
-class RowsetMeta;
-using RowsetMetaSharedPtr = std::shared_ptr<RowsetMeta>;
-class RowsetReader;
-using RowsetReaderSharedPtr = std::shared_ptr<RowsetReader>;
-class RowsetWriter;
-using RowsetWriterSharedPtr = std::shared_ptr<RowsetWriter>;
-class RowsetBuilder;
-using RowsetBuilderSharedPtr = std::shared_ptr<RowsetBuilder>;
+    private final MaterializedIndexMeta rowBinlogMeta;
 
-} // namespace doris
+    public RowBinlogTableWrapper(OlapTable originTable) {
+        super(originTable, originTable.getName(), originTable.generateTableRowBinlogSchema(), KeysType.DUP_KEYS);
+        this.rowBinlogMeta = originTable.getRowBinlogMeta();
+        Preconditions.checkNotNull(rowBinlogMeta, "row binlog meta is null, table=%s", originTable.getName());
+        this.setBaseIndexId(rowBinlogMeta.getIndexId());
+    }
+
+    @Override
+    public long getBaseIndexId() {
+        return rowBinlogMeta.getIndexId();
+    }
+}

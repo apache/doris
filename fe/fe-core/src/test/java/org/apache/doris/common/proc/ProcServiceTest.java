@@ -24,6 +24,8 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.util.List;
+
 public class ProcServiceTest {
     private class EmptyProcNode implements ProcNodeInterface {
         @Override
@@ -171,6 +173,17 @@ public class ProcServiceTest {
         }
 
         Assert.assertEquals(5, errCount);
+    }
+
+    @Test
+    public void testWithRowBinlogColumnsInShowProc() {
+        List<String> tabletsTitles = TabletsProcDir.TITLE_NAMES;
+        Assert.assertTrue(tabletsTitles.contains("BinlogSize"));
+        Assert.assertTrue(tabletsTitles.contains("BinlogFileNum"));
+
+        List<String> replicasTitles = ReplicasProcNode.TITLE_NAMES;
+        Assert.assertTrue(replicasTitles.contains("BinlogSize"));
+        Assert.assertTrue(replicasTitles.contains("BinlogFileNum"));
     }
 
 }

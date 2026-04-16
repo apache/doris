@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.backup.CatalogMocker;
+import org.apache.doris.catalog.CatalogRecycleBin;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
@@ -28,6 +29,7 @@ import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -36,6 +38,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
+import org.apache.doris.qe.ShowResultSet;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.AfterEach;
@@ -59,7 +62,7 @@ public class ShowDataCommandTest {
             KeysType.AGG_KEYS,
             new SinglePartitionInfo(),
             new RandomDistributionInfo(32));
-
+ 
     private Env env = Mockito.mock(Env.class);
     private InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
     private AccessControllerManager accessControllerManager = Mockito.mock(AccessControllerManager.class);
@@ -112,29 +115,98 @@ public class ShowDataCommandTest {
         Map<String, String> properties = new HashMap<>();
         ShowDataCommand command = new ShowDataCommand(tableNameInfo, keys, properties, false);
         Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
+
+        // Ensure show data result includes binlog columns in metadata.
+        Assertions.assertTrue(command.getMetaData().getColumns().stream()
+                        .anyMatch(c -> c.getName().equalsIgnoreCase("BinlogSize")),
+                "SHOW DATA should contain BinlogSize column");
     }
 
     @Test
-    void testValidateNoPrivilege() throws Exception {
-        Mockito.doReturn(database).when(catalog).getDbOrAnalysisException(Mockito.anyString());
-        Mockito.doReturn(olapTable).when(database).getTableOrMetaException(
-                Mockito.anyString(), Mockito.any(TableIf.TableType.class));
+    public void testValidateShowAllDataNormal() throws Exception {
+        Mockito.when(connectContext.getDatabase()).thenReturn(CatalogMocker.TEST_DB_NAME);
+        Mockito.when(connectContext.isSkipAuth()).thenReturn(true);
+        Mockito.when(catalog.getDbOrAnalysisException(Mockito.anyString())).thenReturn(CatalogMocker.mockDb());
 
         SlotReference tableName = new SlotReference("TableName", IntegerType.INSTANCE);
-        List<OrderKey> keys = ImmutableList.of(
-                new OrderKey(tableName, true, false)
-        );
+        List<OrderKey> keys = ImmutableList.of(new OrderKey(tableName, true, false));
+        ShowDataCommand command = new ShowDataCommand(null, keys, new HashMap<>(), false);
 
-        // test not exist table
+        Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
+        Assertions.assertTrue(command.getMetaData().getColumns().stream()
+                        .anyMatch(c -> c.getName().equalsIgnoreCase("BinlogSize")),
+                "SHOW DATA should contain BinlogSize column");
+    }
+
+    @Test
+    public void testValidateShowAllDataGetAllDbStats() throws Exception {
+        CatalogRecycleBin recycleBin = new CatalogRecycleBin();
+        mockedEnv.when(Env::getCurrentRecycleBin).thenReturn(recycleBin);
+
+        Mockito.when(accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN)).thenReturn(true);
+        Mockito.when(catalog.getDbNames()).thenReturn(ImmutableList.of("db1", "db2"));
+
+        Database db1 = Mockito.mock(Database.class);
+        Database db2 = Mockito.mock(Database.class);
+        Mockito.when(catalog.getDbNullable("db1")).thenReturn(db1);
+        Mockito.when(catalog.getDbNullable("db2")).thenReturn(db2);
+
+        OlapTable t1 = Mockito.mock(OlapTable.class);
+        OlapTable t2 = Mockito.mock(OlapTable.class);
+
+        Mockito.when(db1.getId()).thenReturn(101L);
+        Mockito.when(db1.getUsedDataSize()).thenReturn(Pair.of(10L, 1L));
+        Mockito.when(db1.getTables()).thenReturn(ImmutableList.of(t1));
+        Mockito.doNothing().when(db1).readLock();
+        Mockito.doNothing().when(db1).readUnlock();
+
+        Mockito.when(db2.getId()).thenReturn(102L);
+        Mockito.when(db2.getUsedDataSize()).thenReturn(Pair.of(20L, 2L));
+        Mockito.when(db2.getTables()).thenReturn(ImmutableList.of(t2));
+        Mockito.doNothing().when(db2).readLock();
+        Mockito.doNothing().when(db2).readUnlock();
+
+        Mockito.when(t1.isManagedTable()).thenReturn(true);
+        Mockito.when(t2.isManagedTable()).thenReturn(true);
+        Mockito.when(t1.getBinlogSize()).thenReturn(5L);
+        Mockito.when(t2.getBinlogSize()).thenReturn(7L);
+
+        SlotReference tableName = new SlotReference("TableName", IntegerType.INSTANCE);
+        List<OrderKey> keys = ImmutableList.of(new OrderKey(tableName, true, false));
+        ShowDataCommand command = new ShowDataCommand(null, keys, new HashMap<>(), false);
+
+        ShowResultSet rs = command.doRun(connectContext, null);
+        List<List<String>> rows = rs.getResultRows();
+
+        Assertions.assertEquals(3, rows.size());
+        Assertions.assertEquals(ImmutableList.of("101", "db1", "10", "1", "5", "0", "0"), rows.get(0));
+        Assertions.assertEquals(ImmutableList.of("102", "db2", "20", "2", "7", "0", "0"), rows.get(1));
+        Assertions.assertEquals(ImmutableList.of("Total", "NULL", "30", "3", "12", "0", "0"), rows.get(2));
+    }
+
+    @Test
+    public void testValidateNoPrivilege() throws Exception {
+        Mockito.doReturn(database).when(catalog).getDbOrAnalysisException(Mockito.anyString());
+        Mockito.doReturn(olapTable).when(database).getTableOrMetaException(
+                Mockito.eq(tableNameInfo.getTbl()), Mockito.eq(TableIf.TableType.OLAP));
+
+        SlotReference tableName = new SlotReference("TableName", IntegerType.INSTANCE);
+        List<OrderKey> keys = ImmutableList.of(new OrderKey(tableName, true, false));
+
+        // table not exist
         TableNameInfo tableNameInfoNotExist =
                 new TableNameInfo(CatalogMocker.TEST_DB_NAME, "tbl_not_exist");
-
-        Map<String, String> properties = new HashMap<>();
-        ShowDataCommand command = new ShowDataCommand(tableNameInfoNotExist, keys, properties, false);
+        Mockito.doThrow(new AnalysisException("not exist")).when(database)
+                .getTableOrMetaException(Mockito.eq("tbl_not_exist"), Mockito.eq(TableIf.TableType.OLAP));
+        ShowDataCommand command = new ShowDataCommand(tableNameInfoNotExist, keys, new HashMap<>(), false);
         Assertions.assertThrows(AnalysisException.class, () -> command.validate(connectContext));
 
-        // test no priv
-        ShowDataCommand command2 = new ShowDataCommand(tableNameInfo, keys, properties, false);
+        // no privilege
+        Mockito.when(accessControllerManager.checkTblPriv(
+                Mockito.nullable(ConnectContext.class),
+                Mockito.any(TableNameInfo.class),
+                Mockito.any(PrivPredicate.class))).thenReturn(false);
+        ShowDataCommand command2 = new ShowDataCommand(tableNameInfo, keys, new HashMap<>(), false);
         Assertions.assertThrows(AnalysisException.class, () -> command2.validate(connectContext));
     }
 }

@@ -91,6 +91,8 @@ public abstract class Replica {
     private int schemaHash = -1;
     @SerializedName(value = "ds", alternate = {"dataSize"})
     private volatile long dataSize = 0;
+    @SerializedName(value = "bs", alternate = {"binlogSize"})
+    private volatile long binlogSize = 0;
     @SerializedName(value = "rc", alternate = {"rowCount"})
     private volatile long rowCount = 0;
     @SerializedName(value = "st", alternate = {"state"})
@@ -104,6 +106,10 @@ public abstract class Replica {
     @Getter
     @SerializedName(value = "lss", alternate = {"localSegmentSize"})
     private long localSegmentSize = 0L;
+
+    // Number of binlog files retained on this replica.
+    @SerializedName(value = "bfn", alternate = {"binloFileNum"})
+    private volatile long binlogFileNum = -1;
 
     public Replica() {
     }
@@ -185,6 +191,22 @@ public abstract class Replica {
 
     public void setDataSize(long dataSize) {
         this.dataSize = dataSize;
+    }
+
+    public long getBinlogSize() {
+        return binlogSize;
+    }
+
+    public void setBinlogSize(long binlogSize) {
+        this.binlogSize = binlogSize;
+    }
+
+    public long getBinlogFileNum() {
+        return binlogFileNum;
+    }
+
+    public void setBinlogFileNum(long binlogFileNum) {
+        this.binlogFileNum = binlogFileNum;
     }
 
     public long getRemoteDataSize() {

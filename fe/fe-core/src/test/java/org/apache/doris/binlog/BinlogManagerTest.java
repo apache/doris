@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.persist.BinlogGcInfo;
 import org.apache.doris.thrift.TBinlog;
@@ -94,7 +95,8 @@ public class BinlogManagerTest {
                 Mockito.withSettings().defaultAnswer(Mockito.CALLS_REAL_METHODS),
                 (mock, context) -> {
                     Mockito.doAnswer(inv -> ttl).when(mock).getTtlSeconds();
-                    Mockito.doAnswer(inv -> enableDbBinlog).when(mock).isEnable();
+                    Mockito.doAnswer(inv -> enableDbBinlog).when(mock).getEnable();
+                    Mockito.doAnswer(inv -> enableDbBinlog).when(mock).isEnableForCCR();
                     Mockito.doReturn(BinlogTestUtils.MAX_BYTES).when(mock).getMaxBytes();
                     Mockito.doReturn(BinlogTestUtils.MAX_HISTORY_NUMS).when(mock).getMaxHistoryNums();
                 });
@@ -151,6 +153,41 @@ public class BinlogManagerTest {
         if (mockedDatabaseConstruction != null) {
             mockedDatabaseConstruction.close();
         }
+    }
+
+    @Test
+    public void testBinlogConfigEquals() {
+        BinlogConfig c1 = new BinlogConfig(true, 10L, 20L, 30L, BinlogConfig.BinlogFormat.ROW, true);
+        BinlogConfig c2 = new BinlogConfig(true, 10L, 20L, 30L, BinlogConfig.BinlogFormat.ROW, true);
+        BinlogConfig c3 = new BinlogConfig(true, 10L, 20L, 30L, BinlogConfig.BinlogFormat.ROW, false);
+
+        Assert.assertEquals(c1, c2);
+        Assert.assertNotEquals(c1, c3);
+        Assert.assertNotEquals(c1, "not_binlog");
+    }
+
+    @Test
+    public void testBinlogConfigAppendToShowCreateTable() {
+        BinlogConfig rowCfg = new BinlogConfig(true, 11L, 22L, 33L, BinlogConfig.BinlogFormat.ROW, true);
+        StringBuilder sb = new StringBuilder();
+        rowCfg.appendToShowCreateTable(sb);
+        String out = sb.toString();
+        Assert.assertTrue(out.contains("\"" + PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE + "\" = \"true\""));
+        Assert.assertTrue(out.contains("\"" + PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS + "\" = \"11\""));
+        Assert.assertTrue(out.contains("\"" + PropertyAnalyzer.PROPERTIES_BINLOG_MAX_BYTES + "\" = \"22\""));
+        Assert.assertTrue(out.contains("\"" + PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS
+                + "\" = \"33\""));
+        Assert.assertTrue(out.contains("\"" + PropertyAnalyzer.PROPERTIES_BINLOG_FORMAT + "\" = \"ROW\""));
+        Assert.assertTrue(out.contains(PropertyAnalyzer.PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE));
+
+        BinlogConfig stmtCfg = new BinlogConfig(true, 11L, 22L, 33L,
+                BinlogConfig.BinlogFormat.STATEMENT_AND_SNAPSHOT, true);
+        sb = new StringBuilder();
+        stmtCfg.appendToShowCreateTable(sb);
+        out = sb.toString();
+        Assert.assertTrue(out.contains("\"" + PropertyAnalyzer.PROPERTIES_BINLOG_FORMAT
+                + "\" = \"STATEMENT_AND_SNAPSHOT\""));
+        Assert.assertFalse(out.contains(PropertyAnalyzer.PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE));
     }
 
     @Test
