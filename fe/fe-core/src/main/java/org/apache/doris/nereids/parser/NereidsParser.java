@@ -42,10 +42,8 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.antlr.v4.runtime.BailErrorStrategy;
 import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.CommonTokenStream;
-import org.antlr.v4.runtime.DefaultErrorStrategy;
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.Recognizer;
 import org.antlr.v4.runtime.Token;
@@ -419,7 +417,6 @@ public class NereidsParser {
         try {
             // first, try parsing with potentially faster SLL mode
             parser.getInterpreter().setPredictionMode(PredictionMode.SLL);
-            parser.setErrorHandler(new BailErrorStrategy());
             tree = parseFunction.apply(parser);
         } catch (ParseCancellationException ex) {
             // if we fail, parse with LL mode
@@ -427,7 +424,6 @@ public class NereidsParser {
             parser.reset();
 
             parser.getInterpreter().setPredictionMode(PredictionMode.LL);
-            parser.setErrorHandler(new DefaultErrorStrategy());
             tree = parseFunction.apply(parser);
         }
         return tree;
