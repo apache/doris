@@ -1677,18 +1677,19 @@ Status FileScanner::_init_expr_ctxes() {
             has_default = true;
         }
 
-        // // Fall back to legacy default_value_of_src_slot map (old FE)
-        // if (!has_default) {
-        //     auto legacy_it = _params->default_value_of_src_slot.find(slot_id);
-        //     if (legacy_it != std::end(_params->default_value_of_src_slot)) {
-        //         if (!legacy_it->second.nodes.empty()) {
-        //             RETURN_IF_ERROR(VExpr::create_expr_tree(legacy_it->second, ctx));
-        //             RETURN_IF_ERROR(ctx->prepare(_state, *_default_val_row_desc));
-        //             RETURN_IF_ERROR(ctx->open(_state));
-        //         }
-        //         has_default = true;
-        //     }
-        // }
+        // Fall back to legacy default_value_of_src_slot map for mixed-version FE/BE
+        // and callers that have not preserved inline default_value_expr yet.
+        if (!has_default) {
+            auto legacy_it = _params->default_value_of_src_slot.find(slot_id);
+            if (legacy_it != std::end(_params->default_value_of_src_slot)) {
+                if (!legacy_it->second.nodes.empty()) {
+                    RETURN_IF_ERROR(VExpr::create_expr_tree(legacy_it->second, ctx));
+                    RETURN_IF_ERROR(ctx->prepare(_state, *_default_val_row_desc));
+                    RETURN_IF_ERROR(ctx->open(_state));
+                }
+                has_default = true;
+            }
+        }
 
         if (has_default) {
             // if expr is empty, the default value will be null
