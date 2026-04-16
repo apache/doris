@@ -1127,6 +1127,7 @@ maybe_refresh_hive_data() {
     local hive_version="$1"
     local metastore_container
     local baseline_missing=0
+    local actual_baseline_version=""
 
     if [[ "${NEED_LOAD_DATA}" -eq 0 ]]; then
         echo "Skip Hive data refresh because --no-load-data is set"
@@ -1139,6 +1140,19 @@ maybe_refresh_hive_data() {
         -e HIVE_STATE_DIR="/mnt/state" \
         "${metastore_container}" \
         bash --noprofile --norc -c '. /mnt/scripts/hive-module-lib.sh && baseline_valid'; then
+        if [[ "${HIVE_MODE}" != "rebuild" ]] && sudo docker exec \
+            -e HIVE_STATE_DIR="/mnt/state" \
+            "${metastore_container}" \
+            bash --noprofile --norc -c 'test -f "${HIVE_STATE_DIR}/baseline.version"'; then
+            actual_baseline_version="$(sudo docker exec \
+                -e HIVE_STATE_DIR="/mnt/state" \
+                "${metastore_container}" \
+                bash --noprofile --norc -c 'cat "${HIVE_STATE_DIR}/baseline.version"')"
+            echo "[baseline] ERROR: expected baseline version ${HIVE_BASELINE_VERSION} but found ${actual_baseline_version} in /mnt/state/baseline.version" >&2
+            echo "[baseline] Refusing to auto-reinitialize from a mismatched baseline. Fix the cached tarball or rebuild the baseline volumes." >&2
+            return 1
+        fi
+
         baseline_missing=1
         local _t_baseline
         _t_baseline=$(date +%s)
