@@ -74,8 +74,7 @@ private:
         QueryContext* query_ctx = context->state()->get_query_ctx();
         DORIS_CHECK(query_ctx != nullptr);
 
-        int32_t max_batch_size = query_ctx->query_options().embed_max_batch_size;
-        return max_batch_size > 0 ? max_batch_size : 1;
+        return query_ctx->query_options().embed_max_batch_size;
     }
 
     Status _execute_text_embed(FunctionContext* context, Block& block,
@@ -134,6 +133,7 @@ private:
         auto col_result = ColumnArray::create(
                 ColumnNullable::create(ColumnFloat32::create(), ColumnUInt8::create()));
         std::vector<MultimodalType> batch_media_types;
+        std::vector<std::string> batch_media_content_types;
         std::vector<std::string> batch_media_urls;
 
         int64_t ttl_seconds = 3600;
@@ -152,25 +152,28 @@ private:
             rapidjson::Document file_input;
             RETURN_IF_ERROR(_parse_file_input(file_column, i, file_input));
 
+            std::string content_type;
             MultimodalType media_type;
-            RETURN_IF_ERROR(_infer_media_type(file_input, media_type));
+            RETURN_IF_ERROR(_infer_media_type(file_input, content_type, media_type));
 
             std::string media_url;
             RETURN_IF_ERROR(_resolve_media_url(file_input, ttl_seconds, media_url));
 
             if (!batch_media_urls.empty() &&
                 batch_media_urls.size() >= static_cast<size_t>(max_batch_size)) {
-                RETURN_IF_ERROR(_flush_multimodal_embedding_batch(batch_media_types,
-                                                                  batch_media_urls, *col_result,
-                                                                  config, adapter, context));
+                RETURN_IF_ERROR(_flush_multimodal_embedding_batch(
+                        batch_media_types, batch_media_content_types, batch_media_urls, *col_result,
+                        config, adapter, context));
             }
 
             batch_media_types.emplace_back(media_type);
+            batch_media_content_types.emplace_back(std::move(content_type));
             batch_media_urls.emplace_back(std::move(media_url));
         }
 
-        RETURN_IF_ERROR(_flush_multimodal_embedding_batch(batch_media_types, batch_media_urls,
-                                                          *col_result, config, adapter, context));
+        RETURN_IF_ERROR(_flush_multimodal_embedding_batch(
+                batch_media_types, batch_media_content_types, batch_media_urls, *col_result, config,
+                adapter, context));
 
         block.replace_by_position(result, std::move(col_result));
         return Status::OK();
@@ -235,6 +238,7 @@ private:
     // EMBED-private helper.
     // Flushes one accumulated multimodal embedding batch into the output array column.
     Status _flush_multimodal_embedding_batch(std::vector<MultimodalType>& batch_media_types,
+                                             std::vector<std::string>& batch_media_content_types,
                                              std::vector<std::string>& batch_media_urls,
                                              ColumnArray& col_result, const TAIResource& config,
                                              std::shared_ptr<AIAdapter>& adapter,
@@ -245,7 +249,7 @@ private:
 
         std::string request_body;
         RETURN_IF_ERROR(adapter->build_multimodal_embedding_request(
-                batch_media_types, batch_media_urls, request_body));
+                batch_media_types, batch_media_urls, batch_media_content_types, request_body));
 
         std::vector<std::vector<float>> batch_results;
         RETURN_IF_ERROR(_execute_prebuilt_embedding_request(
@@ -254,6 +258,7 @@ private:
             _insert_embedding_result(col_result, batch_result);
         }
         batch_media_types.clear();
+        batch_media_content_types.clear();
         batch_media_urls.clear();
         return Status::OK();
     }
@@ -284,9 +289,8 @@ private:
         });
     }
 
-    static Status _infer_media_type(const rapidjson::Value& file_input,
+    static Status _infer_media_type(const rapidjson::Value& file_input, std::string& content_type,
                                     MultimodalType& media_type) {
-        std::string content_type;
         RETURN_IF_ERROR(_get_required_string_field(file_input, "content_type", content_type));
 
         if (_starts_with_ignore_case(content_type, "image/")) {

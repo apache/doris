@@ -29,6 +29,7 @@
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "service/http/http_client.h"
+#include "util/string_util.h"
 
 namespace doris {
 
@@ -146,6 +147,7 @@ public:
                 throw Exception(ErrorCode::NOT_FOUND, "AI resource not found: " + resource_name);
             }
             _ai_config = it->second;
+            normalize_endpoint(_ai_config);
 
             _ai_adapter = AIAdapterFactory::create_adapter(_ai_config.provider_type);
             _ai_adapter->init(_ai_config);
@@ -155,6 +157,10 @@ public:
     static void set_query_context(QueryContext* context) { _ctx = context; }
 
     const std::string& get_task() const { return _task; }
+
+#ifdef BE_TEST
+    static void normalize_endpoint_for_test(TAIResource& config) { normalize_endpoint(config); }
+#endif
 
 private:
     Status send_request_to_ai(const std::string& request_body, std::string& response) const {
@@ -205,8 +211,31 @@ private:
     static size_t get_ai_context_window_size() {
         DORIS_CHECK(_ctx);
 
-        int64_t context_window_size = _ctx->query_options().ai_context_window_size;
-        return static_cast<size_t>(context_window_size > 0 ? context_window_size : 128 * 1024);
+        return static_cast<size_t>(_ctx->query_options().ai_context_window_size);
+    }
+
+    static void normalize_endpoint(TAIResource& config) {
+        if (iequal(config.provider_type, "GEMINI")) {
+            if (!config.endpoint.ends_with("v1") && !config.endpoint.ends_with("v1beta")) {
+                return;
+            }
+
+            std::string model_name = config.model_name;
+            if (!model_name.starts_with("models/")) {
+                model_name = "models/" + model_name;
+            }
+
+            config.endpoint += "/";
+            config.endpoint += model_name;
+            config.endpoint += ":generateContent";
+            return;
+        }
+
+        if (config.endpoint.ends_with("v1/completions")) {
+            static constexpr std::string_view legacy_suffix = "v1/completions";
+            config.endpoint.replace(config.endpoint.size() - legacy_suffix.size(),
+                                    legacy_suffix.size(), "v1/chat/completions");
+        }
     }
 
     void append_data(const void* source, size_t size) {

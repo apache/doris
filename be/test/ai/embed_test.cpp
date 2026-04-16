@@ -116,8 +116,10 @@ class CountingMultimodalMockAdapter : public MockAdapter {
 public:
     Status build_multimodal_embedding_request(const std::vector<MultimodalType>& media_types,
                                               const std::vector<std::string>& media_urls,
+                                              const std::vector<std::string>& media_content_types,
                                               std::string& request_body) const override {
         EXPECT_EQ(media_types.size(), media_urls.size());
+        EXPECT_EQ(media_content_types.size(), media_urls.size());
         batch_sizes.push_back(media_urls.size());
         request_body = "{}";
         return Status::OK();

@@ -95,8 +95,7 @@ protected:
         QueryContext* query_ctx = context->state()->get_query_ctx();
         DORIS_CHECK(query_ctx != nullptr);
 
-        int64_t context_window_size = query_ctx->query_options().ai_context_window_size;
-        return context_window_size > 0 ? context_window_size : 128 * 1024;
+        return query_ctx->query_options().ai_context_window_size;
     }
 
     // Derived classes can override this method for non-text/default behavior.
@@ -270,6 +269,11 @@ protected:
             return Status::InternalError("AI returned empty result");
         }
         if (parsed_response.size() != batch_prompts.size()) {
+            LOG(WARNING) << "AI batch result size mismatch, function=" << get_name()
+                         << ", provider=" << config.provider_type << ", model=" << config.model_name
+                         << ", expected_rows=" << batch_prompts.size()
+                         << ", actual_rows=" << parsed_response.size()
+                         << ", response_body=" << response;
             return Status::RuntimeError(
                     "Failed to parse {} batch result, expected {} items but got {}", get_name(),
                     batch_prompts.size(), parsed_response.size());

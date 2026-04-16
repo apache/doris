@@ -424,6 +424,24 @@ TEST_F(AggregateFunctionAIAggTest, ai_context_window_size_session_variable_test)
     _agg_function->destroy(place);
 }
 
+TEST_F(AggregateFunctionAIAggTest, gemini_endpoint_normalize_to_generate_content_test) {
+    TAIResource resource;
+    resource.provider_type = "GEMINI";
+    resource.model_name = "gemini-pro";
+    resource.endpoint = "https://generativelanguage.googleapis.com/v1beta";
+    AggregateFunctionAIAggData::normalize_endpoint_for_test(resource);
+    EXPECT_EQ(resource.endpoint,
+              "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent");
+}
+
+TEST_F(AggregateFunctionAIAggTest, openai_completions_endpoint_normalize_test) {
+    TAIResource resource;
+    resource.provider_type = "OPENAI";
+    resource.endpoint = "https://api.openai.com/v1/completions";
+    AggregateFunctionAIAggData::normalize_endpoint_for_test(resource);
+    EXPECT_EQ(resource.endpoint, "https://api.openai.com/v1/chat/completions");
+}
+
 TEST_F(AggregateFunctionAIAggTest, mock_resource_send_request_test) {
     std::vector<std::string> resources = {"mock_resource"};
     std::vector<std::string> texts = {"test input"};

@@ -3466,6 +3466,7 @@ public class SessionVariable implements Serializable, Writable {
     public long filePresignedUrlTtlSeconds = 3600;
 
     @VarAttrDef.VarAttr(name = EMBED_MAX_BATCH_SIZE, needForward = true,
+            checker = "checkEmbedMaxBatchSize",
             description = {
                     "EMBED 场景中，单次批量请求允许携带的最大输入数量，文本与多模态共用。",
                     "Maximum number of inputs allowed in one EMBED batch request for both text and multimodal."
@@ -3473,6 +3474,7 @@ public class SessionVariable implements Serializable, Writable {
     public int embedMaxBatchSize = 5;
 
     @VarAttrDef.VarAttr(name = AI_CONTEXT_WINDOW_SIZE, needForward = true,
+            checker = "checkAiContextWindowSize",
             description = {
                     "AI 函数批量请求时使用的上下文窗口字节上限。",
                     "Context window size in bytes for AI function batching."
@@ -6051,6 +6053,14 @@ public class SessionVariable implements Serializable, Writable {
         if (batchSizeValue < 1 || batchSizeValue > 65535) {
             throw new InvalidParameterException("batch_size should be between 1 and 65535)");
         }
+    }
+
+    public void checkEmbedMaxBatchSize(String value) throws Exception {
+        checkFieldValue(EMBED_MAX_BATCH_SIZE, 1, value);
+    }
+
+    public void checkAiContextWindowSize(String value) throws Exception {
+        checkFieldLongValue(AI_CONTEXT_WINDOW_SIZE, 1, value);
     }
 
     public void checkSkewRewriteAggBucketNum(String bucketNumStr) {
