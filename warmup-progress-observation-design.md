@@ -100,20 +100,24 @@ Event-driven warmup 是存算分离架构下的数据缓存预热功能。当源
  │  │ last_trigger_ts         │       │     │  │            ... (30m, 2h) │       │
  │  │ last_trigger_ts         │       │     │  │            ... (30m, 2h) │       │
  │  └──────────┬───────────────┘       │     │  │ last_finish_ts           │       │
- │             │ bvar 自动暴露         │     │  └──────────┬───────────────┘       │
+ │             │ HTTP API              │     │  └──────────┬───────────────┘       │
  └─────────────┼───────────────────────┘     └─────────────┼───────────────────────┘
-               │                                           │
+               │  /api/warmup_event_                        │
+               │  driven_stats                              │
                └──────────────┬────────────────────────────┘
-                              │ FE 周期性主动采集
+                              │ CacheHotspotManager
+                              │ .progressCollectDaemon
+                              │ (MasterDaemon, 每 N 秒)
                               ▼
                  ┌──────────────────────────────┐
                  │            FE                │
                  │                              │
-                 │  1. 周期性从 BE 采集         │
-                 │     per-table 窗口值         │
-                 │  2. 按 Job 的 matchedTableIds│
-                 │     聚合 requested / finished   │
-                 │  3. 计算 finished - requested   │
+                 │  1. GET /api/warmup_event_   │
+                 │     driven_stats from BE     │
+                 │  2. 一次性采集所有 cluster   │
+                 │     → clusterStats          │
+                 │  3. 按 Job matchedTableIds   │
+                 │     聚合 → jobWarmUpStatsMap  │
                  │  4. SHOW WARM UP JOB 展示    │
                  └──────────────────────────────┘
 ```
@@ -477,130 +481,405 @@ void CloudInternalServiceImpl::warm_up_rowset(...) {
 }
 ```
 
-### 4.7 BE 侧指标暴露
+### 4.7 BE HTTP API 暴露
 
-BE 的 `MBvarWindowedAdder` 通过 bvar 框架自动暴露指标，FE 可通过 BE 的 HTTP `/vars` 端点或其他 bvar 采集通道读取窗口值。源 BE 和目标 BE 各自暴露自己的指标：
+参照现有 `tablets_info_action.cpp` 模式，在 BE 新增 HTTP Action `/api/warmup_event_driven_stats`，将 per-table 窗口统计以 JSON 格式暴露。
 
-- **源 BE** 暴露 `warmup_ed_requested_*` 和 `warmup_ed_last_trigger_ts`
-- **目标 BE** 暴露 `warmup_ed_finish_*`、`warmup_ed_fail_*` 和 `warmup_ed_last_finish_ts`
+**用户和 FE 均可通过此 API 直接查询 BE 上的 warmup 统计。**
 
-FE 根据每个 event-driven Job 的 `srcClusterName` 和 `dstClusterName`，知道应该从哪些 BE 读取 requested 指标、从哪些 BE 读取 finished 指标。
+#### 4.7.1 BE 侧实现
+
+每个 BE 统一输出全量数据（requested + finish + fail），不区分自身是源还是目标角色。源 BE 的 finish/fail 字段为 0，目标 BE 的 requested 字段为 0，这是自然结果。
+
+```cpp
+// be/src/http/action/warmup_stats_action.h
+class WarmUpStatsAction : public HttpHandler {
+public:
+    void handle(HttpRequest* req) override;
+};
+
+// be/src/http/action/warmup_stats_action.cpp
+
+// 辅助函数：填充一组 MBvarWindowedAdder 到 JSON 对象
+static void fill_windowed(EasyJson& parent, const std::string& key,
+                          MBvarWindowedAdder& num_adder, MBvarWindowedAdder& size_adder,
+                          const std::string& tid) {
+    EasyJson obj = parent.Set(key, EasyJson::kObject);
+    EasyJson num = obj.Set("num", EasyJson::kObject);
+    num["5m"]  = num_adder.get_window_value({tid}, 0);
+    num["30m"] = num_adder.get_window_value({tid}, 1);
+    num["2h"]  = num_adder.get_window_value({tid}, 2);
+    EasyJson size = obj.Set("size", EasyJson::kObject);
+    size["5m"]  = size_adder.get_window_value({tid}, 0);
+    size["30m"] = size_adder.get_window_value({tid}, 1);
+    size["2h"]  = size_adder.get_window_value({tid}, 2);
+}
+
+void WarmUpStatsAction::handle(HttpRequest* req) {
+    auto& engine = ExecEnv::GetInstance()->storage_engine().to_cloud();
+
+    // 收集所有出现过的 table_id（合并 requested/finish/fail 的维度）
+    std::set<std::string> all_tids;
+    for (auto& t : g_warmup_ed_requested_segment_num.list_dimensions()) all_tids.insert(t);
+    for (auto& t : g_warmup_ed_finish_segment_num.list_dimensions()) all_tids.insert(t);
+    for (auto& t : g_warmup_ed_fail_segment_num.list_dimensions()) all_tids.insert(t);
+
+    EasyJson result;
+    result["code"] = 0;
+    EasyJson tables = result.Set("data", EasyJson::kArray);
+
+    for (auto& tid : all_tids) {
+        EasyJson entry = tables.PushBack(EasyJson::kObject);
+        entry["table_id"] = std::stoll(tid);
+
+        // requested: { seg: { num: {5m,30m,2h}, size: {5m,30m,2h} }, idx: { ... } }
+        EasyJson req_obj = entry.Set("requested", EasyJson::kObject);
+        fill_windowed(req_obj, "seg",
+                      g_warmup_ed_requested_segment_num, g_warmup_ed_requested_segment_size, tid);
+        fill_windowed(req_obj, "idx",
+                      g_warmup_ed_requested_index_num, g_warmup_ed_requested_index_size, tid);
+
+        // finish
+        EasyJson fin_obj = entry.Set("finish", EasyJson::kObject);
+        fill_windowed(fin_obj, "seg",
+                      g_warmup_ed_finish_segment_num, g_warmup_ed_finish_segment_size, tid);
+        fill_windowed(fin_obj, "idx",
+                      g_warmup_ed_finish_index_num, g_warmup_ed_finish_index_size, tid);
+
+        // fail
+        EasyJson fail_obj = entry.Set("fail", EasyJson::kObject);
+        fill_windowed(fail_obj, "seg",
+                      g_warmup_ed_fail_segment_num, g_warmup_ed_fail_segment_size, tid);
+        fill_windowed(fail_obj, "idx",
+                      g_warmup_ed_fail_index_num, g_warmup_ed_fail_index_size, tid);
+
+        // 瞬态
+        auto* trigger_ts = g_warmup_ed_last_trigger_ts.get_stats({tid});
+        entry["last_trigger_ts"] = trigger_ts ? trigger_ts->get_value() : 0;
+        auto* finish_ts = g_warmup_ed_last_finish_ts.get_stats({tid});
+        entry["last_finish_ts"] = finish_ts ? finish_ts->get_value() : 0;
+    }
+
+    req->add_output_header(HttpHeaders::CONTENT_TYPE, "application/json");
+    HttpChannel::send_reply(req, result.ToString());
+}
+```
+
+注册（参照 `http_service.cpp` 中 `tablets_info_action` 的注册方式）：
+
+```cpp
+// be/src/service/http_service.cpp
+WarmUpStatsAction* warmup_stats_action = _pool.add(new WarmUpStatsAction());
+_ev_http_server->register_handler(HttpMethod::GET, "/api/warmup_event_driven_stats", warmup_stats_action);
+```
+
+#### 4.7.2 API 输出示例
+
+```bash
+$ curl http://be_host:http_port/api/warmup_event_driven_stats
+```
+
+```json
+{
+  "code": 0,
+  "data": [
+    {
+      "table_id": 12345,
+      "requested": {
+        "seg": {
+          "num":  {"5m": 5234, "30m": 28456, "2h": 112000},
+          "size": {"5m": 4500000000, "30m": 24500000000, "2h": 98000000000}
+        },
+        "idx": {
+          "num":  {"5m": 1200, "30m": 6500, "2h": 25000},
+          "size": {"5m": 500000000, "30m": 2700000000, "2h": 10000000000}
+        }
+      },
+      "finish": {
+        "seg": {
+          "num":  {"5m": 5210, "30m": 28300, "2h": 111200},
+          "size": {"5m": 4480000000, "30m": 24300000000, "2h": 97500000000}
+        },
+        "idx": {
+          "num":  {"5m": 1190, "30m": 6400, "2h": 24800},
+          "size": {"5m": 495000000, "30m": 2650000000, "2h": 9800000000}
+        }
+      },
+      "fail": {
+        "seg": {
+          "num":  {"5m": 0, "30m": 2, "2h": 12},
+          "size": {"5m": 0, "30m": 2500000, "2h": 15000000}
+        },
+        "idx": {
+          "num":  {"5m": 0, "30m": 1, "2h": 5},
+          "size": {"5m": 0, "30m": 500000, "2h": 3000000}
+        }
+      },
+      "last_trigger_ts": 1714000000000,
+      "last_finish_ts": 1714000003000
+    },
+    {
+      "table_id": 67890,
+      ...
+    }
+  ]
+}
+```
+
+> **每个 BE 输出全量数据，不区分自身角色。** 源 BE 的 `finish`/`fail` 字段自然为 0，目标 BE 的 `requested` 字段自然为 0。
+> JSON 使用三层结构 `{requested|finish|fail}.{seg|idx}.{num|size}.{5m|30m|2h}` 减少字段名长度，同时保持语义清晰。
+> 用户可直接 curl 此 API 查看 BE 上的实时 warmup 统计。
 
 ---
 
-## 五、FE 侧：按 Job 聚合 + 差值计算
+## 五、FE 侧：CacheHotspotManager 中周期采集与聚合
 
-FE 周期性主动从 BE 采集 per-table 窗口统计，按 Job 聚合后计算 `finished - requested` 差值。
+在 `CacheHotspotManager` 中新增一个 `MasterDaemon`，参照现有 `jobDaemon` 和 `tableFilterRefreshDaemon` 的模式，周期性调用 BE 的 `/api/warmup_event_driven_stats` HTTP API，采集并聚合 per-Job 的同步进度。
 
-**不做的事情**：不通过 heartbeat 携带统计数据、不做窗口计算（BE 已完成）。
+### 5.1 整体流程
 
-### 5.1 数据模型
+```
+CacheHotspotManager (已有类)
+  │
+  ├─ jobDaemon              (已有) 管理 warmup job 生命周期
+  ├─ tableFilterRefreshDaemon (已有) 刷新 ON TABLES 匹配
+  │
+  └─ progressCollectDaemon  (新增) 周期采集 warmup 进度
+       │
+       ├─ 每 N 秒执行一次（可配置）
+       │
+       ├─ 一次性收集所有 event-driven Job 涉及的 cluster 并集
+       │   allClusters = union(所有 job 的 srcCluster, dstCluster)
+       │
+       ├─ 对 allClusters 中每个 cluster 的每个存活 BE：
+       │   GET http://be_host:http_port/api/warmup_event_driven_stats
+       │   → 解析 JSON → mergeStats()（全量写入，不区分 src/dst）
+       │
+       └─ 数据采集完毕后，按 job.matchedTableIds 聚合
+           → 对每个 Job：从 srcCluster 取 requested，从 dstCluster 取 finished
+           → 存入 per-job 的 JobWarmUpStats 内存
+           → SHOW WARM UP JOB 时直接读取
+```
+
+### 5.2 采集逻辑
+
+参照现有 `NodeAction.getBeConfigNames()` 中 FE 调用 BE HTTP API 的标准模式：
+
+```java
+// 已有模式：NodeAction.java:205
+String url = "http://" + NetUtils.getHostPortInAccessibleFormat(be.getHost(), be.getHttpPort())
+        + "/api/show_config";
+String result = HttpUtils.doGet(url, null);
+```
+
+在 `CacheHotspotManager` 中新增：
+
+```java
+// CacheHotspotManager.java
+
+// 新增：per-job 聚合后的同步统计
+private final ConcurrentHashMap<Long, JobWarmUpStats> jobWarmUpStatsMap = new ConcurrentHashMap<>();
+
+// 新增：per-cluster per-table 原始采集数据（每轮采集重建）
+// key: clusterName → (tableId → TableWarmUpWindowedStats)
+// 不区分 src/dst，同一个 cluster 只采集一次
+private volatile Map<String, Map<Long, TableWarmUpWindowedStats>> clusterStats = Map.of();
+
+// 新增 daemon
+private MasterDaemon progressCollectDaemon;
+private boolean startProgressCollectDaemon = false;
+
+/**
+ * 初始化 progressCollectDaemon。
+ * 参照 startJobDaemon() 的模式。
+ */
+public void startProgressCollectDaemon() {
+    if (startProgressCollectDaemon) return;
+    startProgressCollectDaemon = true;
+    progressCollectDaemon = new MasterDaemon(
+            "warmup-progress-collect-daemon",
+            Config.warmup_progress_collect_interval_sec) { // 新增配置项，默认 30s
+        @Override
+        protected void runAfterCatalogReady() {
+            collectAndAggregate();
+        }
+    };
+    progressCollectDaemon.start();
+}
+
+/**
+ * 周期性采集并聚合。
+ *
+ * 核心思路：先一次性收集所有涉及的 cluster 的全量 BE 数据，再按 job 计算。
+ * 不按 job 逐个遍历采集，避免同一个 cluster 被重复请求。
+ */
+private void collectAndAggregate() {
+    // 1. 收集所有 event-driven Job 涉及的 cluster 并集
+    Set<String> allClusters = new HashSet<>();
+    for (var job : runnableCloudWarmUpJobs.values()) {
+        if (job.isEventDriven()) {
+            allClusters.add(job.getSrcClusterName());
+            allClusters.add(job.getDstClusterName());
+        }
+    }
+    if (allClusters.isEmpty()) return;
+
+    // 2. 一次性采集所有 cluster 的所有 BE 数据（全量，不区分 src/dst）
+    Map<String, Map<Long, TableWarmUpWindowedStats>> newClusterStats = new HashMap<>();
+    for (String cluster : allClusters) {
+        Map<Long, TableWarmUpWindowedStats> tableMap = new HashMap<>();
+        List<Backend> backends = getBackendsByCluster(cluster);
+        for (Backend be : backends) {
+            try {
+                String url = "http://"
+                    + NetUtils.getHostPortInAccessibleFormat(be.getHost(), be.getHttpPort())
+                    + "/api/warmup_event_driven_stats";
+                String json = HttpUtils.doGet(url, null, 5000);
+                mergeStatsFromJson(tableMap, json);
+            } catch (Exception e) {
+                LOG.warn("Failed to collect warmup stats from BE {} in cluster {}: {}",
+                         be.getId(), cluster, e.getMessage());
+            }
+        }
+        newClusterStats.put(cluster, tableMap);
+    }
+    this.clusterStats = newClusterStats;
+
+    // 3. 按 Job 聚合
+    for (var job : runnableCloudWarmUpJobs.values()) {
+        if (!job.isEventDriven()) continue;
+        JobWarmUpStats stats = aggregateStatsForJob(job);
+        jobWarmUpStatsMap.put(job.getJobId(), stats);
+    }
+}
+```
+
+### 5.3 解析与聚合
+
+```java
+/**
+ * 解析 BE 返回的 JSON，merge 到 tableMap 中。
+ * 全量解析所有字段（requested + finish + fail），不区分 src/dst。
+ */
+private void mergeStatsFromJson(Map<Long, TableWarmUpWindowedStats> tableMap, String json) {
+    JsonObject root = GsonUtils.GSON.fromJson(json, JsonObject.class);
+    JsonArray data = root.getAsJsonArray("data");
+    for (JsonElement elem : data) {
+        JsonObject obj = elem.getAsJsonObject();
+        long tableId = obj.get("table_id").getAsLong();
+        TableWarmUpWindowedStats stats = TableWarmUpWindowedStats.fromJson(obj);
+        tableMap.compute(tableId, (tid, existing) -> {
+            if (existing == null) return stats;
+            existing.merge(stats);
+            return existing;
+        });
+    }
+}
+
+/**
+ * 按 Job 聚合：遍历 matchedTableIds，从 srcCluster 取 requested，
+ * 从 dstCluster 取 finished，累加为一个 Job 级别汇总。
+ *
+ * 由于每个 BE 输出全量数据，同一个 cluster 的 TableWarmUpWindowedStats 同时包含
+ * requested 和 finish/fail 字段。聚合时根据 Job 的 src/dst 方向选取对应字段即可。
+ */
+private JobWarmUpStats aggregateStatsForJob(CloudWarmUpJob job) {
+    JobWarmUpStats result = new JobWarmUpStats();
+    String srcCluster = job.getSrcClusterName();
+    String dstCluster = job.getDstClusterName();
+
+    var srcTableMap = clusterStats.getOrDefault(srcCluster, Map.of());
+    var dstTableMap = clusterStats.getOrDefault(dstCluster, Map.of());
+
+    for (Long tableId : job.getCurrentTableIds()) {
+        TableWarmUpWindowedStats srcStat = srcTableMap.get(tableId);
+        TableWarmUpWindowedStats dstStat = dstTableMap.get(tableId);
+        if (srcStat != null) result.mergeRequested(srcStat);
+        if (dstStat != null) result.mergeFinished(dstStat);
+    }
+    result.computeGap();
+    return result;
+}
+
+/**
+ * 供 SHOW WARM UP JOB 调用。
+ */
+public JobWarmUpStats getJobWarmUpStats(long jobId) {
+    return jobWarmUpStatsMap.get(jobId);
+}
+```
+
+### 5.4 数据模型
 
 ```java
 public class TableWarmUpWindowedStats {
     public long tableId;
 
-    // requested（源集群）
+    // requested（源集群 BE 有值，目标集群 BE 为 0）
     public long requestedSegmentNum5m, requestedSegmentNum30m, requestedSegmentNum2h;
     public long requestedSegmentSize5m, requestedSegmentSize30m, requestedSegmentSize2h;
     public long requestedIndexNum5m, requestedIndexNum30m, requestedIndexNum2h;
     public long requestedIndexSize5m, requestedIndexSize30m, requestedIndexSize2h;
     public long lastTriggerTs;
 
-    // finished（目标集群）
+    // finished（目标集群 BE 有值，源集群 BE 为 0）
     public long finishSegmentNum5m, finishSegmentNum30m, finishSegmentNum2h;
     public long finishSegmentSize5m, finishSegmentSize30m, finishSegmentSize2h;
     public long finishIndexNum5m, finishIndexNum30m, finishIndexNum2h;
     public long finishIndexSize5m, finishIndexSize30m, finishIndexSize2h;
     public long lastFinishTs;
 
-    // failed（目标集群）
+    // failed（目标集群 BE 有值，源集群 BE 为 0）
     public long failSegmentNum5m, failSegmentNum30m, failSegmentNum2h;
     public long failSegmentSize5m, failSegmentSize30m, failSegmentSize2h;
     public long failIndexNum5m, failIndexNum30m, failIndexNum2h;
     public long failIndexSize5m, failIndexSize30m, failIndexSize2h;
 
-    /** 聚合另一张表的统计 */
-    public void merge(TableWarmUpWindowedStats other) {
-        requestedSegmentNum5m  += other.requestedSegmentNum5m;
-        // ... 所有字段同理 ...
+    /**
+     * 从 BE JSON 响应解析。全量解析所有字段，不区分 src/dst。
+     * JSON 层级结构：{requested|finish|fail}.{seg|idx}.{num|size}.{5m|30m|2h}
+     */
+    public static TableWarmUpWindowedStats fromJson(JsonObject obj) {
+        TableWarmUpWindowedStats s = new TableWarmUpWindowedStats();
+        s.tableId = obj.get("table_id").getAsLong();
+
+        // requested.seg.num / requested.seg.size / requested.idx.num / requested.idx.size
+        JsonObject req = obj.getAsJsonObject("requested");
+        if (req != null) {
+            s.requestedSegmentNum5m  = getWindow(req, "seg", "num", "5m");
+            s.requestedSegmentNum30m = getWindow(req, "seg", "num", "30m");
+            s.requestedSegmentNum2h  = getWindow(req, "seg", "num", "2h");
+            s.requestedSegmentSize5m  = getWindow(req, "seg", "size", "5m");
+            s.requestedSegmentSize30m = getWindow(req, "seg", "size", "30m");
+            s.requestedSegmentSize2h  = getWindow(req, "seg", "size", "2h");
+            s.requestedIndexNum5m  = getWindow(req, "idx", "num", "5m");
+            s.requestedIndexNum30m = getWindow(req, "idx", "num", "30m");
+            s.requestedIndexNum2h  = getWindow(req, "idx", "num", "2h");
+            s.requestedIndexSize5m  = getWindow(req, "idx", "size", "5m");
+            s.requestedIndexSize30m = getWindow(req, "idx", "size", "30m");
+            s.requestedIndexSize2h  = getWindow(req, "idx", "size", "2h");
+        }
+        // finish / fail 同理...
+
+        s.lastTriggerTs = obj.has("last_trigger_ts") ? obj.get("last_trigger_ts").getAsLong() : 0;
+        s.lastFinishTs  = obj.has("last_finish_ts")  ? obj.get("last_finish_ts").getAsLong()  : 0;
+        return s;
     }
+
+    private static long getWindow(JsonObject parent, String type, String metric, String window) {
+        JsonObject typeObj = parent.getAsJsonObject(type);
+        if (typeObj == null) return 0;
+        JsonObject metricObj = typeObj.getAsJsonObject(metric);
+        if (metricObj == null) return 0;
+        return metricObj.has(window) ? metricObj.get(window).getAsLong() : 0;
+    }
+
+    /** 聚合另一个 BE 的统计（同 cluster 多 BE 累加） */
+    public void merge(TableWarmUpWindowedStats other) { /* 所有字段 += */ }
 }
 ```
 
-### 5.2 收集与聚合
-
-```java
-public class WarmUpProgressCollector {
-
-    // srcCluster → tableId → requested 统计（聚合该集群所有源 BE）
-    private final ConcurrentHashMap<String, ConcurrentHashMap<Long, TableWarmUpWindowedStats>>
-            srcClusterStats = new ConcurrentHashMap<>();
-
-    // dstCluster → tableId → finished/failed 统计（聚合该集群所有目标 BE）
-    private final ConcurrentHashMap<String, ConcurrentHashMap<Long, TableWarmUpWindowedStats>>
-            dstClusterStats = new ConcurrentHashMap<>();
-
-    /**
-     * 从源集群 BE 采集到 per-table requested 窗口值后调用。
-     * 聚合同一集群不同 BE 上同一张表的统计。
-     */
-    public void mergeSrcStats(String srcCluster, long beId,
-                              Map<Long, TableWarmUpWindowedStats> beStats) {
-        var tableMap = srcClusterStats.computeIfAbsent(srcCluster, k -> new ConcurrentHashMap<>());
-        for (var entry : beStats.entrySet()) {
-            tableMap.compute(entry.getKey(), (tid, existing) -> {
-                if (existing == null) return entry.getValue();
-                existing.merge(entry.getValue());
-                return existing;
-            });
-        }
-    }
-
-    /**
-     * 从目标集群 BE 采集到 per-table finished 窗口值后调用。
-     */
-    public void mergeDstStats(String dstCluster, long beId,
-                              Map<Long, TableWarmUpWindowedStats> beStats) {
-        var tableMap = dstClusterStats.computeIfAbsent(dstCluster, k -> new ConcurrentHashMap<>());
-        for (var entry : beStats.entrySet()) {
-            tableMap.compute(entry.getKey(), (tid, existing) -> {
-                if (existing == null) return entry.getValue();
-                existing.merge(entry.getValue());
-                return existing;
-            });
-        }
-    }
-
-    /**
-     * 按 Job 聚合：遍历该 Job 的所有 matchedTableIds，
-     * 从 srcCluster 取 requested，从 dstCluster 取 finished，
-     * 累加为一个 Job 级别的汇总结果。
-     */
-    public JobWarmUpStats getStatsForJob(CloudWarmUpJob job) {
-        JobWarmUpStats result = new JobWarmUpStats();
-        String srcCluster = job.getSrcClusterName();
-        String dstCluster = job.getDstClusterName();
-
-        var srcTableMap = srcClusterStats.getOrDefault(srcCluster, Map.of());
-        var dstTableMap = dstClusterStats.getOrDefault(dstCluster, Map.of());
-
-        for (Long tableId : job.getCurrentTableIds()) {
-            TableWarmUpWindowedStats srcStat = srcTableMap.get(tableId);
-            TableWarmUpWindowedStats dstStat = dstTableMap.get(tableId);
-
-            if (srcStat != null) result.mergeSubmit(srcStat);
-            if (dstStat != null) result.mergeFinished(dstStat);
-        }
-        result.computeGap();
-        return result;
-    }
-}
-```
-
-> FE 内部按 table_id 遍历聚合，但对外只输出一个 Job 级别的汇总 JSON。不提供 per-table 的 SQL 查询接口。
-
-### 5.3 差值计算（Job 级别）
+### 5.5 Job 级别差值计算
 
 ```java
 public class JobWarmUpStats {
@@ -629,7 +908,7 @@ public class JobWarmUpStats {
     public long gapIndexSize5m, gapIndexSize30m, gapIndexSize2h;
 
     /** 累加一张表的 requested 统计 */
-    public void mergeSubmit(TableWarmUpWindowedStats tableStat) { /* 累加 requested 字段 */ }
+    public void mergeRequested(TableWarmUpWindowedStats tableStat) { /* 累加 requested 字段 */ }
 
     /** 累加一张表的 finished/failed 统计 */
     public void mergeFinished(TableWarmUpWindowedStats tableStat) { /* 累加 finished/failed 字段 */ }
@@ -730,7 +1009,7 @@ SHOW WARM UP JOB;
   │  → g_warmup_ed_requested_index_num.put({table_id}, N)
   │  → g_warmup_ed_requested_index_size.put({table_id}, bytes)
   │  ★ bvar::Window 自动维护 5min/30min/2h 窗口
-  │  ★ 指标通过 bvar 自动暴露
+  │  ★ /api/warmup_event_driven_stats HTTP API 暴露全量 JSON
   │
   │  _do_warm_up_rowset → PWarmUpRowsetRequest → RPC
   │                                                    │
@@ -743,22 +1022,33 @@ SHOW WARM UP JOB;
   │  → g_warmup_ed_fail_segment_size.put({table_id}, bytes)
   │  ★ 索引文件同理
   │  ★ bvar::Window 自动维护 5min/30min/2h 窗口
-  │  ★ 指标通过 bvar 自动暴露
+  │  ★ /api/warmup_event_driven_stats HTTP API 暴露全量 JSON
   │
   ▼
-FE (WarmUpProgressCollector)
-  │  周期性主动从 BE 采集 per-table 窗口值
-  │  mergeSrcStats(srcCluster, ...) → srcClusterStats 聚合所有源 BE 的 requested
-  │  mergeDstStats(dstCluster, ...) → dstClusterStats 聚合所有目标 BE 的 finished
+FE (CacheHotspotManager.progressCollectDaemon)
+  │  每 N 秒执行（MasterDaemon）
   │
-  │  SHOW WARM UP JOB → getStatsForJob(job)
-  │    → 遍历该 Job 的所有 matchedTableIds
-  │    → 对每张表取 src requested + dst finished，累加到 Job 级别汇总
-  │    → gap = Σ finished - Σ requested
-  │    → 输出为 SyncStats JSON 列
+  │  一次性收集所有 event-driven Job 涉及的 cluster 并集
+  │  allClusters = union(所有 job 的 srcCluster, dstCluster)
+  │
+  │  对 allClusters 中每个 cluster 的每个存活 BE：
+  │    GET http://be_host:http_port/api/warmup_event_driven_stats
+  │    → 全量解析 JSON（不区分 src/dst）
+  │    → mergeStatsFromJson 累加同 cluster 所有 BE
+  │    → 写入 clusterStats[cluster][tableId]
+  │
+  │  数据采集完毕后，按 job 聚合：
+  │    clusterStats[srcCluster][tableId] → requested
+  │    clusterStats[dstCluster][tableId] → finished
+  │    → JobWarmUpStats（gap = requested - finished）
+  │    → 存入 jobWarmUpStatsMap[jobId]
+  │
+  │  SHOW WARM UP JOB → getJobWarmUpStats(jobId) → SyncStats JSON 列
   │
   ▼
-用户 → 每个 Job 一行，看到聚合后的 requested / finished / gap / failed 窗口统计
+用户
+  ├─ curl BE: /api/warmup_event_driven_stats   ← 直接查看 BE per-table 原始数据
+  └─ SHOW WARM UP JOB                          ← 查看 per-job 聚合后的 SyncStats
 ```
 
 ---
@@ -809,11 +1099,11 @@ Job 13420: gap_5m=-38000, fail_5m=50   ← 异常，目标端跟不上
 |------|------|------|
 | 源 BE `put()` | O(1) + 首次 O(W) | W=3 个 Window 实例，延迟创建 |
 | 目标 BE `put()` | O(1) + 首次 O(W) | 在下载完成/失败回调中 |
-| BE `collect_*_stats()` | O(T) | T 为活跃表数，按 FE 采集周期调用 |
+| BE HTTP API `/api/warmup_event_driven_stats` | O(T) | T 为活跃表数，读内存 bvar |
 | `bvar::Window` 运行时 | 每窗口一个定时器 | bvar 框架管理，开销可忽略 |
-| Heartbeat 传输 | 每表约 300 bytes | 100 张表 ≈ 30 KB |
-| FE `onHeartbeat()` | O(T) | merge 操作 |
-| FE `getStatsForJob()` | O(K) | K = Job 匹配的表数 |
+| FE HTTP 采集 | O(B × T) | B = 涉及的 BE 数，T = 每台 BE 的活跃表数 |
+| FE `aggregateStatsForJob()` | O(K) | K = Job 匹配的表数 |
+| 用户 curl BE API | O(T) | 直接查 BE，不经过 FE |
 
 > **bvar 指标数量**：源 BE 4 个 MBvarWindowedAdder × N 张表 × (1 cumulative + 3 windows) = 16N 个 bvar。目标 BE 8 个 × N × 4 = 32N。100 张表共约 4800 个 bvar 指标，在常规负载范围内。
 
@@ -823,7 +1113,8 @@ Job 13420: gap_5m=-38000, fail_5m=50   ← 异常，目标端跟不上
 
 | 变更点 | 兼容性 | 说明 |
 |--------|--------|------|
+| BE 新增 HTTP API `/api/warmup_event_driven_stats` | ✅ | 新端点，不影响已有 API |
 | `MBvarWindowedAdder` | ✅ | 纯内存，不涉及持久化 |
 | `SHOW WARM UP JOB` 新增 SyncStats 列 | ✅ | 非 event-driven Job 新增列为空，不引入新 SQL 语法 |
-| FE 周期性采集 | ✅ | 新增采集逻辑，不影响已有功能 |
+| FE `CacheHotspotManager` 新增 `progressCollectDaemon` | ✅ | 参照现有 daemon 模式，不影响已有功能 |
 | **滚动升级建议** | — | 先升级所有 BE（源+目标），再升级所有 FE |
