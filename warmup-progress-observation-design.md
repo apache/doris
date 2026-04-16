@@ -357,9 +357,25 @@ bvar::MultiDimension<bvar::Status<int64_t>> g_warmup_ed_last_finish_ts(
 
 指标维度为 `(job_id, table_id)`。源 BE 和目标 BE 均需获取 job_id：
 
-**源 BE**：`CloudWarmUpManager` 维护一个 `(table_id, dst_cluster) → job_id` 的内存映射。FE 在创建/更新 event-driven Job 时通过 BE 的 `update_warmup_job_mapping` RPC 推送映射关系。当 `_warm_up_rowset` 发送预热请求时，根据 table_id 和目标 replica 所属 cluster 查表得到 job_id。
+**源 BE**：新增 `JobReplicaInfo` 结构体，修改 `get_replica_info` 返回 `vector<JobReplicaInfo>`。`get_replica_info` 内部遍历 `_tablet_replica_cache` 中各 Job 的缓存条目时，已知每个条目对应哪个 job_id，直接填入 `JobReplicaInfo` 返回即可，无需额外的 FE→BE 映射推送机制。
 
-**目标 BE**：job_id 通过 `PWarmUpRowsetRequest` 的新增字段 `job_id` 传递。源 BE 在构造 RPC 请求时填入。
+```cpp
+// cloud_warm_up_manager.h
+struct JobReplicaInfo {
+    int64_t job_id;
+    TReplicaInfo replica;
+};
+
+// 改动前：
+std::vector<TReplicaInfo> get_replica_info(int64_t tablet_id, int64_t table_id,
+                                            bool bypass_cache, bool& cache_hit);
+
+// 改动后：
+std::vector<JobReplicaInfo> get_replica_info(
+        int64_t tablet_id, int64_t table_id, bool bypass_cache, bool& cache_hit);
+```
+
+**目标 BE**：job_id 通过 `PWarmUpRowsetRequest` 的新增字段 `job_id` 传递。源 BE 在 `_do_warm_up_rowset` 的 per-replica 循环中，从 `JobReplicaInfo` 取出 job_id 填入 RPC 请求。
 
 **table_id**：目标 BE 从本地 CloudTablet 获取，无需通过 RPC 传递：
 
@@ -378,57 +394,69 @@ for (auto& rs_meta_pb : request->rowset_metas()) {
 
 ### 4.6 埋点位置
 
-#### 4.6.1 源集群 BE — requested（`_warm_up_rowset`）
+#### 4.6.1 源集群 BE — requested（`_do_warm_up_rowset`）
+
+`_do_warm_up_rowset` 已有的逻辑是：对每个 replica 遍历所有 segment 累加全局指标。现在在每处全局指标更新的位置，紧随其后同步更新对应的 per-(job, table) 指标，保持代码位置一一对应，不做单独聚合。
+
+`_warm_up_rowset` 不再做任何指标统计，仅负责调用 `get_replica_info` 和 `_do_warm_up_rowset`。
 
 ```cpp
-void CloudWarmUpManager::_warm_up_rowset(RowsetMeta& rs_meta, int64_t table_id,
-                                         int64_t sync_wait_timeout_ms) {
-    bool cache_hit = false;
-    auto replicas = get_replica_info(rs_meta.tablet_id(), table_id, false, cache_hit);
-    if (replicas.empty()) {
-        g_file_cache_event_driven_warm_up_skipped_rowset_num << 1;
-        return;
-    }
+Status CloudWarmUpManager::_do_warm_up_rowset(
+        RowsetMeta& rs_meta,
+        std::vector<JobReplicaInfo>& replicas,
+        int64_t sync_wait_timeout_ms,
+        bool skip_existence_check) {
 
-    // ★ 查找 (table_id, dst_cluster) → job_id 映射
-    //    对每组目标 replica，确定 job_id 后记录 per-(job, table) requested 统计
-    std::string tid = std::to_string(table_id);
-    for (auto& replica_group : group_replicas_by_cluster(replicas)) {
-        std::string jid = lookup_job_id(table_id, replica_group.cluster_name);
-        if (jid.empty()) jid = "0";  // 无匹配 job 时用 0
+    std::string tid = std::to_string(rs_meta.table_id());
 
-        g_warmup_ed_requested_segment_num.put({jid, tid}, rs_meta.num_segments());
-        int64_t total_seg_size = 0;
-        for (int64_t i = 0; i < rs_meta.num_segments(); i++) {
-            total_seg_size += rs_meta.segment_file_size(cast_set<int>(i));
-        }
-        g_warmup_ed_requested_segment_size.put({jid, tid}, total_seg_size);
+    for (auto& info : replicas) {
+        std::string jid = std::to_string(info.job_id);
 
-        int64_t idx_num = 0, idx_size = 0;
+        // ★ 构造 RPC 请求，填入 job_id
+        PWarmUpRowsetRequest request;
+        request.add_rowset_metas()->CopyFrom(rs_meta.get_rowset_pb());
+        request.set_job_id(info.job_id);  // 新增字段
+        // ... 其他字段设置 ...
+
         auto schema_ptr = rs_meta.tablet_schema();
-        if (schema_ptr && (schema_ptr->has_inverted_index() || schema_ptr->has_ann_index())) {
-            for (int64_t i = 0; i < rs_meta.num_segments(); i++) {
-                for (const auto& info :
-                     rs_meta.inverted_index_file_info(cast_set<int>(i)).index_info()) {
-                    idx_num++;
-                    if (info.index_file_size() != -1) idx_size += info.index_file_size();
+
+        for (int64_t segment_id = 0; segment_id < rs_meta.num_segments(); segment_id++) {
+            auto seg_size = rs_meta.segment_file_size(cast_set<int>(segment_id));
+
+            // 现有全局指标 + ★ 同步更新 per-(job, table) 指标
+            g_file_cache_event_driven_warm_up_requested_segment_num << 1;
+            g_warmup_ed_requested_segment_num.put({jid, tid}, 1);
+
+            g_file_cache_event_driven_warm_up_requested_segment_size << seg_size;
+            g_warmup_ed_requested_segment_size.put({jid, tid}, seg_size);
+
+            // 索引文件统计（如有）
+            if (schema_ptr && (schema_ptr->has_inverted_index() || schema_ptr->has_ann_index())) {
+                for (const auto& idx_info :
+                     rs_meta.inverted_index_file_info(cast_set<int>(segment_id)).index_info()) {
+                    g_file_cache_event_driven_warm_up_requested_index_num << 1;
+                    g_warmup_ed_requested_index_num.put({jid, tid}, 1);
+
+                    if (idx_info.index_file_size() != -1) {
+                        g_file_cache_event_driven_warm_up_requested_index_size
+                                << idx_info.index_file_size();
+                        g_warmup_ed_requested_index_size.put({jid, tid},
+                                                              idx_info.index_file_size());
+                    }
                 }
             }
         }
-        g_warmup_ed_requested_index_num.put({jid, tid}, idx_num);
-        g_warmup_ed_requested_index_size.put({jid, tid}, idx_size);
 
-        // 更新最近触发时间戳
+        // ★ 更新最近触发时间戳
         auto* ts = g_warmup_ed_last_trigger_ts.get_stats({jid, tid});
         if (ts) {
             ts->set_value(std::chrono::duration_cast<std::chrono::milliseconds>(
                                   std::chrono::system_clock::now().time_since_epoch())
                                   .count());
         }
-    }
 
-    Status st = _do_warm_up_rowset(rs_meta, replicas, sync_wait_timeout_ms,
-                                   !cache_hit);
+        // ... 发送 RPC ...
+    }
     // ...
 }
 ```
@@ -457,17 +485,16 @@ void CloudInternalServiceImpl::warm_up_rowset(...) {
             auto segment_size = rs_meta.segment_file_size(segment_id);
             // ... 现有的 submit_download_task 调用 ...
 
-            // ★ 修改回调：加入 per-(job, table) finished/failed 统计
+            // ★ 修改回调：全局指标和 per-(job, table) 指标同步更新
             auto done_cb = [jid, tid, segment_size](Status st) {
                 if (st.ok()) {
                     g_file_cache_event_driven_warm_up_finished_segment_num << 1;
+                    g_warmup_ed_finish_segment_num.put({jid, tid}, 1);
+
                     g_file_cache_event_driven_warm_up_finished_segment_size << segment_size;
-                    // ★ 新增 per-(job, table) 统计
-                    if (!tid.empty() && tid != "0") {
-                        g_warmup_ed_finish_segment_num.put({jid, tid}, 1);
-                        g_warmup_ed_finish_segment_size.put({jid, tid}, segment_size);
-                    }
-                    // ★ 更新最近完成时间戳（在回调中更新，非提交时）
+                    g_warmup_ed_finish_segment_size.put({jid, tid}, segment_size);
+
+                    // 更新最近完成时间戳
                     auto* ts = g_warmup_ed_last_finish_ts.get_stats({jid, tid});
                     if (ts) {
                         ts->set_value(std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -475,12 +502,10 @@ void CloudInternalServiceImpl::warm_up_rowset(...) {
                     }
                 } else {
                     g_file_cache_event_driven_warm_up_failed_segment_num << 1;
+                    g_warmup_ed_fail_segment_num.put({jid, tid}, 1);
+
                     g_file_cache_event_driven_warm_up_failed_segment_size << segment_size;
-                    // ★ 新增 per-(job, table) 统计
-                    if (!tid.empty() && tid != "0") {
-                        g_warmup_ed_fail_segment_num.put({jid, tid}, 1);
-                        g_warmup_ed_fail_segment_size.put({jid, tid}, segment_size);
-                    }
+                    g_warmup_ed_fail_segment_size.put({jid, tid}, segment_size);
                 }
             };
         }
@@ -1215,7 +1240,7 @@ Job 13420: gap_5m=38000, fail_5m=50   ← 异常，目标端跟不上
 | BE 新增 HTTP API `/api/warmup_event_driven_stats` | ✅ | 新端点，不影响已有 API |
 | `MBvarWindowedAdder` | ✅ | 纯内存，不涉及持久化 |
 | `PWarmUpRowsetRequest` 新增 `job_id` 字段 | ✅ | protobuf 可选字段，旧版 BE 忽略；缺失时按 0 处理 |
-| 源 BE 新增 `update_warmup_job_mapping` RPC | ✅ | 新增 RPC，旧版 BE 不接收此调用 |
+| `get_replica_info` 返回类型变更 | ✅ | BE 内部接口，非跨组件 API |
 | `SHOW WARM UP JOB` 新增 SyncStats 列 | ✅ | 非 event-driven Job 新增列为空，不引入新 SQL 语法 |
 | FE `CacheHotspotManager` 新增 `progressCollectDaemon` | ✅ | 参照现有 daemon 模式，不影响已有功能 |
 | **滚动升级建议** | — | 先升级所有 BE（源+目标），再升级所有 FE |
