@@ -23,6 +23,21 @@ suite("test_query_sys", "query,p0") {
     sql "SELECT \"welecome to my blog!\";"
     sql "describe ${tableName};"
     sql "select version();"
+    def currentVersion = sql "select current_version();"
+    assertTrue(currentVersion.size() == 1)
+    assertTrue(currentVersion[0].size() == 1)
+    assertTrue(currentVersion[0][0].contains("Apache Doris"))
+    def versionLong = sql "select version_long();"
+    assertTrue(versionLong.size() == 1)
+    assertTrue(versionLong[0].size() == 1)
+    assertTrue(versionLong[0][0].contains("Apache Doris"))
+    assertTrue(versionLong[0][0].contains("mysql_protocol=5.7.99"))
+    assertTrue(versionLong[0][0].contains("commit="))
+    def versionComment = sql "select @@version_comment;"
+    assertTrue(versionComment.size() == 1)
+    assertTrue(versionComment[0].size() == 1)
+    assertTrue(versionComment[0][0].contains("Apache Doris"))
+    assertTrue(versionComment[0][0].contains("mysql_protocol=5.7.99"))
     sql "select rand();"
     sql "select rand(20);"
     sql "select random();"

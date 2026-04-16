@@ -170,6 +170,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentCatalo
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentTime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentUser;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentVersion;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CutIpv6;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CutToFirstSignificantSubdomain;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Database;
@@ -574,6 +575,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Uuid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidNumeric;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidtoInt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Version;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.VersionLong;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Week;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeekCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeekFloor;
@@ -1144,6 +1146,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitCurrentUser(CurrentUser currentUser, C context) {
         return visitScalarFunction(currentUser, context);
+    }
+
+    default R visitCurrentVersion(CurrentVersion currentVersion, C context) {
+        return visitScalarFunction(currentVersion, context);
     }
 
     default R visitCutIpv6(CutIpv6 cutIpv6, C context) {
@@ -2696,6 +2702,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitVersion(Version version, C context) {
         return visitScalarFunction(version, context);
+    }
+
+    default R visitVersionLong(VersionLong versionLong, C context) {
+        return visitScalarFunction(versionLong, context);
     }
 
     default R visitWeek(Week week, C context) {
