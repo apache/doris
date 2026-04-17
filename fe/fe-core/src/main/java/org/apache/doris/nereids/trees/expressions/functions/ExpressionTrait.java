@@ -21,6 +21,7 @@ import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Variable;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.collect.ImmutableList;
@@ -46,23 +47,58 @@ public interface ExpressionTrait extends TreeNode<Expression> {
     @Developing
     default void checkLegalityAfterRewrite() {}
 
+    /**
+     * getArguments.
+     */
     default List<Expression> getArguments() {
-        return children();
+        ImmutableList.Builder<Expression> arguments = ImmutableList.builder();
+        for (Expression arg : children()) {
+            if (arg instanceof Variable && ((Variable) arg).getRealExpression() != null) {
+                arguments.add(((Variable) arg).getRealExpression());
+            } else {
+                arguments.add(arg);
+            }
+        }
+        return arguments.build();
     }
 
+    /**
+     * getArgument.
+     */
     default Expression getArgument(int index) {
-        return child(index);
+        Expression arg = child(index);
+        if (arg instanceof Variable && ((Variable) arg).getRealExpression() != null) {
+            return ((Variable) arg).getRealExpression();
+        } else {
+            return arg;
+        }
     }
 
+    /**
+     * getArgumentsTypes.
+     */
     default List<DataType> getArgumentsTypes() {
-        return getArguments()
-                .stream()
-                .map(Expression::getDataType)
-                .collect(ImmutableList.toImmutableList());
+        ImmutableList.Builder<DataType> dataTypes = ImmutableList.builder();
+        for (Expression arg : children()) {
+            if (arg instanceof Variable && ((Variable) arg).getRealExpression() != null) {
+                dataTypes.add(((Variable) arg).getRealExpression().getDataType());
+            } else {
+                dataTypes.add(arg.getDataType());
+            }
+        }
+        return dataTypes.build();
     }
 
+    /**
+     * getArgumentType.
+     */
     default DataType getArgumentType(int index) {
-        return child(index).getDataType();
+        Expression arg = child(index);
+        if (arg instanceof Variable && ((Variable) arg).getRealExpression() != null) {
+            return ((Variable) arg).getRealExpression().getDataType();
+        } else {
+            return arg.getDataType();
+        }
     }
 
     default DataType getDataType() throws UnboundException {
