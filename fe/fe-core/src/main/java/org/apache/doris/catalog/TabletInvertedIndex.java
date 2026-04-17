@@ -28,7 +28,6 @@ import org.apache.doris.thrift.TTabletMetaInfo;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ListMultimap;
-import com.google.common.collect.Maps;
 import com.google.common.collect.SetMultimap;
 import com.google.common.collect.Table;
 import com.google.common.collect.TreeMultimap;
