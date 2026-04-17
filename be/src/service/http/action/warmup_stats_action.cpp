@@ -37,11 +37,11 @@ static void fill_windowed(EasyJson& parent, const std::string& key, MBvarWindowe
     EasyJson num = obj.Set("num", EasyJson::kObject);
     num["5m"] = num_adder.get_window_value(dim_key, 0);
     num["30m"] = num_adder.get_window_value(dim_key, 1);
-    num["2h"] = num_adder.get_window_value(dim_key, 2);
+    num["1h"] = num_adder.get_window_value(dim_key, 2);
     EasyJson size = obj.Set("size", EasyJson::kObject);
     size["5m"] = size_adder.get_window_value(dim_key, 0);
     size["30m"] = size_adder.get_window_value(dim_key, 1);
-    size["2h"] = size_adder.get_window_value(dim_key, 2);
+    size["1h"] = size_adder.get_window_value(dim_key, 2);
 }
 
 void WarmUpStatsAction::handle(HttpRequest* req) {

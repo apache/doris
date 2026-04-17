@@ -392,26 +392,27 @@ bvar::Adder<uint64_t> g_file_cache_warm_up_rowset_wait_for_compaction_timeout_nu
         "file_cache_warm_up_rowset_wait_for_compaction_timeout_num");
 
 // Per-job windowed metrics for target BE
+// bvar::Window enforces MAX_SECONDS_LIMIT = 3600, so the longest window is 1h.
 static constexpr int WINDOW_5M = 300;
 static constexpr int WINDOW_30M = 1800;
-static constexpr int WINDOW_2H = 7200;
+static constexpr int WINDOW_1H = 3600;
 
 MBvarWindowedAdder g_warmup_ed_finish_segment_num("warmup_ed_finish_segment_num", {"job_id"},
-                                                  {WINDOW_5M, WINDOW_30M, WINDOW_2H});
+                                                  {WINDOW_5M, WINDOW_30M, WINDOW_1H});
 MBvarWindowedAdder g_warmup_ed_finish_segment_size("warmup_ed_finish_segment_size", {"job_id"},
-                                                   {WINDOW_5M, WINDOW_30M, WINDOW_2H});
+                                                   {WINDOW_5M, WINDOW_30M, WINDOW_1H});
 MBvarWindowedAdder g_warmup_ed_finish_index_num("warmup_ed_finish_index_num", {"job_id"},
-                                                {WINDOW_5M, WINDOW_30M, WINDOW_2H});
+                                                {WINDOW_5M, WINDOW_30M, WINDOW_1H});
 MBvarWindowedAdder g_warmup_ed_finish_index_size("warmup_ed_finish_index_size", {"job_id"},
-                                                 {WINDOW_5M, WINDOW_30M, WINDOW_2H});
+                                                 {WINDOW_5M, WINDOW_30M, WINDOW_1H});
 MBvarWindowedAdder g_warmup_ed_fail_segment_num("warmup_ed_fail_segment_num", {"job_id"},
-                                                {WINDOW_5M, WINDOW_30M, WINDOW_2H});
+                                                {WINDOW_5M, WINDOW_30M, WINDOW_1H});
 MBvarWindowedAdder g_warmup_ed_fail_segment_size("warmup_ed_fail_segment_size", {"job_id"},
-                                                 {WINDOW_5M, WINDOW_30M, WINDOW_2H});
+                                                 {WINDOW_5M, WINDOW_30M, WINDOW_1H});
 MBvarWindowedAdder g_warmup_ed_fail_index_num("warmup_ed_fail_index_num", {"job_id"},
-                                              {WINDOW_5M, WINDOW_30M, WINDOW_2H});
+                                              {WINDOW_5M, WINDOW_30M, WINDOW_1H});
 MBvarWindowedAdder g_warmup_ed_fail_index_size("warmup_ed_fail_index_size", {"job_id"},
-                                               {WINDOW_5M, WINDOW_30M, WINDOW_2H});
+                                               {WINDOW_5M, WINDOW_30M, WINDOW_1H});
 bvar::MultiDimension<bvar::Status<int64_t>> g_warmup_ed_last_finish_ts("warmup_ed_last_finish_ts",
                                                                        {"job_id"});
 

@@ -168,7 +168,7 @@ TEST_F(CloudWarmUpManagerFilterTest, GetReplicaInfoAppliesTableFilter) {
     auto replicas = manager.get_replica_info(tablet_id, 20, false, cache_hit);
 
     ASSERT_EQ(1, replicas.size());
-    EXPECT_EQ(22, replicas[0].backend_id);
+    EXPECT_EQ(22, replicas[0].replica.backend_id);
     EXPECT_TRUE(cache_hit);
 }
 

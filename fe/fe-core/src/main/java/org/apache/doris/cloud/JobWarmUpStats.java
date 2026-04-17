@@ -35,75 +35,75 @@ public class JobWarmUpStats {
     // Aggregated requested
     public long requestedSegmentNum5m;
     public long requestedSegmentNum30m;
-    public long requestedSegmentNum2h;
+    public long requestedSegmentNum1h;
     public long requestedSegmentSize5m;
     public long requestedSegmentSize30m;
-    public long requestedSegmentSize2h;
+    public long requestedSegmentSize1h;
     public long requestedIndexNum5m;
     public long requestedIndexNum30m;
-    public long requestedIndexNum2h;
+    public long requestedIndexNum1h;
     public long requestedIndexSize5m;
     public long requestedIndexSize30m;
-    public long requestedIndexSize2h;
+    public long requestedIndexSize1h;
     public long lastTriggerTs;
 
     // Aggregated finished
     public long finishSegmentNum5m;
     public long finishSegmentNum30m;
-    public long finishSegmentNum2h;
+    public long finishSegmentNum1h;
     public long finishSegmentSize5m;
     public long finishSegmentSize30m;
-    public long finishSegmentSize2h;
+    public long finishSegmentSize1h;
     public long finishIndexNum5m;
     public long finishIndexNum30m;
-    public long finishIndexNum2h;
+    public long finishIndexNum1h;
     public long finishIndexSize5m;
     public long finishIndexSize30m;
-    public long finishIndexSize2h;
+    public long finishIndexSize1h;
 
     // Aggregated failed
     public long failSegmentNum5m;
     public long failSegmentNum30m;
-    public long failSegmentNum2h;
+    public long failSegmentNum1h;
     public long failSegmentSize5m;
     public long failSegmentSize30m;
-    public long failSegmentSize2h;
+    public long failSegmentSize1h;
     public long failIndexNum5m;
     public long failIndexNum30m;
-    public long failIndexNum2h;
+    public long failIndexNum1h;
     public long failIndexSize5m;
     public long failIndexSize30m;
-    public long failIndexSize2h;
+    public long failIndexSize1h;
     public long lastFinishTs;
 
     // gap = requested - finished
     public long gapSegmentNum5m;
     public long gapSegmentNum30m;
-    public long gapSegmentNum2h;
+    public long gapSegmentNum1h;
     public long gapSegmentSize5m;
     public long gapSegmentSize30m;
-    public long gapSegmentSize2h;
+    public long gapSegmentSize1h;
     public long gapIndexNum5m;
     public long gapIndexNum30m;
-    public long gapIndexNum2h;
+    public long gapIndexNum1h;
     public long gapIndexSize5m;
     public long gapIndexSize30m;
-    public long gapIndexSize2h;
+    public long gapIndexSize1h;
 
     /** Accumulate requested stats from a table in the source cluster. */
     public void mergeRequested(TableWarmUpWindowedStats t) {
         requestedSegmentNum5m += t.requestedSegmentNum5m;
         requestedSegmentNum30m += t.requestedSegmentNum30m;
-        requestedSegmentNum2h += t.requestedSegmentNum2h;
+        requestedSegmentNum1h += t.requestedSegmentNum1h;
         requestedSegmentSize5m += t.requestedSegmentSize5m;
         requestedSegmentSize30m += t.requestedSegmentSize30m;
-        requestedSegmentSize2h += t.requestedSegmentSize2h;
+        requestedSegmentSize1h += t.requestedSegmentSize1h;
         requestedIndexNum5m += t.requestedIndexNum5m;
         requestedIndexNum30m += t.requestedIndexNum30m;
-        requestedIndexNum2h += t.requestedIndexNum2h;
+        requestedIndexNum1h += t.requestedIndexNum1h;
         requestedIndexSize5m += t.requestedIndexSize5m;
         requestedIndexSize30m += t.requestedIndexSize30m;
-        requestedIndexSize2h += t.requestedIndexSize2h;
+        requestedIndexSize1h += t.requestedIndexSize1h;
         lastTriggerTs = Math.max(lastTriggerTs, t.lastTriggerTs);
     }
 
@@ -111,28 +111,28 @@ public class JobWarmUpStats {
     public void mergeFinished(TableWarmUpWindowedStats t) {
         finishSegmentNum5m += t.finishSegmentNum5m;
         finishSegmentNum30m += t.finishSegmentNum30m;
-        finishSegmentNum2h += t.finishSegmentNum2h;
+        finishSegmentNum1h += t.finishSegmentNum1h;
         finishSegmentSize5m += t.finishSegmentSize5m;
         finishSegmentSize30m += t.finishSegmentSize30m;
-        finishSegmentSize2h += t.finishSegmentSize2h;
+        finishSegmentSize1h += t.finishSegmentSize1h;
         finishIndexNum5m += t.finishIndexNum5m;
         finishIndexNum30m += t.finishIndexNum30m;
-        finishIndexNum2h += t.finishIndexNum2h;
+        finishIndexNum1h += t.finishIndexNum1h;
         finishIndexSize5m += t.finishIndexSize5m;
         finishIndexSize30m += t.finishIndexSize30m;
-        finishIndexSize2h += t.finishIndexSize2h;
+        finishIndexSize1h += t.finishIndexSize1h;
         failSegmentNum5m += t.failSegmentNum5m;
         failSegmentNum30m += t.failSegmentNum30m;
-        failSegmentNum2h += t.failSegmentNum2h;
+        failSegmentNum1h += t.failSegmentNum1h;
         failSegmentSize5m += t.failSegmentSize5m;
         failSegmentSize30m += t.failSegmentSize30m;
-        failSegmentSize2h += t.failSegmentSize2h;
+        failSegmentSize1h += t.failSegmentSize1h;
         failIndexNum5m += t.failIndexNum5m;
         failIndexNum30m += t.failIndexNum30m;
-        failIndexNum2h += t.failIndexNum2h;
+        failIndexNum1h += t.failIndexNum1h;
         failIndexSize5m += t.failIndexSize5m;
         failIndexSize30m += t.failIndexSize30m;
-        failIndexSize2h += t.failIndexSize2h;
+        failIndexSize1h += t.failIndexSize1h;
         lastFinishTs = Math.max(lastFinishTs, t.lastFinishTs);
     }
 
@@ -140,16 +140,16 @@ public class JobWarmUpStats {
     public void computeGap() {
         gapSegmentNum5m = requestedSegmentNum5m - finishSegmentNum5m;
         gapSegmentNum30m = requestedSegmentNum30m - finishSegmentNum30m;
-        gapSegmentNum2h = requestedSegmentNum2h - finishSegmentNum2h;
+        gapSegmentNum1h = requestedSegmentNum1h - finishSegmentNum1h;
         gapSegmentSize5m = requestedSegmentSize5m - finishSegmentSize5m;
         gapSegmentSize30m = requestedSegmentSize30m - finishSegmentSize30m;
-        gapSegmentSize2h = requestedSegmentSize2h - finishSegmentSize2h;
+        gapSegmentSize1h = requestedSegmentSize1h - finishSegmentSize1h;
         gapIndexNum5m = requestedIndexNum5m - finishIndexNum5m;
         gapIndexNum30m = requestedIndexNum30m - finishIndexNum30m;
-        gapIndexNum2h = requestedIndexNum2h - finishIndexNum2h;
+        gapIndexNum1h = requestedIndexNum1h - finishIndexNum1h;
         gapIndexSize5m = requestedIndexSize5m - finishIndexSize5m;
         gapIndexSize30m = requestedIndexSize30m - finishIndexSize30m;
-        gapIndexSize2h = requestedIndexSize2h - finishIndexSize2h;
+        gapIndexSize1h = requestedIndexSize1h - finishIndexSize1h;
     }
 
     /** Serialize to SyncStats JSON for SHOW WARM UP JOB output. */
@@ -166,10 +166,10 @@ public class JobWarmUpStats {
         segNum.addProperty("finish_30m", finishSegmentNum30m);
         segNum.addProperty("gap_30m", gapSegmentNum30m);
         segNum.addProperty("fail_30m", failSegmentNum30m);
-        segNum.addProperty("requested_2h", requestedSegmentNum2h);
-        segNum.addProperty("finish_2h", finishSegmentNum2h);
-        segNum.addProperty("gap_2h", gapSegmentNum2h);
-        segNum.addProperty("fail_2h", failSegmentNum2h);
+        segNum.addProperty("requested_1h", requestedSegmentNum1h);
+        segNum.addProperty("finish_1h", finishSegmentNum1h);
+        segNum.addProperty("gap_1h", gapSegmentNum1h);
+        segNum.addProperty("fail_1h", failSegmentNum1h);
         root.add("seg_num", segNum);
 
         // seg_size
@@ -182,10 +182,10 @@ public class JobWarmUpStats {
         segSize.addProperty("finish_30m", humanReadableSize(finishSegmentSize30m));
         segSize.addProperty("gap_30m", humanReadableSize(gapSegmentSize30m));
         segSize.addProperty("fail_30m", humanReadableSize(failSegmentSize30m));
-        segSize.addProperty("requested_2h", humanReadableSize(requestedSegmentSize2h));
-        segSize.addProperty("finish_2h", humanReadableSize(finishSegmentSize2h));
-        segSize.addProperty("gap_2h", humanReadableSize(gapSegmentSize2h));
-        segSize.addProperty("fail_2h", humanReadableSize(failSegmentSize2h));
+        segSize.addProperty("requested_1h", humanReadableSize(requestedSegmentSize1h));
+        segSize.addProperty("finish_1h", humanReadableSize(finishSegmentSize1h));
+        segSize.addProperty("gap_1h", humanReadableSize(gapSegmentSize1h));
+        segSize.addProperty("fail_1h", humanReadableSize(failSegmentSize1h));
         root.add("seg_size", segSize);
 
         // idx_num
@@ -198,10 +198,10 @@ public class JobWarmUpStats {
         idxNum.addProperty("finish_30m", finishIndexNum30m);
         idxNum.addProperty("gap_30m", gapIndexNum30m);
         idxNum.addProperty("fail_30m", failIndexNum30m);
-        idxNum.addProperty("requested_2h", requestedIndexNum2h);
-        idxNum.addProperty("finish_2h", finishIndexNum2h);
-        idxNum.addProperty("gap_2h", gapIndexNum2h);
-        idxNum.addProperty("fail_2h", failIndexNum2h);
+        idxNum.addProperty("requested_1h", requestedIndexNum1h);
+        idxNum.addProperty("finish_1h", finishIndexNum1h);
+        idxNum.addProperty("gap_1h", gapIndexNum1h);
+        idxNum.addProperty("fail_1h", failIndexNum1h);
         root.add("idx_num", idxNum);
 
         // idx_size
@@ -214,10 +214,10 @@ public class JobWarmUpStats {
         idxSize.addProperty("finish_30m", humanReadableSize(finishIndexSize30m));
         idxSize.addProperty("gap_30m", humanReadableSize(gapIndexSize30m));
         idxSize.addProperty("fail_30m", humanReadableSize(failIndexSize30m));
-        idxSize.addProperty("requested_2h", humanReadableSize(requestedIndexSize2h));
-        idxSize.addProperty("finish_2h", humanReadableSize(finishIndexSize2h));
-        idxSize.addProperty("gap_2h", humanReadableSize(gapIndexSize2h));
-        idxSize.addProperty("fail_2h", humanReadableSize(failIndexSize2h));
+        idxSize.addProperty("requested_1h", humanReadableSize(requestedIndexSize1h));
+        idxSize.addProperty("finish_1h", humanReadableSize(finishIndexSize1h));
+        idxSize.addProperty("gap_1h", humanReadableSize(gapIndexSize1h));
+        idxSize.addProperty("fail_1h", humanReadableSize(failIndexSize1h));
         root.add("idx_size", idxSize);
 
         // timestamps

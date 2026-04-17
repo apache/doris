@@ -91,19 +91,20 @@ bvar::LatencyRecorder g_file_cache_warm_up_rowset_wait_for_compaction_latency(
         "file_cache_warm_up_rowset_wait_for_compaction_latency");
 
 // Per-job windowed metrics for source BE
+// bvar::Window enforces MAX_SECONDS_LIMIT = 3600, so the longest window is 1h.
 static constexpr int WINDOW_5M = 300;
 static constexpr int WINDOW_30M = 1800;
-static constexpr int WINDOW_2H = 7200;
+static constexpr int WINDOW_1H = 3600;
 
 MBvarWindowedAdder g_warmup_ed_requested_segment_num("warmup_ed_requested_segment_num", {"job_id"},
-                                                     {WINDOW_5M, WINDOW_30M, WINDOW_2H});
+                                                     {WINDOW_5M, WINDOW_30M, WINDOW_1H});
 MBvarWindowedAdder g_warmup_ed_requested_segment_size("warmup_ed_requested_segment_size",
                                                       {"job_id"},
-                                                      {WINDOW_5M, WINDOW_30M, WINDOW_2H});
+                                                      {WINDOW_5M, WINDOW_30M, WINDOW_1H});
 MBvarWindowedAdder g_warmup_ed_requested_index_num("warmup_ed_requested_index_num", {"job_id"},
-                                                   {WINDOW_5M, WINDOW_30M, WINDOW_2H});
+                                                   {WINDOW_5M, WINDOW_30M, WINDOW_1H});
 MBvarWindowedAdder g_warmup_ed_requested_index_size("warmup_ed_requested_index_size", {"job_id"},
-                                                    {WINDOW_5M, WINDOW_30M, WINDOW_2H});
+                                                    {WINDOW_5M, WINDOW_30M, WINDOW_1H});
 bvar::MultiDimension<bvar::Status<int64_t>> g_warmup_ed_last_trigger_ts("warmup_ed_last_trigger_ts",
                                                                         {"job_id"});
 

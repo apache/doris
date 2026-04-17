@@ -56,7 +56,8 @@ public class CloudWarmUpJobTableFilterTest {
     private static final int COL_TABLES = 12;
     private static final int COL_TABLE_FILTER = 13;
     private static final int COL_MATCHED_TABLES = 14;
-    private static final int TOTAL_COLUMNS = 15;
+    private static final int COL_SYNC_STATS = 15;
+    private static final int TOTAL_COLUMNS = 16;
 
     private PersistedTableFilterRule rule(String type, String pattern) {
         PersistedTableFilterRule r = new PersistedTableFilterRule();
