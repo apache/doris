@@ -78,9 +78,9 @@ suite("test_hive_partitions", "p0,external") {
 
     for (String hivePrefix : ["hive2", "hive3"]) {
         setHivePrefix(hivePrefix)
+        String catalog_name = getHiveTempName("${hivePrefix}_test_partitions", "catalog")
         try {
             String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
-            String catalog_name = getHiveTempName("${hivePrefix}_test_partitions", "catalog")
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
             sql """drop catalog if exists ${catalog_name}"""
