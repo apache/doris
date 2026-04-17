@@ -340,4 +340,42 @@ TEST_F(FindSymbolsTest, LastNotSymbols_EmptyRange_SSE42) {
     EXPECT_EQ(result, nullptr);
 }
 
+// --- Embedded null bytes must NOT be treated as implicit trim symbols ---
+
+TEST_F(FindSymbolsTest, EmbeddedNullByte_SSE2_NotTrimmed) {
+    // "a\0" followed by 20 'x' bytes, trim set "ab" (SSE2 path: < 5 chars)
+    // After trimming leading 'a', the \0 byte should remain (not be treated as trim char)
+    std::string s;
+    s += 'a';
+    s += '\0';
+    s.append(20, 'x');
+    SearchSymbols symbols("ab");
+    // find_first_not_symbols should return pointer to the \0 byte (index 1), not skip it
+    const char* result = find_first_not_symbols(std::string_view(s.data(), s.size()), symbols);
+    ASSERT_NE(result, nullptr);
+    EXPECT_EQ(result - s.data(), 1); // \0 at index 1 is NOT a trim char
+    EXPECT_EQ(*result, '\0');
+}
+
+TEST_F(FindSymbolsTest, EmbeddedNullByte_SSE2_LastNotSymbols) {
+    // 20 'x' bytes followed by "\0bb", trim set "ab" (SSE2 path: < 5 chars)
+    // find_last_not_symbols should return pointer to \0 (not skip it)
+    std::string s(20, 'x');
+    s += '\0';
+    s += "bb";
+    SearchSymbols symbols("ab");
+    const char* result = find_last_not_symbols_or_null(s.data(), s.data() + s.size(), symbols);
+    ASSERT_NE(result, nullptr);
+    EXPECT_EQ(result - s.data(), 20); // \0 at index 20 is NOT a trim char
+    EXPECT_EQ(*result, '\0');
+}
+
+TEST_F(FindSymbolsTest, EmbeddedNullByte_AllNulls_SSE2) {
+    // String of all \0 bytes with trim set "ab" — none should be trimmed
+    std::string s(32, '\0');
+    SearchSymbols symbols("ab");
+    const char* result = find_first_not_symbols(std::string_view(s.data(), s.size()), symbols);
+    EXPECT_EQ(result - s.data(), 0); // first \0 at index 0 is not a trim char
+}
+
 } // namespace doris
