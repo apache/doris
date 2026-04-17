@@ -3595,6 +3595,17 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         }
     }
 
+    /**
+     * Returns the visible TSO (timestamp ordering) for this table.
+     *
+     * <p>MOCK: currently returns {@link #getVisibleVersion()} directly. This will be
+     * replaced with a real TSO-based API once the storage layer supports it.
+     * Each partition's visible version and TSO will be in one-to-one correspondence.
+     */
+    public long getVisibleTso() throws RpcException {
+        return getVisibleVersion();
+    }
+
     // Get the table versions in batch.
     public static List<Long> getVisibleVersionInBatch(List<OlapTable> tables) {
         if (tables.isEmpty()) {
