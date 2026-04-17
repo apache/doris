@@ -27,8 +27,8 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Percentile;
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileArrayV2;
+import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileV2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
@@ -116,7 +116,7 @@ public class MergePercentileToArray extends OneRewriteRuleFactory {
         Set<AggregateFunction> aggregateFunctions = aggregate.getAggregateFunctions();
         Map<DistinctAndExpr, List<AggregateFunction>> funcMap = new HashMap<>();
         for (AggregateFunction func : aggregateFunctions) {
-            if (!(func instanceof Percentile)) {
+            if (!(func instanceof PercentileV2)) {
                 continue;
             }
             DistinctAndExpr distictAndExpr = new DistinctAndExpr(func.child(0), func.isDistinct());

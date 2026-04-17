@@ -169,8 +169,9 @@ TEST_F(PercentileUtilTest, SortPermutationKeepsQuantiles) {
     levels.quantiles = {0.56, 0.12, 0.45, 0.23};
     levels.permutation = {0, 1, 2, 3};
 
-    levels.sort_permutation();
+    const auto& permutation = levels.get_permutation();
 
+    EXPECT_EQ((std::vector<size_t> {1, 3, 2, 0}), permutation);
     EXPECT_EQ((std::vector<size_t> {1, 3, 2, 0}), levels.permutation);
     EXPECT_EQ((std::vector<double> {0.56, 0.12, 0.45, 0.23}), levels.quantiles);
 }
@@ -180,23 +181,21 @@ TEST_F(PercentileUtilTest, SortPermutationWithDuplicateQuantiles) {
     levels.quantiles = {0.7, 0.2, 0.2, 0.9, 0.7};
     levels.permutation = {0, 1, 2, 3, 4};
 
-    levels.sort_permutation();
+    const auto& permutation = levels.get_permutation();
 
-    ASSERT_EQ(levels.quantiles.size(), levels.permutation.size());
-    std::vector<size_t> sorted_perm = levels.permutation;
+    ASSERT_EQ(levels.quantiles.size(), permutation.size());
+    std::vector<size_t> sorted_perm = permutation;
     std::sort(sorted_perm.begin(), sorted_perm.end());
     EXPECT_EQ((std::vector<size_t> {0, 1, 2, 3, 4}), sorted_perm);
-    for (size_t i = 1; i < levels.permutation.size(); ++i) {
-        EXPECT_LE(levels.quantiles[levels.permutation[i - 1]],
-                  levels.quantiles[levels.permutation[i]]);
+    for (size_t i = 1; i < permutation.size(); ++i) {
+        EXPECT_LE(levels.quantiles[permutation[i - 1]], levels.quantiles[permutation[i]]);
     }
 }
 
-TEST_F(PercentileUtilTest, WriteReadRestoresPermutationOrder) {
+TEST_F(PercentileUtilTest, WriteReadDefersPermutationSort) {
     PercentileLevels levels;
     levels.quantiles = {0.56, 0.12, 0.45, 0.23};
     levels.permutation = {0, 1, 2, 3};
-    levels.sort_permutation();
 
     auto col = ColumnString::create();
     BufferWritable writer(*col);
@@ -210,7 +209,8 @@ TEST_F(PercentileUtilTest, WriteReadRestoresPermutationOrder) {
     restored.read(reader);
 
     EXPECT_EQ(levels.quantiles, restored.quantiles);
-    EXPECT_EQ(levels.permutation, restored.permutation);
+    EXPECT_EQ((std::vector<size_t> {0, 1, 2, 3}), restored.permutation);
+    EXPECT_EQ((std::vector<size_t> {1, 3, 2, 0}), restored.get_permutation());
 }
 
 TEST_F(PercentileUtilTest, ReadBuildsPermutationFromUnsortedQuantiles) {
@@ -230,14 +230,14 @@ TEST_F(PercentileUtilTest, ReadBuildsPermutationFromUnsortedQuantiles) {
     levels.read(reader);
 
     EXPECT_EQ((std::vector<double> {0.56, 0.12, 0.45, 0.23}), levels.quantiles);
-    EXPECT_EQ((std::vector<size_t> {1, 3, 2, 0}), levels.permutation);
+    EXPECT_EQ((std::vector<size_t> {0, 1, 2, 3}), levels.permutation);
+    EXPECT_EQ((std::vector<size_t> {1, 3, 2, 0}), levels.get_permutation());
 }
 
 TEST_F(PercentileUtilTest, MergeFromEmptyCopiesState) {
     PercentileLevels src;
     src.quantiles = {0.56, 0.12, 0.45, 0.23};
     src.permutation = {0, 1, 2, 3};
-    src.sort_permutation();
 
     PercentileLevels dst;
     dst.merge(src);
@@ -250,20 +250,19 @@ TEST_F(PercentileUtilTest, MergeEmptyRightKeepsLeft) {
     PercentileLevels lhs;
     lhs.quantiles = {0.56, 0.12, 0.45, 0.23};
     lhs.permutation = {0, 1, 2, 3};
-    lhs.sort_permutation();
 
     PercentileLevels rhs;
     lhs.merge(rhs);
 
     EXPECT_EQ((std::vector<double> {0.56, 0.12, 0.45, 0.23}), lhs.quantiles);
-    EXPECT_EQ((std::vector<size_t> {1, 3, 2, 0}), lhs.permutation);
+    EXPECT_EQ((std::vector<size_t> {0, 1, 2, 3}), lhs.permutation);
+    EXPECT_EQ((std::vector<size_t> {1, 3, 2, 0}), lhs.get_permutation());
 }
 
 TEST_F(PercentileUtilTest, MergeSameStateKeepsState) {
     PercentileLevels lhs;
     lhs.quantiles = {0.56, 0.12, 0.45, 0.23};
     lhs.permutation = {0, 1, 2, 3};
-    lhs.sort_permutation();
 
     PercentileLevels rhs;
     rhs.quantiles = lhs.quantiles;
@@ -272,7 +271,8 @@ TEST_F(PercentileUtilTest, MergeSameStateKeepsState) {
     lhs.merge(rhs);
 
     EXPECT_EQ((std::vector<double> {0.56, 0.12, 0.45, 0.23}), lhs.quantiles);
-    EXPECT_EQ((std::vector<size_t> {1, 3, 2, 0}), lhs.permutation);
+    EXPECT_EQ((std::vector<size_t> {0, 1, 2, 3}), lhs.permutation);
+    EXPECT_EQ((std::vector<size_t> {1, 3, 2, 0}), lhs.get_permutation());
 }
 
 TEST_F(PercentileUtilTest, ClearResetsState) {

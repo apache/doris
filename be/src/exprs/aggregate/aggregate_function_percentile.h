@@ -513,7 +513,7 @@ struct PercentileExactState {
         }
 
         DCHECK_EQ(levels.quantiles.size(), 1);
-        return _get_float(levels.quantiles[0]);
+        return _get_result(levels.quantiles[0]);
     }
 
     void insert_result_into(IColumn& to) const {
@@ -536,7 +536,7 @@ struct PercentileExactState {
 
         size_t prev_index = 0;
         const auto& quantiles = levels.quantiles;
-        const auto& permutation = levels.permutation;
+        const auto& permutation = levels.get_permutation();
         for (size_t i = 0; i < size; ++i) {
             auto level_index = permutation[i];
             auto level = quantiles[level_index];
@@ -581,7 +581,6 @@ private:
             levels.quantiles[i] = quantiles_data[start + i];
             levels.permutation[i] = i;
         }
-        levels.sort_permutation();
     }
 
     void _append(const ValueType* data, size_t count) {
@@ -592,7 +591,7 @@ private:
         values.insert_assume_reserved(data, data + count);
     }
 
-    double _get_float(double quantile) const {
+    double _get_result(double quantile) const {
         if (values.size() == 1) {
             return static_cast<double>(values.front());
         }
@@ -613,7 +612,7 @@ private:
     }
 
     mutable Array values;
-    PercentileLevels levels;
+    mutable PercentileLevels levels;
     bool inited_flag = false;
 };
 
@@ -751,7 +750,8 @@ public:
 
 template <PrimitiveType T>
 class AggregateFunctionPercentileV2 final
-        : public IAggregateFunctionDataHelper<PercentileExactState<T>, AggregateFunctionPercentileV2<T>>,
+        : public IAggregateFunctionDataHelper<PercentileExactState<T>,
+                                              AggregateFunctionPercentileV2<T>>,
           MultiExpression,
           NullableAggregateFunction {
 public:

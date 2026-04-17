@@ -47,8 +47,8 @@ public class MergePercentileToArrayTest extends TestWithFeService implements Mem
                 .rewrite()
                 .matches(
                         logicalProject(logicalAggregate(any())).when(p ->
-                            p.getProjects().get(1).toSql().contains("element_at(percentile_array")
-                                && p.getProjects().get(2).toSql().contains("element_at(percentile_array"))
+                            p.getProjects().get(1).toSql().contains("element_at(percentile_array_v2")
+                                && p.getProjects().get(2).toSql().contains("element_at(percentile_array_v2"))
                 );
     }
 
@@ -60,8 +60,8 @@ public class MergePercentileToArrayTest extends TestWithFeService implements Mem
                 .rewrite()
                 .matches(
                         logicalProject(logicalAggregate()).when(p ->
-                                p.getProjects().get(0).toSql().contains("element_at(percentile_array")
-                                        && p.getProjects().get(1).toSql().contains("element_at(percentile_array"))
+                                p.getProjects().get(0).toSql().contains("element_at(percentile_array_v2")
+                                        && p.getProjects().get(1).toSql().contains("element_at(percentile_array_v2"))
                 );
     }
 

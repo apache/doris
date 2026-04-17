@@ -274,8 +274,6 @@ public:
             buf.read_binary(quantiles[i]);
             permutation[i] = cast_set<size_t>(i);
         }
-
-        sort_permutation();
     }
 
     void clear() {
@@ -285,13 +283,18 @@ public:
 
     bool empty() const { return quantiles.empty(); }
 
-    void sort_permutation() {
+    const std::vector<size_t>& get_permutation() const {
+        sort_permutation();
+        return permutation;
+    }
+
+    void sort_permutation() const {
         pdqsort(permutation.begin(), permutation.end(),
                 [this](size_t lhs, size_t rhs) { return quantiles[lhs] < quantiles[rhs]; });
     }
 
     std::vector<double> quantiles;
-    std::vector<size_t> permutation;
+    mutable std::vector<size_t> permutation;
 };
 
 } // namespace doris
