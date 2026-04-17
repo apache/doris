@@ -27,6 +27,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
@@ -126,7 +127,12 @@ public class ShowDataCommandTest {
     public void testValidateShowAllDataNormal() throws Exception {
         Mockito.when(connectContext.getDatabase()).thenReturn(CatalogMocker.TEST_DB_NAME);
         Mockito.when(connectContext.isSkipAuth()).thenReturn(true);
-        Mockito.when(catalog.getDbOrAnalysisException(Mockito.anyString())).thenReturn(CatalogMocker.mockDb());
+        mockedEnv.when(Env::getCurrentInvertedIndex).thenReturn(Mockito.mock(TabletInvertedIndex.class));
+        Database mockDb = CatalogMocker.mockDb();
+        Mockito.when(catalog.getDbOrAnalysisException(Mockito.anyString())).thenReturn(mockDb);
+        Mockito.when(accessControllerManager.checkTblPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.anyString(), Mockito.anyString(),
+                Mockito.anyString(), Mockito.any(PrivPredicate.class))).thenReturn(true);
 
         SlotReference tableName = new SlotReference("TableName", IntegerType.INSTANCE);
         List<OrderKey> keys = ImmutableList.of(new OrderKey(tableName, true, false));
@@ -188,25 +194,23 @@ public class ShowDataCommandTest {
     public void testValidateNoPrivilege() throws Exception {
         Mockito.doReturn(database).when(catalog).getDbOrAnalysisException(Mockito.anyString());
         Mockito.doReturn(olapTable).when(database).getTableOrMetaException(
-                Mockito.eq(tableNameInfo.getTbl()), Mockito.eq(TableIf.TableType.OLAP));
+                Mockito.anyString(), Mockito.any(TableIf.TableType.class));
 
         SlotReference tableName = new SlotReference("TableName", IntegerType.INSTANCE);
-        List<OrderKey> keys = ImmutableList.of(new OrderKey(tableName, true, false));
+        List<OrderKey> keys = ImmutableList.of(
+                new OrderKey(tableName, true, false)
+        );
 
-        // table not exist
+        // test not exist table
         TableNameInfo tableNameInfoNotExist =
                 new TableNameInfo(CatalogMocker.TEST_DB_NAME, "tbl_not_exist");
-        Mockito.doThrow(new AnalysisException("not exist")).when(database)
-                .getTableOrMetaException(Mockito.eq("tbl_not_exist"), Mockito.eq(TableIf.TableType.OLAP));
-        ShowDataCommand command = new ShowDataCommand(tableNameInfoNotExist, keys, new HashMap<>(), false);
+
+        Map<String, String> properties = new HashMap<>();
+        ShowDataCommand command = new ShowDataCommand(tableNameInfoNotExist, keys, properties, false);
         Assertions.assertThrows(AnalysisException.class, () -> command.validate(connectContext));
 
-        // no privilege
-        Mockito.when(accessControllerManager.checkTblPriv(
-                Mockito.nullable(ConnectContext.class),
-                Mockito.any(TableNameInfo.class),
-                Mockito.any(PrivPredicate.class))).thenReturn(false);
-        ShowDataCommand command2 = new ShowDataCommand(tableNameInfo, keys, new HashMap<>(), false);
+        // test no priv
+        ShowDataCommand command2 = new ShowDataCommand(tableNameInfo, keys, properties, false);
         Assertions.assertThrows(AnalysisException.class, () -> command2.validate(connectContext));
     }
 }

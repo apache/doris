@@ -50,10 +50,7 @@ public class BinlogConfig {
         // record all meta update operator, and generate snapshot for write data, only used for ccr
         STATEMENT_AND_SNAPSHOT(0),
         // generate row binlog when write, used for table binlog transform
-        ROW(1),
-        // generate row binlog when need, calculate binlog by compaction and read snapshot,
-        // used for table binlog transform
-        DELTA(2);
+        ROW(1);
 
         private final int value;
 

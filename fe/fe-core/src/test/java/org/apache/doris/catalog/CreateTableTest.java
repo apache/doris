@@ -84,6 +84,23 @@ public class CreateTableTest extends TestWithFeService {
                 () -> createTable("create table test.tbl1\n" + "(k1 int, k2 int)\n" + "duplicate key(k1)\n"
                         + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1'); "));
 
+        ExceptionChecker.expectThrowsNoException(() -> createTable("CREATE TEMPORARY TABLE test.temp_normal (k1 INT) "
+                + "DUPLICATE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
+                + "PROPERTIES('replication_num'='1');"));
+
+        ExceptionChecker.expectThrowsNoException(() -> createTable("CREATE TEMPORARY TABLE test.temp_row_binlog (k1 INT) "
+                + "DUPLICATE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
+                + "PROPERTIES('replication_num'='1','binlog.enable'='true','binlog.format'='ROW');"));
+
+        ExceptionChecker.expectThrowsNoException(() -> createTable("CREATE TABLE test.row_binlog_normal (k1 INT) "
+                + "DUPLICATE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
+                + "PROPERTIES('replication_num'='1','binlog.enable'='true','binlog.format'='ROW');"));
+
+        ExceptionChecker.expectThrowsNoException(() -> createTable("CREATE TABLE test.row_binlog_unique (k1 INT, v1 INT) "
+                + "UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
+                + "PROPERTIES('replication_num'='1','enable_unique_key_merge_on_write'='true',"
+                + "'binlog.enable'='true','binlog.format'='ROW');"));
+
         ExceptionChecker.expectThrowsNoException(() -> createTable("create table test.tbl2\n" + "(k1 int, k2 int)\n"
                 + "duplicate key(k1)\n" + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
                 + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1'); "));
@@ -243,49 +260,13 @@ public class CreateTableTest extends TestWithFeService {
     }
 
     @Test
-    public void testCreateTempTable() throws Exception {
-        String create = "CREATE TEMPORARY TABLE test.temp_normal (k1 INT) "
-                + "DUPLICATE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
-                + "PROPERTIES('replication_num'='1');";
-        createTable(create);
-    }
-
-    @Test
-    public void testCreateTempTableWithRowBinlog() throws Exception {
-        String create = "CREATE TEMPORARY TABLE test.temp_row_binlog (k1 INT) "
-                + "DUPLICATE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
-                + "PROPERTIES('replication_num'='1','binlog.enable'='true','binlog.format'='ROW');";
-        createTable(create);
-    }
-
-    @Test
-    public void testCreateRowBinlogTable() throws Exception {
-        String create = "CREATE TABLE test.row_binlog_normal (k1 INT) "
-                + "DUPLICATE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
-                + "PROPERTIES('replication_num'='1','binlog.enable'='true','binlog.format'='ROW');";
-        createTable(create);
-    }
-
-    @Test
-    public void testCreateRowBinlogUniqueKeyTable() throws Exception {
-        String create = "CREATE TABLE test.row_binlog_unique (k1 INT, v1 INT) "
-                + "UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
-                + "PROPERTIES('replication_num'='1','enable_unique_key_merge_on_write'='true',"
-                + "'binlog.enable'='true','binlog.format'='ROW');";
-        createTable(create);
-    }
-
-    @Test
-    public void testCreateRowBinlogAggregateKeyNotSupported() throws Exception {
-        String create = "CREATE TABLE test.row_binlog_agg (k1 INT, v1 INT SUM) "
-                + "AGGREGATE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
-                + "PROPERTIES('replication_num'='1','binlog.enable'='true','binlog.format'='ROW');";
-        Exception exception = Assert.assertThrows(Exception.class, () -> createTable(create));
-        Assert.assertTrue(exception.getMessage(), exception.getMessage().contains("binlog<Row>"));
-    }
-
-    @Test
     public void testAbnormal() throws DdlException, ConfigException {
+        Exception exception = Assert.assertThrows(Exception.class,
+                () -> createTable("CREATE TABLE test.row_binlog_agg (k1 INT, v1 INT SUM) "
+                        + "AGGREGATE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
+                        + "PROPERTIES('replication_num'='1','binlog.enable'='true','binlog.format'='ROW');"));
+        Assert.assertTrue(exception.getMessage(), exception.getMessage().contains("binlog<Row>"));
+
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
                 "Unknown properties: {aa=bb}",
                 () -> createTable("create table test.atbl1\n" + "(k1 int, k2 float)\n" + "duplicate key(k1)\n"

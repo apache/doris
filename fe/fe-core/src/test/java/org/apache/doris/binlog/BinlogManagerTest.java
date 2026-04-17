@@ -157,6 +157,8 @@ public class BinlogManagerTest {
 
     @Test
     public void testBinlogConfigEquals() {
+        mockedBinlogConfigConstruction.close();
+        mockedBinlogConfigConstruction = null;
         BinlogConfig c1 = new BinlogConfig(true, 10L, 20L, 30L, BinlogConfig.BinlogFormat.ROW, true);
         BinlogConfig c2 = new BinlogConfig(true, 10L, 20L, 30L, BinlogConfig.BinlogFormat.ROW, true);
         BinlogConfig c3 = new BinlogConfig(true, 10L, 20L, 30L, BinlogConfig.BinlogFormat.ROW, false);
@@ -167,7 +169,9 @@ public class BinlogManagerTest {
     }
 
     @Test
-    public void testBinlogConfigAppendToShowCreateTable() {
+    public void testBinlogConfigShowDDL() {
+        mockedBinlogConfigConstruction.close();
+        mockedBinlogConfigConstruction = null;
         BinlogConfig rowCfg = new BinlogConfig(true, 11L, 22L, 33L, BinlogConfig.BinlogFormat.ROW, true);
         StringBuilder sb = new StringBuilder();
         rowCfg.appendToShowCreateTable(sb);

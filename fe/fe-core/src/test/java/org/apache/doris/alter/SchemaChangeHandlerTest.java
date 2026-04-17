@@ -317,7 +317,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
                 + "'enable_unique_key_merge_on_write'='true',"
                 + "'binlog.enable'='true','binlog.format'='ROW','binlog.need_historical_value'='false');";
         createTable(create);
-        expectException("ALTER TABLE test." + tableName + " MODIFY COLUMN v1 BIGINT", "Table With Row Binlog");
+        expectException("ALTER TABLE test." + tableName + " MODIFY COLUMN v1 BIGINT", "Table With binlog<row>");
 
         // 2) VARIANT not supported
         String createVariant = "CREATE TABLE test.binlog_variant (k1 INT NOT NULL, v1 VARIANT) "

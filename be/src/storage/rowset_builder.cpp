@@ -478,7 +478,7 @@ Status BaseRowsetBuilder::_build_current_tablet_schema(
             table_schema_param->sequence_map_col_uid(), _max_version_in_flush_phase));
     return Status::OK();
 }
- 
+
 GroupRowsetBuilder::GroupRowsetBuilder(StorageEngine& engine, const WriteRequest& req,
                                        const WriteRequest& row_binlog_req, RuntimeProfile* profile)
         : BaseRowsetBuilder(
@@ -566,5 +566,4 @@ Status BaseRowsetBuilder::attach_pending_rs_guard_to_txn(const RowsetId& rowset_
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

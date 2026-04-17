@@ -60,7 +60,7 @@ public class AlterOperations {
     public void checkRowBinlogAllow(List<AlterOp> alterOps) throws DdlException {
         for (AlterOp alterOp : alterOps) {
             if (!alterOp.allowOpRowBinlog()) {
-                throw new DdlException("Not allowed to perform current operation on Table With Row Binlog");
+                throw new DdlException("Not allowed to perform current operation on Table With binlog<row>");
             }
         }
     }
