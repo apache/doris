@@ -152,9 +152,7 @@ class Suite implements GroovyInterceptable {
     String getHiveTempName(String baseName, String extra = "") {
         String sanitizedBase = sanitizeHiveIdentifier(baseName)
         String sanitizedExtra = sanitizeHiveIdentifier(extra)
-        String sanitizedSuite = sanitizeHiveIdentifier(name)
-        String sanitizedPrefix = sanitizeHiveIdentifier(hivePrefix)
-        String suffix = "${sanitizedSuite}_${sanitizedPrefix}_${getHiveTempSuffix()}"
+        String suffix = getHiveTempSuffix()
 
         def nameParts = []
         if (!Strings.isNullOrEmpty(sanitizedBase)) {
@@ -170,12 +168,25 @@ class Suite implements GroovyInterceptable {
             return generatedName
         }
 
+        // If too long, truncate base name
         int maxPrefixLength = 128 - suffix.length() - 1
+        if (!Strings.isNullOrEmpty(sanitizedExtra)) {
+            maxPrefixLength -= (sanitizedExtra.length() + 1)
+        }
         String trimmedBase = sanitizedBase
         if (trimmedBase.length() > maxPrefixLength) {
             trimmedBase = trimmedBase.substring(0, maxPrefixLength)
         }
-        return "${trimmedBase}_${suffix}"
+
+        nameParts.clear()
+        if (!Strings.isNullOrEmpty(trimmedBase)) {
+            nameParts.add(trimmedBase)
+        }
+        if (!Strings.isNullOrEmpty(sanitizedExtra)) {
+            nameParts.add(sanitizedExtra)
+        }
+        nameParts.add(suffix)
+        return nameParts.join("_")
     }
 
     void cleanupHiveDockerTable(String dbName, String tableName) {
