@@ -370,7 +370,7 @@ inline const char* find_last_symbols_sse42(const char* const begin, const char* 
 
     const __m128i set = symbols.simd_vector;
 
-    for (; pos - 16 >= begin; pos -= 16) {
+    for (; static_cast<size_t>(pos - begin) >= 16; pos -= 16) {
         __m128i bytes = _mm_loadu_si128(reinterpret_cast<const __m128i*>(pos - 16));
 
         if constexpr (positive) {
@@ -384,9 +384,11 @@ inline const char* find_last_symbols_sse42(const char* const begin, const char* 
     }
 #endif
 
-    --pos;
-    for (; pos >= begin; --pos)
-        if (maybe_negate<positive>(is_in(*pos, symbols.str.data(), num_chars))) return pos;
+    // Scalar tail: scan remaining bytes from pos-1 down to begin
+    for (const char* p = pos; p != begin;) {
+        --p;
+        if (maybe_negate<positive>(is_in(*p, symbols.str.data(), num_chars))) return p;
+    }
 
     return return_mode == ReturnMode::End ? end : nullptr;
 }
