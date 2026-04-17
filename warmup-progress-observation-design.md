@@ -106,8 +106,8 @@ Event-driven warmup 是存算分离架构下的数据缓存预热功能。当源
                │  driven_stats                              │
                └──────────────┬────────────────────────────┘
                               │ CacheHotspotManager
-                              │ .progressCollectDaemon
-                              │ (MasterDaemon, 每 N 秒)
+                              │ .collectAndAggregate()
+                              │ (SHOW WARM UP JOB 按需)
                               ▼
                  ┌──────────────────────────────┐
                  │            FE                │
@@ -115,9 +115,9 @@ Event-driven warmup 是存算分离架构下的数据缓存预热功能。当源
                  │  1. GET /api/warmup_event_   │
                  │     driven_stats from BE     │
                  │  2. 一次性采集所有 cluster   │
-                 │     → clusterStats          │
-                 │  3. 按 Job matchedTableIds   │
-                 │     聚合 → jobWarmUpStatsMap  │
+                 │     → clusterStats (local)   │
+                 │  3. 按 Job 聚合              │
+                 │     → Map<jobId, Stats>      │
                  │  4. SHOW WARM UP JOB 展示    │
                  └──────────────────────────────┘
 ```
@@ -642,9 +642,9 @@ $ curl http://be_host:http_port/api/warmup_event_driven_stats
 
 ---
 
-## 五、FE 侧：CacheHotspotManager 中周期采集与聚合
+## 五、FE 侧：CacheHotspotManager 中按需采集与聚合
 
-在 `CacheHotspotManager` 中新增一个 `MasterDaemon`，参照现有 `jobDaemon` 和 `tableFilterRefreshDaemon` 的模式，周期性调用 BE 的 `/api/warmup_event_driven_stats` HTTP API，采集并聚合 per-Job 的同步进度。
+当用户执行 `SHOW WARM UP JOB` 时，`CacheHotspotManager` 按需调用 BE 的 `/api/warmup_event_driven_stats` HTTP API，采集并聚合 per-Job 的同步进度。由于 `SHOW WARM UP JOB` 是低频操作，不需要后台 daemon 周期性采集。
 
 ### 5.1 整体流程
 
@@ -654,9 +654,7 @@ CacheHotspotManager (已有类)
   ├─ jobDaemon              (已有) 管理 warmup job 生命周期
   ├─ tableFilterRefreshDaemon (已有) 刷新 ON TABLES 匹配
   │
-  └─ progressCollectDaemon  (新增) 周期采集 warmup 进度
-       │
-       ├─ 每 N 秒执行一次（可配置）
+  └─ collectAndAggregate()  (新增) SHOW WARM UP JOB 时按需调用
        │
        ├─ 一次性收集所有 event-driven Job 涉及的 cluster 并集
        │   allClusters = union(所有 job 的 srcCluster, dstCluster)
@@ -667,10 +665,10 @@ CacheHotspotManager (已有类)
        │   → 等待所有请求完成
        │   → mergeStats() 写入 clusterStats[cluster][jobId]
        │
-       └─ 所有数据采集完毕后，一次性按 job.matchedTableIds 聚合
+       └─ 所有数据采集完毕后，一次性按 job 聚合
            → 对每个 Job：从 srcCluster 取 requested，从 dstCluster 取 finished
-           → 存入 per-job 的 JobWarmUpStats 内存
-           → SHOW WARM UP JOB 时直接读取
+           → 返回 Map<jobId, JobWarmUpStats>
+           → getJobInfo(stats) 直接使用
 ```
 
 ### 5.2 采集逻辑
@@ -689,51 +687,25 @@ String result = HttpUtils.doGet(url, null);
 ```java
 // CacheHotspotManager.java
 
-// 新增：per-job 聚合后的同步统计
-private final ConcurrentHashMap<Long, JobWarmUpStats> jobWarmUpStatsMap = new ConcurrentHashMap<>();
-
-// 新增：per-cluster per-job 原始采集数据（每轮采集重建）
-// key: clusterName → (jobId → JobWarmUpWindowedStats)
-// 不区分 src/dst，同一个 cluster 只采集一次
-private volatile Map<String, Map<Long, JobWarmUpWindowedStats>> clusterStats = Map.of();
-
-// 新增：持久化线程池（避免每轮采集创建/销毁线程）
+// 新增：持久化线程池（避免每次采集创建/销毁线程）
 private final ExecutorService warmupStatsExecutor =
         Executors.newFixedThreadPool(16, new ThreadFactoryBuilder()
                 .setNameFormat("warmup-stats-collector-%d").setDaemon(true).build());
 
-// 新增 daemon
-private MasterDaemon progressCollectDaemon;
-private boolean startProgressCollectDaemon = false;
-
 /**
- * 初始化 progressCollectDaemon。
- * 参照 startJobDaemon() 的模式。
- */
-public void startProgressCollectDaemon() {
-    if (startProgressCollectDaemon) return;
-    startProgressCollectDaemon = true;
-    progressCollectDaemon = new MasterDaemon(
-            "warmup-progress-collect-daemon",
-            Config.warmup_progress_collect_interval_sec) { // 新增配置项，默认 30s
-        @Override
-        protected void runAfterCatalogReady() {
-            collectAndAggregate();
-        }
-    };
-    progressCollectDaemon.start();
-}
-
-/**
- * 周期性采集并聚合。
+ * 按需采集并聚合（SHOW WARM UP JOB 时调用）。
  *
  * 核心思路：
  * 1. 先一次性收集所有涉及的 cluster，枚举所有需要请求的 BE
  * 2. 并发地对所有 BE 发起 HTTP 请求，尽可能保证采集时间相近
  * 3. 等待所有请求完成后，一次性聚合计算
  * 不按 job 逐个遍历采集，避免同一个 cluster 被重复请求。
+ *
+ * @return per-job 聚合后的同步统计；无 event-driven job 时返回空 map
  */
-private void collectAndAggregate() {
+private Map<Long, JobWarmUpStats> collectAndAggregate() {
+    Map<Long, JobWarmUpStats> result = new HashMap<>();
+
     // 1. 收集所有 event-driven Job 涉及的 cluster 并集
     Set<String> allClusters = new HashSet<>();
     for (var job : runnableCloudWarmUpJobs.values()) {
@@ -742,7 +714,7 @@ private void collectAndAggregate() {
             allClusters.add(job.getDstClusterName());
         }
     }
-    if (allClusters.isEmpty()) return;
+    if (allClusters.isEmpty()) return result;
 
     // 2. 枚举所有需要请求的 (cluster, BE) 对
     List<Pair<String, Backend>> allTargets = new ArrayList<>();
@@ -751,10 +723,9 @@ private void collectAndAggregate() {
             allTargets.add(Pair.of(cluster, be));
         }
     }
-    if (allTargets.isEmpty()) return;
+    if (allTargets.isEmpty()) return result;
 
     // 3. 并发请求所有 BE，尽可能保证采集时间窗口一致
-    //    使用 CompletionService + 持久化线程池
     CompletionService<Pair<String, String>> completionService =
             new ExecutorCompletionService<>(warmupStatsExecutor);
 
@@ -770,29 +741,28 @@ private void collectAndAggregate() {
         });
     }
 
-    // 4. 等待所有请求完成，收集结果
-    // 按 cluster → jobId 组织
-    Map<String, Map<Long, JobWarmUpWindowedStats>> newClusterStats = new HashMap<>();
+    // 4. 等待所有请求完成，按 cluster → jobId 组织
+    Map<String, Map<Long, JobWarmUpWindowedStats>> clusterStats = new HashMap<>();
     for (int i = 0; i < allTargets.size(); i++) {
         try {
             var future = completionService.take();
-            var result = future.get(10, TimeUnit.SECONDS);
-            String cluster = result.first;
-            String json = result.second;
-            var jobMap = newClusterStats.computeIfAbsent(cluster, k -> new HashMap<>());
+            var resultPair = future.get(10, TimeUnit.SECONDS);
+            String cluster = resultPair.first;
+            String json = resultPair.second;
+            var jobMap = clusterStats.computeIfAbsent(cluster, k -> new HashMap<>());
             mergeStatsFromJson(jobMap, json);
         } catch (Exception e) {
             LOG.warn("Failed to collect warmup stats: {}", e.getMessage());
         }
     }
-    this.clusterStats = newClusterStats;
 
     // 5. 所有数据采集完毕后，一次性按 Job 聚合
     for (var job : runnableCloudWarmUpJobs.values()) {
         if (!job.isEventDriven()) continue;
-        JobWarmUpStats stats = aggregateStatsForJob(job);
-        jobWarmUpStatsMap.put(job.getJobId(), stats);
+        JobWarmUpStats stats = aggregateStatsForJob(job, clusterStats);
+        result.put(job.getJobId(), stats);
     }
+    return result;
 }
 ```
 
@@ -826,7 +796,9 @@ private void mergeStatsFromJson(
  * 使用 job_id 维度直接从 clusterStats 中取出该 job 对应的数据，
  * 不会混入其他 job 的数据。
  */
-private JobWarmUpStats aggregateStatsForJob(CloudWarmUpJob job) {
+private JobWarmUpStats aggregateStatsForJob(
+        CloudWarmUpJob job,
+        Map<String, Map<Long, JobWarmUpWindowedStats>> clusterStats) {
     JobWarmUpStats result = new JobWarmUpStats();
     long jobId = job.getJobId();
     String srcCluster = job.getSrcClusterName();
@@ -841,13 +813,6 @@ private JobWarmUpStats aggregateStatsForJob(CloudWarmUpJob job) {
     if (dstStat != null) result.mergeFinished(dstStat);
     result.computeGap();
     return result;
-}
-
-/**
- * 供 SHOW WARM UP JOB 调用。
- */
-public JobWarmUpStats getJobWarmUpStats(long jobId) {
-    return jobWarmUpStatsMap.get(jobId);
 }
 ```
 
@@ -1077,9 +1042,8 @@ SHOW WARM UP JOB;
   │  ★ /api/warmup_event_driven_stats HTTP API 暴露全量 JSON（按 job_id 列出）
   │
   ▼
-FE (CacheHotspotManager.progressCollectDaemon)
-  │  每 N 秒执行（MasterDaemon）
-  │  ★ 使用持久化线程池 warmupStatsExecutor（不再每轮创建/销毁）
+FE (CacheHotspotManager.collectAndAggregate — SHOW WARM UP JOB 时按需调用)
+  │  ★ 使用持久化线程池 warmupStatsExecutor
   │
   │  一次性收集所有 event-driven Job 涉及的 cluster 并集
   │  allClusters = union(所有 job 的 srcCluster, dstCluster)
@@ -1090,15 +1054,15 @@ FE (CacheHotspotManager.progressCollectDaemon)
   │    → 全量解析 JSON（按 job_id 聚合）
   │    → 等待所有请求完成
   │    → mergeStatsFromJson 累加同 cluster 所有 BE（时间戳取 max）
-  │    → 写入 clusterStats[cluster][jobId]
+  │    → 写入 clusterStats[cluster][jobId]（局部变量）
   │
   │  所有数据采集完毕后，一次性按 job 聚合：
   │    clusterStats[srcCluster][jobId] → requested
   │    clusterStats[dstCluster][jobId] → finished
   │    → JobWarmUpStats（gap = requested - finished）
-  │    → 存入 jobWarmUpStatsMap[jobId]
+  │    → 返回 Map<jobId, JobWarmUpStats>
   │
-  │  SHOW WARM UP JOB → getJobWarmUpStats(jobId) → SyncStats JSON 列
+  │  getJobInfo(stats) → SyncStats JSON 列
   │
   ▼
 用户
@@ -1173,5 +1137,5 @@ Job 13420: gap_5m=38000, fail_5m=50   ← 异常，目标端跟不上
 | `PWarmUpRowsetRequest` 新增 `job_id` 字段 | ✅ | protobuf 可选字段，旧版 BE 忽略；缺失时按 0 处理 |
 | `get_replica_info` 返回类型变更 | ✅ | BE 内部接口，非跨组件 API |
 | `SHOW WARM UP JOB` 新增 SyncStats 列 | ✅ | 非 event-driven Job 新增列为空，不引入新 SQL 语法 |
-| FE `CacheHotspotManager` 新增 `progressCollectDaemon` | ✅ | 参照现有 daemon 模式，不影响已有功能 |
+| FE `CacheHotspotManager` 新增 `collectAndAggregate` | ✅ | SHOW WARM UP JOB 时按需调用，不影响已有功能 |
 | **滚动升级建议** | — | 先升级所有 BE（源+目标），再升级所有 FE |

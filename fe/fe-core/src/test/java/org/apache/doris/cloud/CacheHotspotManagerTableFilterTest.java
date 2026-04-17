@@ -421,7 +421,7 @@ public class CacheHotspotManagerTableFilterTest {
 
         CloudWarmUpJob job = createEventDrivenJob("write_cg", "read_cg",
                 new TableFilterRule(RuleType.INCLUDE, "db.order_*"));
-        Assertions.assertEquals("db.order_2024, db.order_2025", job.getJobInfo().get(14));
+        Assertions.assertEquals("db.order_2024, db.order_2025", job.getJobInfo(null).get(14));
 
         databases.clear();
         databases.add(mockDb("db",
@@ -431,7 +431,7 @@ public class CacheHotspotManagerTableFilterTest {
         manager.refreshAllTableFilters();
 
         Assertions.assertEquals(new HashSet<>(Arrays.asList(1001L, 1002L)), job.getCurrentTableIds());
-        Assertions.assertEquals("db.order_2024_v2, db.order_2025", job.getJobInfo().get(14));
+        Assertions.assertEquals("db.order_2024_v2, db.order_2025", job.getJobInfo(null).get(14));
     }
 
     @Test

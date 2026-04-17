@@ -410,7 +410,7 @@ public class CloudWarmUpJob implements Writable {
         return sb.toString();
     }
 
-    public List<String> getJobInfo() {
+    public List<String> getJobInfo(JobWarmUpStats stats) {
         List<String> info = Lists.newArrayList();
         info.add(String.valueOf(jobId));
         info.add(srcClusterName);
@@ -439,13 +439,7 @@ public class CloudWarmUpJob implements Writable {
         info.add(tableFilterExpr == null ? "" : tableFilterExpr);
         info.add(getMatchedTablesString());
         // SyncStats: only for event-driven jobs
-        if (isEventDriven()) {
-            JobWarmUpStats stats = ((CloudEnv) Env.getCurrentEnv())
-                    .getCacheHotspotMgr().getJobWarmUpStats(jobId);
-            info.add(stats != null ? stats.toJsonString() : "");
-        } else {
-            info.add("");
-        }
+        info.add(isEventDriven() && stats != null ? stats.toJsonString() : "");
         return info;
     }
 

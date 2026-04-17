@@ -121,18 +121,7 @@ public class CacheHotspotManager extends MasterDaemon {
 
     private boolean startTableFilterRefreshDaemon = false;
 
-    private MasterDaemon progressCollectDaemon;
-
-    private boolean startProgressCollectDaemon = false;
-
-    // Per-job aggregated warmup stats for SHOW WARM UP JOB SyncStats column
-    private final ConcurrentHashMap<Long, JobWarmUpStats> jobWarmUpStatsMap = new ConcurrentHashMap<>();
-
-    // Per-cluster per-job raw stats — rebuilt each collection round
-    private volatile Map<String, Map<Long, TableWarmUpWindowedStats>> clusterStats =
-            Collections.emptyMap();
-
-    // Persistent thread pool for concurrent BE HTTP requests
+    // Thread pool for concurrent BE HTTP requests during on-demand stats collection
     private final ExecutorService warmupStatsExecutor = Executors.newFixedThreadPool(16,
             new ThreadFactoryBuilder().setNameFormat("warmup-stats-collector-%d").setDaemon(true).build());
 
@@ -301,11 +290,7 @@ public class CacheHotspotManager extends MasterDaemon {
             tableFilterRefreshDaemon.start();
             startTableFilterRefreshDaemon = true;
         }
-        if (!startProgressCollectDaemon) {
-            progressCollectDaemon = new ProgressCollectDaemon();
-            progressCollectDaemon.start();
-            startProgressCollectDaemon = true;
-        }
+
 
         if (!tableCreated) {
             try {
@@ -667,7 +652,8 @@ public class CacheHotspotManager extends MasterDaemon {
         if (job == null) {
             throw new AnalysisException("cloud warm up with job " + jobId + " does not exist");
         }
-        infos.add(job.getJobInfo());
+        Map<Long, JobWarmUpStats> statsMap = collectAndAggregate();
+        infos.add(job.getJobInfo(statsMap.get(jobId)));
         return infos;
     }
 
@@ -701,25 +687,16 @@ public class CacheHotspotManager extends MasterDaemon {
         }
     }
 
-    private class ProgressCollectDaemon extends MasterDaemon {
-        ProgressCollectDaemon() {
-            super("ProgressCollectDaemon", Config.warmup_progress_collect_interval_ms);
-            LOG.info("start warmup progress collect daemon, interval={}ms",
-                    Config.warmup_progress_collect_interval_ms);
-        }
-
-        @Override
-        public void runAfterCatalogReady() {
-            collectAndAggregate();
-        }
-    }
 
     /**
-     * Periodically collect warmup stats from all BEs and aggregate per-job.
-     * Collects all clusters involved in event-driven jobs in one pass,
-     * then issues concurrent HTTP requests to all BEs.
+     * Collect warmup stats from all BEs on demand and aggregate per-job.
+     * Called when SHOW WARM UP JOB is executed.
+     *
+     * @return per-job aggregated warmup stats; empty map if no event-driven jobs exist
      */
-    private void collectAndAggregate() {
+    private Map<Long, JobWarmUpStats> collectAndAggregate() {
+        Map<Long, JobWarmUpStats> result = new HashMap<>();
+
         // 1. Collect all clusters involved in event-driven jobs
         Set<String> allClusters = new HashSet<>();
         for (CloudWarmUpJob job : runnableCloudWarmUpJobs.values()) {
@@ -729,7 +706,7 @@ public class CacheHotspotManager extends MasterDaemon {
             }
         }
         if (allClusters.isEmpty()) {
-            return;
+            return result;
         }
 
         // 2. Enumerate all (cluster, BE) pairs
@@ -742,7 +719,7 @@ public class CacheHotspotManager extends MasterDaemon {
             }
         }
         if (allTargets.isEmpty()) {
-            return;
+            return result;
         }
 
         // 3. Concurrent HTTP requests to all BEs
@@ -762,30 +739,30 @@ public class CacheHotspotManager extends MasterDaemon {
         }
 
         // 4. Collect results and merge by cluster → jobId
-        Map<String, Map<Long, TableWarmUpWindowedStats>> newClusterStats = new HashMap<>();
+        Map<String, Map<Long, TableWarmUpWindowedStats>> clusterStats = new HashMap<>();
         for (int i = 0; i < allTargets.size(); i++) {
             try {
                 Future<Pair<String, String>> future = completionService.take();
-                Pair<String, String> result = future.get(10, TimeUnit.SECONDS);
-                String cluster = result.first;
-                String json = result.second;
+                Pair<String, String> resultPair = future.get(10, TimeUnit.SECONDS);
+                String cluster = resultPair.first;
+                String json = resultPair.second;
                 Map<Long, TableWarmUpWindowedStats> jobMap =
-                        newClusterStats.computeIfAbsent(cluster, k -> new HashMap<>());
+                        clusterStats.computeIfAbsent(cluster, k -> new HashMap<>());
                 mergeStatsFromJson(jobMap, json);
             } catch (Exception e) {
                 LOG.warn("Failed to collect warmup stats: {}", e.getMessage());
             }
         }
-        this.clusterStats = newClusterStats;
 
         // 5. Aggregate per-job
         for (CloudWarmUpJob job : runnableCloudWarmUpJobs.values()) {
             if (!job.isEventDriven()) {
                 continue;
             }
-            JobWarmUpStats stats = aggregateStatsForJob(job);
-            jobWarmUpStatsMap.put(job.getJobId(), stats);
+            JobWarmUpStats stats = aggregateStatsForJob(job, clusterStats);
+            result.put(job.getJobId(), stats);
         }
+        return result;
     }
 
     /**
@@ -820,7 +797,9 @@ public class CacheHotspotManager extends MasterDaemon {
     /**
      * Aggregate per-job stats: from srcCluster take requested, from dstCluster take finished.
      */
-    private JobWarmUpStats aggregateStatsForJob(CloudWarmUpJob job) {
+    private JobWarmUpStats aggregateStatsForJob(
+            CloudWarmUpJob job,
+            Map<String, Map<Long, TableWarmUpWindowedStats>> clusterStats) {
         JobWarmUpStats result = new JobWarmUpStats();
         long jobId = job.getJobId();
         String srcCluster = job.getSrcClusterName();
@@ -843,10 +822,6 @@ public class CacheHotspotManager extends MasterDaemon {
         return result;
     }
 
-    /** Get aggregated warmup stats for a job (used by SHOW WARM UP JOB). */
-    public JobWarmUpStats getJobWarmUpStats(long jobId) {
-        return jobWarmUpStatsMap.get(jobId);
-    }
 
     private void clearFinishedOrCancelCloudWarmUpJob() {
         Iterator<Entry<Long, CloudWarmUpJob>> iterator = runnableCloudWarmUpJobs.entrySet().iterator();
@@ -878,11 +853,12 @@ public class CacheHotspotManager extends MasterDaemon {
     }
 
     public List<List<String>> getAllJobInfos(int limit) {
+        Map<Long, JobWarmUpStats> statsMap = collectAndAggregate();
         List<List<String>> infos = Lists.newArrayList();
         Collection<CloudWarmUpJob> allJobs = cloudWarmUpJobs.values();
         allJobs.stream().sorted(Comparator.comparing(CloudWarmUpJob::getCreateTimeMs).reversed())
                         .limit(limit).forEach(t -> {
-                            infos.add(t.getJobInfo());
+                            infos.add(t.getJobInfo(statsMap.get(t.getJobId())));
                         });
         return infos;
     }

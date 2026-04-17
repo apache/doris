@@ -165,7 +165,7 @@ public class CloudWarmUpJobTableFilterTest {
                         rule("INCLUDE", "ods.*"), rule("EXCLUDE", "ods.tmp_*")))
                 .build();
         job.rebuildOnTablesFilter();
-        List<String> info = job.getJobInfo();
+        List<String> info = job.getJobInfo(null);
         Assertions.assertEquals("{\"include\":[\"ods.*\"],\"exclude\":[\"ods.tmp_*\"]}",
                 info.get(COL_TABLE_FILTER));
     }
@@ -235,14 +235,14 @@ public class CloudWarmUpJobTableFilterTest {
                 .setTableFilterRules(Arrays.asList(
                         rule("INCLUDE", "dw.*"), rule("INCLUDE", "ods.*")))
                 .build();
-        List<String> info = job.getJobInfo();
+        List<String> info = job.getJobInfo(null);
         Assertions.assertEquals("{\"include\":[\"dw.*\",\"ods.*\"]}", info.get(COL_TABLE_FILTER));
     }
 
     @Test
     public void testTableFilterExprEmptyWhenNoRules() {
         CloudWarmUpJob job = baseBuilder().build();
-        List<String> info = job.getJobInfo();
+        List<String> info = job.getJobInfo(null);
         Assertions.assertEquals("", info.get(COL_TABLE_FILTER));
     }
 
@@ -263,7 +263,7 @@ public class CloudWarmUpJobTableFilterTest {
         idNames.put(1003L, "ods.users");
         job.setCurrentTableIdNames(idNames);
 
-        List<String> info = job.getJobInfo();
+        List<String> info = job.getJobInfo(null);
         Assertions.assertEquals(TOTAL_COLUMNS, info.size());
         Assertions.assertEquals("1", info.get(COL_JOB_ID));
         Assertions.assertEquals("write_cg", info.get(COL_SRC));
@@ -283,7 +283,7 @@ public class CloudWarmUpJobTableFilterTest {
         CloudWarmUpJob job = baseBuilder()
                 .setSyncEvent(CloudWarmUpJob.SyncEvent.LOAD)
                 .build();
-        List<String> info = job.getJobInfo();
+        List<String> info = job.getJobInfo(null);
         Assertions.assertEquals(TOTAL_COLUMNS, info.size());
         Assertions.assertEquals("", info.get(COL_TABLE_FILTER));
         Assertions.assertEquals("", info.get(COL_MATCHED_TABLES));
@@ -299,7 +299,7 @@ public class CloudWarmUpJobTableFilterTest {
         // Initially had tables, now all dropped
         job.setCurrentTableIdNames(new HashMap<>());
 
-        List<String> info = job.getJobInfo();
+        List<String> info = job.getJobInfo(null);
         Assertions.assertEquals("{\"include\":[\"ods.*\"]}", info.get(COL_TABLE_FILTER));
         Assertions.assertEquals("", info.get(COL_MATCHED_TABLES));
     }
@@ -325,7 +325,7 @@ public class CloudWarmUpJobTableFilterTest {
         Assertions.assertTrue(job.getCurrentTableIds().contains(1001L));
         Assertions.assertTrue(job.getCurrentTableIds().contains(1002L));
         // Verify SHOW output shows db.table names
-        List<String> info1 = job.getJobInfo();
+        List<String> info1 = job.getJobInfo(null);
         Assertions.assertEquals("ods.orders, ods.products", info1.get(COL_MATCHED_TABLES));
 
         // Phase 2: new table created + old table dropped (simulate refresh)
@@ -336,7 +336,7 @@ public class CloudWarmUpJobTableFilterTest {
         Assertions.assertEquals(2, job.getCurrentTableIds().size());
         Assertions.assertFalse(job.getCurrentTableIds().contains(1001L));
         Assertions.assertTrue(job.getCurrentTableIds().contains(1003L));
-        List<String> info2 = job.getJobInfo();
+        List<String> info2 = job.getJobInfo(null);
         Assertions.assertEquals("ods.products, ods.users", info2.get(COL_MATCHED_TABLES));
 
         // Phase 3: all tables dropped → empty set (Job stays RUNNING per user guide)
@@ -344,7 +344,7 @@ public class CloudWarmUpJobTableFilterTest {
         Assertions.assertTrue(job.getCurrentTableIds().isEmpty());
         // TableFilter expr is still there (job not cancelled)
         Assertions.assertTrue(job.hasTableFilter());
-        List<String> info3 = job.getJobInfo();
+        List<String> info3 = job.getJobInfo(null);
         Assertions.assertEquals("", info3.get(COL_MATCHED_TABLES));
     }
 
