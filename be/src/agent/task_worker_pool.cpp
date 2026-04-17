@@ -1632,9 +1632,9 @@ void submit_table_compaction_callback(StorageEngine& engine, const TAgentTaskReq
         // compaction_action.cpp _handle_run_compaction). `force=false` keeps the
         // admission under permit limiter, matching the HTTP API default.
         tablet_ptr->set_last_full_compaction_schedule_time(UnixMillis());
-        Status status = engine.submit_compaction_task(
-                tablet_ptr, CompactionType::FULL_COMPACTION,
-                /*force=*/false, /*eager=*/true, /*trigger_method=*/1);
+        Status status = engine.submit_compaction_task(tablet_ptr, CompactionType::FULL_COMPACTION,
+                                                      /*force=*/false, /*eager=*/true,
+                                                      /*trigger_method=*/1);
         if (!status.ok()) {
             LOG(WARNING) << "failed to submit full compaction task. tablet_id="
                          << tablet_ptr->tablet_id() << ", error=" << status;
@@ -1681,8 +1681,7 @@ void cloud_submit_table_compaction_callback(CloudStorageEngine& engine,
     // delete bitmap synced eagerly, full does not (FullCompaction re-syncs itself).
     bool sync_delete_bitmap = compaction_type != CompactionType::FULL_COMPACTION;
     auto tablet_res = engine.tablet_mgr().get_tablet(compaction_req.tablet_id,
-                                                    /*warmup_data=*/false,
-                                                    sync_delete_bitmap);
+                                                     /*warmup_data=*/false, sync_delete_bitmap);
     if (!tablet_res.has_value()) {
         LOG(WARNING) << "failed to get cloud tablet. tablet_id=" << compaction_req.tablet_id
                      << ", error=" << tablet_res.error();
@@ -1711,9 +1710,8 @@ void cloud_submit_table_compaction_callback(CloudStorageEngine& engine,
     Status status = engine.submit_compaction_task(tablet, compaction_type,
                                                   /*trigger_method=*/1);
     if (!status.ok()) {
-        LOG(WARNING) << "failed to submit cloud compaction task. tablet_id="
-                     << tablet->tablet_id() << ", type=" << compaction_req.type
-                     << ", error=" << status;
+        LOG(WARNING) << "failed to submit cloud compaction task. tablet_id=" << tablet->tablet_id()
+                     << ", type=" << compaction_req.type << ", error=" << status;
     }
 }
 
