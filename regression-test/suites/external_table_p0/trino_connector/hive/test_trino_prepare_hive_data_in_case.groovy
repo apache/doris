@@ -21,6 +21,8 @@ suite("test_trino_prepare_hive_data_in_case", "p0,external") {
     def catalog_name = "test_trino_prepare_hive_data_in_case"
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         def host_ips = new ArrayList()
+        String tableName = getHiveTempName(catalog_name)
+        String trinoCatalogName = getHiveTempName(catalog_name, "catalog")
         String[][] backends = sql """ show backends """
         for (def b in backends) {
             host_ips.add(b[1])
@@ -35,33 +37,34 @@ suite("test_trino_prepare_hive_data_in_case", "p0,external") {
             String hms_port = context.config.otherConfigs.get("hive2HmsPort")
 
             hive_docker """show databases;"""
-            hive_docker """drop table if exists default.${catalog_name};  """
+            hive_docker """drop table if exists default.${tableName};  """
             hive_docker """
-                            create table default.${catalog_name} (k1 String, k2 String); 
+                            create table default.${tableName} (k1 String, k2 String);
                         """
-            hive_docker """insert into default.${catalog_name} values ('aaa','bbb'),('ccc','ddd'),('eee','fff')"""
-            def values = hive_docker """select count(*) from `default`.${catalog_name};"""
-            
+            hive_docker """insert into default.${tableName} values ('aaa','bbb'),('ccc','ddd'),('eee','fff')"""
+            def values = hive_docker """select count(*) from `default`.${tableName};"""
+
             log.info(values.toString())
 
-            sql """drop catalog if exists ${catalog_name};"""
+            sql """drop catalog if exists ${trinoCatalogName};"""
             sql """
-                create catalog if not exists ${catalog_name} properties (
+                create catalog if not exists ${trinoCatalogName} properties (
                     "type"="trino-connector",
                     "trino.connector.name"="hive",
                     'trino.hive.metastore.uri' = 'thrift://${externalEnvIp}:${hms_port}'
                 );
             """
-            def values2 = sql """select count(*) from ${catalog_name}.`default`.${catalog_name};"""
+            def values2 = sql """select count(*) from ${trinoCatalogName}.`default`.${tableName};"""
             log.info(values2.toString())
             assertEquals(values[0][0],values2[0][0])
 
-            qt_hive_docker_01 """select * from default.${catalog_name} order by k1 desc  ;"""
-            
-            qt_sql_02 """ select * from ${catalog_name}.`default`.${catalog_name} order by k1 desc;"""
+            qt_hive_docker_01 """select * from default.${tableName} order by k1 desc  ;"""
+
+            qt_sql_02 """ select * from ${trinoCatalogName}.`default`.${tableName} order by k1 desc;"""
 
         } finally {
+            try_sql """drop catalog if exists ${trinoCatalogName};"""
+            try_hive_docker """drop table if exists default.${tableName};"""
         }
     }
 }
-

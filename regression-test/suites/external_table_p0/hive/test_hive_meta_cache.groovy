@@ -16,17 +16,18 @@
 // under the License.
 
 suite("test_hive_meta_cache", "p0,external") {
-    String catalog_name = "test_hive_meta_cache"
-    String catalog_name_no_cache = "test_hive_meta_no_cache"
-
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         for (String hivePrefix : ["hive3"]) {
             setHivePrefix(hivePrefix)
+            String catalog_name = getHiveTempName("test_hive_meta_cache", "catalog")
+            String catalog_name_no_cache = getHiveTempName("test_hive_meta_no_cache", "catalog")
+            String dbName = getHiveTempName("test_hive_meta_cache_db", "db")
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
             String hmsPort = context.config.otherConfigs.get(hivePrefix + "HmsPort")
             String hdfs_port = context.config.otherConfigs.get(hivePrefix + "HdfsPort")
 
+            try {
             // 1. test default catalog
             sql """drop catalog if exists ${catalog_name};"""
             sql """
@@ -38,31 +39,31 @@ suite("test_hive_meta_cache", "p0,external") {
             );
             """
             sql """switch ${catalog_name}"""
-            hive_docker """drop database if exists test_hive_meta_cache_db CASCADE"""
-            hive_docker """create database test_hive_meta_cache_db"""
+            hive_docker """drop database if exists ${dbName} CASCADE"""
+            hive_docker """create database ${dbName}"""
             hive_docker """
-                CREATE TABLE test_hive_meta_cache_db.sales (
+                CREATE TABLE ${dbName}.sales (
                   id INT,
                   amount DOUBLE
                 )
                 PARTITIONED BY (year INT)
             """
             hive_docker """ set hive.stats.column.autogather=false """
-            hive_docker """insert into test_hive_meta_cache_db.sales partition(year=2024) values(1, 2.0)"""
+            hive_docker """insert into ${dbName}.sales partition(year=2024) values(1, 2.0)"""
             // select 1 row
-            order_qt_sql_1row """select * from test_hive_meta_cache_db.sales"""
+            order_qt_sql_1row """select * from ${dbName}.sales"""
             // insert into same partition
-            hive_docker """insert into test_hive_meta_cache_db.sales values(2, 2.0, 2024)"""
+            hive_docker """insert into ${dbName}.sales values(2, 2.0, 2024)"""
             // still select 1 row
-            order_qt_sql_1row """select * from test_hive_meta_cache_db.sales"""
+            order_qt_sql_1row """select * from ${dbName}.sales"""
             // insert into new partition
-            hive_docker """insert into test_hive_meta_cache_db.sales values(1, 3.0, 2025)"""
+            hive_docker """insert into ${dbName}.sales values(1, 3.0, 2025)"""
             // still select 1 row
-            order_qt_sql_1row """select * from test_hive_meta_cache_db.sales"""
-            sql """refresh table test_hive_meta_cache_db.sales"""
+            order_qt_sql_1row """select * from ${dbName}.sales"""
+            sql """refresh table ${dbName}.sales"""
             // select 3 rows
-            order_qt_sql_3row """select * from test_hive_meta_cache_db.sales"""
-            sql """drop table test_hive_meta_cache_db.sales"""
+            order_qt_sql_3row """select * from ${dbName}.sales"""
+            sql """drop table ${dbName}.sales"""
 
             // 2. test catalog with file.meta.cache.ttl-second
             sql """drop catalog if exists ${catalog_name_no_cache};"""
@@ -90,31 +91,31 @@ suite("test_hive_meta_cache", "p0,external") {
             );
             """
             sql """switch ${catalog_name_no_cache}"""
-            hive_docker """drop database if exists test_hive_meta_cache_db CASCADE"""
-            hive_docker """create database test_hive_meta_cache_db"""
+            hive_docker """drop database if exists ${dbName} CASCADE"""
+            hive_docker """create database ${dbName}"""
             hive_docker """
-                CREATE TABLE test_hive_meta_cache_db.sales (
+                CREATE TABLE ${dbName}.sales (
                   id INT,
                   amount DOUBLE
                 )
                 PARTITIONED BY (year INT)
                 STORED AS PARQUET;
             """
-            hive_docker """insert into test_hive_meta_cache_db.sales values(1, 2.0, 2024)"""
+            hive_docker """insert into ${dbName}.sales values(1, 2.0, 2024)"""
             // select 1 row
-            order_qt_sql_1row """select * from test_hive_meta_cache_db.sales"""
+            order_qt_sql_1row """select * from ${dbName}.sales"""
             // insert into same partition
-            hive_docker """insert into test_hive_meta_cache_db.sales values(2, 2.0, 2024)"""
+            hive_docker """insert into ${dbName}.sales values(2, 2.0, 2024)"""
             // select 2 rows
-            order_qt_sql_2row """select * from test_hive_meta_cache_db.sales"""
+            order_qt_sql_2row """select * from ${dbName}.sales"""
             // insert into new partition
-            hive_docker """insert into test_hive_meta_cache_db.sales values(1, 3.0, 2025)"""
+            hive_docker """insert into ${dbName}.sales values(1, 3.0, 2025)"""
             // still select 2 rows
-            order_qt_sql_2row """select * from test_hive_meta_cache_db.sales"""
-            sql """refresh table test_hive_meta_cache_db.sales"""
+            order_qt_sql_2row """select * from ${dbName}.sales"""
+            sql """refresh table ${dbName}.sales"""
             // select 3 rows
-            order_qt_sql_3row """select * from test_hive_meta_cache_db.sales"""
-            sql """drop table test_hive_meta_cache_db.sales"""
+            order_qt_sql_3row """select * from ${dbName}.sales"""
+            sql """drop table ${dbName}.sales"""
 
             // 3. test catalog with partition.cache.ttl-second
             sql """drop catalog if exists ${catalog_name_no_cache};"""
@@ -142,31 +143,31 @@ suite("test_hive_meta_cache", "p0,external") {
             );
             """
             sql """switch ${catalog_name_no_cache}"""
-            hive_docker """drop database if exists test_hive_meta_cache_db CASCADE"""
-            hive_docker """create database test_hive_meta_cache_db"""
+            hive_docker """drop database if exists ${dbName} CASCADE"""
+            hive_docker """create database ${dbName}"""
             hive_docker """
-                CREATE TABLE test_hive_meta_cache_db.sales (
+                CREATE TABLE ${dbName}.sales (
                   id INT,
                   amount DOUBLE
                 )
                 PARTITIONED BY (year INT)
                 STORED AS PARQUET;
             """
-            hive_docker """insert into test_hive_meta_cache_db.sales values(1, 2.0, 2024)"""
+            hive_docker """insert into ${dbName}.sales values(1, 2.0, 2024)"""
             // select 1 row
-            order_qt_sql_1row """select * from test_hive_meta_cache_db.sales"""
+            order_qt_sql_1row """select * from ${dbName}.sales"""
             // insert into same partition
-            hive_docker """insert into test_hive_meta_cache_db.sales values(2, 2.0, 2024)"""
+            hive_docker """insert into ${dbName}.sales values(2, 2.0, 2024)"""
             // still select 1 row
-            order_qt_sql_1row """select * from test_hive_meta_cache_db.sales"""
+            order_qt_sql_1row """select * from ${dbName}.sales"""
             // insert into new partition
-            hive_docker """insert into test_hive_meta_cache_db.sales values(1, 3.0, 2025)"""
+            hive_docker """insert into ${dbName}.sales values(1, 3.0, 2025)"""
             // select 2 rows
-            order_qt_sql_2row """select * from test_hive_meta_cache_db.sales"""
-            sql """refresh table test_hive_meta_cache_db.sales"""
+            order_qt_sql_2row """select * from ${dbName}.sales"""
+            sql """refresh table ${dbName}.sales"""
             // select 3 rows
-            order_qt_sql_3row """select * from test_hive_meta_cache_db.sales"""
-            sql """drop table test_hive_meta_cache_db.sales"""
+            order_qt_sql_3row """select * from ${dbName}.sales"""
+            sql """drop table ${dbName}.sales"""
 
             // test modify ttl property
             sql """drop catalog if exists ${catalog_name_no_cache};"""
@@ -180,23 +181,23 @@ suite("test_hive_meta_cache", "p0,external") {
             );
             """
             sql """switch ${catalog_name_no_cache}"""
-            hive_docker """drop database if exists test_hive_meta_cache_db CASCADE"""
-            hive_docker """create database test_hive_meta_cache_db"""
+            hive_docker """drop database if exists ${dbName} CASCADE"""
+            hive_docker """create database ${dbName}"""
             hive_docker """
-                CREATE TABLE test_hive_meta_cache_db.sales (
+                CREATE TABLE ${dbName}.sales (
                   id INT,
                   amount DOUBLE
                 )
                 PARTITIONED BY (year INT)
                 STORED AS PARQUET;
             """
-            hive_docker """insert into test_hive_meta_cache_db.sales values(1, 2.0, 2024)"""
+            hive_docker """insert into ${dbName}.sales values(1, 2.0, 2024)"""
             // select 1 row
-            order_qt_sql_1row """select * from test_hive_meta_cache_db.sales"""
+            order_qt_sql_1row """select * from ${dbName}.sales"""
             // insert into same partition
-            hive_docker """insert into test_hive_meta_cache_db.sales values(2, 2.0, 2024)"""
+            hive_docker """insert into ${dbName}.sales values(2, 2.0, 2024)"""
             // still select 1 row
-            order_qt_sql_1row """select * from test_hive_meta_cache_db.sales"""
+            order_qt_sql_1row """select * from ${dbName}.sales"""
             // alter wrong catalog property
             test {
                 sql """alter catalog ${catalog_name_no_cache} set properties ("file.meta.cache.ttl-second" = "-2")"""
@@ -205,16 +206,16 @@ suite("test_hive_meta_cache", "p0,external") {
             // alter catalog property, disable file list cache
             sql """alter catalog ${catalog_name_no_cache} set properties ("file.meta.cache.ttl-second" = "0")"""
             // select 2 rows
-            order_qt_sql_2row """select * from test_hive_meta_cache_db.sales"""
+            order_qt_sql_2row """select * from ${dbName}.sales"""
             // insert into same partition
-            hive_docker """insert into test_hive_meta_cache_db.sales values(3, 2.0, 2024)"""
+            hive_docker """insert into ${dbName}.sales values(3, 2.0, 2024)"""
             // select 3 row
-            order_qt_sql_3row """select * from test_hive_meta_cache_db.sales"""
+            order_qt_sql_3row """select * from ${dbName}.sales"""
 
             // insert into new partition
-            hive_docker """insert into test_hive_meta_cache_db.sales values(1, 3.0, 2025)"""
+            hive_docker """insert into ${dbName}.sales values(1, 3.0, 2025)"""
             // still select 3 rows
-            order_qt_sql_3row """select * from test_hive_meta_cache_db.sales"""
+            order_qt_sql_3row """select * from ${dbName}.sales"""
             // alter wrong catalog property
             test {
                 sql """alter catalog ${catalog_name_no_cache} set properties ("partition.cache.ttl-second" = "-2")"""
@@ -223,12 +224,12 @@ suite("test_hive_meta_cache", "p0,external") {
             // alter catalog property, disable partition cache
             sql """alter catalog ${catalog_name_no_cache} set properties ("partition.cache.ttl-second" = "0")"""
             // select 4 rows
-            order_qt_sql_4row """select * from test_hive_meta_cache_db.sales"""
+            order_qt_sql_4row """select * from ${dbName}.sales"""
             // insert into new partition
-            hive_docker """insert into test_hive_meta_cache_db.sales values(1, 4.0, 2026)"""
+            hive_docker """insert into ${dbName}.sales values(1, 4.0, 2026)"""
             // select 5 rows
-            order_qt_sql_5row """select * from test_hive_meta_cache_db.sales"""
-            sql """drop table test_hive_meta_cache_db.sales"""
+            order_qt_sql_5row """select * from ${dbName}.sales"""
+            sql """drop table ${dbName}.sales"""
 
             // test schema cache
             sql """drop catalog if exists ${catalog_name_no_cache};"""
@@ -242,10 +243,10 @@ suite("test_hive_meta_cache", "p0,external") {
             );
             """
             sql """switch ${catalog_name_no_cache}"""
-            hive_docker """drop database if exists test_hive_meta_cache_db CASCADE"""
-            hive_docker """create database test_hive_meta_cache_db"""
+            hive_docker """drop database if exists ${dbName} CASCADE"""
+            hive_docker """create database ${dbName}"""
             hive_docker """
-                CREATE TABLE test_hive_meta_cache_db.sales (
+                CREATE TABLE ${dbName}.sales (
                   id INT,
                   amount DOUBLE
                 )
@@ -253,15 +254,15 @@ suite("test_hive_meta_cache", "p0,external") {
                 STORED AS PARQUET;
             """
             // desc table, 3 columns
-            qt_sql_3col "desc test_hive_meta_cache_db.sales";
+            qt_sql_3col "desc ${dbName}.sales";
             // add a new column in hive
-            hive_docker "alter table test_hive_meta_cache_db.sales add columns(k3 string)"
+            hive_docker "alter table ${dbName}.sales add columns(k3 string)"
             // desc table, still 3 columns
-            qt_sql_3col "desc test_hive_meta_cache_db.sales";
+            qt_sql_3col "desc ${dbName}.sales";
             // refresh and check
-            sql "refresh table test_hive_meta_cache_db.sales";
+            sql "refresh table ${dbName}.sales";
             // desc table, 4 columns
-            qt_sql_4col "desc test_hive_meta_cache_db.sales";
+            qt_sql_4col "desc ${dbName}.sales";
 
             // create catalog without schema cache
             sql """drop catalog if exists ${catalog_name_no_cache};"""
@@ -276,11 +277,11 @@ suite("test_hive_meta_cache", "p0,external") {
             """
             sql """switch ${catalog_name_no_cache}"""
             // desc table, 4 columns
-            qt_sql_4col "desc test_hive_meta_cache_db.sales";
+            qt_sql_4col "desc ${dbName}.sales";
             // add a new column in hive
-            hive_docker "alter table test_hive_meta_cache_db.sales add columns(k4 string)"
+            hive_docker "alter table ${dbName}.sales add columns(k4 string)"
             // desc table, 5 columns
-            qt_sql_5col "desc test_hive_meta_cache_db.sales";
+            qt_sql_5col "desc ${dbName}.sales";
 
             // modify property
             // alter wrong catalog property
@@ -290,12 +291,12 @@ suite("test_hive_meta_cache", "p0,external") {
             }
             sql """alter catalog ${catalog_name_no_cache} set properties ("schema.cache.ttl-second" = "0")"""
             // desc table, 5 columns
-            qt_sql_5col "desc test_hive_meta_cache_db.sales";
+            qt_sql_5col "desc ${dbName}.sales";
             // add a new column in hive
-            hive_docker "alter table test_hive_meta_cache_db.sales add columns(k5 string)"
+            hive_docker "alter table ${dbName}.sales add columns(k5 string)"
             // desc table, 6 columns
-            qt_sql_6col "desc test_hive_meta_cache_db.sales";
-            sql """drop table test_hive_meta_cache_db.sales"""
+            qt_sql_6col "desc ${dbName}.sales";
+            sql """drop table ${dbName}.sales"""
 
             // test schema cache with get_schema_from_table
             sql """drop catalog if exists ${catalog_name_no_cache};"""
@@ -311,10 +312,10 @@ suite("test_hive_meta_cache", "p0,external") {
             );
             """
             sql """switch ${catalog_name_no_cache}"""
-            hive_docker """drop database if exists test_hive_meta_cache_db CASCADE"""
-            hive_docker """create database test_hive_meta_cache_db"""
+            hive_docker """drop database if exists ${dbName} CASCADE"""
+            hive_docker """create database ${dbName}"""
             hive_docker """
-                CREATE TABLE test_hive_meta_cache_db.sales (
+                CREATE TABLE ${dbName}.sales (
                   id INT,
                   amount DOUBLE
                 )
@@ -322,41 +323,45 @@ suite("test_hive_meta_cache", "p0,external") {
                 STORED AS PARQUET;
             """
             // desc table, 3 columns
-            qt_sql_3col "desc test_hive_meta_cache_db.sales";
+            qt_sql_3col "desc ${dbName}.sales";
             // show create table , 3 columns
-            def sql_sct01_3col = sql "show create table test_hive_meta_cache_db.sales"
+            def sql_sct01_3col = sql "show create table ${dbName}.sales"
             println "${sql_sct01_3col}"
             assertTrue(sql_sct01_3col[0][1].contains("CREATE TABLE `sales`(\n  `id` int,\n  `amount` double)\nPARTITIONED BY (\n `year` int)"));
-            
+
             // add a new column in hive
-            hive_docker "alter table test_hive_meta_cache_db.sales add columns(k1 string)"
+            hive_docker "alter table ${dbName}.sales add columns(k1 string)"
             // desc table, 4 columns
-            qt_sql_4col "desc test_hive_meta_cache_db.sales";
+            qt_sql_4col "desc ${dbName}.sales";
             // show create table, 4 columns
-            def sql_sct01_4col = sql "show create table test_hive_meta_cache_db.sales"
+            def sql_sct01_4col = sql "show create table ${dbName}.sales"
             println "${sql_sct01_4col}"
             assertTrue(sql_sct01_4col[0][1].contains("CREATE TABLE `sales`(\n  `id` int,\n  `amount` double,\n  `k1` string)\nPARTITIONED BY (\n `year` int)"));
 
             // open schema cache
             sql """alter catalog ${catalog_name_no_cache} set properties ("schema.cache.ttl-second" = "120")"""
             // add a new column in hive
-            hive_docker "alter table test_hive_meta_cache_db.sales add columns(k2 string)"
+            hive_docker "alter table ${dbName}.sales add columns(k2 string)"
             // desc table, 5 columns
-            qt_sql_5col "desc test_hive_meta_cache_db.sales";
+            qt_sql_5col "desc ${dbName}.sales";
             // show create table, 5 columns
-            def sql_sct01_5col = sql "show create table test_hive_meta_cache_db.sales"
+            def sql_sct01_5col = sql "show create table ${dbName}.sales"
             println "${sql_sct01_5col}"
             assertTrue(sql_sct01_5col[0][1].contains("CREATE TABLE `sales`(\n  `id` int,\n  `amount` double,\n  `k1` string,\n  `k2` string)\nPARTITIONED BY (\n `year` int)"));
             // add a new column in hive
-            hive_docker "alter table test_hive_meta_cache_db.sales add columns(k3 string)"
+            hive_docker "alter table ${dbName}.sales add columns(k3 string)"
             // desc table, still 5 columns
-            qt_sql_5col "desc test_hive_meta_cache_db.sales";
+            qt_sql_5col "desc ${dbName}.sales";
             // show create table always see latest schema, 6 columns
-            def sql_sct01_6col = sql "show create table test_hive_meta_cache_db.sales"
+            def sql_sct01_6col = sql "show create table ${dbName}.sales"
             println "${sql_sct01_6col}"
             assertTrue(sql_sct01_6col[0][1].contains("CREATE TABLE `sales`(\n  `id` int,\n  `amount` double,\n  `k1` string,\n  `k2` string,\n  `k3` string)\nPARTITIONED BY (\n `year` int)"));
-            sql """drop table test_hive_meta_cache_db.sales"""
+            sql """drop table ${dbName}.sales"""
+            } finally {
+                cleanupHiveDockerDatabase(dbName, true)
+                try_sql """drop catalog if exists ${catalog_name}"""
+                try_sql """drop catalog if exists ${catalog_name_no_cache}"""
+            }
         }
     }
 }
-

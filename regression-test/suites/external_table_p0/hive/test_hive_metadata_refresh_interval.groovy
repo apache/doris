@@ -25,15 +25,14 @@ suite("test_hive_metadata_refresh_interval", "p0,external") {
 
     for (String hivePrefix : ["hive2", "hive3"]) {
         setHivePrefix(hivePrefix)
+        String catalog_name = getHiveTempName("test_${hivePrefix}_refresh_interval", "catalog")
+        String test_db = getHiveTempName("test_refresh_interval_db", "db")
+        String table1 = getHiveTempName("test_refresh_table_1", "tbl")
+        String table2 = getHiveTempName("test_refresh_table_2", "tbl")
         try {
             String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
             String hdfs_port = context.config.otherConfigs.get(hivePrefix + "HdfsPort")
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-
-            String catalog_name = "test_${hivePrefix}_refresh_interval"
-            String test_db = "test_refresh_interval_db"
-            String table1 = "test_refresh_table_1"
-            String table2 = "test_refresh_table_2"
 
             sql """drop catalog if exists ${catalog_name}"""
             hive_docker "drop database if exists ${test_db} cascade"
@@ -94,8 +93,8 @@ suite("test_hive_metadata_refresh_interval", "p0,external") {
             sql """drop catalog ${catalog_name}"""
 
         } finally {
-            sql """drop catalog if exists test_${hivePrefix}_refresh_interval"""
-            hive_docker "drop database if exists test_refresh_interval_db cascade"
+            try_sql """drop catalog if exists ${catalog_name}"""
+            try_hive_docker "drop database if exists ${test_db} cascade"
         }
     }
 }

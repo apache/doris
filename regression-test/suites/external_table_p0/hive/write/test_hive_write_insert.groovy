@@ -522,7 +522,7 @@ suite("test_hive_write_insert", "p0,external") {
         """
 
         sql """
-        
+
 INSERT INTO all_types_par_${format_compression}_${catalog_name}_q03
         VALUES  (
           1, -- boolean_col
@@ -882,10 +882,11 @@ INSERT INTO all_types_par_${format_compression}_${catalog_name}_q03
 
     for (String hivePrefix : ["hive3"]) {
         setHivePrefix(hivePrefix)
+        String catalog_name = getHiveTempName("test_${hivePrefix}_write_insert", "catalog")
+        String temp_db = getHiveTempName("write_test", "db")
         try {
             String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
             String hdfs_port = context.config.otherConfigs.get(hivePrefix + "HdfsPort")
-            String catalog_name = "test_${hivePrefix}_write_insert"
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
             sql """drop catalog if exists ${catalog_name}"""
@@ -894,9 +895,26 @@ INSERT INTO all_types_par_${format_compression}_${catalog_name}_q03
                 'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
                 'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}'
             );"""
-            sql """use `${catalog_name}`.`write_test`"""
-            logger.info("hive sql: " + """ use `write_test` """)
-            hive_docker """use `write_test`"""
+            hive_docker """drop database if exists `${temp_db}` cascade"""
+            hive_docker """create database if not exists `${temp_db}`"""
+            hive_docker """drop table if exists `${temp_db}`.`all_types_parquet_snappy`"""
+            hive_docker """create table `${temp_db}`.`all_types_parquet_snappy` like `write_test`.`all_types_parquet_snappy`"""
+            hive_docker """drop table if exists `${temp_db}`.`all_types_orc_zlib`"""
+            hive_docker """create table `${temp_db}`.`all_types_orc_zlib` like `write_test`.`all_types_orc_zlib`"""
+            hive_docker """drop table if exists `${temp_db}`.`all_types_par_parquet_snappy`"""
+            hive_docker """create table `${temp_db}`.`all_types_par_parquet_snappy` like `write_test`.`all_types_par_parquet_snappy`"""
+            hive_docker """drop table if exists `${temp_db}`.`all_types_par_orc_zlib`"""
+            hive_docker """create table `${temp_db}`.`all_types_par_orc_zlib` like `write_test`.`all_types_par_orc_zlib`"""
+            hive_docker """drop table if exists `${temp_db}`.`all_types_parquet_snappy_src`"""
+            hive_docker """create table `${temp_db}`.`all_types_parquet_snappy_src` like `write_test`.`all_types_parquet_snappy_src`"""
+            hive_docker """insert into `${temp_db}`.`all_types_parquet_snappy_src` select * from `write_test`.`all_types_parquet_snappy_src`"""
+            hive_docker """drop table if exists `${temp_db}`.`all_types_par_parquet_snappy_src`"""
+            hive_docker """create table `${temp_db}`.`all_types_par_parquet_snappy_src` like `write_test`.`all_types_par_parquet_snappy_src`"""
+            hive_docker """insert into `${temp_db}`.`all_types_par_parquet_snappy_src` select * from `write_test`.`all_types_par_parquet_snappy_src`"""
+            sql """refresh catalog ${catalog_name}"""
+            sql """use `${catalog_name}`.`${temp_db}`"""
+            logger.info("hive sql: " + """ use `${temp_db}` """)
+            hive_docker """use `${temp_db}`"""
 
             sql """set enable_fallback_to_original_planner=false;"""
 
@@ -910,7 +928,8 @@ INSERT INTO all_types_par_${format_compression}_${catalog_name}_q03
 
             sql """drop catalog if exists ${catalog_name}"""
         } finally {
+            try_sql """drop catalog if exists ${catalog_name}"""
+            try_hive_docker """drop database if exists `${temp_db}` cascade"""
         }
     }
 }
-

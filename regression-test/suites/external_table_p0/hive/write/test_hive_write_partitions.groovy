@@ -192,7 +192,7 @@ suite("test_hive_write_partitions", "p0,external") {
     def test_doris_write_hive_partition_table = { String catalog_name ->
         // After writing to a Hive partitioned table and adding a new partition using Doris,
         // writing data to the same partition using Hive results in an error: "Partition column xxx conflicts with table columns."
-        String tableName = "test_doris_write_hive_partition_table"
+        String tableName = getHiveTempName("test_doris_write_hive_partition_table", "tbl")
         String originalTableName = "test_doris_write_hive_partition_table_original"
         hive_docker """ drop table if exists ${tableName}; """
         hive_docker """ create table ${tableName} like ${originalTableName}; """
@@ -217,7 +217,7 @@ suite("test_hive_write_partitions", "p0,external") {
         try {
             String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
             String hdfs_port = context.config.otherConfigs.get(hivePrefix + "HdfsPort")
-            String catalog_name = "test_${hivePrefix}_write_partitions"
+            String catalog_name = getHiveTempName("test_${hivePrefix}_write_partitions", "catalog")
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
             sql """drop catalog if exists ${catalog_name}"""

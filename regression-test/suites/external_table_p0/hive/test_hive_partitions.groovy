@@ -80,7 +80,7 @@ suite("test_hive_partitions", "p0,external") {
         setHivePrefix(hivePrefix)
         try {
             String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
-            String catalog_name = "${hivePrefix}_test_partitions"
+            String catalog_name = getHiveTempName("${hivePrefix}_test_partitions", "catalog")
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
             sql """drop catalog if exists ${catalog_name}"""
@@ -94,8 +94,8 @@ suite("test_hive_partitions", "p0,external") {
 
             // Test cache miss scenario: Hive adds partition, then Doris writes to it
             def test_cache_miss = {
-                def dbName = "test_cache_miss_db"
-                def tblName = "test_cache_miss_table"
+                def dbName = getHiveTempName("test_cache_miss_db", "db")
+                def tblName = getHiveTempName("test_cache_miss_table", "tbl")
 
                 try {
                     // Clean up
@@ -127,7 +127,7 @@ suite("test_hive_partitions", "p0,external") {
                         VALUES (3, 'hive_pt3')
                     """
 
-                    sql """refresh catalog `${catalog_name}`"""      
+                    sql """refresh catalog `${catalog_name}`"""
                     // Doris reads data to populate cache (only knows about 3 partitions)
                     def result1 = sql """SELECT COUNT(*) as cnt FROM `${catalog_name}`.`${dbName}`.`${tblName}`"""
                     assertEquals(3, result1[0][0])
@@ -201,7 +201,7 @@ suite("test_hive_partitions", "p0,external") {
             }
             sql """unset variable num_partitions_in_batch_mode"""
         } finally {
+            try_sql """drop catalog if exists ${catalog_name}"""
         }
     }
 }
-

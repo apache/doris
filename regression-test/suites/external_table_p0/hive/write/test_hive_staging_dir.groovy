@@ -46,10 +46,10 @@ suite("test_hive_staging_dir", "p0,external") {
 
     for (String hivePrefix : ["hive3"]) {
         setHivePrefix(hivePrefix)
-        String catalogName = "test_${hivePrefix}_staging_dir"
+        String catalogName = getHiveTempName("test_${hivePrefix}_staging_dir", "catalog")
         String dbName = "write_test"
-        String tableRel = "staging_dir_rel_${hivePrefix}"
-        String tableAbs = "staging_dir_abs_${hivePrefix}"
+        String tableRel = getHiveTempName("staging_dir_rel_${hivePrefix}", "tbl")
+        String tableAbs = getHiveTempName("staging_dir_abs_${hivePrefix}", "tbl")
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
         String hmsPort = context.config.otherConfigs.get(hivePrefix + "HmsPort")
         String hdfsPort = context.config.otherConfigs.get(hivePrefix + "HdfsPort")

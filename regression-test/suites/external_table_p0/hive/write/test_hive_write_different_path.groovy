@@ -26,15 +26,21 @@ suite("test_hive_write_different_path", "p0,external") {
         }
 
         setHivePrefix(hivePrefix)
+        String catalog1 = null
+        String catalog2 = null
+        String catalog3 = null
         try {
             String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
             String hdfs_port2 = context.config.otherConfigs.get("hive2HdfsPort")
             String hdfs_port3 = context.config.otherConfigs.get("hive3HdfsPort")
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
-            String catalog1 = "test_${hivePrefix}_write_insert_without_defaultfs"
-            String catalog2 = "test_${hivePrefix}_write_insert_with_hdfs2"
-            String catalog3 = "test_${hivePrefix}_write_insert_with_hdfs3"
+            catalog1 = getHiveTempName("test_${hivePrefix}_write_insert_without_defaultfs", "catalog")
+            catalog2 = getHiveTempName("test_${hivePrefix}_write_insert_with_hdfs2", "catalog")
+            catalog3 = getHiveTempName("test_${hivePrefix}_write_insert_with_hdfs3", "catalog")
+            String dbName = getHiveTempName("write_test", "db")
+            String tableWithHdfs2 = getHiveTempName("tb_with_hdfs2", "tbl")
+            String tableWithHdfs3 = getHiveTempName("tb_with_hdfs3", "tbl")
 
             sql """drop catalog if exists ${catalog1}"""
             sql """drop catalog if exists ${catalog2}"""
@@ -44,30 +50,31 @@ suite("test_hive_write_different_path", "p0,external") {
                 'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
                 'use_meta_cache' = 'true'
             );"""
+            sql """create database if not exists ${catalog1}.${dbName}"""
 
-            sql """ use ${catalog1}.write_test """
-            sql """ drop table if exists tb_with_hdfs2 """
-            sql """ drop table if exists tb_with_hdfs3 """
+            sql """ use ${catalog1}.${dbName} """
+            sql """ drop table if exists ${tableWithHdfs2} """
+            sql """ drop table if exists ${tableWithHdfs3} """
 
             sql """
-              CREATE TABLE `tb_with_hdfs2`
+              CREATE TABLE `${tableWithHdfs2}`
               (
                 `col_bigint_undef_signed` BIGINT NULL,
                 `col_varchar_10__undef_signed` VARCHAR(10) NULL,
                 `col_varchar_64__undef_signed` VARCHAR(64) NULL,
                 `pk` INT NULL ) properties (
-                'location' = 'hdfs://${externalEnvIp}:${hdfs_port2}/user/hive/warehouse/write_test.db/tb_with_hdfs2/'
+                'location' = 'hdfs://${externalEnvIp}:${hdfs_port2}/user/hive/warehouse/${dbName}.db/${tableWithHdfs2}/'
               );
             """
 
             sql """
-              CREATE TABLE `tb_with_hdfs3`
+              CREATE TABLE `${tableWithHdfs3}`
               (
                 `col_bigint_undef_signed` BIGINT NULL,
                 `col_varchar_10__undef_signed` VARCHAR(10) NULL,
                 `col_varchar_64__undef_signed` VARCHAR(64) NULL,
                 `pk` INT NULL ) properties (
-                'location' = 'hdfs://${externalEnvIp}:${hdfs_port3}/user/hive/warehouse/write_test.db/tb_with_hdfs3/'
+                'location' = 'hdfs://${externalEnvIp}:${hdfs_port3}/user/hive/warehouse/${dbName}.db/${tableWithHdfs3}/'
               );
             """
 
@@ -82,26 +89,33 @@ suite("test_hive_write_different_path", "p0,external") {
                 'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
                 'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port3}'
             );"""
+            sql """create database if not exists ${catalog2}.${dbName}"""
+            sql """create database if not exists ${catalog3}.${dbName}"""
+            sql """refresh catalog ${catalog1}"""
+            sql """refresh catalog ${catalog2}"""
+            sql """refresh catalog ${catalog3}"""
 
-            sql """ insert into ${catalog1}.write_test.tb_with_hdfs2 values (1,'a','a',1) """
-            sql """ insert into ${catalog2}.write_test.tb_with_hdfs2 values (2,'b','a',1) """
-            sql """ insert into ${catalog3}.write_test.tb_with_hdfs2 values (3,'c','a',1) """
-            sql """ insert into ${catalog1}.write_test.tb_with_hdfs3 values (4,'d','a',1) """
-            sql """ insert into ${catalog2}.write_test.tb_with_hdfs3 values (5,'e','a',1) """
-            sql """ insert into ${catalog3}.write_test.tb_with_hdfs3 values (6,'f','a',1) """
+            sql """ insert into ${catalog1}.${dbName}.${tableWithHdfs2} values (1,'a','a',1) """
+            sql """ insert into ${catalog2}.${dbName}.${tableWithHdfs2} values (2,'b','a',1) """
+            sql """ insert into ${catalog3}.${dbName}.${tableWithHdfs2} values (3,'c','a',1) """
+            sql """ insert into ${catalog1}.${dbName}.${tableWithHdfs3} values (4,'d','a',1) """
+            sql """ insert into ${catalog2}.${dbName}.${tableWithHdfs3} values (5,'e','a',1) """
+            sql """ insert into ${catalog3}.${dbName}.${tableWithHdfs3} values (6,'f','a',1) """
 
-            order_qt_q001 """ select * from ${catalog1}.write_test.tb_with_hdfs2 order by col_bigint_undef_signed """
-            order_qt_q002 """ select * from ${catalog1}.write_test.tb_with_hdfs3 order by col_bigint_undef_signed """
+            order_qt_q001 """ select * from ${catalog1}.${dbName}.${tableWithHdfs2} order by col_bigint_undef_signed """
+            order_qt_q002 """ select * from ${catalog1}.${dbName}.${tableWithHdfs3} order by col_bigint_undef_signed """
 
-            sql """drop table ${catalog1}.write_test.tb_with_hdfs2"""
-            sql """drop table ${catalog1}.write_test.tb_with_hdfs3"""
+            sql """drop table ${catalog1}.${dbName}.${tableWithHdfs2}"""
+            sql """drop table ${catalog1}.${dbName}.${tableWithHdfs3}"""
 
             sql """drop catalog if exists ${catalog1}"""
             sql """drop catalog if exists ${catalog2}"""
             sql """drop catalog if exists ${catalog3}"""
 
         } finally {
+            try_sql """drop catalog if exists ${catalog1}"""
+            try_sql """drop catalog if exists ${catalog2}"""
+            try_sql """drop catalog if exists ${catalog3}"""
         }
     }
 }
-
