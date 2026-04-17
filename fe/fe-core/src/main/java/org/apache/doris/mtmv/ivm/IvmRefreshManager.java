@@ -124,10 +124,9 @@ public class IvmRefreshManager {
         }
 
         if (bundles == null || bundles.isEmpty()) {
-            IvmRefreshResult result = IvmRefreshResult.fallback(
-                    IvmFallbackReason.PLAN_PATTERN_UNSUPPORTED, "No IVM delta rule matched the MV define plan");
-            LOG.warn("IVM no delta command bundles for mv={}, result={}", context.getMtmv().getName(), result);
-            return result;
+            // All base tables are up to date — no delta to apply. This is a success (no-op).
+            LOG.info("IVM no delta bundles for mv={} (all base tables up to date)", context.getMtmv().getName());
+            return IvmRefreshResult.success();
         }
 
         // Consume one ExprId from the analysis StatementContext to obtain the next safe start
@@ -181,10 +180,6 @@ public class IvmRefreshManager {
             if (streamRef == null) {
                 return IvmRefreshResult.fallback(IvmFallbackReason.STREAM_UNSUPPORTED,
                         "No stream binding found for base table: " + baseTableInfo);
-            }
-            if (streamRef.getStreamType() != StreamType.OLAP) {
-                return IvmRefreshResult.fallback(IvmFallbackReason.STREAM_UNSUPPORTED,
-                        "Only OLAP base table streams are supported for incremental refresh: " + baseTableInfo);
             }
             final TableIf table;
             try {

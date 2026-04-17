@@ -110,6 +110,10 @@ public class IvmSimpleScanDeltaStrategy extends PlanVisitor<IvmSimpleScanDeltaSt
      */
     @Override
     public RewriteResult visitLogicalOlapScan(LogicalOlapScan scan, Void ctx) {
+        if (!scan.isDelta()) {
+            // Snapshot scan: no dml_factor injection; return the scan unchanged.
+            return new RewriteResult(scan, null);
+        }
         Expression factorExpr = buildDmlFactorExpr(scan);
         Alias factorAlias = new Alias(factorExpr, Column.IVM_DML_FACTOR_COL);
         ImmutableList.Builder<NamedExpression> outputs = ImmutableList.builderWithExpectedSize(

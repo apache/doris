@@ -52,7 +52,8 @@ public class IvmRefreshManagerTest {
     }
 
     @Test
-    public void testManagerReturnsNoBundlesFallback() {
+    public void testManagerReturnsSuccessForEmptyBundles() {
+        // Empty bundles means all base tables are up to date — no-op success.
         MTMV mtmv = mockMtmv();
         TestDeltaExecutor executor = new TestDeltaExecutor();
         TestIvmRefreshManager manager = new TestIvmRefreshManager(executor,
@@ -60,8 +61,7 @@ public class IvmRefreshManagerTest {
 
         IvmRefreshResult result = manager.doRefresh(mtmv);
 
-        Assertions.assertFalse(result.isSuccess());
-        Assertions.assertEquals(IvmFallbackReason.PLAN_PATTERN_UNSUPPORTED, result.getFallbackReason());
+        Assertions.assertTrue(result.isSuccess());
         Assertions.assertFalse(executor.executeCalled);
     }
 
@@ -142,8 +142,8 @@ public class IvmRefreshManagerTest {
 
         IvmRefreshResult result = manager.doRefresh(mtmv);
 
-        Assertions.assertFalse(result.isSuccess());
-        Assertions.assertEquals(IvmFallbackReason.PLAN_PATTERN_UNSUPPORTED, result.getFallbackReason());
+        // Empty bundles → success (no-op, all base tables up to date)
+        Assertions.assertTrue(result.isSuccess());
         Assertions.assertFalse(executor.executeCalled);
         Mockito.verify(mtmv, Mockito.never()).getExcludedTriggerTables();
     }
@@ -153,7 +153,7 @@ public class IvmRefreshManagerTest {
         // checkStreamSupport is currently disabled (stream/binlog not ready),
         // so precheck only checks binlogBroken.  With binlogBroken=false the
         // precheck passes and the manager proceeds to analyze, which returns
-        // empty bundles → PLAN_PATTERN_UNSUPPORTED.
+        // empty bundles → success (no-op, all base tables up to date).
         MTMV mtmv = mockMtmv();
         IvmInfo ivmInfo = new IvmInfo();
         Mockito.when(mtmv.getIvmInfo()).thenReturn(ivmInfo);
@@ -165,8 +165,7 @@ public class IvmRefreshManagerTest {
 
         IvmRefreshResult result = manager.doRefresh(mtmv);
 
-        Assertions.assertFalse(result.isSuccess());
-        Assertions.assertEquals(IvmFallbackReason.PLAN_PATTERN_UNSUPPORTED, result.getFallbackReason());
+        Assertions.assertTrue(result.isSuccess());
         Assertions.assertFalse(executor.executeCalled);
     }
 
