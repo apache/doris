@@ -65,8 +65,8 @@ public class AlterMTMVRefreshInfo extends AlterMTMVInfo {
             }
             if (mtmv.isIvm()) {
                 throw new AnalysisException(
-                        "Cannot ALTER refresh method from INCREMENTAL. "
-                        + "Please recreate the materialized view.");
+                        "Cannot ALTER the refresh method of an INCREMENTAL materialized view. "
+                        + "Please recreate the materialized view with the desired refresh method.");
             }
         } catch (AnalysisException e) {
             throw e;
