@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "core/column/predicate_column.h"
+#include "vec/columns/predicate_column.h"
 
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
