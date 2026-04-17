@@ -44,6 +44,14 @@ suite("test_hive_date_timezone", "p0,external") {
             sql """switch ${catalogName}"""
             sql """use `schema_change`"""
 
+            // The parquet timestamp table exercises the optimized timestamp convert path.
+            // Querying the same data under multiple timezone spellings lets this suite cover
+            // both fixed-offset normalization and named-timezone lookup behavior.
+            def queryParquetTimestamp = { String timeZone ->
+                sql """set time_zone = '${timeZone}'"""
+                return sql """select timestamp_col from parquet_primitive_types_to_timestamp order by id"""
+            }
+
             sql """set time_zone = 'UTC'"""
             qt_orc_date_utc """select date_col from orc_primitive_types_to_date order by id"""
             qt_parquet_date_utc """select date_col from parquet_primitive_types_to_date order by id"""
@@ -51,6 +59,28 @@ suite("test_hive_date_timezone", "p0,external") {
             sql """set time_zone = 'America/Mexico_City'"""
             qt_orc_date_west_tz """select date_col from orc_primitive_types_to_date order by id"""
             qt_parquet_date_west_tz """select date_col from parquet_primitive_types_to_date order by id"""
+
+            def parquetTimestampUtc = queryParquetTimestamp("UTC")
+            def parquetTimestampEtcUtc = queryParquetTimestamp("Etc/UTC")
+            def parquetTimestampFixedOffset = queryParquetTimestamp("+08:00")
+            def parquetTimestampShortOffset = queryParquetTimestamp("+8:00")
+            def parquetTimestampUtcOffset = queryParquetTimestamp("UTC+8")
+            def parquetTimestampShanghai = queryParquetTimestamp("Asia/Shanghai")
+            def parquetTimestampMexicoCity = queryParquetTimestamp("America/Mexico_City")
+
+            // Equivalent UTC spellings should stay on the same result set.
+            assertEquals(parquetTimestampUtc, parquetTimestampEtcUtc)
+            // These inputs are normalized to the same fixed offset and should match exactly.
+            assertEquals(parquetTimestampFixedOffset, parquetTimestampShortOffset)
+            assertEquals(parquetTimestampFixedOffset, parquetTimestampUtcOffset)
+            // Asia/Shanghai is a named timezone, but for these sample timestamps it should
+            // resolve to the same local wall clock values as +08:00.
+            assertEquals(parquetTimestampFixedOffset, parquetTimestampShanghai)
+            // America/Mexico_City must still read through the named-timezone path. The row
+            // count should be stable, while the rendered local timestamp values should differ
+            // from UTC for this dataset.
+            assertEquals(parquetTimestampUtc.size(), parquetTimestampMexicoCity.size())
+            assertTrue(parquetTimestampUtc != parquetTimestampMexicoCity)
         } finally {
             sql """set time_zone = default"""
             sql """switch internal"""
