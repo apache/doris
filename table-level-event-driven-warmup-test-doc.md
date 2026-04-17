@@ -363,16 +363,68 @@
 
 ---
 
+#### 2.2.2 `bvar_windowed_adder_test.cpp`
+
+**位置：** `be/test/util/bvar_windowed_adder_test.cpp`
+
+**测试目标：** 验证 `MBvarWindowedAdder` 工具类的核心功能——滑动窗口多维度指标累加器，用于 warmup 进度观测的 BE 端指标采集。
+
+| 测试方法 | 验证内容 |
+|----------|---------|
+| `PutAndGetTotal` | 基本的 put + get_window_value 读写流程 |
+| `UnknownDimensionReturnsZero` | 查询不存在的维度返回 0 |
+| `InvalidWindowIndexReturnsZero` | 越界的 window_idx 返回 0 |
+| `MultipleDimensions` | 多个 job_id 维度共存，list_dimensions 返回正确列表 |
+| `ListDimensionsEmpty` | 未 put 时 list_dimensions 返回空列表 |
+| `MultipleWindowSizes` | 3 个窗口大小（300s/1800s/3600s）正确创建，越界 index 返回 0 |
+| `GetWindowValueByStringKey` | 通过字符串 key（而非 initializer_list）查询 |
+| `EnsureWindowsIdempotent` | 同维度多次 put 不创建重复 Window 对象 |
+| `MakeKeyComposite` | 多维度值（如 {"a","b"}）生成逗号分隔的复合 key |
+
+---
+
+### 2.3 进度观测单元测试
+
+#### 2.3.1 `WarmUpStatsTest.java`
+
+**位置：** `fe/fe-core/src/test/java/org/apache/doris/cloud/WarmUpStatsTest.java`
+
+**测试目标：** 验证 warmup 进度观测的 FE 侧数据模型——`TableWarmUpWindowedStats`（单 BE 指标解析/合并）和 `JobWarmUpStats`（多 BE 聚合/间隙计算/JSON 序列化）。
+
+**TableWarmUpWindowedStats 测试：**
+
+| 测试方法 | 验证内容 |
+|----------|---------|
+| `testFromJsonComplete` | 完整 JSON（requested/finish/fail + timestamps）解析所有字段 |
+| `testFromJsonMissingSections` | 部分 JSON（仅 requested）解析，缺失部分默认为 0 |
+| `testFromJsonEmptyObject` | 空 JSON（仅 job_id）解析，所有值为 0 |
+| `testMergeAddsCounts` | merge() 累加计数、取 max 时间戳 |
+
+**JobWarmUpStats 测试：**
+
+| 测试方法 | 验证内容 |
+|----------|---------|
+| `testMergeRequestedAccumulates` | mergeRequested() 累加源集群指标，max(lastTriggerTs) |
+| `testMergeFinishedAccumulates` | mergeFinished() 累加目标集群 finish/fail 指标 |
+| `testComputeGap` | computeGap() 计算 gap = requested - finished |
+| `testComputeGapNegative` | 窗口时序偏差导致 finished > requested 时 gap 为负 |
+| `testToJsonStringStructure` | toJsonString() JSON 结构包含 seg_num/seg_size/idx_num/idx_size/timestamps |
+| `testToJsonStringZeroTimestamps` | 零值时间戳输出为空字符串 |
+| `testHumanReadableSizeInJson` | 大小字段使用 ByteSizeValue 格式化（500b/1.5kb/1mb/1gb） |
+| `testEndToEndSourceAndTargetAggregation` | 端到端：2 个源 BE + 1 个目标 BE → 聚合 → 计算 gap，验证全流程 |
+
+---
+
 ## 三、测试覆盖总结
 
 ### 3.1 按层级统计
 
 | 层级 | 测试类 | 测试方法数 | 测试重点 |
 |------|--------|-----------|---------|
-| FE 单元测试 | 7 | ~65 | SQL 解析、模式匹配、规则标准化、动态刷新、序列化、元数据 |
-| BE 单元测试 | 1 | 11 | 过滤器管理、副本过滤、事件处理 |
+| FE 单元测试 | 8 | ~77 | SQL 解析、模式匹配、规则标准化、动态刷新、序列化、元数据、进度观测数据模型 |
+| BE 单元测试 | 2 | 20 | 过滤器管理、副本过滤、事件处理、滑动窗口指标 |
 | 回归测试 (Docker) | 7 | ~22 个子场景 | 端到端功能验证、bvar 指标链路、多集群交互 |
-| **合计** | **15** | **~98** | |
+| **合计** | **17** | **~119** | |
 
 ### 3.2 按功能覆盖
 
@@ -394,6 +446,9 @@
 | 多目标集群同步 | — | — | ✅ |
 | BE 过滤器管理 | — | ✅ | — |
 | BE 副本过滤 | — | ✅ | — |
+| BE 滑动窗口指标（MBvarWindowedAdder） | — | ✅ | — |
+| FE 进度观测数据模型（JSON 解析/合并/聚合） | ✅ | — | — |
+| FE 进度观测 gap 计算与 JSON 序列化 | ✅ | — | — |
 | bvar 指标端到端验证 | — | — | ✅ |
 | 正则元字符转义 | ✅ | — | — |
 | `default_cluster:` 前缀处理 | ✅ | — | — |
@@ -409,11 +464,13 @@
 ./run-fe-ut.sh --run org.apache.doris.persist.ModifyCloudWarmUpJobTest
 ./run-fe-ut.sh --run org.apache.doris.nereids.trees.plans.commands.WarmUpClusterCommandTest
 ./run-fe-ut.sh --run org.apache.doris.nereids.trees.plans.commands.ShowWarmUpCommandTest
+./run-fe-ut.sh --run org.apache.doris.cloud.WarmUpStatsTest
 ```
 
 **BE 单元测试：**
 ```bash
 ./run-be-ut.sh --run --filter=CloudWarmUpManagerFilterTest.*
+./run-be-ut.sh --run --filter=MBvarWindowedAdderTest.*
 ```
 
 **回归测试：**
