@@ -2847,6 +2847,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                                 + "if you want to use mor or aggregate table model, "
                                 + "please use binlog with snapshot");
                     }
+                    if (Config.isCloudMode()) {
+                        throw new AnalysisException("Binlog<Row> is not supported in the cloud mode yet");
+                    }
                     if (keysType == KeysType.DUP_KEYS && binlogConfig.getNeedHistoricalValue()) {
                         throw new AnalysisException("Duplicate table model don't support record historical value");
                     }

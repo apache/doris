@@ -63,7 +63,7 @@ public class ShowDataCommandTest {
             KeysType.AGG_KEYS,
             new SinglePartitionInfo(),
             new RandomDistributionInfo(32));
- 
+
     private Env env = Mockito.mock(Env.class);
     private InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
     private AccessControllerManager accessControllerManager = Mockito.mock(AccessControllerManager.class);
