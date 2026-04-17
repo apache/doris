@@ -434,10 +434,24 @@ public class MTMV extends OlapTable {
     }
 
     public IvmInfo getIvmInfo() {
-        if (ivmInfo == null) {
-            ivmInfo = new IvmInfo();
+        writeMvLock();
+        try {
+            if (ivmInfo == null) {
+                ivmInfo = new IvmInfo();
+            }
+            return ivmInfo;
+        } finally {
+            writeMvUnlock();
         }
-        return ivmInfo;
+    }
+
+    public void alterIvmInfo(IvmInfo ivmInfo) {
+        writeMvLock();
+        try {
+            this.ivmInfo = ivmInfo;
+        } finally {
+            writeMvUnlock();
+        }
     }
 
     public List<String> getInsertedColumnNames()  {

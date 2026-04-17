@@ -160,6 +160,7 @@ import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVService;
 import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mtmv.MTMVUtil;
+import org.apache.doris.mtmv.ivm.IvmInfo;
 import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.mysql.authenticate.AuthenticateType;
 import org.apache.doris.mysql.authenticate.AuthenticatorManager;
@@ -7513,6 +7514,12 @@ public class Env {
         alter.setTask(task);
         alter.setRelation(relation);
         alter.setPartitionSnapshots(partitionSnapshots);
+        this.alter.processAlterMTMV(alter, false);
+    }
+
+    public void alterMTMVIvmInfo(TableNameInfo mvName, IvmInfo ivmInfo) {
+        AlterMTMV alter = new AlterMTMV(mvName, MTMVAlterOpType.ALTER_IVM_INFO);
+        alter.setIvmInfo(ivmInfo);
         this.alter.processAlterMTMV(alter, false);
     }
 

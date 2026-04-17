@@ -1262,6 +1262,9 @@ public class Alter {
                         mtmv.compatible(Env.getCurrentEnv().getCatalogMgr());
                     }
                     break;
+                case ALTER_IVM_INFO:
+                    mtmv.alterIvmInfo(alterMTMV.getIvmInfo());
+                    break;
                 default:
                     throw new RuntimeException("Unknown type value: " + alterMTMV.getOpType());
             }

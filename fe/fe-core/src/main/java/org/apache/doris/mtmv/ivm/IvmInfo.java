@@ -35,6 +35,10 @@ public class IvmInfo {
     @SerializedName("bb")
     private boolean binlogBroken = false;
 
+    /** True while an incremental refresh is in progress. Persisted for crash recovery. */
+    @SerializedName("rr")
+    private boolean runningIvmRefresh = false;
+
     @SerializedName("bs")
     private Map<BaseTableInfo, IvmStreamRef> baseTableStreams;
 
@@ -58,6 +62,14 @@ public class IvmInfo {
         this.binlogBroken = binlogBroken;
     }
 
+    public boolean isRunningIvmRefresh() {
+        return runningIvmRefresh;
+    }
+
+    public void setRunningIvmRefresh(boolean runningIvmRefresh) {
+        this.runningIvmRefresh = runningIvmRefresh;
+    }
+
     public Map<BaseTableInfo, IvmStreamRef> getBaseTableStreams() {
         return baseTableStreams;
     }
@@ -71,6 +83,7 @@ public class IvmInfo {
         return "IvmInfo{"
                 + "enableIvm=" + enableIvm
                 + ", binlogBroken=" + binlogBroken
+                + ", runningIvmRefresh=" + runningIvmRefresh
                 + ", baseTableStreams=" + baseTableStreams
                 + '}';
     }
