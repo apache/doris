@@ -333,6 +333,8 @@ inline const char* find_first_symbols_sse42(const char* const begin, const char*
 template <bool positive, ReturnMode return_mode>
 inline const char* find_last_symbols_sse2(const char* const begin, const char* const end,
                                           const char* symbols, size_t num_chars) {
+    if (begin >= end) return return_mode == ReturnMode::End ? end : nullptr;
+
     const char* pos = end;
 
 #if defined(__SSE2__)
@@ -357,6 +359,8 @@ inline const char* find_last_symbols_sse2(const char* const begin, const char* c
 template <bool positive, ReturnMode return_mode>
 inline const char* find_last_symbols_sse42(const char* const begin, const char* const end,
                                            const SearchSymbols& symbols) {
+    if (begin >= end) return return_mode == ReturnMode::End ? end : nullptr;
+
     const char* pos = end;
 
     const auto num_chars = symbols.str.size();

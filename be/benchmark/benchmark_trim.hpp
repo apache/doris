@@ -29,6 +29,7 @@
 #endif
 
 #include "core/column/column_string.h"
+#include "exprs/function/url/find_symbols.h"
 #include "util/simd/vstring_function.h"
 
 namespace doris {
@@ -144,7 +145,120 @@ struct TrimInOld {
     }
 };
 
-// TrimInNew struct removed — New benchmarks call the real TrimInUtil::vector() directly
+// TrimInNew — mirrors the optimized implementation from function_string.cpp
+// Inlined here because TrimInUtil is defined inside a .cpp and not visible to benchmarks
+struct TrimInNew {
+    static void trim_in_ascii_new(const ColumnString::Chars& str_data,
+                                  const ColumnString::Offsets& str_offsets,
+                                  const StringRef& remove_str, ColumnString::Chars& res_data,
+                                  ColumnString::Offsets& res_offsets) {
+        const size_t offset_size = str_offsets.size();
+        res_offsets.resize(offset_size);
+        res_data.reserve(str_data.size());
+
+        SearchSymbols symbols(std::string(remove_str.data, remove_str.size));
+
+        bool char_lookup[256] = {};
+        for (size_t j = 0; j < remove_str.size; ++j) {
+            char_lookup[static_cast<unsigned char>(remove_str.data[j])] = true;
+        }
+
+        for (size_t i = 0; i < offset_size; ++i) {
+            const char* str_begin =
+                    reinterpret_cast<const char*>(str_data.data() + str_offsets[i - 1]);
+            const char* str_end = reinterpret_cast<const char*>(str_data.data() + str_offsets[i]);
+            const char* left_trim_pos = str_begin;
+            const char* right_trim_pos = str_end;
+
+            // ltrim
+            if (left_trim_pos < str_end &&
+                char_lookup[static_cast<unsigned char>(*left_trim_pos)]) {
+                left_trim_pos = find_first_not_symbols(
+                        std::string_view(str_begin, str_end - str_begin), symbols);
+            }
+
+            // rtrim
+            if (right_trim_pos > left_trim_pos &&
+                char_lookup[static_cast<unsigned char>(*(right_trim_pos - 1))]) {
+                const char* pos =
+                        find_last_not_symbols_or_null(left_trim_pos, right_trim_pos, symbols);
+                right_trim_pos = pos ? pos + 1 : left_trim_pos;
+            }
+
+            res_data.insert_assume_reserved(left_trim_pos, right_trim_pos);
+            res_offsets[i] = (ColumnString::Offset)res_data.size();
+        }
+    }
+
+    static void trim_in_utf8_new(const ColumnString::Chars& str_data,
+                                 const ColumnString::Offsets& str_offsets,
+                                 const StringRef& remove_str, ColumnString::Chars& res_data,
+                                 ColumnString::Offsets& res_offsets) {
+        const size_t offset_size = str_offsets.size();
+        res_offsets.resize(offset_size);
+        res_data.reserve(str_data.size());
+
+        static constexpr size_t MAX_TRIM_CHARS = 32;
+        struct Utf8Char {
+            char data[6];
+            uint8_t len;
+        };
+        Utf8Char trim_chars[MAX_TRIM_CHARS];
+        size_t num_trim_chars = 0;
+
+        const char* remove_begin = remove_str.data;
+        const char* remove_end = remove_str.data + remove_str.size;
+
+        while (remove_begin < remove_end && num_trim_chars < MAX_TRIM_CHARS) {
+            uint8_t byte_len = get_utf8_byte_length(static_cast<uint8_t>(*remove_begin));
+            if (remove_begin + byte_len > remove_end) break;
+            trim_chars[num_trim_chars].len = byte_len;
+            memcpy(trim_chars[num_trim_chars].data, remove_begin, byte_len);
+            ++num_trim_chars;
+            remove_begin += byte_len;
+        }
+
+        auto is_trim_char = [&](const char* pos, size_t byte_len) -> bool {
+            for (size_t c = 0; c < num_trim_chars; ++c) {
+                if (trim_chars[c].len == byte_len &&
+                    memcmp(trim_chars[c].data, pos, byte_len) == 0) {
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        for (size_t i = 0; i < offset_size; ++i) {
+            const char* str_begin =
+                    reinterpret_cast<const char*>(str_data.data() + str_offsets[i - 1]);
+            const char* str_end = reinterpret_cast<const char*>(str_data.data() + str_offsets[i]);
+            const char* left_trim_pos = str_begin;
+            const char* right_trim_pos = str_end;
+
+            // ltrim
+            while (left_trim_pos < str_end) {
+                uint8_t byte_len = get_utf8_byte_length(static_cast<uint8_t>(*left_trim_pos));
+                if (left_trim_pos + byte_len > str_end) break;
+                if (!is_trim_char(left_trim_pos, byte_len)) break;
+                left_trim_pos += byte_len;
+            }
+
+            // rtrim
+            while (right_trim_pos > left_trim_pos) {
+                const char* prev_char_pos = right_trim_pos;
+                do {
+                    --prev_char_pos;
+                } while (prev_char_pos > left_trim_pos && (*prev_char_pos & 0xC0) == 0x80);
+                size_t byte_len = right_trim_pos - prev_char_pos;
+                if (!is_trim_char(prev_char_pos, byte_len)) break;
+                right_trim_pos = prev_char_pos;
+            }
+
+            res_data.insert_assume_reserved(left_trim_pos, right_trim_pos);
+            res_offsets[i] = (ColumnString::Offset)res_data.size();
+        }
+    }
+};
 
 // ==================== Benchmark helpers ====================
 
@@ -248,10 +362,8 @@ static void BM_TrimInAscii_New(benchmark::State& state) {
 
     for (auto _ : state) {
         auto res = ColumnString::create();
-        // Call real implementation
-        static_cast<void>(TrimInUtil<true, true, false>::vector(
-                col->get_chars(), col->get_offsets(), remove_str, res->get_chars(),
-                res->get_offsets()));
+        TrimInNew::trim_in_ascii_new(col->get_chars(), col->get_offsets(), remove_str,
+                                     res->get_chars(), res->get_offsets());
         benchmark::DoNotOptimize(res);
     }
 
@@ -292,10 +404,8 @@ static void BM_TrimInUtf8_New(benchmark::State& state) {
 
     for (auto _ : state) {
         auto res = ColumnString::create();
-        // Call real implementation
-        static_cast<void>(TrimInUtil<true, true, false>::vector(
-                col->get_chars(), col->get_offsets(), remove_str, res->get_chars(),
-                res->get_offsets()));
+        TrimInNew::trim_in_utf8_new(col->get_chars(), col->get_offsets(), remove_str,
+                                    res->get_chars(), res->get_offsets());
         benchmark::DoNotOptimize(res);
     }
 
@@ -337,10 +447,8 @@ static void BM_TrimInAsciiManyChars_New(benchmark::State& state) {
 
     for (auto _ : state) {
         auto res = ColumnString::create();
-        // Call real implementation
-        static_cast<void>(TrimInUtil<true, true, false>::vector(
-                col->get_chars(), col->get_offsets(), remove_str, res->get_chars(),
-                res->get_offsets()));
+        TrimInNew::trim_in_ascii_new(col->get_chars(), col->get_offsets(), remove_str,
+                                     res->get_chars(), res->get_offsets());
         benchmark::DoNotOptimize(res);
     }
 
@@ -390,10 +498,8 @@ static void BM_TrimInAsciiNoMatch_New(benchmark::State& state) {
 
     for (auto _ : state) {
         auto res = ColumnString::create();
-        // Call real implementation
-        static_cast<void>(TrimInUtil<true, true, false>::vector(
-                col->get_chars(), col->get_offsets(), remove_str, res->get_chars(),
-                res->get_offsets()));
+        TrimInNew::trim_in_ascii_new(col->get_chars(), col->get_offsets(), remove_str,
+                                     res->get_chars(), res->get_offsets());
         benchmark::DoNotOptimize(res);
     }
 

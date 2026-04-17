@@ -26,6 +26,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string_view>
+#include <unordered_set>
 
 #include "common/cast_set.h"
 #include "common/status.h"
@@ -764,13 +765,17 @@ private:
                                      ColumnString::Offsets& res_offsets) {
         const size_t offset_size = str_offsets.size();
 
-        // Use SearchSymbols for SIMD-accelerated lookup (SSE4.2 for >=5 chars, SSE2 for <5)
-        SearchSymbols symbols(std::string(remove_str.data, remove_str.size));
-
-        // Build scalar lookup table for early-exit: skip SIMD when first/last byte is not a trim char
+        // Build scalar lookup table (works for any number of trim chars)
         bool char_lookup[256] = {};
         for (size_t j = 0; j < remove_str.size; ++j) {
             char_lookup[static_cast<unsigned char>(remove_str.data[j])] = true;
+        }
+
+        // SearchSymbols buffer is capped at 16 bytes; use SIMD only when within limit
+        const bool use_simd = remove_str.size <= SearchSymbols::BUFFER_SIZE;
+        SearchSymbols symbols;
+        if (use_simd) {
+            symbols = SearchSymbols(std::string(remove_str.data, remove_str.size));
         }
 
         for (size_t i = 0; i < offset_size; ++i) {
@@ -783,17 +788,31 @@ private:
             if constexpr (is_ltrim) {
                 if (left_trim_pos < str_end &&
                     char_lookup[static_cast<unsigned char>(*left_trim_pos)]) {
-                    left_trim_pos = find_first_not_symbols(
-                            std::string_view(str_begin, str_end - str_begin), symbols);
+                    if (use_simd) {
+                        left_trim_pos = find_first_not_symbols(
+                                std::string_view(str_begin, str_end - str_begin), symbols);
+                    } else {
+                        while (left_trim_pos < str_end &&
+                               char_lookup[static_cast<unsigned char>(*left_trim_pos)]) {
+                            ++left_trim_pos;
+                        }
+                    }
                 }
             }
 
             if constexpr (is_rtrim) {
                 if (right_trim_pos > left_trim_pos &&
                     char_lookup[static_cast<unsigned char>(*(right_trim_pos - 1))]) {
-                    const char* pos =
-                            find_last_not_symbols_or_null(left_trim_pos, right_trim_pos, symbols);
-                    right_trim_pos = pos ? pos + 1 : left_trim_pos;
+                    if (use_simd) {
+                        const char* pos = find_last_not_symbols_or_null(left_trim_pos,
+                                                                        right_trim_pos, symbols);
+                        right_trim_pos = pos ? pos + 1 : left_trim_pos;
+                    } else {
+                        while (right_trim_pos > left_trim_pos &&
+                               char_lookup[static_cast<unsigned char>(*(right_trim_pos - 1))]) {
+                            --right_trim_pos;
+                        }
+                    }
                 }
             }
 
@@ -835,7 +854,23 @@ private:
             remove_begin += byte_len;
         }
 
+        // Fall back to unordered_set if trim set exceeds fixed array capacity
+        const bool use_set = remove_begin < remove_end;
+        std::unordered_set<std::string_view> trim_set;
+        if (use_set) {
+            remove_begin = remove_str.data;
+            while (remove_begin < remove_end) {
+                uint8_t byte_len = get_utf8_byte_length(static_cast<uint8_t>(*remove_begin));
+                if (remove_begin + byte_len > remove_end) break;
+                trim_set.emplace(remove_begin, byte_len);
+                remove_begin += byte_len;
+            }
+        }
+
         auto is_trim_char = [&](const char* pos, size_t byte_len) -> bool {
+            if (use_set) {
+                return trim_set.count(std::string_view(pos, byte_len)) > 0;
+            }
             for (size_t c = 0; c < num_trim_chars; ++c) {
                 if (trim_chars[c].len == byte_len &&
                     memcmp(trim_chars[c].data, pos, byte_len) == 0) {

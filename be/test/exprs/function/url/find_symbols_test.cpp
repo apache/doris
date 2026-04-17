@@ -324,4 +324,20 @@ TEST_F(FindSymbolsTest, LastNotSymbols_VariousLengths_SSE42) {
     }
 }
 
+// --- Empty range: begin == end should not cause UB ---
+
+TEST_F(FindSymbolsTest, LastNotSymbols_EmptyRange_SSE2) {
+    SearchSymbols symbols("ab");
+    const char* p = "x";
+    const char* result = find_last_not_symbols_or_null(p, p, symbols);
+    EXPECT_EQ(result, nullptr);
+}
+
+TEST_F(FindSymbolsTest, LastNotSymbols_EmptyRange_SSE42) {
+    SearchSymbols symbols("abcdef");
+    const char* p = "x";
+    const char* result = find_last_not_symbols_or_null(p, p, symbols);
+    EXPECT_EQ(result, nullptr);
+}
+
 } // namespace doris
