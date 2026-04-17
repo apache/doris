@@ -17,6 +17,8 @@
 
 package org.apache.doris.cloud;
 
+import org.apache.doris.monitor.unit.ByteSizeValue;
+
 import com.google.gson.JsonObject;
 
 import java.time.Instant;
@@ -229,25 +231,9 @@ public class JobWarmUpStats {
 
     private static String humanReadableSize(long bytes) {
         if (bytes < 0) {
-            return "-" + humanReadableSize(-bytes);
+            return "-" + new ByteSizeValue(-bytes).toString();
         }
-        if (bytes < 1024) {
-            return bytes + " B";
-        }
-        double kb = bytes / 1024.0;
-        if (kb < 1024) {
-            return String.format("%.1f KB", kb);
-        }
-        double mb = kb / 1024.0;
-        if (mb < 1024) {
-            return String.format("%.1f MB", mb);
-        }
-        double gb = mb / 1024.0;
-        if (gb < 1024) {
-            return String.format("%.1f GB", gb);
-        }
-        double tb = gb / 1024.0;
-        return String.format("%.1f TB", tb);
+        return new ByteSizeValue(bytes).toString();
     }
 
     private static String formatEpochMs(long epochMs) {

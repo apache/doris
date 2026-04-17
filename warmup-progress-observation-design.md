@@ -96,9 +96,9 @@ Event-driven warmup 是存算分离架构下的数据缓存预热功能。当源
  │  │ requested_segment_size (5m) │       │     │  │ finish_segment_size (5m) │       │
  │  │ requested_index_num    (5m) │       │     │  │ finish_index_num    (5m) │       │
  │  │ requested_index_size   (5m) │       │     │  │ finish_index_size   (5m) │       │
- │  │            ... (30m, 2h) │       │     │  │ fail_segment_num   (5m)  │       │
- │  │ last_trigger_ts         │       │     │  │            ... (30m, 2h) │       │
- │  │ last_trigger_ts         │       │     │  │            ... (30m, 2h) │       │
+ │  │            ... (30m, 1h) │       │     │  │ fail_segment_num   (5m)  │       │
+ │  │ last_trigger_ts         │       │     │  │            ... (30m, 1h) │       │
+ │  │ last_trigger_ts         │       │     │  │            ... (30m, 1h) │       │
  │  └──────────┬───────────────┘       │     │  │ last_finish_ts           │       │
  │             │ HTTP API              │     │  └──────────┬───────────────┘       │
  └─────────────┼───────────────────────┘     └─────────────┼───────────────────────┘
@@ -197,7 +197,7 @@ t=0:15                               0   ← 正常
  *   MBvarWindowedAdder requested_seg_num(
  *       "warmup_ed_requested_segment_num",      // 指标名前缀
  *       {"job_id"},                            // 维度名
- *       {300, 1800, 7200}                     // 窗口大小（秒）
+ *       {300, 1800, 3600}                     // 窗口大小（秒）
  *   );
  *
  *   requested_seg_num.put({"13419"}, 1);
@@ -205,7 +205,7 @@ t=0:15                               0   ← 正常
  *   //   warmup_ed_requested_segment_num_total{job_id="13419"}  (累计)
  *   //   warmup_ed_requested_segment_num_300s_13419              (5min 窗口)
  *   //   warmup_ed_requested_segment_num_1800s_13419             (30min 窗口)
- *   //   warmup_ed_requested_segment_num_7200s_13419             (2h 窗口)
+ *   //   warmup_ed_requested_segment_num_3600s_13419             (1h 窗口)
  */
 class MBvarWindowedAdder {
 public:
@@ -292,7 +292,7 @@ private:
 
 static constexpr int WINDOW_5M  = 300;
 static constexpr int WINDOW_30M = 1800;
-static constexpr int WINDOW_2H  = 7200;
+static constexpr int WINDOW_2H  = 3600;
 
 // ---- requested 指标（per job_id, 3 窗口）----
 
@@ -518,11 +518,11 @@ static void fill_windowed(EasyJson& parent, const std::string& key,
     EasyJson num = obj.Set("num", EasyJson::kObject);
     num["5m"]  = num_adder.get_window_value({job_id_str}, 0);
     num["30m"] = num_adder.get_window_value({job_id_str}, 1);
-    num["2h"]  = num_adder.get_window_value({job_id_str}, 2);
+    num["1h"]  = num_adder.get_window_value({job_id_str}, 2);
     EasyJson size = obj.Set("size", EasyJson::kObject);
     size["5m"]  = size_adder.get_window_value({job_id_str}, 0);
     size["30m"] = size_adder.get_window_value({job_id_str}, 1);
-    size["2h"]  = size_adder.get_window_value({job_id_str}, 2);
+    size["1h"]  = size_adder.get_window_value({job_id_str}, 2);
 }
 
 void WarmUpStatsAction::handle(HttpRequest* req) {
@@ -542,7 +542,7 @@ void WarmUpStatsAction::handle(HttpRequest* req) {
         EasyJson entry = jobs.PushBack(EasyJson::kObject);
         entry["job_id"] = std::stoll(job_id_str);
 
-        // requested: { seg: { num: {5m,30m,2h}, size: {5m,30m,2h} }, idx: { ... } }
+        // requested: { seg: { num: {5m,30m,1h}, size: {5m,30m,1h} }, idx: { ... } }
         EasyJson req_obj = entry.Set("requested", EasyJson::kObject);
         fill_windowed(req_obj, "seg",
                       g_warmup_ed_requested_segment_num, g_warmup_ed_requested_segment_size, job_id_str);
@@ -597,32 +597,32 @@ $ curl http://be_host:http_port/api/warmup_event_driven_stats
       "job_id": 13419,
       "requested": {
         "seg": {
-          "num":  {"5m": 5234, "30m": 28456, "2h": 112000},
-          "size": {"5m": 4500000000, "30m": 24500000000, "2h": 98000000000}
+          "num":  {"5m": 5234, "30m": 28456, "1h": 112000},
+          "size": {"5m": 4500000000, "30m": 24500000000, "1h": 98000000000}
         },
         "idx": {
-          "num":  {"5m": 1200, "30m": 6500, "2h": 25000},
-          "size": {"5m": 500000000, "30m": 2700000000, "2h": 10000000000}
+          "num":  {"5m": 1200, "30m": 6500, "1h": 25000},
+          "size": {"5m": 500000000, "30m": 2700000000, "1h": 10000000000}
         }
       },
       "finish": {
         "seg": {
-          "num":  {"5m": 5210, "30m": 28300, "2h": 111200},
-          "size": {"5m": 4480000000, "30m": 24300000000, "2h": 97500000000}
+          "num":  {"5m": 5210, "30m": 28300, "1h": 111200},
+          "size": {"5m": 4480000000, "30m": 24300000000, "1h": 97500000000}
         },
         "idx": {
-          "num":  {"5m": 1190, "30m": 6400, "2h": 24800},
-          "size": {"5m": 495000000, "30m": 2650000000, "2h": 9800000000}
+          "num":  {"5m": 1190, "30m": 6400, "1h": 24800},
+          "size": {"5m": 495000000, "30m": 2650000000, "1h": 9800000000}
         }
       },
       "fail": {
         "seg": {
-          "num":  {"5m": 0, "30m": 2, "2h": 12},
-          "size": {"5m": 0, "30m": 2500000, "2h": 15000000}
+          "num":  {"5m": 0, "30m": 2, "1h": 12},
+          "size": {"5m": 0, "30m": 2500000, "1h": 15000000}
         },
         "idx": {
-          "num":  {"5m": 0, "30m": 1, "2h": 5},
-          "size": {"5m": 0, "30m": 500000, "2h": 3000000}
+          "num":  {"5m": 0, "30m": 1, "1h": 5},
+          "size": {"5m": 0, "30m": 500000, "1h": 3000000}
         }
       },
       "last_trigger_ts": 1714000000000,
@@ -637,7 +637,7 @@ $ curl http://be_host:http_port/api/warmup_event_driven_stats
 ```
 
 > **每个 BE 输出全量数据，不区分自身角色。** 源 BE 的 `finish`/`fail` 字段自然为 0，目标 BE 的 `requested` 字段自然为 0。
-> JSON 按 job_id 列出，每个 job 直接包含 `{requested|finish|fail}.{seg|idx}.{num|size}.{5m|30m|2h}`。
+> JSON 按 job_id 列出，每个 job 直接包含 `{requested|finish|fail}.{seg|idx}.{num|size}.{5m|30m|1h}`。
 > 用户可直接 curl 此 API 查看 BE 上的实时 warmup 统计。
 
 ---
@@ -823,28 +823,28 @@ public class JobWarmUpWindowedStats {
     public long jobId;
 
     // requested（源集群 BE 有值，目标集群 BE 为 0）
-    public long requestedSegmentNum5m, requestedSegmentNum30m, requestedSegmentNum2h;
-    public long requestedSegmentSize5m, requestedSegmentSize30m, requestedSegmentSize2h;
-    public long requestedIndexNum5m, requestedIndexNum30m, requestedIndexNum2h;
-    public long requestedIndexSize5m, requestedIndexSize30m, requestedIndexSize2h;
+    public long requestedSegmentNum5m, requestedSegmentNum30m, requestedSegmentNum1h;
+    public long requestedSegmentSize5m, requestedSegmentSize30m, requestedSegmentSize1h;
+    public long requestedIndexNum5m, requestedIndexNum30m, requestedIndexNum1h;
+    public long requestedIndexSize5m, requestedIndexSize30m, requestedIndexSize1h;
     public long lastTriggerTs;
 
     // finished（目标集群 BE 有值，源集群 BE 为 0）
-    public long finishSegmentNum5m, finishSegmentNum30m, finishSegmentNum2h;
-    public long finishSegmentSize5m, finishSegmentSize30m, finishSegmentSize2h;
-    public long finishIndexNum5m, finishIndexNum30m, finishIndexNum2h;
-    public long finishIndexSize5m, finishIndexSize30m, finishIndexSize2h;
+    public long finishSegmentNum5m, finishSegmentNum30m, finishSegmentNum1h;
+    public long finishSegmentSize5m, finishSegmentSize30m, finishSegmentSize1h;
+    public long finishIndexNum5m, finishIndexNum30m, finishIndexNum1h;
+    public long finishIndexSize5m, finishIndexSize30m, finishIndexSize1h;
     public long lastFinishTs;
 
     // failed（目标集群 BE 有值，源集群 BE 为 0）
-    public long failSegmentNum5m, failSegmentNum30m, failSegmentNum2h;
-    public long failSegmentSize5m, failSegmentSize30m, failSegmentSize2h;
-    public long failIndexNum5m, failIndexNum30m, failIndexNum2h;
-    public long failIndexSize5m, failIndexSize30m, failIndexSize2h;
+    public long failSegmentNum5m, failSegmentNum30m, failSegmentNum1h;
+    public long failSegmentSize5m, failSegmentSize30m, failSegmentSize1h;
+    public long failIndexNum5m, failIndexNum30m, failIndexNum1h;
+    public long failIndexSize5m, failIndexSize30m, failIndexSize1h;
 
     /**
      * 从 BE JSON 响应解析。全量解析所有字段，不区分 src/dst。
-     * JSON 层级结构：{requested|finish|fail}.{seg|idx}.{num|size}.{5m|30m|2h}
+     * JSON 层级结构：{requested|finish|fail}.{seg|idx}.{num|size}.{5m|30m|1h}
      */
     public static JobWarmUpWindowedStats fromJson(JsonObject obj) {
         JobWarmUpWindowedStats s = new JobWarmUpWindowedStats();
@@ -855,16 +855,16 @@ public class JobWarmUpWindowedStats {
         if (req != null) {
             s.requestedSegmentNum5m  = getWindow(req, "seg", "num", "5m");
             s.requestedSegmentNum30m = getWindow(req, "seg", "num", "30m");
-            s.requestedSegmentNum2h  = getWindow(req, "seg", "num", "2h");
+            s.requestedSegmentNum1h  = getWindow(req, "seg", "num", "1h");
             s.requestedSegmentSize5m  = getWindow(req, "seg", "size", "5m");
             s.requestedSegmentSize30m = getWindow(req, "seg", "size", "30m");
-            s.requestedSegmentSize2h  = getWindow(req, "seg", "size", "2h");
+            s.requestedSegmentSize1h  = getWindow(req, "seg", "size", "1h");
             s.requestedIndexNum5m  = getWindow(req, "idx", "num", "5m");
             s.requestedIndexNum30m = getWindow(req, "idx", "num", "30m");
-            s.requestedIndexNum2h  = getWindow(req, "idx", "num", "2h");
+            s.requestedIndexNum1h  = getWindow(req, "idx", "num", "1h");
             s.requestedIndexSize5m  = getWindow(req, "idx", "size", "5m");
             s.requestedIndexSize30m = getWindow(req, "idx", "size", "30m");
-            s.requestedIndexSize2h  = getWindow(req, "idx", "size", "2h");
+            s.requestedIndexSize1h  = getWindow(req, "idx", "size", "1h");
         }
         // finish / fail 同理...
 
@@ -896,34 +896,34 @@ public class JobWarmUpWindowedStats {
 ```java
 public class JobWarmUpStats {
     // 聚合后的 requested（跨所有匹配表、跨所有源 BE）
-    public long requestedSegmentNum5m, requestedSegmentNum30m, requestedSegmentNum2h;
-    public long requestedSegmentSize5m, requestedSegmentSize30m, requestedSegmentSize2h;
-    public long requestedIndexNum5m, requestedIndexNum30m, requestedIndexNum2h;
-    public long requestedIndexSize5m, requestedIndexSize30m, requestedIndexSize2h;
+    public long requestedSegmentNum5m, requestedSegmentNum30m, requestedSegmentNum1h;
+    public long requestedSegmentSize5m, requestedSegmentSize30m, requestedSegmentSize1h;
+    public long requestedIndexNum5m, requestedIndexNum30m, requestedIndexNum1h;
+    public long requestedIndexSize5m, requestedIndexSize30m, requestedIndexSize1h;
     public long lastTriggerTs;
 
     // 聚合后的 finished/failed（跨所有匹配表、跨所有目标 BE）
-    public long finishSegmentNum5m, finishSegmentNum30m, finishSegmentNum2h;
-    public long finishSegmentSize5m, finishSegmentSize30m, finishSegmentSize2h;
-    public long finishIndexNum5m, finishIndexNum30m, finishIndexNum2h;
-    public long finishIndexSize5m, finishIndexSize30m, finishIndexSize2h;
-    public long failSegmentNum5m, failSegmentNum30m, failSegmentNum2h;
-    public long failSegmentSize5m, failSegmentSize30m, failSegmentSize2h;
-    public long failIndexNum5m, failIndexNum30m, failIndexNum2h;
-    public long failIndexSize5m, failIndexSize30m, failIndexSize2h;
+    public long finishSegmentNum5m, finishSegmentNum30m, finishSegmentNum1h;
+    public long finishSegmentSize5m, finishSegmentSize30m, finishSegmentSize1h;
+    public long finishIndexNum5m, finishIndexNum30m, finishIndexNum1h;
+    public long finishIndexSize5m, finishIndexSize30m, finishIndexSize1h;
+    public long failSegmentNum5m, failSegmentNum30m, failSegmentNum1h;
+    public long failSegmentSize5m, failSegmentSize30m, failSegmentSize1h;
+    public long failIndexNum5m, failIndexNum30m, failIndexNum1h;
+    public long failIndexSize5m, failIndexSize30m, failIndexSize1h;
     public long lastFinishTs;
 
     // gap = requested - finished（正值表示积压，负值通常不出现）
-    public long gapSegmentNum5m, gapSegmentNum30m, gapSegmentNum2h;
-    public long gapSegmentSize5m, gapSegmentSize30m, gapSegmentSize2h;
-    public long gapIndexNum5m, gapIndexNum30m, gapIndexNum2h;
-    public long gapIndexSize5m, gapIndexSize30m, gapIndexSize2h;
+    public long gapSegmentNum5m, gapSegmentNum30m, gapSegmentNum1h;
+    public long gapSegmentSize5m, gapSegmentSize30m, gapSegmentSize1h;
+    public long gapIndexNum5m, gapIndexNum30m, gapIndexNum1h;
+    public long gapIndexSize5m, gapIndexSize30m, gapIndexSize1h;
 
     /** 计算 gap = requested - finished */
     public void computeGap() {
         gapSegmentNum5m  = requestedSegmentNum5m  - finishSegmentNum5m;
         gapSegmentNum30m = requestedSegmentNum30m - finishSegmentNum30m;
-        gapSegmentNum2h  = requestedSegmentNum2h  - finishSegmentNum2h;
+        gapSegmentNum1h  = requestedSegmentNum1h  - finishSegmentNum1h;
         // seg_size, idx_num, idx_size 同理
     }
 
@@ -987,10 +987,10 @@ SHOW WARM UP JOB;
     "finish_30m":  88900,
     "gap_30m":     334,
     "fail_30m":    12,
-    "requested_2h":   345678,      // 最近 2h ...
-    "finish_2h":   344000,
-    "gap_2h":      1678,
-    "fail_2h":     45
+    "requested_1h":   345678,      // 最近 1h ...
+    "finish_1h":   344000,
+    "gap_1h":      1678,
+    "fail_1h":     45
   },
   "seg_size": {
     // 同结构，值为人类可读大小字符串 "12.5GB"
@@ -1025,7 +1025,7 @@ SHOW WARM UP JOB;
   │  → g_warmup_ed_requested_segment_size.put({job_id_str}, bytes)
   │  → g_warmup_ed_requested_index_num.put({job_id_str}, N)
   │  → g_warmup_ed_requested_index_size.put({job_id_str}, bytes)
-  │  ★ bvar::Window 自动维护 5min/30min/2h 窗口
+  │  ★ bvar::Window 自动维护 5min/30min/1h 窗口
   │  ★ /api/warmup_event_driven_stats HTTP API 暴露全量 JSON（按 job_id 列出）
   │
   │  _do_warm_up_rowset → PWarmUpRowsetRequest(含 job_id) → RPC
@@ -1038,7 +1038,7 @@ SHOW WARM UP JOB;
   │  → g_warmup_ed_fail_segment_num.put({job_id_str}, 1)       [下载失败回调]
   │  → g_warmup_ed_fail_segment_size.put({job_id_str}, bytes)
   │  ★ 索引文件同理
-  │  ★ bvar::Window 自动维护 5min/30min/2h 窗口
+  │  ★ bvar::Window 自动维护 5min/30min/1h 窗口
   │  ★ /api/warmup_event_driven_stats HTTP API 暴露全量 JSON（按 job_id 列出）
   │
   ▼

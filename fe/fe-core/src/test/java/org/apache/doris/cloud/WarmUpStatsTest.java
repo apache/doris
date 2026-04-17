@@ -254,10 +254,10 @@ public class WarmUpStatsTest {
         Assertions.assertEquals(20, segNum.get("gap_5m").getAsLong());
         Assertions.assertEquals(5, segNum.get("fail_5m").getAsLong());
 
-        // seg_size values are human-readable strings
+        // seg_size values are human-readable strings (via ByteSizeValue)
         JsonObject segSize = root.getAsJsonObject("seg_size");
-        Assertions.assertEquals("1.0 MB", segSize.get("requested_5m").getAsString());
-        Assertions.assertEquals("512.0 KB", segSize.get("finish_5m").getAsString());
+        Assertions.assertEquals("1mb", segSize.get("requested_5m").getAsString());
+        Assertions.assertEquals("512kb", segSize.get("finish_5m").getAsString());
     }
 
     @Test
@@ -289,10 +289,10 @@ public class WarmUpStatsTest {
         JsonObject segSize = JsonParser.parseString(jsonStr).getAsJsonObject()
                 .getAsJsonObject("seg_size");
 
-        Assertions.assertEquals("500 B", segSize.get("requested_5m").getAsString());
-        Assertions.assertEquals("1.5 KB", segSize.get("finish_5m").getAsString());
-        Assertions.assertEquals("1.0 MB", segSize.get("gap_5m").getAsString());
-        Assertions.assertEquals("1.0 GB", segSize.get("fail_5m").getAsString());
+        Assertions.assertEquals("500b", segSize.get("requested_5m").getAsString());
+        Assertions.assertEquals("1.5kb", segSize.get("finish_5m").getAsString());
+        Assertions.assertEquals("1mb", segSize.get("gap_5m").getAsString());
+        Assertions.assertEquals("1gb", segSize.get("fail_5m").getAsString());
     }
 
     @Test
