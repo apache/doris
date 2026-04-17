@@ -24,7 +24,7 @@ namespace doris {
 class ExecEnv;
 
 // HTTP action for /api/warmup_event_driven_stats
-// Returns per-(job_id, table_id) windowed warmup metrics as JSON.
+// Returns per-job_id windowed warmup metrics as JSON.
 class WarmUpStatsAction final : public HttpHandlerWithAuth {
 public:
     explicit WarmUpStatsAction(ExecEnv* exec_env) : HttpHandlerWithAuth(exec_env) {}

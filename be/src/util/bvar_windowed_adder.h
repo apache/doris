@@ -34,7 +34,7 @@ namespace doris {
 /**
  * Multi-dimension windowed adder.
  *
- * For each dimension value combination (e.g., (job_id, table_id)), automatically creates:
+ * For each dimension value combination (e.g., job_id), automatically creates:
  *   - A bvar::Adder (cumulative counter managed by MultiDimension)
  *   - Multiple bvar::Window instances (sliding window views at different time scales)
  *
@@ -43,10 +43,10 @@ namespace doris {
  * @example
  *   MBvarWindowedAdder requested_seg_num(
  *       "warmup_ed_requested_segment_num",
- *       {"job_id", "table_id"},
+ *       {"job_id"},
  *       {300, 1800, 7200}
  *   );
- *   requested_seg_num.put({"13419", "12345"}, 1);
+ *   requested_seg_num.put({"13419"}, 1);
  */
 class MBvarWindowedAdder {
 public:
