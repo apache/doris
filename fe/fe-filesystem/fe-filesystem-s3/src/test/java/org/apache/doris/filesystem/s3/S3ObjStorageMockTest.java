@@ -28,6 +28,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.AbortMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
@@ -48,6 +49,7 @@ import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
+import software.amazon.awssdk.services.sts.StsClient;
 
 import java.io.ByteArrayInputStream;
 import java.io.FileNotFoundException;
@@ -345,6 +347,21 @@ class S3ObjStorageMockTest {
                 "Should throw when AWS_ROLE_ARN not configured");
     }
 
+    @Test
+    void buildCredentialsProvider_returnsAssumeRoleProviderWhenRoleArnConfigured() {
+        Map<String, String> props = new HashMap<>();
+        props.put("AWS_ENDPOINT", "https://s3.amazonaws.com");
+        props.put("AWS_REGION", "us-east-1");
+        props.put("AWS_ROLE_ARN", "arn:aws:iam::123456789012:role/MyRole");
+        props.put("AWS_EXTERNAL_ID", "snapshot-external-id");
+        InspectableS3ObjStorage roleArnStorage = new InspectableS3ObjStorage(props, mockS3);
+
+        AwsCredentialsProvider credentialsProvider = roleArnStorage.inspectBuildCredentialsProvider();
+
+        Assertions.assertEquals("StsAssumeRoleCredentialsProvider",
+                credentialsProvider.getClass().getSimpleName());
+    }
+
     // ------------------------------------------------------------------
     // close()
     // ------------------------------------------------------------------
@@ -372,6 +389,21 @@ class S3ObjStorageMockTest {
         @Override
         protected S3Client buildClient() {
             return mockClient;
+        }
+    }
+
+    private static class InspectableS3ObjStorage extends TestableS3ObjStorage {
+        InspectableS3ObjStorage(Map<String, String> properties, S3Client mockClient) {
+            super(properties, mockClient);
+        }
+
+        AwsCredentialsProvider inspectBuildCredentialsProvider() {
+            return buildCredentialsProvider();
+        }
+
+        @Override
+        protected StsClient buildStsClient(AwsCredentialsProvider credentialsProvider, String region) {
+            return Mockito.mock(StsClient.class);
         }
     }
 }
