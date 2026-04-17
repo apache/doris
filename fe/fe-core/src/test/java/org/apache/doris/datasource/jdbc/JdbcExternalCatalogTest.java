@@ -22,6 +22,9 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.CatalogFactory;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.proto.InternalService;
+import org.apache.doris.thrift.TJdbcTable;
+import org.apache.doris.thrift.TOdbcTableType;
 
 import com.google.common.collect.Maps;
 import org.junit.Assert;
@@ -110,5 +113,27 @@ public class JdbcExternalCatalogTest {
                 "errCode = 2, detailMessage = include_database_list and exclude_database_list cannot be set when only_specified_database is false",
                 exceptione3.getMessage());
 
+    }
+
+    @Test
+    public void testBuildTestConnectionRequestUsesCatalogIdOnly() throws DdlException {
+        InternalService.PJdbcTestConnectionRequest request = jdbcExternalCatalog
+                .buildTestConnectionRequest(TOdbcTableType.ORACLE);
+        Assert.assertTrue(request.hasCatalogId());
+        Assert.assertEquals(1L, request.getCatalogId());
+        Assert.assertFalse(request.hasJdbcTable());
+        Assert.assertFalse(request.hasQueryStr());
+        Assert.assertEquals(TOdbcTableType.ORACLE.getValue(), request.getJdbcTableType());
+    }
+
+    @Test
+    public void testBuildTrustedJdbcTableUsesCatalogProperties() throws DdlException {
+        TJdbcTable jdbcTable = jdbcExternalCatalog.buildTrustedJdbcTable();
+        Assert.assertEquals(1L, jdbcTable.getCatalogId());
+        Assert.assertEquals("jdbc:oracle:thin:@127.0.0.1:1521:XE", jdbcTable.getJdbcUrl());
+        Assert.assertEquals("oracle.jdbc.driver.OracleDriver", jdbcTable.getJdbcDriverClass());
+        Assert.assertEquals("ojdbc8.jar", jdbcTable.getJdbcDriverUrl());
+        Assert.assertEquals("", jdbcTable.getJdbcDriverChecksum());
+        Assert.assertEquals("test_jdbc_connection", jdbcTable.getJdbcTableName());
     }
 }

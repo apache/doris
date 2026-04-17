@@ -33,6 +33,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Collections;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * JdbcConnectionTester is a lightweight JNI-invocable class for testing JDBC connections.
@@ -46,7 +47,6 @@ import java.util.Map;
  * <p>Parameters:
  * <ul>
  *   <li>jdbc_url, jdbc_user, jdbc_password, jdbc_driver_class, jdbc_driver_url</li>
- *   <li>query_sql — the test query to run</li>
  *   <li>catalog_id, connection_pool_min_size, connection_pool_max_size, etc.</li>
  *   <li>clean_datasource — if "true", close the datasource pool on close()</li>
  * </ul>
@@ -59,7 +59,7 @@ public class JdbcConnectionTester extends JniScanner {
     private final String jdbcPassword;
     private final String jdbcDriverClass;
     private final String jdbcDriverUrl;
-    private final String querySql;
+    private final String jdbcDriverChecksum;
     private final long catalogId;
     private final int connectionPoolMinSize;
     private final int connectionPoolMaxSize;
@@ -80,7 +80,7 @@ public class JdbcConnectionTester extends JniScanner {
         this.jdbcPassword = params.getOrDefault("jdbc_password", "");
         this.jdbcDriverClass = params.getOrDefault("jdbc_driver_class", "");
         this.jdbcDriverUrl = params.getOrDefault("jdbc_driver_url", "");
-        this.querySql = params.getOrDefault("query_sql", "SELECT 1");
+        this.jdbcDriverChecksum = params.getOrDefault("jdbc_driver_checksum", "");
         this.catalogId = Long.parseLong(params.getOrDefault("catalog_id", "0"));
         this.connectionPoolMinSize = Integer.parseInt(
                 params.getOrDefault("connection_pool_min_size", "1"));
@@ -112,6 +112,10 @@ public class JdbcConnectionTester extends JniScanner {
         ClassLoader oldClassLoader = Thread.currentThread().getContextClassLoader();
         try {
             URL[] urls = {new URL(jdbcDriverUrl)};
+            String actualChecksum = BaseJdbcExecutor.computeObjectChecksum(urls[0].toString(), null);
+            if (!jdbcDriverChecksum.equals(actualChecksum)) {
+                throw new IOException("Checksum mismatch for JDBC driver.");
+            }
             ClassLoader parent = getClass().getClassLoader();
             this.classLoader = URLClassLoader.newInstance(urls, parent);
             Thread.currentThread().setContextClassLoader(classLoader);
@@ -145,7 +149,9 @@ public class JdbcConnectionTester extends JniScanner {
             }
 
             conn = hikariDataSource.getConnection();
-            stmt = conn.prepareStatement(querySql);
+            String validationQuery = Objects.requireNonNull(
+                    hikariDataSource.getConnectionTestQuery(), "validation query");
+            stmt = conn.prepareStatement(validationQuery);
             ResultSet rs = stmt.executeQuery();
             if (!rs.next()) {
                 throw new IOException(
