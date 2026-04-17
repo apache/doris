@@ -95,8 +95,9 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
     public void initialize(String jobId, DataSource dataSource, Map<String, String> config) {
         PostgresSourceConfig sourceConfig = generatePostgresConfig(config, jobId, 0);
         PostgresDialect dialect = new PostgresDialect(sourceConfig);
-        // Slot is caller-owned when slot_name is set; Doris neither creates nor drops it.
-        if (!isSlotUserProvided(config)) {
+        // Only create the slot when Doris owns it (name == default); user-provided slots must
+        // pre-exist, validated at CREATE JOB.
+        if (isSlotDorisOwned(config, jobId)) {
             synchronized (SLOT_CREATION_LOCK) {
                 LOG.info("Creating slot for job {}, user {}", jobId, sourceConfig.getUsername());
                 createSlotForGlobalStreamSplit(dialect);
@@ -233,13 +234,14 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         Properties dbzProps = ConfigUtil.getDefaultDebeziumProps();
         dbzProps.put("interval.handling.mode", "string");
 
-        // Publication-only ownership: user-provided = DISABLED, otherwise FILTERED.
+        // Doris-owned = FILTERED (auto-create per-table publication); otherwise DISABLED
+        // (user-provided or legacy dbz_publication already present on PG).
         String publicationName = resolvePublicationName(cdcConfig, jobId);
         String slotName = resolveSlotName(cdcConfig, jobId);
         AutoCreateMode autocreateMode =
-                isPublicationUserProvided(cdcConfig)
-                        ? AutoCreateMode.DISABLED
-                        : AutoCreateMode.FILTERED;
+                isPublicationDorisOwned(cdcConfig, jobId)
+                        ? AutoCreateMode.FILTERED
+                        : AutoCreateMode.DISABLED;
         dbzProps.put(PostgresConnectorConfig.PUBLICATION_NAME.name(), publicationName);
         dbzProps.put(
                 PostgresConnectorConfig.PUBLICATION_AUTOCREATE_MODE.name(),
@@ -278,21 +280,24 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         return StringUtils.isNotBlank(name) ? name : DataSourceConfigKeys.defaultSlotName(jobId);
     }
 
+    // Legacy jobs (created before slot/pub names were persisted) keep no publication_name in
+    // sourceProperties; fall back to the pre-PR Debezium default so they continue to use the
+    // existing publication on PG.
     private String resolvePublicationName(Map<String, String> config, String jobId) {
         String name = config.get(DataSourceConfigKeys.PUBLICATION_NAME);
-        return StringUtils.isNotBlank(name)
-                ? name
-                : DataSourceConfigKeys.defaultPublicationName(jobId);
+        return StringUtils.isNotBlank(name) ? name : DataSourceConfigKeys.LEGACY_PUBLICATION_NAME;
     }
 
-    // Per-resource ownership: each name is independent. A set name means the caller owns that
-    // resource - Doris will neither create nor drop it.
-    private static boolean isSlotUserProvided(Map<String, String> config) {
-        return StringUtils.isNotBlank(config.get(DataSourceConfigKeys.SLOT_NAME));
+    // Per-resource ownership: Doris owns the resource iff the resolved name equals
+    // doris_{cdc|pub}_{jobId}. Users cannot specify this name (jobId is unknown pre-CREATE);
+    // legacy publication resolves to dbz_publication and stays user-owned (not dropped).
+    private boolean isSlotDorisOwned(Map<String, String> config, String jobId) {
+        return DataSourceConfigKeys.defaultSlotName(jobId).equals(resolveSlotName(config, jobId));
     }
 
-    private static boolean isPublicationUserProvided(Map<String, String> config) {
-        return StringUtils.isNotBlank(config.get(DataSourceConfigKeys.PUBLICATION_NAME));
+    private boolean isPublicationDorisOwned(Map<String, String> config, String jobId) {
+        return DataSourceConfigKeys.defaultPublicationName(jobId)
+                .equals(resolvePublicationName(config, jobId));
     }
 
     @Override
@@ -493,8 +498,8 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         String jobId = jobConfig.getJobId();
         String slotName = resolveSlotName(config, jobId);
         String pubName = resolvePublicationName(config, jobId);
-        boolean dropSlot = !isSlotUserProvided(config);
-        boolean dropPub = !isPublicationUserProvided(config);
+        boolean dropSlot = isSlotDorisOwned(config, jobId);
+        boolean dropPub = isPublicationDorisOwned(config, jobId);
         if (!dropSlot && !dropPub) {
             LOG.info(
                     "Skipping drop of user-provided slot {} / publication {} for job {}",

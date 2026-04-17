@@ -230,7 +230,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 String includeTables = String.join(",", createTbls);
                 sourceProperties.put(DataSourceConfigKeys.INCLUDE_TABLES, includeTables);
             }
-            StreamingJobUtils.validateSourceResources(
+            StreamingJobUtils.resolveAndValidateSource(
                     dataSourceType, sourceProperties, String.valueOf(getJobId()), createTbls);
             this.offsetProvider = new JdbcSourceOffsetProvider(getJobId(), dataSourceType,
                     StreamingJobUtils.convertCertFile(getDbId(), sourceProperties));
@@ -307,6 +307,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             this.originTvfProps = currentTvf.getProperties().getMap();
             this.offsetProvider = SourceOffsetProviderFactory.createSourceOffsetProvider(currentTvf.getFunctionName());
             this.offsetProvider.ensureInitialized(getJobId(), originTvfProps);
+            // Validate source-side resources (e.g. PG slot/publication ownership) once at job
+            // creation so conflicts fail fast. No-op for standalone cdc_stream TVF (no job).
+            StreamingJobUtils.validateTvfSource(tvfType, originTvfProps, String.valueOf(getJobId()));
             this.offsetProvider.initOnCreate();
             // validate offset props, only for s3 cause s3 tvf no offset prop
             if (jobProperties.getOffsetProperty() != null
@@ -881,8 +884,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             StringBuilder sb = new StringBuilder();
             sb.append("FROM ").append(dataSourceType.name());
             sb.append("(");
-            Map<String, String> displaySourceProps = buildDisplaySourceProperties();
-            for (Map.Entry<String, String> entry : displaySourceProps.entrySet()) {
+            for (Map.Entry<String, String> entry : sourceProperties.entrySet()) {
                 if (entry.getKey().equalsIgnoreCase("password")) {
                     continue;
                 }
@@ -985,21 +987,6 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                     targetDb);
         }
         return true;
-    }
-
-    // PG jobs don't persist default slot/publication names; surface them here so SHOW reflects
-    // the values the cdc client actually uses.
-    private Map<String, String> buildDisplaySourceProperties() {
-        if (dataSourceType != DataSourceType.POSTGRES) {
-            return sourceProperties;
-        }
-        Map<String, String> display = new LinkedHashMap<>(sourceProperties);
-        String jobIdStr = String.valueOf(getJobId());
-        display.putIfAbsent(DataSourceConfigKeys.SLOT_NAME,
-                DataSourceConfigKeys.defaultSlotName(jobIdStr));
-        display.putIfAbsent(DataSourceConfigKeys.PUBLICATION_NAME,
-                DataSourceConfigKeys.defaultPublicationName(jobIdStr));
-        return display;
     }
 
     private String generateEncryptedSql() {

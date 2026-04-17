@@ -46,8 +46,11 @@ public class PostgresResourceValidator {
             throws JobException {
         String slotName = resolveSlotName(sourceProperties, jobId);
         String publicationName = resolvePublicationName(sourceProperties, jobId);
-        boolean slotUserProvided = isSlotUserProvided(sourceProperties);
-        boolean pubUserProvided = isPublicationUserProvided(sourceProperties);
+        // Pattern-match ownership: name equals the default = Doris-owned (auto); otherwise user.
+        String defaultSlot = DataSourceConfigKeys.defaultSlotName(jobId);
+        String defaultPub = DataSourceConfigKeys.defaultPublicationName(jobId);
+        boolean slotUserProvided = !defaultSlot.equals(slotName);
+        boolean pubUserProvided = !defaultPub.equals(publicationName);
         String pgSchema = sourceProperties.get(DataSourceConfigKeys.SCHEMA);
         List<String> qualifiedTables = new ArrayList<>();
         for (String name : tableNames) {
@@ -105,6 +108,8 @@ public class PostgresResourceValidator {
             throw new JobException(
                     "Failed to validate PG resources for publication " + publicationName
                             + ": " + e.getMessage(), e);
+        } finally {
+            jdbcClient.closeClient();
         }
     }
 
@@ -116,14 +121,6 @@ public class PostgresResourceValidator {
     private static String resolvePublicationName(Map<String, String> config, String jobId) {
         String name = config.get(DataSourceConfigKeys.PUBLICATION_NAME);
         return StringUtils.isNotBlank(name) ? name : DataSourceConfigKeys.defaultPublicationName(jobId);
-    }
-
-    private static boolean isSlotUserProvided(Map<String, String> config) {
-        return StringUtils.isNotBlank(config.get(DataSourceConfigKeys.SLOT_NAME));
-    }
-
-    private static boolean isPublicationUserProvided(Map<String, String> config) {
-        return StringUtils.isNotBlank(config.get(DataSourceConfigKeys.PUBLICATION_NAME));
     }
 
     private static boolean publicationExists(Connection conn, String publicationName) throws Exception {

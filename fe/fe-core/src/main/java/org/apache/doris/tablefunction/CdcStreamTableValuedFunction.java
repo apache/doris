@@ -25,7 +25,6 @@ import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.request.FetchRecordRequest;
 import org.apache.doris.job.common.DataSourceType;
-import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.util.StreamingJobUtils;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileType;
@@ -37,7 +36,6 @@ import org.apache.commons.lang3.StringUtils;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -63,6 +61,13 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
     private void processProps(Map<String, String> properties) throws AnalysisException {
         Map<String, String> copyProps = new HashMap<>(properties);
         copyProps.put("format", "json");
+
+        // Materialize jobId so generateParams has a stable value across TVF invocations.
+        // Standalone TVF path: not tied to any job, so we generate a random id here.
+        // TVF-inside-job path: job.id is already injected by rewriteTvfParams.
+        copyProps.computeIfAbsent(JOB_ID_KEY,
+                k -> UUID.randomUUID().toString().replace("-", ""));
+
         super.parseCommonProperties(copyProps);
         this.processedParams.put(ENABLE_CDC_CLIENT_KEY, "true");
         this.processedParams.put(URI_KEY, URI);
@@ -70,7 +75,7 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
         this.processedParams.put(HTTP_ENABLE_CHUNK_RESPONSE_KEY, "true");
         this.processedParams.put(HTTP_METHOD_KEY, "POST");
 
-        String payload = generateParams(properties);
+        String payload = generateParams(copyProps);
         this.processedParams.put(HTTP_PAYLOAD_KEY, payload);
         this.backendConnectProperties.putAll(processedParams);
         generateFileStatus();
@@ -78,8 +83,7 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
 
     private String generateParams(Map<String, String> properties) throws AnalysisException {
         FetchRecordRequest recordRequest = new FetchRecordRequest();
-        String defaultJobId = UUID.randomUUID().toString().replace("-", "");
-        recordRequest.setJobId(properties.getOrDefault(JOB_ID_KEY, defaultJobId));
+        recordRequest.setJobId(properties.get(JOB_ID_KEY));
         recordRequest.setDataSource(properties.get(DataSourceConfigKeys.TYPE));
         recordRequest.setConfig(properties);
         try {
@@ -91,7 +95,6 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
                 Map<String, Object> metaMap = objectMapper.readValue(meta, new TypeReference<Map<String, Object>>() {});
                 recordRequest.setMeta(metaMap);
             }
-
             return objectMapper.writeValueAsString(recordRequest);
         } catch (IOException e) {
             LOG.warn("Failed to serialize fetch record request", e);
@@ -111,16 +114,6 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
         }
         if (!properties.containsKey(DataSourceConfigKeys.OFFSET)) {
             throw new AnalysisException("offset is required");
-        }
-        DataSourceType sourceType = DataSourceType.valueOf(
-                properties.get(DataSourceConfigKeys.TYPE).toUpperCase());
-        String jobId = properties.getOrDefault(JOB_ID_KEY,
-                UUID.randomUUID().toString().replace("-", ""));
-        List<String> tables = Collections.singletonList(properties.get(DataSourceConfigKeys.TABLE));
-        try {
-            StreamingJobUtils.validateSourceResources(sourceType, properties, jobId, tables);
-        } catch (JobException e) {
-            throw new AnalysisException(e.getMessage(), e);
         }
     }
 

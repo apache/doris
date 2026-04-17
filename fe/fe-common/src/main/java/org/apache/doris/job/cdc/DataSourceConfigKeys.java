@@ -46,6 +46,9 @@ public class DataSourceConfigKeys {
     public static final String PUBLICATION_NAME = "publication_name";
     public static final String DEFAULT_SLOT_PREFIX = "doris_cdc_";
     public static final String DEFAULT_PUBLICATION_PREFIX = "doris_pub_";
+    // Pre-PR default (Debezium auto-created). Legacy jobs reconnecting on a newer version fall
+    // back to this name when no publication_name was persisted.
+    public static final String LEGACY_PUBLICATION_NAME = "dbz_publication";
 
     public static String defaultSlotName(String jobId) {
         return DEFAULT_SLOT_PREFIX + jobId;
