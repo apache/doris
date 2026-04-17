@@ -20,12 +20,11 @@ package org.apache.doris.cloud;
 import com.google.gson.JsonObject;
 
 /**
- * Per-(job_id, table_id) windowed warmup statistics collected from a single BE.
+ * Per-job windowed warmup statistics collected from a single BE.
  * Contains requested, finish, and fail counters for segments and indexes
  * across 3 time windows (5m, 30m, 2h).
  */
 public class TableWarmUpWindowedStats {
-    public long tableId;
 
     // requested (source BE populates these)
     public long requestedSegmentNum5m;
@@ -77,7 +76,6 @@ public class TableWarmUpWindowedStats {
      */
     public static TableWarmUpWindowedStats fromJson(JsonObject obj) {
         TableWarmUpWindowedStats s = new TableWarmUpWindowedStats();
-        s.tableId = obj.get("table_id").getAsLong();
 
         JsonObject req = obj.getAsJsonObject("requested");
         if (req != null) {

@@ -391,41 +391,35 @@ bvar::Adder<uint64_t> g_file_cache_warm_up_rowset_wait_for_compaction_num(
 bvar::Adder<uint64_t> g_file_cache_warm_up_rowset_wait_for_compaction_timeout_num(
         "file_cache_warm_up_rowset_wait_for_compaction_timeout_num");
 
-// Per-(job_id, table_id) windowed metrics for target BE
+// Per-job windowed metrics for target BE
 static constexpr int WINDOW_5M = 300;
 static constexpr int WINDOW_30M = 1800;
 static constexpr int WINDOW_2H = 7200;
 
-MBvarWindowedAdder g_warmup_ed_finish_segment_num("warmup_ed_finish_segment_num",
-                                                  {"job_id", "table_id"},
+MBvarWindowedAdder g_warmup_ed_finish_segment_num("warmup_ed_finish_segment_num", {"job_id"},
                                                   {WINDOW_5M, WINDOW_30M, WINDOW_2H});
-MBvarWindowedAdder g_warmup_ed_finish_segment_size("warmup_ed_finish_segment_size",
-                                                   {"job_id", "table_id"},
+MBvarWindowedAdder g_warmup_ed_finish_segment_size("warmup_ed_finish_segment_size", {"job_id"},
                                                    {WINDOW_5M, WINDOW_30M, WINDOW_2H});
-MBvarWindowedAdder g_warmup_ed_finish_index_num("warmup_ed_finish_index_num",
-                                                {"job_id", "table_id"},
+MBvarWindowedAdder g_warmup_ed_finish_index_num("warmup_ed_finish_index_num", {"job_id"},
                                                 {WINDOW_5M, WINDOW_30M, WINDOW_2H});
-MBvarWindowedAdder g_warmup_ed_finish_index_size("warmup_ed_finish_index_size",
-                                                 {"job_id", "table_id"},
+MBvarWindowedAdder g_warmup_ed_finish_index_size("warmup_ed_finish_index_size", {"job_id"},
                                                  {WINDOW_5M, WINDOW_30M, WINDOW_2H});
-MBvarWindowedAdder g_warmup_ed_fail_segment_num("warmup_ed_fail_segment_num",
-                                                {"job_id", "table_id"},
+MBvarWindowedAdder g_warmup_ed_fail_segment_num("warmup_ed_fail_segment_num", {"job_id"},
                                                 {WINDOW_5M, WINDOW_30M, WINDOW_2H});
-MBvarWindowedAdder g_warmup_ed_fail_segment_size("warmup_ed_fail_segment_size",
-                                                 {"job_id", "table_id"},
+MBvarWindowedAdder g_warmup_ed_fail_segment_size("warmup_ed_fail_segment_size", {"job_id"},
                                                  {WINDOW_5M, WINDOW_30M, WINDOW_2H});
-MBvarWindowedAdder g_warmup_ed_fail_index_num("warmup_ed_fail_index_num", {"job_id", "table_id"},
+MBvarWindowedAdder g_warmup_ed_fail_index_num("warmup_ed_fail_index_num", {"job_id"},
                                               {WINDOW_5M, WINDOW_30M, WINDOW_2H});
-MBvarWindowedAdder g_warmup_ed_fail_index_size("warmup_ed_fail_index_size", {"job_id", "table_id"},
+MBvarWindowedAdder g_warmup_ed_fail_index_size("warmup_ed_fail_index_size", {"job_id"},
                                                {WINDOW_5M, WINDOW_30M, WINDOW_2H});
 bvar::MultiDimension<bvar::Status<int64_t>> g_warmup_ed_last_finish_ts("warmup_ed_last_finish_ts",
-                                                                       {"job_id", "table_id"});
+                                                                       {"job_id"});
 
 void handle_segment_download_done(Status st, int64_t tablet_id, const RowsetId& rowset_id,
                                   int64_t segment_id, std::shared_ptr<CloudTablet> tablet,
                                   std::shared_ptr<bthread::CountdownEvent> wait, Version version,
                                   int64_t segment_size, int64_t request_ts, int64_t handle_ts,
-                                  std::string jid, std::string tid) {
+                                  std::string job_id_str) {
     DBUG_EXECUTE_IF("CloudInternalServiceImpl::warm_up_rowset.download_segment", {
         auto sleep_time = dp->param<int>("sleep", 3);
         LOG_INFO("[verbose] block download for rowset={}, version={}, sleep={}",
@@ -442,14 +436,14 @@ void handle_segment_download_done(Status st, int64_t tablet_id, const RowsetId& 
             });
     if (st.ok()) {
         g_file_cache_event_driven_warm_up_finished_segment_num << 1;
-        g_warmup_ed_finish_segment_num.put({jid, tid}, 1);
+        g_warmup_ed_finish_segment_num.put({job_id_str}, 1);
         g_file_cache_event_driven_warm_up_finished_segment_size << segment_size;
-        g_warmup_ed_finish_segment_size.put({jid, tid}, segment_size);
+        g_warmup_ed_finish_segment_size.put({job_id_str}, segment_size);
         int64_t now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
                                  std::chrono::system_clock::now().time_since_epoch())
                                  .count();
         g_file_cache_warm_up_rowset_last_finish_unix_ts.set_value(now_ts);
-        auto* finish_ts = g_warmup_ed_last_finish_ts.get_stats(std::list<std::string> {jid, tid});
+        auto* finish_ts = g_warmup_ed_last_finish_ts.get_stats(std::list<std::string> {job_id_str});
         if (finish_ts) {
             finish_ts->set_value(std::chrono::duration_cast<std::chrono::milliseconds>(
                                          std::chrono::system_clock::now().time_since_epoch())
@@ -471,9 +465,9 @@ void handle_segment_download_done(Status st, int64_t tablet_id, const RowsetId& 
         }
     } else {
         g_file_cache_event_driven_warm_up_failed_segment_num << 1;
-        g_warmup_ed_fail_segment_num.put({jid, tid}, 1);
+        g_warmup_ed_fail_segment_num.put({job_id_str}, 1);
         g_file_cache_event_driven_warm_up_failed_segment_size << segment_size;
-        g_warmup_ed_fail_segment_size.put({jid, tid}, segment_size);
+        g_warmup_ed_fail_segment_size.put({job_id_str}, segment_size);
         LOG(WARNING) << "download segment failed, tablet_id: " << tablet_id
                      << " rowset_id: " << rowset_id.to_string() << ", error: " << st;
     }
@@ -493,7 +487,7 @@ void handle_inverted_index_download_done(Status st, int64_t tablet_id, const Row
                                          std::shared_ptr<CloudTablet> tablet,
                                          std::shared_ptr<bthread::CountdownEvent> wait,
                                          Version version, uint64_t idx_size, int64_t request_ts,
-                                         int64_t handle_ts, std::string jid, std::string tid) {
+                                         int64_t handle_ts, std::string job_id_str) {
     DBUG_EXECUTE_IF("CloudInternalServiceImpl::warm_up_rowset.download_inverted_idx", {
         auto sleep_time = dp->param<int>("sleep", 3);
         LOG_INFO(
@@ -504,14 +498,14 @@ void handle_inverted_index_download_done(Status st, int64_t tablet_id, const Row
     });
     if (st.ok()) {
         g_file_cache_event_driven_warm_up_finished_index_num << 1;
-        g_warmup_ed_finish_index_num.put({jid, tid}, 1);
+        g_warmup_ed_finish_index_num.put({job_id_str}, 1);
         g_file_cache_event_driven_warm_up_finished_index_size << idx_size;
-        g_warmup_ed_finish_index_size.put({jid, tid}, static_cast<int64_t>(idx_size));
+        g_warmup_ed_finish_index_size.put({job_id_str}, static_cast<int64_t>(idx_size));
         int64_t now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
                                  std::chrono::system_clock::now().time_since_epoch())
                                  .count();
         g_file_cache_warm_up_rowset_last_finish_unix_ts.set_value(now_ts);
-        auto* finish_ts = g_warmup_ed_last_finish_ts.get_stats(std::list<std::string> {jid, tid});
+        auto* finish_ts = g_warmup_ed_last_finish_ts.get_stats(std::list<std::string> {job_id_str});
         if (finish_ts) {
             finish_ts->set_value(std::chrono::duration_cast<std::chrono::milliseconds>(
                                          std::chrono::system_clock::now().time_since_epoch())
@@ -533,9 +527,9 @@ void handle_inverted_index_download_done(Status st, int64_t tablet_id, const Row
         }
     } else {
         g_file_cache_event_driven_warm_up_failed_index_num << 1;
-        g_warmup_ed_fail_index_num.put({jid, tid}, 1);
+        g_warmup_ed_fail_index_num.put({job_id_str}, 1);
         g_file_cache_event_driven_warm_up_failed_index_size << idx_size;
-        g_warmup_ed_fail_index_size.put({jid, tid}, static_cast<int64_t>(idx_size));
+        g_warmup_ed_fail_index_size.put({job_id_str}, static_cast<int64_t>(idx_size));
         LOG(WARNING) << "download inverted index failed, tablet_id: " << tablet_id
                      << " rowset_id: " << rowset_id << ", error: " << st;
     }
@@ -566,7 +560,7 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
     }
 
     // Extract job_id from request (0 if not set, for backward compatibility)
-    std::string jid = std::to_string(request->has_job_id() ? request->job_id() : 0);
+    std::string job_id_str = std::to_string(request->has_job_id() ? request->job_id() : 0);
 
     for (auto& rs_meta_pb : request->rowset_metas()) {
         RowsetMeta rs_meta;
@@ -593,7 +587,6 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
         }
         auto tablet = res.value();
         auto tablet_meta = tablet->tablet_meta();
-        std::string tid = std::to_string(tablet_meta->table_id());
 
         int64_t handle_ts = std::chrono::duration_cast<std::chrono::microseconds>(
                                     std::chrono::system_clock::now().time_since_epoch())
@@ -636,7 +629,7 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                                 [=, version = rs_meta.version()](Status st) {
                                     handle_segment_download_done(
                                             st, tablet_id, rowset_id, segment_id, tablet, wait,
-                                            version, segment_size, request_ts, handle_ts, jid, tid);
+                                            version, segment_size, request_ts, handle_ts, job_id_str);
                                 },
                         .tablet_id = tablet_id};
 
@@ -650,8 +643,8 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
             }
 
             // Use rs_meta.fs() to support packed files for inverted index download.
-            auto download_inverted_index = [&, tablet, jid, tid](std::string index_path,
-                                                                 uint64_t idx_size) {
+            auto download_inverted_index = [&, tablet, job_id_str](std::string index_path,
+                                                            uint64_t idx_size) {
                 io::DownloadFileMeta download_meta {
                         .path = io::Path(index_path),
                         .file_size = static_cast<int64_t>(idx_size),
@@ -665,7 +658,7 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                                     handle_inverted_index_download_done(
                                             st, tablet_id, rowset_id, segment_id, index_path,
                                             tablet, wait, version, idx_size, request_ts, handle_ts,
-                                            jid, tid);
+                                            job_id_str);
                                 },
                         .tablet_id = tablet_id};
                 g_file_cache_event_driven_warm_up_submitted_index_num << 1;

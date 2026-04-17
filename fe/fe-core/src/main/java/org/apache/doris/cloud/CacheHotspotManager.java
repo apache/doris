@@ -128,8 +128,8 @@ public class CacheHotspotManager extends MasterDaemon {
     // Per-job aggregated warmup stats for SHOW WARM UP JOB SyncStats column
     private final ConcurrentHashMap<Long, JobWarmUpStats> jobWarmUpStatsMap = new ConcurrentHashMap<>();
 
-    // Per-cluster per-(job, table) raw stats — rebuilt each collection round
-    private volatile Map<String, Map<Long, Map<Long, TableWarmUpWindowedStats>>> clusterStats =
+    // Per-cluster per-job raw stats — rebuilt each collection round
+    private volatile Map<String, Map<Long, TableWarmUpWindowedStats>> clusterStats =
             Collections.emptyMap();
 
     // Persistent thread pool for concurrent BE HTTP requests
@@ -761,17 +761,17 @@ public class CacheHotspotManager extends MasterDaemon {
             });
         }
 
-        // 4. Collect results and merge by cluster → jobId → tableId
-        Map<String, Map<Long, Map<Long, TableWarmUpWindowedStats>>> newClusterStats = new HashMap<>();
+        // 4. Collect results and merge by cluster → jobId
+        Map<String, Map<Long, TableWarmUpWindowedStats>> newClusterStats = new HashMap<>();
         for (int i = 0; i < allTargets.size(); i++) {
             try {
                 Future<Pair<String, String>> future = completionService.take();
                 Pair<String, String> result = future.get(10, TimeUnit.SECONDS);
                 String cluster = result.first;
                 String json = result.second;
-                Map<Long, Map<Long, TableWarmUpWindowedStats>> jobTableMap =
+                Map<Long, TableWarmUpWindowedStats> jobMap =
                         newClusterStats.computeIfAbsent(cluster, k -> new HashMap<>());
-                mergeStatsFromJson(jobTableMap, json);
+                mergeStatsFromJson(jobMap, json);
             } catch (Exception e) {
                 LOG.warn("Failed to collect warmup stats: {}", e.getMessage());
             }
@@ -789,11 +789,11 @@ public class CacheHotspotManager extends MasterDaemon {
     }
 
     /**
-     * Parse BE JSON response and merge into jobTableMap.
-     * JSON structure: data[].{job_id, tables[].{table_id, requested, finish, fail, ...}}
+     * Parse BE JSON response and merge into jobMap.
+     * JSON structure: data[].{job_id, requested, finish, fail, ...}
      */
     private void mergeStatsFromJson(
-            Map<Long, Map<Long, TableWarmUpWindowedStats>> jobTableMap, String json) {
+            Map<Long, TableWarmUpWindowedStats> jobMap, String json) {
         try {
             JsonObject root = JsonParser.parseString(json).getAsJsonObject();
             JsonArray data = root.getAsJsonArray("data");
@@ -803,25 +803,14 @@ public class CacheHotspotManager extends MasterDaemon {
             for (JsonElement jobElem : data) {
                 JsonObject jobObj = jobElem.getAsJsonObject();
                 long jobId = jobObj.get("job_id").getAsLong();
-                Map<Long, TableWarmUpWindowedStats> tableMap =
-                        jobTableMap.computeIfAbsent(jobId, k -> new HashMap<>());
-
-                JsonArray tables = jobObj.getAsJsonArray("tables");
-                if (tables == null) {
-                    continue;
-                }
-                for (JsonElement tableElem : tables) {
-                    JsonObject obj = tableElem.getAsJsonObject();
-                    long tableId = obj.get("table_id").getAsLong();
-                    TableWarmUpWindowedStats stats = TableWarmUpWindowedStats.fromJson(obj);
-                    tableMap.compute(tableId, (tid, existing) -> {
-                        if (existing == null) {
-                            return stats;
-                        }
-                        existing.merge(stats);
-                        return existing;
-                    });
-                }
+                TableWarmUpWindowedStats stats = TableWarmUpWindowedStats.fromJson(jobObj);
+                jobMap.compute(jobId, (id, existing) -> {
+                    if (existing == null) {
+                        return stats;
+                    }
+                    existing.merge(stats);
+                    return existing;
+                });
             }
         } catch (Exception e) {
             LOG.warn("Failed to parse warmup stats JSON: {}", e.getMessage());
@@ -837,22 +826,18 @@ public class CacheHotspotManager extends MasterDaemon {
         String srcCluster = job.getSrcClusterName();
         String dstCluster = job.getDstClusterName();
 
-        Map<Long, TableWarmUpWindowedStats> srcJobMap = clusterStats
+        TableWarmUpWindowedStats srcStat = clusterStats
                 .getOrDefault(srcCluster, Collections.emptyMap())
-                .getOrDefault(jobId, Collections.emptyMap());
-        Map<Long, TableWarmUpWindowedStats> dstJobMap = clusterStats
+                .get(jobId);
+        TableWarmUpWindowedStats dstStat = clusterStats
                 .getOrDefault(dstCluster, Collections.emptyMap())
-                .getOrDefault(jobId, Collections.emptyMap());
+                .get(jobId);
 
-        for (Long tableId : job.getCurrentTableIds()) {
-            TableWarmUpWindowedStats srcStat = srcJobMap.get(tableId);
-            TableWarmUpWindowedStats dstStat = dstJobMap.get(tableId);
-            if (srcStat != null) {
-                result.mergeRequested(srcStat);
-            }
-            if (dstStat != null) {
-                result.mergeFinished(dstStat);
-            }
+        if (srcStat != null) {
+            result.mergeRequested(srcStat);
+        }
+        if (dstStat != null) {
+            result.mergeFinished(dstStat);
         }
         result.computeGap();
         return result;

@@ -24,14 +24,14 @@
 
 namespace doris {
 
-// Source BE metrics (defined in cloud_warm_up_manager.cpp)
+// Source BE metrics — keyed by job_id (defined in cloud_warm_up_manager.cpp)
 extern MBvarWindowedAdder g_warmup_ed_requested_segment_num;
 extern MBvarWindowedAdder g_warmup_ed_requested_segment_size;
 extern MBvarWindowedAdder g_warmup_ed_requested_index_num;
 extern MBvarWindowedAdder g_warmup_ed_requested_index_size;
 extern bvar::MultiDimension<bvar::Status<int64_t>> g_warmup_ed_last_trigger_ts;
 
-// Target BE metrics (defined in cloud_internal_service.cpp)
+// Target BE metrics — keyed by job_id (defined in cloud_internal_service.cpp)
 extern MBvarWindowedAdder g_warmup_ed_finish_segment_num;
 extern MBvarWindowedAdder g_warmup_ed_finish_segment_size;
 extern MBvarWindowedAdder g_warmup_ed_finish_index_num;

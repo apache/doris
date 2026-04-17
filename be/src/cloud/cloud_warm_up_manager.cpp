@@ -90,25 +90,22 @@ bvar::Adder<uint64_t> g_balance_tablet_be_mapping_size("balance_tablet_be_mappin
 bvar::LatencyRecorder g_file_cache_warm_up_rowset_wait_for_compaction_latency(
         "file_cache_warm_up_rowset_wait_for_compaction_latency");
 
-// Per-(job_id, table_id) windowed metrics for source BE
+// Per-job windowed metrics for source BE
 static constexpr int WINDOW_5M = 300;
 static constexpr int WINDOW_30M = 1800;
 static constexpr int WINDOW_2H = 7200;
 
-MBvarWindowedAdder g_warmup_ed_requested_segment_num("warmup_ed_requested_segment_num",
-                                                     {"job_id", "table_id"},
+MBvarWindowedAdder g_warmup_ed_requested_segment_num("warmup_ed_requested_segment_num", {"job_id"},
                                                      {WINDOW_5M, WINDOW_30M, WINDOW_2H});
 MBvarWindowedAdder g_warmup_ed_requested_segment_size("warmup_ed_requested_segment_size",
-                                                      {"job_id", "table_id"},
+                                                      {"job_id"},
                                                       {WINDOW_5M, WINDOW_30M, WINDOW_2H});
-MBvarWindowedAdder g_warmup_ed_requested_index_num("warmup_ed_requested_index_num",
-                                                   {"job_id", "table_id"},
+MBvarWindowedAdder g_warmup_ed_requested_index_num("warmup_ed_requested_index_num", {"job_id"},
                                                    {WINDOW_5M, WINDOW_30M, WINDOW_2H});
-MBvarWindowedAdder g_warmup_ed_requested_index_size("warmup_ed_requested_index_size",
-                                                    {"job_id", "table_id"},
+MBvarWindowedAdder g_warmup_ed_requested_index_size("warmup_ed_requested_index_size", {"job_id"},
                                                     {WINDOW_5M, WINDOW_30M, WINDOW_2H});
 bvar::MultiDimension<bvar::Status<int64_t>> g_warmup_ed_last_trigger_ts("warmup_ed_last_trigger_ts",
-                                                                        {"job_id", "table_id"});
+                                                                        {"job_id"});
 
 CloudWarmUpManager::CloudWarmUpManager(CloudStorageEngine& engine) : _engine(engine) {
     _download_thread = std::thread(&CloudWarmUpManager::handle_jobs, this);
@@ -627,9 +624,9 @@ std::vector<JobReplicaInfo> CloudWarmUpManager::get_replica_info(int64_t tablet_
             }
         }
     }
-    for (auto jid : cancelled_jobs) {
-        LOG(INFO) << "get_replica_info: erasing cancelled job, job_id=" << jid;
-        _tablet_replica_cache.erase(jid);
+    for (auto job_id : cancelled_jobs) {
+        LOG(INFO) << "get_replica_info: erasing cancelled job, job_id=" << job_id;
+        _tablet_replica_cache.erase(job_id);
     }
     VLOG_DEBUG << "get_replica_info: return " << replicas.size()
                << " replicas, tablet id=" << tablet_id;
@@ -675,8 +672,7 @@ void CloudWarmUpManager::_warm_up_rowset(RowsetMeta& rs_meta, int64_t table_id,
     }
 }
 
-Status CloudWarmUpManager::_do_warm_up_rowset(RowsetMeta& rs_meta,
-                                              int64_t table_id,
+Status CloudWarmUpManager::_do_warm_up_rowset(RowsetMeta& rs_meta, int64_t table_id,
                                               std::vector<JobReplicaInfo>& replicas,
                                               int64_t sync_wait_timeout_ms,
                                               bool skip_existence_check) {
@@ -687,10 +683,8 @@ Status CloudWarmUpManager::_do_warm_up_rowset(RowsetMeta& rs_meta,
     g_file_cache_warm_up_rowset_last_call_unix_ts.set_value(now_ts);
     auto ret_st = Status::OK();
 
-    std::string tid = std::to_string(table_id);
-
     for (auto& info : replicas) {
-        std::string jid = std::to_string(info.job_id);
+        std::string job_id_str = std::to_string(info.job_id);
 
         PWarmUpRowsetRequest request;
         request.add_rowset_metas()->CopyFrom(rs_meta.get_rowset_pb());
@@ -729,10 +723,10 @@ Status CloudWarmUpManager::_do_warm_up_rowset(RowsetMeta& rs_meta,
             auto seg_size = rs_meta.segment_file_size(cast_set<int>(segment_id));
 
             g_file_cache_event_driven_warm_up_requested_segment_num << 1;
-            g_warmup_ed_requested_segment_num.put({jid, tid}, 1);
+            g_warmup_ed_requested_segment_num.put({job_id_str}, 1);
 
             g_file_cache_event_driven_warm_up_requested_segment_size << seg_size;
-            g_warmup_ed_requested_segment_size.put({jid, tid}, seg_size);
+            g_warmup_ed_requested_segment_size.put({job_id_str}, seg_size);
 
             if (schema_ptr->has_inverted_index() || schema_ptr->has_ann_index()) {
                 if (idx_version == InvertedIndexStorageFormatPB::V1) {
@@ -744,13 +738,12 @@ Status CloudWarmUpManager::_do_warm_up_rowset(RowsetMeta& rs_meta,
                     }
                     for (const auto& idx_info : inverted_index_info.index_info()) {
                         g_file_cache_event_driven_warm_up_requested_index_num << 1;
-                        g_warmup_ed_requested_index_num.put({jid, tid}, 1);
+                        g_warmup_ed_requested_index_num.put({job_id_str}, 1);
 
                         if (idx_info.index_file_size() != -1) {
                             g_file_cache_event_driven_warm_up_requested_index_size
                                     << idx_info.index_file_size();
-                            g_warmup_ed_requested_index_size.put({jid, tid},
-                                                                 idx_info.index_file_size());
+                            g_warmup_ed_requested_index_size.put({job_id_str}, idx_info.index_file_size());
                         } else {
                             VLOG_DEBUG << "Invalid index_file_size for segment_id " << segment_id
                                        << ", index_id " << idx_info.index_id();
@@ -760,12 +753,12 @@ Status CloudWarmUpManager::_do_warm_up_rowset(RowsetMeta& rs_meta,
                     auto&& inverted_index_info =
                             rs_meta.inverted_index_file_info(cast_set<int>(segment_id));
                     g_file_cache_event_driven_warm_up_requested_index_num << 1;
-                    g_warmup_ed_requested_index_num.put({jid, tid}, 1);
+                    g_warmup_ed_requested_index_num.put({job_id_str}, 1);
 
                     if (inverted_index_info.has_index_size()) {
                         g_file_cache_event_driven_warm_up_requested_index_size
                                 << inverted_index_info.index_size();
-                        g_warmup_ed_requested_index_size.put({jid, tid},
+                        g_warmup_ed_requested_index_size.put({job_id_str},
                                                              inverted_index_info.index_size());
                     } else {
                         VLOG_DEBUG << "index_size is not set for segment " << segment_id;
@@ -775,7 +768,7 @@ Status CloudWarmUpManager::_do_warm_up_rowset(RowsetMeta& rs_meta,
         }
 
         // Update last trigger timestamp
-        auto* trigger_ts = g_warmup_ed_last_trigger_ts.get_stats(std::list<std::string> {jid, tid});
+        auto* trigger_ts = g_warmup_ed_last_trigger_ts.get_stats(std::list<std::string> {job_id_str});
         if (trigger_ts) {
             trigger_ts->set_value(std::chrono::duration_cast<std::chrono::milliseconds>(
                                           std::chrono::system_clock::now().time_since_epoch())

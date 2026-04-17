@@ -18,10 +18,8 @@
 #include "service/http/action/warmup_stats_action.h"
 
 #include <list>
-#include <map>
 #include <set>
 #include <string>
-#include <vector>
 
 #include "cloud/cloud_warmup_metrics.h"
 #include "service/http/http_channel.h"
@@ -31,14 +29,6 @@
 #include "util/easy_json.h"
 
 namespace doris {
-
-static std::list<std::string> split_dim_key(const std::string& dim_key) {
-    auto pos = dim_key.find(',');
-    if (pos == std::string::npos) {
-        return {dim_key};
-    }
-    return {dim_key.substr(0, pos), dim_key.substr(pos + 1)};
-}
 
 // Fill windowed num/size metrics into a JSON object
 static void fill_windowed(EasyJson& parent, const std::string& key, MBvarWindowedAdder& num_adder,
@@ -55,72 +45,50 @@ static void fill_windowed(EasyJson& parent, const std::string& key, MBvarWindowe
 }
 
 void WarmUpStatsAction::handle(HttpRequest* req) {
-    // Collect all dimension keys from all metrics
+    // Collect all job_id dimension keys from all metrics
     std::set<std::string> all_keys;
     for (auto& k : g_warmup_ed_requested_segment_num.list_dimensions()) all_keys.insert(k);
     for (auto& k : g_warmup_ed_finish_segment_num.list_dimensions()) all_keys.insert(k);
     for (auto& k : g_warmup_ed_fail_segment_num.list_dimensions()) all_keys.insert(k);
 
-    // Group by job_id
-    std::map<std::string, std::vector<std::string>> job_to_keys;
-    for (auto& key : all_keys) {
-        auto pos = key.find(',');
-        std::string jid = (pos != std::string::npos) ? key.substr(0, pos) : "0";
-        job_to_keys[jid].push_back(key);
-    }
-
     EasyJson result;
     result["code"] = 0;
     EasyJson jobs = result.Set("data", EasyJson::kArray);
 
-    for (auto& [jid, keys] : job_to_keys) {
-        EasyJson job_entry = jobs.PushBack(EasyJson::kObject);
+    for (auto& job_id_str : all_keys) {
+        EasyJson entry = jobs.PushBack(EasyJson::kObject);
         try {
-            job_entry["job_id"] = static_cast<int64_t>(std::stoll(jid));
+            entry["job_id"] = static_cast<int64_t>(std::stoll(job_id_str));
         } catch (...) {
-            job_entry["job_id"] = 0;
+            entry["job_id"] = 0;
         }
-        EasyJson tables = job_entry.Set("tables", EasyJson::kArray);
 
-        for (auto& dim_key : keys) {
-            auto pos = dim_key.find(',');
-            std::string tid_str = (pos != std::string::npos) ? dim_key.substr(pos + 1) : dim_key;
+        // requested
+        EasyJson req_obj = entry.Set("requested", EasyJson::kObject);
+        fill_windowed(req_obj, "seg", g_warmup_ed_requested_segment_num,
+                      g_warmup_ed_requested_segment_size, job_id_str);
+        fill_windowed(req_obj, "idx", g_warmup_ed_requested_index_num,
+                      g_warmup_ed_requested_index_size, job_id_str);
 
-            EasyJson entry = tables.PushBack(EasyJson::kObject);
-            try {
-                entry["table_id"] = static_cast<int64_t>(std::stoll(tid_str));
-            } catch (...) {
-                entry["table_id"] = 0;
-            }
+        // finish
+        EasyJson fin_obj = entry.Set("finish", EasyJson::kObject);
+        fill_windowed(fin_obj, "seg", g_warmup_ed_finish_segment_num,
+                      g_warmup_ed_finish_segment_size, job_id_str);
+        fill_windowed(fin_obj, "idx", g_warmup_ed_finish_index_num, g_warmup_ed_finish_index_size,
+                      job_id_str);
 
-            // requested
-            EasyJson req_obj = entry.Set("requested", EasyJson::kObject);
-            fill_windowed(req_obj, "seg", g_warmup_ed_requested_segment_num,
-                          g_warmup_ed_requested_segment_size, dim_key);
-            fill_windowed(req_obj, "idx", g_warmup_ed_requested_index_num,
-                          g_warmup_ed_requested_index_size, dim_key);
+        // fail
+        EasyJson fail_obj = entry.Set("fail", EasyJson::kObject);
+        fill_windowed(fail_obj, "seg", g_warmup_ed_fail_segment_num, g_warmup_ed_fail_segment_size,
+                      job_id_str);
+        fill_windowed(fail_obj, "idx", g_warmup_ed_fail_index_num, g_warmup_ed_fail_index_size,
+                      job_id_str);
 
-            // finish
-            EasyJson fin_obj = entry.Set("finish", EasyJson::kObject);
-            fill_windowed(fin_obj, "seg", g_warmup_ed_finish_segment_num,
-                          g_warmup_ed_finish_segment_size, dim_key);
-            fill_windowed(fin_obj, "idx", g_warmup_ed_finish_index_num,
-                          g_warmup_ed_finish_index_size, dim_key);
-
-            // fail
-            EasyJson fail_obj = entry.Set("fail", EasyJson::kObject);
-            fill_windowed(fail_obj, "seg", g_warmup_ed_fail_segment_num,
-                          g_warmup_ed_fail_segment_size, dim_key);
-            fill_windowed(fail_obj, "idx", g_warmup_ed_fail_index_num, g_warmup_ed_fail_index_size,
-                          dim_key);
-
-            // Timestamps
-            auto dims = split_dim_key(dim_key);
-            auto* trigger_ts = g_warmup_ed_last_trigger_ts.get_stats(dims);
-            entry["last_trigger_ts"] = trigger_ts ? trigger_ts->get_value() : 0;
-            auto* finish_ts = g_warmup_ed_last_finish_ts.get_stats(dims);
-            entry["last_finish_ts"] = finish_ts ? finish_ts->get_value() : 0;
-        }
+        // Timestamps
+        auto* trigger_ts = g_warmup_ed_last_trigger_ts.get_stats(std::list<std::string> {job_id_str});
+        entry["last_trigger_ts"] = trigger_ts ? trigger_ts->get_value() : 0;
+        auto* finish_ts = g_warmup_ed_last_finish_ts.get_stats(std::list<std::string> {job_id_str});
+        entry["last_finish_ts"] = finish_ts ? finish_ts->get_value() : 0;
     }
 
     req->add_output_header(HttpHeaders::CONTENT_TYPE, "application/json");
