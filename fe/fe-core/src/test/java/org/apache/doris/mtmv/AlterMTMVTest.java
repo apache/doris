@@ -18,14 +18,20 @@
 package org.apache.doris.mtmv;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.mtmv.ivm.IvmInfo;
+import org.apache.doris.mtmv.ivm.IvmStreamRef;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Set;
 
 
@@ -135,7 +141,7 @@ public class AlterMTMVTest extends TestWithFeService {
         Exception ex = Assertions.assertThrows(Exception.class,
                 () -> alterMv("ALTER MATERIALIZED VIEW alt_incr_mv\n"
                         + " REFRESH COMPLETE ON MANUAL"));
-        Assertions.assertTrue(ex.getMessage().contains("Cannot ALTER refresh method from INCREMENTAL"),
+        Assertions.assertTrue(ex.getMessage().contains("Cannot ALTER the refresh method of an INCREMENTAL"),
                 "unexpected message: " + ex.getMessage());
     }
 
@@ -154,7 +160,7 @@ public class AlterMTMVTest extends TestWithFeService {
         Exception ex = Assertions.assertThrows(Exception.class,
                 () -> alterMv("ALTER MATERIALIZED VIEW alt_incr_mv3\n"
                         + " REFRESH AUTO ON MANUAL"));
-        Assertions.assertTrue(ex.getMessage().contains("Cannot ALTER refresh method from INCREMENTAL"),
+        Assertions.assertTrue(ex.getMessage().contains("Cannot ALTER the refresh method of an INCREMENTAL"),
                 "unexpected message: " + ex.getMessage());
     }
 
@@ -208,5 +214,63 @@ public class AlterMTMVTest extends TestWithFeService {
                         + " REFRESH INCREMENTAL ON MANUAL"));
         Assertions.assertTrue(ex.getMessage().contains("Cannot ALTER refresh method to INCREMENTAL"),
                 "unexpected message: " + ex.getMessage());
+    }
+
+    @Test
+    public void testAlterIvmInfoPersistence() throws Exception {
+        createDatabaseAndUse("alter_ivm_test");
+        createTable("CREATE TABLE alter_ivm_test.ivm_base (k1 int, v1 int)\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createMvByNereids("CREATE MATERIALIZED VIEW ivm_alter_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, v1 FROM ivm_base");
+
+        MTMV mtmv = (MTMV) Env.getCurrentInternalCatalog()
+                .getDb("alter_ivm_test").get()
+                .getTableOrMetaException("ivm_alter_mv");
+
+        // Verify initial state
+        IvmInfo initialInfo = mtmv.getIvmInfo();
+        Assertions.assertFalse(initialInfo.isRunningIvmRefresh());
+        Assertions.assertTrue(initialInfo.getBaseTableStreams().isEmpty());
+
+        // Build a modified IvmInfo with runningIvmRefresh=true and a baseTableStream entry
+        IvmInfo newInfo = new IvmInfo();
+        newInfo.setRunningIvmRefresh(true);
+        Table baseTable = Env.getCurrentInternalCatalog()
+                .getDb("alter_ivm_test").get()
+                .getTableOrMetaException("ivm_base");
+        BaseTableInfo baseTableInfo = new BaseTableInfo(baseTable);
+        Map<BaseTableInfo, IvmStreamRef> streams = new HashMap<>();
+        streams.put(baseTableInfo, new IvmStreamRef(42L));
+        newInfo.setBaseTableStreams(streams);
+
+        // Persist via alterMTMVIvmInfo
+        TableNameInfo tableName = new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName());
+        Env.getCurrentEnv().alterMTMVIvmInfo(tableName, newInfo);
+
+        // Verify the MTMV's IvmInfo was updated
+        IvmInfo updatedInfo = mtmv.getIvmInfo();
+        Assertions.assertTrue(updatedInfo.isRunningIvmRefresh());
+        Assertions.assertEquals(1, updatedInfo.getBaseTableStreams().size());
+        IvmStreamRef ref = updatedInfo.getBaseTableStreams().get(baseTableInfo);
+        Assertions.assertNotNull(ref, "stream ref should exist for base table");
+        Assertions.assertEquals(42L, ref.getConsumedTso());
+
+        // Reset it back and verify
+        IvmInfo resetInfo = new IvmInfo();
+        resetInfo.setRunningIvmRefresh(false);
+        Map<BaseTableInfo, IvmStreamRef> resetStreams = new HashMap<>();
+        resetStreams.put(baseTableInfo, new IvmStreamRef(100L));
+        resetInfo.setBaseTableStreams(resetStreams);
+        Env.getCurrentEnv().alterMTMVIvmInfo(tableName, resetInfo);
+
+        IvmInfo finalInfo = mtmv.getIvmInfo();
+        Assertions.assertFalse(finalInfo.isRunningIvmRefresh());
+        Assertions.assertEquals(100L, finalInfo.getBaseTableStreams().get(baseTableInfo).getConsumedTso());
     }
 }

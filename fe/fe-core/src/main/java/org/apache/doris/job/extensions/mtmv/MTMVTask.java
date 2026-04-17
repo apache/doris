@@ -274,6 +274,12 @@ public class MTMVTask extends AbstractTask {
                         ivmResult.getDetailMessage(), getTaskId());
             }
             Map<TableIf, String> tableWithPartKey = getIncrementalTableMap();
+            // Capture base table TSOs BEFORE the full refresh executes, so we record the
+            // snapshot version the refresh will read (not a later version after new data arrives).
+            Map<org.apache.doris.mtmv.BaseTableInfo, Long> ivmPreRefreshTsos = null;
+            if (mtmv.isIvm() && mtmv.getIvmInfo().isRunningIvmRefresh()) {
+                ivmPreRefreshTsos = IvmRefreshManager.captureBaseTableTsos(mtmv);
+            }
             this.completedPartitions = Lists.newCopyOnWriteArrayList();
             int refreshPartitionNum = mtmv.getRefreshPartitionNum();
             long execNum = (needRefreshPartitions.size() / refreshPartitionNum) + ((needRefreshPartitions.size()
@@ -289,6 +295,13 @@ public class MTMVTask extends AbstractTask {
                         .generatePartitionSnapshots(context, relation.getBaseTablesOneLevelAndFromView(),
                                 execPartitionNames);
                 try {
+                    // TODO(IVM): When IVM full refresh falls back here, the refresh SQL should
+                    // bind to a specific TSO snapshot to guarantee that consumedTso exactly matches
+                    // the version the SQL actually reads. Currently TSO support is incomplete, so
+                    // the full refresh reads the latest visible version without TSO binding. This
+                    // means the post-refresh consumedTso reset may be slightly inaccurate if base
+                    // table data changes during execution. Address this when TSO-bound reads are
+                    // implemented.
                     executeWithRetry(execPartitionNames, tableWithPartKey);
                 } catch (Exception e) {
                     LOG.error("Execution failed after retries: {}", e.getMessage());
@@ -299,6 +312,13 @@ public class MTMVTask extends AbstractTask {
             }
             LOG.info("MTMVTask refresh used snapshot: {}, mvDbName: {}, mvName: {}, taskId: {}", partitionSnapshots,
                     mtmv.getDatabase().getFullName(), mtmv.getName(), getTaskId());
+            // After a successful partition-based (COMPLETE) refresh, clear the IVM
+            // runningIvmRefresh flag if it was left set by a previous incomplete IVM run.
+            // Also advance consumedTso so the next incremental refresh starts from the
+            // correct position rather than re-processing already-refreshed data.
+            if (mtmv.isIvm() && ivmPreRefreshTsos != null) {
+                IvmRefreshManager.resetIvmStateAfterFullRefresh(mtmv, ivmPreRefreshTsos);
+            }
         } catch (Throwable e) {
             if (getStatus() == TaskStatus.RUNNING) {
                 LOG.warn("run task failed: {}", e.getMessage());
