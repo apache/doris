@@ -366,13 +366,33 @@ class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatc
     }
 
     @Test
-    void invalidateRewriteCachesShouldExposeFailureTest() {
+    void liveConstraintShouldIgnoreDependentMtmvInvalidateFailureTest() throws Exception {
+        TableIf tableIf = RelationUtil.getTable(
+                RelationUtil.getQualifierName(connectContext, Lists.newArrayList("test", "t1")),
+                connectContext.getEnv(), Optional.empty());
+        TableNameInfo tableNameInfo = new TableNameInfo(tableIf.getNameWithFullQualifiers());
+        String pkName = "pk_live_invalidate_failure";
+        ConstraintManager mgr = Env.getCurrentEnv().getConstraintManager();
         MTMV dependentMtmv = Mockito.mock(MTMV.class);
         Mockito.doThrow(new RuntimeException("invalidate failed"))
                 .when(dependentMtmv).invalidateRewriteCache();
 
-        Assertions.assertThrows(RuntimeException.class,
-                () -> MTMVUtil.invalidateRewriteCaches(Lists.newArrayList(dependentMtmv)));
+        try (MockedStatic<MTMVUtil> mtmvUtilMock = Mockito.mockStatic(MTMVUtil.class, Mockito.CALLS_REAL_METHODS)) {
+            mtmvUtilMock.when(() -> MTMVUtil.getDependentMtmvsByBaseTables(Mockito.anyList()))
+                    .thenReturn(Lists.newArrayList(dependentMtmv));
+
+            Assertions.assertDoesNotThrow(() -> addConstraint(
+                    "alter table t1 add constraint " + pkName + " primary key (k1)"));
+            Assertions.assertNotNull(mgr.getConstraint(tableNameInfo, pkName));
+
+            Assertions.assertDoesNotThrow(() -> dropConstraint(
+                    "alter table t1 drop constraint " + pkName));
+            Assertions.assertNull(mgr.getConstraint(tableNameInfo, pkName));
+        } finally {
+            if (mgr.getConstraint(tableNameInfo, pkName) != null) {
+                mgr.dropConstraint(tableNameInfo, pkName, true);
+            }
+        }
     }
 
     @Test
@@ -408,6 +428,41 @@ class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatc
             dropJournal.setOpCode(OperationType.OP_DROP_CONSTRAINT);
             EditLog.loadJournal(Env.getCurrentEnv(), 0L, dropJournal);
             Mockito.verify(dependentMtmv, Mockito.times(2)).invalidateRewriteCache();
+        } finally {
+            if (mgr.getConstraint(tableNameInfo, pk.getName()) != null) {
+                mgr.dropConstraint(tableNameInfo, pk.getName(), true);
+            }
+        }
+    }
+
+    @Test
+    void replayConstraintShouldIgnoreDependentMtmvInvalidateFailureTest() throws Exception {
+        TableIf tableIf = RelationUtil.getTable(
+                RelationUtil.getQualifierName(connectContext, Lists.newArrayList("test", "t1")),
+                connectContext.getEnv(), Optional.empty());
+        TableNameInfo tableNameInfo = new TableNameInfo(tableIf.getNameWithFullQualifiers());
+        PrimaryKeyConstraint pk = new PrimaryKeyConstraint("pk_replay_invalidate_failure",
+                com.google.common.collect.ImmutableSet.of("k1"));
+        MTMV dependentMtmv = Mockito.mock(MTMV.class);
+        Mockito.doThrow(new RuntimeException("invalidate failed"))
+                .when(dependentMtmv).invalidateRewriteCache();
+        ConstraintManager mgr = Env.getCurrentEnv().getConstraintManager();
+
+        try (MockedStatic<MTMVUtil> mtmvUtilMock = Mockito.mockStatic(MTMVUtil.class, Mockito.CALLS_REAL_METHODS)) {
+            mtmvUtilMock.when(() -> MTMVUtil.getDependentMtmvsByBaseTables(Mockito.anyList()))
+                    .thenReturn(Lists.newArrayList(dependentMtmv));
+
+            JournalEntity addJournal = new JournalEntity();
+            addJournal.setData(new AlterConstraintLog(pk, tableNameInfo));
+            addJournal.setOpCode(OperationType.OP_ADD_CONSTRAINT);
+            Assertions.assertDoesNotThrow(() -> EditLog.loadJournal(Env.getCurrentEnv(), 0L, addJournal));
+            Assertions.assertNotNull(mgr.getConstraint(tableNameInfo, pk.getName()));
+
+            JournalEntity dropJournal = new JournalEntity();
+            dropJournal.setData(new AlterConstraintLog(pk, tableNameInfo));
+            dropJournal.setOpCode(OperationType.OP_DROP_CONSTRAINT);
+            Assertions.assertDoesNotThrow(() -> EditLog.loadJournal(Env.getCurrentEnv(), 0L, dropJournal));
+            Assertions.assertNull(mgr.getConstraint(tableNameInfo, pk.getName()));
         } finally {
             if (mgr.getConstraint(tableNameInfo, pk.getName()) != null) {
                 mgr.dropConstraint(tableNameInfo, pk.getName(), true);

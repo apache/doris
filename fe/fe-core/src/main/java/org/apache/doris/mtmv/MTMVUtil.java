@@ -152,9 +152,14 @@ public class MTMVUtil {
         return getDependentMtmvsByBaseTables(getConstraintRelatedBaseTables(tableNameInfo, constraint));
     }
 
-    public static void invalidateRewriteCaches(List<MTMV> dependentMtmvs) {
+    public static void invalidateRewriteCachesBestEffort(List<MTMV> dependentMtmvs, String reason) {
         for (MTMV dependentMtmv : dependentMtmvs) {
-            dependentMtmv.invalidateRewriteCache();
+            try {
+                dependentMtmv.invalidateRewriteCache();
+            } catch (Exception e) {
+                LOG.warn("Failed to invalidate rewrite cache for dependent MTMV {}: {}",
+                        dependentMtmv.getName(), reason, e);
+            }
         }
     }
 

@@ -1212,7 +1212,9 @@ public class EditLog {
                     List<MTMV> dependentMtmvs = MTMVUtil.getDependentMtmvsByConstraint(tni, constraint);
                     env.getConstraintManager().addConstraint(
                             tni, constraint.getName(), constraint, true);
-                    MTMVUtil.invalidateRewriteCaches(dependentMtmvs);
+                    MTMVUtil.invalidateRewriteCachesBestEffort(dependentMtmvs,
+                            String.format("when replaying add constraint %s on table %s",
+                                    constraint.getName(), tni));
                     break;
                 }
                 case OperationType.OP_DROP_CONSTRAINT: {
@@ -1227,7 +1229,9 @@ public class EditLog {
                     List<MTMV> dependentMtmvs = MTMVUtil.getDependentMtmvsByConstraint(tni, constraint);
                     env.getConstraintManager().dropConstraint(
                             tni, constraint.getName(), true);
-                    MTMVUtil.invalidateRewriteCaches(dependentMtmvs);
+                    MTMVUtil.invalidateRewriteCachesBestEffort(dependentMtmvs,
+                            String.format("when replaying drop constraint %s on table %s",
+                                    constraint.getName(), tni));
                     break;
                 }
                 case OperationType.OP_ALTER_USER: {

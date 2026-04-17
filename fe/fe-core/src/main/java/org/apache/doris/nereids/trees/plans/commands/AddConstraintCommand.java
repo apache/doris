@@ -43,8 +43,6 @@ import org.apache.doris.qe.StmtExecutor;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Set;
@@ -53,8 +51,6 @@ import java.util.Set;
  * add constraint command
  */
 public class AddConstraintCommand extends Command implements ForwardWithSync {
-
-    public static final Logger LOG = LogManager.getLogger(AddConstraintCommand.class);
 
     private final String name;
     private final Constraint constraint;
@@ -106,7 +102,8 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
             throws Exception {
         List<MTMV> dependentMtmvs = MTMVUtil.getDependentMtmvsByConstraint(tableNameInfo, constraint);
         Env.getCurrentEnv().getConstraintManager().addConstraint(tableNameInfo, name, constraint, false);
-        MTMVUtil.invalidateRewriteCaches(dependentMtmvs);
+        MTMVUtil.invalidateRewriteCachesBestEffort(dependentMtmvs,
+                String.format("after add constraint %s on table %s", constraint.getName(), tableNameInfo));
     }
 
     private Pair<ImmutableList<String>, TableIf> extractColumnsAndTable(ConnectContext ctx, LogicalPlan plan) {

@@ -82,7 +82,8 @@ public class DropConstraintCommand extends Command implements ForwardWithSync {
         }
         List<MTMV> dependentMtmvs = MTMVUtil.getDependentMtmvsByConstraint(tableNameInfo, constraint);
         Env.getCurrentEnv().getConstraintManager().dropConstraint(tableNameInfo, name, false);
-        MTMVUtil.invalidateRewriteCaches(dependentMtmvs);
+        MTMVUtil.invalidateRewriteCachesBestEffort(dependentMtmvs,
+                String.format("after drop constraint %s on table %s", constraint.getName(), tableNameInfo));
     }
 
     private TableNameInfo extractTableNameFromPlan(ConnectContext ctx) {
