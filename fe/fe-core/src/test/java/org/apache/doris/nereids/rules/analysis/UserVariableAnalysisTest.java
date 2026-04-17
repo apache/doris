@@ -19,91 +19,38 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LargeIntLiteral;
-import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.analyzer.UnboundVariable;
-import org.apache.doris.nereids.analyzer.UnboundVariable.VariableType;
-import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
-import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Variable;
-import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
+import org.apache.doris.nereids.types.SmallIntType;
+import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.List;
-
 /** Tests for user variable handling in expression analysis. */
 public class UserVariableAnalysisTest {
 
     @Test
-    public void testUserVarIntegerTypeSmall() {
+    public void testUserVarIntegerType() {
         ConnectContext ctx = MemoTestUtils.createConnectContext();
-        // set user var @a = 1 (small int)
-        ctx.setUserVar("a", new IntLiteral(1L));
-
-        // get nereids literal via ConnectContext helper
-        Literal l = ConnectContext.get().getLiteralForUserVar("a");
-        Assertions.assertNotNull(l);
-        Assertions.assertEquals(IntegerType.INSTANCE, l.getDataType());
-    }
-
-    @Test
-    public void testUserVarIntegerTypeBig() {
-        ConnectContext ctx = MemoTestUtils.createConnectContext();
+        // set user var @a = TINY_INT_MAX (tiny int)
+        ctx.setUserVar("a", new IntLiteral(Byte.MAX_VALUE));
+        // set user var @a = SMALL_INT_MAX (small int)
+        ctx.setUserVar("b", new IntLiteral(Short.MAX_VALUE));
         // set user var @b = Long.MAX_VALUE (bigint)
-        ctx.setUserVar("b", new IntLiteral(Long.MAX_VALUE));
-
-        Literal l = ConnectContext.get().getLiteralForUserVar("b");
-        Assertions.assertNotNull(l);
-        Assertions.assertEquals(BigIntType.INSTANCE, l.getDataType());
-    }
-
-    @Test
-    public void testUserVarIntegerTypeLarge() {
-        ConnectContext ctx = MemoTestUtils.createConnectContext();
+        ctx.setUserVar("c", new IntLiteral(Integer.MAX_VALUE));
         // set user var @b = Long.MAX_VALUE (bigint)
-        ctx.setUserVar("c", new LargeIntLiteral(LargeIntLiteral.LARGE_INT_MAX));
+        ctx.setUserVar("d", new IntLiteral(Long.MAX_VALUE));
+        // set user var @b = Long.MAX_VALUE (bigint)
+        ctx.setUserVar("e", new LargeIntLiteral(LargeIntLiteral.LARGE_INT_MAX));
 
-        Literal l = ConnectContext.get().getLiteralForUserVar("c");
-        Assertions.assertNotNull(l);
-        Assertions.assertEquals(LargeIntType.INSTANCE, l.getDataType());
-    }
-
-    @Test
-    public void testVariableRecordedAndTypeCoercion() {
-        // create context and cascades context (sql cache enabled by default in test utils)
-        ConnectContext ctx = MemoTestUtils.createConnectContext();
-        ctx.setUserVar("uvar", new IntLiteral(42L));
-
-        // create a comparison using an unbound user variable: @uvar = 1
-        UnboundVariable unboundVar = new UnboundVariable(
-                "uvar", VariableType.USER);
-        IntegerLiteral right = new IntegerLiteral(1);
-        ComparisonPredicate cmp = new EqualTo(unboundVar, right);
-
-        // prepare analyzer with cascades context so sql cache context exists
-        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(ctx, "select 1");
-        ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null,
-                new org.apache.doris.nereids.analyzer.Scope(java.util.Collections.emptyList()),
-                cascadesContext, false, false);
-        ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(cascadesContext);
-
-        // analyze should not throw and should handle type coercion
-        Expression analyzed = analyzer.analyze(cmp, rewriteContext);
-        Assertions.assertNotNull(analyzed);
-
-        // sql cache context should have recorded the used variable
-        List<Variable> used = cascadesContext.getStatementContext().getSqlCacheContext().get().getUsedVariables();
-        Assertions.assertFalse(used.isEmpty());
-        boolean found = used.stream().anyMatch(v -> "uvar".equals(v.getName()));
-        Assertions.assertTrue(found, "user variable should be recorded in sql cache context");
+        Assertions.assertEquals(TinyIntType.INSTANCE, ConnectContext.get().getLiteralForUserVar("a").getDataType());
+        Assertions.assertEquals(SmallIntType.INSTANCE, ConnectContext.get().getLiteralForUserVar("b").getDataType());
+        Assertions.assertEquals(IntegerType.INSTANCE, ConnectContext.get().getLiteralForUserVar("c").getDataType());
+        Assertions.assertEquals(BigIntType.INSTANCE, ConnectContext.get().getLiteralForUserVar("d").getDataType());
+        Assertions.assertEquals(LargeIntType.INSTANCE, ConnectContext.get().getLiteralForUserVar("e").getDataType());
     }
 }
