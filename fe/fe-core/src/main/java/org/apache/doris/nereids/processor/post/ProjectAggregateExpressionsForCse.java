@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalBucketedHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
@@ -56,9 +57,26 @@ import java.util.stream.Collectors;
 public class ProjectAggregateExpressionsForCse extends PlanPostProcessor {
     @Override
     public Plan visitPhysicalHashAggregate(PhysicalHashAggregate<? extends Plan> aggregate, CascadesContext ctx) {
-        aggregate = (PhysicalHashAggregate<? extends Plan>) super.visit(aggregate, ctx);
+        return projectAggregateCse(
+                (PhysicalHashAggregate<? extends Plan>) super.visit(aggregate, ctx));
+    }
 
-        // for multi-phases aggregate, only process the 1st phase aggregate
+    @Override
+    public Plan visitPhysicalBucketedHashAggregate(
+            PhysicalBucketedHashAggregate<? extends Plan> aggregate, CascadesContext ctx) {
+        return projectAggregateCse(
+                (PhysicalBucketedHashAggregate<? extends Plan>) super.visit(aggregate, ctx));
+    }
+
+    /**
+     * Shared CSE projection logic for both PhysicalHashAggregate and
+     * PhysicalBucketedHashAggregate. Extracts common sub-expressions from
+     * aggregate function arguments into a project node beneath the aggregate.
+     */
+    private <T extends AbstractPhysicalPlan & Aggregate<? extends Plan>>
+            Plan projectAggregateCse(T aggregate) {
+        // For multi-phase aggregates, only process the 1st phase.
+        // Bucketed agg is always single-phase, but keep the same guard for safety.
         if (aggregate.child() instanceof PhysicalDistribute || aggregate.child() instanceof Aggregate) {
             return aggregate;
         }
@@ -75,7 +93,6 @@ public class ProjectAggregateExpressionsForCse extends PlanPostProcessor {
             inputSlots.addAll(expr.getInputSlots());
         }
         if (cseCandidates.isEmpty()) {
-            // no opportunity to generate cse
             return aggregate;
         }
         CommonSubExpressionCollector collector = new CommonSubExpressionCollector();
@@ -83,7 +100,6 @@ public class ProjectAggregateExpressionsForCse extends PlanPostProcessor {
             collector.collect(expr);
         }
         if (collector.commonExprByDepth.isEmpty()) {
-            // no opportunity to generate cse
             return aggregate;
         }
         if (aggregate.child() instanceof PhysicalProject) {
@@ -151,8 +167,7 @@ public class ProjectAggregateExpressionsForCse extends PlanPostProcessor {
             PhysicalProperties projectPhysicalProperties = ChildOutputPropertyDeriver.computeProjectOutputProperties(
                     project.getProjects(), ((PhysicalPlan) project.child()).getPhysicalProperties());
             project = project.withPhysicalPropertiesAndStats(projectPhysicalProperties, project.getStats());
-            aggregate = (PhysicalHashAggregate<? extends Plan>) aggregate
-                    .withAggOutput(aggOutputReplaced)
+            return (Plan) aggregate.withAggOutput(aggOutputReplaced)
                     .withChildren(project);
         } else {
             List<NamedExpression> projections = new ArrayList<>();
@@ -174,11 +189,9 @@ public class ProjectAggregateExpressionsForCse extends PlanPostProcessor {
                     projectPhysicalProperties,
                     child.getStats(),
                     aggregate.child());
-            aggregate = (PhysicalHashAggregate<? extends Plan>) aggregate
-                    .withAggOutput(aggOutputReplaced)
+            return (Plan) aggregate.withAggOutput(aggOutputReplaced)
                     .withChildren(project);
         }
-        return aggregate;
     }
 
     private void getCseCandidatesFromAggregateFunction(Expression expr, Map<Expression, Alias> result,

@@ -1821,35 +1821,6 @@ static void append_field_to_binary_chars(const Field& field, ColumnString::Chars
                                field.get_type());
     }
 }
-/// Visitor that keeps @num_dimensions_to_keep dimensions in arrays
-/// and replaces all scalars or nested arrays to @replacement at that level.
-class FieldVisitorReplaceScalars : public StaticVisitor<Field> {
-public:
-    FieldVisitorReplaceScalars(const Field& replacement_, size_t num_dimensions_to_keep_)
-            : replacement(replacement_), num_dimensions_to_keep(num_dimensions_to_keep_) {}
-    template <PrimitiveType T>
-    Field operator()(const typename PrimitiveTypeTraits<T>::CppType& x) const {
-        if constexpr (T == TYPE_ARRAY) {
-            if (num_dimensions_to_keep == 0) {
-                return replacement;
-            }
-            const size_t size = x.size();
-            Array res(size);
-            for (size_t i = 0; i < size; ++i) {
-                res[i] = apply_visitor(
-                        FieldVisitorReplaceScalars(replacement, num_dimensions_to_keep - 1), x[i]);
-            }
-            return Field::create_field<TYPE_ARRAY>(res);
-        } else {
-            return replacement;
-        }
-    }
-
-private:
-    const Field& replacement;
-    size_t num_dimensions_to_keep;
-};
-
 template <typename ParserImpl>
 void parse_json_to_variant_impl(IColumn& column, const char* src, size_t length,
                                 JSONDataParser<ParserImpl>* parser, const ParseConfig& config) {

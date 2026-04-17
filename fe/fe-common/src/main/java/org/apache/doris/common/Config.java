@@ -397,6 +397,15 @@ public class Config extends ConfigBase {
     @ConfField(description = {"The connection timeout of thrift client, in milliseconds. 0 means no timeout."})
     public static int thrift_client_timeout_ms = 0;
 
+    @ConfField(mutable = true, masterOnly = false,
+            description = {"Thrift RPC 连接阶段的超时时间（毫秒），包括 TCP connect 和可能的 TLS 握手。"
+                    + "用于防止 reopen() 时因网络异常长时间阻塞。0 表示不设置。",
+                    "Timeout in milliseconds for the connect phase of Thrift RPC connections, "
+                    + "including TCP connect and potential TLS handshake. "
+                    + "Prevents long blocking during reopen() when network is unreachable. "
+                    + "0 means no timeout."})
+    public static int thrift_rpc_connect_timeout_ms = 10000;
+
     // The default value is inherited from org.apache.thrift.TConfiguration
     @ConfField(description = {"The maximum size of a received message of the Thrift server, in bytes"})
     public static int thrift_max_message_size = 100 * 1024 * 1024;
