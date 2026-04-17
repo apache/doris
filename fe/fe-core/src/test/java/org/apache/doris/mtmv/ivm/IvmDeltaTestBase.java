@@ -80,7 +80,17 @@ abstract class IvmDeltaTestBase {
     protected LogicalOlapScan buildScan() {
         OlapTable table = PlanConstructor.newOlapTable(0, "t1", 0);
         table.setQualifiedDbName("test_db");
-        return new LogicalOlapScan(PlanConstructor.getNextRelationId(), table, ImmutableList.of("test_db"));
+        LogicalOlapScan scan = new LogicalOlapScan(PlanConstructor.getNextRelationId(), table,
+                ImmutableList.of("test_db"));
+        return (LogicalOlapScan) scan.withIsDelta(true);
+    }
+
+    /** Builds a scan with isDelta=false for the given table id and name (for delta plan generator tests). */
+    protected LogicalOlapScan buildScanForTable(long tableId, String tableName) {
+        OlapTable table = PlanConstructor.newOlapTable(tableId, tableName, 0);
+        table.setQualifiedDbName("test_db");
+        return new LogicalOlapScan(PlanConstructor.getNextRelationId(), table,
+                ImmutableList.of("test_db"));
     }
 
     /**
@@ -98,7 +108,9 @@ abstract class IvmDeltaTestBase {
         table.setIndexMeta(-1, "t_op", table.getFullSchema(),
                 0, 0, (short) 0, TStorageType.COLUMN, KeysType.DUP_KEYS);
         table.setQualifiedDbName("test_db");
-        return new LogicalOlapScan(PlanConstructor.getNextRelationId(), table, ImmutableList.of("test_db"));
+        LogicalOlapScan scan = new LogicalOlapScan(PlanConstructor.getNextRelationId(), table,
+                ImmutableList.of("test_db"));
+        return (LogicalOlapScan) scan.withIsDelta(true);
     }
 
     protected LogicalResultSink<LogicalProject<LogicalOlapScan>> buildScanPlan(LogicalOlapScan scan) {

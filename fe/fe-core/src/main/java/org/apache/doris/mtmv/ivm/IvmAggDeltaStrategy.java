@@ -74,6 +74,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -111,8 +112,12 @@ public class IvmAggDeltaStrategy extends IvmSimpleScanDeltaStrategy {
     /** Transient semantic key for MAX of deleted values (not stored in MV). */
     private static final String DELMAX = "DELMAX";
 
-    /** Set during rewrite(), used by visitor methods. Single-use per instance. */
-    private IvmDeltaRewriteContext ctx;
+    /** Set via constructor, used by visitor methods. Single-use: create a fresh instance per rewrite. */
+    private final IvmDeltaRewriteContext ctx;
+
+    public IvmAggDeltaStrategy(IvmDeltaRewriteContext ctx) {
+        this.ctx = Objects.requireNonNull(ctx, "ctx can not be null");
+    }
 
     /**
      * Intermediate result from {@link #buildDeltaSubPlan}.
@@ -143,7 +148,6 @@ public class IvmAggDeltaStrategy extends IvmSimpleScanDeltaStrategy {
 
     @Override
     public List<IvmDeltaCommandBundle> rewrite(Plan normalizedPlan, IvmDeltaRewriteContext ctx) {
-        this.ctx = ctx;
         RewriteResult result = rewritePlan(normalizedPlan);
         Command insertCommand = buildInsertCommandWithDeleteSign(result.plan, ctx);
         return ImmutableList.of(new IvmDeltaCommandBundle(insertCommand));

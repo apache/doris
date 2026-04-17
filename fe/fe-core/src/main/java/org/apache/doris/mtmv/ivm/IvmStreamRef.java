@@ -17,60 +17,60 @@
 
 package org.apache.doris.mtmv.ivm;
 
-import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 
-import java.util.Map;
-
 /**
- * Thin persistent binding between one base table and its stream.
+ * Thin persistent binding between one base table and its IVM stream.
+ *
+ * <p>Tracks the consumed TSO (persisted) and latest TSO (transient, read
+ * from OlapTable before each incremental refresh). When consumedTso == latestTso
+ * there is no delta to apply for this table.
  */
 public class IvmStreamRef {
-    @SerializedName("st")
-    private StreamType streamType;
 
-    @SerializedName("cid")
-    private String consumerId;
+    /** Last consumed TSO (timestamp ordering). Persisted via editlog. */
+    @SerializedName("ct")
+    private long consumedTso;
 
-    @SerializedName("p")
-    private Map<String, String> properties;
+    /** Latest TSO read from the base table. Transient — populated before each refresh. */
+    private transient long latestTso;
 
     public IvmStreamRef() {
-        this.properties = Maps.newHashMap();
+        this.consumedTso = 0;
+        this.latestTso = 0;
     }
 
-    public IvmStreamRef(StreamType streamType, String consumerId, Map<String, String> properties) {
-        this.streamType = streamType;
-        this.consumerId = consumerId;
-        this.properties = properties != null ? properties : Maps.newHashMap();
+    public IvmStreamRef(long consumedTso) {
+        this.consumedTso = consumedTso;
+        this.latestTso = 0;
     }
 
-    public StreamType getStreamType() {
-        return streamType;
+    public long getConsumedTso() {
+        return consumedTso;
     }
 
-    public void setStreamType(StreamType streamType) {
-        this.streamType = streamType;
+    public void setConsumedTso(long consumedTso) {
+        this.consumedTso = consumedTso;
     }
 
-    public String getConsumerId() {
-        return consumerId;
+    public long getLatestTso() {
+        return latestTso;
     }
 
-    public void setConsumerId(String consumerId) {
-        this.consumerId = consumerId;
+    public void setLatestTso(long latestTso) {
+        this.latestTso = latestTso;
     }
 
-    public Map<String, String> getProperties() {
-        return properties;
+    /** Returns true when there is no new data to consume. */
+    public boolean isUpToDate() {
+        return consumedTso == latestTso;
     }
 
     @Override
     public String toString() {
         return "IvmStreamRef{"
-                + "streamType=" + streamType
-                + ", consumerId='" + consumerId + '\''
-                + ", properties=" + properties
+                + "consumedTso=" + consumedTso
+                + ", latestTso=" + latestTso
                 + '}';
     }
 }
