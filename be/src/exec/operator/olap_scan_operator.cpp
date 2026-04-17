@@ -22,6 +22,7 @@
 #include <memory>
 #include <numeric>
 #include <optional>
+#include <shared_mutex>
 
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
@@ -33,10 +34,13 @@
 #include "exec/scan/olap_scanner.h"
 #include "exec/scan/parallel_scanner_builder.h"
 #include "exprs/function/in.h"
+#include "exprs/hybrid_set.h"
 #include "exprs/score_runtime.h"
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
+#include "exprs/vliteral.h"
+#include "exprs/vruntimefilter_wrapper.h"
 #include "exprs/vslot_ref.h"
 #include "io/cache/block_file_cache_profile.h"
 #include "runtime/query_cache/query_cache.h"
@@ -91,6 +95,9 @@ Status OlapScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
 
     RETURN_IF_ERROR(Base::init(state, info));
     RETURN_IF_ERROR(_sync_cloud_tablets(state));
+
+    _parse_partition_boundaries();
+
     return Status::OK();
 }
 
@@ -121,6 +128,8 @@ Status OlapScanLocalState::_init_profile() {
     // Rows read from storage.
     // Include the rows read from doris page cache.
     _scan_rows = ADD_COUNTER(custom_profile(), "ScanRows", TUnit::UNIT);
+    _tablets_pruned_by_rf_counter =
+            ADD_COUNTER(custom_profile(), "TabletsPrunedByRuntimeFilter", TUnit::UNIT);
 
     // 1. init segment profile
     _segment_profile.reset(new RuntimeProfile("SegmentIterator"));
@@ -497,6 +506,36 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     // key range to the tablet reader.
     if (_cond_ranges.empty()) {
         _cond_ranges.emplace_back(new doris::OlapScanRange());
+    }
+
+    // Filter out tablets whose partitions have been pruned by runtime filters.
+    if (_rf_partition_pruner.pruned_partition_count() > 0) {
+        DCHECK_EQ(_tablets.size(), _scan_ranges.size());
+        DCHECK_EQ(_tablets.size(), _read_sources.size());
+        size_t write_idx = 0;
+        for (size_t read_idx = 0; read_idx < _tablets.size(); ++read_idx) {
+            int64_t pid = _tablets[read_idx].tablet->partition_id();
+            if (!_rf_partition_pruner.is_partition_pruned(pid)) {
+                if (write_idx != read_idx) {
+                    _tablets[write_idx] = std::move(_tablets[read_idx]);
+                    _scan_ranges[write_idx] = std::move(_scan_ranges[read_idx]);
+                    _read_sources[write_idx] = std::move(_read_sources[read_idx]);
+                }
+                ++write_idx;
+            }
+        }
+        if (write_idx < _tablets.size()) {
+            COUNTER_SET(_tablets_pruned_by_rf_counter,
+                        static_cast<int64_t>(_tablets.size() - write_idx));
+            _tablets.resize(write_idx);
+            _scan_ranges.resize(write_idx);
+            _read_sources.resize(write_idx);
+        }
+        if (_tablets.empty()) {
+            _eos = true;
+            _scan_dependency->set_ready();
+            return Status::OK();
+        }
     }
 
     bool enable_parallel_scan = state()->enable_parallel_scan();
@@ -1087,6 +1126,24 @@ OlapScanOperatorX::OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, i
         if (_olap_scan_node.__isset.indexes_desc) {
             _tablet_schema->update_indexes_from_thrift(_olap_scan_node.indexes_desc);
         }
+    }
+}
+
+// ======== Runtime Filter Partition Pruning ========
+
+void OlapScanLocalState::_parse_partition_boundaries() {
+    const auto& olap_scan_node = _parent->cast<OlapScanOperatorX>()._olap_scan_node;
+    if (!olap_scan_node.__isset.partition_boundaries ||
+        olap_scan_node.partition_boundaries.empty()) {
+        return;
+    }
+
+    auto& p = _parent->cast<OlapScanOperatorX>();
+    _rf_partition_pruner.parse_boundaries(olap_scan_node.partition_boundaries,
+                                          p._slot_id_to_slot_desc);
+
+    if (!_rf_partition_pruner.empty()) {
+        COUNTER_SET(_total_partitions_rf_counter, _rf_partition_pruner.total_partitions());
     }
 }
 

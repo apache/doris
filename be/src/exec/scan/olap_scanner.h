@@ -77,6 +77,8 @@ public:
 
     doris::TabletStorageType get_storage_type() override;
 
+    bool check_partition_pruned() const override;
+
     void update_realtime_counters() override;
 
 protected:

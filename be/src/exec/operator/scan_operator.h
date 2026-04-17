@@ -28,6 +28,7 @@
 #include "exec/operator/operator.h"
 #include "exec/pipeline/dependency.h"
 #include "exec/runtime_filter/runtime_filter_consumer_helper.h"
+#include "exec/runtime_filter/runtime_filter_partition_pruner.h"
 #include "exec/scan/scan_node.h"
 #include "exec/scan/scanner_context.h"
 #include "exprs/function_filter.h"
@@ -84,6 +85,10 @@ public:
     [[nodiscard]] virtual int min_scanners_concurrency(RuntimeState* state) const;
     [[nodiscard]] virtual ScannerScheduler* scan_scheduler(RuntimeState* state) const;
 
+    // Thread-safe check whether a partition has been pruned by runtime filter.
+    // Callable from any scan type's scanner in scheduling threads.
+    bool is_partition_pruned(int64_t partition_id) const;
+
     [[nodiscard]] std::string get_name() { return _parent->get_name(); }
 
     uint64_t get_condition_cache_digest() const { return _condition_cache_digest; }
@@ -97,6 +102,13 @@ protected:
     friend class Scanner;
 
     virtual Status _init_profile() = 0;
+
+    // Hook for subclasses to react after new runtime filters are appended.
+    // Called inside update_late_arrival_runtime_filter() while _conjuncts_lock is held.
+    // Default implementation runs partition pruning on the newly appended RFs.
+    virtual void _on_runtime_filter_update();
+
+    void _do_partition_pruning_by_rf();
 
     std::atomic<bool> _opened {false};
 
@@ -132,6 +144,11 @@ protected:
     // condition cache filter stats
     RuntimeProfile::Counter* _condition_cache_hit_counter = nullptr;
     RuntimeProfile::Counter* _condition_cache_filtered_rows_counter = nullptr;
+
+    // ---- Runtime-filter partition pruning (scan-agnostic) ----
+    RuntimeFilterPartitionPruner _rf_partition_pruner;
+    RuntimeProfile::Counter* _partitions_pruned_by_rf_counter = nullptr;
+    RuntimeProfile::Counter* _total_partitions_rf_counter = nullptr;
 
     // Moved from ScanLocalState<Derived> to avoid re-instantiation for each Derived type.
     std::atomic<bool> _eos = false;
@@ -279,7 +296,10 @@ protected:
     friend class Scanner;
 
     Status _init_profile() override;
-    virtual Status _process_conjuncts(RuntimeState* state) { return _normalize_conjuncts(state); }
+    virtual Status _process_conjuncts(RuntimeState* state) {
+        _do_partition_pruning_by_rf();
+        return _normalize_conjuncts(state);
+    }
     virtual bool _should_push_down_common_expr() { return false; }
 
     virtual bool _storage_no_merge() { return false; }

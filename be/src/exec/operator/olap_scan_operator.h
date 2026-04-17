@@ -19,13 +19,16 @@
 
 #include <stdint.h>
 
+#include <shared_mutex>
 #include <string>
+#include <unordered_set>
 
 #include "cloud/cloud_tablet.h"
 #include "common/status.h"
 #include "exec/operator/operator.h"
 #include "exec/operator/scan_operator.h"
 #include "runtime/runtime_profile.h"
+#include "storage/olap_scan_common.h"
 #include "storage/tablet/tablet_reader.h"
 
 namespace doris {
@@ -320,6 +323,11 @@ private:
     std::map<SlotId, size_t> _slot_id_to_index_in_block;
     // this map is needed for scanner opening.
     std::map<SlotId, DataTypePtr> _slot_id_to_col_type;
+
+    // ---- Runtime-filter partition pruning ----
+    void _parse_partition_boundaries();
+
+    RuntimeProfile::Counter* _tablets_pruned_by_rf_counter = nullptr;
 };
 
 class OlapScanOperatorX final : public ScanOperatorX<OlapScanLocalState> {

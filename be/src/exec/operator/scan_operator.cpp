@@ -82,6 +82,7 @@ Status ScanLocalStateBase::update_late_arrival_runtime_filter(RuntimeState* stat
             return a->execute_cost() < b->execute_cost();
         });
     };
+    _on_runtime_filter_update();
     return Status::OK();
 }
 
@@ -93,6 +94,24 @@ Status ScanLocalStateBase::clone_conjunct_ctxs(VExprContextSPtrs& scanner_conjun
         RETURN_IF_ERROR(_conjuncts[i]->clone(_state, scanner_conjuncts[i]));
     }
     return Status::OK();
+}
+
+bool ScanLocalStateBase::is_partition_pruned(int64_t partition_id) const {
+    return _rf_partition_pruner.is_partition_pruned(partition_id);
+}
+
+void ScanLocalStateBase::_on_runtime_filter_update() {
+    if (!_rf_partition_pruner.empty()) {
+        _do_partition_pruning_by_rf();
+    }
+}
+
+void ScanLocalStateBase::_do_partition_pruning_by_rf() {
+    int64_t newly_pruned = _rf_partition_pruner.prune_by_runtime_filters(_conjuncts);
+    if (newly_pruned > 0) {
+        COUNTER_SET(_partitions_pruned_by_rf_counter,
+                    _rf_partition_pruner.pruned_partition_count());
+    }
 }
 
 int ScanLocalStateBase::max_scanners_concurrency(RuntimeState* state) const {
@@ -1073,6 +1092,11 @@ Status ScanLocalState<Derived>::_init_profile() {
     _condition_cache_hit_counter = ADD_COUNTER(_scanner_profile, "ConditionCacheHit", TUnit::UNIT);
     _condition_cache_filtered_rows_counter =
             ADD_COUNTER(_scanner_profile, "ConditionCacheFilteredRows", TUnit::UNIT);
+
+    _partitions_pruned_by_rf_counter =
+            ADD_COUNTER(custom_profile(), "PartitionsPrunedByRuntimeFilter", TUnit::UNIT);
+    _total_partitions_rf_counter =
+            ADD_COUNTER(custom_profile(), "TotalPartitionsForRFPruning", TUnit::UNIT);
 
     // Rows read from storage.
     // Include the rows read from doris page cache.

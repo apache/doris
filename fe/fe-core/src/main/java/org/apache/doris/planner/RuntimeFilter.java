@@ -22,14 +22,19 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.SlotId;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TMinMaxRuntimeFilterType;
 import org.apache.doris.thrift.TRuntimeFilterDesc;
 import org.apache.doris.thrift.TRuntimeFilterType;
+import org.apache.doris.thrift.TTargetExprMonotonicity;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -280,6 +285,36 @@ public final class RuntimeFilter {
         } else if (builderNode instanceof SetOperationNode) {
             tFilter.setNullAware(true);
         }
+
+        // Set target_expr_monotonicity for partition column identity path.
+        // When the RF target is a direct SlotRef on a partition column, the
+        // mapping from column value to partition is monotonic (identity), so
+        // the BE can use the RF values to prune partitions.
+        for (RuntimeFilterTarget target : targets) {
+            if (target.expr instanceof SlotRef && target.node instanceof OlapScanNode) {
+                SlotRef slotRef = (SlotRef) target.expr;
+                Column col = slotRef.getColumn();
+                if (col != null) {
+                    OlapScanNode scanNode = (OlapScanNode) target.node;
+                    OlapTable table = scanNode.getOlapTable();
+                    PartitionType partType = table.getPartitionInfo().getType();
+                    if (partType == PartitionType.RANGE || partType == PartitionType.LIST) {
+                        for (Column partCol : table.getPartitionInfo().getPartitionColumns()) {
+                            if (partCol.getName().equalsIgnoreCase(col.getName())) {
+                                tFilter.setTargetExprMonotonicity(
+                                        TTargetExprMonotonicity.MONOTONIC_INCREASING);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            // Only check the first target; if there are multiple targets on
+            // different tables, monotonicity may differ. We conservatively
+            // set it based on the first target only.
+            break;
+        }
+
         return tFilter;
     }
 
