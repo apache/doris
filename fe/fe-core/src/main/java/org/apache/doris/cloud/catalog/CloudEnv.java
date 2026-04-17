@@ -18,8 +18,15 @@
 package org.apache.doris.cloud.catalog;
 
 import org.apache.doris.analysis.ResourceTypeEnum;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.Tablet;
 import org.apache.doris.cloud.CacheHotspotManager;
 import org.apache.doris.cloud.CloudWarmUpJob;
 import org.apache.doris.cloud.CloudWarmUpJob.JobState;
@@ -45,6 +52,9 @@ import org.apache.doris.nereids.trees.plans.commands.DropStageCommand;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService.HostInfo;
+import org.apache.doris.task.AgentBatchTask;
+import org.apache.doris.task.AgentTaskExecutor;
+import org.apache.doris.task.CompactionTask;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -488,5 +498,58 @@ public class CloudEnv extends Env {
         if (this.clusterSnapshotFile != null) {
             this.cloudSnapshotHandler.cloneSnapshot(this.clusterSnapshotFile);
         }
+    }
+
+    @Override
+    public void compactTable(String dbName, String tableName, String type, List<String> partitionNames)
+            throws DdlException {
+        Database db = getInternalCatalog().getDbOrDdlException(dbName);
+        OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
+
+        AgentBatchTask batchTask = new AgentBatchTask();
+        int dispatchedCount = 0;
+        olapTable.readLock();
+        try {
+            LOG.info("Cloud table compaction. db={}, table={}, partitions={}, type={}",
+                    dbName, tableName, partitionNames, type);
+            for (String parName : partitionNames) {
+                Partition partition = olapTable.getPartition(parName);
+                if (partition == null) {
+                    throw new DdlException("partition[" + parName + "] not exist in table[" + tableName + "]");
+                }
+
+                for (MaterializedIndex idx : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                    for (Tablet tablet : idx.getTablets()) {
+                        // Cloud: each tablet has only one CloudReplica (primary BE). The backend
+                        // resolution depends on the current compute group (ConnectContext); skip
+                        // the tablet rather than aborting so other tablets can still dispatch.
+                        for (Replica replica : tablet.getReplicas()) {
+                            long beId;
+                            try {
+                                beId = replica.getBackendId();
+                            } catch (UserException e) {
+                                LOG.warn("skip tablet {} for cloud compaction, no available BE: {}",
+                                        tablet.getId(), e.getMessage());
+                                continue;
+                            }
+                            CompactionTask compactionTask = new CompactionTask(
+                                    beId, db.getId(), olapTable.getId(), partition.getId(),
+                                    idx.getId(), tablet.getId(),
+                                    olapTable.getSchemaHashByIndexId(idx.getId()), type);
+                            batchTask.addTask(compactionTask);
+                            dispatchedCount++;
+                        }
+                    }
+                }
+            }
+        } finally {
+            olapTable.readUnlock();
+        }
+
+        if (dispatchedCount == 0) {
+            throw new DdlException("no tablet dispatched for compaction; "
+                    + "the current compute group may have no available BE");
+        }
+        AgentTaskExecutor.submit(batchTask);
     }
 }
