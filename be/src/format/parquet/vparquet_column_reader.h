@@ -55,7 +55,6 @@ public:
     struct ColumnStatistics {
         ColumnStatistics()
                 : page_index_read_calls(0),
-                  read_time(0),
                   decompress_time(0),
                   decompress_cnt(0),
                   decode_header_time(0),
@@ -76,11 +75,9 @@ public:
                   page_cache_compressed_hit_counter(0),
                   page_cache_decompressed_hit_counter(0) {}
 
-        ColumnStatistics(const io::BufferedStreamReader::Statistics& fs,
-                         ColumnChunkReaderStatistics& cs, int64_t null_map_time,
+        ColumnStatistics(ColumnChunkReaderStatistics& cs, int64_t null_map_time,
                          int64_t convert_time_)
                 : page_index_read_calls(0),
-                  read_time(fs.read_time),
                   decompress_time(cs.decompress_time),
                   decompress_cnt(cs.decompress_cnt),
                   decode_header_time(cs.decode_header_time),
@@ -102,7 +99,6 @@ public:
                   page_cache_decompressed_hit_counter(cs.page_cache_decompressed_hit_counter) {}
 
         int64_t page_index_read_calls;
-        int64_t read_time;
         int64_t decompress_time;
         int64_t decompress_cnt;
         int64_t decode_header_time;
@@ -125,7 +121,6 @@ public:
 
         void merge(ColumnStatistics& col_statistics) {
             page_index_read_calls += col_statistics.page_index_read_calls;
-            read_time += col_statistics.read_time;
             decompress_time += col_statistics.decompress_time;
             decompress_cnt += col_statistics.decompress_cnt;
             decode_header_time += col_statistics.decode_header_time;
@@ -232,8 +227,8 @@ public:
     const std::vector<level_t>& get_rep_level() const override { return _rep_levels; }
     const std::vector<level_t>& get_def_level() const override { return _def_levels; }
     ColumnStatistics column_statistics() override {
-        return ColumnStatistics(_stream_reader->statistics(), _chunk_reader->chunk_statistics(),
-                                _decode_null_map_time, _convert_time);
+        return ColumnStatistics(_chunk_reader->chunk_statistics(), _decode_null_map_time,
+                                _convert_time);
     }
     void close() override {}
 

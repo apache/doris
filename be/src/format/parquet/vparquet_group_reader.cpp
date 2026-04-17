@@ -385,13 +385,9 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
         bool modify_row_ids = false;
         RETURN_IF_ERROR(_read_empty_batch(batch_size, read_rows, batch_eof, &modify_row_ids));
 
-        {
-            SCOPED_RAW_TIMER(&_fill_columns_time);
-            RETURN_IF_ERROR(
-                    _fill_partition_columns(block, *read_rows, _lazy_read_ctx.partition_columns));
-            RETURN_IF_ERROR(
-                    _fill_missing_columns(block, *read_rows, _lazy_read_ctx.missing_columns));
-        }
+        RETURN_IF_ERROR(
+                _fill_partition_columns(block, *read_rows, _lazy_read_ctx.partition_columns));
+        RETURN_IF_ERROR(_fill_missing_columns(block, *read_rows, _lazy_read_ctx.missing_columns));
 
         RETURN_IF_ERROR(_fill_row_id_columns(block, *read_rows, modify_row_ids));
         RETURN_IF_ERROR(_append_iceberg_rowid_column(block, *read_rows, modify_row_ids));
@@ -408,13 +404,9 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
         int64_t batch_base_row = _total_read_rows;
         RETURN_IF_ERROR((_read_column_data(block, _lazy_read_ctx.all_read_columns, batch_size,
                                            read_rows, batch_eof, filter_map)));
-        {
-            SCOPED_RAW_TIMER(&_fill_columns_time);
-            RETURN_IF_ERROR(
-                    _fill_partition_columns(block, *read_rows, _lazy_read_ctx.partition_columns));
-            RETURN_IF_ERROR(
-                    _fill_missing_columns(block, *read_rows, _lazy_read_ctx.missing_columns));
-        }
+        RETURN_IF_ERROR(
+                _fill_partition_columns(block, *read_rows, _lazy_read_ctx.partition_columns));
+        RETURN_IF_ERROR(_fill_missing_columns(block, *read_rows, _lazy_read_ctx.missing_columns));
         RETURN_IF_ERROR(_fill_row_id_columns(block, *read_rows, false));
         RETURN_IF_ERROR(_append_iceberg_rowid_column(block, *read_rows, false));
 
@@ -690,13 +682,10 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
         }
         pre_raw_read_rows += pre_read_rows;
 
-        {
-            SCOPED_RAW_TIMER(&_fill_columns_time);
-            RETURN_IF_ERROR(_fill_partition_columns(block, pre_read_rows,
-                                                    _lazy_read_ctx.predicate_partition_columns));
-            RETURN_IF_ERROR(_fill_missing_columns(block, pre_read_rows,
-                                                  _lazy_read_ctx.predicate_missing_columns));
-        }
+        RETURN_IF_ERROR(_fill_partition_columns(block, pre_read_rows,
+                                                _lazy_read_ctx.predicate_partition_columns));
+        RETURN_IF_ERROR(_fill_missing_columns(block, pre_read_rows,
+                                              _lazy_read_ctx.predicate_missing_columns));
         RETURN_IF_ERROR(_fill_row_id_columns(block, pre_read_rows, false));
         RETURN_IF_ERROR(_append_iceberg_rowid_column(block, pre_read_rows, false));
 
@@ -887,12 +876,8 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
     *read_rows = column_size;
 
     *batch_eof = pre_eof;
-    {
-        SCOPED_RAW_TIMER(&_fill_columns_time);
-        RETURN_IF_ERROR(
-                _fill_partition_columns(block, column_size, _lazy_read_ctx.partition_columns));
-        RETURN_IF_ERROR(_fill_missing_columns(block, column_size, _lazy_read_ctx.missing_columns));
-    }
+    RETURN_IF_ERROR(_fill_partition_columns(block, column_size, _lazy_read_ctx.partition_columns));
+    RETURN_IF_ERROR(_fill_missing_columns(block, column_size, _lazy_read_ctx.missing_columns));
 #ifndef NDEBUG
     for (auto col : *block) {
         col.column->sanity_check();
