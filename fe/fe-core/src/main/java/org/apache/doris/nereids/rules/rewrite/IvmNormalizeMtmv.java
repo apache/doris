@@ -500,9 +500,6 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
         if (keysType == KeysType.AGG_KEYS && isExcludedTriggerTable) {
             return buildDeterministicRowIdFromBaseKeys(table, scan);
         }
-        if (isExcludedTriggerTable) {
-            return Pair.of(new UuidNumeric(), false);
-        }
         throw new AnalysisException(
                 "INCREMENTAL materialized view requires base tables to be "
                         + "UNIQUE_KEYS with Merge-On-Write or DUP_KEYS. Table '"
