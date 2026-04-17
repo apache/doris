@@ -85,7 +85,8 @@ void WarmUpStatsAction::handle(HttpRequest* req) {
                       job_id_str);
 
         // Timestamps
-        auto* trigger_ts = g_warmup_ed_last_trigger_ts.get_stats(std::list<std::string> {job_id_str});
+        auto* trigger_ts =
+                g_warmup_ed_last_trigger_ts.get_stats(std::list<std::string> {job_id_str});
         entry["last_trigger_ts"] = trigger_ts ? trigger_ts->get_value() : 0;
         auto* finish_ts = g_warmup_ed_last_finish_ts.get_stats(std::list<std::string> {job_id_str});
         entry["last_finish_ts"] = finish_ts ? finish_ts->get_value() : 0;

@@ -744,7 +744,8 @@ Status CloudWarmUpManager::_do_warm_up_rowset(RowsetMeta& rs_meta, int64_t table
                         if (idx_info.index_file_size() != -1) {
                             g_file_cache_event_driven_warm_up_requested_index_size
                                     << idx_info.index_file_size();
-                            g_warmup_ed_requested_index_size.put({job_id_str}, idx_info.index_file_size());
+                            g_warmup_ed_requested_index_size.put({job_id_str},
+                                                                 idx_info.index_file_size());
                         } else {
                             VLOG_DEBUG << "Invalid index_file_size for segment_id " << segment_id
                                        << ", index_id " << idx_info.index_id();
@@ -769,7 +770,8 @@ Status CloudWarmUpManager::_do_warm_up_rowset(RowsetMeta& rs_meta, int64_t table
         }
 
         // Update last trigger timestamp
-        auto* trigger_ts = g_warmup_ed_last_trigger_ts.get_stats(std::list<std::string> {job_id_str});
+        auto* trigger_ts =
+                g_warmup_ed_last_trigger_ts.get_stats(std::list<std::string> {job_id_str});
         if (trigger_ts) {
             trigger_ts->set_value(std::chrono::duration_cast<std::chrono::milliseconds>(
                                           std::chrono::system_clock::now().time_since_epoch())

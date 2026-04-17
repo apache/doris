@@ -116,8 +116,8 @@ private:
     void handle_jobs();
 
     Status _do_warm_up_rowset(RowsetMeta& rs_meta, int64_t table_id,
-                              std::vector<JobReplicaInfo>& replicas,
-                              int64_t sync_wait_timeout_ms, bool skip_existence_check);
+                              std::vector<JobReplicaInfo>& replicas, int64_t sync_wait_timeout_ms,
+                              bool skip_existence_check);
 
     std::vector<JobReplicaInfo> get_replica_info(int64_t tablet_id, int64_t table_id,
                                                  bool bypass_cache, bool& cache_hit);

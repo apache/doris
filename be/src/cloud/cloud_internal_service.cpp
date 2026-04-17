@@ -628,9 +628,10 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                                 .is_warmup = true},
                         .download_done =
                                 [=, version = rs_meta.version()](Status st) {
-                                    handle_segment_download_done(
-                                            st, tablet_id, rowset_id, segment_id, tablet, wait,
-                                            version, segment_size, request_ts, handle_ts, job_id_str);
+                                    handle_segment_download_done(st, tablet_id, rowset_id,
+                                                                 segment_id, tablet, wait, version,
+                                                                 segment_size, request_ts,
+                                                                 handle_ts, job_id_str);
                                 },
                         .tablet_id = tablet_id};
 
@@ -645,7 +646,7 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
 
             // Use rs_meta.fs() to support packed files for inverted index download.
             auto download_inverted_index = [&, tablet, job_id_str](std::string index_path,
-                                                            uint64_t idx_size) {
+                                                                   uint64_t idx_size) {
                 io::DownloadFileMeta download_meta {
                         .path = io::Path(index_path),
                         .file_size = static_cast<int64_t>(idx_size),
