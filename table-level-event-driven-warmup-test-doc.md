@@ -8,7 +8,7 @@
 
 ### 1.1 测试框架与公共工具
 
-所有回归测试位于 `regression-test/suites/cloud_p0/cache/multi_cluster/warm_up/on_tables/` 目录下，共 7 个独立的 Docker 测试文件。每个文件在独立的 Docker 环境中运行（1 个 BE 节点），确保 bvar 指标互不干扰。
+所有回归测试位于 `regression-test/suites/cloud_p0/cache/multi_cluster/warm_up/on_tables/` 目录下，共 8 个独立的 Docker 测试文件。每个文件在独立的 Docker 环境中运行（1 个 BE 节点），确保 bvar 指标互不干扰。
 
 **公共工具类：** `WarmupMetricsUtils.groovy`（位于 `regression-test/framework/src/main/groovy/org/apache/doris/regression/util/`），提供以下核心方法：
 
@@ -180,17 +180,47 @@
 
 ---
 
+#### Case 8：`test_warm_up_event_on_tables_sync_stats` — SHOW WARM UP JOB 同步进度观测
+
+**测试目标：** 端到端验证 SHOW WARM UP JOB 输出的 SyncStats 列（第 16 列，index 15），确认通过 FE 收集 BE 的窗口化 bvar 指标后展示正确的 JSON 进度信息。
+
+**测试流程：**
+
+1. **环境搭建：** 2 个集群（source + target），各 1 个 BE。
+2. **创建表级 event-driven 任务：** 使用 `INCLUDE 'db.*'` 匹配。
+3. **记录基线指标：** 在 INSERT 前获取 bvar 累积指标基线。
+4. **触发预热：** 5 次 INSERT，等待 bvar 确认 warmup 完成（submitted == finished）。
+5. **轮询 SHOW WARM UP JOB：** 等待窗口化指标追上 bvar 累积值。
+6. **验证 JSON 结构和绝对数值。**
+
+**验证项：**
+
+| # | 验证内容 | 预期 |
+|---|---------|------|
+| 1 | SyncStats 列非空 | event-driven 任务必有 |
+| 2 | JSON 顶层 key | seg_num, seg_size, idx_num, idx_size, last_trigger_ts, last_finish_ts |
+| 3 | 每个窗口的 key | requested_5m/30m/1h, finish_5m/30m/1h, gap_5m/30m/1h, fail_5m/30m/1h |
+| 4 | seg_num.requested_5m == source submitted delta | 绝对 segment 数 = 5 |
+| 5 | seg_num.finish_5m == target finished delta | 绝对 segment 数 = 5 |
+| 6 | seg_num.gap_5m == 0 | warmup 完成后无缺口 |
+| 7 | seg_num.fail_5m == 0 | 无失败 |
+| 8 | seg_size 为 ByteSizeValue 格式字符串 | 如 "2.6kb" |
+| 9 | 时间戳非空 | last_trigger_ts, last_finish_ts 有值 |
+
+---
+
 ### 1.3 回归测试覆盖矩阵
 
-| Case | INCLUDE | EXCLUDE | 多规则 | 跨库 | 通配符 * | 通配符 ? | 动态表变更 | 多目标集群 | 错误校验 | 生命周期 | 指标验证 |
-|------|---------|---------|--------|------|----------|----------|-----------|-----------|----------|----------|----------|
-| 1. include | ✅ | — | — | ✅ | ✅ | — | — | — | — | — | ✅ |
-| 2. include_exclude | ✅ | ✅ | ✅ | — | ✅ | — | — | — | — | — | ✅ |
-| 3. multi_include | ✅ | — | ✅ | ✅ | — | — | — | — | — | — | ✅ |
-| 4. canonicalization | ✅ | ✅ | ✅ | ✅ | ✅ | — | — | — | ✅ | — | — |
-| 5. dynamic | ✅ | — | — | — | ✅ | ✅ | ✅ | — | — | — | ✅ |
-| 6. multi_dst | ✅ | — | ✅ | — | ✅ | — | — | ✅ | — | — | ✅ |
-| 7. error_lifecycle | ✅ | ✅ | — | — | ✅ | ✅ | — | — | ✅ | ✅ | ✅ |
+| Case | INCLUDE | EXCLUDE | 多规则 | 跨库 | 通配符 * | 通配符 ? | 动态表变更 | 多目标集群 | 错误校验 | 生命周期 | 指标验证 | 进度观测 |
+|------|---------|---------|--------|------|----------|----------|-----------|-----------|----------|----------|----------|----------|
+| 1. include | ✅ | — | — | ✅ | ✅ | — | — | — | — | — | ✅ | — |
+| 2. include_exclude | ✅ | ✅ | ✅ | — | ✅ | — | — | — | — | — | ✅ | — |
+| 3. multi_include | ✅ | — | ✅ | ✅ | — | — | — | — | — | — | ✅ | — |
+| 4. canonicalization | ✅ | ✅ | ✅ | ✅ | ✅ | — | — | — | ✅ | — | — | — |
+| 5. dynamic | ✅ | — | — | — | ✅ | ✅ | ✅ | — | — | — | ✅ | — |
+| 6. multi_dst | ✅ | — | ✅ | — | ✅ | — | — | ✅ | — | — | ✅ | — |
+| 7. error_lifecycle | ✅ | ✅ | — | — | ✅ | ✅ | — | — | ✅ | ✅ | ✅ | — |
+| 8. sync_stats | ✅ | — | — | — | ✅ | — | — | — | — | — | ✅ | ✅ |
 
 ---
 
@@ -423,8 +453,8 @@
 |------|--------|-----------|---------|
 | FE 单元测试 | 8 | ~77 | SQL 解析、模式匹配、规则标准化、动态刷新、序列化、元数据、进度观测数据模型 |
 | BE 单元测试 | 2 | 20 | 过滤器管理、副本过滤、事件处理、滑动窗口指标 |
-| 回归测试 (Docker) | 7 | ~22 个子场景 | 端到端功能验证、bvar 指标链路、多集群交互 |
-| **合计** | **17** | **~119** | |
+| 回归测试 (Docker) | 8 | ~31 个子场景 | 端到端功能验证、bvar 指标链路、多集群交互、进度观测 |
+| **合计** | **18** | **~128** | |
 
 ### 3.2 按功能覆盖
 
@@ -450,6 +480,7 @@
 | FE 进度观测数据模型（JSON 解析/合并/聚合） | ✅ | — | — |
 | FE 进度观测 gap 计算与 JSON 序列化 | ✅ | — | — |
 | bvar 指标端到端验证 | — | — | ✅ |
+| 进度观测端到端验证（SyncStats JSON / 绝对 segment 数） | — | — | ✅ |
 | 正则元字符转义 | ✅ | — | — |
 | `default_cluster:` 前缀处理 | ✅ | — | — |
 
@@ -475,7 +506,7 @@
 
 **回归测试：**
 ```bash
-# 运行全部 6 个 case
+# 运行全部 8 个 case
 ./run-regression-test.sh --run -d cloud_p0/cache/multi_cluster/warm_up/on_tables -runMode cloud
 
 # 运行单个 case

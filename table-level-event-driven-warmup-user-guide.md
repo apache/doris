@@ -131,7 +131,7 @@ SHOW WARM UP JOB WHERE id = <job_id>;
 
 ### 输出列说明
 
-`SHOW WARM UP JOB` 输出共 **15 列**，其中 13 列为已有字段，2 列为表级别预热新增：
+`SHOW WARM UP JOB` 输出共 **16 列**，其中 13 列为已有字段，3 列为表级别预热新增：
 
 | 列名 | 说明 |
 |------|------|
@@ -150,6 +150,7 @@ SHOW WARM UP JOB WHERE id = <job_id>;
 | Tables | 显式指定的表列表（用于 ONCE/PERIODIC 模式的表级别 Job） |
 | **TableFilter** | **新增**。`ON TABLES` 规则，以规范化 JSON 格式展示。集群级别 Job 此列为空 |
 | **MatchedTables** | **新增**。当前实际匹配的表名列表。基于内部表 ID 反查，始终展示最新名称 |
+| **SyncStats** | **新增**。event-driven Job 的实时同步进度 JSON（详见下文"同步进度观测"），非 event-driven Job 此列为空 |
 
 ### MatchedTables 与 TableFilter 的区别
 
@@ -205,6 +206,68 @@ CANCEL WARM UP JOB WHERE id = <job_id>;
 ```
 
 取消后，系统停止监听源集群的写入事件，不再向目标集群预热数据。已预热的缓存数据不受影响（不会被主动清除，按正常 LRU 策略淘汰）。
+
+---
+
+## 同步进度观测
+
+对于 event-driven 类型的 Job，`SHOW WARM UP JOB` 的 **SyncStats** 列会展示实时同步进度信息，以 JSON 格式呈现。FE 在执行 `SHOW WARM UP JOB` 时实时从各 BE 节点收集滑动窗口指标，聚合后展示。
+
+### SyncStats JSON 结构
+
+```json
+{
+  "seg_num": {
+    "requested_5m": 42, "finish_5m": 40, "gap_5m": 2, "fail_5m": 0,
+    "requested_30m": 180, "finish_30m": 178, "gap_30m": 2, "fail_30m": 0,
+    "requested_1h": 320, "finish_1h": 318, "gap_1h": 2, "fail_1h": 0
+  },
+  "seg_size": {
+    "requested_5m": "12.5mb", "finish_5m": "11.8mb", "gap_5m": "716kb", "fail_5m": "0b",
+    "requested_30m": "58.2mb", "finish_30m": "57.5mb", "gap_30m": "716kb", "fail_30m": "0b",
+    "requested_1h": "102.3mb", "finish_1h": "101.6mb", "gap_1h": "716kb", "fail_1h": "0b"
+  },
+  "idx_num": { "requested_5m": 10, "finish_5m": 10, "gap_5m": 0, "fail_5m": 0, "..." : "..." },
+  "idx_size": { "requested_5m": "2.1mb", "finish_5m": "2.1mb", "gap_5m": "0b", "fail_5m": "0b", "..." : "..." },
+  "last_trigger_ts": "14:32:15",
+  "last_finish_ts": "14:32:18"
+}
+```
+
+### 字段说明
+
+| 字段 | 说明 |
+|------|------|
+| **seg_num** | Segment 数量指标（由源集群的 submitted 和目标集群的 finished 统计） |
+| **seg_size** | Segment 数据大小（ByteSizeValue 格式，如 `12.5mb`、`716kb`） |
+| **idx_num** | 倒排索引数量指标 |
+| **idx_size** | 倒排索引数据大小 |
+| **last_trigger_ts** | 最近一次预热触发时间（HH:mm:ss） |
+| **last_finish_ts** | 最近一次预热完成时间（HH:mm:ss） |
+
+每个指标维度包含 3 个滑动窗口：
+
+| 窗口后缀 | 含义 |
+|----------|------|
+| `_5m` | 最近 5 分钟 |
+| `_30m` | 最近 30 分钟 |
+| `_1h` | 最近 1 小时 |
+
+每个窗口包含 4 个子指标：
+
+| 子指标前缀 | 含义 |
+|-----------|------|
+| `requested_` | 源集群已提交的预热请求数 |
+| `finish_` | 目标集群已完成的预热数 |
+| `gap_` | 缺口（= requested - finish，表示尚未完成的量） |
+| `fail_` | 目标集群预热失败数 |
+
+### 使用建议
+
+- **gap 趋向 0** 表示预热正常跟上写入速度
+- **gap 持续增大** 可能表示目标集群预热能力不足或网络瓶颈
+- **fail > 0** 需要排查 BE 日志中的具体错误（如磁盘空间不足、对象存储不可达等）
+- 多个时间窗口可以帮助区分瞬时波动和持续性问题（5m 看实时，1h 看趋势）
 
 ---
 
@@ -569,7 +632,20 @@ SHOW WARM UP JOB;
 
 确认 Job 状态为 RUNNING，检查 `MatchedTables` 列中匹配到的表是否符合预期。
 
-### 第五步：验证预热效果
+### 第五步：观察同步进度
+
+对于 event-driven Job，在写入数据后查看 `SyncStats` 列的同步进度：
+
+```sql
+SHOW WARM UP JOB WHERE id = <job_id>;
+```
+
+关注 `SyncStats` 列中的 JSON 信息：
+- `seg_num.gap_5m` → 0 表示预热已跟上写入速度
+- `seg_num.fail_5m` → 0 表示无失败
+- `last_trigger_ts` / `last_finish_ts` → 确认最近有预热活动
+
+### 第六步：验证预热效果
 
 在目标集群上查询已预热表的数据，观察查询延迟是否降低（首次查询应命中本地缓存，无需远程读取）。
 
