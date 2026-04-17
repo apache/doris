@@ -82,7 +82,8 @@ public class CloudWarmUpJob implements Writable {
 
     public enum JobType {
         CLUSTER,
-        TABLE;
+        TABLE,
+        TABLES;
     }
 
     public enum SyncMode {
@@ -293,7 +294,7 @@ public class CloudWarmUpJob implements Writable {
         if (FeConstants.runningUnitTest) {
             return;
         }
-        if (jobType == JobType.TABLE) {
+        if (jobType == JobType.TABLE || jobType == JobType.TABLES) {
             // warm up with table will have to set tablets on creation
             return;
         }

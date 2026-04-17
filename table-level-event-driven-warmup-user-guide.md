@@ -139,7 +139,7 @@ SHOW WARM UP JOB WHERE id = <job_id>;
 | SrcComputeGroup | 源集群（被监听写入事件的集群） |
 | DstComputeGroup | 目标集群（缓存被预热的集群） |
 | Status | Job 状态（RUNNING / FINISHED / CANCELLED 等） |
-| Type | Job 类型（CLUSTER） |
+| Type | Job 类型（`CLUSTER` = 集群级别，`TABLE` = 指定表，`TABLES` = ON TABLES 规则匹配） |
 | SyncMode | 同步模式（如 `EVENT_DRIVEN (LOAD)`） |
 | CreateTime | 创建时间 |
 | StartTime | 启动时间 |
@@ -177,7 +177,7 @@ SHOW WARM UP JOB WHERE id = <job_id>;
 +-------+-----------------+-----------------+---------+---------+---------------------+---------------------------+-----------+--------+-----------------------------------------------+-----------------------------------------+
 | JobId | SrcComputeGroup | DstComputeGroup | Status  | Type    | SyncMode            | CreateTime                | ...       | Tables | TableFilter                                   | MatchedTables                           |
 +-------+-----------------+-----------------+---------+---------+---------------------+---------------------------+-----------+--------+-----------------------------------------------+-----------------------------------------+
-| 13419 | ingestion_cg    | analytics_cg    | RUNNING | CLUSTER | EVENT_DRIVEN (LOAD) | 2024-01-01 10:05:00.000   | ...       |        | {"include":["ods.*"],"exclude":["ods.tmp_*"]} | ods.orders, ods.payments, ods.users     |
+| 13419 | ingestion_cg    | analytics_cg    | RUNNING | TABLES  | EVENT_DRIVEN (LOAD) | 2024-01-01 10:05:00.000   | ...       |        | {"include":["ods.*"],"exclude":["ods.tmp_*"]} | ods.orders, ods.payments, ods.users     |
 +-------+-----------------+-----------------+---------+---------+---------------------+---------------------------+-----------+--------+-----------------------------------------------+-----------------------------------------+
 ```
 
@@ -190,8 +190,8 @@ SHOW WARM UP JOB WHERE id = <job_id>;
 | JobId | SrcComputeGroup | DstComputeGroup | Status  | Type    | SyncMode            | ...       | TableFilter                                   | MatchedTables                                |
 +-------+-----------------+-----------------+---------+---------+---------------------+-----------+-----------------------------------------------+----------------------------------------------+
 | 13418 | write_cg        | read_cg         | RUNNING | CLUSTER | EVENT_DRIVEN (LOAD) | ...       |                                               |                                              |
-| 13419 | ingestion_cg    | analytics_cg    | RUNNING | CLUSTER | EVENT_DRIVEN (LOAD) | ...       | {"include":["ods.*"],"exclude":["ods.tmp_*"]} | ods.orders, ods.payments, ods.users           |
-| 13420 | ingestion_cg    | realtime_cg     | RUNNING | CLUSTER | EVENT_DRIVEN (LOAD) | ...       | {"include":["dw.fact_*","dw.dim_*"]}          | dw.dim_date, dw.fact_orders, dw.fact_sales   |
+| 13419 | ingestion_cg    | analytics_cg    | RUNNING | TABLES  | EVENT_DRIVEN (LOAD) | ...       | {"include":["ods.*"],"exclude":["ods.tmp_*"]} | ods.orders, ods.payments, ods.users           |
+| 13420 | ingestion_cg    | realtime_cg     | RUNNING | TABLES  | EVENT_DRIVEN (LOAD) | ...       | {"include":["dw.fact_*","dw.dim_*"]}          | dw.dim_date, dw.fact_orders, dw.fact_sales   |
 +-------+-----------------+-----------------+---------+---------+---------------------+-----------+-----------------------------------------------+----------------------------------------------+
 ```
 

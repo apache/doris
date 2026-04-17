@@ -71,7 +71,7 @@ public class CloudWarmUpJobTableFilterTest {
                 .setJobId(1L)
                 .setSrcClusterName("write_cg")
                 .setDstClusterName("read_cg")
-                .setJobType(CloudWarmUpJob.JobType.CLUSTER)
+                .setJobType(CloudWarmUpJob.JobType.TABLES)
                 .setSyncMode(CloudWarmUpJob.SyncMode.EVENT_DRIVEN);
     }
 
@@ -178,7 +178,7 @@ public class CloudWarmUpJobTableFilterTest {
                 + "\"jobState\":\"PENDING\","
                 + "\"srcClusterName\":\"write_cg\","
                 + "\"cloudClusterName\":\"read_cg\","
-                + "\"JobType\":\"CLUSTER\","
+                + "\"JobType\":\"TABLES\","
                 + "\"syncMode\":\"EVENT_DRIVEN\","
                 + "\"tableFilterRules\":["
                 + "{\"ruleType\":\"EXCLUDE\",\"pattern\":\"dw.tmp_*\"},"
@@ -270,7 +270,7 @@ public class CloudWarmUpJobTableFilterTest {
         Assertions.assertEquals("write_cg", info.get(COL_SRC));
         Assertions.assertEquals("read_cg", info.get(COL_DST));
         Assertions.assertEquals("PENDING", info.get(COL_STATUS));
-        Assertions.assertEquals("CLUSTER", info.get(COL_TYPE));
+        Assertions.assertEquals("TABLES", info.get(COL_TYPE));
         Assertions.assertTrue(info.get(COL_SYNC_MODE).contains("EVENT_DRIVEN"));
         Assertions.assertEquals("{\"include\":[\"ods.*\"],\"exclude\":[\"ods.tmp_*\"]}",
                 info.get(COL_TABLE_FILTER));

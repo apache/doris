@@ -1020,6 +1020,7 @@ public class CacheHotspotManager extends MasterDaemon {
                 // Handle ON TABLES rules
                 List<OnTablesFilter.TableFilterRule> onTablesRules = stmt.getOnTablesRules();
                 if (onTablesRules != null && !onTablesRules.isEmpty()) {
+                    builder.setJobType(JobType.TABLES);
                     List<CloudWarmUpJob.PersistedTableFilterRule> persistedRules = new ArrayList<>();
                     for (OnTablesFilter.TableFilterRule rule : onTablesRules) {
                         CloudWarmUpJob.PersistedTableFilterRule pr = new CloudWarmUpJob.PersistedTableFilterRule();
