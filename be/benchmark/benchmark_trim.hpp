@@ -145,8 +145,10 @@ struct TrimInOld {
     }
 };
 
-// TrimInNew — mirrors the optimized implementation from function_string.cpp
-// Inlined here because TrimInUtil is defined inside a .cpp and not visible to benchmarks
+// TrimInNew — mirrors the optimized hot path from function_string.cpp
+// Inlined here because TrimInUtil is defined inside a .cpp and not visible to benchmarks.
+// Only covers the <=16 ASCII chars and <=32 UTF-8 codepoints paths (benchmark scenarios
+// do not exercise the fallback paths for larger trim sets).
 struct TrimInNew {
     static void trim_in_ascii_new(const ColumnString::Chars& str_data,
                                   const ColumnString::Offsets& str_offsets,
@@ -361,6 +363,12 @@ static void BM_TrimInAscii_New(benchmark::State& state) {
     StringRef remove_str(trim_chars.data(), trim_chars.size());
 
     for (auto _ : state) {
+        // Match production overhead: is_ascii check on both remove_str and column data
+        bool all_ascii = simd::VStringFunctions::is_ascii(remove_str) &&
+                         simd::VStringFunctions::is_ascii(
+                                 StringRef(reinterpret_cast<const char*>(col->get_chars().data()),
+                                           col->get_chars().size()));
+        benchmark::DoNotOptimize(all_ascii);
         auto res = ColumnString::create();
         TrimInNew::trim_in_ascii_new(col->get_chars(), col->get_offsets(), remove_str,
                                      res->get_chars(), res->get_offsets());
@@ -403,6 +411,12 @@ static void BM_TrimInUtf8_New(benchmark::State& state) {
     StringRef remove_str(trim_chars.data(), trim_chars.size());
 
     for (auto _ : state) {
+        // Match production overhead: is_ascii check
+        bool all_ascii = simd::VStringFunctions::is_ascii(remove_str) &&
+                         simd::VStringFunctions::is_ascii(
+                                 StringRef(reinterpret_cast<const char*>(col->get_chars().data()),
+                                           col->get_chars().size()));
+        benchmark::DoNotOptimize(all_ascii);
         auto res = ColumnString::create();
         TrimInNew::trim_in_utf8_new(col->get_chars(), col->get_offsets(), remove_str,
                                     res->get_chars(), res->get_offsets());
@@ -446,6 +460,12 @@ static void BM_TrimInAsciiManyChars_New(benchmark::State& state) {
     StringRef remove_str(trim_chars.data(), trim_chars.size());
 
     for (auto _ : state) {
+        // Match production overhead: is_ascii check
+        bool all_ascii = simd::VStringFunctions::is_ascii(remove_str) &&
+                         simd::VStringFunctions::is_ascii(
+                                 StringRef(reinterpret_cast<const char*>(col->get_chars().data()),
+                                           col->get_chars().size()));
+        benchmark::DoNotOptimize(all_ascii);
         auto res = ColumnString::create();
         TrimInNew::trim_in_ascii_new(col->get_chars(), col->get_offsets(), remove_str,
                                      res->get_chars(), res->get_offsets());
@@ -461,7 +481,6 @@ static void BM_TrimInAsciiNoMatch_Old(benchmark::State& state) {
     std::string trim_chars = "xyz"; // chars unlikely in data
     auto col = ColumnString::create();
     // prepare data without any trim chars
-    std::mt19937 gen(42);
     for (size_t i = 0; i < num_rows; ++i) {
         std::string s(30, 'a');
         col->insert_data(s.data(), s.size());
@@ -497,6 +516,12 @@ static void BM_TrimInAsciiNoMatch_New(benchmark::State& state) {
     StringRef remove_str(trim_chars.data(), trim_chars.size());
 
     for (auto _ : state) {
+        // Match production overhead: is_ascii check
+        bool all_ascii = simd::VStringFunctions::is_ascii(remove_str) &&
+                         simd::VStringFunctions::is_ascii(
+                                 StringRef(reinterpret_cast<const char*>(col->get_chars().data()),
+                                           col->get_chars().size()));
+        benchmark::DoNotOptimize(all_ascii);
         auto res = ColumnString::create();
         TrimInNew::trim_in_ascii_new(col->get_chars(), col->get_offsets(), remove_str,
                                      res->get_chars(), res->get_offsets());
