@@ -25,6 +25,7 @@ import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.request.FetchRecordRequest;
 import org.apache.doris.job.common.DataSourceType;
+import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.util.StreamingJobUtils;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileType;
@@ -36,6 +37,7 @@ import org.apache.commons.lang3.StringUtils;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -109,6 +111,16 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
         }
         if (!properties.containsKey(DataSourceConfigKeys.OFFSET)) {
             throw new AnalysisException("offset is required");
+        }
+        DataSourceType sourceType = DataSourceType.valueOf(
+                properties.get(DataSourceConfigKeys.TYPE).toUpperCase());
+        String jobId = properties.getOrDefault(JOB_ID_KEY,
+                UUID.randomUUID().toString().replace("-", ""));
+        List<String> tables = Collections.singletonList(properties.get(DataSourceConfigKeys.TABLE));
+        try {
+            StreamingJobUtils.validateSourceResources(sourceType, properties, jobId, tables);
+        } catch (JobException e) {
+            throw new AnalysisException(e.getMessage(), e);
         }
     }
 

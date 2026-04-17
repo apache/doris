@@ -230,6 +230,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 String includeTables = String.join(",", createTbls);
                 sourceProperties.put(DataSourceConfigKeys.INCLUDE_TABLES, includeTables);
             }
+            StreamingJobUtils.validateSourceResources(
+                    dataSourceType, sourceProperties, String.valueOf(getJobId()), createTbls);
             this.offsetProvider = new JdbcSourceOffsetProvider(getJobId(), dataSourceType,
                     StreamingJobUtils.convertCertFile(getDbId(), sourceProperties));
             JdbcSourceOffsetProvider rdsOffsetProvider = (JdbcSourceOffsetProvider) this.offsetProvider;
@@ -879,7 +881,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             StringBuilder sb = new StringBuilder();
             sb.append("FROM ").append(dataSourceType.name());
             sb.append("(");
-            for (Map.Entry<String, String> entry : sourceProperties.entrySet()) {
+            Map<String, String> displaySourceProps = buildDisplaySourceProperties();
+            for (Map.Entry<String, String> entry : displaySourceProps.entrySet()) {
                 if (entry.getKey().equalsIgnoreCase("password")) {
                     continue;
                 }
@@ -982,6 +985,21 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                     targetDb);
         }
         return true;
+    }
+
+    // PG jobs don't persist default slot/publication names; surface them here so SHOW reflects
+    // the values the cdc client actually uses.
+    private Map<String, String> buildDisplaySourceProperties() {
+        if (dataSourceType != DataSourceType.POSTGRES) {
+            return sourceProperties;
+        }
+        Map<String, String> display = new LinkedHashMap<>(sourceProperties);
+        String jobIdStr = String.valueOf(getJobId());
+        display.putIfAbsent(DataSourceConfigKeys.SLOT_NAME,
+                DataSourceConfigKeys.defaultSlotName(jobIdStr));
+        display.putIfAbsent(DataSourceConfigKeys.PUBLICATION_NAME,
+                DataSourceConfigKeys.defaultPublicationName(jobIdStr));
+        return display;
     }
 
     private String generateEncryptedSql() {

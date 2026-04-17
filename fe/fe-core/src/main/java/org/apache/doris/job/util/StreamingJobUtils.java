@@ -36,6 +36,7 @@ import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
 import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.exception.JobException;
+import org.apache.doris.job.extensions.insert.streaming.PostgresResourceValidator;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
@@ -448,6 +449,20 @@ public class StreamingJobUtils {
      * The remoteDB implementation differs for each data source;
      * refer to the hierarchical mapping in the JDBC catalog.
      */
+    /**
+     * Validate source-side resources (e.g. PG replication slot and publication) at CREATE JOB time
+     * so users get an actionable error before the CDC client connects. No-op for sources that
+     * have no such concept.
+     */
+    public static void validateSourceResources(DataSourceType sourceType,
+                                               Map<String, String> properties,
+                                               String jobId,
+                                               List<String> tables) throws JobException {
+        if (sourceType == DataSourceType.POSTGRES) {
+            PostgresResourceValidator.validate(properties, jobId, tables);
+        }
+    }
+
     public static String getRemoteDbName(DataSourceType sourceType, Map<String, String> properties) {
         String remoteDb = null;
         switch (sourceType) {

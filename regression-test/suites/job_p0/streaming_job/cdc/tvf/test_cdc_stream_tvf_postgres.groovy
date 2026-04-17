@@ -61,6 +61,82 @@ suite("test_cdc_stream_tvf_postgres", "p0,external,pg,external_docker,external_d
             exception "Unsupported offset: initial"
         }
 
+        // Fail fast when a user-provided slot does not exist on PG.
+        test {
+            sql """
+            select * from cdc_stream(
+                "type" = "postgres",
+                "jdbc_url" = "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}",
+                "driver_url" = "${driver_url}",
+                "driver_class" = "org.postgresql.Driver",
+                "user" = "${pgUser}",
+                "password" = "${pgPassword}",
+                "database" = "${pgDB}",
+                "schema" = "${pgSchema}",
+                "table" = "${table1}",
+                "slot_name" = "tvf_missing_slot_xyz",
+                "offset" = 'latest')
+            """
+            exception "replication slot does not exist"
+        }
+
+        // Fail fast when a user-provided publication does not exist on PG.
+        test {
+            sql """
+            select * from cdc_stream(
+                "type" = "postgres",
+                "jdbc_url" = "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}",
+                "driver_url" = "${driver_url}",
+                "driver_class" = "org.postgresql.Driver",
+                "user" = "${pgUser}",
+                "password" = "${pgPassword}",
+                "database" = "${pgDB}",
+                "schema" = "${pgSchema}",
+                "table" = "${table1}",
+                "publication_name" = "tvf_missing_pub_xyz",
+                "offset" = 'latest')
+            """
+            exception "publication does not exist"
+        }
+
+        // Fail fast when a user-provided publication exists but does not cover the target table.
+        def otherTable = "user_info_pg_normal2_tvf"
+        def partialPub = "tvf_partial_pub"
+        connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
+            sql """DROP TABLE IF EXISTS ${pgDB}.${pgSchema}.${otherTable}"""
+            sql """CREATE TABLE ${pgDB}.${pgSchema}.${otherTable} (
+                  "name" varchar(200),
+                  "age" int2,
+                  PRIMARY KEY ("name")
+                )"""
+            sql """DROP PUBLICATION IF EXISTS ${partialPub}"""
+            sql """CREATE PUBLICATION ${partialPub} FOR TABLE ${pgDB}.${pgSchema}.${otherTable}"""
+        }
+        try {
+            test {
+                sql """
+                select * from cdc_stream(
+                    "type" = "postgres",
+                    "jdbc_url" = "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}",
+                    "driver_url" = "${driver_url}",
+                    "driver_class" = "org.postgresql.Driver",
+                    "user" = "${pgUser}",
+                    "password" = "${pgPassword}",
+                    "database" = "${pgDB}",
+                    "schema" = "${pgSchema}",
+                    "table" = "${table1}",
+                    "publication_name" = "${partialPub}",
+                    "offset" = 'latest')
+                """
+                exception "is missing required tables"
+            }
+        } finally {
+            connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
+                sql """DROP PUBLICATION IF EXISTS ${partialPub}"""
+                sql """DROP TABLE IF EXISTS ${pgDB}.${pgSchema}.${otherTable}"""
+            }
+        }
+
         // Here, because PG consumption requires creating a slot first,
         // we only verify whether the execution can be successful.
         def result = sql """

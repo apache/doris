@@ -212,6 +212,22 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
                     sourceProperties.get(DataSourceConfigKeys.EXCLUDE_TABLES)),
                     "The exclude_tables property cannot be modified in ALTER JOB");
         }
+
+        // slot_name / publication_name decide Doris-vs-user ownership at create time; flipping
+        // them afterwards would orphan Doris-created resources or let Doris drop user-owned ones.
+        if (sourceProperties.containsKey(DataSourceConfigKeys.SLOT_NAME)) {
+            Preconditions.checkArgument(Objects.equals(
+                    originSourceProperties.get(DataSourceConfigKeys.SLOT_NAME),
+                    sourceProperties.get(DataSourceConfigKeys.SLOT_NAME)),
+                    "The slot_name property cannot be modified in ALTER JOB");
+        }
+
+        if (sourceProperties.containsKey(DataSourceConfigKeys.PUBLICATION_NAME)) {
+            Preconditions.checkArgument(Objects.equals(
+                    originSourceProperties.get(DataSourceConfigKeys.PUBLICATION_NAME),
+                    sourceProperties.get(DataSourceConfigKeys.PUBLICATION_NAME)),
+                    "The publication_name property cannot be modified in ALTER JOB");
+        }
     }
 
     private void validateProps(StreamingInsertJob streamingJob) throws AnalysisException {
@@ -247,14 +263,17 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
                         "The uri property cannot be modified in ALTER JOB");
                 break;
             case "cdc_stream":
-                // type, jdbc_url, database, schema, and table identify the source and cannot be changed.
+                // type, jdbc_url, database, schema, table identify the source and cannot be changed.
+                // slot_name / publication_name are fixed at create time to keep ownership stable.
                 // user, password, driver_url, driver_class, etc. are modifiable (credential rotation).
                 for (String unmodifiable : new String[] {
                         DataSourceConfigKeys.TYPE,
                         DataSourceConfigKeys.JDBC_URL,
                         DataSourceConfigKeys.DATABASE,
                         DataSourceConfigKeys.SCHEMA,
-                        DataSourceConfigKeys.TABLE}) {
+                        DataSourceConfigKeys.TABLE,
+                        DataSourceConfigKeys.SLOT_NAME,
+                        DataSourceConfigKeys.PUBLICATION_NAME}) {
                     Preconditions.checkArgument(
                             Objects.equals(
                                     originTvf.getProperties().getMap().get(unmodifiable),
