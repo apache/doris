@@ -17,7 +17,6 @@
 
 package org.apache.doris.mtmv.ivm;
 
-import com.google.common.base.Preconditions;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.mtmv.BaseTableInfo;
@@ -25,6 +24,8 @@ import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+
+import com.google.common.base.Preconditions;
 
 import java.util.ArrayList;
 import java.util.Collections;
