@@ -597,6 +597,12 @@ public class ConnectContext {
                         return Literal.of(new BigInteger(literalExpr.getStringValue()));
                     case BIGINT:
                         return Literal.of(((IntLiteral) literalExpr).getValue());
+                    case INT:
+                        return Literal.of((int) ((IntLiteral) literalExpr).getValue());
+                    case SMALLINT:
+                        return Literal.of((short) ((IntLiteral) literalExpr).getValue());
+                    case TINYINT:
+                        return Literal.of((byte) ((IntLiteral) literalExpr).getValue());
                     default:
                         return Literal.of((int) ((IntLiteral) literalExpr).getValue());
                 }
