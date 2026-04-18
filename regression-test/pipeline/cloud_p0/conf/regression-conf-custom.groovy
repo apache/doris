@@ -78,6 +78,7 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
     "cloud_p0/multi_cluster," + // run in specific regression pipeline
     "cloud_p0/cache," +
     "pythonudaf_p0," + // will cause a core when the third-party is compiled by clang
+    "pythonudtf_p0," + // will cause a core when the third-party is compiled by clang
     "pythonudf_p0," + // will cause a core when the third-party is compiled by clang
     "shape_check," + // run only in p0 is enough
     "query_p0/cache," + // run only in p0 is enough
