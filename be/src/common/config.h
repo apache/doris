@@ -1372,6 +1372,8 @@ DECLARE_mBool(enable_delete_when_cumu_compaction);
 
 // max_write_buffer_number for rocksdb
 DECLARE_Int32(rocksdb_max_write_buffer_number);
+// bytes_per_sec for rocksdb rate limiter
+DECLARE_Int64(rocksdb_rate_limiter_bytes_per_sec);
 
 // Convert date 0000-00-00 to 0000-01-01. It's recommended to set to false.
 DECLARE_mBool(allow_zero_date);

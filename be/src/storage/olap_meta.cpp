@@ -37,6 +37,7 @@
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
+#include "rocksdb/rate_limiter.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 #include "runtime/runtime_profile.h"
@@ -82,6 +83,10 @@ Status OlapMeta::init() {
     options.create_missing_column_families = true;
     options.info_log = std::make_shared<RocksdbLogger>();
     options.info_log_level = rocksdb::WARN_LEVEL;
+
+    auto bytes_per_sec = config::rocksdb_rate_limiter_bytes_per_sec;
+    options.rate_limiter.reset(rocksdb::NewGenericRateLimiter(
+            bytes_per_sec, 100 * 1000, 10, rocksdb::RateLimiter::Mode::kWritesOnly, true));
 
     std::string db_path = _root_path + META_POSTFIX;
     std::vector<ColumnFamilyDescriptor> column_families;

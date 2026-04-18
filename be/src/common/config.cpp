@@ -1329,6 +1329,8 @@ DEFINE_mBool(enable_delete_when_cumu_compaction, "false");
 
 // max_write_buffer_number for rocksdb
 DEFINE_Int32(rocksdb_max_write_buffer_number, "5");
+// bytes_per_sec for rocksdb rate limiter
+DEFINE_Int64(rocksdb_rate_limiter_bytes_per_sec, "1048576"); // 1MB/s
 
 DEFINE_mBool(allow_zero_date, "false");
 DEFINE_Bool(allow_invalid_decimalv2_literal, "false");

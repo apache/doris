@@ -33,6 +33,7 @@
 
 #include "common/status.h"
 #include "exec/common/hex.h"
+#include "rocksdb/rate_limiter.h"
 #include "storage/field.h"
 #include "storage/field.h" // For OLAP_FIELD_TYPE_BIGINT
 #include "storage/key_coder.h"
@@ -87,6 +88,10 @@ Status CacheBlockMetaStore::init() {
     _options.max_open_files = 1000;
     _options.write_buffer_size = 64 * 1024 * 1024; // 64MB
     _options.target_file_size_base = 64 * 1024 * 1024;
+
+    auto bytes_per_sec = config::rocksdb_rate_limiter_bytes_per_sec;
+    _options.rate_limiter.reset(rocksdb::NewGenericRateLimiter(
+            bytes_per_sec, 100 * 1000, 10, rocksdb::RateLimiter::Mode::kWritesOnly, true));
 
     rocksdb::BlockBasedTableOptions table_options;
     table_options.filter_policy.reset(rocksdb::NewBloomFilterPolicy(10, false));
