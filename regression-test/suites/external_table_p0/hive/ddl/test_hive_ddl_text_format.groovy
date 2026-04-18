@@ -69,7 +69,7 @@ suite("test_hive_ddl_text_format", "p0,external") {
             """
             order_qt_default_properties """ select * from ${defaultTableName} """
 
-            order_qt_hive_docker_default_properties""" select * from ${defaultTableName} """
+            order_qt_hive_docker_default_properties""" select * from ${database_name}.${defaultTableName} """
 
             sql """ drop table if exists ${standardTableName} """
             // Escape characters need to be considered in groovy scripts
@@ -97,7 +97,7 @@ suite("test_hive_ddl_text_format", "p0,external") {
                 (3, 'Charlie', NULL, map('keyC', 'valueC', 'keyD', 'valueD'));
             """
             order_qt_standard_properties """ select * from ${standardTableName} """
-            order_qt_hive_docker_standard_properties """ select * from ${standardTableName} order by id; """
+            order_qt_hive_docker_standard_properties """ select * from ${database_name}.${standardTableName} order by id; """
 
             sql """ drop table if exists ${differentTableName} """
             sql """
@@ -124,7 +124,7 @@ suite("test_hive_ddl_text_format", "p0,external") {
                 (3, 'Charlie', NULL, map('keyC', 'valueC', 'keyD', 'valueD'));
             """
             order_qt_different_properties """ select * from ${differentTableName} """
-            order_qt_hive_docker_different_properties """ select * from ${differentTableName} order by id; """
+            order_qt_hive_docker_different_properties """ select * from ${database_name}.${differentTableName} order by id; """
 
             String serde = "'org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe'"
             String input_format = "'org.apache.hadoop.mapred.TextInputFormat'"

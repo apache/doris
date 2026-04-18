@@ -140,6 +140,7 @@ suite("test_hive_partition_values_tvf", "p0,external") {
         qt_sql112 """select * from partition_values_all_types order by k1;"""
             qt_sql113 """select * from partition_values_all_types\$partitions order by p1,p2,p3;"""
         } finally {
+            try_sql """drop database if exists ${partitionValuesDb}"""
             try_sql """drop catalog if exists ${catalog_name}"""
         }
     }
