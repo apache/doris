@@ -120,7 +120,7 @@ public class PhysicalHudiScan extends PhysicalFileScan {
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalHudiScan",
+        return Utils.toSqlString("PhysicalHudiScan[" + id.asInt() + "]",
                 "qualified", Utils.qualifiedName(qualifier, table.getName()),
                 "output", getOutput(),
                 "stats", statistics,

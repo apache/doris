@@ -101,7 +101,7 @@ public class PhysicalLazyMaterializeOlapScan extends PhysicalOlapScan {
     @Override
     public String shapeInfo() {
         StringBuilder shapeBuilder = new StringBuilder();
-        shapeBuilder.append(this.getClass().getSimpleName())
+        shapeBuilder.append("PhysicalLazyMaterializeOlapScan[" + id.asInt() + "]")
                 .append("[").append(scan.table.getName()).append(" lazySlots:")
                 .append(ExpressionUtils.slotListShapeInfo(lazySlots))
                 .append("]");
