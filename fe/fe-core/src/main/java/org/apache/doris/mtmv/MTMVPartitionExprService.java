@@ -20,6 +20,8 @@ package org.apache.doris.mtmv;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.common.AnalysisException;
 
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -49,6 +51,19 @@ public interface MTMVPartitionExprService {
     PartitionKeyDesc generateRollUpPartitionKeyDesc(
             PartitionKeyDesc partitionKeyDesc, MTMVPartitionInfo mvPartitionInfo, MTMVRelatedTableIf pctTable)
             throws AnalysisException;
+
+    /**
+     * For range partition, a single base range partition may overlap multiple roll-up buckets
+     * (e.g. {@code date_trunc(date_add(col, INTERVAL 3 HOUR), 'day')} on UTC-midnight base partitions),
+     * so return all roll-up PartitionKeyDesc values that should be associated with the input range.
+     *
+     * <p>Default implementation keeps the historical 1-to-1 behavior.
+     */
+    default List<PartitionKeyDesc> generateRollUpPartitionKeyDescs(
+            PartitionKeyDesc partitionKeyDesc, MTMVPartitionInfo mvPartitionInfo, MTMVRelatedTableIf pctTable)
+            throws AnalysisException {
+        return Collections.singletonList(generateRollUpPartitionKeyDesc(partitionKeyDesc, mvPartitionInfo, pctTable));
+    }
 
     /**
      * Check if user input is legal

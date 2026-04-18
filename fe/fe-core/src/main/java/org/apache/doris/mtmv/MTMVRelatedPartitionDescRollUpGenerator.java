@@ -143,9 +143,11 @@ public class MTMVRelatedPartitionDescRollUpGenerator implements MTMVRelatedParti
         Map<PartitionKeyDesc, Set<String>> result = Maps.newHashMap();
         MTMVPartitionExprService exprSerice = MTMVPartitionExprFactory.getExprService(mvPartitionInfo.getExpr());
         for (Entry<PartitionKeyDesc, Set<String>> entry : relatedPartitionDescs.entrySet()) {
-            PartitionKeyDesc rollUpDesc = exprSerice.generateRollUpPartitionKeyDesc(entry.getKey(), mvPartitionInfo,
-                    pctTable);
-            result.computeIfAbsent(rollUpDesc, k -> Sets.newHashSet()).addAll(entry.getValue());
+            List<PartitionKeyDesc> rollUpDescs = exprSerice.generateRollUpPartitionKeyDescs(entry.getKey(),
+                    mvPartitionInfo, pctTable);
+            for (PartitionKeyDesc rollUpDesc : rollUpDescs) {
+                result.computeIfAbsent(rollUpDesc, k -> Sets.newHashSet()).addAll(entry.getValue());
+            }
         }
         return result;
     }
