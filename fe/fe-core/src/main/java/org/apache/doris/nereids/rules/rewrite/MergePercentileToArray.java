@@ -27,8 +27,8 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
-import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileArrayV2;
-import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileV2;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Percentile;
+import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
@@ -59,9 +59,9 @@ import java.util.Set;
 /**MergePercentileToArray
  * LogicalAggregate (outputExpression:[percentile(a,0.1) as c1, percentile(a,0.22) as c2])
  * ->
- * LogicalProject (projects: [element_at(percentile_array_v2(a,[0.1,0.22])#1, 1) as c1,
- *      element_at(percentile_array_v2(a,[0.1,0.22], 2)#1 as c2])
- *   --+LogicalAggregate(outputExpression: percentile_array_v2(a, [0.1, 0.22]) as percentile_array_v2(a, [0.1, 0.22])#1)
+ * LogicalProject (projects: [element_at(percentile(a,[0.1,0.22])#1, 1) as c1,
+ *      element_at(percentile(a,[0.1,0.22], 2)#1 as c2])
+ *   --+LogicalAggregate(outputExpression: percentile_array(a, [0.1, 0.22]) as percentile_array(a, [0.1, 0.22])#1)
  * */
 @DependsRules({
         NormalizeAggregate.class
@@ -96,14 +96,14 @@ public class MergePercentileToArray extends OneRewriteRuleFactory {
                 percentArray = new Array(percentList.toArray(new Expression[0]));
             }
 
+            PercentileArray percentileArray;
             Expression secondArg = allPercentIsLiteral
                     ? TypeCoercionUtils.castIfNotSameType(percentArrayLiteral, ArrayType.of(DoubleType.INSTANCE))
                     : TypeCoercionUtils.castIfNotSameType(percentArray, ArrayType.of(DoubleType.INSTANCE));
-            AggregateFunction percentileArray;
             if (entry.getKey().isDistinct) {
-                percentileArray = new PercentileArrayV2(true, entry.getKey().getExpression(), secondArg);
+                percentileArray = new PercentileArray(true, entry.getKey().getExpression(), secondArg);
             } else {
-                percentileArray = new PercentileArrayV2(entry.getKey().getExpression(), secondArg);
+                percentileArray = new PercentileArray(entry.getKey().getExpression(), secondArg);
             }
             newPercentileArrays.add(percentileArray);
         }
@@ -116,7 +116,7 @@ public class MergePercentileToArray extends OneRewriteRuleFactory {
         Set<AggregateFunction> aggregateFunctions = aggregate.getAggregateFunctions();
         Map<DistinctAndExpr, List<AggregateFunction>> funcMap = new HashMap<>();
         for (AggregateFunction func : aggregateFunctions) {
-            if (!(func instanceof PercentileV2)) {
+            if (!(func instanceof Percentile)) {
                 continue;
             }
             DistinctAndExpr distictAndExpr = new DistinctAndExpr(func.child(0), func.isDistinct());

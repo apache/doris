@@ -22,7 +22,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Median;
-import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileV2;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Percentile;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 
 import com.google.common.collect.ImmutableList;
@@ -30,7 +30,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /**
- * median(col) -> percentile_v2(col, 0.5)
+ * median(col) -> percentile(col, 0.5)
  */
 public class MedianConvert implements ExpressionPatternRuleFactory {
     public static MedianConvert INSTANCE = new MedianConvert();
@@ -39,7 +39,7 @@ public class MedianConvert implements ExpressionPatternRuleFactory {
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
                 matchesType(Median.class).then(median ->
-                    new PercentileV2(median.child(0), DoubleLiteral.of(0.5))
+                    new Percentile(median.child(0), DoubleLiteral.of(0.5))
                 ).toRule(ExpressionRuleType.MEDIAN_CONVERT)
         );
     }

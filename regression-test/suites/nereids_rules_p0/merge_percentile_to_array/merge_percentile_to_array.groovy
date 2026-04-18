@@ -82,22 +82,4 @@ suite("merge_percentile_to_array") {
     (SELECT percentile(a, 0.11) c1, percentile(a,0.25+0.1) as c2, min(a) c3
     FROM test_merge_percentile ts group by grouping sets((b),(pk),())) t group by c2
     """
-
-    explain {
-        sql """ select percentile(pk, 0.1), percentile(pk, 0.2) from test_merge_percentile """
-        contains "percentile_array_v2"
-        notContains "percentile_array_v1"
-    }
-
-    explain {
-        sql """ select percentile(pk, 0.1) from test_merge_percentile """
-        contains "percentile_v2"
-        notContains "percentile_v1"
-    }
-
-    explain {
-        sql """ select percentile_array(pk, [0.1, 0.2]) from test_merge_percentile """
-        contains "percentile_array_v2"
-        notContains "percentile_array_v1"
-    }
 }
