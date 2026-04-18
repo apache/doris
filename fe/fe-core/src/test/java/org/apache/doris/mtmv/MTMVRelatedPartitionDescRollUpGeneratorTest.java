@@ -108,10 +108,6 @@ public class MTMVRelatedPartitionDescRollUpGeneratorTest {
             Assert.assertEquals(Sets.newHashSet("name1", "name2"), res.get(expectDesc202001));
             Assert.assertEquals(Sets.newHashSet("name3"), res.get(expectDesc202002));
         }
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> 5bd204a9ce9 ([feature](mtmv) Support hour-offset MTMV partition expressions with UTC-midnight base partitions)
     }
 
     @Test
@@ -236,11 +232,6 @@ public class MTMVRelatedPartitionDescRollUpGeneratorTest {
             Assert.assertEquals(Sets.newHashSet("name1"), res.get(expectDesc20250725));
             Assert.assertEquals(Sets.newHashSet("name2"), res.get(expectDesc20250726));
         }
-<<<<<<< HEAD
-=======
->>>>>>> upstream/master
-=======
->>>>>>> 5bd204a9ce9 ([feature](mtmv) Support hour-offset MTMV partition expressions with UTC-midnight base partitions)
     }
 
     private PartitionKeyDesc generateInDesc(String... values) {
