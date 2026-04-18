@@ -29,12 +29,15 @@ import org.apache.doris.nereids.rules.exploration.mv.RelatedTableInfo.RelatedTab
 import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.CTEId;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursSub;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -91,7 +94,8 @@ public class PartitionIncrementMaintainer {
             DefaultPlanVisitor<Void, PartitionIncrementCheckContext> {
         public static final PartitionIncrementChecker INSTANCE = new PartitionIncrementChecker();
         public static final Set<Class<? extends Expression>> SUPPORT_EXPRESSION_TYPES =
-                ImmutableSet.of(DateTrunc.class, SlotReference.class, Literal.class);
+                ImmutableSet.of(DateTrunc.class, SlotReference.class, Literal.class, Cast.class,
+                        HoursAdd.class, HoursSub.class);
 
         @Override
         public Void visitLogicalProject(LogicalProject<? extends Plan> project,
