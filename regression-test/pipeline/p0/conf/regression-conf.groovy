@@ -77,6 +77,7 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
 excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
     "cloud," +
     "pythonudaf_p0," + // will cause a core when the third-party is compiled by clang
+    "pythonudtf_p0," + // will cause a core when the third-party is compiled by clang
     "pythonudf_p0," + // will cause a core when the third-party is compiled by clang
     "cloud_p0," +
     "external_table_p0/remote_doris," + // ubsan issue, need to investigate
