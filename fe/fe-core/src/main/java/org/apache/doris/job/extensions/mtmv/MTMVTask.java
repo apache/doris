@@ -316,7 +316,7 @@ public class MTMVTask extends AbstractTask {
             // runningIvmRefresh flag if it was left set by a previous incomplete IVM run.
             // Also advance consumedTso so the next incremental refresh starts from the
             // correct position rather than re-processing already-refreshed data.
-            if (mtmv.isIvm() && ivmPreRefreshTsos != null) {
+            if (mtmv.isIvm() && ivmPreRefreshTsos != null && !ivmPreRefreshTsos.isEmpty()) {
                 IvmRefreshManager.resetIvmStateAfterFullRefresh(mtmv, ivmPreRefreshTsos);
             }
         } catch (Throwable e) {

@@ -219,4 +219,56 @@ public class LogicalOlapScanTest {
         Assertions.assertSame(scanSlot2, replaceMap.get(mvSlot2));
         Assertions.assertSame(scanSlot3, replaceMap.get(mvSlot3));
     }
+
+    @Test
+    public void testWithTsoReturnsNewScanWithTso() {
+        LogicalOlapScan scan = createMockScan(ImmutableList.of());
+        Assertions.assertEquals(-1, scan.getTso());
+        Assertions.assertFalse(scan.isDelta());
+
+        LogicalOlapScan withTso = scan.withTso(42L);
+        Assertions.assertEquals(42L, withTso.getTso());
+        Assertions.assertFalse(withTso.isDelta());
+        // Original unchanged
+        Assertions.assertEquals(-1, scan.getTso());
+    }
+
+    @Test
+    public void testWithIsDeltaReturnsNewScan() {
+        LogicalOlapScan scan = createMockScan(ImmutableList.of());
+        Assertions.assertFalse(scan.isDelta());
+
+        LogicalOlapScan delta = scan.withIsDelta(true);
+        Assertions.assertTrue(delta.isDelta());
+        Assertions.assertEquals(-1, delta.getTso());
+        // Original unchanged
+        Assertions.assertFalse(scan.isDelta());
+    }
+
+    @Test
+    public void testEqualsDistinguishesTso() {
+        LogicalOlapScan scan1 = createMockScan(ImmutableList.of());
+        LogicalOlapScan scan2 = scan1.withTso(100L);
+        // Same scan but different TSO should not be equal
+        Assertions.assertNotEquals(scan1, scan2);
+        // Same TSO should be equal (same object properties)
+        LogicalOlapScan scan3 = scan1.withTso(100L);
+        Assertions.assertEquals(scan2, scan3);
+    }
+
+    @Test
+    public void testEqualsDistinguishesIsDelta() {
+        LogicalOlapScan scan1 = createMockScan(ImmutableList.of());
+        LogicalOlapScan scan2 = scan1.withIsDelta(true);
+        // Same scan but different isDelta should not be equal
+        Assertions.assertNotEquals(scan1, scan2);
+    }
+
+    @Test
+    public void testWithTsoAndIsDeltaCombined() {
+        LogicalOlapScan scan = createMockScan(ImmutableList.of());
+        LogicalOlapScan modified = scan.withTso(50L).withIsDelta(true);
+        Assertions.assertEquals(50L, modified.getTso());
+        Assertions.assertTrue(modified.isDelta());
+    }
 }

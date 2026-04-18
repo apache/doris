@@ -29,6 +29,7 @@ import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.qe.ConnectContext;
 
@@ -126,8 +127,9 @@ public class IvmRefreshManager {
 
     /**
      * Reads the current visible TSO from each base table and stores it in the
-     * corresponding {@link IvmStreamRef#setLatestTso}. Tables that cannot be resolved
-     * or are not OlapTables are silently skipped (the rewriter will handle missing refs).
+     * corresponding {@link IvmStreamRef#setLatestTso}. Throws on failure to ensure
+     * the caller falls back to full refresh rather than proceeding with stale TSO
+     * values (which could cause missed data or false no-op results).
      */
     @VisibleForTesting
     void populateLatestTso(Map<BaseTableInfo, IvmStreamRef> baseTableStreams) {
@@ -137,13 +139,21 @@ public class IvmRefreshManager {
         for (Map.Entry<BaseTableInfo, IvmStreamRef> entry : baseTableStreams.entrySet()) {
             BaseTableInfo tableInfo = entry.getKey();
             IvmStreamRef ref = entry.getValue();
+            TableIf table;
             try {
-                TableIf table = MTMVUtil.getTable(tableInfo);
-                if (table instanceof OlapTable) {
-                    ref.setLatestTso(((OlapTable) table).getVisibleTso());
-                }
+                table = MTMVUtil.getTable(tableInfo);
             } catch (Exception e) {
-                LOG.warn("IVM: failed to read latestTso for base table {}: {}", tableInfo, e.getMessage());
+                throw new AnalysisException("IVM: failed to resolve base table: " + tableInfo, e);
+            }
+            if (!(table instanceof OlapTable)) {
+                throw new AnalysisException(
+                        "IVM: base table is not OlapTable: " + tableInfo);
+            }
+            try {
+                ref.setLatestTso(((OlapTable) table).getVisibleTso());
+            } catch (Exception e) {
+                throw new AnalysisException(
+                        "IVM: failed to get visible TSO for table: " + tableInfo, e);
             }
         }
     }
@@ -307,7 +317,8 @@ public class IvmRefreshManager {
     /**
      * Captures the current visible TSO for each base table stream. Should be called
      * BEFORE a full refresh executes, so the captured values represent the snapshot
-     * that the refresh will read. Tables that cannot be resolved are silently skipped.
+     * that the refresh will read. On failure, logs a warning and returns an empty map;
+     * the caller should check the result size and skip consumedTso reset if incomplete.
      */
     public static Map<BaseTableInfo, Long> captureBaseTableTsos(MTMV mtmv) {
         Map<BaseTableInfo, Long> result = new HashMap<>();
@@ -322,8 +333,9 @@ public class IvmRefreshManager {
                     result.put(tableInfo, ((OlapTable) table).getVisibleTso());
                 }
             } catch (Exception e) {
-                LOG.warn("IVM: failed to capture TSO for table {} before full refresh: {}",
-                        tableInfo, e.getMessage());
+                LOG.warn("IVM: failed to capture TSO for table {} before full refresh: {}. "
+                        + "IVM state reset will be skipped.", tableInfo, e.getMessage());
+                return Collections.emptyMap();
             }
         }
         return result;
