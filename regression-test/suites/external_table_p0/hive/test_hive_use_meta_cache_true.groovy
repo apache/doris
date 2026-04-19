@@ -52,24 +52,31 @@ suite("test_hive_use_meta_cache_true", "p0,external") {
                 sql "switch ${catalog}"
                 sql "drop database if exists ${database} force"
                 sql "drop database if exists ${database_hive} force"
-                order_qt_sql01 "show databases like '%${database}%'";
+                def result01 = sql "show databases like '%${database}%'"
+                assertTrue(result01.isEmpty(), "Database should not exist before creation")
                 sql "drop database if exists ${database} force"
                 sql "create database ${database}"
-                order_qt_sql02 "show databases like '%${database}%'";
+                def result02 = sql "show databases like '%${database}%'"
+                assertTrue(result02.size() == 1, "Database should exist after creation")
                 sql "use ${database}"
                 sql "create table ${table} (k1 int)"
-                order_qt_sql03 "show tables"
+                def result03 = sql "show tables"
+                assertTrue(result03.size() == 1, "Table should exist after creation")
                 sql "drop table ${table}"
-                order_qt_sql04 "show tables"
+                def result04 = sql "show tables"
+                assertTrue(result04.isEmpty(), "Table should not exist after drop")
                 sql "drop database ${database}"
-                order_qt_sql05 "show databases like '%${database}%'";
+                def result05 = sql "show databases like '%${database}%'"
+                assertTrue(result05.isEmpty(), "Database should not exist after drop")
 
                 // create from Hive, the cache has different behavior
-                order_qt_sql01 "show databases like '%${database_hive}%'";
+                def result11 = sql "show databases like '%${database_hive}%'"
+                assertTrue(result11.isEmpty(), "Hive database should not exist before creation")
                 hive_docker "drop database if exists ${database_hive}"
                 hive_docker "create database ${database_hive}"
                 // not see
-                order_qt_sql02 "show databases like '%${database_hive}%'";
+                def result12 = sql "show databases like '%${database_hive}%'"
+                assertTrue(result12.isEmpty(), "Hive database should not be visible without refresh when cache enabled")
                 if (use_meta_cache) {
                     // if use meta cache, can use
                     sql "use ${database_hive}"
@@ -82,27 +89,33 @@ suite("test_hive_use_meta_cache_true", "p0,external") {
                 }
 
                 // can see
-                order_qt_sql03 "show databases like '%${database_hive}%'";
+                def result13 = sql "show databases like '%${database_hive}%'"
+                assertTrue(result13.size() == 1, "Hive database should be visible after refresh")
                 // show tables first to fill cache
-                order_qt_sql04 "show tables"
+                def result14 = sql "show tables"
+                assertTrue(result14.isEmpty(), "Tables should be empty initially")
                 hive_docker "create table ${database_hive}.${table_hive} (k1 int)"
                 // not see
-                order_qt_sql05 "show tables"
+                def result15 = sql "show tables"
+                assertTrue(result15.isEmpty(), "Hive table should not be visible without refresh")
                 if (use_meta_cache) {
                     // but can select
                     sql "select * from ${table_hive}"
                     // after select, the names cache is refresh, so can see
-                    order_qt_sql06 "show tables"
+                    def result16 = sql "show tables"
+                    assertTrue(result16.size() == 1, "Table should be visible after select")
                     sql "refresh database ${database_hive}"
                 } else {
                     // if not use meta cache, can not select
                     sql "refresh database ${database_hive}"
                     sql "select * from ${table_hive}"
                     // after select, the names cache is refresh, so can see
-                    order_qt_sql06 "show tables"
+                    def result16 = sql "show tables"
+                    assertTrue(result16.size() == 1, "Table should be visible after select")
                 }
                 // can see
-                order_qt_sql07 "show tables"
+                def result17 = sql "show tables"
+                assertTrue(result17.size() == 1, "Table should be visible")
 
                 // another table creation test only for use_meta_cache=true
                 // the main point is to select the table first before creation.

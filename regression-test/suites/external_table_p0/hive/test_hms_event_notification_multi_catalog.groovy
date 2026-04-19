@@ -666,8 +666,12 @@ suite("test_hms_event_notification_multi_catalog", "p0,external") {
             sql """drop catalog if exists ${catalog_name}"""
             sql """drop catalog if exists ${catalog_name_2}"""
         } finally {
-            try_hive_docker """drop database if exists ${db1} cascade"""
-            try_hive_docker """drop database if exists ${db2} cascade"""
+            if (db1 != null) {
+                try_hive_docker """drop database if exists ${db1} cascade"""
+            }
+            if (db2 != null) {
+                try_hive_docker """drop database if exists ${db2} cascade"""
+            }
             try_sql """drop catalog if exists ${catalog_name}"""
             try_sql """drop catalog if exists ${catalog_name_2}"""
         }
