@@ -131,8 +131,14 @@ public class SpiSwitchingFileSystemTest {
             }
         };
 
-        injectIntoCache(spiFs, BrokerProperties.of("broker1", new HashMap<>()), countingFs);
-        injectIntoCache(spiFs, BrokerProperties.of("broker2", new HashMap<>()), countingFs);
+        // Use distinct origProps so the two BrokerProperties have different
+        // equals()/hashCode() — ConnectionProperties.equals() is based on origProps.
+        Map<String, String> props1 = new HashMap<>();
+        props1.put("broker.name", "broker1");
+        Map<String, String> props2 = new HashMap<>();
+        props2.put("broker.name", "broker2");
+        injectIntoCache(spiFs, BrokerProperties.of("broker1", props1), countingFs);
+        injectIntoCache(spiFs, BrokerProperties.of("broker2", props2), countingFs);
 
         spiFs.close();
 
@@ -186,9 +192,14 @@ public class SpiSwitchingFileSystemTest {
             }
         };
 
-        // ConcurrentHashMap insertion order is unpredictable; use distinct keys.
-        injectIntoCache(spiFs, BrokerProperties.of("broker1", new HashMap<>()), failingFs1);
-        injectIntoCache(spiFs, BrokerProperties.of("broker2", new HashMap<>()), failingFs2);
+        // Use distinct origProps so the two BrokerProperties have different
+        // equals()/hashCode() — ConnectionProperties.equals() is based on origProps.
+        Map<String, String> props1 = new HashMap<>();
+        props1.put("broker.name", "broker1");
+        Map<String, String> props2 = new HashMap<>();
+        props2.put("broker.name", "broker2");
+        injectIntoCache(spiFs, BrokerProperties.of("broker1", props1), failingFs1);
+        injectIntoCache(spiFs, BrokerProperties.of("broker2", props2), failingFs2);
 
         try {
             spiFs.close();

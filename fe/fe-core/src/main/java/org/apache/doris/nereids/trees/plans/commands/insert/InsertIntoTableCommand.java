@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
 
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.StmtType;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
@@ -29,12 +28,12 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.ProfileManager.ProfileType;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.FileScanNode;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.doris.RemoteOlapTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
-import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.load.loadv2.LoadJob;
@@ -52,7 +51,6 @@ import org.apache.doris.nereids.lineage.LineageInfoExtractor;
 import org.apache.doris.nereids.lineage.LineageUtils;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -67,16 +65,14 @@ import org.apache.doris.nereids.trees.plans.commands.insert.AbstractInsertExecut
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalBlackholeSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalConnectorTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergTableSink;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalMaxComputeTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.planner.DataSink;
@@ -534,28 +530,14 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                                 emptyInsert, jobId
                         )
                 );
-            } else if (physicalSink instanceof PhysicalJdbcTableSink) {
+            } else if (physicalSink instanceof PhysicalConnectorTableSink) {
                 boolean emptyInsert = childIsEmptyRelation(physicalSink);
-                List<Column> cols = ((PhysicalJdbcTableSink<?>) physicalSink).getCols();
-                List<Slot> slots = physicalSink.getOutput();
-                if (physicalSink.children().size() == 1) {
-                    if (physicalSink.child(0) instanceof PhysicalOneRowRelation
-                            || physicalSink.child(0) instanceof PhysicalUnion) {
-                        for (int i = 0; i < cols.size(); i++) {
-                            if (!(cols.get(i).isAllowNull()) && slots.get(i).nullable()) {
-                                throw new AnalysisException("Column `" + cols.get(i).getName()
-                                        + "` is not nullable, but the inserted value is nullable.");
-                            }
-                        }
-                    }
-                }
-                JdbcExternalTable jdbcExternalTable = (JdbcExternalTable) targetTableIf;
-                return ExecutorFactory.from(
-                        planner,
-                        dataSink,
-                        physicalSink,
-                        () -> new JdbcInsertExecutor(ctx, jdbcExternalTable, label, planner,
-                                Optional.of(insertCtx.orElse((new JdbcInsertCommandContext()))), emptyInsert, jobId)
+                ExternalTable externalTable = (ExternalTable) targetTableIf;
+                return ExecutorFactory.from(planner, dataSink, physicalSink,
+                        () -> new PluginDrivenInsertExecutor(ctx, externalTable, label, planner,
+                                Optional.of(insertCtx.orElse(
+                                        new PluginDrivenInsertCommandContext())),
+                                emptyInsert, jobId)
                 );
             } else if (physicalSink instanceof PhysicalDictionarySink) {
                 boolean emptyInsert = childIsEmptyRelation(physicalSink);

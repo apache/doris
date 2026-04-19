@@ -70,6 +70,7 @@ public class RuntimeFilterTest extends SSBTestBase {
         connectContext.getSessionVariable().setRuntimeFilterType(8);
         connectContext.getSessionVariable().setEnableRuntimeFilterPrune(false);
         connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = false;
+        connectContext.getSessionVariable().setDisableJoinReorder(true);
     }
 
     @Test
@@ -102,12 +103,12 @@ public class RuntimeFilterTest extends SSBTestBase {
 
     @Test
     public void testNestedJoinGenerateRuntimeFilter() {
-        String sql = SSBUtils.Q4_1;
+        String sql = SSBUtils.Q4_4;
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
         Assertions.assertEquals(4, filters.size());
         checkRuntimeFilterExprs(filters, ImmutableList.of(
                 Pair.of("p_partkey", "lo_partkey"), Pair.of("s_suppkey", "lo_suppkey"),
-                Pair.of("c_custkey", "lo_custkey"), Pair.of("lo_orderdate", "d_datekey")));
+                Pair.of("c_custkey", "lo_custkey"), Pair.of("d_datekey", "lo_orderdate")));
     }
 
     @Test
@@ -316,8 +317,8 @@ public class RuntimeFilterTest extends SSBTestBase {
         PlanChecker checker = PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .implement();
-        PhysicalPlan plan = checker.getPhysicalPlan();
+                .optimize();
+        PhysicalPlan plan = checker.getBestPlanTree();
         plan = new PlanPostProcessors(checker.getCascadesContext()).process(plan);
         System.out.println(plan.treeString());
         new PhysicalPlanTranslator(new PlanTranslatorContext(checker.getCascadesContext())).translatePlan(plan);

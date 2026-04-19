@@ -103,7 +103,7 @@ public class FileSystemPluginManager {
                 report.getSuccesses().size(), report.getFailures().size());
 
         for (LoadFailure failure : report.getFailures()) {
-            LOG.warn("Filesystem plugin load failure: dir={}, stage={}, message={}",
+            LOG.warn("Filesystem plugin load failure: dir={}, stage={}, message={}, cause={}",
                     failure.getPluginDir(), failure.getStage(), failure.getMessage(),
                     failure.getCause());
         }

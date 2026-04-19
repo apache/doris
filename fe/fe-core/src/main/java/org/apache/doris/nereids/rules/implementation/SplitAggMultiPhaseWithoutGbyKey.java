@@ -17,10 +17,12 @@
 
 package org.apache.doris.nereids.rules.implementation;
 
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
@@ -74,21 +76,21 @@ public class SplitAggMultiPhaseWithoutGbyKey extends SplitAggBaseRule implements
             logicalAggregate()
                     .when(agg -> agg.getGroupByExpressions().isEmpty())
                     .when(agg -> agg.getDistinctArguments().size() == 1 || agg.distinctFuncNum() == 1)
-                    .thenApplyMulti(ctx -> rewrite(ctx.root))
+                    .thenApplyMulti(ctx -> rewrite(ctx.root, ctx.cascadesContext))
                     .toRule(RuleType.SPLIT_AGG_MULTI_PHASE_WITHOUT_GBY_KEY)
         );
     }
 
-    List<Plan> rewrite(LogicalAggregate<? extends Plan> aggregate) {
+    List<Plan> rewrite(LogicalAggregate<? extends Plan> aggregate, CascadesContext cascadesContext) {
         if (canUseFinalMultiDistinct(aggregate)) {
             return ImmutableList.<Plan>builder()
                     .addAll(twoPhaseAggregateWithFinalMultiDistinct(aggregate))
-                    .addAll(splitToFourPhase(aggregate))
+                    .addAll(splitToFourPhase(aggregate, cascadesContext))
                     .build();
         } else {
             return ImmutableList.<Plan>builder()
                     .addAll(splitToThreePhase(aggregate))
-                    .addAll(splitToFourPhase(aggregate))
+                    .addAll(splitToFourPhase(aggregate, cascadesContext))
                     .build();
         }
     }
@@ -103,13 +105,15 @@ public class SplitAggMultiPhaseWithoutGbyKey extends SplitAggBaseRule implements
      *         +--hashShuffle(a)
      *           +--agg(group by a; agg_phase: local)
      */
-    private List<Plan> splitToFourPhase(LogicalAggregate<? extends Plan> aggregate) {
+    private List<Plan> splitToFourPhase(LogicalAggregate<? extends Plan> aggregate,
+            CascadesContext cascadesContext) {
         if (!aggregate.supportAggregatePhase(AggregatePhase.FOUR)) {
             return ImmutableList.of();
         }
         Map<AggregateFunction, Alias> localAggFuncToAlias = new LinkedHashMap<>();
+        List<Expression> partitionExprs = Utils.fastToImmutableList(aggregate.getDistinctArguments());
         Plan secondAgg = splitDeduplicateTwoPhase(aggregate, localAggFuncToAlias,
-                Utils.fastToImmutableList(aggregate.getDistinctArguments()), AggregateUtils.getAllKeySet(aggregate));
+                partitionExprs, AggregateUtils.getAllKeySet(aggregate));
         return ImmutableList.of(splitDistinctTwoPhase(aggregate, localAggFuncToAlias, secondAgg));
     }
 
@@ -162,7 +166,7 @@ public class SplitAggMultiPhaseWithoutGbyKey extends SplitAggBaseRule implements
         Plan anyLocalAgg = new PhysicalHashAggregate<>(logicalAgg.getGroupByExpressions(), localAggOutput,
                 Optional.of(Utils.fastToImmutableList(logicalAgg.getDistinctArguments())), inputToResultParam,
                 AggregateUtils.maybeUsingStreamAgg(logicalAgg.getGroupByExpressions(), inputToResultParam),
-                null, logicalAgg.child());
+                null, logicalAgg.getSourceRepeat().isPresent(), logicalAgg.child());
 
         AggregateParam param = new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_RESULT, false);
 
@@ -205,7 +209,7 @@ public class SplitAggMultiPhaseWithoutGbyKey extends SplitAggBaseRule implements
                 });
         return ImmutableList.of(new PhysicalHashAggregate<>(logicalAgg.getGroupByExpressions(), globalOutput, param,
                 AggregateUtils.maybeUsingStreamAgg(logicalAgg.getGroupByExpressions(), param),
-                logicalAgg.getLogicalProperties(), anyLocalAgg));
+                logicalAgg.getLogicalProperties(), logicalAgg.getSourceRepeat().isPresent(), anyLocalAgg));
     }
 
     private boolean canUseFinalMultiDistinct(Aggregate<? extends Plan> agg) {

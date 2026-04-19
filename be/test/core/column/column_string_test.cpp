@@ -1425,4 +1425,89 @@ TEST_F(ColumnStringTest, is_ascii) {
     }
 }
 
+TEST_F(ColumnStringTest, is_valid_utf8) {
+    // all ASCII strings are valid UTF-8
+    {
+        auto column = ColumnString::create();
+        column->insert_data("hello", 5);
+        column->insert_data("world", 5);
+        column->insert_data("123!@#", 6);
+        EXPECT_TRUE(column->is_valid_utf8());
+    }
+    // empty column is valid
+    {
+        auto column = ColumnString::create();
+        EXPECT_TRUE(column->is_valid_utf8());
+    }
+    // empty strings are valid UTF-8
+    {
+        auto column = ColumnString::create();
+        column->insert_data("", 0);
+        column->insert_data("", 0);
+        EXPECT_TRUE(column->is_valid_utf8());
+    }
+    // multi-byte UTF-8 characters
+    {
+        auto column = ColumnString::create();
+        column->insert_data("Hello, 世界", strlen("Hello, 世界"));
+        column->insert_data("こんにちは", strlen("こんにちは"));
+        column->insert_data("😀", strlen("😀"));
+        EXPECT_TRUE(column->is_valid_utf8());
+    }
+    // invalid: lone continuation byte 0x80
+    {
+        auto column = ColumnString::create();
+        const char data[] = {'\x80'};
+        column->insert_data(data, 1);
+        EXPECT_FALSE(column->is_valid_utf8());
+    }
+    // invalid: bad 2-byte sequence 0xC3 0x28
+    {
+        auto column = ColumnString::create();
+        const char data[] = {'\xc3', '\x28'};
+        column->insert_data(data, 2);
+        EXPECT_FALSE(column->is_valid_utf8());
+    }
+    // invalid: overlong encoding 0xC0 0xAF
+    {
+        auto column = ColumnString::create();
+        const char data[] = {'\xc0', '\xaf'};
+        column->insert_data(data, 2);
+        EXPECT_FALSE(column->is_valid_utf8());
+    }
+    // invalid: 0xFE byte
+    {
+        auto column = ColumnString::create();
+        const char data[] = {'\xfe'};
+        column->insert_data(data, 1);
+        EXPECT_FALSE(column->is_valid_utf8());
+    }
+    // invalid: truncated 3-byte sequence 0xE4 0xB8
+    {
+        auto column = ColumnString::create();
+        const char data[] = {'\xe4', '\xb8'};
+        column->insert_data(data, 2);
+        EXPECT_FALSE(column->is_valid_utf8());
+    }
+    // mixed: one invalid byte makes the whole column invalid
+    {
+        auto column = ColumnString::create();
+        column->insert_data("hello", 5);
+        const char bad[] = {'\xff'};
+        column->insert_data(bad, 1);
+        column->insert_data("world", 5);
+        EXPECT_FALSE(column->is_valid_utf8());
+    }
+    // cross-row concatenation: "\xE4" + "\xB8\x96" form valid UTF-8 (世) when
+    // concatenated, but each row is invalid individually. Must validate per-row.
+    {
+        auto column = ColumnString::create();
+        const char row1[] = {'\xe4'};
+        const char row2[] = {'\xb8', '\x96'};
+        column->insert_data(row1, 1);
+        column->insert_data(row2, 2);
+        EXPECT_FALSE(column->is_valid_utf8());
+    }
+}
+
 } // namespace doris

@@ -624,6 +624,10 @@ start_iceberg() {
 start_hudi() {
     HUDI_DIR=${ROOT}/docker-compose/hudi
     export CONTAINER_UID=${CONTAINER_UID}
+    export HUDI_BUNDLE_URL="${HUDI_BUNDLE_URL:-${MAVEN_REPOSITORY_URL}/org/apache/hudi/hudi-spark3.5-bundle_2.12/1.0.2/hudi-spark3.5-bundle_2.12-1.0.2.jar}"
+    export HADOOP_AWS_URL="${HADOOP_AWS_URL:-${MAVEN_REPOSITORY_URL}/org/apache/hadoop/hadoop-aws/3.3.4/hadoop-aws-3.3.4.jar}"
+    export AWS_SDK_BUNDLE_URL="${AWS_SDK_BUNDLE_URL:-${MAVEN_REPOSITORY_URL}/com/amazonaws/aws-java-sdk-bundle/1.12.262/aws-java-sdk-bundle-1.12.262.jar}"
+    export POSTGRESQL_JDBC_URL="${POSTGRESQL_JDBC_URL:-${MAVEN_REPOSITORY_URL}/org/postgresql/postgresql/42.7.1/postgresql-42.7.1.jar}"
     envsubst <"${HUDI_DIR}"/hudi.env.tpl >"${HUDI_DIR}"/hudi.env
     set -a
     . "${HUDI_DIR}"/hudi.env

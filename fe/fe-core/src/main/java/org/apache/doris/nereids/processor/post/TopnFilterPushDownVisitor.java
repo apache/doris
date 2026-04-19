@@ -30,10 +30,8 @@ import org.apache.doris.nereids.trees.plans.algebra.Union;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOlapScan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOdbcScan;
@@ -266,9 +264,7 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
     private boolean supportPhysicalRelations(PhysicalRelation relation) {
         return relation instanceof PhysicalOlapScan
                 || relation instanceof PhysicalOdbcScan
-                || relation instanceof PhysicalEsScan
                 || relation instanceof PhysicalFileScan
-                || relation instanceof PhysicalJdbcScan
                 || relation instanceof PhysicalDeferMaterializeOlapScan
                 || relation instanceof PhysicalLazyMaterializeOlapScan;
     }

@@ -33,6 +33,9 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.PluginDrivenExternalCatalog;
+import org.apache.doris.datasource.PluginDrivenExternalDatabase;
+import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
@@ -41,9 +44,6 @@ import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergHadoopExternalCatalog;
-import org.apache.doris.datasource.jdbc.JdbcExternalCatalog;
-import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
-import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rpc.RpcException;
@@ -218,13 +218,16 @@ class StatisticsUtilTest {
                     .when(tableMeta).findColumnStatsMeta(Mockito.anyString(), Mockito.anyString());
 
             // Test not supported external table type.
-            JdbcExternalCatalog jdbcExternalCatalog = new JdbcExternalCatalog(1, "name", "resource", new HashMap<>(), "");
-            JdbcExternalDatabase jdbcExternalDatabase = new JdbcExternalDatabase(jdbcExternalCatalog, 1, "jdbcdb", "jdbcdb");
-            JdbcExternalTable jdbcTable = Mockito.spy(new JdbcExternalTable(1, "jdbctable", "jdbctable", jdbcExternalCatalog, jdbcExternalDatabase) {
+            PluginDrivenExternalCatalog pluginCatalog = new PluginDrivenExternalCatalog(1, "name", "resource",
+                    new HashMap<>(), "", null);
+            PluginDrivenExternalDatabase pluginDatabase = new PluginDrivenExternalDatabase(pluginCatalog, 1, "jdbcdb",
+                    "jdbcdb");
+            PluginDrivenExternalTable pluginTable = Mockito.spy(new PluginDrivenExternalTable(1, "jdbctable",
+                    "jdbctable", pluginCatalog, pluginDatabase) {
                 @Override
                 protected synchronized void makeSureInitialized() { }
             });
-            Assertions.assertFalse(StatisticsUtil.needAnalyzeColumn(jdbcTable, Pair.of("index", column.getName())));
+            Assertions.assertFalse(StatisticsUtil.needAnalyzeColumn(pluginTable, Pair.of("index", column.getName())));
 
             // Test hms external table not hive type.
             HMSExternalTable hmsExternalTable = Mockito.spy(new HMSExternalTable(1, "hmsTable", "hmsTable", externalCatalog, externalDatabase) {
@@ -407,8 +410,9 @@ class StatisticsUtilTest {
     @Test
     void testGetHotValues() {
         String value1 = "1234 :0.35 ;222 :0.34";
-        Map<Literal, Float> hotValues = StatisticsUtil.getHotValues(value1, Type.INT, 0.01);
-        Assertions.assertEquals(2, hotValues.size());
+        Map<Literal, Float> hotValues = StatisticsUtil.getHotValues(value1, Type.INT);
+        Map<Literal, Float> hotValuesAfterFilter = StatisticsUtil.getHotValuesWithOriginalThreshold(hotValues, 100);
+        Assertions.assertEquals(2, hotValuesAfterFilter.size());
 
         int i = 0;
         for (Map.Entry<Literal, Float> entry : hotValues.entrySet()) {
@@ -423,7 +427,8 @@ class StatisticsUtilTest {
         }
 
         String value2 = "1234 :0.34";
-        hotValues = StatisticsUtil.getHotValues(value2, Type.INT, 0.01);
+        hotValues = StatisticsUtil.getHotValues(value2, Type.INT);
+        hotValuesAfterFilter = StatisticsUtil.getHotValuesWithOriginalThreshold(hotValues, 100);
         Assertions.assertEquals(1, hotValues.size());
 
         for (Map.Entry<Literal, Float> entry : hotValues.entrySet()) {

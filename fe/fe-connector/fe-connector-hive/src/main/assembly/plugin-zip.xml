@@ -1,0 +1,60 @@
+<!--
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+<!--
+  Plugin zip layout expected by DirectoryPluginRuntimeManager:
+    <finalName>.jar   (the plugin jar at root - discovered for service registration)
+    lib/
+      *.jar           (all runtime deps: direct + transitive)
+
+  Jars already present in fe-core classpath are excluded from lib/:
+    fe-connector-api, fe-connector-spi, fe-extension-spi, fe-filesystem-api
+-->
+<assembly xmlns="http://maven.apache.org/ASSEMBLY/2.2.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/ASSEMBLY/2.2.0
+              https://maven.apache.org/xsd/assembly-2.2.0.xsd">
+    <id>plugin</id>
+    <formats>
+        <format>zip</format>
+    </formats>
+    <includeBaseDirectory>false</includeBaseDirectory>
+
+    <files>
+        <file>
+            <source>${project.build.directory}/${project.build.finalName}.jar</source>
+            <outputDirectory>/</outputDirectory>
+        </file>
+    </files>
+
+    <dependencySets>
+        <dependencySet>
+            <outputDirectory>/lib</outputDirectory>
+            <useProjectArtifact>false</useProjectArtifact>
+            <scope>runtime</scope>
+            <excludes>
+                <exclude>org.apache.doris:fe-connector-api</exclude>
+                <exclude>org.apache.doris:fe-connector-spi</exclude>
+                <exclude>org.apache.doris:fe-extension-spi</exclude>
+                <exclude>org.apache.doris:fe-filesystem-api</exclude>
+                <exclude>org.apache.doris:fe-thrift</exclude>
+                <exclude>org.apache.thrift:libthrift</exclude>
+            </excludes>
+        </dependencySet>
+    </dependencySets>
+</assembly>

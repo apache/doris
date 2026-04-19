@@ -82,6 +82,18 @@ under the License.
             <artifactId>fe-filesystem-spi</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!-- fe-connector-api: consumer-facing connector API (Connector, ConnectorMetadata, handles, etc.) -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-connector-api</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- fe-connector-spi: provider contracts (ConnectorProvider, ConnectorContext) -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-connector-spi</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <!-- fe-filesystem impl modules: runtime dependencies removed in Phase 4 P4.1.
              Providers are now loaded from plugins/filesystem/ directory at startup
              via FileSystemPluginManager + DirectoryPluginRuntimeManager. -->

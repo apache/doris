@@ -612,6 +612,7 @@ public class Alter {
             case MAX_COMPUTE_EXTERNAL_TABLE:
             case HUDI_EXTERNAL_TABLE:
             case TRINO_CONNECTOR_EXTERNAL_TABLE:
+            case PLUGIN_EXTERNAL_TABLE:
                 alterOps.addAll(command.getOps());
                 processAlterTableForExternalTable((ExternalTable) tableIf, alterOps);
                 return;

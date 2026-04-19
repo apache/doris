@@ -25,6 +25,7 @@
 #include "benchmark_hll_merge.hpp"
 #include "benchmark_hybrid_set.hpp"
 #include "benchmark_string.hpp"
+#include "benchmark_string_replace.hpp"
 #include "binary_cast_benchmark.hpp"
 #include "core/block/block.h"
 #include "core/column/column_string.h"

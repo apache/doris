@@ -48,16 +48,18 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
 
-      - name: Fetch base branch for diff
-        if: github.event_name == 'pull_request_target'
-        run: git fetch --no-tags --depth=1 origin ${{ github.base_ref }}
-
       - name: Get changed files
         if: github.event_name == 'pull_request_target'
         id: changed-files
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          base_sha=$(git rev-parse FETCH_HEAD)
-          if ! all=$(git diff --name-only "${base_sha}...HEAD" 2>/dev/null); then
+          if ! all=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files \
+            --paginate --jq '.[].filename' 2>/dev/null); then
+            echo "config_file=.licenserc.yaml" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$(echo "$all" | wc -l)" -ge 3000 ]; then
             echo "config_file=.licenserc.yaml" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -65,7 +67,11 @@ jobs:
             echo "config_file=.licenserc.yaml" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          acmr=$(git diff --name-only --diff-filter=ACMR "${base_sha}...HEAD")
+          if ! acmr=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files \
+            --paginate --jq '.[] | select(.status != "removed") | .filename' 2>/dev/null); then
+            echo "config_file=.licenserc.yaml" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           if [ -z "$acmr" ]; then
             exit 0
           fi

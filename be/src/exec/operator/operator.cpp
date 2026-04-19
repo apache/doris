@@ -27,6 +27,8 @@
 #include "exec/operator/analytic_source_operator.h"
 #include "exec/operator/assert_num_rows_operator.h"
 #include "exec/operator/blackhole_sink_operator.h"
+#include "exec/operator/bucketed_aggregation_sink_operator.h"
+#include "exec/operator/bucketed_aggregation_source_operator.h"
 #include "exec/operator/cache_sink_operator.h"
 #include "exec/operator/cache_source_operator.h"
 #include "exec/operator/datagen_operator.h"
@@ -820,6 +822,7 @@ DECLARE_OPERATOR(SortSinkLocalState)
 DECLARE_OPERATOR(SpillSortSinkLocalState)
 DECLARE_OPERATOR(LocalExchangeSinkLocalState)
 DECLARE_OPERATOR(AggSinkLocalState)
+DECLARE_OPERATOR(BucketedAggSinkLocalState)
 DECLARE_OPERATOR(PartitionedAggSinkLocalState)
 DECLARE_OPERATOR(ExchangeSinkLocalState)
 DECLARE_OPERATOR(NestedLoopJoinBuildSinkLocalState)
@@ -851,6 +854,7 @@ DECLARE_OPERATOR(SortLocalState)
 DECLARE_OPERATOR(SpillSortLocalState)
 DECLARE_OPERATOR(LocalMergeSortLocalState)
 DECLARE_OPERATOR(AggLocalState)
+DECLARE_OPERATOR(BucketedAggLocalState)
 DECLARE_OPERATOR(PartitionedAggLocalState)
 DECLARE_OPERATOR(TableFunctionLocalState)
 DECLARE_OPERATOR(ExchangeLocalState)
@@ -897,6 +901,7 @@ template class PipelineXSinkLocalState<SpillSortSharedState>;
 template class PipelineXSinkLocalState<NestedLoopJoinSharedState>;
 template class PipelineXSinkLocalState<AnalyticSharedState>;
 template class PipelineXSinkLocalState<AggSharedState>;
+template class PipelineXSinkLocalState<BucketedAggSharedState>;
 template class PipelineXSinkLocalState<PartitionedAggSharedState>;
 template class PipelineXSinkLocalState<FakeSharedState>;
 template class PipelineXSinkLocalState<UnionSharedState>;
@@ -915,6 +920,7 @@ template class PipelineXLocalState<SpillSortSharedState>;
 template class PipelineXLocalState<NestedLoopJoinSharedState>;
 template class PipelineXLocalState<AnalyticSharedState>;
 template class PipelineXLocalState<AggSharedState>;
+template class PipelineXLocalState<BucketedAggSharedState>;
 template class PipelineXLocalState<PartitionedAggSharedState>;
 template class PipelineXLocalState<FakeSharedState>;
 template class PipelineXLocalState<UnionSharedState>;
