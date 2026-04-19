@@ -27,12 +27,27 @@ namespace doris::cloud {
 
 class Recycler;
 class Checker;
+struct RecyclerThreadPoolGroup;
+class TxnLazyCommitter;
 
 class RecyclerServiceImpl : public cloud::RecyclerService {
 public:
     RecyclerServiceImpl(std::shared_ptr<TxnKv> txn_kv, Recycler* recycler, Checker* checker,
                         std::shared_ptr<TxnLazyCommitter> txn_lazy_committer);
     ~RecyclerServiceImpl() override;
+
+    [[nodiscard]] const std::shared_ptr<TxnKv>& txn_kv() const { return txn_kv_; }
+    [[nodiscard]] Recycler* recycler() const { return recycler_; }
+    [[nodiscard]] Checker* checker() const { return checker_; }
+    [[nodiscard]] const std::shared_ptr<TxnLazyCommitter>& txn_lazy_committer() const {
+        return txn_lazy_committer_;
+    }
+
+    void statistics_recycle(StatisticsRecycleRequest& req, MetaServiceCode& code,
+                            std::string& msg);
+
+    void check_instance(const std::string& instance_id, MetaServiceCode& code,
+                        std::string& msg);
 
     void recycle_instance(::google::protobuf::RpcController* controller,
                           const ::doris::cloud::RecycleInstanceRequest* request,
@@ -45,11 +60,6 @@ public:
               ::google::protobuf::Closure* done) override;
 
 private:
-    void statistics_recycle(StatisticsRecycleRequest& req, MetaServiceCode& code, std::string& msg);
-
-    void check_instance(const std::string& instance_id, MetaServiceCode& code, std::string& msg);
-
-private:
     std::shared_ptr<TxnKv> txn_kv_;
     Recycler* recycler_; // Ref
     Checker* checker_;   // Ref
@@ -58,5 +68,15 @@ private:
 
 extern int reset_s3_rate_limiter(S3RateLimitType type, size_t max_speed, size_t max_burst,
                                  size_t limit);
+
+void recycle_copy_jobs(const std::shared_ptr<TxnKv>& txn_kv, const std::string& instance_id,
+                       MetaServiceCode& code, std::string& msg,
+                       RecyclerThreadPoolGroup thread_pool_group,
+                       std::shared_ptr<TxnLazyCommitter> txn_lazy_committer);
+void recycle_job_info(const std::shared_ptr<TxnKv>& txn_kv, const std::string& instance_id,
+                      std::string_view key, MetaServiceCode& code, std::string& msg);
+void check_meta(const std::shared_ptr<TxnKv>& txn_kv, const std::string& instance_id,
+                const std::string& host, const std::string& port, const std::string& user,
+                const std::string& password, std::string& msg);
 
 } // namespace doris::cloud
