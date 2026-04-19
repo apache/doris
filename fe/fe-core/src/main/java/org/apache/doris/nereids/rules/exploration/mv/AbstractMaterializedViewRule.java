@@ -465,7 +465,8 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     materializationContext.getShuttledExprToScanExprMapping(), viewToQuerySlotMapping,
                     materializationContext);
             rewriteResults.add(rewrittenPlan);
-            recordIfRewritten(queryStructInfo.getOriginalPlan(), materializationContext, cascadesContext);
+            recordIfRewritten(queryStructInfo.getOriginalPlan(), rewrittenPlan,
+                    materializationContext, cascadesContext);
             resetMaterializationContext(materializationContext, cascadesContext);
         }
         return rewriteResults;
@@ -956,10 +957,12 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         return checkQueryPattern(structInfo, cascadesContext);
     }
 
-    protected void recordIfRewritten(Plan plan, MaterializationContext context, CascadesContext cascadesContext) {
+    protected void recordIfRewritten(Plan plan, Plan rewrittenPlan,
+            MaterializationContext context, CascadesContext cascadesContext) {
         context.setSuccess(true);
         cascadesContext.getStatementContext().addMaterializationRewrittenSuccess(
                 context.generateMaterializationIdentifier());
+        cascadesContext.getStatementContext().addPreRewriteCandidateByMv(rewrittenPlan);
         if (plan.getGroupExpression().isPresent()) {
             context.addMatchedGroup(plan.getGroupExpression().get().getOwnerGroup().getGroupId(), true);
         }

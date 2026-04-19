@@ -44,6 +44,7 @@ import org.apache.doris.qe.SessionVariable;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.BitSet;
@@ -82,6 +83,40 @@ public class PreMaterializedViewRewriterTest extends SqlTestBase {
         // because no mv exists, should not record tmp plan for mv
         Assertions.assertTrue(tmpPlanChecker.getCascadesContext().getStatementContext()
                 .getTmpPlanForMvRewrite().isEmpty());
+    }
+
+    @Test
+    public void testPreMvRewriteCarriesAllCollectedCandidates() {
+        CascadesContext cascadesContext = createCascadesContext("select T1.id from T1", connectContext);
+        PlanChecker checker = PlanChecker.from(cascadesContext).analyze().rewrite();
+        StatementContext statementContext = checker.getCascadesContext().getStatementContext();
+        statementContext.setNeedPreMvRewrite(true);
+        statementContext.getTmpPlanForMvRewrite().clear();
+        Plan planForRewrite = checker.getCascadesContext().getRewritePlan();
+        statementContext.addTmpPlanForMvRewrite(planForRewrite);
+        Plan firstCandidate = analyzedRewritePlan("select T1.id from T1 where T1.id > 0");
+        Plan secondCandidate = analyzedRewritePlan("select T1.id from T1 where T1.id > 1");
+        try (MockedStatic<MaterializedViewUtils> materializedViewUtils =
+                     Mockito.mockStatic(MaterializedViewUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            materializedViewUtils.when(() -> MaterializedViewUtils.rewriteByRules(
+                    Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.anyBoolean()))
+                    .thenAnswer(invocation -> {
+                        CascadesContext childContext = invocation.getArgument(0);
+                        Plan rewrittenPlan = invocation.getArgument(2);
+                        boolean mvRewrite = invocation.getArgument(4);
+                        if (mvRewrite) {
+                            childContext.getStatementContext().addPreRewriteCandidateByMv(firstCandidate);
+                            childContext.getStatementContext().addPreRewriteCandidateByMv(secondCandidate);
+                            return null;
+                        }
+                        return rewrittenPlan;
+                    });
+            checker.preMvRewrite();
+        }
+        List<Plan> rewrittenPlansByMv = statementContext.getRewrittenPlansByMv();
+        Assertions.assertEquals(2, rewrittenPlansByMv.size());
+        Assertions.assertTrue(rewrittenPlansByMv.stream().anyMatch(plan -> plan.deepEquals(firstCandidate)));
+        Assertions.assertTrue(rewrittenPlansByMv.stream().anyMatch(plan -> plan.deepEquals(secondCandidate)));
     }
 
     @Test
@@ -2976,6 +3011,12 @@ public class PreMaterializedViewRewriterTest extends SqlTestBase {
         connectContext.setThreadLocalInfo();
         PlanChecker.from(cascadesContext).analyze().rewrite();
         return cascadesContext;
+    }
+
+    private Plan analyzedRewritePlan(String sql) {
+        CascadesContext cascadesContext = createCascadesContext(sql, connectContext);
+        connectContext.setThreadLocalInfo();
+        return PlanChecker.from(cascadesContext).analyze().rewrite().getCascadesContext().getRewritePlan();
     }
 
     private CascadesContext optimizeOriginal(CascadesContext cascadesContext, Map<BitSet, LogicalPlan> equivalentPlans) {

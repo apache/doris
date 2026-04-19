@@ -68,6 +68,7 @@ import org.apache.doris.statistics.Statistics;
 import org.apache.doris.system.Backend;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Stopwatch;
 import com.google.common.base.Strings;
 import com.google.common.base.Supplier;
@@ -289,6 +290,10 @@ public class StatementContext implements Closeable {
 
     // this record the tmp plan in RBO for later pre materialized view rewrite
     private final List<Plan> tmpPlanForMvRewrite = new ArrayList<>();
+    // this records logical candidates produced during one pre-mv-rewrite attempt before
+    // they are normalized and copied into the main memo. null means the collection
+    // window is not active.
+    private List<Plan> preRewriteCandidatesByMv = null;
     // this record the rewritten plan by mv in RBO phase
     private final List<Plan> rewrittenPlansByMv = new ArrayList<>();
     private boolean forceRecordTmpPlan = false;
@@ -1075,6 +1080,34 @@ public class StatementContext implements Closeable {
 
     public void addRewrittenPlanByMv(Plan rewrittenPlanByMv) {
         this.rewrittenPlansByMv.add(rewrittenPlanByMv);
+    }
+
+    public void startCollectPreRewriteCandidatesByMv() {
+        Preconditions.checkState(preRewriteCandidatesByMv == null,
+                "pre rewrite candidate collection is already active");
+        preRewriteCandidatesByMv = new ArrayList<>();
+    }
+
+    public List<Plan> finishCollectPreRewriteCandidatesByMv() {
+        Preconditions.checkState(preRewriteCandidatesByMv != null,
+                "pre rewrite candidate collection is not active");
+        List<Plan> collectedCandidates = new ArrayList<>(preRewriteCandidatesByMv);
+        preRewriteCandidatesByMv = null;
+        return collectedCandidates;
+    }
+
+    public void abortCollectPreRewriteCandidatesByMv() {
+        preRewriteCandidatesByMv = null;
+    }
+
+    public void addPreRewriteCandidateByMv(Plan rewrittenPlanByMv) {
+        if (preRewriteCandidatesByMv == null) {
+            return;
+        }
+        boolean exists = preRewriteCandidatesByMv.stream().anyMatch(plan -> plan.deepEquals(rewrittenPlanByMv));
+        if (!exists) {
+            preRewriteCandidatesByMv.add(rewrittenPlanByMv);
+        }
     }
 
     public boolean isForceRecordTmpPlan() {

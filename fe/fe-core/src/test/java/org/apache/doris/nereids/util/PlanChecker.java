@@ -360,20 +360,32 @@ public class PlanChecker {
         }
         StatementContext statementContext = cascadesContext.getStatementContext();
         List<Plan> tmpPlansForMvRewrite = cascadesContext.getStatementContext().getTmpPlanForMvRewrite();
+        Plan originalPlan = cascadesContext.getRewritePlan();
         List<Plan> plansWhichContainMv = new ArrayList<>();
         for (Plan planForRewrite : tmpPlansForMvRewrite) {
-            // pre rewrite
-            Plan rewrittenPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
-                    PreMaterializedViewRewriter::rewrite, planForRewrite, planForRewrite, true);
-            Plan ruleOptimizedPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
-                    childOptContext -> {
-                        Rewriter.getWholeTreeRewriterWithoutCostBasedJobs(childOptContext).execute();
-                        return childOptContext.getRewritePlan();
-                    }, rewrittenPlan, planForRewrite, false);
-            if (ruleOptimizedPlan == null) {
-                continue;
+            try {
+                statementContext.startCollectPreRewriteCandidatesByMv();
+                MaterializedViewUtils.rewriteByRules(cascadesContext,
+                        PreMaterializedViewRewriter::rewrite, planForRewrite, planForRewrite, true);
+                List<Plan> preRewriteCandidates = statementContext.finishCollectPreRewriteCandidatesByMv();
+                for (Plan rewrittenPlan : preRewriteCandidates) {
+                    Plan ruleOptimizedPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
+                            childOptContext -> {
+                                Rewriter.getWholeTreeRewriterWithoutCostBasedJobs(childOptContext).execute();
+                                return childOptContext.getRewritePlan();
+                            }, rewrittenPlan, planForRewrite, false);
+                    if (ruleOptimizedPlan == null) {
+                        continue;
+                    }
+                    Plan normalizedPlan = MaterializedViewUtils.normalizeSinkExpressions(
+                            ruleOptimizedPlan, originalPlan);
+                    if (normalizedPlan != null) {
+                        plansWhichContainMv.add(normalizedPlan);
+                    }
+                }
+            } finally {
+                statementContext.abortCollectPreRewriteCandidatesByMv();
             }
-            plansWhichContainMv.add(ruleOptimizedPlan);
         }
         // if rule-based optimized, would not be rewritten by cbo, so clear materialized hooks
         this.cascadesContext.getStatementContext().setPreMvRewritten(true);

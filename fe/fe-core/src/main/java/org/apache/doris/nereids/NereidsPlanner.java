@@ -490,28 +490,33 @@ public class NereidsPlanner extends Planner {
                 sessionVariable.nereidsTimeoutSecond = PreMaterializedViewRewriter.convertMillisToCeilingSeconds(
                                 sessionVariable.materializedViewRewriteDurationThresholdMs);
                 sessionVariable.enableNereidsTimeout = true;
-                // pre rewrite
-                Plan rewrittenPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
+                // Collect all pre-rewrite candidates containing MV scans.
+                statementContext.startCollectPreRewriteCandidatesByMv();
+                MaterializedViewUtils.rewriteByRules(cascadesContext,
                         PreMaterializedViewRewriter::rewrite, planForRewrite, planForRewrite, true);
-                Plan ruleOptimizedPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
-                        childOptContext -> {
-                            Rewriter.getWholeTreeRewriterWithoutCostBasedJobs(childOptContext).execute();
-                            return childOptContext.getRewritePlan();
-                        }, rewrittenPlan, planForRewrite, false);
-                if (ruleOptimizedPlan == null) {
-                    continue;
-                }
-                // after rbo, maybe the plan changed a lot, so we need to normalize it with original plan
-                Plan normalizedPlan = MaterializedViewUtils.normalizeSinkExpressions(
-                        ruleOptimizedPlan, originalPlan);
-                if (normalizedPlan != null) {
-                    plansWhichContainMv.add(normalizedPlan);
+                List<Plan> preRewriteCandidates = statementContext.finishCollectPreRewriteCandidatesByMv();
+                for (Plan rewrittenPlan : preRewriteCandidates) {
+                    Plan ruleOptimizedPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
+                            childOptContext -> {
+                                Rewriter.getWholeTreeRewriterWithoutCostBasedJobs(childOptContext).execute();
+                                return childOptContext.getRewritePlan();
+                            }, rewrittenPlan, planForRewrite, false);
+                    if (ruleOptimizedPlan == null) {
+                        continue;
+                    }
+                    // after rbo, maybe the plan changed a lot, so we need to normalize it with original plan
+                    Plan normalizedPlan = MaterializedViewUtils.normalizeSinkExpressions(
+                            ruleOptimizedPlan, originalPlan);
+                    if (normalizedPlan != null) {
+                        plansWhichContainMv.add(normalizedPlan);
+                    }
                 }
             } catch (Exception e) {
                 LOG.error("pre mv rewrite in rbo rewrite fail, query id is {}",
                         cascadesContext.getConnectContext().getQueryIdentifier(), e);
 
             } finally {
+                statementContext.abortCollectPreRewriteCandidatesByMv();
                 sessionVariable.nereidsTimeoutSecond = timeoutSecond;
                 sessionVariable.enableNereidsTimeout = enableTimeout;
             }

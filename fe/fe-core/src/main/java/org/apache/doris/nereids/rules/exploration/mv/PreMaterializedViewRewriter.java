@@ -17,24 +17,17 @@
 
 package org.apache.doris.nereids.rules.exploration.mv;
 
-import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.jobs.executor.Optimizer;
-import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 
 import org.apache.commons.lang3.EnumUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.BitSet;
-import java.util.List;
-import java.util.Map;
-
 /**
  * Individual materialized view rewriter based CBO
  */
@@ -79,25 +72,7 @@ public class PreMaterializedViewRewriter {
                 || !cascadesContext.getStatementContext().isNeedPreMvRewrite()) {
             return null;
         }
-        // Do optimize
         new Optimizer(cascadesContext).execute();
-        // Chose the best physical plan
-        Group root = cascadesContext.getMemo().getRoot();
-        PhysicalPlan physicalPlan = NereidsPlanner.chooseBestPlan(root,
-                cascadesContext.getCurrentJobContext().getRequiredProperties(), cascadesContext);
-        Pair<Map<List<String>, MaterializationContext>, BitSet> chosenMaterializationAndUsedTable
-                = MaterializedViewUtils.getChosenMaterializationAndUsedTable(physicalPlan,
-                cascadesContext.getAllMaterializationContexts());
-        // Extract logical plan by table id set by the corresponding best physical plan
-        StructInfo structInfo = root.getStructInfoMap().getStructInfo(cascadesContext,
-                chosenMaterializationAndUsedTable.value(), root, null, true, false);
-        if (structInfo == null) {
-            LOG.error("preMaterializedViewRewriter rewrite structInfo is null, query id is {}",
-                    cascadesContext.getConnectContext().getQueryIdentifier());
-        }
-        if (structInfo != null && !chosenMaterializationAndUsedTable.key().isEmpty()) {
-            return structInfo.getOriginalPlan();
-        }
         return null;
     }
 
