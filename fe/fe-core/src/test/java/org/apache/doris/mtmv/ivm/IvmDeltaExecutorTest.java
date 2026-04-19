@@ -74,8 +74,7 @@ public class IvmDeltaExecutorTest {
                 return mockExecutor;
             });
 
-            IvmDeltaCommandBundle bundle = new IvmDeltaCommandBundle(command);
-            deltaExecutor.execute(newContext(mtmv), Collections.singletonList(bundle), 0);
+            deltaExecutor.execute(newContext(mtmv), Collections.singletonList(command), 0);
         }
 
         Assertions.assertEquals(1, runCalled.size());
@@ -95,10 +94,8 @@ public class IvmDeltaExecutorTest {
                     Mockito.anyBoolean()
             )).thenThrow(new RuntimeException("command run failed"));
 
-            IvmDeltaCommandBundle bundle = new IvmDeltaCommandBundle(command);
-
             AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
-                    () -> deltaExecutor.execute(newContext(mtmv), Collections.singletonList(bundle), 0));
+                    () -> deltaExecutor.execute(newContext(mtmv), Collections.singletonList(command), 0));
             Assertions.assertTrue(ex.getMessage().contains("IVM delta execution failed"));
             Assertions.assertTrue(ex.getMessage().contains("command run failed"));
         }
@@ -146,13 +143,13 @@ public class IvmDeltaExecutorTest {
                 return mockExecutor;
             });
 
-            List<IvmDeltaCommandBundle> bundles = new ArrayList<>();
-            bundles.add(new IvmDeltaCommandBundle(okCommand));
-            bundles.add(new IvmDeltaCommandBundle(failCommand));
-            bundles.add(new IvmDeltaCommandBundle(thirdCommand));
+            List<Command> commands = new ArrayList<>();
+            commands.add(okCommand);
+            commands.add(failCommand);
+            commands.add(thirdCommand);
 
             Assertions.assertThrows(AnalysisException.class,
-                    () -> deltaExecutor.execute(newContext(mtmv), bundles, 0));
+                    () -> deltaExecutor.execute(newContext(mtmv), commands, 0));
             Assertions.assertEquals(Arrays.asList(1, 2), executionOrder);
         }
     }

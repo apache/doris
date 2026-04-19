@@ -101,7 +101,7 @@ class IvmSimpleScanDeltaStrategyTest extends IvmDeltaTestBase {
         LogicalOlapScan scan = buildScan();
         IvmDeltaRewriteContext ctx = new IvmDeltaRewriteContext(mtmv, new ConnectContext(), null);
         InsertIntoTableCommand command = (InsertIntoTableCommand) new IvmSimpleScanDeltaStrategy(ctx)
-                .rewrite(buildScanPlan(scan)).get(0).getCommand();
+                .rewrite(buildScanPlan(scan)).get(0);
         UnboundTableSink<?> sink = getSink(command);
         Assertions.assertTrue(sink.getColNames().contains(Column.DELETE_SIGN));
     }
@@ -226,7 +226,7 @@ class IvmSimpleScanDeltaStrategyTest extends IvmDeltaTestBase {
         IvmDeltaRewriteContext ctx = new IvmDeltaRewriteContext(mtmv, new ConnectContext(), null);
         InsertIntoTableCommand command = (InsertIntoTableCommand) new IvmSimpleScanDeltaStrategy(ctx)
                 .rewrite(buildScanPlan(scan))
-                .get(0).getCommand();
+                .get(0);
         UnboundTableSink<?> sink = getSink(command);
         LogicalProject<?> sinkProject = (LogicalProject<?>) sink.child();
         NamedExpression lastExpr = sinkProject.getProjects().get(sinkProject.getProjects().size() - 1);
