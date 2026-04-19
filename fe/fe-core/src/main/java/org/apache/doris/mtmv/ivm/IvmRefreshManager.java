@@ -164,9 +164,9 @@ public class IvmRefreshManager {
      * the MTMV's relation metadata, creating an IvmStreamRef with
      * consumedTso=0 for each base table.
      *
-     * <p>Note: uses getBaseTablesOneLevel() because IVM currently only supports
-     * single-table scans (no JOINs/views). When view support is added, this
-     * should align with getBaseTablesOneLevelAndFromView() and also backfill
+     * <p>Note: uses getBaseTablesOneLevel() which returns all base tables referenced
+     * in the MV query, including multi-table joins. When view support is added,
+     * this should align with getBaseTablesOneLevelAndFromView() and also backfill
      * missing entries in partially populated maps.
      */
     @VisibleForTesting
@@ -243,6 +243,13 @@ public class IvmRefreshManager {
                 IvmRefreshResult result = IvmRefreshResult.fallback(
                         IvmFallbackReason.MIN_MAX_BOUNDARY_HIT, detail);
                 LOG.info("IVM MIN/MAX boundary hit for mv={}, falling back to COMPLETE refresh, result={}",
+                        mtmv.getName(), result);
+                return result;
+            }
+            if (detail.contains("IVM fallback: delete on non-deterministic row_id")) {
+                IvmRefreshResult result = IvmRefreshResult.fallback(
+                        IvmFallbackReason.NON_DETERMINISTIC_ROW_ID, detail);
+                LOG.info("IVM non-deterministic row_id for mv={}, falling back to COMPLETE refresh, result={}",
                         mtmv.getName(), result);
                 return result;
             }
