@@ -300,6 +300,12 @@ public:
  * Thread-safety: cache lookups / inserts are lock-free (the LRU cache is
  * internally sharded).  Disk reads are serialised by _io_mutex because
  * the CLucene IndexInput is stateful (seek + readBytes).
+ *
+ * Stampede protection: when multiple threads concurrently miss the cache
+ * for the same key, borrow() acquires _io_mutex and re-checks the cache
+ * (double-check pattern).  The first thread reads from disk and inserts
+ * into the cache; subsequent threads find the entry on re-check and skip
+ * the redundant disk I/O.
  */
 struct CachedRandomAccessReader : faiss::RandomAccessReader {
     CachedRandomAccessReader(lucene::store::IndexInput* input, std::string cache_key_prefix,
@@ -351,8 +357,25 @@ struct CachedRandomAccessReader : faiss::RandomAccessReader {
             return _make_pinned_ref(std::move(handle), nbytes);
         }
 
-        // Slow path: cache miss — read from disk, then insert.
-        auto page = _fetch_from_disk(offset, nbytes, cache->mem_tracker());
+        // Slow path: cache miss — acquire I/O lock, then double-check cache.
+        //
+        // Multiple threads may concurrently miss the fast-path lookup for the
+        // same key.  Since _io_mutex already serialises all CLucene reads for
+        // this reader (IndexInput is stateful), we simply re-check the cache
+        // after acquiring the lock.  If a preceding thread loaded this key
+        // while we were waiting, we get a cache hit and skip the redundant
+        // disk I/O entirely (stampede protection).
+        std::lock_guard<std::mutex> lock(_io_mutex);
+
+        // Double-check: a preceding thread may have loaded this key while
+        // we waited on _io_mutex.
+        if (cache->lookup(key, &handle)) {
+            ++g_ivf_on_disk_cache_stats.hit_cnt;
+            return _make_pinned_ref(std::move(handle), nbytes);
+        }
+
+        // Still a miss — we are the first thread to reach here; read from disk.
+        auto page = _fetch_from_disk_locked(offset, nbytes, cache->mem_tracker());
         cache->insert(key, page.get(), &handle);
         page.release(); // ownership transferred to cache
         return _make_pinned_ref(std::move(handle), nbytes);
@@ -381,15 +404,13 @@ private:
     // ---- Disk I/O + metrics ----
 
     /// Read a region from CLucene, wrapped in a DataPage, and record fetch metrics.
-    std::unique_ptr<DataPage> _fetch_from_disk(
+    /// Caller must already hold _io_mutex.
+    std::unique_ptr<DataPage> _fetch_from_disk_locked(
             size_t offset, size_t nbytes, std::shared_ptr<MemTrackerLimiter> mem_tracker) const {
         auto page = std::make_unique<DataPage>(nbytes, std::move(mem_tracker));
 
         const int64_t start_ns = MonotonicNanos();
-        {
-            std::lock_guard<std::mutex> lock(_io_mutex);
-            _read_clucene(offset, page->data(), nbytes);
-        }
+        _read_clucene(offset, page->data(), nbytes);
         const int64_t cost_ns = MonotonicNanos() - start_ns;
 
         ++g_ivf_on_disk_cache_stats.miss_cnt;

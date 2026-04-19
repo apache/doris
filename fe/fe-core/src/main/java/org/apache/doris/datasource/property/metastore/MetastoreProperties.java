@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.property.ConnectionProperties;
 
 import lombok.Getter;
@@ -123,5 +124,19 @@ public class MetastoreProperties extends ConnectionProperties {
 
     protected MetastoreProperties(Map<String, String> props) {
         super(props);
+    }
+
+    /**
+     * Returns the execution authenticator for this metastore.
+     * Subclasses that support Kerberos (e.g., {@link HiveHMSProperties})
+     * override this via their {@code @Getter executionAuthenticator} field
+     * to return a Kerberos-capable authenticator.
+     *
+     * <p>The default implementation returns a simple no-op authenticator.</p>
+     */
+    private static final ExecutionAuthenticator NOOP_AUTH = new ExecutionAuthenticator() {};
+
+    public ExecutionAuthenticator getExecutionAuthenticator() {
+        return NOOP_AUTH;
     }
 }

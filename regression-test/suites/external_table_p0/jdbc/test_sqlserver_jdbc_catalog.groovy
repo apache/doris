@@ -138,6 +138,7 @@ suite("test_sqlserver_jdbc_catalog", "p0,external") {
         sql """ use ${ex_db_name} """
 
         order_qt_desc """ desc test_binary;  """
+        sql """ CALL EXECUTE_STMT("test_sqlserver_jdbc_catalog_binary", "DELETE FROM dbo.test_binary WHERE id = 4") """
         order_qt_query """ select * from test_binary order by id; """
         sql """ insert into test_binary values (4, 4, X"ABAB", X"AB") """
         order_qt_query_after_insert """ select * from test_binary order by id; """

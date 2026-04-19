@@ -73,7 +73,6 @@ import org.apache.iceberg.expressions.Term;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.types.Types.NestedField;
-import org.apache.iceberg.view.View;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
@@ -1140,7 +1139,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     @Override
-    public View loadView(String dbName, String tblName) {
+    public Object loadView(String dbName, String tblName) {
         if (!(catalog instanceof ViewCatalog)) {
             return null;
         }

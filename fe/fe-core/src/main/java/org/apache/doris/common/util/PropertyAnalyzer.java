@@ -39,7 +39,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
-import org.apache.doris.datasource.es.EsProperties;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
@@ -1957,14 +1956,6 @@ public class PropertyAnalyzer {
      */
     public static void checkCatalogProperties(Map<String, String> properties, boolean isAlter)
             throws AnalysisException {
-        // validate the properties of es catalog
-        if ("es".equalsIgnoreCase(properties.get("type"))) {
-            try {
-                EsProperties.valid(properties, true);
-            } catch (Exception e) {
-                throw new AnalysisException(e.getMessage());
-            }
-        }
         // validate access controller properties
         // eg:
         // (

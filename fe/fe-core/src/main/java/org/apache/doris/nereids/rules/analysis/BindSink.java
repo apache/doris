@@ -33,14 +33,14 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
-import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
-import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.dictionary.Dictionary;
@@ -48,10 +48,10 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundBlackholeSink;
+import org.apache.doris.nereids.analyzer.UnboundConnectorTableSink;
 import org.apache.doris.nereids.analyzer.UnboundDictionarySink;
 import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
-import org.apache.doris.nereids.analyzer.UnboundJdbcTableSink;
 import org.apache.doris.nereids.analyzer.UnboundMaxComputeTableSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundTVFTableSink;
@@ -80,11 +80,11 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewri
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalBlackholeSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalConnectorTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergTableSink;
-import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalMaxComputeTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
@@ -167,7 +167,8 @@ public class BindSink implements AnalysisRuleFactory {
                     unboundIcebergTableSink().thenApply(this::bindIcebergTableSink)),
                 RuleType.BINDING_INSERT_MAX_COMPUTE_TABLE.build(
                     unboundMaxComputeTableSink().thenApply(this::bindMaxComputeTableSink)),
-                RuleType.BINDING_INSERT_JDBC_TABLE.build(unboundJdbcTableSink().thenApply(this::bindJdbcTableSink)),
+                RuleType.BINDING_INSERT_CONNECTOR_TABLE.build(
+                    unboundConnectorTableSink().thenApply(this::bindConnectorTableSink)),
                 RuleType.BINDING_INSERT_DICTIONARY_TABLE
                         .build(unboundDictionarySink().thenApply(this::bindDictionarySink)),
                 RuleType.BINDING_INSERT_BLACKHOLE_SINK.build(unboundBlackholeSink().thenApply(this::bindBlackHoleSink)),
@@ -893,11 +894,11 @@ public class BindSink implements AnalysisRuleFactory {
         return boundSink.withChildAndUpdateOutput(fullOutputProject);
     }
 
-    private Plan bindJdbcTableSink(MatchingContext<UnboundJdbcTableSink<Plan>> ctx) {
-        UnboundJdbcTableSink<?> sink = ctx.root;
-        Pair<JdbcExternalDatabase, JdbcExternalTable> pair = bind(ctx.cascadesContext, sink);
-        JdbcExternalDatabase database = pair.first;
-        JdbcExternalTable table = pair.second;
+    private Plan bindConnectorTableSink(MatchingContext<UnboundConnectorTableSink<Plan>> ctx) {
+        UnboundConnectorTableSink<?> sink = ctx.root;
+        Pair<ExternalDatabase, PluginDrivenExternalTable> pair = bind(ctx.cascadesContext, sink);
+        ExternalDatabase database = pair.first;
+        PluginDrivenExternalTable table = pair.second;
         LogicalPlan child = ((LogicalPlan) sink.child());
 
         List<Column> bindColumns;
@@ -913,7 +914,7 @@ public class BindSink implements AnalysisRuleFactory {
                 return column;
             }).collect(ImmutableList.toImmutableList());
         }
-        LogicalJdbcTableSink<?> boundSink = new LogicalJdbcTableSink<>(
+        LogicalConnectorTableSink<?> boundSink = new LogicalConnectorTableSink<>(
                 database,
                 table,
                 bindColumns,
@@ -924,30 +925,35 @@ public class BindSink implements AnalysisRuleFactory {
                 Optional.empty(),
                 Optional.empty(),
                 child);
-        // we need to insert all the columns of the target table
         if (boundSink.getCols().size() != child.getOutput().size()) {
             throw new AnalysisException("insert into cols should be corresponding to the query output");
         }
-        Map<String, NamedExpression> columnToOutput = getJdbcColumnToOutput(bindColumns, child);
-        // We don't need to insert unmentioned columns, only user specified columns
+        // For JDBC-backed connector tables, we must keep columns in user-specified order
+        // because the INSERT SQL column list is built from cols (user order) and the data
+        // values must match. For file-based writes, full schema order with defaults is needed.
+        // Currently only JDBC catalogs use connector sink, so use the JDBC-compatible approach:
+        // only project user-specified columns in user-specified order.
+        Map<String, NamedExpression> columnToOutput = getConnectorColumnToOutput(bindColumns, child);
         LogicalProject<?> outputProject = getOutputProjectByCoercion(bindColumns, child, columnToOutput);
         return boundSink.withChildAndUpdateOutput(outputProject);
     }
 
-    private static Map<String, NamedExpression> getJdbcColumnToOutput(
+    /**
+     * Build column-to-output mapping for connector table sinks.
+     * Maps each user-specified column to the corresponding child output expression
+     * with type coercion, preserving user-specified column order.
+     */
+    private static Map<String, NamedExpression> getConnectorColumnToOutput(
             List<Column> bindColumns, LogicalPlan child) {
         Map<String, NamedExpression> columnToOutput = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-
         for (int i = 0; i < bindColumns.size(); i++) {
             Column column = bindColumns.get(i);
             NamedExpression outputExpr = child.getOutput().get(i);
             Alias output = new Alias(
                     TypeCoercionUtils.castIfNotSameType(outputExpr, DataType.fromCatalogType(column.getType())),
-                    column.getName()
-            );
+                    column.getName());
             columnToOutput.put(column.getName(), output);
         }
-
         return columnToOutput;
     }
 
@@ -1068,16 +1074,17 @@ public class BindSink implements AnalysisRuleFactory {
         throw new AnalysisException("the target table of insert into is not a MaxCompute table");
     }
 
-    private Pair<JdbcExternalDatabase, JdbcExternalTable> bind(CascadesContext cascadesContext,
-            UnboundJdbcTableSink<? extends Plan> sink) {
+    @SuppressWarnings("rawtypes")
+    private Pair<ExternalDatabase, PluginDrivenExternalTable> bind(CascadesContext cascadesContext,
+            UnboundConnectorTableSink<? extends Plan> sink) {
         List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
                 sink.getNameParts());
         Pair<DatabaseIf<?>, TableIf> pair = RelationUtil.getDbAndTable(tableQualifier,
                 cascadesContext.getConnectContext().getEnv(), Optional.empty());
-        if (pair.second instanceof JdbcExternalTable) {
-            return Pair.of(((JdbcExternalDatabase) pair.first), (JdbcExternalTable) pair.second);
+        if (pair.second instanceof PluginDrivenExternalTable) {
+            return Pair.of(((ExternalDatabase) pair.first), (PluginDrivenExternalTable) pair.second);
         }
-        throw new AnalysisException("the target table of insert into is not an jdbc table");
+        throw new AnalysisException("the target table of insert into is not a plugin-driven connector table");
     }
 
     private Pair<Database, Dictionary> bind(CascadesContext cascadesContext,

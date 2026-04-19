@@ -882,6 +882,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String AGG_SHUFFLE_USE_PARENT_KEY = "agg_shuffle_use_parent_key";
     public static final String DECOMPOSE_REPEAT_SHUFFLE_INDEX_IN_MAX_GROUP
             = "decompose_repeat_shuffle_index_in_max_group";
+    public static final String ENABLE_SHUFFLE_KEY_PRUNE = "enable_shuffle_key_prune";
 
     public static final String HOT_VALUE_COLLECT_COUNT = "hot_value_collect_count";
     @VarAttrDef.VarAttr(name = HOT_VALUE_COLLECT_COUNT, needForward = true,
@@ -984,6 +985,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String MULTI_DISTINCT_STRATEGY = "multi_distinct_strategy";
     public static final String AGG_PHASE = "agg_phase";
+    public static final String ENABLE_BUCKETED_HASH_AGG = "enable_bucketed_hash_agg";
+    public static final String BUCKETED_AGG_MIN_INPUT_ROWS = "bucketed_agg_min_input_rows";
+    public static final String BUCKETED_AGG_MAX_GROUP_KEYS = "bucketed_agg_max_group_keys";
+    public static final String BUCKETED_AGG_HIGH_CARD_THRESHOLD = "bucketed_agg_high_card_threshold";
 
     public static final String MERGE_IO_READ_SLICE_SIZE_BYTES = "merge_io_read_slice_size_bytes";
 
@@ -2916,6 +2921,9 @@ public class SessionVariable implements Serializable, Writable {
     }, needForward = false)
     public boolean aggShuffleUseParentKey = true;
 
+    @VarAttrDef.VarAttr(name = ENABLE_SHUFFLE_KEY_PRUNE)
+    public boolean enableShuffleKeyPrune = true;
+
     @VarAttrDef.VarAttr(name = ENABLE_PREFER_CACHED_ROWSET, needForward = false,
             description = {"是否启用 prefer cached rowset 功能",
                     "Whether to enable prefer cached rowset feature"})
@@ -2950,6 +2958,41 @@ public class SessionVariable implements Serializable, Writable {
             checker = "checkAggPhase")
     public int aggPhase = 0;
 
+    @VarAttrDef.VarAttr(name = ENABLE_BUCKETED_HASH_AGG, needForward = true, description = {
+            "是否启用 bucketed hash aggregation 优化。该优化在单 BE 场景下将两阶段聚合融合为单个算子，"
+                    + "消除 Exchange 开销和序列化/反序列化成本。默认开启。",
+            "Whether to enable bucketed hash aggregation optimization. This optimization fuses two-phase "
+                    + "aggregation into a single operator on single-BE deployments, eliminating exchange overhead "
+                    + "and serialization/deserialization costs. Enabled by default."})
+    public boolean enableBucketedHashAgg = true;
+
+    @VarAttrDef.VarAttr(name = BUCKETED_AGG_MIN_INPUT_ROWS, fuzzy = true, needForward = true, description = {
+            "bucketed hash aggregation 要求的最小输入行数。当估算输入行数小于此阈值时，"
+                    + "数据量太小，256-bucket two-level hash table 的初始化和 merge 开销大于收益，"
+                    + "不生成 bucketed agg 候选计划。设为 0 表示不限制。默认 100000。",
+            "Minimum estimated input rows required for bucketed hash aggregation. When estimated input "
+                    + "rows are below this threshold, the data volume is too small for the 256-bucket two-level "
+                    + "hash table overhead to be worthwhile. Set to 0 to disable this check. Default 100000."})
+    public long bucketedAggMinInputRows = 100000;
+
+    @VarAttrDef.VarAttr(name = BUCKETED_AGG_MAX_GROUP_KEYS, needForward = true, description = {
+            "bucketed hash aggregation 允许的最大估算分组数（key 数量）。当估算分组数超过此阈值时，"
+                    + "merge 阶段需要合并大量 key，开销会超过 bucketed agg 带来的收益。"
+                    + "类似于 ClickHouse 的 group_by_two_level_threshold。设为 0 表示不限制。默认 0",
+            "Maximum estimated number of group keys for bucketed hash aggregation. When the estimated "
+                    + "number of groups exceeds this threshold, the merge phase cost of combining large numbers "
+                    + "of keys outweighs the benefit. Similar to ClickHouse's group_by_two_level_threshold. "
+                    + "Set to 0 to disable this check. Default 0."})
+    public long bucketedAggMaxGroupKeys = 0;
+
+    @VarAttrDef.VarAttr(name = BUCKETED_AGG_HIGH_CARD_THRESHOLD, needForward = true, description = {
+            "bucketed hash aggregation 的高基数阈值比例。当任意 GROUP BY 列的 NDV 超过"
+                    + "输入行数 * 该阈值，或聚合输出行数超过输入行数 * 该阈值时，跳过 bucketed agg。"
+                    + "取值范围 (0, 1.0]。默认 0.3。",
+            "High-cardinality ratio threshold for bucketed hash aggregation. When any GROUP BY key's NDV "
+                    + "exceeds input rows * threshold, or aggregation output rows exceed input rows * threshold, "
+                    + "bucketed agg is skipped. Range (0, 1.0]. Default 0.3."})
+    public double bucketedAggHighCardThreshold = 0.3;
 
     @VarAttrDef.VarAttr(name = MERGE_IO_READ_SLICE_SIZE_BYTES, description = {
             "调整 READ_SLICE_SIZE 大小，降低 Merge IO 读放大影响",
@@ -3610,9 +3653,9 @@ public class SessionVariable implements Serializable, Writable {
                     "Enable merge partitioning for Iceberg UPDATE/DELETE (INSERT by partition columns, "
                             + "DELETE by row_id)."})
     public boolean enableIcebergMergePartitioning = true;
-
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
+
     @SuppressWarnings("checkstyle:Indentation")
     public void initFuzzyModeVariables() {
         Random random = new SecureRandom();
@@ -3657,6 +3700,7 @@ public class SessionVariable implements Serializable, Writable {
             this.rewriteOrToInPredicateThreshold = 100000;
             this.enableFunctionPushdown = false;
             this.enableSyncRuntimeFilterSize = true;
+            this.bucketedAggMinInputRows = 0;
         } else {
             this.rewriteOrToInPredicateThreshold = 2;
             this.enableFunctionPushdown = true;

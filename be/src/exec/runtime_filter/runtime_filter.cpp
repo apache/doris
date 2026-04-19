@@ -25,6 +25,7 @@
 #include "util/brpc_closure.h"
 
 namespace doris {
+
 Status RuntimeFilter::_push_to_remote(RuntimeState* state, const TNetworkAddress* addr) {
     std::shared_ptr<PBackendService_Stub> stub(
             state->get_query_ctx()->exec_env()->brpc_internal_client_cache()->get_client(*addr));
@@ -35,13 +36,12 @@ Status RuntimeFilter::_push_to_remote(RuntimeState* state, const TNetworkAddress
 
     auto merge_filter_request = std::make_shared<PMergeFilterRequest>();
     merge_filter_request->set_stage(_stage);
-    auto merge_filter_callback = DummyBrpcCallback<PMergeFilterResponse>::create_shared();
+    _merge_filter_callback = HandleErrorBrpcCallback<PMergeFilterResponse>::create_shared(
+            state->query_options().ignore_runtime_filter_error ? std::weak_ptr<QueryContext> {}
+                                                               : state->get_query_ctx_weak());
     auto merge_filter_closure =
-            AutoReleaseClosure<PMergeFilterRequest, DummyBrpcCallback<PMergeFilterResponse>>::
-                    create_unique(merge_filter_request, merge_filter_callback,
-                                  state->query_options().ignore_runtime_filter_error
-                                          ? std::weak_ptr<QueryContext> {}
-                                          : state->get_query_ctx_weak());
+            AutoReleaseClosure<PMergeFilterRequest, HandleErrorBrpcCallback<PMergeFilterResponse>>::
+                    create_unique(merge_filter_request, _merge_filter_callback);
     void* data = nullptr;
     int len = 0;
 
@@ -53,10 +53,10 @@ Status RuntimeFilter::_push_to_remote(RuntimeState* state, const TNetworkAddress
     pfragment_instance_id->set_hi(BackendOptions::get_local_backend().id);
     pfragment_instance_id->set_lo((int64_t)this);
 
-    merge_filter_callback->cntl_->set_timeout_ms(
+    _merge_filter_callback->cntl_->set_timeout_ms(
             get_execution_rpc_timeout_ms(state->get_query_ctx()->execution_timeout()));
     if (config::execution_ignore_eovercrowded) {
-        merge_filter_callback->cntl_->ignore_eovercrowded();
+        _merge_filter_callback->cntl_->ignore_eovercrowded();
     }
 
     RETURN_IF_ERROR(serialize(merge_filter_request.get(), &data, &len));
@@ -66,9 +66,8 @@ Status RuntimeFilter::_push_to_remote(RuntimeState* state, const TNetworkAddress
             return Status::InternalError(
                     "data is nullptr after serialization with len > 0, filter: {}", debug_string());
         }
-        merge_filter_callback->cntl_->request_attachment().append(data, len);
+        _merge_filter_callback->cntl_->request_attachment().append(data, len);
     }
-
     stub->merge_filter(merge_filter_closure->cntl_.get(), merge_filter_closure->request_.get(),
                        merge_filter_closure->response_.get(), merge_filter_closure.get());
     // the closure will be released by brpc during closure->Run.

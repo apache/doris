@@ -183,7 +183,7 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
         }
         IcebergMetadataOps ops = (IcebergMetadataOps) (((IcebergExternalCatalog) catalog).getMetadataOps());
         try {
-            return ((ExternalCatalog) catalog).getExecutionAuthenticator().execute(
+            return (View) ((ExternalCatalog) catalog).getExecutionAuthenticator().execute(
                     () -> ops.loadView(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName()));
         } catch (Exception e) {
             throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);

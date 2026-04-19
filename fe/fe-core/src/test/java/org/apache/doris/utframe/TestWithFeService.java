@@ -42,6 +42,7 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
@@ -80,6 +81,9 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.ColumnStatisticBuilder;
+import org.apache.doris.statistics.Statistics;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.utframe.MockedBackendFactory.DefaultBeThriftServiceImpl;
@@ -111,6 +115,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -987,5 +992,24 @@ public abstract class TestWithFeService {
         } else {
             System.out.println("No need clean DIR: " + dir);
         }
+    }
+
+    /** Helper: build Statistics with column ndv for given expressions. */
+    protected static Statistics statsWithNdv(Map<Expression, Double> exprToNdv, double rowCount) {
+        Map<Expression, ColumnStatistic> map = new HashMap<>();
+        for (Map.Entry<Expression, Double> e : exprToNdv.entrySet()) {
+            ColumnStatistic col = new ColumnStatisticBuilder(1)
+                    .setNdv(e.getValue())
+                    .setAvgSizeByte(4)
+                    .setNumNulls(0)
+                    .setMinValue(0)
+                    .setMaxValue(100)
+                    .setIsUnknown(false)
+                    .setUpdatedTime("")
+                    .setHotValues(new HashMap<>())
+                    .build();
+            map.put(e.getKey(), col);
+        }
+        return new Statistics(rowCount, map);
     }
 }
