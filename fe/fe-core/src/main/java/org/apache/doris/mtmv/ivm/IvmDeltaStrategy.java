@@ -18,6 +18,7 @@
 package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.Command;
 
 import java.util.List;
 
@@ -28,10 +29,10 @@ import java.util.List;
 public interface IvmDeltaStrategy {
 
     /**
-     * Rewrites a normalized MV plan into delta command bundles.
+     * Rewrites a normalized MV plan into delta commands.
      *
      * @param normalizedPlan the plan produced by IvmNormalizeMtmv (with ResultSink stripped)
-     * @return one or more delta command bundles for execution
+     * @return one or more delta commands for execution
      */
-    List<IvmDeltaCommandBundle> rewrite(Plan normalizedPlan);
+    List<Command> rewrite(Plan normalizedPlan);
 }

@@ -23,6 +23,7 @@ import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -94,10 +95,10 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         LogicalOlapScan scan = buildScan();
         Map<BaseTableInfo, IvmStreamRef> streams = makeStreams(scan);
         IvmDeltaRewriteContext ctx = new IvmDeltaRewriteContext(mtmv, new ConnectContext(), null, streams);
-        List<IvmDeltaCommandBundle> bundles = new IvmDeltaRewriter().rewrite(buildScanPlan(scan), ctx);
+        List<Command> commands = new IvmDeltaRewriter().rewrite(buildScanPlan(scan), ctx);
 
-        Assertions.assertEquals(1, bundles.size());
-        Assertions.assertInstanceOf(InsertIntoTableCommand.class, bundles.get(0).getCommand());
+        Assertions.assertEquals(1, commands.size());
+        Assertions.assertInstanceOf(InsertIntoTableCommand.class, commands.get(0));
     }
 
     @Test
@@ -106,10 +107,10 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         LogicalOlapScan scan = buildScan();
         Map<BaseTableInfo, IvmStreamRef> streams = makeStreams(scan);
         IvmDeltaRewriteContext ctx = new IvmDeltaRewriteContext(mtmv, new ConnectContext(), null, streams);
-        List<IvmDeltaCommandBundle> bundles = new IvmDeltaRewriter().rewrite(buildProjectScanPlan(scan), ctx);
+        List<Command> commands = new IvmDeltaRewriter().rewrite(buildProjectScanPlan(scan), ctx);
 
-        Assertions.assertEquals(1, bundles.size());
-        Assertions.assertInstanceOf(InsertIntoTableCommand.class, bundles.get(0).getCommand());
+        Assertions.assertEquals(1, commands.size());
+        Assertions.assertInstanceOf(InsertIntoTableCommand.class, commands.get(0));
     }
 
     @Test
@@ -122,7 +123,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         IvmDeltaRewriteContext ctx = new IvmDeltaRewriteContext(
                 mtmv, bundle.connectContext, bundle.normalizeResult, streams);
         InsertIntoTableCommand command = (InsertIntoTableCommand) new IvmDeltaRewriter()
-                .rewrite(bundle.normalizedPlan, ctx).get(0).getCommand();
+                .rewrite(bundle.normalizedPlan, ctx).get(0);
         UnboundTableSink<?> sink = getSink(command);
 
         Assertions.assertEquals(mtmv.getInsertedColumnNames().size() + 1, sink.getColNames().size());
@@ -152,7 +153,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         IvmDeltaRewriteContext ctx = new IvmDeltaRewriteContext(
                 mtmv, bundle.connectContext, bundle.normalizeResult, streams);
         InsertIntoTableCommand command = (InsertIntoTableCommand) new IvmDeltaRewriter()
-                .rewrite(bundle.normalizedPlan, ctx).get(0).getCommand();
+                .rewrite(bundle.normalizedPlan, ctx).get(0);
         UnboundTableSink<?> sink = getSink(command);
         LogicalProject<?> finalProject = (LogicalProject<?>) sink.child();
         Assertions.assertTrue(finalProject.child() instanceof LogicalFilter
@@ -166,7 +167,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         Map<BaseTableInfo, IvmStreamRef> streams = makeStreams(scan);
         IvmDeltaRewriteContext ctx = new IvmDeltaRewriteContext(mtmv, new ConnectContext(), null, streams);
         InsertIntoTableCommand command = (InsertIntoTableCommand) new IvmDeltaRewriter()
-                .rewrite(buildScanPlan(scan), ctx).get(0).getCommand();
+                .rewrite(buildScanPlan(scan), ctx).get(0);
         UnboundTableSink<?> sink = getSink(command);
         Plan child = sink.child();
         Assertions.assertInstanceOf(LogicalProject.class, child);

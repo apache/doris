@@ -77,14 +77,14 @@ public class IvmRefreshManagerTest {
         MTMV mtmv = mockMtmv();
         Command deltaWriteCommand = Mockito.mock(Command.class);
         TestDeltaExecutor executor = new TestDeltaExecutor();
-        List<IvmDeltaCommandBundle> bundles = makeBundles(deltaWriteCommand, mtmv);
-        TestIvmRefreshManager manager = new TestIvmRefreshManager(executor, newContext(mtmv), bundles);
+        List<Command> commands = makeCommands(deltaWriteCommand, mtmv);
+        TestIvmRefreshManager manager = new TestIvmRefreshManager(executor, newContext(mtmv), commands);
 
         IvmRefreshResult result = manager.doRefresh(mtmv);
 
         Assertions.assertTrue(result.isSuccess());
         Assertions.assertTrue(executor.executeCalled);
-        Assertions.assertEquals(bundles, executor.lastBundles);
+        Assertions.assertEquals(commands, executor.lastCommands);
     }
 
     @Test
@@ -94,7 +94,7 @@ public class IvmRefreshManagerTest {
         TestDeltaExecutor executor = new TestDeltaExecutor();
         executor.throwOnExecute = true;
         TestIvmRefreshManager manager = new TestIvmRefreshManager(executor,
-                newContext(mtmv), makeBundles(deltaWriteCommand, mtmv));
+                newContext(mtmv), makeCommands(deltaWriteCommand, mtmv));
 
         IvmRefreshResult result = manager.doRefresh(mtmv);
 
@@ -186,8 +186,8 @@ public class IvmRefreshManagerTest {
         Mockito.when(mtmv.getIvmInfo()).thenReturn(ivmInfo);
 
         TestDeltaExecutor executor = new TestDeltaExecutor();
-        List<IvmDeltaCommandBundle> bundles = makeBundles(deltaWriteCommand, mtmv);
-        TestIvmRefreshManager manager = new TestIvmRefreshManager(executor, newContext(mtmv), bundles);
+        List<Command> commands = makeCommands(deltaWriteCommand, mtmv);
+        TestIvmRefreshManager manager = new TestIvmRefreshManager(executor, newContext(mtmv), commands);
         manager.useSuperPrecheck = true;
 
         IvmRefreshResult result = manager.doRefresh(mtmv);
@@ -229,8 +229,8 @@ public class IvmRefreshManagerTest {
         Mockito.when(mtmv.getIvmInfo()).thenReturn(ivmInfo);
 
         TestDeltaExecutor executor = new TestDeltaExecutor();
-        List<IvmDeltaCommandBundle> bundles = makeBundles(deltaWriteCommand, mtmv);
-        TestIvmRefreshManager manager = new TestIvmRefreshManager(executor, newContext(mtmv), bundles);
+        List<Command> commands = makeCommands(deltaWriteCommand, mtmv);
+        TestIvmRefreshManager manager = new TestIvmRefreshManager(executor, newContext(mtmv), commands);
 
         // Before refresh: flag should be false
         Assertions.assertFalse(ivmInfo.isRunningIvmRefresh());
@@ -263,7 +263,7 @@ public class IvmRefreshManagerTest {
         TestDeltaExecutor executor = new TestDeltaExecutor();
         executor.throwOnExecute = true;
         TestIvmRefreshManager manager = new TestIvmRefreshManager(executor,
-                newContext(mtmv), makeBundles(deltaWriteCommand, mtmv));
+                newContext(mtmv), makeCommands(deltaWriteCommand, mtmv));
 
         IvmRefreshResult result = manager.doRefresh(mtmv);
 
@@ -364,20 +364,20 @@ public class IvmRefreshManagerTest {
         return mtmv;
     }
 
-    private static List<IvmDeltaCommandBundle> makeBundles(Command deltaWriteCommand, MTMV mtmv) {
-        return Collections.singletonList(new IvmDeltaCommandBundle(deltaWriteCommand));
+    private static List<Command> makeCommands(Command deltaWriteCommand, MTMV mtmv) {
+        return Collections.singletonList(deltaWriteCommand);
     }
 
     private static class TestDeltaExecutor extends IvmDeltaExecutor {
         private boolean executeCalled;
         private boolean throwOnExecute;
-        private List<IvmDeltaCommandBundle> lastBundles;
+        private List<Command> lastCommands;
 
         @Override
-        public void execute(IvmRefreshContext context, List<IvmDeltaCommandBundle> bundles,
+        public void execute(IvmRefreshContext context, List<Command> commands,
                 int exprIdStart) throws AnalysisException {
             executeCalled = true;
-            lastBundles = bundles;
+            lastCommands = commands;
             if (throwOnExecute) {
                 throw new AnalysisException("executor failed");
             }
@@ -386,17 +386,17 @@ public class IvmRefreshManagerTest {
 
     private static class TestIvmRefreshManager extends IvmRefreshManager {
         private final IvmRefreshContext context;
-        private final List<IvmDeltaCommandBundle> bundles;
+        private final List<Command> commands;
         private boolean throwOnBuild;
         private boolean useSuperPrecheck;
         /** Snapshots of runningIvmRefresh at each persistIvmInfo call. */
         private final List<Boolean> persistCalls = new ArrayList<>();
 
         private TestIvmRefreshManager(IvmDeltaExecutor deltaExecutor,
-                IvmRefreshContext context, List<IvmDeltaCommandBundle> bundles) {
+                IvmRefreshContext context, List<Command> commands) {
             super(deltaExecutor);
             this.context = context;
-            this.bundles = bundles;
+            this.commands = commands;
         }
 
         @Override
@@ -416,8 +416,8 @@ public class IvmRefreshManagerTest {
         }
 
         @Override
-        List<IvmDeltaCommandBundle> analyzeDeltaCommandBundles(IvmRefreshContext ctx) {
-            return bundles;
+        List<Command> analyzeDeltaCommands(IvmRefreshContext ctx) {
+            return commands;
         }
 
         @Override

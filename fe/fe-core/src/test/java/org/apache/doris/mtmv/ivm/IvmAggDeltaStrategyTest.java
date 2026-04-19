@@ -54,7 +54,7 @@ class IvmAggDeltaStrategyTest extends IvmDeltaTestBase {
         MTMV mtmv = buildMtmvFromPlan(bundle.normalizedPlan.getOutput());
         IvmDeltaRewriteContext ctx = new IvmDeltaRewriteContext(mtmv, bundle.connectContext, bundle.normalizeResult);
         InsertIntoTableCommand command = (InsertIntoTableCommand) new IvmAggDeltaStrategy(ctx)
-                .rewrite(bundle.normalizedPlan).get(0).getCommand();
+                .rewrite(bundle.normalizedPlan).get(0);
         UnboundTableSink<?> sink = getSink(command);
         return new AggRewriteResult(bundle, mtmv, sink, (LogicalProject<?>) sink.child());
     }

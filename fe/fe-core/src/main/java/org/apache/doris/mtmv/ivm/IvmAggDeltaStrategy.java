@@ -145,10 +145,10 @@ public class IvmAggDeltaStrategy extends IvmSimpleScanDeltaStrategy {
     }
 
     @Override
-    public List<IvmDeltaCommandBundle> rewrite(Plan normalizedPlan) {
+    public List<Command> rewrite(Plan normalizedPlan) {
         RewriteResult result = rewritePlan(normalizedPlan);
         Command insertCommand = buildInsertCommandWithDeleteSign(result.plan);
-        return ImmutableList.of(new IvmDeltaCommandBundle(insertCommand));
+        return ImmutableList.of(insertCommand);
     }
 
     /**
