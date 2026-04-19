@@ -463,6 +463,10 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
         std::vector<KeyBoundsPB> segments_key_bounds;
         rs->rowset_meta()->get_segments_key_bounds(&segments_key_bounds);
         int num_segments = cast_set<int>(rs->num_segments());
+        // MOW lookup requires per-segment bounds. Aggregation must be disabled for MOW writers.
+        DCHECK(!rs->rowset_meta()->is_segments_key_bounds_aggregated())
+                << "MOW rowset unexpectedly has aggregated key bounds, rowset_id="
+                << rs->rowset_id().to_string();
         DCHECK_EQ(segments_key_bounds.size(), num_segments);
         std::vector<uint32_t> picked_segments;
         for (int j = num_segments - 1; j >= 0; j--) {

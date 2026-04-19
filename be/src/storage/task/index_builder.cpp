@@ -307,6 +307,9 @@ Status IndexBuilder::update_inverted_index_info() {
         RETURN_IF_ERROR(input_rowset->get_segments_key_bounds(&key_bounds));
         rowset_meta->set_segments_key_bounds_truncated(
                 input_rowset_meta->is_segments_key_bounds_truncated());
+        rowset_meta->set_segments_key_bounds_aggregated(
+                input_rowset_meta->is_segments_key_bounds_aggregated());
+        // key_bounds is already aggregated (size 1) or per-segment; copy verbatim.
         rowset_meta->set_segments_key_bounds(key_bounds);
         std::vector<uint32_t> num_segment_rows;
         input_rowset_meta->get_num_segment_rows(&num_segment_rows);

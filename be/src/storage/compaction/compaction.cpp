@@ -445,7 +445,9 @@ Status CompactionMixin::do_compact_ordered_rowsets() {
     rowset_meta->set_segments_overlap(NONOVERLAPPING);
     rowset_meta->set_rowset_state(VISIBLE);
     rowset_meta->set_segments_key_bounds_truncated(segments_key_bounds_truncated);
-    rowset_meta->set_segments_key_bounds(segment_key_bounds);
+    bool aggregate_key_bounds = config::enable_aggregate_non_mow_key_bounds &&
+                                !_tablet->enable_unique_key_merge_on_write();
+    rowset_meta->set_segments_key_bounds(segment_key_bounds, aggregate_key_bounds);
     rowset_meta->set_num_segment_rows(num_segment_rows);
 
     _output_rowset = _output_rs_writer->manual_build(rowset_meta);
