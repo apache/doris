@@ -23,6 +23,7 @@ import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 
 import com.google.common.base.Preconditions;
@@ -61,21 +62,21 @@ import java.util.function.Predicate;
 public class IvmDeltaRewriter {
 
     /**
-     * Rewrites the normalized plan into a list of delta command bundles.
+     * Rewrites the normalized plan into a list of delta commands.
      * Dispatches to the appropriate strategy based on the normalize result.
      */
-    public List<IvmDeltaCommandBundle> rewrite(Plan normalizedPlan, IvmDeltaRewriteContext ctx) {
+    public List<Command> rewrite(Plan normalizedPlan, IvmDeltaRewriteContext ctx) {
         Set<TableNameInfo> excluded = ctx.getMtmv().getExcludedTriggerTables();
         Predicate<LogicalOlapScan> isExcluded = scan -> isExcludedTriggerTable(scan, excluded);
         List<Plan> deltaPlans = generateDeltaPlans(normalizedPlan,
                 ctx.getBaseTableStreams(), isExcluded);
 
-        List<IvmDeltaCommandBundle> allBundles = new ArrayList<>();
+        List<Command> allCommands = new ArrayList<>();
         for (Plan deltaPlan : deltaPlans) {
             // Each strategy instance is single-use
-            allBundles.addAll(createStrategy(ctx).rewrite(deltaPlan));
+            allCommands.addAll(createStrategy(ctx).rewrite(deltaPlan));
         }
-        return allBundles;
+        return allCommands;
     }
 
     /**

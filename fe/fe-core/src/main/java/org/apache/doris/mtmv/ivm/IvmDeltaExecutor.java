@@ -20,41 +20,42 @@ package org.apache.doris.mtmv.ivm;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.trees.plans.commands.Command;
 
 import java.util.List;
 
 /**
- * Executes IVM delta command bundles against the MV target table.
+ * Executes IVM delta commands against the MV target table.
  */
 public class IvmDeltaExecutor {
 
     /**
-     * Executes all delta bundles.
+     * Executes all delta commands.
      *
      * @param exprIdStart the next ExprId value produced by the plan analysis StatementContext.
-     *                    Each bundle execution creates a fresh StatementContext initialised from
+     *                    Each command execution creates a fresh StatementContext initialised from
      *                    this value so that ExprIds assigned during execution never collide with
      *                    ExprIds already embedded in the pre-built plan trees.
      */
-    public void execute(IvmRefreshContext context, List<IvmDeltaCommandBundle> bundles, int exprIdStart)
+    public void execute(IvmRefreshContext context, List<Command> commands, int exprIdStart)
             throws AnalysisException {
-        for (IvmDeltaCommandBundle bundle : bundles) {
-            executeBundle(context, bundle, exprIdStart);
+        for (Command command : commands) {
+            executeCommand(context, command, exprIdStart);
         }
     }
 
-    private void executeBundle(IvmRefreshContext context, IvmDeltaCommandBundle bundle, int exprIdStart)
+    private void executeCommand(IvmRefreshContext context, Command command, int exprIdStart)
             throws AnalysisException {
         StatementContext stmtCtx = new StatementContext(exprIdStart);
-        String auditStmt = String.format("IVM delta refresh, mvName: %s, bundle: %s",
-                context.getMtmv().getName(), bundle);
+        String auditStmt = String.format("IVM delta refresh, mvName: %s, command: %s",
+                context.getMtmv().getName(), command.getClass().getSimpleName());
         try {
             // normalPlan had applied ivm normal mtmv plan rule, so no need enable this rule then.
-            MTMVPlanUtil.executeCommand(context.getMtmv(), bundle.getCommand(),
+            MTMVPlanUtil.executeCommand(context.getMtmv(), command,
                     stmtCtx, auditStmt, false);
         } catch (Exception e) {
             throw new AnalysisException("IVM delta execution failed for "
-                    + bundle + ": " + e.getMessage(), e);
+                    + command.getClass().getSimpleName() + ": " + e.getMessage(), e);
         }
     }
 }

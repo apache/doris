@@ -31,6 +31,7 @@ import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -103,7 +104,7 @@ public class IvmRefreshManager {
     }
 
     @VisibleForTesting
-    List<IvmDeltaCommandBundle> analyzeDeltaCommandBundles(IvmRefreshContext context) throws Exception {
+    List<Command> analyzeDeltaCommands(IvmRefreshContext context) throws Exception {
         MTMV mtmv = context.getMtmv();
         MTMVAnalyzeQueryInfo queryInfo = MTMVPlanUtil.analyzeQueryWithSql(
                 mtmv, context.getConnectContext(), true);
@@ -198,9 +199,9 @@ public class IvmRefreshManager {
         MTMV mtmv = context.getMtmv();
 
         // Run Nereids with IVM rewrite enabled — per-pattern delta rules write bundles to CascadesContext
-        List<IvmDeltaCommandBundle> bundles;
+        List<Command> commands;
         try {
-            bundles = analyzeDeltaCommandBundles(context);
+            commands = analyzeDeltaCommands(context);
         } catch (Exception e) {
             String detail = e.getMessage() != null ? e.getMessage()
                     : e.getClass().getName() + " (no message)";
@@ -210,9 +211,9 @@ public class IvmRefreshManager {
             return result;
         }
 
-        if (bundles == null || bundles.isEmpty()) {
+        if (commands == null || commands.isEmpty()) {
             // All base tables are up to date — no delta to apply. This is a success (no-op).
-            LOG.info("IVM no delta bundles for mv={} (all base tables up to date)", mtmv.getName());
+            LOG.info("IVM no delta commands for mv={} (all base tables up to date)", mtmv.getName());
             return IvmRefreshResult.success();
         }
 
@@ -233,7 +234,7 @@ public class IvmRefreshManager {
         int exprIdStart = analysisStmtCtx != null
                 ? analysisStmtCtx.getNextExprId().asInt() : 0;
         try {
-            deltaExecutor.execute(context, bundles, exprIdStart);
+            deltaExecutor.execute(context, commands, exprIdStart);
         } catch (Exception e) {
             // Leave runningIvmRefresh=true — the next task will detect this and
             // fall back to full refresh, which resets the flag on success.
