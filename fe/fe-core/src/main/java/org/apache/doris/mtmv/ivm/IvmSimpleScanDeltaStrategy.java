@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -45,6 +46,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 
@@ -270,6 +272,75 @@ public class IvmSimpleScanDeltaStrategy extends PlanVisitor<IvmSimpleScanDeltaSt
             return wrapDmlFactorWithNonDetGuard(new RewriteResult(newJoin, dmlFactorSlot), joinType);
         }
         return new RewriteResult(newJoin, dmlFactorSlot);
+    }
+
+    /**
+     * UNION ALL: visit all children, eliminate non-delta arms.
+     *
+     * <p>Semantics: {@code Δ(a UNION ALL b) = Δa UNION ALL Δb}. Each arm's delta is independent.
+     * Since IvmDeltaRewriter generates exactly one delta scan per plan, at most one arm has
+     * dml_factor (the delta arm). Non-delta arms are eliminated entirely — unlike JOIN which
+     * keeps the snapshot side.
+     *
+     * <p>When all children are snapshot (dmlFactorSlot == null for all), the UNION is rebuilt
+     * with rewritten children and returned with null dmlFactorSlot (snapshot side of a higher join).
+     *
+     * <p>When exactly one child has dml_factor, the UNION is collapsed to that single arm
+     * with a column-mapping Project that remaps child slots to the union's output ExprIds.
+     *
+     * <p><b>Why no non-deterministic row_id guard here (unlike JOIN):</b>
+     * Non-delta arms are eliminated entirely, so there is no "snapshot side" whose non-deterministic
+     * row_id could cause spurious dml_factor &lt; 0.  DUP tables (non-deterministic row_id) never
+     * produce dml_factor &lt; 0 because they have no binlog_op column (always insert-only).
+     * MOW tables always have deterministic row_id.  Therefore no assert_true guard is needed.
+     */
+    @Override
+    public RewriteResult visitLogicalUnion(LogicalUnion union, Void ctx) {
+        List<RewriteResult> childResults = new ArrayList<>();
+        for (Plan child : union.children()) {
+            childResults.add(child.accept(this, ctx));
+        }
+
+        int deltaIdx = -1;
+        for (int i = 0; i < childResults.size(); i++) {
+            if (childResults.get(i).dmlFactorSlot != null) {
+                if (deltaIdx != -1) {
+                    throw new AnalysisException(
+                            "IVM: multiple UNION ALL arms have dml_factor — expected at most one delta arm");
+                }
+                deltaIdx = i;
+            }
+        }
+
+        if (deltaIdx == -1) {
+            // All snapshot: rebuild UNION with rewritten children
+            ImmutableList.Builder<Plan> newChildren = ImmutableList.builder();
+            for (RewriteResult r : childResults) {
+                newChildren.add(r.plan);
+            }
+            Plan newUnion = union.withChildren(newChildren.build());
+            return new RewriteResult(newUnion, null);
+        }
+
+        // Eliminate non-delta arms. Map delta child's slots to union's output ExprIds.
+        RewriteResult deltaChild = childResults.get(deltaIdx);
+        List<SlotReference> childMapping = union.getRegularChildrenOutputs().get(deltaIdx);
+        List<NamedExpression> unionOutputs = union.getOutputs();
+
+        // Create projection: for each union output, alias the child's corresponding slot
+        // with the union's ExprId so parent references remain valid.
+        ImmutableList.Builder<NamedExpression> projections = ImmutableList.builder();
+        for (int j = 0; j < unionOutputs.size(); j++) {
+            NamedExpression unionOut = unionOutputs.get(j);
+            SlotReference childSlot = childMapping.get(j);
+            projections.add(new Alias(unionOut.getExprId(), childSlot, unionOut.getName()));
+        }
+        // Pass through dml_factor
+        projections.add(deltaChild.dmlFactorSlot);
+
+        LogicalProject<Plan> mappedProject = new LogicalProject<>(projections.build(), deltaChild.plan);
+        Slot newDmlFactor = mappedProject.getOutput().get(mappedProject.getOutput().size() - 1);
+        return new RewriteResult(mappedProject, newDmlFactor);
     }
 
     /**
