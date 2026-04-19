@@ -49,6 +49,7 @@ import org.apache.doris.nereids.trees.plans.logical.OutputPrunable;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -121,11 +122,13 @@ public class CheckAnalysis implements AnalysisRuleFactory {
     public List<Rule> buildRules() {
         return ImmutableList.of(
             RuleType.CHECK_ANALYSIS.build(
-                any().then(plan -> {
+                any().thenApply(ctx -> {
+                    Plan plan = ctx.root;
                     checkExpressionInputTypes(plan);
                     checkUnexpectedExpressions(plan);
                     checkAggregateFunction(plan);
                     checkGroupingScalarFunction(plan);
+                    checkIvmExpression(plan, ctx.connectContext);
                     return null;
                 })
             ),
@@ -248,6 +251,21 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                                 + aggregateFunctions.get(0).toSql());
                     }
                 }
+            }
+        }
+    }
+
+    private void checkIvmExpression(Plan plan, ConnectContext connectContext) {
+        if (connectContext == null
+                || !connectContext.getSessionVariable().isEnableIvmNormalRewrite()) {
+            return;
+        }
+        for (Expression expr : plan.getExpressions()) {
+            if (expr.containsType(WindowExpression.class)) {
+                WindowExpression windowExpr = (WindowExpression) ExpressionUtils.collect(
+                        ImmutableList.of(expr), WindowExpression.class::isInstance).iterator().next();
+                throw new AnalysisException(
+                        "IVM does not support window functions: " + windowExpr.toSql());
             }
         }
     }
