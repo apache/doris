@@ -73,7 +73,7 @@ public class IvmDeltaRewriter {
         List<IvmDeltaCommandBundle> allBundles = new ArrayList<>();
         for (Plan deltaPlan : deltaPlans) {
             // Each strategy instance is single-use
-            allBundles.addAll(createStrategy(ctx).rewrite(deltaPlan, ctx));
+            allBundles.addAll(createStrategy(ctx).rewrite(deltaPlan));
         }
         return allBundles;
     }
@@ -194,7 +194,7 @@ public class IvmDeltaRewriter {
         if (normalizeResult != null && normalizeResult.isAggMv()) {
             return new IvmAggDeltaStrategy(ctx);
         } else {
-            return new IvmSimpleScanDeltaStrategy();
+            return new IvmSimpleScanDeltaStrategy(ctx);
         }
     }
 

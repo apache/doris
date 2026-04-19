@@ -43,9 +43,11 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidNumeric;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -118,8 +120,7 @@ import java.util.stream.Collectors;
  * </ul>
  *
  * <h3>Supported plan nodes</h3>
- * OlapScan, filter, project, aggregate, result sink, logical olap table sink.
- * TODO: join support.
+ * OlapScan, filter, project, aggregate, inner/cross join, result sink, logical olap table sink.
  */
 public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements CustomRewriter {
 
@@ -182,6 +183,65 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
     public Plan visitLogicalFilter(LogicalFilter<? extends Plan> filter, Boolean isFirstNonSink) {
         Plan newChild = filter.child().accept(this, false);
         return newChild == filter.child() ? filter : filter.withChildren(ImmutableList.of(newChild));
+    }
+
+    /**
+     * Handles inner join / cross join normalization.
+     *
+     * <ol>
+     *   <li>Validates join type is INNER_JOIN or CROSS_JOIN</li>
+     *   <li>Normalizes both children (isFirstNonSink = false)</li>
+     *   <li>Composes a single row_id = hash(left_row_id, right_row_id)</li>
+     *   <li>Wraps with Project that replaces child row_id slots with the composed one</li>
+     * </ol>
+     *
+     * <p>The composed row_id is deterministic iff both children's row_ids are deterministic.
+     * Child row_id slots are removed from the output to prevent merge conflicts in
+     * {@link #collectIvmHiddenSlots} when multiple {@code __DORIS_IVM_ROW_ID_COL__} exist.
+     * The child entries in {@code rowIdDeterminism} are kept (not cleared) so that the
+     * strategy phase can look up individual child row_id determinism.
+     */
+    @Override
+    public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, Boolean isFirstNonSink) {
+        JoinType joinType = join.getJoinType();
+        if (joinType != JoinType.INNER_JOIN && joinType != JoinType.CROSS_JOIN) {
+            throw new AnalysisException(
+                    "IVM does not support join type: " + joinType
+                            + ". Only INNER_JOIN and CROSS_JOIN are supported.");
+        }
+        if (join.isMarkJoin()) {
+            throw new AnalysisException(
+                    "IVM does not support mark join (subquery with disjunction).");
+        }
+
+        Plan newLeft = join.left().accept(this, false);
+        Plan newRight = join.right().accept(this, false);
+        LogicalJoin<Plan, Plan> newJoin = (LogicalJoin<Plan, Plan>) join.withChildren(newLeft, newRight);
+
+        // Find left and right row_id slots from children's output
+        Slot leftRowIdSlot = IvmUtil.findRowIdSlot(newLeft.getOutput(), "left child of join");
+        Slot rightRowIdSlot = IvmUtil.findRowIdSlot(newRight.getOutput(), "right child of join");
+
+        // Look up each child's row_id determinism from the accumulated map
+        boolean leftDet = normalizeResult.isDeterministic(leftRowIdSlot);
+        boolean rightDet = normalizeResult.isDeterministic(rightRowIdSlot);
+
+        // Compose join row_id = hash(left_row_id, right_row_id)
+        Expression joinRowIdExpr = IvmUtil.buildRowIdHash(ImmutableList.of(leftRowIdSlot, rightRowIdSlot));
+        Alias joinRowIdAlias = new Alias(joinRowIdExpr, Column.IVM_ROW_ID_COL);
+
+        // Build Project output: [composedRowId, joinOutput minus child row_ids]
+        ImmutableList.Builder<NamedExpression> projectOutputs = ImmutableList.builder();
+        projectOutputs.add(joinRowIdAlias);
+        for (Slot slot : newJoin.getOutput()) {
+            if (!Column.IVM_ROW_ID_COL.equals(slot.getName())) {
+                projectOutputs.add(slot);
+            }
+        }
+
+        // Add composed row_id to map (don't clear — child entries are kept for strategy lookup)
+        normalizeResult.addRowId(joinRowIdAlias.toSlot(), leftDet && rightDet);
+        return new LogicalProject<>(projectOutputs.build(), newJoin);
     }
 
     /**
@@ -257,8 +317,7 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
         Expression rowIdExpr = IvmUtil.buildRowIdHash(groupByExprs);
         Alias rowIdAlias = new Alias(rowIdExpr, Column.IVM_ROW_ID_COL);
 
-        // Replace base scan row-id in IvmNormalizeResult with the agg-level row-id
-        normalizeResult.getRowIdDeterminism().clear();
+        // Add agg-level row-id to IvmNormalizeResult (child entries are kept for strategy lookup)
         normalizeResult.addRowId(rowIdAlias.toSlot(), !scalarAgg);
 
         // Project output: row_id first, then all Aggregate output slots (original + hidden)

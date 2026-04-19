@@ -48,6 +48,14 @@ public class IvmNormalizeResult {
         return rowIdDeterminism;
     }
 
+    /**
+     * Returns true if the given row-id slot is tracked as deterministic.
+     * Returns false if the slot is not tracked or is non-deterministic.
+     */
+    public boolean isDeterministic(Slot slot) {
+        return Boolean.TRUE.equals(rowIdDeterminism.get(slot));
+    }
+
     public Plan getNormalizedPlan() {
         return normalizedPlan;
     }

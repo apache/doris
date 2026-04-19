@@ -74,7 +74,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -113,10 +112,9 @@ public class IvmAggDeltaStrategy extends IvmSimpleScanDeltaStrategy {
     private static final String DELMAX = "DELMAX";
 
     /** Set via constructor, used by visitor methods. Single-use: create a fresh instance per rewrite. */
-    private final IvmDeltaRewriteContext ctx;
 
     public IvmAggDeltaStrategy(IvmDeltaRewriteContext ctx) {
-        this.ctx = Objects.requireNonNull(ctx, "ctx can not be null");
+        super(ctx);
     }
 
     /**
@@ -147,9 +145,9 @@ public class IvmAggDeltaStrategy extends IvmSimpleScanDeltaStrategy {
     }
 
     @Override
-    public List<IvmDeltaCommandBundle> rewrite(Plan normalizedPlan, IvmDeltaRewriteContext ctx) {
+    public List<IvmDeltaCommandBundle> rewrite(Plan normalizedPlan) {
         RewriteResult result = rewritePlan(normalizedPlan);
-        Command insertCommand = buildInsertCommandWithDeleteSign(result.plan, ctx);
+        Command insertCommand = buildInsertCommandWithDeleteSign(result.plan);
         return ImmutableList.of(new IvmDeltaCommandBundle(insertCommand));
     }
 
@@ -157,12 +155,45 @@ public class IvmAggDeltaStrategy extends IvmSimpleScanDeltaStrategy {
      * When the normalize top project sits above an aggregate, skip it entirely —
      * the aggregate visitor produces the complete apply plan.
      */
+    /**
+     * Handles projects in the agg plan tree.
+     *
+     * <p>There are four roles a project can play in the agg normalized plan:
+     * <ol>
+     *   <li><b>Directly above Agg</b>: The normalize-added project that maps user-facing
+     *       and IVM hidden columns. Skip it and dispatch directly to the aggregate visitor,
+     *       which builds a complete apply plan (including DELETE_SIGN).</li>
+     *   <li><b>Above the agg path</b> (e.g., an extra top-level project): The child subtree
+     *       eventually reaches the aggregate visitor and returns a terminal apply plan
+     *       ({@code isTerminal == true}). We must return that result as-is — wrapping it
+     *       in this project's original projections would drop the DELETE_SIGN column.</li>
+     *   <li><b>Below the Agg, snapshot side</b> (e.g., in a join subtree, snapshot child):
+     *       {@code dmlFactorSlot == null} but NOT terminal. Preserve the normalize-added
+     *       project (which carries row_id and other hidden columns) by wrapping like the
+     *       parent class does.</li>
+     *   <li><b>Below the Agg, delta side</b>: The child has a non-null dmlFactorSlot.
+     *       Propagate it through the project using the parent's helper.</li>
+     * </ol>
+     */
     @Override
     public RewriteResult visitLogicalProject(LogicalProject<? extends Plan> project, Void context) {
         if (project.child() instanceof LogicalAggregate) {
             return project.child().accept(this, context);
         }
-        return super.visitLogicalProject(project, context);
+        RewriteResult childResult = project.child().accept(this, context);
+        if (childResult.isTerminal) {
+            // Terminal apply plan from the agg visitor — return as-is.
+            return childResult;
+        }
+        if (childResult.dmlFactorSlot == null) {
+            // Snapshot-side project (below agg, e.g. in a join subtree):
+            // preserve normalize-added hidden columns such as row_id.
+            LogicalProject<?> newProject = project.withProjectsAndChild(
+                    project.getProjects(), childResult.plan);
+            return new RewriteResult(newProject, null);
+        }
+        // Below the agg: propagate dml_factor through this project.
+        return propagateDmlFactorThroughProject(project, childResult);
     }
 
     /**
@@ -191,7 +222,7 @@ public class IvmAggDeltaStrategy extends IvmSimpleScanDeltaStrategy {
 
         DeltaPlanParts delta = buildDeltaSubPlan(agg, childResult, aggMeta);
         LogicalProject<?> applyProject = buildApplyPlan(delta, aggMeta, ctx);
-        return new RewriteResult(applyProject, null);
+        return new RewriteResult(applyProject, null, true);
     }
 
     /**
