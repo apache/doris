@@ -110,7 +110,7 @@ public class MTMVPartitionExprDateTruncDateAddSub implements MTMVPartitionExprSe
             if (partitionValue.isNullPartition()) {
                 throw new AnalysisException("date_trunc + date_add/date_sub not support null partition value");
             }
-            DateTimeV2Literal identity = dateTruncByOffset(partitionValue.getStringValue(), dateFormat, false);
+            DateTimeV2Literal identity = dateTruncByOffset(partitionValue.getStringValue(), dateFormat);
             if (i == 0) {
                 first = identity;
             } else if (!isSameTime(first, identity)) {
@@ -140,13 +140,32 @@ public class MTMVPartitionExprDateTruncDateAddSub implements MTMVPartitionExprSe
                 "only support one partition column");
 
         DateTimeV2Literal beginBucket = dateTruncByOffset(
-                partitionKeyDesc.getLowerValues().get(0).getStringValue(), Optional.empty(), false);
-        DateTimeV2Literal endBucket = dateTruncByOffset(
-                partitionKeyDesc.getUpperValues().get(0).getStringValue(), Optional.empty(), true);
+                partitionKeyDesc.getLowerValues().get(0).getStringValue(), Optional.empty());
+
+        // The upper bound of a range partition is exclusive.
+        // Compute the offset-applied upper value BEFORE truncation so we can detect
+        // whether it falls exactly on a time-unit boundary.
+        //
+        // Case A – offset-aligned boundary (e.g. upper = 21:00:00, offset +3h):
+        //   upperWithOffset = 00:00:00 of next day  ==  endBucket  → exact boundary hit
+        //   → the last actual data value (epsilon below upper) maps to the PREVIOUS bucket,
+        //     so endBucket must NOT be included.
+        //
+        // Case B – UTC-midnight boundary (e.g. upper = 00:00:00, offset +3h):
+        //   upperWithOffset = 03:00:00  !=  endBucket (00:00:00)  → mid-bucket hit
+        //   → actual data near the upper bound still maps to endBucket,
+        //     so endBucket MUST be included.
+        DateTimeV2Literal upperRaw = strToDate(
+                partitionKeyDesc.getUpperValues().get(0).getStringValue(), Optional.empty());
+        DateTimeV2Literal upperWithOffset = dateOffset(upperRaw);
+        DateTimeV2Literal endBucket = applyDateTrunc(upperWithOffset);
+        boolean includeEndBucket = !isSameTime(upperWithOffset, endBucket);
 
         List<PartitionKeyDesc> res = new ArrayList<>();
         DateTimeV2Literal currentBucket = beginBucket;
-        while (!currentBucket.toJavaDateType().isAfter(endBucket.toJavaDateType())) {
+        while (includeEndBucket
+                ? !currentBucket.toJavaDateType().isAfter(endBucket.toJavaDateType())
+                : currentBucket.toJavaDateType().isBefore(endBucket.toJavaDateType())) {
             PartitionValue lowerValue = new PartitionValue(dateTimeToStr(currentBucket, partitionColumnType));
             DateTimeV2Literal nextBucket = dateIncrement(currentBucket);
             PartitionValue upperValue = new PartitionValue(dateTimeToStr(nextBucket, partitionColumnType));
@@ -187,15 +206,15 @@ public class MTMVPartitionExprDateTruncDateAddSub implements MTMVPartitionExprSe
         return mvPartitionInfo.getExpr().accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE);
     }
 
-    private DateTimeV2Literal dateTruncByOffset(String value, Optional<String> dateFormat, boolean isUpper)
+    private DateTimeV2Literal dateTruncByOffset(String value, Optional<String> dateFormat)
             throws AnalysisException {
         DateTimeV2Literal dateTimeLiteral = strToDate(value, dateFormat);
         dateTimeLiteral = dateOffset(dateTimeLiteral);
-        if (isUpper) {
-            dateTimeLiteral = (DateTimeV2Literal) DateTimeArithmetic.microSecondsSub(
-                    dateTimeLiteral, new BigIntLiteral(1));
-        }
-        Expression expression = DateTimeExtractAndTransform.dateTrunc(dateTimeLiteral, new VarcharLiteral(timeUnit));
+        return applyDateTrunc(dateTimeLiteral);
+    }
+
+    private DateTimeV2Literal applyDateTrunc(DateTimeV2Literal value) throws AnalysisException {
+        Expression expression = DateTimeExtractAndTransform.dateTrunc(value, new VarcharLiteral(timeUnit));
         if (!(expression instanceof DateTimeV2Literal)) {
             throw new AnalysisException("dateTrunc() should return DateLiteral, expression: " + expression);
         }
@@ -297,6 +316,10 @@ public class MTMVPartitionExprDateTruncDateAddSub implements MTMVPartitionExprSe
         } catch (NumberFormatException e) {
             throw new AnalysisException("date_add/date_sub hour offset should be integer");
         }
+    }
+
+    public long getOffsetHours() {
+        return offsetHours;
     }
 
     @Override

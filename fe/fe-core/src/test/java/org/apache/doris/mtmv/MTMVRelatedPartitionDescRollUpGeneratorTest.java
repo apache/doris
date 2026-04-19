@@ -541,7 +541,11 @@ public class MTMVRelatedPartitionDescRollUpGeneratorTest {
 
     @Test
     public void testRollUpRangeDateSubHourWithUtcMidnightBasePartitions() throws AnalysisException {
-        // date_sub ile negatif offset: UTC-midnight base partition → 1-to-N
+        // date_sub(-3h, day): UTC-midnight base partition [00:00, 00:00) spans 2 local-day buckets.
+        // lower  - 3h: 2025-07-25 00:00:00 - 3h = 2025-07-24 21:00:00 → day = 2025-07-24
+        // upperOffset : 2025-07-26 00:00:00 - 3h = 2025-07-25 21:00:00 → day = 2025-07-25
+        // upperOffset != endBucket (21:00:00 != 00:00:00) → includeEndBucket = true
+        // → 2 buckets: [2025-07-24, 2025-07-25) and [2025-07-25, 2025-07-26), both pointing at name1
         FunctionCallExpr expr = new FunctionCallExpr("date_trunc",
                 Lists.newArrayList(
                         new TimestampArithmeticExpr("date_sub", new SlotRef(null, null), new IntLiteral(3), "HOUR"),
@@ -557,20 +561,161 @@ public class MTMVRelatedPartitionDescRollUpGeneratorTest {
 
             MTMVRelatedPartitionDescRollUpGenerator generator = new MTMVRelatedPartitionDescRollUpGenerator();
             Map<PartitionKeyDesc, Set<String>> input = Maps.newHashMap();
-            // UTC-midnight: 2025-07-25 00:00:00 → 2025-07-26 00:00:00
-            // -3h offset: lower = 2025-07-24 21:00:00 → day trunc = 2025-07-24
-            //             upper - 1μs = 2025-07-25 23:59:59 → -3h = 2025-07-25 20:59:59 → day trunc = 2025-07-25
-            // → 2 bucket: 2025-07-24 ve 2025-07-25
             input.put(PartitionKeyDesc.createFixed(
                     Lists.newArrayList(new PartitionValue("2025-07-25 00:00:00")),
                     Lists.newArrayList(new PartitionValue("2025-07-26 00:00:00"))),
                     Sets.newHashSet("name1"));
 
             Map<PartitionKeyDesc, Set<String>> res = generator.rollUpRange(input, mtmvPartitionInfo, null);
-            Assert.assertTrue(res.size() >= 1);
-            // name1 en az bir partition'da olmalı
-            boolean found = res.values().stream().anyMatch(s -> s.contains("name1"));
-            Assert.assertTrue(found);
+
+            PartitionKeyDesc expectDesc20250724 = PartitionKeyDesc.createFixed(
+                    Lists.newArrayList(new PartitionValue("2025-07-24 00:00:00")),
+                    Lists.newArrayList(new PartitionValue("2025-07-25 00:00:00")));
+            PartitionKeyDesc expectDesc20250725 = PartitionKeyDesc.createFixed(
+                    Lists.newArrayList(new PartitionValue("2025-07-25 00:00:00")),
+                    Lists.newArrayList(new PartitionValue("2025-07-26 00:00:00")));
+            Assert.assertEquals(2, res.size());
+            Assert.assertEquals(Sets.newHashSet("name1"), res.get(expectDesc20250724));
+            Assert.assertEquals(Sets.newHashSet("name1"), res.get(expectDesc20250725));
+        }
+    }
+
+    // =========================================================================
+    // New tests — getRollUpIdentity() (LIST partition path)
+    // =========================================================================
+
+    @Test
+    public void testGetRollUpIdentitySingleValue() throws AnalysisException {
+        // getRollUpIdentity(): single IN value, +3h offset → identity is the day-truncated result
+        FunctionCallExpr expr = new FunctionCallExpr("date_trunc",
+                Lists.newArrayList(
+                        new TimestampArithmeticExpr("date_add", new SlotRef(null, null), new IntLiteral(3), "HOUR"),
+                        new StringLiteral("day")),
+                true);
+        MTMVPartitionExprDateTruncDateAddSub service = new MTMVPartitionExprDateTruncDateAddSub(expr);
+
+        // 2025-07-24 22:00:00 + 3h = 2025-07-25 01:00:00 → day trunc = 2025-07-25 00:00:00
+        PartitionKeyDesc inDesc = generateInDesc("2025-07-24 22:00:00");
+        String identity = service.getRollUpIdentity(inDesc, Maps.newHashMap());
+        Assert.assertEquals("2025-07-25 00:00:00", identity);
+    }
+
+    @Test
+    public void testGetRollUpIdentityMultipleValuesSameDay() throws AnalysisException {
+        // getRollUpIdentity(): multiple IN values that all map to the same day → OK
+        FunctionCallExpr expr = new FunctionCallExpr("date_trunc",
+                Lists.newArrayList(
+                        new TimestampArithmeticExpr("date_add", new SlotRef(null, null), new IntLiteral(3), "HOUR"),
+                        new StringLiteral("day")),
+                true);
+        MTMVPartitionExprDateTruncDateAddSub service = new MTMVPartitionExprDateTruncDateAddSub(expr);
+
+        // Both: +3h → day 2025-07-25
+        PartitionKeyDesc inDesc = generateInDesc("2025-07-24 22:00:00", "2025-07-24 23:00:00");
+        String identity = service.getRollUpIdentity(inDesc, Maps.newHashMap());
+        Assert.assertEquals("2025-07-25 00:00:00", identity);
+    }
+
+    @Test
+    public void testGetRollUpIdentityMultipleValuesDifferentDayThrows() throws AnalysisException {
+        // getRollUpIdentity(): IN values mapping to different days → AnalysisException
+        FunctionCallExpr expr = new FunctionCallExpr("date_trunc",
+                Lists.newArrayList(
+                        new TimestampArithmeticExpr("date_add", new SlotRef(null, null), new IntLiteral(3), "HOUR"),
+                        new StringLiteral("day")),
+                true);
+        MTMVPartitionExprDateTruncDateAddSub service = new MTMVPartitionExprDateTruncDateAddSub(expr);
+
+        // 2025-07-24 20:00:00 + 3h → 2025-07-24 23:00:00 → day 2025-07-24
+        // 2025-07-24 22:00:00 + 3h → 2025-07-25 01:00:00 → day 2025-07-25  (different!)
+        PartitionKeyDesc inDesc = generateInDesc("2025-07-24 20:00:00", "2025-07-24 22:00:00");
+        try {
+            service.getRollUpIdentity(inDesc, Maps.newHashMap());
+            Assert.fail("Expected AnalysisException for values mapping to different days");
+        } catch (org.apache.doris.common.AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("not equal"));
+        }
+    }
+
+    // =========================================================================
+    // New tests — error paths and constructor validation
+    // =========================================================================
+
+    @Test
+    public void testDateTimeToStrUnsupportedTypeThrows() throws AnalysisException {
+        // dateTimeToStr() should throw AnalysisException for an unsupported column type (e.g. INT)
+        FunctionCallExpr expr;
+        try {
+            expr = new FunctionCallExpr("date_trunc",
+                    Lists.newArrayList(
+                            new TimestampArithmeticExpr("date_add", new SlotRef(null, null), new IntLiteral(3), "HOUR"),
+                            new StringLiteral("day")),
+                    true);
+        } catch (Exception e) {
+            Assert.fail("Unexpected exception building expr: " + e.getMessage());
+            return;
+        }
+        try (MockedStatic<MTMVPartitionUtil> mock = Mockito.mockStatic(MTMVPartitionUtil.class)) {
+            // INT is not a valid partition column type for date_trunc+date_add
+            mock.when(() -> MTMVPartitionUtil.getPartitionColumnType(
+                    Mockito.nullable(MTMVRelatedTableIf.class), Mockito.nullable(String.class)))
+                    .thenReturn(Type.INT);
+            Mockito.when(mtmvPartitionInfo.getExpr()).thenReturn(expr);
+            Mockito.when(mtmvPartitionInfo.getPartitionType()).thenReturn(MTMVPartitionType.EXPR);
+
+            MTMVPartitionInfo partitionInfo = Mockito.mock(MTMVPartitionInfo.class);
+            MTMVRelatedTableIf pctTable = Mockito.mock(MTMVRelatedTableIf.class);
+            Mockito.when(partitionInfo.getPartitionColByPctTable(pctTable)).thenReturn("dt");
+
+            MTMVPartitionExprService service;
+            try {
+                service = new MTMVPartitionExprDateTruncDateAddSub(expr);
+            } catch (org.apache.doris.common.AnalysisException e) {
+                Assert.fail("Unexpected: " + e.getMessage());
+                return;
+            }
+
+            PartitionKeyDesc input = PartitionKeyDesc.createFixed(
+                    Lists.newArrayList(new PartitionValue("2025-07-24 21:00:00")),
+                    Lists.newArrayList(new PartitionValue("2025-07-25 21:00:00")));
+            try {
+                service.generateRollUpPartitionKeyDescs(input, partitionInfo, pctTable);
+                Assert.fail("Expected AnalysisException for unsupported column type INT");
+            } catch (org.apache.doris.common.AnalysisException e) {
+                Assert.assertTrue(e.getMessage().contains("not support partition with column type"));
+            }
+        }
+    }
+
+    @Test
+    public void testConstructorRejectsNonHourUnit() {
+        // Constructor must reject date_add with non-HOUR unit (e.g. MINUTE)
+        FunctionCallExpr expr = new FunctionCallExpr("date_trunc",
+                Lists.newArrayList(
+                        new TimestampArithmeticExpr("date_add", new SlotRef(null, null), new IntLiteral(30), "MINUTE"),
+                        new StringLiteral("day")),
+                true);
+        try {
+            new MTMVPartitionExprDateTruncDateAddSub(expr);
+            Assert.fail("Expected AnalysisException for non-HOUR unit");
+        } catch (org.apache.doris.common.AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("HOUR"));
+        }
+    }
+
+    @Test
+    public void testConstructorRejectsNonArithmeticArg() {
+        // Constructor must reject date_trunc where first arg is a plain slot (not date_add/sub)
+        FunctionCallExpr expr = new FunctionCallExpr("date_trunc",
+                Lists.newArrayList(new SlotRef(null, null), new StringLiteral("day")),
+                true);
+        // MTMVPartitionExprFactory.getExprService routes this to MTMVPartitionExprDateTrunc, not DateTruncDateAddSub.
+        // Calling the constructor directly should throw.
+        try {
+            new MTMVPartitionExprDateTruncDateAddSub(expr);
+            Assert.fail("Expected AnalysisException for non-arithmetic first arg");
+        } catch (org.apache.doris.common.AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("date_add/date_sub") || e.getMessage().contains("first argument"));
         }
     }
 
