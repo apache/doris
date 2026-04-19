@@ -198,8 +198,8 @@ public:
 
     TUniqueId query_id() const { return _query_id; }
 
-    void get_instance_counts(int* total, int* finished);
-    void update_finished_instance_counts(int total, int finished);
+    void get_task_counts(int* total, int* finished);
+    void update_finished_task_counts(int total, int finished);
 
     ScannerScheduler* get_scan_scheduler() { return _scan_task_scheduler; }
 
@@ -310,12 +310,12 @@ public:
     Status reset_global_rf(const google::protobuf::RepeatedField<int32_t>& filter_ids);
 
 private:
-    struct InstanceCounts {
+    struct TaskCounts {
         int total = 0;
         int finished = 0;
     };
-    InstanceCounts _finished_instance_counts;
-    std::mutex _instance_counts_lock;
+    TaskCounts _finished_task_counts;
+    std::mutex _task_counts_lock;
 
     friend class QueryTaskController;
 

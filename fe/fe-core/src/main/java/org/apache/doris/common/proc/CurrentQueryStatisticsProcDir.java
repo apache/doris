@@ -45,7 +45,7 @@ public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
             .add("ScanBytesFromLocalStorage").add("ScanBytesFromRemoteStorage")
             .add("SpillWriteBytesToLocalStorage").add("SpillReadBytesFromLocalStorage")
             .add("BytesWriteIntoCache")
-            .add("TotalInstances").add("FinishedInstances").add("Progress").build();
+            .add("TotalTasks").add("FinishedTasks").add("Progress").build();
 
     private static final int EXEC_TIME_INDEX = 5;
 
@@ -92,8 +92,8 @@ public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
             values.add(QueryStatisticsFormatter.getScanBytes(queryStatistics.getSpillReadBytesFromLocalStorage()));
             values.add(QueryStatisticsFormatter.getScanBytes(queryStatistics.getBytesWriteIntoCache()));
 
-            long total = queryStatistics.isSetTotalInstancesNum() ? queryStatistics.getTotalInstancesNum() : 0;
-            long finished = queryStatistics.isSetFinishedInstancesNum() ? queryStatistics.getFinishedInstancesNum() : 0;
+            long total = queryStatistics.isSetTotalTasksNum() ? queryStatistics.getTotalTasksNum() : 0;
+            long finished = queryStatistics.isSetFinishedTasksNum() ? queryStatistics.getFinishedTasksNum() : 0;
             values.add(String.valueOf(total));
             values.add(String.valueOf(finished));
             if (total > 0) {

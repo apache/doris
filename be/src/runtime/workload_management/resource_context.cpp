@@ -57,9 +57,9 @@ void ResourceContext::to_thrift_query_statistics(TQueryStatistics* statistics) c
         if (auto query_ctx = query_task_controller->get_query_ctx()) {
             int total = 0;
             int finished = 0;
-            query_ctx->get_instance_counts(&total, &finished);
-            statistics->__set_total_instances_num(total);
-            statistics->__set_finished_instances_num(finished);
+            query_ctx->get_task_counts(&total, &finished);
+            statistics->__set_total_tasks_num(total);
+            statistics->__set_finished_tasks_num(finished);
         }
     }
 }

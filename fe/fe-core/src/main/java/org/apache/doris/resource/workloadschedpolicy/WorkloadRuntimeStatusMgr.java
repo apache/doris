@@ -284,11 +284,11 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
         dst.shuffle_send_bytes += srcStats.shuffle_send_bytes;
         dst.shuffle_send_rows += srcStats.shuffle_send_rows;
         dst.process_rows += srcStats.process_rows;
-        if (srcStats.isSetTotalInstancesNum()) {
-            dst.total_instances_num += srcStats.total_instances_num;
+        if (srcStats.isSetTotalTasksNum()) {
+            dst.total_tasks_num += srcStats.total_tasks_num;
         }
-        if (srcStats.isSetFinishedInstancesNum()) {
-            dst.finished_instances_num += srcStats.finished_instances_num;
+        if (srcStats.isSetFinishedTasksNum()) {
+            dst.finished_tasks_num += srcStats.finished_tasks_num;
         }
         if (dst.current_used_memory_bytes < srcStats.current_used_memory_bytes) {
             dst.current_used_memory_bytes = srcStats.current_used_memory_bytes;
