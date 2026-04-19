@@ -20,38 +20,64 @@
 #include <vector>
 
 #include "common/status.h"
-#include "runtime/runtime_state.h"
 
 namespace doris {
 
-Status HudiReader::get_next_block_inner(Block* block, size_t* read_rows, bool* eof) {
-    RETURN_IF_ERROR(_file_format_reader->get_next_block(block, read_rows, eof));
-    return Status::OK();
-};
-
-Status HudiParquetReader::init_reader(
-        const std::vector<std::string>& read_table_col_names,
-        std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
-        const VExprContextSPtrs& conjuncts,
-        phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>>&
-                slot_id_to_predicates,
-        const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
-        const std::unordered_map<std::string, int>* colname_to_slot_id,
-        const VExprContextSPtrs* not_single_slot_filter_conjuncts,
-        const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts) {
-    auto* parquet_reader = static_cast<ParquetReader*>(_file_format_reader.get());
+// ============================================================================
+// HudiParquetReader: on_before_init_reader
+// ============================================================================
+Status HudiParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
+    _column_descs = ctx->column_descs;
+    _fill_col_name_to_block_idx = ctx->col_name_to_block_idx;
+    RETURN_IF_ERROR(
+            _extract_partition_values(*ctx->range, ctx->tuple_descriptor, _fill_partition_values));
+    // Get parquet file metadata schema (file already opened by init_reader)
     const FieldDescriptor* field_desc = nullptr;
-    RETURN_IF_ERROR(parquet_reader->get_file_metadata_schema(&field_desc));
+    RETURN_IF_ERROR(get_file_metadata_schema(&field_desc));
     DCHECK(field_desc != nullptr);
 
-    auto parquet_fields_schema = field_desc->get_fields_schema();
+    // Build table_info_node using field_id matching (shared with Paimon/Iceberg)
     RETURN_IF_ERROR(gen_table_info_node_by_field_id(
-            _params, _range.table_format_params.hudi_params.schema_id, tuple_descriptor,
-            *field_desc));
-    return parquet_reader->init_reader(read_table_col_names, col_name_to_block_idx, conjuncts,
-                                       slot_id_to_predicates, tuple_descriptor, row_descriptor,
-                                       colname_to_slot_id, not_single_slot_filter_conjuncts,
-                                       slot_id_to_filter_conjuncts, table_info_node_ptr);
+            get_scan_params(), get_scan_range().table_format_params.hudi_params.schema_id,
+            get_tuple_descriptor(), *field_desc));
+    ctx->table_info_node = table_info_node_ptr;
+
+    // Extract column names from descriptors
+    for (const auto& desc : *ctx->column_descs) {
+        if (desc.category == ColumnCategory::REGULAR ||
+            desc.category == ColumnCategory::GENERATED) {
+            ctx->column_names.push_back(desc.name);
+        }
+    }
+    return Status::OK();
+}
+
+// ============================================================================
+// HudiOrcReader: on_before_init_reader
+// ============================================================================
+Status HudiOrcReader::on_before_init_reader(ReaderInitContext* ctx) {
+    _column_descs = ctx->column_descs;
+    _fill_col_name_to_block_idx = ctx->col_name_to_block_idx;
+    RETURN_IF_ERROR(
+            _extract_partition_values(*ctx->range, ctx->tuple_descriptor, _fill_partition_values));
+    // Get ORC file type (file already opened by init_reader)
+    const orc::Type* orc_type_ptr = nullptr;
+    RETURN_IF_ERROR(get_file_type(&orc_type_ptr));
+
+    // Build table_info_node using field_id matching
+    RETURN_IF_ERROR(gen_table_info_node_by_field_id(
+            get_scan_params(), get_scan_range().table_format_params.hudi_params.schema_id,
+            get_tuple_descriptor(), orc_type_ptr));
+    ctx->table_info_node = table_info_node_ptr;
+
+    // Extract column names from descriptors
+    for (const auto& desc : *ctx->column_descs) {
+        if (desc.category == ColumnCategory::REGULAR ||
+            desc.category == ColumnCategory::GENERATED) {
+            ctx->column_names.push_back(desc.name);
+        }
+    }
+    return Status::OK();
 }
 
 } // namespace doris
