@@ -972,4 +972,20 @@ public class CreateMTMVCommandTest extends TestWithFeService {
         Assertions.assertTrue(ex.getMessage().contains("can only be expanded"),
                 "unexpected message: " + ex.getMessage());
     }
+
+    @Test
+    public void testCreateIncrementalMVRejectsWindowFunction() throws Exception {
+        createTable("create table test.ivm_win_base (k1 int, v1 int)\n"
+                + "duplicate key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1');");
+        AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
+                () -> createMtmv("CREATE MATERIALIZED VIEW ivm_win_mv\n"
+                        + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                        + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                        + " PROPERTIES ('replication_num' = '1')\n"
+                        + " AS SELECT k1, row_number() OVER (ORDER BY k1) rn FROM ivm_win_base;"));
+        Assertions.assertTrue(ex.getMessage().contains("IVM does not support window functions"),
+                "unexpected message: " + ex.getMessage());
+    }
 }
