@@ -36,6 +36,8 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
@@ -43,8 +45,10 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidNumeric;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -52,8 +56,10 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
+import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -120,7 +126,7 @@ import java.util.stream.Collectors;
  * </ul>
  *
  * <h3>Supported plan nodes</h3>
- * OlapScan, filter, project, aggregate, inner/cross join, result sink, logical olap table sink.
+ * OlapScan, filter, project, aggregate, inner/cross join, UNION ALL, result sink, logical olap table sink.
  */
 public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements CustomRewriter {
 
@@ -242,6 +248,81 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
         // Add composed row_id to map (don't clear — child entries are kept for strategy lookup)
         normalizeResult.addRowId(joinRowIdAlias.toSlot(), leftDet && rightDet);
         return new LogicalProject<>(projectOutputs.build(), newJoin);
+    }
+
+    /**
+     * Handles UNION ALL normalization.
+     *
+     * <p>Validates: only UNION ALL (rejects DISTINCT), no constant expression arms.
+     *
+     * <p>For each child arm:
+     * <ol>
+     *   <li>Normalizes the child (injects row_id at scan/join level)</li>
+     *   <li>Wraps with a Project that computes {@code hash(arm_index, child_row_id)} as the
+     *       new row_id — the arm_index literal prevents cross-arm row_id collision (e.g. self-union)</li>
+     *   <li>Strips the original child row_id from the output</li>
+     * </ol>
+     *
+     * <p>Then rebuilds the UNION with an additional union-level row_id output column prepended.
+     * The union row_id is deterministic iff all arms' row_ids are deterministic.
+     */
+    @Override
+    public Plan visitLogicalUnion(LogicalUnion union, Boolean isFirstNonSink) {
+        if (union.getQualifier() != Qualifier.ALL) {
+            throw new AnalysisException(
+                    "IVM does not support UNION DISTINCT. Only UNION ALL is supported.");
+        }
+        if (!union.getConstantExprsList().isEmpty()) {
+            throw new AnalysisException(
+                    "IVM does not support UNION ALL with constant expressions.");
+        }
+
+        List<Plan> newChildren = new ArrayList<>();
+        List<List<SlotReference>> newChildrenOutputs = new ArrayList<>();
+        boolean allDet = true;
+
+        for (int i = 0; i < union.children().size(); i++) {
+            Plan normalizedChild = union.child(i).accept(this, false);
+            Slot childRowId = IvmUtil.findRowIdSlot(normalizedChild.getOutput(),
+                    "child " + i + " of union");
+            allDet &= normalizeResult.isDeterministic(childRowId);
+
+            // Wrap with Project: hash(arm_index, child_row_id) as row_id, plus other cols
+            Expression hashExpr = IvmUtil.buildRowIdHash(
+                    ImmutableList.of(new IntegerLiteral(i), childRowId));
+            Alias hashAlias = new Alias(hashExpr, Column.IVM_ROW_ID_COL);
+
+            ImmutableList.Builder<NamedExpression> projOutputs = ImmutableList.builder();
+            projOutputs.add(hashAlias);
+            for (Slot slot : normalizedChild.getOutput()) {
+                if (!Column.IVM_ROW_ID_COL.equals(slot.getName())) {
+                    projOutputs.add(slot);
+                }
+            }
+            LogicalProject<Plan> hashedChild = new LogicalProject<>(projOutputs.build(), normalizedChild);
+            newChildren.add(hashedChild);
+
+            // Build child's regularChildrenOutputs: [hashed_row_id, ...original_mapping...]
+            SlotReference hashedRowIdSlot = (SlotReference) hashedChild.getOutput().get(0);
+            ImmutableList.Builder<SlotReference> childMapping = ImmutableList.builder();
+            childMapping.add(hashedRowIdSlot);
+            childMapping.addAll(union.getRegularChildrenOutputs().get(i));
+            newChildrenOutputs.add(childMapping.build());
+        }
+
+        // Create union-level row_id output
+        SlotReference unionRowId = new SlotReference(
+                StatementScopeIdGenerator.newExprId(),
+                Column.IVM_ROW_ID_COL, LargeIntType.INSTANCE, false, ImmutableList.of());
+        normalizeResult.addRowId(unionRowId, allDet);
+
+        // Rebuild UNION: [union_row_id, ...original_outputs...]
+        ImmutableList.Builder<NamedExpression> newOutputs = ImmutableList.builder();
+        newOutputs.add(unionRowId);
+        newOutputs.addAll(union.getOutputs());
+
+        return union.withNewOutputsChildrenAndConstExprsList(
+                newOutputs.build(), newChildren, newChildrenOutputs, union.getConstantExprsList());
     }
 
     /**

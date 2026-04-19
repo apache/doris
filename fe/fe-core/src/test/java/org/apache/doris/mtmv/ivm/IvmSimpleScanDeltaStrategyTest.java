@@ -25,16 +25,21 @@ import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -42,6 +47,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
 
@@ -496,5 +502,156 @@ class IvmSimpleScanDeltaStrategyTest extends IvmDeltaTestBase {
         Assertions.assertNotNull(result.dmlFactorSlot,
                 "dml_factor should propagate from delta side with hash conjuncts");
         Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, result.dmlFactorSlot.getName());
+    }
+
+    // ---- UNION ALL strategy tests ----
+
+    private LogicalUnion buildUnionAll(Plan... children) {
+        List<Slot> firstOutput = children[0].getOutput();
+        ImmutableList.Builder<NamedExpression> outputs = ImmutableList.builder();
+        for (Slot slot : firstOutput) {
+            outputs.add(new SlotReference(
+                    StatementScopeIdGenerator.newExprId(),
+                    slot.getName(), slot.getDataType(), slot.nullable(), ImmutableList.of()));
+        }
+        ImmutableList.Builder<List<SlotReference>> childrenOutputs = ImmutableList.builder();
+        for (Plan child : children) {
+            ImmutableList.Builder<SlotReference> mapping = ImmutableList.builder();
+            for (Slot slot : child.getOutput()) {
+                mapping.add((SlotReference) slot);
+            }
+            childrenOutputs.add(mapping.build());
+        }
+        return new LogicalUnion(Qualifier.ALL, outputs.build(), childrenOutputs.build(),
+                ImmutableList.of(), false, ImmutableList.copyOf(children));
+    }
+
+    @Test
+    void testUnionDeltaInFirstArm() {
+        LogicalOlapScan scanDelta = buildScan();
+        LogicalOlapScan scanSnapshot = buildScanForTable(2, "t2");
+        LogicalUnion union = buildUnionAll(scanDelta, scanSnapshot);
+
+        TestableIvmSimpleScanDeltaStrategy strategy = new TestableIvmSimpleScanDeltaStrategy(dummyCtx());
+        IvmSimpleScanDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(union);
+
+        Assertions.assertNotNull(result.dmlFactorSlot,
+                "dml_factor should propagate from delta arm");
+        Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, result.dmlFactorSlot.getName());
+        Assertions.assertInstanceOf(LogicalProject.class, result.plan,
+                "Non-delta arms should be eliminated, leaving a column-mapping Project");
+    }
+
+    @Test
+    void testUnionDeltaInSecondArm() {
+        LogicalOlapScan scanSnapshot = buildScanForTable(2, "t2");
+        LogicalOlapScan scanDelta = buildScan();
+        LogicalUnion union = buildUnionAll(scanSnapshot, scanDelta);
+
+        TestableIvmSimpleScanDeltaStrategy strategy = new TestableIvmSimpleScanDeltaStrategy(dummyCtx());
+        IvmSimpleScanDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(union);
+
+        Assertions.assertNotNull(result.dmlFactorSlot,
+                "dml_factor should propagate from delta arm");
+        Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, result.dmlFactorSlot.getName());
+        Assertions.assertInstanceOf(LogicalProject.class, result.plan,
+                "Non-delta arms should be eliminated, leaving a column-mapping Project");
+    }
+
+    @Test
+    void testUnionAllSnapshotReturnsNullDmlFactor() {
+        LogicalOlapScan scanA = buildScanForTable(2, "t2");
+        LogicalOlapScan scanB = buildScanForTable(3, "t3");
+        LogicalUnion union = buildUnionAll(scanA, scanB);
+
+        TestableIvmSimpleScanDeltaStrategy strategy = new TestableIvmSimpleScanDeltaStrategy(dummyCtx());
+        IvmSimpleScanDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(union);
+
+        Assertions.assertNull(result.dmlFactorSlot,
+                "All-snapshot union should have null dmlFactorSlot");
+        Assertions.assertInstanceOf(LogicalUnion.class, result.plan,
+                "All-snapshot union should rebuild as LogicalUnion");
+    }
+
+    @Test
+    void testUnionBothDeltaThrows() {
+        LogicalOlapScan scanA = buildScan();
+        LogicalOlapScan scanB = (LogicalOlapScan) buildScanForTable(2, "t2").withIsDelta(true);
+        LogicalUnion union = buildUnionAll(scanA, scanB);
+
+        TestableIvmSimpleScanDeltaStrategy strategy = new TestableIvmSimpleScanDeltaStrategy(dummyCtx());
+        Assertions.assertThrows(AnalysisException.class,
+                () -> strategy.exposeRewritePlan(union),
+                "Multiple delta arms in union should throw AnalysisException");
+    }
+
+    @Test
+    void testUnionThreeWayDeltaInMiddle() {
+        LogicalOlapScan scanA = buildScanForTable(2, "t2");
+        LogicalOlapScan scanDelta = buildScan();
+        LogicalOlapScan scanC = buildScanForTable(3, "t3");
+        LogicalUnion union = buildUnionAll(scanA, scanDelta, scanC);
+
+        TestableIvmSimpleScanDeltaStrategy strategy = new TestableIvmSimpleScanDeltaStrategy(dummyCtx());
+        IvmSimpleScanDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(union);
+
+        Assertions.assertNotNull(result.dmlFactorSlot,
+                "dml_factor should propagate from the middle delta arm");
+        Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, result.dmlFactorSlot.getName());
+        Assertions.assertInstanceOf(LogicalProject.class, result.plan,
+                "Non-delta arms should be eliminated, leaving a column-mapping Project");
+    }
+
+    @Test
+    void testUnionOutputMappingPreservesExprIds() {
+        LogicalOlapScan scanDelta = buildScan();
+        LogicalOlapScan scanSnapshot = buildScanForTable(2, "t2");
+        LogicalUnion union = buildUnionAll(scanDelta, scanSnapshot);
+
+        List<ExprId> unionExprIds = union.getOutputs().stream()
+                .map(NamedExpression::getExprId)
+                .collect(ImmutableList.toImmutableList());
+
+        TestableIvmSimpleScanDeltaStrategy strategy = new TestableIvmSimpleScanDeltaStrategy(dummyCtx());
+        IvmSimpleScanDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(union);
+
+        LogicalProject<?> project = (LogicalProject<?>) result.plan;
+        List<Slot> projectOutput = project.getOutput();
+        for (int i = 0; i < unionExprIds.size(); i++) {
+            Assertions.assertEquals(unionExprIds.get(i), projectOutput.get(i).getExprId(),
+                    "Output slot " + i + " should preserve union's ExprId");
+        }
+    }
+
+    @Test
+    void testNestedUnionDeltaInInnerArm() {
+        // (a_delta UNION ALL b_snapshot) UNION ALL c_snapshot
+        // Delta is in the inner union's first arm.
+        // Strategy should: inner union → eliminate b, return a as delta;
+        // outer union → eliminate c, return mapped project with dml_factor.
+        LogicalOlapScan scanDelta = buildScan();
+        LogicalOlapScan scanB = buildScanForTable(2, "t2");
+        LogicalOlapScan scanC = buildScanForTable(3, "t3");
+
+        LogicalUnion innerUnion = buildUnionAll(scanDelta, scanB);
+        LogicalUnion outerUnion = buildUnionAll(innerUnion, scanC);
+
+        TestableIvmSimpleScanDeltaStrategy strategy = new TestableIvmSimpleScanDeltaStrategy(dummyCtx());
+        IvmSimpleScanDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(outerUnion);
+
+        Assertions.assertNotNull(result.dmlFactorSlot,
+                "dml_factor should propagate from the nested delta arm");
+        Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, result.dmlFactorSlot.getName());
+        Assertions.assertInstanceOf(LogicalProject.class, result.plan,
+                "Non-delta arms should be eliminated, leaving a column-mapping Project");
+
+        // Verify output preserves outer union's ExprIds
+        LogicalProject<?> project = (LogicalProject<?>) result.plan;
+        List<NamedExpression> outerOutputs = outerUnion.getOutputs();
+        List<Slot> projectOutput = project.getOutput();
+        for (int i = 0; i < outerOutputs.size(); i++) {
+            Assertions.assertEquals(outerOutputs.get(i).getExprId(), projectOutput.get(i).getExprId(),
+                    "Nested union output slot " + i + " should preserve outer union's ExprId");
+        }
     }
 }
