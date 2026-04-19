@@ -94,12 +94,12 @@ void build_rowset_meta_with_spec_field(RowsetMeta& rowset_meta,
     rowset_meta.set_rowset_state(spec_rowset_meta.rowset_state());
     rowset_meta.set_segments_key_bounds_truncated(
             spec_rowset_meta.is_segments_key_bounds_truncated());
-    rowset_meta.set_segments_key_bounds_aggregated(
-            spec_rowset_meta.is_segments_key_bounds_aggregated());
     std::vector<KeyBoundsPB> segments_key_bounds;
     spec_rowset_meta.get_segments_key_bounds(&segments_key_bounds);
-    // Source is already aggregated (size 1 entry) or per-segment; copy verbatim.
-    rowset_meta.set_segments_key_bounds(segments_key_bounds);
+    // Preserve source layout: if source was aggregated (size 1), re-aggregating
+    // the single entry is a no-op that also keeps the flag consistent.
+    rowset_meta.set_segments_key_bounds(segments_key_bounds,
+                                        spec_rowset_meta.is_segments_key_bounds_aggregated());
     std::vector<uint32_t> num_segment_rows;
     spec_rowset_meta.get_num_segment_rows(&num_segment_rows);
     rowset_meta.set_num_segment_rows(num_segment_rows);

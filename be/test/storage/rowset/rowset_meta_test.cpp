@@ -389,6 +389,36 @@ TEST_F(RowsetMetaTest, TestSegmentsKeyBoundsAggregation) {
         EXPECT_EQ(out[0].max_key(), "c00");
         EXPECT_TRUE(rs_meta.is_segments_key_bounds_aggregated());
     }
+
+    // 5. aggregated flag must be reset when switching from aggregate=true to
+    //    aggregate=false on the same instance.
+    {
+        RowsetMeta rs_meta;
+        rs_meta.set_segments_key_bounds(per_segment, /*aggregate_into_single=*/true);
+        ASSERT_TRUE(rs_meta.is_segments_key_bounds_aggregated());
+
+        rs_meta.set_segments_key_bounds(per_segment, /*aggregate_into_single=*/false);
+        EXPECT_FALSE(rs_meta.is_segments_key_bounds_aggregated());
+
+        std::vector<KeyBoundsPB> out;
+        rs_meta.get_segments_key_bounds(&out);
+        EXPECT_EQ(out.size(), per_segment.size());
+    }
+
+    // 6. aggregated flag must be reset when calling with aggregate=true but an
+    //    empty input after a prior aggregated call.
+    {
+        RowsetMeta rs_meta;
+        rs_meta.set_segments_key_bounds(per_segment, /*aggregate_into_single=*/true);
+        ASSERT_TRUE(rs_meta.is_segments_key_bounds_aggregated());
+
+        rs_meta.set_segments_key_bounds({}, /*aggregate_into_single=*/true);
+        EXPECT_FALSE(rs_meta.is_segments_key_bounds_aggregated());
+
+        std::vector<KeyBoundsPB> out;
+        rs_meta.get_segments_key_bounds(&out);
+        EXPECT_TRUE(out.empty());
+    }
 }
 
 TEST_F(RowsetMetaTest, TestSegmentsKeyBoundsAggregationTruncation) {

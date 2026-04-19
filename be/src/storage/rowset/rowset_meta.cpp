@@ -292,7 +292,8 @@ int64_t RowsetMeta::segment_file_size(int seg_id) const {
 void RowsetMeta::set_segments_key_bounds(const std::vector<KeyBoundsPB>& segments_key_bounds,
                                          bool aggregate_into_single) {
     _rowset_meta_pb.clear_segments_key_bounds();
-    if (aggregate_into_single && !segments_key_bounds.empty()) {
+    bool did_aggregate = aggregate_into_single && !segments_key_bounds.empty();
+    if (did_aggregate) {
         const std::string* overall_min = &segments_key_bounds.front().min_key();
         const std::string* overall_max = &segments_key_bounds.front().max_key();
         for (const KeyBoundsPB& key_bounds : segments_key_bounds) {
@@ -306,13 +307,13 @@ void RowsetMeta::set_segments_key_bounds(const std::vector<KeyBoundsPB>& segment
         KeyBoundsPB* aggregated = _rowset_meta_pb.add_segments_key_bounds();
         aggregated->set_min_key(*overall_min);
         aggregated->set_max_key(*overall_max);
-        set_segments_key_bounds_aggregated(true);
     } else {
         for (const KeyBoundsPB& key_bounds : segments_key_bounds) {
             KeyBoundsPB* new_key_bounds = _rowset_meta_pb.add_segments_key_bounds();
             *new_key_bounds = key_bounds;
         }
     }
+    set_segments_key_bounds_aggregated(did_aggregate);
 
     int32_t truncation_threshold = config::segments_key_bounds_truncation_threshold;
     if (config::random_segments_key_bounds_truncation) {
