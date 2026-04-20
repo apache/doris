@@ -883,6 +883,8 @@ message SnapshotPB {
     optional int64 snapshot_retained_data_size = 19;
     optional int64 snapshot_billable_data_size = 20;
 
+    optional int64 max_reserved_vault_id = 21;
+
     // TODO: add the referenced resources
 }
 
