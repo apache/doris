@@ -25,6 +25,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
@@ -743,8 +744,23 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
         // add all rollup replicas to tablet inverted index
         for (Long partitionId : partitionIdToRollupIndex.keySet()) {
+            Partition partition = tbl.getPartition(partitionId);
+            if (partition == null) {
+                LOG.warn("[INCONSISTENT META] skip replaying rollup partition {} for table {} job {} because partition"
+                                + " does not exist",
+                        partitionId, tableId, jobId);
+                continue;
+            }
+
             MaterializedIndex rollupIndex = partitionIdToRollupIndex.get(partitionId);
-            TStorageMedium medium = tbl.getPartitionInfo().getDataProperty(partitionId).getStorageMedium();
+            DataProperty dataProperty = tbl.getPartitionInfo().getDataProperty(partitionId);
+            if (dataProperty == null) {
+                LOG.warn("[INCONSISTENT META] skip replaying rollup partition {} for table {} job {} because data "
+                                + "property is missing",
+                        partitionId, tableId, jobId);
+                continue;
+            }
+            TStorageMedium medium = dataProperty.getStorageMedium();
 
             for (Tablet rollupTablet : rollupIndex.getTablets()) {
                 TabletMeta rollupTabletMeta = new TabletMeta(dbId, tableId, partitionId, rollupIndexId,
