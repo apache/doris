@@ -3877,4 +3877,67 @@ TEST_F(VariantColumnWriterReaderTest,
     EXPECT_EQ(actual_rows, expected_rows);
 }
 
+// Regression test: compaction on no-key duplicate table with variant column uid=0.
+// TabletColumn::is_extracted_column() used "_parent_col_unique_id > 0" which
+// incorrectly returned false for subcolumns whose parent has uid=0, causing
+// VariantColumnWriterImpl to duplicate sparse column entries in segment footer.
+// Without fix: DCHECK(uid >= 0) fires in segment_iterator.cpp because
+// is_extracted_column() wrongly returns false for extracted cols with parent uid=0,
+// making them take the non-extracted path where uid=-1 violates the check.
+TEST_F(VariantColumnWriterReaderTest, test_compaction_nokey_variant_uid0) {
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    construct_column(schema_pb.add_column(), /*col_unique_id=*/0, "VARIANT", "v1",
+                     /*variant_max_subcolumns_count=*/3);
+    _tablet_schema = std::make_shared<TabletSchema>();
+    _tablet_schema->init_from_pb(schema_pb);
+
+    TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
+    tablet_meta->_tablet_id = 99900;
+    _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
+    ASSERT_TRUE(_tablet->init().ok());
+    ASSERT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
+
+    auto rs0 = create_variant_rowset(
+            {{R"({"name":"Alice","age":30})", R"({"name":"Bob","age":25})"}}, 2);
+    auto rs1 =
+            create_variant_rowset({{R"({"name":"u1","age":10})", R"({"name":"u2","age":20})"}}, 3);
+
+    std::vector<RowsetSharedPtr> input_rowsets {rs0, rs1};
+    auto input_readers = create_rowset_readers(input_rowsets);
+
+    auto compaction_schema = std::make_shared<TabletSchema>(*_tablet_schema);
+    auto st = variant_util::VariantCompactionUtil::get_extended_compaction_schema(
+            input_rowsets, compaction_schema);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    RowsetWriterContext ctx;
+    RowsetId rowset_id;
+    rowset_id.init(9999);
+    ctx.rowset_id = rowset_id;
+    ctx.rowset_type = BETA_ROWSET;
+    ctx.data_dir = _data_dir.get();
+    ctx.rowset_state = VISIBLE;
+    ctx.tablet_schema = compaction_schema;
+    ctx.tablet_path = _tablet->tablet_path();
+    ctx.tablet_id = _tablet->tablet_id();
+    ctx.tablet = _tablet;
+    ctx.version = Version(2, 3);
+    ctx.write_type = DataWriteType::TYPE_COMPACTION;
+    auto res = RowsetFactory::create_rowset_writer(*_engine_ref, ctx, true);
+    ASSERT_TRUE(res.has_value()) << res.error();
+    auto output_writer = std::move(res).value();
+
+    Merger::Statistics stats;
+    st = Merger::vertical_merge_rowsets(_tablet, ReaderType::READER_CUMULATIVE_COMPACTION,
+                                        *compaction_schema, input_readers, output_writer.get(),
+                                        10000, 2, &stats);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    RowsetSharedPtr output_rowset;
+    ASSERT_TRUE(output_writer->build(output_rowset).ok());
+    ASSERT_EQ(output_rowset->num_rows(), 4);
+}
+
 } // namespace doris
