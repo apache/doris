@@ -175,6 +175,63 @@ struct OldUnHexImpl {
     }
 };
 
+struct OldRepeatImpl {
+    static Status vector_vector(const ColumnString::Chars& data,
+                                const ColumnString::Offsets& offsets,
+                                const ColumnInt32::Container& repeats,
+                                ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets,
+                                ColumnUInt8::Container& null_map) {
+        const size_t input_row_size = offsets.size();
+
+        fmt::memory_buffer buffer;
+        res_offsets.resize(input_row_size);
+        null_map.resize_fill(input_row_size, 0);
+        for (size_t i = 0; i < input_row_size; ++i) {
+            buffer.clear();
+            const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+            const size_t size = offsets[i] - offsets[i - 1];
+            const int repeat = repeats[i];
+            if (repeat <= 0) {
+                StringOP::push_empty_string(i, res_data, res_offsets);
+                continue;
+            }
+
+            ColumnString::check_chars_length(static_cast<size_t>(repeat) * size + res_data.size(),
+                                             0);
+            for (int j = 0; j < repeat; ++j) {
+                buffer.append(raw_str, raw_str + size);
+            }
+            StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i, res_data,
+                                        res_offsets);
+        }
+        return Status::OK();
+    }
+
+    static Status vector_const(const ColumnString::Chars& data,
+                               const ColumnString::Offsets& offsets, int repeat,
+                               ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets,
+                               ColumnUInt8::Container& null_map) {
+        const size_t input_row_size = offsets.size();
+
+        fmt::memory_buffer buffer;
+        res_offsets.resize(input_row_size);
+        null_map.resize_fill(input_row_size, 0);
+        for (size_t i = 0; i < input_row_size; ++i) {
+            buffer.clear();
+            const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+            const size_t size = offsets[i] - offsets[i - 1];
+            ColumnString::check_chars_length(static_cast<size_t>(repeat) * size + res_data.size(),
+                                             0);
+            for (int j = 0; j < repeat; ++j) {
+                buffer.append(raw_str, raw_str + size);
+            }
+            StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i, res_data,
+                                        res_offsets);
+        }
+        return Status::OK();
+    }
+};
+
 static void generate_test_data(ColumnString::Chars& data, ColumnString::Offsets& offsets,
                                size_t num_rows, size_t str_len, unsigned char max_char) {
     const std::string base64_chars =
@@ -188,13 +245,28 @@ static void generate_test_data(ColumnString::Chars& data, ColumnString::Offsets&
     data.clear();
     data.reserve(num_rows * str_len);
 
-    size_t offset = 0;
+    uint32_t offset = 0;
     for (size_t i = 0; i < num_rows; ++i) {
         for (size_t j = 0; j < str_len; ++j) {
             data.push_back(static_cast<char>(base64_chars[dist(rng)]));
         }
         offset += str_len;
-        offsets[i] = cast_set<uint32_t>(offset);
+        offsets[i] = offset;
+    }
+}
+
+static ColumnString::MutablePtr generate_test_string_column(size_t num_rows, size_t str_len,
+                                                            unsigned char max_char) {
+    auto column = ColumnString::create();
+    generate_test_data(column->get_chars(), column->get_offsets(), num_rows, str_len, max_char);
+    return column;
+}
+
+static void generate_repeat_times(ColumnInt32::Container& repeats, size_t num_rows,
+                                  int32_t max_repeat) {
+    repeats.resize(num_rows);
+    for (size_t i = 0; i < num_rows; ++i) {
+        repeats[i] = max_repeat == 0 ? 0 : static_cast<int32_t>(i % max_repeat) + 1;
     }
 }
 
@@ -261,7 +333,7 @@ static void BM_FromBase64Impl_Old(benchmark::State& state) {
         dst_data.clear();
         dst_offsets.clear();
         auto status = OldFromBase64Impl::vector(data, offsets, dst_data, dst_offsets,
-                                                    null_map->get_data());
+                                                null_map->get_data());
         benchmark::DoNotOptimize(status);
     }
 }
@@ -329,8 +401,7 @@ static void BM_UnhexImpl_New(benchmark::State& state) {
     for (auto _ : state) {
         dst_data.clear();
         dst_offsets.clear();
-        auto status =
-                UnHexImpl<UnHexImplEmpty>::vector(data, offsets, dst_data, dst_offsets);
+        auto status = UnHexImpl<UnHexImplEmpty>::vector(data, offsets, dst_data, dst_offsets);
         benchmark::DoNotOptimize(status);
     }
 }
@@ -381,8 +452,8 @@ static void BM_UnhexNullImpl_New(benchmark::State& state) {
     for (auto _ : state) {
         dst_data.clear();
         dst_offsets.clear();
-        auto status = UnHexImpl<UnHexImplNull>::vector(
-                data, offsets, dst_data, dst_offsets, &null_map->get_data());
+        auto status = UnHexImpl<UnHexImplNull>::vector(data, offsets, dst_data, dst_offsets,
+                                                       &null_map->get_data());
         benchmark::DoNotOptimize(status);
     }
 }
@@ -397,6 +468,121 @@ BENCHMARK(BM_UnhexNullImpl_New)
         ->Args({1000, 256})
         ->Args({100, 65536})
         ->Args({100, 100000})
+        ->Unit(benchmark::kNanosecond);
+
+static void BM_RepeatVectorImpl_Old(benchmark::State& state) {
+    const size_t rows = state.range(0);
+    const size_t len = state.range(1);
+    const auto max_repeat = static_cast<int32_t>(state.range(2));
+    ColumnString::Chars data;
+    ColumnString::Offsets offsets;
+    ColumnInt32::Container repeats;
+    ColumnString::Chars dst_data;
+    ColumnString::Offsets dst_offsets;
+    ColumnUInt8::Container null_map;
+
+    generate_test_data(data, offsets, rows, len, 63);
+    generate_repeat_times(repeats, rows, max_repeat);
+
+    for (auto _ : state) {
+        dst_data.clear();
+        dst_offsets.clear();
+        null_map.clear();
+        auto status = OldRepeatImpl::vector_vector(data, offsets, repeats, dst_data, dst_offsets,
+                                                   null_map);
+        benchmark::DoNotOptimize(status);
+    }
+}
+
+static void BM_RepeatVectorImpl_New(benchmark::State& state) {
+    const size_t rows = state.range(0);
+    const size_t len = state.range(1);
+    const auto max_repeat = static_cast<int32_t>(state.range(2));
+    ColumnInt32::Container repeats;
+    ColumnString::Chars dst_data;
+    ColumnString::Offsets dst_offsets;
+    ColumnUInt8::Container null_map;
+    FunctionStringRepeat function;
+    auto source_column = generate_test_string_column(rows, len, 63);
+
+    generate_repeat_times(repeats, rows, max_repeat);
+
+    for (auto _ : state) {
+        dst_data.clear();
+        dst_offsets.clear();
+        null_map.clear();
+        auto status =
+                function.vector_vector(*source_column, repeats, dst_data, dst_offsets, null_map);
+        benchmark::DoNotOptimize(status);
+    }
+}
+
+BENCHMARK(BM_RepeatVectorImpl_Old)
+        ->Args({4096, 16, 8})
+        ->Args({4096, 16, 64})
+        ->Args({1024, 128, 16})
+        ->Args({4096, 0, 64})
+        ->Unit(benchmark::kNanosecond);
+BENCHMARK(BM_RepeatVectorImpl_New)
+        ->Args({4096, 16, 8})
+        ->Args({4096, 16, 64})
+        ->Args({1024, 128, 16})
+        ->Args({4096, 0, 64})
+        ->Unit(benchmark::kNanosecond);
+
+static void BM_RepeatConstImpl_Old(benchmark::State& state) {
+    const size_t rows = state.range(0);
+    const size_t len = state.range(1);
+    const auto repeat = static_cast<int32_t>(state.range(2));
+    ColumnString::Chars data;
+    ColumnString::Offsets offsets;
+    ColumnString::Chars dst_data;
+    ColumnString::Offsets dst_offsets;
+    ColumnUInt8::Container null_map;
+
+    generate_test_data(data, offsets, rows, len, 63);
+
+    for (auto _ : state) {
+        dst_data.clear();
+        dst_offsets.clear();
+        null_map.clear();
+        auto status =
+                OldRepeatImpl::vector_const(data, offsets, repeat, dst_data, dst_offsets, null_map);
+        benchmark::DoNotOptimize(status);
+    }
+}
+
+static void BM_RepeatConstImpl_New(benchmark::State& state) {
+    const size_t rows = state.range(0);
+    const size_t len = state.range(1);
+    const auto repeat = static_cast<int32_t>(state.range(2));
+    ColumnString::Chars dst_data;
+    ColumnString::Offsets dst_offsets;
+    ColumnUInt8::Container null_map;
+    FunctionStringRepeat function;
+    auto source_column = generate_test_string_column(rows, len, 63);
+
+    for (auto _ : state) {
+        dst_data.clear();
+        dst_offsets.clear();
+        null_map.clear();
+        static_cast<void>(
+                function.vector_const(*source_column, repeat, dst_data, dst_offsets, null_map));
+        benchmark::ClobberMemory();
+    }
+}
+
+BENCHMARK(BM_RepeatConstImpl_Old)
+        ->Args({4096, 16, 8})
+        ->Args({4096, 16, 64})
+        ->Args({1024, 128, 16})
+        ->Args({4096, 0, 64})
+        ->Unit(benchmark::kNanosecond);
+BENCHMARK(BM_RepeatConstImpl_New)
+        ->Args({4096, 16, 8})
+        ->Args({4096, 16, 64})
+        ->Args({1024, 128, 16})
+        ->Args({4096, 0, 64})
         ->Unit(benchmark::kNanosecond);
 
 } // namespace doris
