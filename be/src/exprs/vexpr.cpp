@@ -995,7 +995,20 @@ size_t VExpr::estimate_memory(const size_t rows) {
     return estimate_size;
 }
 
-bool VExpr::fast_execute(VExprContext* context, Selector* selector, size_t count,
+Status VExpr::execute_column(VExprContext* context, const Block* block, const Selector* selector,
+                             size_t count, ColumnPtr& result_column) const {
+    RETURN_IF_ERROR(execute_column_impl(context, block, selector, count, result_column));
+    if (result_column->size() != count) {
+        return Status::InternalError("Expr {} return column size {} not equal to expected size {}",
+                                     expr_name(), result_column->size(), count);
+    }
+    DCHECK(selector == nullptr || selector->size() == count);
+    ColumnWithTypeAndName result_col_with_type {result_column, execute_type(block), expr_name()};
+    RETURN_IF_ERROR(result_col_with_type.check_type_and_column_match());
+    return Status::OK();
+}
+
+bool VExpr::fast_execute(VExprContext* context, const Selector* selector, size_t count,
                          ColumnPtr& result_column) const {
     if (context->get_index_context() &&
         context->get_index_context()->get_index_result_column().contains(this)) {
