@@ -58,6 +58,7 @@ public class CacheHotspotManagerTableFilterTest {
     private List<DatabaseIf<? extends TableIf>> databases;
     private Object originalCatalogMgr;
     private EditLog originalEditLog;
+    private Object originalSystemInfo;
 
     private static Object getField(Object target, Class<?> clazz, String fieldName) throws Exception {
         Field field = clazz.getDeclaredField(fieldName);
@@ -80,8 +81,10 @@ public class CacheHotspotManagerTableFilterTest {
 
         originalCatalogMgr = getField(env, Env.class, "catalogMgr");
         originalEditLog = env.getEditLog();
+        originalSystemInfo = getField(env, Env.class, "systemInfo");
 
         setField(env, Env.class, "catalogMgr", mockCatalogMgr);
+        setField(env, Env.class, "systemInfo", Mockito.mock(CloudSystemInfoService.class));
         env.setEditLog(mockEditLog);
         Mockito.when(mockCatalogMgr.getInternalCatalog()).thenReturn(mockCatalog);
 
@@ -94,6 +97,7 @@ public class CacheHotspotManagerTableFilterTest {
     @AfterEach
     public void tearDown() throws Exception {
         setField(env, Env.class, "catalogMgr", originalCatalogMgr);
+        setField(env, Env.class, "systemInfo", originalSystemInfo);
         env.setEditLog(originalEditLog);
     }
 
@@ -109,6 +113,15 @@ public class CacheHotspotManagerTableFilterTest {
         TableIf table = Mockito.mock(TableIf.class);
         Mockito.when(table.getId()).thenReturn(id);
         Mockito.when(table.getName()).thenReturn(name);
+        Mockito.when(table.getType()).thenReturn(TableIf.TableType.OLAP);
+        return table;
+    }
+
+    private TableIf mockMtmv(long id, String name) {
+        TableIf table = Mockito.mock(TableIf.class);
+        Mockito.when(table.getId()).thenReturn(id);
+        Mockito.when(table.getName()).thenReturn(name);
+        Mockito.when(table.getType()).thenReturn(TableIf.TableType.MATERIALIZED_VIEW);
         return table;
     }
 
@@ -483,5 +496,109 @@ public class CacheHotspotManagerTableFilterTest {
 
         Assertions.assertNotEquals(clusterJobId, tableJobId);
         Assertions.assertEquals(2, manager.getAllJobInfos(10).size());
+    }
+
+    // ===== Async materialized view (MTMV) matching =====
+
+    @Test
+    public void testResolveTableIdsMatchesAsyncMaterializedView() {
+        // Async MVs (MTMV) are separate table entries in the database catalog.
+        // They should be matched by ON TABLES filter just like regular OlapTables.
+        databases.add(mockDb("ods",
+                mockTable(1001, "orders"),
+                mockTable(1002, "users"),
+                mockMtmv(1003, "mv_order_summary")));
+
+        OnTablesFilter filter = buildFilter(
+                new TableFilterRule(RuleType.INCLUDE, "ods.*"));
+        Map<Long, String> idNames = manager.resolveTableIds(filter);
+
+        Assertions.assertEquals(3, idNames.size());
+        Assertions.assertEquals("ods.orders", idNames.get(1001L));
+        Assertions.assertEquals("ods.users", idNames.get(1002L));
+        Assertions.assertEquals("ods.mv_order_summary", idNames.get(1003L));
+    }
+
+    @Test
+    public void testResolveTableIdsMtmvMatchedByMvPattern() {
+        // Verify async MVs can be matched by mv_* pattern while base tables are not
+        databases.add(mockDb("analytics",
+                mockTable(2001, "fact_sales"),
+                mockMtmv(2002, "mv_daily_sales"),
+                mockMtmv(2003, "mv_monthly_revenue"),
+                mockTable(2004, "dim_product")));
+
+        OnTablesFilter filter = buildFilter(
+                new TableFilterRule(RuleType.INCLUDE, "analytics.mv_*"));
+        Map<Long, String> idNames = manager.resolveTableIds(filter);
+
+        Assertions.assertEquals(2, idNames.size());
+        Assertions.assertEquals("analytics.mv_daily_sales", idNames.get(2002L));
+        Assertions.assertEquals("analytics.mv_monthly_revenue", idNames.get(2003L));
+        Assertions.assertFalse(idNames.containsKey(2001L));
+        Assertions.assertFalse(idNames.containsKey(2004L));
+    }
+
+    @Test
+    public void testResolveTableIdsMtmvExcludedByPattern() {
+        // Verify async MVs can be excluded by EXCLUDE rule
+        databases.add(mockDb("ods",
+                mockTable(1001, "orders"),
+                mockMtmv(1002, "mv_order_summary"),
+                mockMtmv(1003, "mv_user_stats")));
+
+        OnTablesFilter filter = buildFilter(
+                new TableFilterRule(RuleType.INCLUDE, "ods.*"),
+                new TableFilterRule(RuleType.EXCLUDE, "ods.mv_*"));
+        Map<Long, String> idNames = manager.resolveTableIds(filter);
+
+        Assertions.assertEquals(1, idNames.size());
+        Assertions.assertEquals("ods.orders", idNames.get(1001L));
+    }
+
+    @Test
+    public void testResolveTableIdsMixedTableTypesAcrossDatabases() {
+        // Multiple databases with mixed OlapTable and MTMV types
+        databases.add(mockDb("ods",
+                mockTable(1001, "orders"),
+                mockMtmv(1002, "mv_orders_agg")));
+        databases.add(mockDb("dw",
+                mockTable(2001, "fact_sales"),
+                mockMtmv(2002, "mv_daily_report")));
+
+        OnTablesFilter filter = buildFilter(
+                new TableFilterRule(RuleType.INCLUDE, "ods.*"),
+                new TableFilterRule(RuleType.INCLUDE, "dw.mv_*"));
+        Map<Long, String> idNames = manager.resolveTableIds(filter);
+
+        // ods.* matches orders + mv_orders_agg; dw.mv_* matches mv_daily_report
+        Assertions.assertEquals(3, idNames.size());
+        Assertions.assertEquals("ods.orders", idNames.get(1001L));
+        Assertions.assertEquals("ods.mv_orders_agg", idNames.get(1002L));
+        Assertions.assertEquals("dw.mv_daily_report", idNames.get(2002L));
+        Assertions.assertFalse(idNames.containsKey(2001L));
+    }
+
+    @Test
+    public void testRefreshAllTableFiltersPicksUpNewMtmv() throws Exception {
+        // When a new async MV is created after job creation, refreshAllTableFilters picks it up
+        databases.add(mockDb("ods",
+                mockTable(1001, "orders")));
+
+        CloudWarmUpJob job = createEventDrivenJob("write_cg", "read_cg",
+                new TableFilterRule(RuleType.INCLUDE, "ods.*"));
+        Assertions.assertEquals(1, job.getCurrentTableIds().size());
+
+        // Simulate async MV created
+        databases.clear();
+        databases.add(mockDb("ods",
+                mockTable(1001, "orders"),
+                mockMtmv(1002, "mv_order_summary")));
+
+        manager.refreshAllTableFilters();
+
+        Assertions.assertEquals(
+                new HashSet<>(Arrays.asList(1001L, 1002L)),
+                job.getCurrentTableIds());
     }
 }

@@ -52,6 +52,16 @@ PROPERTIES (
 
 不使用通配符时为精确匹配：`'sales.orders'` 仅匹配 `sales` 库的 `orders` 表。
 
+### 物化视图支持
+
+ON TABLES 模式同时匹配普通表和**异步物化视图（Async Materialized View）**。异步物化视图在数据库目录中作为独立表存在，会被 INCLUDE/EXCLUDE 规则按名称匹配。
+
+- 匹配异步物化视图：`INCLUDE 'analytics.mv_*'` 匹配 analytics 库下所有以 `mv_` 开头的异步物化视图
+- 排除异步物化视图：`EXCLUDE 'ods.mv_*'` 从预热范围中排除异步物化视图
+- 通配符匹配全部：`INCLUDE 'ods.*'` 同时匹配普通表和异步物化视图
+
+**同步物化视图（Rollup）** 作为基表的内部索引存在，不是独立的表。当基表被预热时，其所有同步物化视图数据会自动一起预热，无需单独配置。
+
 ---
 
 ## INCLUDE 与 EXCLUDE 规则

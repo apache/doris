@@ -228,7 +228,7 @@
 
 ### 2.1 FE 单元测试
 
-本功能在 FE 侧共有 **7 个测试类，约 65 个测试方法**，覆盖从 SQL 解析到任务执行的完整链路。
+本功能在 FE 侧共有 **7 个测试类，约 70 个测试方法**，覆盖从 SQL 解析到任务执行的完整链路。
 
 ---
 
@@ -307,6 +307,11 @@
 | `testCreateJobRejectsOnTablesWithoutInitialMatches()` | 无初始匹配表时拒绝创建 |
 | `testCreateJobRejectsEquivalentDuplicateTableFilter()` | 标准化后重复的过滤规则被拒绝 |
 | `testCreateJobAllowsClusterLevelAndTableLevelToCoexist()` | 集群级和表级任务共存 |
+| `testResolveTableIdsMatchesAsyncMaterializedView()` | 异步物化视图（MTMV）被 `ods.*` 通配符匹配 |
+| `testResolveTableIdsMtmvMatchedByMvPattern()` | `mv_*` 模式精确匹配 MTMV 而不匹配普通表 |
+| `testResolveTableIdsMtmvExcludedByPattern()` | EXCLUDE `mv_*` 从结果中排除 MTMV |
+| `testResolveTableIdsMixedTableTypesAcrossDatabases()` | 跨库混合普通表和 MTMV 的多 INCLUDE 匹配 |
+| `testRefreshAllTableFiltersPicksUpNewMtmv()` | 新建 MTMV 后 refreshAllTableFilters 自动纳入 |
 
 ---
 
