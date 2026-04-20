@@ -28,6 +28,7 @@
 #include "util/simd/vstring_function.h"
 
 namespace doris {
+#include "common/compile_check_avoid_begin.h"
 
 class FunctionHammingDistance : public IFunction {
 public:
