@@ -23,7 +23,7 @@ suite('test_storage_format_controls_encoding') {
 
     sql """
         CREATE TABLE ${tableName}
-        (k int, v1 int, v2 varchar(100))
+        (k int, v1 int, v2 varchar(100), v3 float, v4 double)
         duplicate KEY(k)
         DISTRIBUTED BY HASH (k) 
         BUCKETS 1  PROPERTIES(
@@ -31,7 +31,7 @@ suite('test_storage_format_controls_encoding') {
         "storage_format" = "V3");
         """
     
-    sql "insert into ${tableName} values(1, 1, 'aaa');"
+    sql "insert into ${tableName} values(1, 1, 'aaa', 1.0, 2.0);"
     sql "select * from ${tableName};"
 
     def metaUrl = sql_return_maparray("show tablets from ${tableName};").get(0).MetaUrl
@@ -39,6 +39,7 @@ suite('test_storage_format_controls_encoding') {
     def jsonMeta = Http.GET(metaUrl, true, false)
 
     assert jsonMeta.schema.integer_type_default_use_plain_encoding == true
+    assert jsonMeta.schema.float_type_default_use_plain_encoding == true
     assert jsonMeta.schema.binary_plain_encoding_default_impl == "BINARY_PLAIN_ENCODING_V2"
 
 
@@ -51,7 +52,7 @@ suite('test_storage_format_controls_encoding') {
 
     sql """
         CREATE TABLE ${tableName}
-        (k int, v1 int, v2 varchar(100))
+        (k int, v1 int, v2 varchar(100), v3 float, v4 double)
         duplicate KEY(k)
         DISTRIBUTED BY HASH (k) 
         BUCKETS 1  PROPERTIES(
@@ -59,7 +60,7 @@ suite('test_storage_format_controls_encoding') {
         "storage_format" = "V2");
         """
     
-    sql "insert into ${tableName} values(1, 1, 'aaa');"
+    sql "insert into ${tableName} values(1, 1, 'aaa', 1.0, 2.0);"
     sql "select * from ${tableName};"
 
     metaUrl = sql_return_maparray("show tablets from ${tableName};").get(0).MetaUrl
@@ -67,5 +68,6 @@ suite('test_storage_format_controls_encoding') {
     jsonMeta = Http.GET(metaUrl, true, false)
 
     assert jsonMeta.schema.integer_type_default_use_plain_encoding == false
+    assert jsonMeta.schema.float_type_default_use_plain_encoding == false
     assert jsonMeta.schema.binary_plain_encoding_default_impl == "BINARY_PLAIN_ENCODING_V1"
 }

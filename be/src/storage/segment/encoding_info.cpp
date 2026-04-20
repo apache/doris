@@ -348,6 +348,10 @@ bool is_integer_type(FieldType type) {
            type == FieldType::OLAP_FIELD_TYPE_BIGINT || type == FieldType::OLAP_FIELD_TYPE_LARGEINT;
 }
 
+bool is_float_type(FieldType type) {
+    return type == FieldType::OLAP_FIELD_TYPE_FLOAT || type == FieldType::OLAP_FIELD_TYPE_DOUBLE;
+}
+
 bool is_binary_type(FieldType type) {
     return type == FieldType::OLAP_FIELD_TYPE_CHAR || type == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
            type == FieldType::OLAP_FIELD_TYPE_STRING || type == FieldType::OLAP_FIELD_TYPE_JSONB ||
@@ -395,6 +399,17 @@ EncodingTypePB EncodingInfoResolver::get_default_encoding(FieldType type,
                                EncodingPreference encoding_preference, bool optimize_value_seek) {
                                 return is_integer_type(type) &&
                                        encoding_preference.integer_type_default_use_plain_encoding;
+                            },
+                    .target_encoding = PLAIN_ENCODING},
+
+            // Hook 3: Float types - any encoding -> PLAIN_ENCODING
+            // Applies when: type is float/double and config enables plain encoding for floats
+            EncodingTransform {
+                    .predicate =
+                            [](FieldType type, EncodingTypePB encoding,
+                               EncodingPreference encoding_preference, bool optimize_value_seek) {
+                                return is_float_type(type) &&
+                                       encoding_preference.float_type_default_use_plain_encoding;
                             },
                     .target_encoding = PLAIN_ENCODING}};
 
