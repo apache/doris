@@ -25,6 +25,7 @@ suite("test_hive_ctas", "p0,external") {
     for (String hivePrefix : [ "hive3"]) {
         def file_formats = ["parquet", "orc"]
         setHivePrefix(hivePrefix)
+        try {
         def generateSrcDDLForCTAS = { String file_format, String catalog_name ->
             sql """ switch `${catalog_name}` """
             sql """ create database if not exists `test_ctas` """;
@@ -592,4 +593,5 @@ suite("test_hive_ctas", "p0,external") {
         try_sql """drop database if exists internal.test_ctas_olap force"""
         try_sql """drop catalog if exists test_${hivePrefix}_ctas"""
     }
+}
 }

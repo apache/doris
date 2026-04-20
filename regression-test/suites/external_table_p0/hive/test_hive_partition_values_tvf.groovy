@@ -73,7 +73,7 @@ suite("test_hive_partition_values_tvf", "p0,external") {
             sql """create database if not exists internal.${internalDbName}"""
             sql """create view internal.${internalDbName}.v1 as select * from ${catalog_name}.multi_catalog.orc_partitioned_columns\$partitions"""
             qt_sql71 """select * from internal.${internalDbName}.v1"""
-            qt_sql72 """select t_string, t_int from internal.${internalDbName}.v1 where t_int != "__HIVE_DEFAULT_PARTITION__""""
+            qt_sql72 """select t_string, t_int from internal.${internalDbName}.v1 where t_int != "__HIVE_DEFAULT_PARTITION__" """
             qt_sql73 """with v1 as (select t_string, t_int from internal.${internalDbName}.v1 order by t_int, t_float, t_string) select c1 from (select max(t_string) as c1 from v1) x;"""
 
         // 9. test join
