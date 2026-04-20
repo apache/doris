@@ -522,7 +522,7 @@ suite("test_hive_write_insert", "p0,external") {
         """
 
         sql """
-        
+
 INSERT INTO all_types_par_${format_compression}_${catalog_name}_q03
         VALUES  (
           1, -- boolean_col
@@ -882,10 +882,10 @@ INSERT INTO all_types_par_${format_compression}_${catalog_name}_q03
 
     for (String hivePrefix : ["hive3"]) {
         setHivePrefix(hivePrefix)
+        String catalog_name = "test_${hivePrefix}_write_insert"
         try {
             String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
             String hdfs_port = context.config.otherConfigs.get(hivePrefix + "HdfsPort")
-            String catalog_name = "test_${hivePrefix}_write_insert"
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
             sql """drop catalog if exists ${catalog_name}"""
@@ -910,7 +910,12 @@ INSERT INTO all_types_par_${format_compression}_${catalog_name}_q03
 
             sql """drop catalog if exists ${catalog_name}"""
         } finally {
+            for (String format_compression in format_compressions) {
+                try_hive_docker """truncate table all_types_${format_compression}"""
+                try_hive_docker """drop table if exists all_types_par_${format_compression}_${catalog_name}_q03"""
+                try_hive_docker """drop table if exists all_types_par_${format_compression}_${catalog_name}_q04"""
+            }
+            try_sql """drop catalog if exists ${catalog_name}"""
         }
     }
 }
-

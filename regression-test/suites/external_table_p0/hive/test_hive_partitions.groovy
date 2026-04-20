@@ -127,7 +127,7 @@ suite("test_hive_partitions", "p0,external") {
                         VALUES (3, 'hive_pt3')
                     """
 
-                    sql """refresh catalog `${catalog_name}`"""      
+                    sql """refresh catalog `${catalog_name}`"""
                     // Doris reads data to populate cache (only knows about 3 partitions)
                     def result1 = sql """SELECT COUNT(*) as cnt FROM `${catalog_name}`.`${dbName}`.`${tblName}`"""
                     assertEquals(3, result1[0][0])
@@ -201,7 +201,7 @@ suite("test_hive_partitions", "p0,external") {
             }
             sql """unset variable num_partitions_in_batch_mode"""
         } finally {
+            try_sql """drop catalog if exists ${catalog_name}"""
         }
     }
 }
-

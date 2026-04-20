@@ -42,40 +42,41 @@ suite("test_file_meta_cache", "p0,external") {
                 hive_docker """show databases;"""
                 hive_docker """drop table if exists default.test_file_meta_cache;  """
                 hive_docker """
-                                create table default.test_file_meta_cache (col1  int, col2 string) STORED AS ${fileFormat}; 
+                                create table default.test_file_meta_cache (col1  int, col2 string) STORED AS ${fileFormat};
                             """
                 hive_docker """insert into default.test_file_meta_cache values (1, "a"),(2, "b"); """
 
-                sql """ refresh  catalog test_file_meta_cache """ 
+                sql """ refresh  catalog test_file_meta_cache """
                 qt_1 """ select * from test_file_meta_cache.`default`.test_file_meta_cache order by col1 ; """
 
-                hive_docker """ TRUNCATE TABLE test_file_meta_cache """ 
+                hive_docker """ TRUNCATE TABLE test_file_meta_cache """
                 hive_docker """insert into default.test_file_meta_cache values (3, "c"), (4, "d"); """
-                
-                sql """ refresh  catalog test_file_meta_cache """ 
+
+                sql """ refresh  catalog test_file_meta_cache """
                 qt_2 """ select * from test_file_meta_cache.`default`.test_file_meta_cache order by col1 ; """
 
-                
 
-                hive_docker """ drop TABLE test_file_meta_cache """ 
+
+                hive_docker """ drop TABLE test_file_meta_cache """
                 hive_docker """
-                                create table default.test_file_meta_cache (col1  int, col2 string) STORED AS PARQUET; 
+                                create table default.test_file_meta_cache (col1  int, col2 string) STORED AS PARQUET;
                             """
                 hive_docker """insert into default.test_file_meta_cache values (5, "e"), (6, "f"); """
-                
-                sql """ refresh  catalog test_file_meta_cache """ 
+
+                sql """ refresh  catalog test_file_meta_cache """
                 qt_3 """ select * from test_file_meta_cache.`default`.test_file_meta_cache order by col1 ; """
 
                 hive_docker """ INSERT OVERWRITE TABLE test_file_meta_cache values (7,'g'), (8, 'h'); """
 
-                sql """ refresh  catalog test_file_meta_cache """ 
+                sql """ refresh  catalog test_file_meta_cache """
                 qt_4 """ select * from test_file_meta_cache.`default`.test_file_meta_cache order by col1 ; """
 
 
             } finally {
+                try_sql """drop catalog if exists test_file_meta_cache"""
+                try_hive_docker """drop table if exists default.test_file_meta_cache"""
             }
         }
     }
 
 }
-

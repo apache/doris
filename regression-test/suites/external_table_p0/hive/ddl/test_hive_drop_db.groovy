@@ -23,12 +23,12 @@ suite("test_hive_drop_db", "p0,external") {
     }
 
     for (String hivePrefix : ["hive2", "hive3"]) {
+        String catalog_name = "test_${hivePrefix}_drop_db_ctl"
+        String db_name = "test_${hivePrefix}_drop_db"
         try {
             String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
             String hdfs_port = context.config.otherConfigs.get(hivePrefix + "HdfsPort")
-            String catalog_name = "test_${hivePrefix}_drop_db_ctl"
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-            String db_name = "test_${hivePrefix}_drop_db"
 
             sql """drop catalog if exists ${catalog_name}"""
             sql """create catalog if not exists ${catalog_name} properties (
@@ -44,7 +44,7 @@ suite("test_hive_drop_db", "p0,external") {
             sql """drop database if exists ${db_name} force"""
             sql """create database ${db_name}"""
             sql """use ${db_name}"""
-            sql """ 
+            sql """
                     CREATE TABLE test_hive_drop_db_tbl1 (
                       `col1` BOOLEAN,
                       `col2` TINYINT
@@ -52,7 +52,7 @@ suite("test_hive_drop_db", "p0,external") {
                 """
             sql """insert into test_hive_drop_db_tbl1 values(true, 1);"""
             qt_sql_tbl1 """select * from test_hive_drop_db_tbl1"""
-            sql """ 
+            sql """
                     CREATE TABLE test_hive_drop_db_tbl2 (
                       `col1` BOOLEAN,
                       `col2` TINYINT
@@ -60,7 +60,7 @@ suite("test_hive_drop_db", "p0,external") {
                 """
             sql """insert into test_hive_drop_db_tbl2 values(false, 2);"""
             qt_sql_tbl2 """select * from test_hive_drop_db_tbl2"""
-            sql """ 
+            sql """
                     CREATE TABLE test_hive_drop_db_tbl3 (
                       `col1` BOOLEAN,
                       `col2` TINYINT
@@ -84,7 +84,7 @@ suite("test_hive_drop_db", "p0,external") {
                 sql """show tables from ${db_name}"""
                 exception "Unknown database"
             }
-    
+
             // use tvf to check if table is dropped
             String tbl1_path = "hdfs://${externalEnvIp}:${hdfs_port}/user/hive/warehouse/test_${hivePrefix}_drop_db.db/test_hive_drop_db_tbl1"
             String tbl2_path = "hdfs://${externalEnvIp}:${hdfs_port}/user/hive/warehouse/test_${hivePrefix}_drop_db.db/test_hive_drop_db_tbl2"
@@ -101,6 +101,8 @@ suite("test_hive_drop_db", "p0,external") {
                   "format" = "orc"); """
 
         } finally {
+            try_sql """drop catalog if exists ${catalog_name}"""
+            try_hive_docker """drop database if exists ${db_name} cascade"""
         }
     }
 }

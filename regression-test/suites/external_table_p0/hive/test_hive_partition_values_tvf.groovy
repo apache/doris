@@ -54,17 +54,17 @@ suite("test_hive_partition_values_tvf", "p0,external") {
 
         // 4. test alias
         qt_sql31 """ select pv.t_float, pv.t_int from orc_partitioned_columns\$partitions as pv group by t_int, t_float order by t_int, t_float"""
-        
+
         // 5. test CTE
         qt_sql41 """ with v1 as (select t_string, t_int from orc_partitioned_columns\$partitions order by t_int, t_float, t_string) select max(t_int) from v1; """
         qt_sql42 """ with v1 as (select t_string, t_int from orc_partitioned_columns\$partitions order by t_int, t_float, t_string) select c1 from (select max(t_string) as c1 from v1) x; """
- 
+
         // 6. test subquery
         qt_sql51 """select c1 from (select max(t_string) as c1 from (select * from multi_catalog.orc_partitioned_columns\$partitions)x)y;"""
 
         // 7. test where
         qt_sql61 """select * from orc_partitioned_columns\$partitions where t_int != "__HIVE_DEFAULT_PARTITION__" order by t_int, t_float, t_string; """
-        
+
         // 8. test view
         sql """drop database if exists internal.partition_values_db"""
         sql """create database if not exists internal.partition_values_db"""
@@ -72,7 +72,7 @@ suite("test_hive_partition_values_tvf", "p0,external") {
         qt_sql71 """select * from internal.partition_values_db.v1"""
         qt_sql72 """select t_string, t_int from internal.partition_values_db.v1 where t_int != "__HIVE_DEFAULT_PARTITION__""""
         qt_sql73 """with v1 as (select t_string, t_int from internal.partition_values_db.v1 order by t_int, t_float, t_string) select c1 from (select max(t_string) as c1 from v1) x;"""
-        
+
         // 9. test join
         qt_sql81 """select * from orc_partitioned_columns\$partitions p1 join orc_partitioned_columns\$partitions p2 on p1.t_int = p2.t_int order by p1.t_int, p1.t_float"""
 
@@ -137,6 +137,8 @@ suite("test_hive_partition_values_tvf", "p0,external") {
 
         qt_sql112 """select * from partition_values_all_types order by k1;"""
         qt_sql113 """select * from partition_values_all_types\$partitions order by p1,p2,p3;"""
+        sql """drop database if exists partition_values_db"""
+        sql """drop database if exists internal.partition_values_db force"""
+        sql """drop catalog if exists ${catalog_name}"""
     }
 }
-

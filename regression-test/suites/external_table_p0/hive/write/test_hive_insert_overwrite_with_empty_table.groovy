@@ -26,13 +26,13 @@ suite("test_hive_insert_overwrite_with_empty_table", "p0,external") {
         }
 
         setHivePrefix(hivePrefix)
+        String catalog = "test_hive_insert_overwrite_with_empty_table"
+        String db1 = catalog + "_db"
         try {
 
             String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
             String hdfs_port = context.config.otherConfigs.get(hivePrefix + "HdfsPort")
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-            String catalog = "test_hive_insert_overwrite_with_empty_table"
-            String db1 = catalog + "_db"
             String tb1 = db1 + "_tb1"
             String tb2 = db1 + "_tb2"
             String tb3 = db1 + "_tb3"
@@ -75,7 +75,8 @@ suite("test_hive_insert_overwrite_with_empty_table", "p0,external") {
             sql """ drop catalog ${catalog} """
 
         } finally {
+            try_sql """ drop catalog if exists ${catalog} """
+            try_hive_docker """ drop database if exists ${db1} cascade """
         }
     }
 }
-

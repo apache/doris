@@ -26,15 +26,14 @@ suite("test_hive_write_different_path", "p0,external") {
         }
 
         setHivePrefix(hivePrefix)
+        String catalog1 = "test_${hivePrefix}_write_insert_without_defaultfs"
+        String catalog2 = "test_${hivePrefix}_write_insert_with_hdfs2"
+        String catalog3 = "test_${hivePrefix}_write_insert_with_hdfs3"
         try {
             String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
             String hdfs_port2 = context.config.otherConfigs.get("hive2HdfsPort")
             String hdfs_port3 = context.config.otherConfigs.get("hive3HdfsPort")
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-
-            String catalog1 = "test_${hivePrefix}_write_insert_without_defaultfs"
-            String catalog2 = "test_${hivePrefix}_write_insert_with_hdfs2"
-            String catalog3 = "test_${hivePrefix}_write_insert_with_hdfs3"
 
             sql """drop catalog if exists ${catalog1}"""
             sql """drop catalog if exists ${catalog2}"""
@@ -101,7 +100,11 @@ suite("test_hive_write_different_path", "p0,external") {
             sql """drop catalog if exists ${catalog3}"""
 
         } finally {
+            try_sql """drop table if exists ${catalog1}.write_test.tb_with_hdfs2"""
+            try_sql """drop table if exists ${catalog1}.write_test.tb_with_hdfs3"""
+            try_sql """drop catalog if exists ${catalog1}"""
+            try_sql """drop catalog if exists ${catalog2}"""
+            try_sql """drop catalog if exists ${catalog3}"""
         }
     }
 }
-

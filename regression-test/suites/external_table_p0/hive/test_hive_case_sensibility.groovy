@@ -72,7 +72,7 @@ suite("test_hive_case_sensibility", "p0,external") {
                     exception "database doesn't exist"
                     exception "CASE_DB1"
                 }
-                sql """drop database if exists CASE_DB1;""" 
+                sql """drop database if exists CASE_DB1;"""
                 qt_sql4 """show databases like "%case_db1%";""" // still exists
                 sql """drop database case_db1;"""
                 qt_sql5 """show databases like "%case_db1%";""" // empty
@@ -93,7 +93,7 @@ suite("test_hive_case_sensibility", "p0,external") {
                     exception "database doesn't exist"
                     exception "case_db2"
                 }
-                sql """drop database if exists case_db2;""" 
+                sql """drop database if exists case_db2;"""
                 qt_sql6 """show databases like "%case_db1%";""" // empty
                 qt_sql7 """show databases like "%case_db2%";""" // empty
 
@@ -105,7 +105,7 @@ suite("test_hive_case_sensibility", "p0,external") {
                     sql """use CASE_DB2"""
                     exception "Unknown database 'CASE_DB2'"
                 }
-                
+
                 test {
                     sql """create table CASE_DB2.case_tbl21 (k1 int);"""
                     exception "Failed to get database: 'CASE_DB2'"
@@ -114,7 +114,7 @@ suite("test_hive_case_sensibility", "p0,external") {
                     sql """create table if not exists CASE_DB2.case_tbl21 (k1 int);"""
                     exception "Failed to get database: 'CASE_DB2'"
                 }
-                sql """create table case_db2.case_tbl21 (k1 int);""" 
+                sql """create table case_db2.case_tbl21 (k1 int);"""
                 sql """create table case_db2.CASE_TBL22 (k1 int);"""
                 sql """create table case_db1.case_tbl11 (k1 int);"""
 
@@ -145,7 +145,7 @@ suite("test_hive_case_sensibility", "p0,external") {
                 order_qt_sql14 """select * from information_schema.columns where TABLE_SCHEMA="case_db1";"""
 
                 // 4. insert
-                /// full qualified name 
+                /// full qualified name
                 test {
                     sql """insert into CASE_DB2.CASE_TBL22 values(1);"""
                     exception "Database [CASE_DB2] does not exist"
@@ -303,7 +303,7 @@ suite("test_hive_case_sensibility", "p0,external") {
                     exception "Failed to get table: 'case_tbl22'"
                 }
                 sql """drop table if exists case_db2.case_tbl22"""
-                    
+
                 test {
                     sql """select * from case_db2.case_tbl22;"""
                     exception "Table [case_tbl22] does not exist in database [case_db2]"
@@ -330,7 +330,7 @@ suite("test_hive_case_sensibility", "p0,external") {
                 }
 
                 // 7. re create and insert
-                sql """create table case_db2.case_tbl12 (k1 int);""" 
+                sql """create table case_db2.case_tbl12 (k1 int);"""
                 sql """insert into  case_db2.case_tbl12 values(6);"""
                 order_qt_sql22 """select * from case_db2.case_tbl12;"""
                 sql """insert overwrite table  case_db2.case_tbl12 values(7);"""
@@ -357,6 +357,8 @@ suite("test_hive_case_sensibility", "p0,external") {
             }
        }
     } finally {
-        // sql """set enable_external_table_batch_mode=true"""
+        try_hive_docker """drop database if exists case_db1 cascade"""
+        try_hive_docker """drop database if exists case_db2 cascade"""
+        try_sql """drop catalog if exists hive3_test_case_sensibility"""
     }
 }

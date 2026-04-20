@@ -883,10 +883,10 @@ suite("test_hive_text_write_insert", "p0,external") {
 
     for (String hivePrefix : ["hive3"]) {
         setHivePrefix(hivePrefix)
+        String catalog_name = "test_${hivePrefix}_text_write_insert"
         try {
             String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
             String hdfs_port = context.config.otherConfigs.get(hivePrefix + "HdfsPort")
-            String catalog_name = "test_${hivePrefix}_text_write_insert"
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
             sql """drop catalog if exists ${catalog_name}"""
@@ -914,7 +914,9 @@ suite("test_hive_text_write_insert", "p0,external") {
             sql """set hive_text_compression = 'uncompresssed';"""
             sql """drop catalog if exists ${catalog_name}"""
         } finally {
+            try_hive_docker """truncate table all_types_text"""
+            try_hive_docker """drop table if exists all_types_par_text_q3"""
+            try_sql """drop catalog if exists ${catalog_name}"""
         }
     }
 }
-
