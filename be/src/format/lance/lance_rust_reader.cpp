@@ -191,7 +191,7 @@ Status LanceRustReader::_open_with_json(bool schema_only) {
     return Status::OK();
 }
 
-Status LanceRustReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
+Status LanceRustReader::_do_get_next_block(Block* block, size_t* read_rows, bool* eof) {
     if (!_reader_handle) {
         return Status::InternalError("Lance reader is not initialized");
     }
@@ -253,8 +253,8 @@ Status LanceRustReader::get_next_block(Block* block, size_t* read_rows, bool* eo
     return Status::OK();
 }
 
-Status LanceRustReader::get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
-                                    std::unordered_set<std::string>* missing_cols) {
+Status LanceRustReader::_get_columns_impl(
+        std::unordered_map<std::string, DataTypePtr>* name_to_type) {
     if (_schema_only && _reader_handle) {
         // In schema-only mode, get columns from the Lance schema
         ArrowSchema c_schema {};
