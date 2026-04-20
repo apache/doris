@@ -248,6 +248,21 @@ public class S3PropertiesTest {
         Assertions.assertEquals("arn:aws:iam::123456789012:role/MyTestRole", backendProperties.get("AWS_ROLE_ARN"));
     }
 
+    @Test
+    public void testCreatePrimaryWithAwsRoleArnOnly() throws UserException {
+        Map<String, String> props = new HashMap<>();
+        props.put("AWS_ENDPOINT", "s3.us-west-2.amazonaws.com");
+        props.put("AWS_REGION", "us-west-2");
+        props.put("AWS_ROLE_ARN", "arn:aws:iam::123456789012:role/MyTestRole");
+
+        S3Properties s3Props = (S3Properties) StorageProperties.createPrimary(props);
+
+        Assertions.assertEquals("arn:aws:iam::123456789012:role/MyTestRole", s3Props.getBackendConfigProperties()
+                .get("AWS_ROLE_ARN"));
+        Assertions.assertEquals("us-west-2", s3Props.getRegion());
+        Assertions.assertEquals("s3.us-west-2.amazonaws.com", s3Props.getEndpoint());
+    }
+
 
     @Test
     public void testGetAwsCredentialsProviderWithIamRoleAndExternalId(@Mocked StsClientBuilder mockBuilder,
