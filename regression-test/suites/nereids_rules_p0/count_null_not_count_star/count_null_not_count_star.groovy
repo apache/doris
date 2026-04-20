@@ -60,6 +60,27 @@ suite("count_null_not_count_star") {
         select pk, count(null) over (order by pk) from count_null_test order by pk
     """
 
+    // count(null) over (partition by unique pk) exercises SimplifyWindowExpression.
+    // That rule only fires when partition keys are proven unique; with unique pk, it calls
+    // checkCount() → isCountStar(). Bug: count(null) was treated as count(*) → simplified to 1.
+    // Fix: isCountStar() returns false → count(null) is NOT simplified → correctly returns 0.
+    sql "DROP TABLE IF EXISTS count_null_uniq_test"
+    sql """
+        create table count_null_uniq_test(pk int, a int)
+        unique key(pk)
+        distributed by hash(pk) buckets 10
+        properties('replication_num' = '1');
+    """
+    sql """insert into count_null_uniq_test values(1, 1), (2, 2), (3, 3);"""
+    sql "sync"
+
+    def windowUniqResult = sql """
+        select pk, count(null) over (partition by pk order by pk)
+        from count_null_uniq_test order by pk
+    """
+    assertEquals(3, windowUniqResult.size())
+    windowUniqResult.each { row -> assertEquals(0L, row[1]) }
+
     // count(null) through join with GROUP BY: exercises PushDownAggThroughJoin path.
     // With the bug, count(null) would be treated as count(*) and pushed down through join,
     // producing wrong non-zero results. With the fix, it correctly returns 0.
@@ -96,18 +117,18 @@ suite("count_null_not_count_star") {
     sql """insert into count_null_idx_test values(1, 'hello world'), (2, 'doris test'), (3, 'hello doris');"""
     sql "sync"
 
-    // count(*) with MATCH predicate may use COUNT_ON_MATCH optimization
-    // count(null) with same predicate must NOT — verify via explain
-    def explainCountStar = sql """
-        explain shape plan select count(*) from count_null_idx_test where content match 'hello'
-    """
-    def explainCountNull = sql """
-        explain shape plan select count(null) from count_null_idx_test where content match 'hello'
-    """
-    // count(null) plan must not contain COUNT_ON_MATCH
-    def countNullPlan = explainCountNull.collect { it[0] }.join("\n")
-    assertFalse(countNullPlan.contains("COUNT_ON_MATCH"),
-        "count(null) should not use COUNT_ON_MATCH optimization, plan:\n${countNullPlan}")
+    // count(*) with MATCH predicate should use COUNT_ON_INDEX optimization (via COUNT_ON_MATCH path).
+    // count(null) with same predicate must NOT — the fix ensures isCountStar() is false for count(null).
+    // Note: pushAggOp=COUNT_ON_INDEX appears in the explain output even for the COUNT_ON_MATCH code path
+    // because COUNT_ON_MATCH maps to TPushAggOp.COUNT_ON_INDEX in physical plan translation.
+    explain {
+        sql("select count(*) from count_null_idx_test where content match 'hello'")
+        contains "pushAggOp=COUNT_ON_INDEX"
+    }
+    explain {
+        sql("select count(null) from count_null_idx_test where content match 'hello'")
+        notContains "pushAggOp=COUNT_ON_INDEX"
+    }
 
     // result correctness: count(null) should be 0 even with MATCH filter
     order_qt_count_null_index """
