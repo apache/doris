@@ -333,6 +333,9 @@ struct TIcebergFileDesc {
     // Only for format_version >= 3, the sequence number which last updated this file.
     11: optional i64 last_updated_sequence_number;
     12: optional string serialized_split;
+    // True when this split is for iceberg metadata planning (distributed manifest scanning).
+    // Selects IcebergMetadataPlanningJniScanner instead of IcebergSysTableJniScanner on BE.
+    13: optional bool is_metadata_planning = false;
 }
 
 struct TPaimonDeletionFileDesc {

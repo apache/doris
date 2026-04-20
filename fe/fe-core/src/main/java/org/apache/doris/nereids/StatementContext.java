@@ -313,6 +313,7 @@ public class StatementContext implements Closeable {
     // IcebergScanNode
     // TODO: better solution?
     private List<org.apache.iceberg.FileScanTask> icebergRewriteFileScanTasks = null;
+    // FE-local context for one internal metadata planning query.
     // For Iceberg rewrite operations: control whether to use GATHER distribution
     // When true, data will be collected to a single node to avoid generating too many small files
     private boolean useGatherForIcebergRewrite = false;
@@ -1179,6 +1180,10 @@ public class StatementContext implements Closeable {
         List<org.apache.iceberg.FileScanTask> tasks = this.icebergRewriteFileScanTasks;
         this.icebergRewriteFileScanTasks = null;
         return tasks;
+    }
+
+    public boolean hasIcebergRewriteFileScanTasks() {
+        return icebergRewriteFileScanTasks != null && !icebergRewriteFileScanTasks.isEmpty();
     }
 
     /**

@@ -21,6 +21,12 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.SafeStringBuilder;
+import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
+import org.apache.doris.nereids.trees.plans.distribute.PipelineDistributedPlan;
+import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
+import org.apache.doris.nereids.trees.plans.distribute.worker.job.AssignedJob;
+import org.apache.doris.nereids.trees.plans.distribute.worker.job.LocalShuffleAssignedJob;
+import org.apache.doris.nereids.trees.plans.distribute.worker.job.LocalShuffleBucketJoinAssignedJob;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.thrift.TDetailedReportParams;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -29,12 +35,14 @@ import org.apache.doris.thrift.TRuntimeProfileTree;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -68,6 +76,7 @@ public class ExecutionProfile {
     private Map<Integer, RuntimeProfile> fragmentProfiles;
     // Profile for load channels. Only for load job.
     private RuntimeProfile loadChannelProfile;
+    private RuntimeProfile distributedPlanProfile;
 
     // use to merge profile from multi be
     private Map<Integer, Map<TNetworkAddress, List<RuntimeProfile>>> multiBeProfile = null;
@@ -102,6 +111,100 @@ public class ExecutionProfile {
         }
         loadChannelProfile = new RuntimeProfile("LoadChannels");
         root.addChild(loadChannelProfile, true);
+    }
+
+    public synchronized void setDistributedPlans(Collection<? extends DistributedPlan> distributedPlans) {
+        if (distributedPlans == null || distributedPlans.isEmpty()) {
+            return;
+        }
+        if (distributedPlanProfile != null) {
+            return;
+        }
+
+        Map<Integer, DistributedPlan> fragmentIdToPlan = Maps.newLinkedHashMap();
+        for (DistributedPlan distributedPlan : distributedPlans) {
+            int fragmentId = distributedPlan.getFragmentJob().getFragment().getFragmentId().asInt();
+            fragmentIdToPlan.put(fragmentId, distributedPlan);
+        }
+
+        RuntimeProfile planProfile = new RuntimeProfile("DistributedPlan");
+        for (int i = 0; i < fragmentProfiles.size(); ++i) {
+            int fragmentId = seqNoToFragmentId.get(i);
+            DistributedPlan distributedPlan = fragmentIdToPlan.get(fragmentId);
+            if (distributedPlan == null) {
+                continue;
+            }
+            Preconditions.checkState(distributedPlan instanceof PipelineDistributedPlan,
+                    "Unsupported distributed plan type: %s", distributedPlan.getClass().getName());
+            planProfile.addChild(
+                    buildFragmentDistributedPlanProfile(i, (PipelineDistributedPlan) distributedPlan), true);
+        }
+
+        distributedPlanProfile = planProfile;
+        root.addChild(distributedPlanProfile, true);
+    }
+
+    private RuntimeProfile buildFragmentDistributedPlanProfile(
+            int displayFragmentId, PipelineDistributedPlan distributedPlan) {
+        RuntimeProfile fragmentProfile = new RuntimeProfile("Fragment " + displayFragmentId);
+        fragmentProfile.addInfoString("FragmentId",
+                String.valueOf(distributedPlan.getFragmentJob().getFragment().getFragmentId().asInt()));
+        fragmentProfile.addInfoString("FragmentJob", distributedPlan.getFragmentJob().getClass().getSimpleName());
+        fragmentProfile.addInfoString("Parallel", String.valueOf(distributedPlan.getInstanceJobs().size()));
+
+        if (!distributedPlan.getDestinations().isEmpty()) {
+            RuntimeProfile destinationsProfile = new RuntimeProfile("Destinations");
+            for (Entry<org.apache.doris.planner.DataSink, List<AssignedJob>> destinationEntry
+                    : distributedPlan.getDestinations().entrySet()) {
+                RuntimeProfile destinationProfile = new RuntimeProfile(
+                        "Exchange " + destinationEntry.getKey().getExchNodeId().asInt());
+                StringBuilder destinationInstances = new StringBuilder();
+                List<AssignedJob> destinations = destinationEntry.getValue();
+                for (int i = 0; i < destinations.size(); ++i) {
+                    if (i > 0) {
+                        destinationInstances.append(", ");
+                    }
+                    destinationInstances.append(DebugUtil.printId(destinations.get(i).instanceId()));
+                }
+                destinationProfile.addInfoString("DestinationInstances", destinationInstances.toString());
+                destinationsProfile.addChild(destinationProfile, true);
+            }
+            fragmentProfile.addChild(destinationsProfile, true);
+        }
+
+        RuntimeProfile instancesProfile = new RuntimeProfile("Instances");
+        for (AssignedJob instanceJob : distributedPlan.getInstanceJobs()) {
+            instancesProfile.addChild(buildInstanceDistributedPlanProfile(instanceJob), true);
+        }
+        fragmentProfile.addChild(instancesProfile, true);
+        return fragmentProfile;
+    }
+
+    private RuntimeProfile buildInstanceDistributedPlanProfile(AssignedJob instanceJob) {
+        RuntimeProfile instanceProfile = new RuntimeProfile("Instance " + instanceJob.indexInUnassignedJob());
+        DistributedPlanWorker worker = instanceJob.getAssignedWorker();
+        instanceProfile.addInfoString("InstanceId", DebugUtil.printId(instanceJob.instanceId()));
+        instanceProfile.addInfoString("Worker", worker.id() + "@" + worker.address());
+        instanceProfile.addInfoString("JobType", instanceJob.getClass().getSimpleName());
+        instanceProfile.addInfoString("ScanSource", instanceJob.getScanSource().getClass().getSimpleName());
+        if (instanceJob instanceof LocalShuffleAssignedJob) {
+            instanceProfile.addInfoString("ShareScanIndex",
+                    String.valueOf(((LocalShuffleAssignedJob) instanceJob).shareScanId));
+        }
+        if (instanceJob instanceof LocalShuffleBucketJoinAssignedJob) {
+            StringBuilder bucketIndexes = new StringBuilder();
+            int index = 0;
+            for (Integer bucketIndex
+                    : ((LocalShuffleBucketJoinAssignedJob) instanceJob).getAssignedJoinBucketIndexes()) {
+                if (index++ > 0) {
+                    bucketIndexes.append(", ");
+                }
+                bucketIndexes.append(bucketIndex);
+            }
+            instanceProfile.addInfoString("AssignedJoinBuckets",
+                    bucketIndexes.toString());
+        }
+        return instanceProfile;
     }
 
     private List<List<RuntimeProfile>> getMultiBeProfile(int fragmentId) {

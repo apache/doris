@@ -328,6 +328,9 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
         if (IcebergSysTable.POSITION_DELETES.equals(sysTableName)) {
             return Optional.of(IcebergSysTable.UNSUPPORTED_POSITION_DELETES_TABLE);
         }
+        if (IcebergSysTable.METADATA_PLANNING.equals(sysTableName)) {
+            return Optional.of(IcebergSysTable.INTERNAL_METADATA_PLANNING_TABLE);
+        }
         return Optional.empty();
     }
 

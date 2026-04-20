@@ -744,6 +744,21 @@ public class IcebergUtils {
         }
     }
 
+    public static PartitionData parsePartitionDataJson(String partitionDataJson, PartitionSpec spec) {
+        PartitionData partitionData = new PartitionData(spec.partitionType());
+        if (StringUtils.isBlank(partitionDataJson)) {
+            return partitionData;
+        }
+        List<String> partitionValues = parsePartitionValuesFromJson(partitionDataJson);
+        List<NestedField> fields = spec.partitionType().asNestedType().fields();
+        Preconditions.checkArgument(partitionValues.size() == fields.size(),
+                "Partition values size does not match partition spec fields size");
+        for (int i = 0; i < partitionValues.size(); i++) {
+            partitionData.set(i, parsePartitionValueFromString(partitionValues.get(i), fields.get(i).type()));
+        }
+        return partitionData;
+    }
+
     private static String serializePartitionValue(org.apache.iceberg.types.Type type, Object value, String timeZone) {
         switch (type.typeId()) {
             case BOOLEAN:
@@ -914,7 +929,15 @@ public class IcebergUtils {
                     // Parse date string (format: yyyy-MM-dd) to epoch day
                     return (int) LocalDate.parse(valueStr, DateTimeFormatter.ISO_LOCAL_DATE).toEpochDay();
                 case TIMESTAMP:
-                    return parseTimestampToMicros(valueStr, (TimestampType) icebergType);
+                    // The distributed metadata planning path serializes TIMESTAMP partition values
+                    // as raw epoch-microseconds strings to avoid cross-node timezone conversion
+                    // loss. Detect and restore such values directly; fall back to human-readable
+                    // datetime parsing for all other callers.
+                    try {
+                        return Long.parseLong(valueStr);
+                    } catch (NumberFormatException ignored) {
+                        return parseTimestampToMicros(valueStr, (TimestampType) icebergType);
+                    }
                 case DECIMAL:
                     return new BigDecimal(valueStr);
                 default:

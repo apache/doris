@@ -373,6 +373,9 @@ public class Coordinator implements CoordInterface {
             fragmentIds.add(fragment.getFragmentId().asInt());
         }
         this.executionProfile = new ExecutionProfile(queryId, fragmentIds);
+        if (distributedPlans != null) {
+            this.executionProfile.setDistributedPlans(distributedPlans.values());
+        }
     }
 
     // Used for broker load task/export task/update coordinator

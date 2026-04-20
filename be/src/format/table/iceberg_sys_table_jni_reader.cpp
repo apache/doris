@@ -25,6 +25,10 @@
 namespace doris {
 
 static const std::string HADOOP_OPTION_PREFIX = "hadoop.";
+static const std::string ICEBERG_SYS_TABLE_SCANNER =
+        "org/apache/doris/iceberg/IcebergSysTableJniScanner";
+static const std::string ICEBERG_METADATA_PLANNING_SCANNER =
+        "org/apache/doris/iceberg/IcebergMetadataPlanningJniScanner";
 
 Status IcebergSysTableJniReader::validate_scan_range(const TFileRangeDesc& range) {
     if (!range.__isset.table_format_params) {
@@ -48,8 +52,7 @@ IcebergSysTableJniReader::IcebergSysTableJniReader(
         RuntimeProfile* profile, const TFileRangeDesc& range,
         const TFileScanRangeParams* range_params)
         : JniReader(
-                  file_slot_descs, state, profile,
-                  "org/apache/doris/iceberg/IcebergSysTableJniScanner",
+                  file_slot_descs, state, profile, get_java_scanner_class(range),
                   [&]() {
                       std::vector<std::string> required_fields;
                       std::vector<std::string> required_types;
@@ -81,6 +84,15 @@ IcebergSysTableJniReader::IcebergSysTableJniReader(
                   }(),
                   range.__isset.self_split_weight ? range.self_split_weight : -1),
           _init_status(validate_scan_range(range)) {}
+
+std::string IcebergSysTableJniReader::get_java_scanner_class(const TFileRangeDesc& range) {
+    DCHECK(range.__isset.table_format_params);
+    if (range.table_format_params.__isset.iceberg_params &&
+        range.table_format_params.iceberg_params.is_metadata_planning) {
+        return ICEBERG_METADATA_PLANNING_SCANNER;
+    }
+    return ICEBERG_SYS_TABLE_SCANNER;
+}
 
 Status IcebergSysTableJniReader::init_reader() {
     RETURN_IF_ERROR(_init_status);

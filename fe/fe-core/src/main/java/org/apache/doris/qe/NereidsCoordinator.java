@@ -125,6 +125,7 @@ public class NereidsCoordinator extends Coordinator {
             List<ScanNode> scanNodes, String timezone, boolean loadZeroTolerance,
             boolean enableProfile) {
         super(jobId, queryId, descTable, fragments, scanNodes, timezone, loadZeroTolerance, enableProfile);
+        getExecutionProfile().setDistributedPlans(distributedPlans);
         this.coordinatorContext = CoordinatorContext.buildForLoad(
                 this, jobId, queryId, fragments, distributedPlans, scanNodes,
                 descTable, timezone, loadZeroTolerance, enableProfile

@@ -36,6 +36,7 @@ public class IcebergSysTableResolverTest {
     @Test
     public void testSupportedSysTablesExcludePositionDeletes() {
         Assertions.assertFalse(IcebergSysTable.SUPPORTED_SYS_TABLES.containsKey(IcebergSysTable.POSITION_DELETES));
+        Assertions.assertFalse(IcebergSysTable.SUPPORTED_SYS_TABLES.containsKey(IcebergSysTable.METADATA_PLANNING));
     }
 
     @Test
