@@ -726,6 +726,16 @@ public class CacheHotspotManager extends MasterDaemon {
         ExecutorCompletionService<Pair<String, String>> completionService =
                 new ExecutorCompletionService<>(warmupStatsExecutor);
 
+        // Acquire auth token once for all BE requests (needed when enable_all_http_auth is on)
+        Map<String, String> authHeaders = new HashMap<>();
+        try {
+            String token = Env.getCurrentEnv().getTokenManager().acquireToken();
+            authHeaders.put("Auth-Token", token);
+        } catch (Exception e) {
+            LOG.warn("Failed to acquire auth token for warmup stats collection, "
+                    + "requests may fail if enable_all_http_auth is enabled: {}", e.getMessage());
+        }
+
         for (Pair<String, Backend> target : allTargets) {
             String cluster = target.first;
             Backend be = target.second;
@@ -733,7 +743,7 @@ public class CacheHotspotManager extends MasterDaemon {
                 String url = "http://"
                         + NetUtils.getHostPortInAccessibleFormat(be.getHost(), be.getHttpPort())
                         + "/api/warmup_event_driven_stats";
-                String json = HttpUtils.doGet(url, null, 5000);
+                String json = HttpUtils.doGet(url, authHeaders, 5000);
                 return Pair.of(cluster, json);
             });
         }
