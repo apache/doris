@@ -985,6 +985,104 @@ R163	R163
 5	1
 6	2
 7	3
+8	2
+9	1
+
+-- !levenshtein_nn_vector_vector --
+1	1
+2	4
+3	1
+4	2
+
+-- !levenshtein_nn_vector_scalar_ascii --
+1	0
+
+-- !levenshtein_nn_scalar_vector_ascii --
+1	0
+
+-- !levenshtein_nn_vector_scalar_utf8 --
+3	1
+
+-- !levenshtein_nn_scalar_vector_utf8 --
+3	1
+
+-- !levenshtein_vector_scalar_nullable --
+2	0
+4	\N
+
+-- !levenshtein_scalar_vector_nullable --
+2	0
+4	\N
+
+-- !levenshtein_vector_scalar_utf8 --
+5	1
+7	2
+
+-- !levenshtein_scalar_vector_utf8 --
+5	1
+7	2
+
+-- !levenshtein_vector_scalar_empty_utf8 --
+5	3
+8	2
+
+-- !levenshtein_scalar_vector_empty_utf8 --
+5	3
+8	2
+
+-- !levenshtein_lv_nn_vector_vector --
+1	3
+2	3
+3	3
+4	3
+5	1
+6	1
+7	3
+8	3
+
+-- !levenshtein_lv_nn_vector_scalar_empty --
+1	3
+2	6
+3	0
+4	3
+5	2
+6	3
+7	0
+8	3
+
+-- !levenshtein_lv_nn_scalar_vector_empty --
+1	3
+2	6
+3	0
+4	3
+5	2
+6	3
+7	0
+8	3
+
+-- !levenshtein_lv_nn_vector_scalar_ascii --
+1	3
+2	0
+3	6
+4	3
+
+-- !levenshtein_lv_nn_scalar_vector_ascii --
+1	3
+2	0
+3	6
+4	3
+
+-- !levenshtein_lv_nn_vector_scalar_utf8 --
+5	1
+6	0
+7	3
+8	0
+
+-- !levenshtein_lv_nn_scalar_vector_utf8 --
+5	1
+6	0
+7	3
+8	0
 
 -- !hamming_distance_333 --
 0	0	1	1
@@ -1006,6 +1104,48 @@ R163	R163
 5	4
 6	1
 7	2
+
+-- !hamming_distance_nn_vector_vector --
+1	1
+2	4
+3	1
+4	2
+
+-- !hamming_distance_nn_vector_scalar_ascii --
+1	0
+
+-- !hamming_distance_nn_scalar_vector_ascii --
+1	0
+
+-- !hamming_distance_nn_vector_scalar_utf8 --
+3	1
+
+-- !hamming_distance_nn_scalar_vector_utf8 --
+3	1
+
+-- !hamming_distance_vector_scalar_nullable --
+1	0
+2	0
+4	\N
+
+-- !hamming_distance_scalar_vector_nullable --
+1	0
+2	0
+4	\N
+
+-- !hamming_distance_vector_scalar_nullable_utf8 --
+3	1
+
+-- !hamming_distance_scalar_vector_nullable_utf8 --
+3	1
+
+-- !hamming_distance_left_const_null_nullable --
+1	\N
+4	\N
+
+-- !hamming_distance_right_const_null_nullable --
+1	\N
+4	\N
 
 -- !nereids_levenshtein_337 --
 3	\N	1
