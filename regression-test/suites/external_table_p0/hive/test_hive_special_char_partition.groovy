@@ -29,6 +29,9 @@ suite("test_hive_special_char_partition", "p0,external") {
         String hdfs_port = context.config.otherConfigs.get(hivePrefix + "HdfsPort")
         String catalog_name = "${hivePrefix}_test_hive_special_char_partition"
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+        String table_name_1 = "partition_special_characters_1"
+        String table_name_2 = "partition_special_characters_2"
+        String table_name_3 = "partition_special_characters_3"
 
         try {
             sql """drop catalog if exists ${catalog_name}"""
@@ -58,10 +61,6 @@ suite("test_hive_special_char_partition", "p0,external") {
 
 
         // append some case.
-        String table_name_1 = "partition_special_characters_1"
-        String table_name_2 = "partition_special_characters_2"
-        String table_name_3 = "partition_special_characters_3"
-
         hive_docker """ set hive.stats.column.autogather=false """
         hive_docker """ use `default`"""
         def special_characters = [
