@@ -44,14 +44,6 @@ suite("test_hive_date_timezone", "p0,external") {
             sql """switch ${catalogName}"""
             sql """use `schema_change`"""
 
-            // The parquet timestamp table exercises the optimized timestamp convert path.
-            // Querying the same data under multiple timezone spellings lets this suite cover
-            // both fixed-offset normalization and named-timezone lookup behavior.
-            def queryParquetTimestamp = { String timeZone ->
-                sql """set time_zone = '${timeZone}'"""
-                return sql """select timestamp_col from parquet_primitive_types_to_timestamp order by id"""
-            }
-
             sql """set time_zone = 'UTC'"""
             qt_orc_date_utc """select date_col from orc_primitive_types_to_date order by id"""
             qt_parquet_date_utc """select date_col from parquet_primitive_types_to_date order by id"""
@@ -60,13 +52,23 @@ suite("test_hive_date_timezone", "p0,external") {
             qt_orc_date_west_tz """select date_col from orc_primitive_types_to_date order by id"""
             qt_parquet_date_west_tz """select date_col from parquet_primitive_types_to_date order by id"""
 
-            def parquetTimestampUtc = queryParquetTimestamp("UTC")
-            def parquetTimestampEtcUtc = queryParquetTimestamp("Etc/UTC")
-            def parquetTimestampFixedOffset = queryParquetTimestamp("+08:00")
-            def parquetTimestampShortOffset = queryParquetTimestamp("+8:00")
-            def parquetTimestampUtcOffset = queryParquetTimestamp("UTC+8")
-            def parquetTimestampShanghai = queryParquetTimestamp("Asia/Shanghai")
-            def parquetTimestampMexicoCity = queryParquetTimestamp("America/Mexico_City")
+            // The parquet timestamp table exercises the optimized timestamp convert path.
+            // Querying the same data under multiple timezone spellings lets this suite cover
+            // both fixed-offset normalization and named-timezone lookup behavior.
+            sql """set time_zone = 'UTC'"""
+            def parquetTimestampUtc = sql """select timestamp_col from parquet_primitive_types_to_timestamp order by id"""
+            sql """set time_zone = 'Etc/UTC'"""
+            def parquetTimestampEtcUtc = sql """select timestamp_col from parquet_primitive_types_to_timestamp order by id"""
+            sql """set time_zone = '+08:00'"""
+            def parquetTimestampFixedOffset = sql """select timestamp_col from parquet_primitive_types_to_timestamp order by id"""
+            sql """set time_zone = '+8:00'"""
+            def parquetTimestampShortOffset = sql """select timestamp_col from parquet_primitive_types_to_timestamp order by id"""
+            sql """set time_zone = 'UTC+8'"""
+            def parquetTimestampUtcOffset = sql """select timestamp_col from parquet_primitive_types_to_timestamp order by id"""
+            sql """set time_zone = 'Asia/Shanghai'"""
+            def parquetTimestampShanghai = sql """select timestamp_col from parquet_primitive_types_to_timestamp order by id"""
+            sql """set time_zone = 'America/Mexico_City'"""
+            def parquetTimestampMexicoCity = sql """select timestamp_col from parquet_primitive_types_to_timestamp order by id"""
 
             // Equivalent UTC spellings should stay on the same result set.
             assertEquals(parquetTimestampUtc, parquetTimestampEtcUtc)
