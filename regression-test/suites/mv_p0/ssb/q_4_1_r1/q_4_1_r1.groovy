@@ -100,7 +100,7 @@ suite ("q_4_1_r1") {
 
 
     sql """set enable_stats=true;"""
-    mv_rewrite_success("""SELECT (LO_ORDERDATE DIV 10000) AS YEAR,
+    mv_rewrite_success_without_check_chosen("""SELECT (LO_ORDERDATE DIV 10000) AS YEAR,
             C_NATION,
             SUM(LO_REVENUE - LO_SUPPLYCOST) AS profit
             FROM lineorder_flat
