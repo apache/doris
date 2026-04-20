@@ -276,31 +276,37 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
         if (srcStats == null) {
             return;
         }
-        dst.scan_rows += srcStats.scan_rows;
-        dst.scan_bytes += srcStats.scan_bytes;
-        dst.scan_bytes_from_local_storage += srcStats.scan_bytes_from_local_storage;
-        dst.scan_bytes_from_remote_storage += srcStats.scan_bytes_from_remote_storage;
-        dst.cpu_ms += srcStats.cpu_ms;
-        dst.shuffle_send_bytes += srcStats.shuffle_send_bytes;
-        dst.shuffle_send_rows += srcStats.shuffle_send_rows;
-        dst.process_rows += srcStats.process_rows;
+        dst.setScanRows(dst.scan_rows + srcStats.scan_rows);
+        dst.setScanBytes(dst.scan_bytes + srcStats.scan_bytes);
+        dst.setScanBytesFromLocalStorage(dst.scan_bytes_from_local_storage
+                + srcStats.scan_bytes_from_local_storage);
+        dst.setScanBytesFromRemoteStorage(dst.scan_bytes_from_remote_storage
+                + srcStats.scan_bytes_from_remote_storage);
+        dst.setCpuMs(dst.cpu_ms + srcStats.cpu_ms);
+        dst.setShuffleSendBytes(dst.shuffle_send_bytes + srcStats.shuffle_send_bytes);
+        dst.setShuffleSendRows(dst.shuffle_send_rows + srcStats.shuffle_send_rows);
+        dst.setProcessRows(dst.process_rows + srcStats.process_rows);
+        dst.setReturnedRows(dst.returned_rows + srcStats.returned_rows);
         if (srcStats.isSetTotalTasksNum()) {
-            dst.total_tasks_num += srcStats.total_tasks_num;
+            dst.setTotalTasksNum(dst.total_tasks_num + srcStats.total_tasks_num);
         }
         if (srcStats.isSetFinishedTasksNum()) {
-            dst.finished_tasks_num += srcStats.finished_tasks_num;
+            dst.setFinishedTasksNum(dst.finished_tasks_num + srcStats.finished_tasks_num);
         }
         if (dst.current_used_memory_bytes < srcStats.current_used_memory_bytes) {
-            dst.current_used_memory_bytes = srcStats.current_used_memory_bytes;
+            dst.setCurrentUsedMemoryBytes(srcStats.current_used_memory_bytes);
         }
         if (dst.workload_group_id <= 0 && srcStats.workload_group_id > 0) {
-            dst.workload_group_id = srcStats.workload_group_id;
+            dst.setWorkloadGroupId(srcStats.workload_group_id);
         }
         if (dst.max_peak_memory_bytes < srcStats.max_peak_memory_bytes) {
-            dst.max_peak_memory_bytes = srcStats.max_peak_memory_bytes;
+            dst.setMaxPeakMemoryBytes(srcStats.max_peak_memory_bytes);
         }
-        dst.spill_write_bytes_to_local_storage += srcStats.spill_write_bytes_to_local_storage;
-        dst.spill_read_bytes_from_local_storage += srcStats.spill_read_bytes_from_local_storage;
+        dst.setSpillWriteBytesToLocalStorage(dst.spill_write_bytes_to_local_storage
+                + srcStats.spill_write_bytes_to_local_storage);
+        dst.setSpillReadBytesFromLocalStorage(dst.spill_read_bytes_from_local_storage
+                + srcStats.spill_read_bytes_from_local_storage);
+        dst.setBytesWriteIntoCache(dst.bytes_write_into_cache + srcStats.bytes_write_into_cache);
     }
 
     private void queryAuditEventLogWriteLock() {
