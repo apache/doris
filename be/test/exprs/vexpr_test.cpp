@@ -859,7 +859,7 @@ TEST(VExprExecuteColumnTest, SizeCheckFails) {
 TEST(VExprExecuteColumnTest, TypeMismatchFails) {
     using namespace doris;
     FakeVExpr expr;
-    // Declare type as Int32, but return a Float64 column
+    // Declare type as Int32, but return a Float64 column — clear type mismatch
     expr.set_data_type(std::make_shared<DataTypeInt32>());
 
     auto col = ColumnFloat64::create();
@@ -869,6 +869,22 @@ TEST(VExprExecuteColumnTest, TypeMismatchFails) {
     ColumnPtr result;
     auto st = expr.execute_column(nullptr, nullptr, nullptr, 1, result);
     EXPECT_FALSE(st.ok());
+}
+
+TEST(VExprExecuteColumnTest, NullableTypeWithNonNullableColumnPasses) {
+    using namespace doris;
+    FakeVExpr expr;
+    // Declared type is Nullable(Int32) but result is Int32 (non-nullable).
+    // This mirrors the use_default_implementation_for_nulls optimization and must pass.
+    expr.set_data_type(std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()));
+
+    auto col = ColumnInt32::create();
+    col->insert_value(7);
+    expr.set_column(std::move(col));
+
+    ColumnPtr result;
+    auto st = expr.execute_column(nullptr, nullptr, nullptr, 1, result);
+    EXPECT_TRUE(st.ok());
 }
 
 TEST(VExprExecuteColumnTest, ColumnNothingPassesTypeCheck) {

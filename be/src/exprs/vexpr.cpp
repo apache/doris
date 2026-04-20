@@ -34,6 +34,7 @@
 #include "common/config.h"
 #include "common/exception.h"
 #include "common/status.h"
+#include "core/column/column_nothing.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_decimal.h"
@@ -1003,8 +1004,27 @@ Status VExpr::execute_column(VExprContext* context, const Block* block, const Se
                                      expr_name(), result_column->size(), count);
     }
     DCHECK(selector == nullptr || selector->size() == count);
-    ColumnWithTypeAndName result_col_with_type {result_column, execute_type(block), expr_name()};
-    RETURN_IF_ERROR(result_col_with_type.check_type_and_column_match());
+    // Validate type match. ColumnNothing is exempt (used as a placeholder in tests/stubs).
+    if (!check_and_get_column<ColumnNothing>(result_column.get())) {
+        auto result_type = execute_type(block);
+        if (result_type != nullptr) {
+            Status st = result_type->check_column(*result_column);
+            if (!st.ok()) {
+                // Nullable(T) may legitimately produce a non-nullable T column when all rows are
+                // non-null (use_default_implementation_for_nulls optimization). Allow this.
+                const auto* nullable_type =
+                        check_and_get_data_type<DataTypeNullable>(result_type.get());
+                if (nullable_type && !check_and_get_column<ColumnNullable>(result_column.get())) {
+                    st = nullable_type->get_nested_type()->check_column(*result_column);
+                }
+            }
+            if (!st.ok()) {
+                return Status::InternalError(
+                        "Expr {} return column type mismatch: declared={}, actual={}", expr_name(),
+                        result_type->get_name(), result_column->get_name());
+            }
+        }
+    }
     return Status::OK();
 }
 
