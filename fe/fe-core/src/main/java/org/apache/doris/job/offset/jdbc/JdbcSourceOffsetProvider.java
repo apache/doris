@@ -112,6 +112,15 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                         DataSourceConfigKeys.SNAPSHOT_PARALLELISM_DEFAULT));
     }
 
+    // Refresh fields that may be changed via ALTER JOB; called before each use.
+    @Override
+    public void ensureInitialized(Long jobId, Map<String, String> newProps) {
+        this.sourceProperties = newProps;
+        this.snapshotParallelism = Integer.parseInt(
+                newProps.getOrDefault(DataSourceConfigKeys.SNAPSHOT_PARALLELISM,
+                        DataSourceConfigKeys.SNAPSHOT_PARALLELISM_DEFAULT));
+    }
+
     @Override
     public String getSourceType() {
         return "jdbc";
