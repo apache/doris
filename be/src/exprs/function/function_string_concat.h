@@ -41,7 +41,6 @@
 #include "core/data_type/data_type_string.h"
 #include "core/memcpy_small.h"
 #include "core/string_ref.h"
-#include "exec/common/arithmetic_overflow.h"
 #include "exec/common/stringop_substring.h"
 #include "exec/common/template_helpers.hpp"
 #include "exec/common/util.hpp"
@@ -634,7 +633,6 @@ private:
                            ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets,
                            ColumnUInt8::Container& null_map) const {
         const auto input_row_size = source_column.size();
-        constexpr size_t string_overflow_length = 1ULL << 32;
 
         res_offsets.resize(input_row_size);
         null_map.resize_fill(input_row_size, 0);
@@ -649,15 +647,7 @@ private:
 
             const auto str_ref = source_column.get_data_at(i);
             const uint32_t size = str_ref.size;
-            const uint32_t repeat_times = repeat;
-            uint32_t repeated_size = 0;
-            uint32_t next_total_size = 0;
-            if (UNLIKELY(common::mul_overflow(size, repeat_times, repeated_size) ||
-                         common::add_overflow(total_size, repeated_size, next_total_size))) {
-                ColumnString::check_chars_length(string_overflow_length, input_row_size, i + 1);
-            }
-
-            total_size = next_total_size;
+            total_size += size * repeat;
             res_offsets[i] = total_size;
         }
 
