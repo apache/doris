@@ -19,6 +19,16 @@ import java.util.concurrent.ThreadLocalRandom
 
 suite("hive_on_hms_and_dlf", "p2,external,new_catalog_property") {
 
+    // Keep generated identifiers under the FE 64-character limit for long prefixes.
+    def buildDbName = { String prefix ->
+        def suffix = String.format("_db%d%03d", System.currentTimeMillis(), ThreadLocalRandom.current().nextInt(1000))
+        return prefix.take(64 - suffix.length()) + suffix
+    }
+
+    def buildTableName = { String prefix, String suffix ->
+        def randomSuffix = String.format("%03d", ThreadLocalRandom.current().nextInt(1000))
+        return prefix.take(64 - randomSuffix.length() - suffix.length()) + randomSuffix + suffix
+    }
 
     def testQueryAndInsert = { String catalogProperties, String prefix, String dbLocation ->
 
@@ -35,7 +45,7 @@ suite("hive_on_hms_and_dlf", "p2,external,new_catalog_property") {
             switch ${catalog_name};
         """
 
-        def db_name = prefix + "_db" + System.currentTimeMillis() + ThreadLocalRandom.current().nextInt(1000)
+        def db_name = buildDbName(prefix)
         sql """
             DROP DATABASE IF EXISTS ${db_name} FORCE;
         """
@@ -53,7 +63,7 @@ suite("hive_on_hms_and_dlf", "p2,external,new_catalog_property") {
         sql """
             use ${db_name};
         """
-        def table_name = prefix + ThreadLocalRandom.current().nextInt(1000) + "_table"
+        def table_name = buildTableName(prefix, "_table")
         sql """
             CREATE TABLE ${table_name} (
             user_id            BIGINT      COMMENT "user id",
@@ -98,7 +108,7 @@ suite("hive_on_hms_and_dlf", "p2,external,new_catalog_property") {
             switch ${catalog_name};
         """
 
-        def db_name = prefix + "_db" + System.currentTimeMillis() + ThreadLocalRandom.current().nextInt(1000)
+        def db_name = buildDbName(prefix)
         sql """
             DROP DATABASE IF EXISTS ${db_name} FORCE;
         """
@@ -116,7 +126,7 @@ suite("hive_on_hms_and_dlf", "p2,external,new_catalog_property") {
             use ${db_name};
         """
 
-        def table_name = prefix + ThreadLocalRandom.current().nextInt(1000) + "_partition_table"
+        def table_name = buildTableName(prefix, "_partition_table")
 
         // Create partitioned table
         sql """
@@ -198,7 +208,7 @@ suite("hive_on_hms_and_dlf", "p2,external,new_catalog_property") {
             switch ${catalog_name};
         """
 
-        def db_name = prefix + "_db" + System.currentTimeMillis() + ThreadLocalRandom.current().nextInt(1000)
+        def db_name = buildDbName(prefix)
         sql """
             DROP DATABASE IF EXISTS ${db_name} FORCE;
         """
@@ -216,7 +226,7 @@ suite("hive_on_hms_and_dlf", "p2,external,new_catalog_property") {
             use ${db_name};
         """
 
-        def table_name = prefix + ThreadLocalRandom.current().nextInt(1000) + "_overwrite_table"
+        def table_name = buildTableName(prefix, "_overwrite_table")
 
         // Create non-partitioned table for insert overwrite test
         sql """
@@ -347,6 +357,12 @@ suite("hive_on_hms_and_dlf", "p2,external,new_catalog_property") {
               'oss.access_key' = '${oss_ak}',
               'oss.secret_key' = '${oss_sk}',
               'oss.endpoint' = '${oss_endpoint}'
+    """
+    String oss_bucket_endpoint_storage_properties = """
+              'oss.access_key' = '${oss_ak}',
+              'oss.secret_key' = '${oss_sk}',
+              'oss.endpoint' = '${oss_endpoint}',
+              'oss.force_parsing_by_standard_uri' = 'true'
     """
     /****************COS*******************/
     String cos_ak = context.config.otherConfigs.get("txYunAk")
@@ -526,7 +542,8 @@ suite("hive_on_hms_and_dlf", "p2,external,new_catalog_property") {
     testPartitionTableInsert(hms_properties + oss_region_param + oss_storage_properties, "hive_hms_oss_bucket_endpoint_partition_test_region", db_location)
     //OSS - Insert overwrite tests
     db_location = "oss://${oss_bucket_endpoint_parent_path}/hive/hms/bucket_endpoint/overwrite/" + System.currentTimeMillis()
-    testInsertOverwrite(hms_properties + oss_storage_properties, "hive_hms_oss_bucket_endpoint_overwrite_test", db_location)
+    testInsertOverwrite(hms_properties + oss_bucket_endpoint_storage_properties,
+            "hive_hms_oss_bucket_endpoint_overwrite_test", db_location)
 
     //s3
     db_location = "s3a://${s3_parent_path}/hive/hms/"+System.currentTimeMillis()

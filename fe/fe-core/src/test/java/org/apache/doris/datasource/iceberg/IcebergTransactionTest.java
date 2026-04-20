@@ -64,6 +64,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -135,10 +136,14 @@ public class IcebergTransactionTest {
     }
 
     private List<String> createPartitionValues() {
+        return createPartitionValues(Instant.parse("2024-12-11T12:34:56.123456Z"),
+                "2024-12-11", "2024-12-11", 1);
+    }
 
-        Instant instant = Instant.parse("2024-12-11T12:34:56.123456Z");
+    private List<String> createPartitionValues(Instant instant, String str1, String str2, Integer int1) {
         long ts = DateTimeUtil.microsFromInstant(instant);
         int dt = DateTimeUtil.daysFromInstant(instant);
+        String dateString = numToDay(dt);
 
         List<String> partitionValues = new ArrayList<>();
 
@@ -151,16 +156,16 @@ public class IcebergTransactionTest {
         // reference: org.apache.iceberg.transforms.Dates
         partitionValues.add(Integer.valueOf(DateTimeUtil.daysToYears(dt)).toString());
         partitionValues.add(Integer.valueOf(DateTimeUtil.daysToMonths(dt)).toString());
-        partitionValues.add("2024-12-11");
+        partitionValues.add(dateString);
 
         // identity dt4
-        partitionValues.add("2024-12-11");
+        partitionValues.add(dateString);
         // identity str1
-        partitionValues.add("2024-12-11");
+        partitionValues.add(str1);
         // truncate str2
-        partitionValues.add("2024-12-11");
+        partitionValues.add(str2);
         // bucket int1
-        partitionValues.add("1");
+        partitionValues.add(int1.toString());
 
         return partitionValues;
     }
@@ -460,6 +465,77 @@ public class IcebergTransactionTest {
         }
 
         checkSnapshotTotalProperties(table.currentSnapshot().summary(), "0", "0", "0");
+    }
+
+    @Test
+    public void testStaticPartitionOverwriteWithoutDataDeletesMatchingPartition() throws UserException {
+        List<TIcebergCommitData> ctdList = new ArrayList<>();
+        TIcebergCommitData ctd1 = new TIcebergCommitData();
+        ctd1.setFilePath("partition-a.parquet");
+        ctd1.setPartitionValues(createPartitionValues(
+                Instant.parse("2024-12-11T12:34:56.123456Z"),
+                "partition-a", "truncate-a", 11));
+        ctd1.setFileContent(TFileContent.DATA);
+        ctd1.setRowCount(2);
+        ctd1.setFileSize(2);
+
+        TIcebergCommitData ctd2 = new TIcebergCommitData();
+        ctd2.setFilePath("partition-b.parquet");
+        ctd2.setPartitionValues(createPartitionValues(
+                Instant.parse("2024-12-12T12:34:56.123456Z"),
+                "partition-b", "truncate-b", 25));
+        ctd2.setFileContent(TFileContent.DATA);
+        ctd2.setRowCount(4);
+        ctd2.setFileSize(4);
+
+        ctdList.add(ctd1);
+        ctdList.add(ctd2);
+
+        Table table = ops.getCatalog().loadTable(TableIdentifier.of(dbName, tbWithPartition));
+        IcebergExternalTable icebergExternalTable = Mockito.mock(IcebergExternalTable.class);
+        Mockito.when(icebergExternalTable.getCatalog()).thenReturn(spyExternalCatalog);
+        Mockito.when(icebergExternalTable.getDbName()).thenReturn(dbName);
+        Mockito.when(icebergExternalTable.getName()).thenReturn(tbWithPartition);
+
+        try (MockedStatic<IcebergUtils> mockedStatic = Mockito.mockStatic(IcebergUtils.class)) {
+            mockedStatic.when(() -> IcebergUtils.getIcebergTable(ArgumentMatchers.any(ExternalTable.class)))
+                    .thenReturn(table);
+            mockedStatic.when(() -> IcebergUtils.parsePartitionValueFromString(
+                    ArgumentMatchers.any(), ArgumentMatchers.any()))
+                    .thenCallRealMethod();
+
+            IcebergTransaction txn = getTxn();
+            txn.updateIcebergCommitData(ctdList);
+            txn.beginInsert(icebergExternalTable, Optional.empty());
+            txn.finishInsert(NameMapping.createForTest(dbName, tbWithPartition));
+            txn.commit();
+        }
+
+        checkPushDownByPartition(table, Expressions.equal("str1", "partition-a"), 1);
+        checkPushDownByPartition(table, Expressions.equal("str1", "partition-b"), 1);
+
+        try (MockedStatic<IcebergUtils> mockedStatic = Mockito.mockStatic(IcebergUtils.class)) {
+            mockedStatic.when(() -> IcebergUtils.getIcebergTable(ArgumentMatchers.any(ExternalTable.class)))
+                    .thenReturn(table);
+            mockedStatic.when(() -> IcebergUtils.parsePartitionValueFromString(
+                    ArgumentMatchers.any(), ArgumentMatchers.any()))
+                    .thenCallRealMethod();
+
+            IcebergTransaction txn = getTxn();
+            IcebergInsertCommandContext ctx = new IcebergInsertCommandContext();
+            ctx.setOverwrite(true);
+            Map<String, String> staticPartitions = new LinkedHashMap<>();
+            staticPartitions.put("dt4", "2024-12-11");
+            staticPartitions.put("str1", "partition-a");
+            ctx.setStaticPartitionValues(staticPartitions);
+            txn.beginInsert(icebergExternalTable, Optional.of(ctx));
+            txn.finishInsert(NameMapping.createForTest(dbName, tbWithPartition));
+            txn.commit();
+        }
+
+        checkPushDownByPartition(table, Expressions.equal("str1", "partition-a"), 0);
+        checkPushDownByPartition(table, Expressions.equal("str1", "partition-b"), 1);
+        checkSnapshotTotalProperties(table.currentSnapshot().summary(), "4", "1", "4");
     }
 
     @Test

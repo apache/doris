@@ -77,6 +77,22 @@ suite("test_information_schema_timezone", "p0,external,hive,kerberos,external_do
         }
     }
 
+    def getStableRowsetsTime = { tabletId ->
+        List<List<Object>> result = null
+        awaitUntil(30) {
+            result = sql """
+                select CREATION_TIME, NEWEST_WRITE_TIMESTAMP
+                from information_schema.rowsets
+                where TABLET_ID = ${tabletId}
+                order by CREATION_TIME, NEWEST_WRITE_TIMESTAMP
+                limit 1
+            """
+            logger.info("stable rowsets result = " + result)
+            return result != null && !result.isEmpty()
+        }
+        return result
+    }
+
     // 0. Assert the timezone
     qt_session_time_zone_UTC """ show variables like "time_zone" """
 
@@ -105,9 +121,7 @@ suite("test_information_schema_timezone", "p0,external,hive,kerberos,external_do
     // 5. rowsets
     def rowsets_table_name_tablets = sql_return_maparray """ show tablets from ${table_name}; """
     def tablet_id = rowsets_table_name_tablets[0].TabletId
-    List<List<Object>> rowsets_res_1 = sql """ 
-            select CREATION_TIME, NEWEST_WRITE_TIMESTAMP from information_schema.rowsets where TABLET_ID = ${tablet_id}
-            """
+    List<List<Object>> rowsets_res_1 = getStableRowsetsTime(tablet_id)
     logger.info("rowsets_res_1 = " + rowsets_res_1);
     
     // 6. backend_kerberos_ticket_cache
@@ -186,12 +200,14 @@ suite("test_information_schema_timezone", "p0,external,hive,kerberos,external_do
     assertEquals(true, isEightHoursDiff(processlist_res_1[0][0], processlist_res_2[0][0]))
 
     // 5. rowsets
-    List<List<Object>> rowsets_res_2 = sql """ 
-            select CREATION_TIME, NEWEST_WRITE_TIMESTAMP from information_schema.rowsets where TABLET_ID = ${tablet_id}
-            """
+    List<List<Object>> rowsets_res_2 = getStableRowsetsTime(tablet_id)
     logger.info("rowsets_res_2 = " + rowsets_res_2);
     assertEquals(true, isEightHoursDiff(rowsets_res_1[0][0], rowsets_res_2[0][0]))
-    assertEquals(true, isEightHoursDiff(rowsets_res_1[0][1], rowsets_res_2[0][1]))
+    if (rowsets_res_1[0][1] == null || rowsets_res_2[0][1] == null) {
+        assertEquals(rowsets_res_1[0][1], rowsets_res_2[0][1])
+    } else {
+        assertEquals(true, isEightHoursDiff(rowsets_res_1[0][1], rowsets_res_2[0][1]))
+    }
 
     // 6. backend_kerberos_ticket_cache
     if (enabled != null && enabled.equalsIgnoreCase("true")) {

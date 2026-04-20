@@ -1021,13 +1021,13 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     @Override
     public void beforeCommitted(TransactionState txnState) throws TransactionException {
-        boolean shouldReleaseLock = false;
         writeLock();
+        boolean passCheck = false;
         try {
             if (runningStreamTask.getIsCanceled().get()) {
-                log.info("streaming insert job {} task {} is canceled, skip beforeCommitted",
-                        getJobId(), runningStreamTask.getTaskId());
-                return;
+                throw new TransactionException("streaming insert job " + getJobId()
+                        + " task " + runningStreamTask.getTaskId()
+                        + " is canceled, txn " + txnState.getTransactionId() + " could not be committed");
             }
 
             ArrayList<Long> taskIds = new ArrayList<>();
@@ -1046,7 +1046,6 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                     runningStreamTask.getTaskId(),
                     runningStreamTask.getScanBackendIds());
 
-
             if (StringUtils.isBlank(offsetJson)) {
                 throw new TransactionException("Cannot find offset for attachment, load job id is "
                         + runningStreamTask.getTaskId());
@@ -1059,8 +1058,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                         loadStatistic.getFileNumber(),
                         loadStatistic.getTotalFileSizeB(),
                         offsetJson));
+            passCheck = true;
         } finally {
-            if (shouldReleaseLock) {
+            if (!passCheck) {
                 writeUnlock();
             }
         }

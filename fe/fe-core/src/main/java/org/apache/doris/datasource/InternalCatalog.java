@@ -1605,6 +1605,16 @@ public class InternalCatalog implements CatalogIf<Database> {
                     if (hashDistributionInfo.getBucketNum() <= 0) {
                         throw new DdlException("Cannot assign hash distribution buckets less than 1");
                     }
+                    if (Config.max_bucket_num_per_partition > 0
+                            && hashDistributionInfo.getBucketNum() > Config.max_bucket_num_per_partition) {
+                        throw new DdlException(String.format(
+                                "Number of buckets (%d) exceeds the maximum allowed value (%d). "
+                                        + "Generally, a large number of buckets is not needed. "
+                                        + "If you have a specific use case requiring more buckets, "
+                                        + "please review your schema design or modify the FE config "
+                                        + "'max_bucket_num_per_partition' to adjust this limit.",
+                                hashDistributionInfo.getBucketNum(), Config.max_bucket_num_per_partition));
+                    }
                     if (!hashDistributionInfo.sameDistributionColumns((HashDistributionInfo) defaultDistributionInfo)) {
                         throw new DdlException("Cannot assign hash distribution with different distribution cols. "
                                 + "new is: " + hashDistributionInfo.getDistributionColumns() + " default is: "
@@ -1614,6 +1624,16 @@ public class InternalCatalog implements CatalogIf<Database> {
                     RandomDistributionInfo randomDistributionInfo = (RandomDistributionInfo) distributionInfo;
                     if (randomDistributionInfo.getBucketNum() <= 0) {
                         throw new DdlException("Cannot assign random distribution buckets less than 1");
+                    }
+                    if (Config.max_bucket_num_per_partition > 0
+                            && randomDistributionInfo.getBucketNum() > Config.max_bucket_num_per_partition) {
+                        throw new DdlException(String.format(
+                                "Number of buckets (%d) exceeds the maximum allowed value (%d). "
+                                        + "Generally, a large number of buckets is not needed. "
+                                        + "If you have a specific use case requiring more buckets, "
+                                        + "please review your schema design or modify the FE config "
+                                        + "'max_bucket_num_per_partition' to adjust this limit.",
+                                randomDistributionInfo.getBucketNum(), Config.max_bucket_num_per_partition));
                     }
                 }
             } else {

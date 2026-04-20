@@ -61,7 +61,6 @@
 #include "load/stream_load/stream_load_recorder.h"
 #include "runtime/exec_env.h"
 #include "storage/binlog.h"
-#include "storage/cache/schema_cache.h"
 #include "storage/compaction/single_replica_compaction.h"
 #include "storage/data_dir.h"
 #include "storage/id_manager.h"

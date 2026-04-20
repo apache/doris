@@ -203,7 +203,7 @@ public abstract class AbstractInsertExecutor {
         if (!coordinator.getExecStatus().ok()) {
             errMsg = coordinator.getExecStatus().getErrorMsg();
             LOG.warn("insert [{}] with query id {} failed, {}", labelName, queryId, errMsg);
-            ErrorReport.reportDdlException(errMsg, ErrorCode.ERR_FAILED_WHEN_INSERT);
+            ErrorReport.reportDdlException("%s", ErrorCode.ERR_FAILED_WHEN_INSERT, errMsg);
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("insert [{}] with query id {} delta files is {}",
@@ -262,6 +262,39 @@ public abstract class AbstractInsertExecutor {
             QeProcessorImpl.INSTANCE.unregisterQuery(ctx.queryId());
         }
         afterExec(executor);
+    }
+
+    /**
+     * Execute an insert that has no source rows but still needs side effects.
+     * For example, Iceberg static partition overwrite with an empty source still
+     * needs to commit a partition delete.
+     */
+    public void executeEmptyInsert(StmtExecutor executor) throws Exception {
+        beforeExec();
+        try {
+            for (InsertExecutorListener listener : listeners) {
+                listener.beforeComplete(this, executor, jobId);
+            }
+            onComplete();
+            for (InsertExecutorListener listener : listeners) {
+                listener.afterComplete(this, executor, jobId);
+            }
+        } catch (Throwable t) {
+            onFail(t);
+            return;
+        } finally {
+            coordinator.close();
+            executor.updateProfile(true);
+        }
+        afterExec(executor);
+    }
+
+    /**
+     * Whether an empty source insert should still execute instead of using the
+     * normal fast-return path.
+     */
+    public boolean shouldExecuteEmptyInsert() {
+        return false;
     }
 
     public boolean isEmptyInsert() {
