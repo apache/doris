@@ -1,4 +1,5 @@
-CREATE TABLE `test_string_dict_filter_orc`(
+drop table if exists `test_string_dict_filter_orc`;
+create table `test_string_dict_filter_orc`(
   `o_orderkey` int,
   `o_custkey` int,
   `o_orderstatus` string,
@@ -16,7 +17,3 @@ OUTPUTFORMAT
   'org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat'
 LOCATION
   '/user/doris/preinstalled_data/orc_table/test_string_dict_filter_orc';
-
-msck repair table test_string_dict_filter_orc;
-
-
