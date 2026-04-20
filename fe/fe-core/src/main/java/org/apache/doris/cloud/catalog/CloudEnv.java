@@ -64,6 +64,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInputStream;
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -506,38 +507,31 @@ public class CloudEnv extends Env {
         Database db = getInternalCatalog().getDbOrDdlException(dbName);
         OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
 
-        AgentBatchTask batchTask = new AgentBatchTask();
-        int dispatchedCount = 0;
+        long dbId = db.getId();
+        long tableId;
+
+        // Step 1: under readLock, only collect tablet metadata. Resolving the backend
+        // is deferred because CloudReplica.getBackendId() can call into Meta Service
+        // and wait on compute-group state; holding the table read lock across that
+        // would block unrelated DDL on this table for the full wait.
+        List<PendingCloudCompactionTablet> pending = new ArrayList<>();
         olapTable.readLock();
         try {
             LOG.info("Cloud table compaction. db={}, table={}, partitions={}, type={}",
                     dbName, tableName, partitionNames, type);
+            tableId = olapTable.getId();
             for (String parName : partitionNames) {
                 Partition partition = olapTable.getPartition(parName);
                 if (partition == null) {
                     throw new DdlException("partition[" + parName + "] not exist in table[" + tableName + "]");
                 }
-
                 for (MaterializedIndex idx : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                    int schemaHash = olapTable.getSchemaHashByIndexId(idx.getId());
                     for (Tablet tablet : idx.getTablets()) {
-                        // Cloud: each tablet has only one CloudReplica (primary BE). The backend
-                        // resolution depends on the current compute group (ConnectContext); skip
-                        // the tablet rather than aborting so other tablets can still dispatch.
+                        // Cloud: each tablet has only one CloudReplica (primary BE).
                         for (Replica replica : tablet.getReplicas()) {
-                            long beId;
-                            try {
-                                beId = replica.getBackendId();
-                            } catch (UserException e) {
-                                LOG.warn("skip tablet {} for cloud compaction, no available BE: {}",
-                                        tablet.getId(), e.getMessage());
-                                continue;
-                            }
-                            CompactionTask compactionTask = new CompactionTask(
-                                    beId, db.getId(), olapTable.getId(), partition.getId(),
-                                    idx.getId(), tablet.getId(),
-                                    olapTable.getSchemaHashByIndexId(idx.getId()), type);
-                            batchTask.addTask(compactionTask);
-                            dispatchedCount++;
+                            pending.add(new PendingCloudCompactionTablet(partition.getId(), idx.getId(),
+                                    tablet.getId(), schemaHash, replica));
                         }
                     }
                 }
@@ -546,10 +540,45 @@ public class CloudEnv extends Env {
             olapTable.readUnlock();
         }
 
-        if (dispatchedCount == 0) {
-            throw new DdlException("no tablet dispatched for compaction; "
-                    + "the current compute group may have no available BE");
+        // Step 2: resolve backends and build tasks outside the lock. Surface compute-group
+        // errors (missing privilege, manual shutdown, no BE, ...) to the user instead of
+        // silently skipping, otherwise a failed ADMIN COMPACT TABLE looks like a no-op.
+        AgentBatchTask batchTask = new AgentBatchTask();
+        for (PendingCloudCompactionTablet p : pending) {
+            long beId;
+            try {
+                beId = p.replica.getBackendId();
+            } catch (UserException e) {
+                throw new DdlException("failed to resolve backend for tablet " + p.tabletId
+                        + ": " + e.getMessage());
+            }
+            CompactionTask compactionTask = new CompactionTask(beId, dbId, tableId, p.partitionId,
+                    p.indexId, p.tabletId, p.schemaHash, type);
+            batchTask.addTask(compactionTask);
+        }
+
+        if (pending.isEmpty()) {
+            throw new DdlException("no tablet dispatched for compaction; the selected partitions "
+                    + "contain no visible index or tablet");
         }
         AgentTaskExecutor.submit(batchTask);
+    }
+
+    /** Metadata snapshot of one tablet replica, captured under the table read lock. */
+    private static final class PendingCloudCompactionTablet {
+        final long partitionId;
+        final long indexId;
+        final long tabletId;
+        final int schemaHash;
+        final Replica replica;
+
+        PendingCloudCompactionTablet(long partitionId, long indexId, long tabletId,
+                int schemaHash, Replica replica) {
+            this.partitionId = partitionId;
+            this.indexId = indexId;
+            this.tabletId = tabletId;
+            this.schemaHash = schemaHash;
+            this.replica = replica;
+        }
     }
 }
