@@ -1154,9 +1154,13 @@ public class CacheHotspotManager extends MasterDaemon {
             if (dbName.contains(":")) {
                 dbName = dbName.substring(dbName.indexOf(':') + 1);
             }
-            for (TableIf tableIf : dbIf.getTables()) {
-                if (filter.shouldWarmUp(dbName, tableIf.getName())) {
-                    result.put(tableIf.getId(), dbName + "." + tableIf.getName());
+            Set<String> tableNames = dbIf.getTableNamesOrEmptyWithLock();
+            for (String tableName : tableNames) {
+                if (filter.shouldWarmUp(dbName, tableName)) {
+                    TableIf table = dbIf.getTableNullable(tableName);
+                    if (table != null) {
+                        result.put(table.getId(), dbName + "." + tableName);
+                    }
                 }
             }
         }

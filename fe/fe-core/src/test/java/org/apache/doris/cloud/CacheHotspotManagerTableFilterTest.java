@@ -105,6 +105,14 @@ public class CacheHotspotManagerTableFilterTest {
     private DatabaseIf<TableIf> mockDb(String name, TableIf... tables) {
         DatabaseIf<TableIf> db = Mockito.mock(DatabaseIf.class);
         Mockito.when(db.getFullName()).thenReturn(name);
+        // For resolveTableIds: getTableNamesOrEmptyWithLock + getTableNullable
+        HashSet<String> tableNames = new HashSet<>();
+        for (TableIf t : tables) {
+            tableNames.add(t.getName());
+            Mockito.when(db.getTableNullable(t.getName())).thenReturn(t);
+        }
+        Mockito.when(db.getTableNamesOrEmptyWithLock()).thenReturn(tableNames);
+        // Keep getTables for other test paths (refreshAllTableFilters)
         Mockito.when(db.getTables()).thenReturn(Arrays.asList(tables));
         return db;
     }
@@ -600,5 +608,221 @@ public class CacheHotspotManagerTableFilterTest {
         Assertions.assertEquals(
                 new HashSet<>(Arrays.asList(1001L, 1002L)),
                 job.getCurrentTableIds());
+    }
+
+    // ========== Performance tests: regex matching throughput at scale ==========
+
+    /**
+     * Generate table name strings (db.table) for timing shouldWarmUp regex calls.
+     * No mocks needed — we test the filter's regex matching performance directly.
+     */
+    private List<String[]> generateTableNames(int dbCount, int tablesPerDb) {
+        List<String[]> names = new ArrayList<>(dbCount * tablesPerDb);
+        for (int d = 0; d < dbCount; d++) {
+            String db = "db_" + d;
+            for (int t = 0; t < tablesPerDb; t++) {
+                names.add(new String[]{db, "tbl_" + String.format("%05d", t)});
+            }
+        }
+        return names;
+    }
+
+    @Test
+    public void testShouldWarmUpPerformance10kTables() {
+        List<String[]> names = generateTableNames(10, 1000); // 10K
+        OnTablesFilter filter = buildFilter(
+                new TableFilterRule(RuleType.INCLUDE, "db_*.*"));
+
+        long start = System.nanoTime();
+        int matched = 0;
+        for (String[] pair : names) {
+            if (filter.shouldWarmUp(pair[0], pair[1])) {
+                matched++;
+            }
+        }
+        long elapsedMs = (System.nanoTime() - start) / 1_000_000;
+
+        Assertions.assertEquals(10000, matched);
+        System.out.println("[Perf] 10K tables, wildcard match-all: " + elapsedMs + " ms");
+        Assertions.assertTrue(elapsedMs < 500,
+                "10K regex matches should complete within 500ms, took " + elapsedMs + " ms");
+    }
+
+    @Test
+    public void testShouldWarmUpPerformance50kTables() {
+        List<String[]> names = generateTableNames(50, 1000); // 50K
+        OnTablesFilter filter = buildFilter(
+                new TableFilterRule(RuleType.INCLUDE, "db_*.*"));
+
+        long start = System.nanoTime();
+        int matched = 0;
+        for (String[] pair : names) {
+            if (filter.shouldWarmUp(pair[0], pair[1])) {
+                matched++;
+            }
+        }
+        long elapsedMs = (System.nanoTime() - start) / 1_000_000;
+
+        Assertions.assertEquals(50000, matched);
+        System.out.println("[Perf] 50K tables, wildcard match-all: " + elapsedMs + " ms");
+        Assertions.assertTrue(elapsedMs < 500,
+                "50K regex matches should complete within 500ms, took " + elapsedMs + " ms");
+    }
+
+    @Test
+    public void testShouldWarmUpPerformance200kTables() {
+        List<String[]> names = generateTableNames(100, 2000); // 200K
+        OnTablesFilter filter = buildFilter(
+                new TableFilterRule(RuleType.INCLUDE, "db_*.*"));
+
+        long start = System.nanoTime();
+        int matched = 0;
+        for (String[] pair : names) {
+            if (filter.shouldWarmUp(pair[0], pair[1])) {
+                matched++;
+            }
+        }
+        long elapsedMs = (System.nanoTime() - start) / 1_000_000;
+
+        Assertions.assertEquals(200000, matched);
+        System.out.println("[Perf] 200K tables, wildcard match-all: " + elapsedMs + " ms");
+        Assertions.assertTrue(elapsedMs < 1000,
+                "200K regex matches should complete within 1s, took " + elapsedMs + " ms");
+    }
+
+    @Test
+    public void testShouldWarmUpPerformance500kTables() {
+        List<String[]> names = generateTableNames(100, 5000); // 500K
+        OnTablesFilter filter = buildFilter(
+                new TableFilterRule(RuleType.INCLUDE, "db_*.*"));
+
+        long start = System.nanoTime();
+        int matched = 0;
+        for (String[] pair : names) {
+            if (filter.shouldWarmUp(pair[0], pair[1])) {
+                matched++;
+            }
+        }
+        long elapsedMs = (System.nanoTime() - start) / 1_000_000;
+
+        Assertions.assertEquals(500000, matched);
+        System.out.println("[Perf] 500K tables, wildcard match-all: " + elapsedMs + " ms");
+        Assertions.assertTrue(elapsedMs < 2000,
+                "500K regex matches should complete within 2s, took " + elapsedMs + " ms");
+    }
+
+    @Test
+    public void testShouldWarmUpPerformanceSelectivePattern50k() {
+        List<String[]> names = generateTableNames(50, 1000); // 50K
+        // Only match tables in db_0
+        OnTablesFilter filter = buildFilter(
+                new TableFilterRule(RuleType.INCLUDE, "db_0.*"));
+
+        long start = System.nanoTime();
+        int matched = 0;
+        for (String[] pair : names) {
+            if (filter.shouldWarmUp(pair[0], pair[1])) {
+                matched++;
+            }
+        }
+        long elapsedMs = (System.nanoTime() - start) / 1_000_000;
+
+        Assertions.assertEquals(1000, matched);
+        System.out.println("[Perf] 50K tables, selective db_0 pattern: " + elapsedMs + " ms");
+        Assertions.assertTrue(elapsedMs < 500,
+                "50K regex matches (selective) should complete within 500ms, took " + elapsedMs + " ms");
+    }
+
+    @Test
+    public void testShouldWarmUpPerformanceMultipleRules50k() {
+        List<String[]> names = generateTableNames(50, 1000); // 50K
+        // Include db_1* tables, exclude tables ending with digit 9
+        OnTablesFilter filter = buildFilter(
+                new TableFilterRule(RuleType.INCLUDE, "db_1*.*"),
+                new TableFilterRule(RuleType.EXCLUDE, "*.*9"));
+
+        long start = System.nanoTime();
+        int matched = 0;
+        for (String[] pair : names) {
+            if (filter.shouldWarmUp(pair[0], pair[1])) {
+                matched++;
+            }
+        }
+        long elapsedMs = (System.nanoTime() - start) / 1_000_000;
+
+        // db_1, db_10..db_19 = 11 dbs × 1000 tables = 11000 candidates
+        // Exclude tables ending with "9": tbl_00009, tbl_00019, ..., tbl_00999 = 100 per db
+        // Result = 11000 - 11*100 = 9900
+        Assertions.assertEquals(9900, matched);
+        System.out.println("[Perf] 50K tables, include+exclude: " + elapsedMs + " ms, matched=" + matched);
+        Assertions.assertTrue(elapsedMs < 500,
+                "50K regex matches (multi-rule) should complete within 500ms, took " + elapsedMs + " ms");
+    }
+
+    @Test
+    public void testShouldWarmUpPerformanceManyRules200k() {
+        List<String[]> names = generateTableNames(100, 2000); // 200K
+        // 10 include rules + 5 exclude rules
+        OnTablesFilter filter = buildFilter(
+                new TableFilterRule(RuleType.INCLUDE, "db_0.*"),
+                new TableFilterRule(RuleType.INCLUDE, "db_1.*"),
+                new TableFilterRule(RuleType.INCLUDE, "db_2.*"),
+                new TableFilterRule(RuleType.INCLUDE, "db_3.*"),
+                new TableFilterRule(RuleType.INCLUDE, "db_4.*"),
+                new TableFilterRule(RuleType.INCLUDE, "db_5.*"),
+                new TableFilterRule(RuleType.INCLUDE, "db_6.*"),
+                new TableFilterRule(RuleType.INCLUDE, "db_7.*"),
+                new TableFilterRule(RuleType.INCLUDE, "db_8.*"),
+                new TableFilterRule(RuleType.INCLUDE, "db_9.*"),
+                new TableFilterRule(RuleType.EXCLUDE, "*.tbl_00000"),
+                new TableFilterRule(RuleType.EXCLUDE, "*.tbl_00001"),
+                new TableFilterRule(RuleType.EXCLUDE, "*.tbl_00002"),
+                new TableFilterRule(RuleType.EXCLUDE, "*.tbl_00003"),
+                new TableFilterRule(RuleType.EXCLUDE, "*.tbl_00004"));
+
+        long start = System.nanoTime();
+        int matched = 0;
+        for (String[] pair : names) {
+            if (filter.shouldWarmUp(pair[0], pair[1])) {
+                matched++;
+            }
+        }
+        long elapsedMs = (System.nanoTime() - start) / 1_000_000;
+
+        // 10 dbs × 2000 tables = 20000 included, minus 10 × 5 excluded = 19950
+        Assertions.assertEquals(19950, matched);
+        System.out.println("[Perf] 200K tables, 15 rules (10 incl + 5 excl): " + elapsedMs + " ms");
+        Assertions.assertTrue(elapsedMs < 2000,
+                "200K regex matches with 15 rules should complete within 2s, took " + elapsedMs + " ms");
+    }
+
+    @Test
+    public void testShouldWarmUpPerformanceRepeatedCycles200k() {
+        List<String[]> names = generateTableNames(100, 2000); // 200K
+        OnTablesFilter filter = buildFilter(
+                new TableFilterRule(RuleType.INCLUDE, "db_*.*"));
+
+        // JIT warm-up
+        for (String[] pair : names) {
+            filter.shouldWarmUp(pair[0], pair[1]);
+        }
+
+        long start = System.nanoTime();
+        int iterations = 5;
+        int totalMatched = 0;
+        for (int i = 0; i < iterations; i++) {
+            for (String[] pair : names) {
+                if (filter.shouldWarmUp(pair[0], pair[1])) {
+                    totalMatched++;
+                }
+            }
+        }
+        long totalMs = (System.nanoTime() - start) / 1_000_000;
+        long avgMs = totalMs / iterations;
+
+        Assertions.assertEquals(200000 * iterations, totalMatched);
+        System.out.println("[Perf] 200K tables × 5 cycles: total=" + totalMs + " ms, avg=" + avgMs + " ms/cycle");
+        Assertions.assertTrue(avgMs < 1000,
+                "Avg per refresh cycle for 200K tables should be < 1s, avg=" + avgMs + " ms");
     }
 }
