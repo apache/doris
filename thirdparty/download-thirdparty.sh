@@ -437,7 +437,8 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " ARROW " ]]; then
             patch -p1 <"${TP_PATCH_DIR}/apache-arrow-17.0.0-force-write-int96-timestamps.patch"
 
             # apache-arrow-17.0.0-flight-safe-finish-status.patch :
-            # Keep Flight gRPC stream teardown on a minimal status conversion path.
+            # Avoid Flight client crashes during stream teardown by skipping rich
+            # status reconstruction on gRPC finish errors.
             patch -p1 <"${TP_PATCH_DIR}/apache-arrow-17.0.0-flight-safe-finish-status.patch"
             touch "${PATCHED_MARK}"
         fi
