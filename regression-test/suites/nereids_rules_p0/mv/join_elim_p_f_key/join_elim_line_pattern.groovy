@@ -326,7 +326,7 @@ suite("join_elim_line_pattern") {
     create_async_mv(db, mv_name, mv_stmt_2)
     for (int j = 1; j < query_list.size() + 1; j++) {
         logger.info("left mv current query index: " + j)
-        if (j in [3, 5, 7]) {
+        if (j in [2, 3, 4, 5, 6, 7]) {
             mv_rewrite_success_without_check_chosen(query_list[j - 1], mv_name)
             compare_res(query_list[j - 1], 5)
         } else {
@@ -494,7 +494,7 @@ suite("join_elim_line_pattern") {
     create_async_mv(db, mv_name, mv_stmt_2)
     for (int j = 1; j < query_list.size() + 1; j++) {
         logger.info("left mv current query index: " + j)
-        if (j in [3, 5, 7]) {
+        if (j in [2, 3, 4, 5, 6, 7]) {
             mv_rewrite_success_without_check_chosen(query_list[j - 1], mv_name)
             compare_res(query_list[j - 1], 5)
         } else {

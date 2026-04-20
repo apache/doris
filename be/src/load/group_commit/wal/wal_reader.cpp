@@ -39,7 +39,22 @@ Status WalReader::init_reader(const TupleDescriptor* tuple_descriptor) {
     return Status::OK();
 }
 
-Status WalReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
+// ---- Unified init_reader(ReaderInitContext*) overrides ----
+
+Status WalReader::_open_file_reader(ReaderInitContext* /*ctx*/) {
+    RETURN_IF_ERROR(_state->exec_env()->wal_mgr()->get_wal_path(_wal_id, _wal_path));
+    _wal_reader = std::make_shared<doris::WalFileReader>(_wal_path);
+    RETURN_IF_ERROR(_wal_reader->init());
+    return Status::OK();
+}
+
+Status WalReader::_do_init_reader(ReaderInitContext* base_ctx) {
+    auto* ctx = checked_context_cast<WalInitContext>(base_ctx);
+    _tuple_descriptor = ctx->output_tuple_descriptor;
+    return Status::OK();
+}
+
+Status WalReader::_do_get_next_block(Block* block, size_t* read_rows, bool* eof) {
     //read src block
     PBlock pblock;
     auto st = _wal_reader->read_block(pblock);
@@ -96,11 +111,11 @@ Status WalReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     block->swap(dst_block);
     *read_rows = block->rows();
     VLOG_DEBUG << "read block rows:" << *read_rows;
+
     return Status::OK();
 }
 
-Status WalReader::get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
-                              std::unordered_set<std::string>* missing_cols) {
+Status WalReader::_get_columns_impl(std::unordered_map<std::string, DataTypePtr>* name_to_type) {
     std::string col_ids;
     RETURN_IF_ERROR(_wal_reader->read_header(_version, col_ids));
     std::vector<std::string> column_id_vector =

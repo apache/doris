@@ -1,7 +1,9 @@
 CREATE DATABASE IF NOT EXISTS multi_catalog;
 USE multi_catalog;
 
-CREATE TABLE `multi_catalog.hive_text_complex_type2`(
+drop table if exists `multi_catalog.hive_text_complex_type2`;
+
+create table `multi_catalog.hive_text_complex_type2`(
   `id` int, 
   `col1` map<int,map<string,int>>, 
   `col2` array<array<map<int,boolean>>>, 
@@ -17,5 +19,3 @@ OUTPUTFORMAT
 LOCATION '/user/doris/suites/multi_catalog/hive_text_complex_type2'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1692719086');
-
-msck repair table hive_text_complex_type2;

@@ -17,6 +17,12 @@
 
 package org.apache.doris.datasource.hive;
 
+import org.apache.doris.common.UserException;
+import org.apache.doris.thrift.TFileFormatType;
+
+import org.apache.hadoop.hive.metastore.api.SerDeInfo;
+import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
+import org.apache.hadoop.hive.metastore.api.Table;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -85,6 +91,114 @@ public class HMSExternalTableTest {
         table.setViewOriginalText(TEST_VIEW_TEXT);
         table.setViewExpandedText("");
         Assertions.assertEquals(TEST_VIEW_TEXT, table.getViewText());
+    }
+
+    // -------------------------------------------------------------------------
+    // Tests for SUPPORTED_HIVE_FILE_FORMATS whitelist (LZO input formats)
+    // -------------------------------------------------------------------------
+
+    @Test
+    public void testSupportedFileFormats_ContainsCompressionLzoTextInputFormat() {
+        // twitter hadoop-lzo (GPL): com.hadoop.compression.lzo.LzoTextInputFormat
+        Assertions.assertTrue(
+                HMSExternalTable.SUPPORTED_HIVE_FILE_FORMATS.contains(
+                        "com.hadoop.compression.lzo.LzoTextInputFormat"),
+                "com.hadoop.compression.lzo.LzoTextInputFormat should be in the supported formats whitelist");
+    }
+
+    @Test
+    public void testSupportedFileFormats_ContainsMapreduceLzoTextInputFormat() {
+        // lzo-hadoop (org.anarres) mapreduce API: com.hadoop.mapreduce.LzoTextInputFormat
+        Assertions.assertTrue(
+                HMSExternalTable.SUPPORTED_HIVE_FILE_FORMATS.contains(
+                        "com.hadoop.mapreduce.LzoTextInputFormat"),
+                "com.hadoop.mapreduce.LzoTextInputFormat should be in the supported formats whitelist");
+    }
+
+    @Test
+    public void testSupportedFileFormats_ContainsDeprecatedLzoTextInputFormat() {
+        // lzo-hadoop (org.anarres) legacy mapred API: com.hadoop.mapred.DeprecatedLzoTextInputFormat
+        Assertions.assertTrue(
+                HMSExternalTable.SUPPORTED_HIVE_FILE_FORMATS.contains(
+                        "com.hadoop.mapred.DeprecatedLzoTextInputFormat"),
+                "com.hadoop.mapred.DeprecatedLzoTextInputFormat should be in the supported formats whitelist");
+    }
+
+    // -------------------------------------------------------------------------
+    // Tests for getFileFormatType: LZO tables must reject INSERT INTO
+    // -------------------------------------------------------------------------
+
+    /**
+     * Build a minimal Hive Table SD stub with the given InputFormat class name.
+     */
+    private Table buildRemoteTableWithInputFormat(String inputFormatName) {
+        SerDeInfo serDeInfo = new SerDeInfo();
+        serDeInfo.setSerializationLib("org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe");
+        StorageDescriptor sd = new StorageDescriptor();
+        sd.setInputFormat(inputFormatName);
+        sd.setSerdeInfo(serDeInfo);
+        Table remoteTable = new Table();
+        remoteTable.setSd(sd);
+        return remoteTable;
+    }
+
+    @Test
+    public void testGetFileFormatType_LzoTextInputFormat_ReturnsText() throws UserException {
+        // LZO tables use the LazySimpleSerDe (text SerDe); getFileFormatType() must return
+        // FORMAT_TEXT so that the read path can decode the CSV-like payload inside each .lzo block.
+        // The INSERT rejection lives in BindSink.bindHiveTableSink(), NOT here.
+        String lzoFormat = "com.hadoop.compression.lzo.LzoTextInputFormat";
+        Table remoteTable = buildRemoteTableWithInputFormat(lzoFormat);
+        TestHMSExternalTableWithRemote lzoTable = new TestHMSExternalTableWithRemote(
+                mockCatalog, mockDb, remoteTable);
+        TFileFormatType type = lzoTable.getFileFormatType(null);
+        Assertions.assertEquals(TFileFormatType.FORMAT_TEXT, type,
+                "LZO table with LazySimpleSerDe should resolve to FORMAT_TEXT for reading");
+    }
+
+    @Test
+    public void testGetFileFormatType_DeprecatedLzoTextInputFormat_ReturnsText() throws UserException {
+        String lzoFormat = "com.hadoop.mapred.DeprecatedLzoTextInputFormat";
+        Table remoteTable = buildRemoteTableWithInputFormat(lzoFormat);
+        TestHMSExternalTableWithRemote lzoTable = new TestHMSExternalTableWithRemote(
+                mockCatalog, mockDb, remoteTable);
+        TFileFormatType type = lzoTable.getFileFormatType(null);
+        Assertions.assertEquals(TFileFormatType.FORMAT_TEXT, type,
+                "DeprecatedLzoTextInputFormat table should also resolve to FORMAT_TEXT for reading");
+    }
+
+    @Test
+    public void testGetFileFormatType_MapreduceLzoTextInputFormat_ReturnsText() throws UserException {
+        String lzoFormat = "com.hadoop.mapreduce.LzoTextInputFormat";
+        Table remoteTable = buildRemoteTableWithInputFormat(lzoFormat);
+        TestHMSExternalTableWithRemote lzoTable = new TestHMSExternalTableWithRemote(
+                mockCatalog, mockDb, remoteTable);
+        TFileFormatType type = lzoTable.getFileFormatType(null);
+        Assertions.assertEquals(TFileFormatType.FORMAT_TEXT, type,
+                "com.hadoop.mapreduce.LzoTextInputFormat table should also resolve to FORMAT_TEXT for reading");
+    }
+
+    /**
+     * Variant that exposes a pre-built remote table for getFileFormatType tests.
+     */
+    private static class TestHMSExternalTableWithRemote extends HMSExternalTable {
+        private final Table remoteTable;
+
+        public TestHMSExternalTableWithRemote(HMSExternalCatalog catalog,
+                HMSExternalDatabase db, Table remoteTable) {
+            super(1L, "test_table", "test_table", catalog, db);
+            this.remoteTable = remoteTable;
+        }
+
+        @Override
+        public Table getRemoteTable() {
+            return remoteTable;
+        }
+
+        @Override
+        protected synchronized void makeSureInitialized() {
+            this.objectCreated = true;
+        }
     }
 
     /**

@@ -1,4 +1,12 @@
 use default;
+drop view if exists department_nesting_view;
+drop view if exists department_view;
+drop view if exists unsupported_view;
+drop view if exists test_view4;
+drop view if exists test_view3;
+drop view if exists test_view2;
+drop view if exists test_view1;
+
 create view test_view1 as select * from sale_table;
 create view test_view2 as select * from default.sale_table;
 create view test_view3 as select * from sale_table where bill_code="bill_code1";

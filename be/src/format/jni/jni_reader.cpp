@@ -109,10 +109,10 @@ Status JniReader::open(RuntimeState* state, RuntimeProfile* profile) {
 }
 
 // =========================================================================
-// JniReader::get_next_block  (merged from JniConnector::get_next_block)
+// JniReader::_do_get_next_block  (merged from JniConnector::get_next_block)
 // =========================================================================
 
-Status JniReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
+Status JniReader::_do_get_next_block(Block* block, size_t* read_rows, bool* eof) {
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(Jni::Env::Get(&env));
     long meta_address = 0;
