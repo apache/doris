@@ -1147,6 +1147,14 @@ R163	R163
 1	\N
 4	\N
 
+-- !hamming_distance_left_cast_null_nullable --
+1	\N
+4	\N
+
+-- !hamming_distance_right_cast_null_nullable --
+1	\N
+4	\N
+
 -- !nereids_levenshtein_337 --
 3	\N	1
 

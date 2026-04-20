@@ -904,6 +904,8 @@ suite("string_functions_all") {
     qt_hamming_distance_scalar_vector_nullable_utf8 "SELECT id, hamming_distance('你们', s1) FROM string_distance_hd_test WHERE id = 3 ORDER BY id"
     qt_hamming_distance_left_const_null_nullable "SELECT id, hamming_distance(NULL, s1) FROM string_distance_hd_test WHERE id IN (1, 4) ORDER BY id"
     qt_hamming_distance_right_const_null_nullable "SELECT id, hamming_distance(s1, NULL) FROM string_distance_hd_test WHERE id IN (1, 4) ORDER BY id"
+    qt_hamming_distance_left_cast_null_nullable "SELECT id, hamming_distance(CAST(NULL AS STRING), s1) FROM string_distance_hd_test WHERE id IN (1, 4) ORDER BY id"
+    qt_hamming_distance_right_cast_null_nullable "SELECT id, hamming_distance(s1, CAST(NULL AS STRING)) FROM string_distance_hd_test WHERE id IN (1, 4) ORDER BY id"
     test {
         sql "SELECT hamming_distance(s1, 'ab') FROM string_distance_hd_test WHERE id = 1"
         exception "hamming_distance requires strings of the same length"

@@ -69,12 +69,8 @@ public:
         const IColumn* right_nested =
                 right_nullable ? &right_nullable->get_nested_column() : right_col.get();
 
-        const auto* left_str_col = check_and_get_column<ColumnString>(left_nested);
-        const auto* right_str_col = check_and_get_column<ColumnString>(right_nested);
-        if (!left_str_col || !right_str_col) {
-            return Status::NotSupported("Illegal columns {}, {} of argument of function {}",
-                                        left_col->get_name(), right_col->get_name(), get_name());
-        }
+        const auto* left_str_col = assert_cast<const ColumnString*>(left_nested);
+        const auto* right_str_col = assert_cast<const ColumnString*>(right_nested);
 
         auto res_col = ResultColumnType::create(input_rows_count);
         auto& res_data = res_col->get_data();
