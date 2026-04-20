@@ -450,4 +450,28 @@ public class RuntimeFilterTest extends SSBTestBase {
         List<RuntimeFilter> filters = context.getNereidsRuntimeFilter();
         Assertions.assertEquals(0, filters.size());
     }
+
+    @Test
+    public void testRuntimeFilterBlockByGroupingSets() {
+        String sql = "SELECT d_datekey FROM ("
+                + "SELECT lo_custkey, lo_orderdate FROM lineorder GROUP BY GROUPING SETS ((lo_custkey, lo_orderdate), (lo_custkey))) t "
+                + "inner join dates "
+                + "on lo_orderdate = d_datekey";
+        List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
+        // Runtime filter should not be generated because lo_orderdate is not in all grouping sets
+        Assertions.assertEquals(0, filters.size());
+    }
+
+    @Test
+    public void testRuntimeFilterPushdownThroughGroupingSetsWhenAllMatch() {
+        String sql = "SELECT d_datekey FROM ("
+                + "SELECT lo_custkey, lo_orderdate FROM lineorder GROUP BY GROUPING SETS ((lo_custkey, lo_orderdate), (lo_custkey))) t "
+                + "inner join dates "
+                + "on lo_custkey = d_datekey";
+        List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
+        // Runtime filter should be generated because lo_custkey is in all grouping sets
+        Assertions.assertEquals(1, filters.size());
+        checkRuntimeFilterExprs(filters, ImmutableList.of(
+                Pair.of("d_datekey", "lo_custkey")));
+    }
 }

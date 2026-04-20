@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlap
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
@@ -55,9 +56,11 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * push down rf
@@ -188,6 +191,23 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
             }
         }
         return pushed;
+    }
+
+    @Override
+    public Boolean visitPhysicalRepeat(PhysicalRepeat<? extends Plan> repeat, PushDownContext ctx) {
+        // Do not push down runtime filter through grouping sets (PhysicalRepeat)
+        // Grouping sets generate multiple aggregation groups, which may cause incorrect results
+        // if runtime filters are pushed down through them
+        boolean allMatch = repeat.getGroupingSets().stream().allMatch(expressions -> {
+            Set<Slot> inputSlots = expressions.stream().map(Expression::getInputSlots)
+                    .flatMap(Collection::stream).collect(Collectors.toSet());
+            return inputSlots.containsAll(ctx.probeExpr.getInputSlots());
+        });
+        if (allMatch) {
+            return repeat.child().accept(this, ctx);
+        } else {
+            return false;
+        }
     }
 
     @Override
