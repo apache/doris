@@ -1021,7 +1021,7 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
     // Step 1: get local tablet
     auto const& local_tablet_id = request.local_tablet_id;
     auto local_tablet = _engine.tablet_manager()->get_tablet(local_tablet_id);
-    if (local_tablet == nullptr) {
+    if (!local_tablet.has_value()) {
         auto error_msg = fmt::format("tablet {} not found", local_tablet_id);
         LOG(WARNING) << error_msg;
         set_tstatus(TStatusCode::TABLET_MISSING, std::move(error_msg));
@@ -1038,7 +1038,8 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
 
     {
         // TODO: Before push_lock is not held, but I think it should hold.
-        auto status = local_tablet->prepare_txn(partition_id, txn_id, p_load_id, is_ingrest);
+        auto status =
+                local_tablet.value()->prepare_txn(partition_id, txn_id, p_load_id, is_ingrest);
         if (!status.ok()) {
             LOG(WARNING) << "prepare txn failed. txn_id=" << txn_id
                          << ", status=" << status.to_string();
@@ -1055,7 +1056,7 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
                 .txn_id = txn_id,
                 .partition_id = partition_id,
                 .local_tablet_id = local_tablet_id,
-                .local_tablet = local_tablet,
+                .local_tablet = local_tablet.value(),
 
                 .request = request,
                 .tstatus = is_async ? nullptr : tstatus,
@@ -1116,7 +1117,7 @@ void BackendService::query_ingest_binlog(TQueryIngestBinlogResult& result,
 
     // Step 1: get local tablet
     auto local_tablet = _engine.tablet_manager()->get_tablet(tablet_id);
-    if (local_tablet == nullptr) {
+    if (!local_tablet.has_value()) {
         auto error_msg = fmt::format("tablet {} not found", tablet_id);
         LOG(WARNING) << error_msg;
         set_result(TIngestBinlogStatus::NOT_FOUND, std::move(error_msg));
@@ -1124,7 +1125,7 @@ void BackendService::query_ingest_binlog(TQueryIngestBinlogResult& result,
     }
 
     // Step 2: get txn state
-    auto tablet_uid = local_tablet->tablet_uid();
+    auto tablet_uid = local_tablet.value()->tablet_uid();
     auto txn_state =
             _engine.txn_manager()->get_txn_state(partition_id, txn_id, tablet_id, tablet_uid);
     switch (txn_state) {

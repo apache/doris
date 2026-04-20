@@ -64,17 +64,17 @@ const auto& get_http_param(HttpRequest* req, const std::string& param_name) {
     return param;
 }
 
-auto get_tablet(StorageEngine& engine, const std::string& tablet_id_str) {
+TabletSharedPtr get_tablet(StorageEngine& engine, const std::string& tablet_id_str) {
     int64_t tablet_id = std::atoll(tablet_id_str.data());
 
-    TabletSharedPtr tablet = engine.tablet_manager()->get_tablet(tablet_id);
-    if (tablet == nullptr) {
+    auto tablet = engine.tablet_manager()->get_tablet(tablet_id);
+    if (!tablet.has_value()) {
         auto error = fmt::format("tablet is not exist, tablet_id={}", tablet_id);
         LOG(WARNING) << error;
         throw std::runtime_error(error);
     }
 
-    return tablet;
+    return tablet.value();
 }
 
 // need binlog_version, tablet_id

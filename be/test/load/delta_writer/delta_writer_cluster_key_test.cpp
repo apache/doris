@@ -298,7 +298,7 @@ TEST_F(TestDeltaWriterClusterKey, vec_sequence_col) {
     ASSERT_TRUE(res.ok());
 
     // publish version success
-    TabletSharedPtr tablet = engine_ref->tablet_manager()->get_tablet(write_req.tablet_id);
+    TabletSharedPtr tablet = engine_ref->tablet_manager()->get_tablet(write_req.tablet_id).value();
     std::cout << "before publish, tablet row nums:" << tablet->num_rows() << std::endl;
     OlapMeta* meta = tablet->data_dir()->get_meta();
     Version version;

@@ -361,8 +361,8 @@ public:
 
             for (const auto& req : request->tablets()) {
                 TabletManager* tablet_mgr = engine_ref->tablet_manager();
-                TabletSharedPtr tablet = tablet_mgr->get_tablet(req.tablet_id());
-                if (tablet == nullptr) {
+                auto tablet = tablet_mgr->get_tablet(req.tablet_id());
+                if (!tablet.has_value()) {
                     cntl->SetFailed("Tablet not found");
                     status->set_status_code(TStatusCode::NOT_FOUND);
                     response->set_allocated_status(status.get());
@@ -372,8 +372,8 @@ public:
                 auto resp = response->add_tablet_schemas();
                 resp->set_index_id(req.index_id());
                 resp->set_enable_unique_key_merge_on_write(
-                        tablet->enable_unique_key_merge_on_write());
-                tablet->tablet_schema()->to_schema_pb(resp->mutable_tablet_schema());
+                        tablet.value()->enable_unique_key_merge_on_write());
+                tablet.value()->tablet_schema()->to_schema_pb(resp->mutable_tablet_schema());
             }
 
             LoadStream* load_stream;
@@ -630,7 +630,7 @@ public:
     }
 
     std::string read_data(int64_t txn_id, int64_t partition_id, int64_t tablet_id, uint32_t segid) {
-        auto tablet = engine_ref->tablet_manager()->get_tablet(tablet_id);
+        auto tablet = engine_ref->tablet_manager()->get_tablet(tablet_id).value();
         std::map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
         engine_ref->txn_manager()->get_txn_related_tablets(txn_id, partition_id,
                                                            &tablet_related_rs);

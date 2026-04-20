@@ -282,9 +282,9 @@ Status EnginePublishVersionTask::execute() {
                                                                 &partition_related_tablet_infos);
         Version version(par_ver_info.version, par_ver_info.version);
         for (auto& tablet_info : partition_related_tablet_infos) {
-            TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_info.tablet_id);
+            auto tablet = _engine.tablet_manager()->get_tablet(tablet_info.tablet_id);
             auto tablet_id = tablet_info.tablet_id;
-            if (tablet == nullptr) {
+            if (!tablet.has_value()) {
                 add_error_tablet_id(tablet_id);
                 _succ_tablets->erase(tablet_id);
                 LOG(WARNING) << "publish version failed on transaction, not found tablet. "
@@ -293,7 +293,7 @@ Status EnginePublishVersionTask::execute() {
             } else {
                 // check if the version exist, if not exist, then set publish failed
                 if (_error_tablet_ids->find(tablet_id) == _error_tablet_ids->end()) {
-                    if (tablet->check_version_exist(version)) {
+                    if (tablet.value()->check_version_exist(version)) {
                         // it's better to report the max continous succ version,
                         // but it maybe time cost now.
                         // current just report 0
@@ -306,7 +306,7 @@ Status EnginePublishVersionTask::execute() {
                                        "exists. "
                                     << "transaction_id=" << transaction_id
                                     << ", tablet_id=" << tablet_id << ", tablet_state="
-                                    << tablet_state_name(tablet->tablet_state())
+                                    << tablet_state_name(tablet.value()->tablet_state())
                                     << ", version=" << par_ver_info.version;
                         }
                     }
@@ -391,11 +391,11 @@ void EnginePublishVersionTask::_calculate_tbl_num_delta_rows(
         const std::unordered_map<int64_t, int64_t>& tablet_id_to_num_delta_rows) {
     for (const auto& kv : tablet_id_to_num_delta_rows) {
         auto tablet = _engine.tablet_manager()->get_tablet(kv.first);
-        if (!tablet) {
+        if (!tablet.has_value()) {
             LOG(WARNING) << "cant find tablet by tablet_id=" << kv.first;
             continue;
         }
-        auto table_id = tablet->get_table_id();
+        auto table_id = tablet.value()->get_table_id();
         if (kv.second > 0) {
             (*_table_id_to_tablet_id_to_num_delta_rows)[table_id][kv.first] += kv.second;
             VLOG_DEBUG << "report delta rows to fe, table_id=" << table_id

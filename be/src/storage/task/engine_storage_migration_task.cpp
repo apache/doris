@@ -180,10 +180,7 @@ Status EngineStorageMigrationTask::_reload_tablet(const std::string& full_path) 
 
     // if old tablet finished schema change, then the schema change status of the new tablet is DONE
     // else the schema change status of the new tablet is FAILED
-    TabletSharedPtr new_tablet = _engine.tablet_manager()->get_tablet(tablet_id);
-    if (new_tablet == nullptr) {
-        return Status::NotFound("could not find tablet {}", tablet_id);
-    }
+    DORIS_TRY(_engine.tablet_manager()->get_tablet(tablet_id));
     return Status::OK();
 }
 

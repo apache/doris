@@ -326,8 +326,8 @@ private:
     Status _calc_delete_bitmap_for_mow_table(int64_t alter_version);
 
     StorageEngine& _local_storage_engine;
-    TabletSharedPtr _base_tablet;
-    TabletSharedPtr _new_tablet;
+    Result<TabletSharedPtr> _base_tablet;
+    Result<TabletSharedPtr> _new_tablet;
     TabletSchemaSPtr _base_tablet_schema;
     TabletSchemaSPtr _new_tablet_schema;
     std::shared_mutex _mutex;

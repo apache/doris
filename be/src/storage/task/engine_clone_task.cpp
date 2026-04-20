@@ -189,42 +189,43 @@ Status EngineCloneTask::_do_clone() {
     }};
 
     // Check local tablet exist or not
-    TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(_clone_req.tablet_id);
+    auto tablet = _engine.tablet_manager()->get_tablet(_clone_req.tablet_id);
 
     // The status of a tablet is not ready, indicating that it is a residual tablet after a schema
     // change failure. Clone a new tablet from remote be to overwrite it. This situation basically only
     // occurs when the be_rebalancer_fuzzy_test configuration is enabled.
-    if (tablet && tablet->tablet_state() == TABLET_NOTREADY) {
+    if (tablet.has_value() && tablet.value()->tablet_state() == TABLET_NOTREADY) {
         LOG(WARNING) << "tablet state is not ready when clone, need to drop old tablet, tablet_id="
-                     << tablet->tablet_id();
-        RETURN_IF_ERROR(_engine.tablet_manager()->drop_tablet(tablet->tablet_id(),
-                                                              tablet->replica_id(), false));
-        tablet.reset();
+                     << tablet.value()->tablet_id();
+        RETURN_IF_ERROR(_engine.tablet_manager()->drop_tablet(tablet.value()->tablet_id(),
+                                                              tablet.value()->replica_id(), false));
+        tablet->reset();
     }
-    _is_new_tablet = tablet == nullptr;
+    _is_new_tablet = !tablet.has_value();
     // try to incremental clone
     Versions missed_versions;
     // try to repair a tablet with missing version
-    if (tablet != nullptr) {
-        std::shared_lock migration_rlock(tablet->get_migration_lock(), std::try_to_lock);
+    if (tablet.has_value()) {
+        std::shared_lock migration_rlock(tablet.value()->get_migration_lock(), std::try_to_lock);
         if (!migration_rlock.owns_lock()) {
             return Status::Error<TRY_LOCK_FAILED>(
                     "EngineCloneTask::_do_clone meet try lock failed");
         }
-        if (tablet->replica_id() < _clone_req.replica_id) {
+        if (tablet.value()->replica_id() < _clone_req.replica_id) {
             // `tablet` may be a dropped replica in FE, e.g:
             //   BE1 migrates replica of tablet_1 to BE2, but before BE1 drop this replica, another new replica of tablet_1 is migrated to BE1.
             // Clone can still continue in this case. But to keep `replica_id` consitent with FE, MUST reset `replica_id` with request `replica_id`.
-            tablet->tablet_meta()->set_replica_id(_clone_req.replica_id);
+            tablet.value()->tablet_meta()->set_replica_id(_clone_req.replica_id);
         }
 
         // get download path
-        auto local_data_path = fmt::format("{}/{}", tablet->tablet_path(), CLONE_PREFIX);
+        auto local_data_path = fmt::format("{}/{}", tablet.value()->tablet_path(), CLONE_PREFIX);
         bool allow_incremental_clone = false;
 
         int64_t specified_version = _clone_req.version;
-        if (tablet->enable_unique_key_merge_on_write()) {
-            int64_t min_pending_ver = _engine.get_pending_publish_min_version(tablet->tablet_id());
+        if (tablet.value()->enable_unique_key_merge_on_write()) {
+            int64_t min_pending_ver =
+                    _engine.get_pending_publish_min_version(tablet.value()->tablet_id());
             if (min_pending_ver - 1 < specified_version) {
                 LOG(INFO) << "use min pending publish version for clone, min_pending_ver: "
                           << min_pending_ver << " visible_version: " << _clone_req.version;
@@ -232,7 +233,7 @@ Status EngineCloneTask::_do_clone() {
             }
         }
 
-        missed_versions = tablet->get_missed_versions(specified_version);
+        missed_versions = tablet.value()->get_missed_versions(specified_version);
 
         // if missed version size is 0, then it is useless to clone from remote be, it means local data is
         // completed. Or remote be will just return header not the rowset files. clone will failed.
@@ -252,10 +253,10 @@ Status EngineCloneTask::_do_clone() {
         // try to download missing version from src backend.
         // if tablet on src backend does not contains missing version, it will download all versions,
         // and set allow_incremental_clone to false
-        RETURN_IF_ERROR(_make_and_download_snapshots(*(tablet->data_dir()), local_data_path,
+        RETURN_IF_ERROR(_make_and_download_snapshots(*(tablet.value()->data_dir()), local_data_path,
                                                      &src_host, &src_file_path, missed_versions,
                                                      &allow_incremental_clone));
-        RETURN_IF_ERROR(_finish_clone(tablet.get(), local_data_path, specified_version,
+        RETURN_IF_ERROR(_finish_clone(tablet->get(), local_data_path, specified_version,
                                       allow_incremental_clone));
     } else {
         LOG(INFO) << "clone tablet not exist, begin clone a new tablet from remote be. "
@@ -312,7 +313,7 @@ Status EngineCloneTask::_do_clone() {
             return status;
         }
         // MUST reset `replica_id` to request `replica_id` to keep consistent with FE
-        nested_tablet->tablet_meta()->set_replica_id(_clone_req.replica_id);
+        nested_tablet.value()->tablet_meta()->set_replica_id(_clone_req.replica_id);
         // clone success, delete .hdr file because tablet meta is stored in rocksdb
         std::string header_path =
                 TabletMeta::construct_header_file_path(tablet_dir, _clone_req.tablet_id);

@@ -155,15 +155,13 @@ Status DeleteBitmapAction::_handle_show_local_delete_bitmap_count(HttpRequest* r
                 "DeleteBitmapAction._handle_show_local_delete_bitmap_count.vacuum_stale_rowsets",
                 { _engine.to_cloud().tablet_mgr().vacuum_stale_rowsets(CountDownLatch(1)); });
     } else {
-        tablet = _engine.to_local().tablet_manager()->get_tablet(tablet_id);
+        tablet = DORIS_TRY(_engine.to_local().tablet_manager()->get_tablet(tablet_id));
         DBUG_EXECUTE_IF(
                 "DeleteBitmapAction._handle_show_local_delete_bitmap_count.start_delete_unused_"
                 "rowset",
                 { _engine.to_local().start_delete_unused_rowset(); });
     }
-    if (tablet == nullptr) {
-        return Status::NotFound("Tablet not found. tablet_id={}", tablet_id);
-    }
+
     auto dm = tablet->tablet_meta()->delete_bitmap().snapshot();
     _show_delete_bitmap(dm, verbose, json_result);
     return Status::OK();
@@ -209,15 +207,13 @@ Status DeleteBitmapAction::_handle_show_agg_cache_delete_bitmap_count(HttpReques
                 "DeleteBitmapAction._handle_show_local_delete_bitmap_count.vacuum_stale_rowsets",
                 { _engine.to_cloud().tablet_mgr().vacuum_stale_rowsets(CountDownLatch(1)); });
     } else {
-        tablet = _engine.to_local().tablet_manager()->get_tablet(tablet_id);
+        tablet = DORIS_TRY(_engine.to_local().tablet_manager()->get_tablet(tablet_id));
         DBUG_EXECUTE_IF(
                 "DeleteBitmapAction._handle_show_local_delete_bitmap_count.start_delete_unused_"
                 "rowset",
                 { _engine.to_local().start_delete_unused_rowset(); });
     }
-    if (tablet == nullptr) {
-        return Status::NotFound("Tablet not found. tablet_id={}", tablet_id);
-    }
+
     auto dbm = tablet->tablet_meta()->delete_bitmap().agg_cache_snapshot();
     _show_delete_bitmap(dbm, verbose, json_result);
     return Status::OK();

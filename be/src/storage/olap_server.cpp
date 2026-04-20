@@ -815,7 +815,7 @@ void StorageEngine::_update_replica_infos_callback() {
             for (const auto& it : result.tablet_replica_infos) {
                 auto tablet_id = it.first;
                 auto tablet = _tablet_manager->get_tablet(tablet_id);
-                if (tablet == nullptr) {
+                if (!tablet.has_value()) {
                     VLOG_CRITICAL << "tablet ptr is nullptr";
                     continue;
                 }
@@ -902,12 +902,12 @@ Status StorageEngine::_submit_single_replica_compaction_task(TabletSharedPtr tab
 
 void StorageEngine::get_tablet_rowset_versions(const PGetTabletVersionsRequest* request,
                                                PGetTabletVersionsResponse* response) {
-    TabletSharedPtr tablet = _tablet_manager->get_tablet(request->tablet_id());
-    if (tablet == nullptr) {
+    auto tablet = _tablet_manager->get_tablet(request->tablet_id());
+    if (!tablet.has_value()) {
         response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
         return;
     }
-    std::vector<Version> local_versions = tablet->get_all_local_versions();
+    std::vector<Version> local_versions = tablet.value()->get_all_local_versions();
     for (const auto& local_version : local_versions) {
         auto version = response->add_versions();
         version->set_first(local_version.first);
@@ -1327,16 +1327,17 @@ Status StorageEngine::submit_seg_compaction_task(std::shared_ptr<SegcompactionWo
 
 Status StorageEngine::process_index_change_task(const TAlterInvertedIndexReq& request) {
     auto tablet_id = request.tablet_id;
-    TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
-    DBUG_EXECUTE_IF("StorageEngine::process_index_change_task_tablet_nullptr",
-                    { tablet = nullptr; })
-    if (tablet == nullptr) {
+    auto tablet = _tablet_manager->get_tablet(tablet_id);
+    DBUG_EXECUTE_IF("StorageEngine::process_index_change_task_tablet_error",
+                    { tablet = ResultError(Status::InternalError("get tablet error")); })
+    if (!tablet.has_value()) {
         LOG(WARNING) << "tablet: " << tablet_id << " not exist";
         return Status::InternalError("tablet not exist, tablet_id={}.", tablet_id);
     }
 
-    IndexBuilderSharedPtr index_builder = std::make_shared<IndexBuilder>(
-            *this, tablet, request.columns, request.alter_inverted_indexes, request.is_drop_op);
+    IndexBuilderSharedPtr index_builder =
+            std::make_shared<IndexBuilder>(*this, tablet.value(), request.columns,
+                                           request.alter_inverted_indexes, request.is_drop_op);
     RETURN_IF_ERROR(_handle_index_change(index_builder));
     return Status::OK();
 }
@@ -1725,8 +1726,8 @@ void StorageEngine::add_async_publish_task(int64_t partition_id, int64_t tablet_
         if (exists) {
             return;
         }
-        TabletSharedPtr tablet = tablet_manager()->get_tablet(tablet_id);
-        if (tablet == nullptr) {
+        auto tablet = tablet_manager()->get_tablet(tablet_id);
+        if (!tablet.has_value()) {
             LOG(INFO) << "tablet may be dropped when add async publish task, tablet_id: "
                       << tablet_id;
             return;
@@ -1736,7 +1737,7 @@ void StorageEngine::add_async_publish_task(int64_t partition_id, int64_t tablet_
         pending_publish_info_pb.set_transaction_id(transaction_id);
         pending_publish_info_pb.set_commit_tso(commit_tso);
         static_cast<void>(TabletMetaManager::save_pending_publish_info(
-                tablet->data_dir(), tablet->tablet_id(), publish_version,
+                tablet.value()->data_dir(), tablet.value()->tablet_id(), publish_version,
                 pending_publish_info_pb.SerializeAsString()));
     }
     LOG(INFO) << "add pending publish task, tablet_id: " << tablet_id
@@ -1770,8 +1771,8 @@ void StorageEngine::_process_async_publish() {
                 continue;
             }
             int64_t tablet_id = tablet_iter->first;
-            TabletSharedPtr tablet = tablet_manager()->get_tablet(tablet_id);
-            if (!tablet) {
+            auto tablet = tablet_manager()->get_tablet(tablet_id);
+            if (!tablet.has_value()) {
                 LOG(WARNING) << "tablet does not exist when async publush, tablet_id: "
                              << tablet_id;
                 tablet_iter = _async_publish_tasks.erase(tablet_iter);
@@ -1783,19 +1784,19 @@ void StorageEngine::_process_async_publish() {
             int64_t transaction_id = std::get<0>(task_iter->second);
             int64_t partition_id = std::get<1>(task_iter->second);
             int64_t commit_tso = std::get<2>(task_iter->second);
-            int64_t max_version = tablet->max_version().second;
+            int64_t max_version = tablet.value()->max_version().second;
 
             if (version <= max_version) {
-                need_removed_tasks.emplace_back(tablet, version);
+                need_removed_tasks.emplace_back(tablet.value(), version);
                 tablet_iter->second.erase(task_iter);
                 tablet_iter++;
                 continue;
             }
             if (version != max_version + 1) {
-                int32_t max_version_config = tablet->max_version_config();
+                int32_t max_version_config = tablet.value()->max_version_config();
                 // Keep only the most recent versions
                 while (tablet_iter->second.size() > max_version_config) {
-                    need_removed_tasks.emplace_back(tablet, version);
+                    need_removed_tasks.emplace_back(tablet.value(), version);
                     task_iter = tablet_iter->second.erase(task_iter);
                     version = task_iter->first;
                 }
@@ -1804,11 +1805,11 @@ void StorageEngine::_process_async_publish() {
             }
 
             auto async_publish_task = std::make_shared<AsyncTabletPublishTask>(
-                    *this, tablet, partition_id, transaction_id, version, commit_tso);
+                    *this, tablet.value(), partition_id, transaction_id, version, commit_tso);
             static_cast<void>(_tablet_publish_txn_thread_pool->submit_func(
                     [=]() { async_publish_task->handle(); }));
             tablet_iter->second.erase(task_iter);
-            need_removed_tasks.emplace_back(tablet, version);
+            need_removed_tasks.emplace_back(tablet.value(), version);
             tablet_iter++;
         }
     }

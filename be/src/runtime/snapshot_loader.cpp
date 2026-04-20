@@ -937,13 +937,7 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
             return Status::InternalError(ss.str());
         }
 
-        TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(local_tablet_id);
-        if (tablet == nullptr) {
-            std::stringstream ss;
-            ss << "failed to get local tablet: " << local_tablet_id;
-            LOG(WARNING) << ss.str();
-            return Status::InternalError(ss.str());
-        }
+        auto tablet = DORIS_TRY(_engine.tablet_manager()->get_tablet(local_tablet_id));
         DataDir* data_dir = tablet->data_dir();
 
         for (auto& remote_iter : remote_files) {
@@ -1083,18 +1077,13 @@ Status SnapshotLoader::remote_http_download(
                 "download snapshots via http. job: {}, task id: {}, local dir: {}, remote dir: {}",
                 _job_id, _task_id, local_path, remote_path);
 
-        TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(local_tablet_id);
-        if (tablet == nullptr) {
-            std::string msg = fmt::format("failed to get local tablet: {}", local_tablet_id);
-            LOG(WARNING) << msg;
-            return Status::RuntimeError(std::move(msg));
-        }
+        auto tablet = DORIS_TRY(_engine.tablet_manager()->get_tablet(local_tablet_id));
 
         if (downloaded_tablet_ids != nullptr) {
             downloaded_tablet_ids->push_back(local_tablet_id);
         }
 
-        SnapshotHttpDownloader downloader(remote_tablet_snapshot, std::move(tablet), *this);
+        SnapshotHttpDownloader downloader(remote_tablet_snapshot, tablet, *this);
 #ifndef BE_TEST
         int report_counter = 0;
         int finished_num = 0;

@@ -475,10 +475,11 @@ Status DataDir::load() {
     }
 
     for (int64_t tablet_id : tablet_ids) {
-        TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id);
-        if (tablet && tablet->set_tablet_schema_into_rowset_meta()) {
-            RETURN_IF_ERROR(TabletMetaManager::save(this, tablet->tablet_id(),
-                                                    tablet->schema_hash(), tablet->tablet_meta()));
+        auto tablet = _engine.tablet_manager()->get_tablet(tablet_id);
+        if (tablet.has_value() && tablet.value()->set_tablet_schema_into_rowset_meta()) {
+            RETURN_IF_ERROR(TabletMetaManager::save(this, tablet.value()->tablet_id(),
+                                                    tablet.value()->schema_hash(),
+                                                    tablet.value()->tablet_meta()));
         }
     }
 
@@ -523,9 +524,9 @@ Status DataDir::load() {
     // ignore any errors when load tablet or rowset, because fe will repair them after report
     int64_t invalid_rowset_counter = 0;
     for (auto&& rowset_meta : dir_rowset_metas) {
-        TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(rowset_meta->tablet_id());
+        auto tablet = _engine.tablet_manager()->get_tablet(rowset_meta->tablet_id());
         // tablet maybe dropped, but not drop related rowset meta
-        if (tablet == nullptr) {
+        if (!tablet.has_value()) {
             VLOG_NOTICE << "could not find tablet id: " << rowset_meta->tablet_id()
                         << ", schema hash: " << rowset_meta->tablet_schema_hash()
                         << ", for rowset: " << rowset_meta->rowset_id() << ", skip this rowset";
@@ -534,14 +535,14 @@ Status DataDir::load() {
         }
 
         if (rowset_meta->partition_id() == 0) {
-            LOG(WARNING) << "skip tablet_id=" << tablet->tablet_id()
+            LOG(WARNING) << "skip tablet_id=" << tablet.value()->tablet_id()
                          << " rowset: " << rowset_meta->rowset_id()
                          << " txn: " << rowset_meta->txn_id();
             continue;
         }
 
         RowsetSharedPtr rowset;
-        Status create_status = tablet->create_rowset(rowset_meta, &rowset);
+        Status create_status = tablet.value()->create_rowset(rowset_meta, &rowset);
         if (!create_status) {
             LOG(WARNING) << "could not create rowset from rowsetmeta: "
                          << " rowset_id: " << rowset_meta->rowset_id()
@@ -550,9 +551,9 @@ Status DataDir::load() {
             continue;
         }
         if (rowset_meta->rowset_state() == RowsetStatePB::COMMITTED &&
-            rowset_meta->tablet_uid() == tablet->tablet_uid()) {
+            rowset_meta->tablet_uid() == tablet.value()->tablet_uid()) {
             if (!rowset_meta->tablet_schema()) {
-                rowset_meta->set_tablet_schema(tablet->tablet_schema());
+                rowset_meta->set_tablet_schema(tablet.value()->tablet_schema());
                 RETURN_IF_ERROR(RowsetMetaManager::save(_meta, rowset_meta->tablet_uid(),
                                                         rowset_meta->rowset_id(),
                                                         rowset_meta->get_rowset_pb(), false));
@@ -580,14 +581,14 @@ Status DataDir::load() {
                              << " error: " << commit_txn_status;
             }
         } else if (rowset_meta->rowset_state() == RowsetStatePB::VISIBLE &&
-                   rowset_meta->tablet_uid() == tablet->tablet_uid()) {
+                   rowset_meta->tablet_uid() == tablet.value()->tablet_uid()) {
             if (!rowset_meta->tablet_schema()) {
-                rowset_meta->set_tablet_schema(tablet->tablet_schema());
+                rowset_meta->set_tablet_schema(tablet.value()->tablet_schema());
                 RETURN_IF_ERROR(RowsetMetaManager::save(_meta, rowset_meta->tablet_uid(),
                                                         rowset_meta->rowset_id(),
                                                         rowset_meta->get_rowset_pb(), false));
             }
-            Status publish_status = tablet->add_rowset(rowset);
+            Status publish_status = tablet.value()->add_rowset(rowset);
             if (!publish_status && !publish_status.is<PUSH_VERSION_ALREADY_EXIST>()) {
                 LOG(WARNING) << "add visible rowset to tablet failed rowset_id:"
                              << rowset->rowset_id() << " tablet id: " << rowset_meta->tablet_id()
@@ -601,7 +602,7 @@ Status DataDir::load() {
                          << " tablet uid: " << rowset_meta->tablet_uid()
                          << " schema hash: " << rowset_meta->tablet_schema_hash()
                          << " txn: " << rowset_meta->txn_id()
-                         << " current valid tablet uid: " << tablet->tablet_uid();
+                         << " current valid tablet uid: " << tablet.value()->tablet_uid();
             ++invalid_rowset_counter;
         }
     }
@@ -611,11 +612,11 @@ Status DataDir::load() {
     auto load_delete_bitmap_func = [this, &dbm_cnt, &unknown_dbm_cnt](int64_t tablet_id,
                                                                       int64_t version,
                                                                       std::string_view val) {
-        TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id);
-        if (!tablet) {
+        auto tablet = _engine.tablet_manager()->get_tablet(tablet_id);
+        if (!tablet.has_value()) {
             return true;
         }
-        const auto& all_rowsets = tablet->tablet_meta()->all_rs_metas();
+        const auto& all_rowsets = tablet.value()->tablet_meta()->all_rs_metas();
         RowsetIdUnorderedSet rowset_ids;
         for (const auto& [_, rowset_meta] : all_rowsets) {
             rowset_ids.insert(rowset_meta->rowset_id());
@@ -638,15 +639,15 @@ Status DataDir::load() {
             }
             ++dbm_cnt;
             auto seg_id = delete_bitmap_pb.segment_ids(i);
-            auto iter = tablet->tablet_meta()->delete_bitmap().delete_bitmap.find(
+            auto iter = tablet.value()->tablet_meta()->delete_bitmap().delete_bitmap.find(
                     {rst_id, seg_id, version});
             // This version of delete bitmap already exists
-            if (iter != tablet->tablet_meta()->delete_bitmap().delete_bitmap.end()) {
+            if (iter != tablet.value()->tablet_meta()->delete_bitmap().delete_bitmap.end()) {
                 continue;
             }
             auto bitmap = delete_bitmap_pb.segment_delete_bitmaps(i).data();
-            tablet->tablet_meta()->delete_bitmap().delete_bitmap[{rst_id, seg_id, version}] =
-                    roaring::Roaring::read(bitmap);
+            tablet.value()->tablet_meta()->delete_bitmap().delete_bitmap[{
+                    rst_id, seg_id, version}] = roaring::Roaring::read(bitmap);
         }
         return true;
     };
@@ -686,10 +687,10 @@ void DataDir::_perform_tablet_gc(const std::string& tablet_schema_hash_path, int
     }
 
     auto tablet = _engine.tablet_manager()->get_tablet(tablet_id);
-    if (!tablet || tablet->data_dir() != this) {
+    if (!tablet || tablet.value()->data_dir() != this) {
         if (tablet) {
             LOG(INFO) << "The tablet in path " << tablet_schema_hash_path
-                      << " is not same with the running one: " << tablet->tablet_path()
+                      << " is not same with the running one: " << tablet.value()->tablet_path()
                       << ", might be the old tablet after migration, try to move it to trash";
         }
         _engine.tablet_manager()->try_delete_unused_tablet_path(this, tablet_id, schema_hash,
@@ -722,7 +723,7 @@ void DataDir::_perform_rowset_gc(const std::string& tablet_schema_hash_path) {
         return;
     }
 
-    if (tablet->data_dir() != this) {
+    if (tablet.value()->data_dir() != this) {
         // Current running tablet is not in same data_dir, maybe it's a tablet after migration,
         // will be reclaimed in the next time `_perform_path_gc_by_tablet`
         return;
@@ -753,7 +754,7 @@ void DataDir::_perform_rowset_gc(const std::string& tablet_schema_hash_path) {
     }
 
     RowsetIdUnorderedSet rowsets_in_version_map;
-    tablet->traverse_rowsets(
+    tablet.value()->traverse_rowsets(
             [&rowsets_in_version_map](auto& rs) { rowsets_in_version_map.insert(rs->rowset_id()); },
             true);
 
@@ -777,7 +778,7 @@ void DataDir::_perform_rowset_gc(const std::string& tablet_schema_hash_path) {
     auto should_reclaim = [&, this](const RowsetId& rowset_id) {
         return !rowsets_in_version_map.contains(rowset_id) &&
                !_engine.check_rowset_id_in_unused_rowsets(rowset_id) &&
-               RowsetMetaManager::exists(get_meta(), tablet->tablet_uid(), rowset_id)
+               RowsetMetaManager::exists(get_meta(), tablet.value()->tablet_uid(), rowset_id)
                        .is<META_KEY_NOT_FOUND>();
     };
 

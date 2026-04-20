@@ -299,7 +299,7 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
         // if base_tablet_id's lock diffrent with new_tablet_id, we need lock it.
         if (need_two_lock) {
             SCOPED_TIMER(ADD_TIMER(profile, "GetBaseTablet"));
-            base_tablet = get_tablet(request.base_tablet_id);
+            base_tablet = DORIS_TRY(get_tablet(request.base_tablet_id));
             two_tablet_lock.unlock();
         } else {
             SCOPED_TIMER(ADD_TIMER(profile, "GetBaseTabletUnlocked"));
@@ -590,9 +590,18 @@ Status TabletManager::_drop_tablet(TTabletId tablet_id, TReplicaId replica_id, b
     return Status::OK();
 }
 
-TabletSharedPtr TabletManager::get_tablet(TTabletId tablet_id, bool include_deleted, string* err) {
+Result<TabletSharedPtr> TabletManager::get_tablet(TTabletId tablet_id, bool include_deleted,
+                                                  string* err) {
     std::shared_lock rdlock(_get_tablets_shard_lock(tablet_id));
-    return _get_tablet_unlocked(tablet_id, include_deleted, err);
+    TabletSharedPtr tablet = _get_tablet_unlocked(tablet_id, include_deleted, err);
+    if (tablet == nullptr) {
+        if (err) {
+            return ResultError(Status::NotFound("failed to get tablet {}, {}", tablet_id, *err));
+        } else {
+            return ResultError(Status::NotFound("failed to get tablet {}", tablet_id));
+        }
+    }
+    return tablet;
 }
 
 std::vector<TabletSharedPtr> TabletManager::get_all_tablet(std::function<bool(Tablet*)>&& filter) {
@@ -1069,10 +1078,7 @@ Status TabletManager::report_tablet_info(TTabletInfo* tablet_info) {
 
     Status res = Status::OK();
 
-    TabletSharedPtr tablet = get_tablet(tablet_info->tablet_id);
-    if (tablet == nullptr) {
-        return Status::Error<TABLE_NOT_FOUND>("can't find tablet={}", tablet_info->tablet_id);
-    }
+    TabletSharedPtr tablet = DORIS_TRY(get_tablet(tablet_info->tablet_id));
 
     tablet->build_tablet_report_info(tablet_info);
     VLOG_TRACE << "success to process report tablet info.";
@@ -1236,8 +1242,9 @@ bool TabletManager::_move_tablet_to_trash(const TabletSharedPtr& tablet) {
     RETURN_IF_ERROR(register_transition_tablet(tablet->tablet_id(), "move to trash"));
     Defer defer {[&]() { unregister_transition_tablet(tablet->tablet_id(), "move to trash"); }};
 
-    TabletSharedPtr tablet_in_not_shutdown = get_tablet(tablet->tablet_id());
-    if (tablet_in_not_shutdown) {
+    auto tablet_in_not_shutdown_res = get_tablet(tablet->tablet_id());
+    if (tablet_in_not_shutdown_res.has_value()) {
+        auto tablet_in_not_shutdown = tablet_in_not_shutdown_res.value();
         TSchemaHash schema_hash_not_shutdown = tablet_in_not_shutdown->schema_hash();
         size_t path_hash_not_shutdown = tablet_in_not_shutdown->data_dir()->path_hash();
         if (tablet->schema_hash() == schema_hash_not_shutdown &&
@@ -1658,12 +1665,12 @@ void TabletManager::get_tablets_distribution_on_different_disks(
 
         for (const auto& tablet_info : partition.tablets) {
             // get_tablet() will hold 'tablet_shard_lock'
-            TabletSharedPtr tablet = get_tablet(tablet_info.tablet_id);
-            if (tablet == nullptr) {
+            auto tablet = get_tablet(tablet_info.tablet_id);
+            if (!tablet.has_value()) {
                 continue;
             }
-            DataDir* data_dir = tablet->data_dir();
-            size_t tablet_footprint = tablet->tablet_footprint();
+            DataDir* data_dir = tablet.value()->data_dir();
+            size_t tablet_footprint = tablet.value()->tablet_footprint();
             tablets_num[data_dir]++;
             TabletSize tablet_size(tablet_info.tablet_id, tablet_footprint);
             tablets_info[data_dir].push_back(tablet_size);

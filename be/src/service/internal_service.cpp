@@ -1122,8 +1122,8 @@ void PInternalServiceImpl::_get_column_ids_by_tablet_ids(
         std::set<std::set<int32_t>> filter_set;
         std::map<int32_t, const TabletColumn*> id_to_column;
         for (const int64_t tablet_id : tablet_ids) {
-            TabletSharedPtr tablet = tablet_mgr->get_tablet(tablet_id);
-            if (tablet == nullptr) {
+            auto tablet = tablet_mgr->get_tablet(tablet_id);
+            if (!tablet.has_value()) {
                 std::stringstream ss;
                 ss << "cannot get tablet by id:" << tablet_id;
                 LOG(WARNING) << ss.str();
@@ -1132,7 +1132,7 @@ void PInternalServiceImpl::_get_column_ids_by_tablet_ids(
                 return;
             }
             // check schema consistency, column ids should be the same
-            const auto& columns = tablet->tablet_schema()->columns();
+            const auto& columns = tablet.value()->tablet_schema()->columns();
 
             std::set<int32_t> column_ids;
             for (const auto& col : columns) {
@@ -1178,8 +1178,8 @@ void PInternalServiceImpl::_get_column_ids_by_tablet_ids(
             return;
         }
         // consistency check passed, use the first tablet to be the representative
-        TabletSharedPtr tablet = tablet_mgr->get_tablet(tablet_ids[0]);
-        const auto& columns = tablet->tablet_schema()->columns();
+        auto tablet = tablet_mgr->get_tablet(tablet_ids[0]);
+        const auto& columns = tablet.value()->tablet_schema()->columns();
         auto entry = response->add_entries();
         entry->set_index_id(index_id);
         auto col_name_to_id = entry->mutable_col_name_to_id();
@@ -1951,9 +1951,9 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
     int64_t node_id = request->node_id();
     bool ret = _heavy_work_pool.try_offer([rowset_meta_pb, host, brpc_port, node_id, segments_size,
                                            indices_size, http_port, token, rowset_path, this]() {
-        TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(
-                rowset_meta_pb.tablet_id(), rowset_meta_pb.tablet_schema_hash());
-        if (tablet == nullptr) {
+        auto tablet = _engine.tablet_manager()->get_tablet(rowset_meta_pb.tablet_id(),
+                                                           rowset_meta_pb.tablet_schema_hash());
+        if (!tablet.has_value()) {
             LOG(WARNING) << "failed to pull rowset for slave replica. tablet ["
                          << rowset_meta_pb.tablet_id()
                          << "] is not exist. txn_id=" << rowset_meta_pb.txn_id();
@@ -1992,7 +1992,7 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
         RowsetId new_rowset_id = _engine.next_rowset_id();
         auto pending_rs_guard = _engine.pending_local_rowsets().add(new_rowset_id);
         rowset_meta->set_rowset_id(new_rowset_id);
-        rowset_meta->set_tablet_uid(tablet->tablet_uid());
+        rowset_meta->set_tablet_uid(tablet.value()->tablet_uid());
         VLOG_CRITICAL << "succeed to init rowset meta for slave replica. rowset_id="
                       << rowset_meta->rowset_id() << ", tablet_id=" << rowset_meta->tablet_id()
                       << ", txn_id=" << rowset_meta->txn_id();
@@ -2010,8 +2010,9 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
             std::string remote_file_url =
                     construct_url(get_host_port(host, http_port), token, remote_file_path);
 
-            std::string local_file_path = local_segment_path(
-                    tablet->tablet_path(), rowset_meta->rowset_id().to_string(), segment.first);
+            std::string local_file_path =
+                    local_segment_path(tablet.value()->tablet_path(),
+                                       rowset_meta->rowset_id().to_string(), segment.first);
 
             auto st = download_file_action(remote_file_url, local_file_path, estimate_timeout,
                                            file_size);
@@ -2088,8 +2089,9 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
         }
 
         RowsetSharedPtr rowset;
-        Status create_status = RowsetFactory::create_rowset(
-                tablet->tablet_schema(), tablet->tablet_path(), rowset_meta, &rowset);
+        Status create_status =
+                RowsetFactory::create_rowset(tablet.value()->tablet_schema(),
+                                             tablet.value()->tablet_path(), rowset_meta, &rowset);
         if (!create_status) {
             LOG(WARNING) << "failed to create rowset from rowset meta for slave replica"
                          << ". rowset_id: " << rowset_meta->rowset_id()
@@ -2112,9 +2114,9 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
             return;
         }
         Status commit_txn_status = _engine.txn_manager()->commit_txn(
-                tablet->data_dir()->get_meta(), rowset_meta->partition_id(), rowset_meta->txn_id(),
-                rowset_meta->tablet_id(), tablet->tablet_uid(), rowset_meta->load_id(), rowset,
-                std::move(pending_rs_guard), false);
+                tablet.value()->data_dir()->get_meta(), rowset_meta->partition_id(),
+                rowset_meta->txn_id(), rowset_meta->tablet_id(), tablet.value()->tablet_uid(),
+                rowset_meta->load_id(), rowset, std::move(pending_rs_guard), false);
         if (!commit_txn_status && !commit_txn_status.is<PUSH_TRANSACTION_ALREADY_EXIST>()) {
             LOG(WARNING) << "failed to add committed rowset for slave replica. rowset_id="
                          << rowset_meta->rowset_id() << ", tablet_id=" << rowset_meta->tablet_id()

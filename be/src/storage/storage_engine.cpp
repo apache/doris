@@ -955,8 +955,8 @@ void StorageEngine::_clean_unused_rowset_metas() {
             return true;
         }
 
-        TabletSharedPtr tablet = _tablet_manager->get_tablet(rowset_meta->tablet_id());
-        if (tablet == nullptr) {
+        auto tablet = _tablet_manager->get_tablet(rowset_meta->tablet_id());
+        if (!tablet.has_value()) {
             // tablet may be dropped
             // TODO(cmy): this is better to be a VLOG, because drop table is a very common case.
             // leave it as INFO log for observation. Maybe change it in future.
@@ -965,7 +965,7 @@ void StorageEngine::_clean_unused_rowset_metas() {
             invalid_rowset_metas.push_back(rowset_meta);
             return true;
         }
-        if (tablet->tablet_uid() != rowset_meta->tablet_uid()) {
+        if (tablet.value()->tablet_uid() != rowset_meta->tablet_uid()) {
             // In this case, we get the tablet using the tablet id recorded in the rowset meta.
             // but the uid in the tablet is different from the one recorded in the rowset meta.
             // How this happened:
@@ -975,12 +975,12 @@ void StorageEngine::_clean_unused_rowset_metas() {
             // And in the historical version, when we deleted the replica, we did not delete the corresponding rowset meta,
             // thus causing the original rowset meta to remain(with same tablet id but different uid).
             LOG(WARNING) << "rowset's tablet uid " << rowset_meta->tablet_uid()
-                         << " does not equal to tablet uid: " << tablet->tablet_uid();
+                         << " does not equal to tablet uid: " << tablet.value()->tablet_uid();
             invalid_rowset_metas.push_back(rowset_meta);
             return true;
         }
         if (rowset_meta->rowset_state() == RowsetStatePB::VISIBLE &&
-            (!tablet->rowset_meta_is_useful(rowset_meta)) &&
+            (!tablet.value()->rowset_meta_is_useful(rowset_meta)) &&
             !check_rowset_id_in_unused_rowsets(rowset_id)) {
             LOG(INFO) << "rowset meta is not used any more, remove it. rowset_id="
                       << rowset_meta->rowset_id();
@@ -995,18 +995,19 @@ void StorageEngine::_clean_unused_rowset_metas() {
         // 1. delete delete_bitmap
         std::set<int64_t> tablets_to_save_meta;
         for (auto& rowset_meta : invalid_rowset_metas) {
-            TabletSharedPtr tablet = _tablet_manager->get_tablet(rowset_meta->tablet_id());
-            if (tablet && tablet->tablet_meta()->enable_unique_key_merge_on_write()) {
-                tablet->tablet_meta()->remove_rowset_delete_bitmap(rowset_meta->rowset_id(),
-                                                                   rowset_meta->version());
-                tablets_to_save_meta.emplace(tablet->tablet_id());
+            auto tablet = _tablet_manager->get_tablet(rowset_meta->tablet_id());
+            if (tablet.has_value() &&
+                tablet.value()->tablet_meta()->enable_unique_key_merge_on_write()) {
+                tablet.value()->tablet_meta()->remove_rowset_delete_bitmap(rowset_meta->rowset_id(),
+                                                                           rowset_meta->version());
+                tablets_to_save_meta.emplace(tablet.value()->tablet_id());
             }
         }
         for (const auto& tablet_id : tablets_to_save_meta) {
             auto tablet = _tablet_manager->get_tablet(tablet_id);
             if (tablet) {
-                std::shared_lock rlock(tablet->get_header_lock());
-                tablet->save_meta();
+                std::shared_lock rlock(tablet.value()->get_header_lock());
+                tablet.value()->save_meta();
             }
         }
         // 2. delete rowset meta
@@ -1059,8 +1060,8 @@ void StorageEngine::_clean_unused_delete_bitmap() {
     std::unordered_set<int64_t> removed_tablets;
     auto clean_delete_bitmap_func = [this, &removed_tablets](int64_t tablet_id, int64_t version,
                                                              std::string_view val) -> bool {
-        TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
-        if (tablet == nullptr) {
+        auto tablet = _tablet_manager->get_tablet(tablet_id);
+        if (!tablet.has_value()) {
             if (removed_tablets.insert(tablet_id).second) {
                 LOG(INFO) << "clean ununsed delete bitmap for deleted tablet, tablet_id: "
                           << tablet_id;
@@ -1087,8 +1088,8 @@ void StorageEngine::_clean_unused_pending_publish_info() {
     auto clean_pending_publish_info_func = [this, &removed_infos](int64_t tablet_id,
                                                                   int64_t publish_version,
                                                                   std::string_view info) -> bool {
-        TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
-        if (tablet == nullptr) {
+        auto tablet = _tablet_manager->get_tablet(tablet_id);
+        if (!tablet.has_value()) {
             removed_infos.emplace_back(tablet_id, publish_version);
         }
         return true;
@@ -1112,13 +1113,13 @@ void StorageEngine::_clean_unused_partial_update_info() {
     auto unused_partial_update_info_collector =
             [this, &remove_infos](int64_t tablet_id, int64_t partition_id, int64_t txn_id,
                                   std::string_view value) -> bool {
-        TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
-        if (tablet == nullptr) {
+        auto tablet = _tablet_manager->get_tablet(tablet_id);
+        if (!tablet.has_value()) {
             remove_infos.emplace_back(tablet_id, partition_id, txn_id);
             return true;
         }
-        TxnState txn_state =
-                _txn_manager->get_txn_state(partition_id, txn_id, tablet_id, tablet->tablet_uid());
+        TxnState txn_state = _txn_manager->get_txn_state(partition_id, txn_id, tablet_id,
+                                                         tablet.value()->tablet_uid());
         if (txn_state == TxnState::NOT_FOUND || txn_state == TxnState::ABORTED ||
             txn_state == TxnState::DELETED) {
             remove_infos.emplace_back(tablet_id, partition_id, txn_id);
@@ -1140,12 +1141,12 @@ void StorageEngine::gc_binlogs(const std::unordered_map<int64_t, int64_t>& gc_ta
         LOG(INFO) << fmt::format("start to gc binlogs for tablet_id: {}, version: {}", tablet_id,
                                  version);
 
-        TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
-        if (tablet == nullptr) {
+        auto tablet = _tablet_manager->get_tablet(tablet_id);
+        if (!tablet.has_value()) {
             LOG(WARNING) << fmt::format("tablet_id: {} not found", tablet_id);
             continue;
         }
-        tablet->gc_binlogs(version);
+        tablet.value()->gc_binlogs(version);
     }
 }
 
@@ -1302,7 +1303,7 @@ void StorageEngine::start_delete_unused_rowset() {
                 ++it;
                 continue;
             }
-            tablet->tablet_meta()->delete_bitmap().remove(key_ranges);
+            tablet.value()->tablet_meta()->delete_bitmap().remove(key_ranges);
             tablets_to_save_meta.emplace(tablet_id);
             it = _unused_delete_bitmap.erase(it);
         }
@@ -1317,9 +1318,10 @@ void StorageEngine::start_delete_unused_rowset() {
                     << ", version:" << rs->version();
         // delete delete_bitmap of unused rowsets
         if (auto tablet = _tablet_manager->get_tablet(rs->rowset_meta()->tablet_id());
-            tablet && tablet->enable_unique_key_merge_on_write()) {
-            tablet->tablet_meta()->remove_rowset_delete_bitmap(rs->rowset_id(), rs->version());
-            tablets_to_save_meta.emplace(tablet->tablet_id());
+            tablet.has_value() && tablet.value()->enable_unique_key_merge_on_write()) {
+            tablet.value()->tablet_meta()->remove_rowset_delete_bitmap(rs->rowset_id(),
+                                                                       rs->version());
+            tablets_to_save_meta.emplace(tablet.value()->tablet_id());
         }
         Status status = rs->remove();
         unused_rowsets_counter << -1;
@@ -1327,9 +1329,9 @@ void StorageEngine::start_delete_unused_rowset() {
     }
     for (const auto& tablet_id : tablets_to_save_meta) {
         auto tablet = _tablet_manager->get_tablet(tablet_id);
-        if (tablet) {
-            std::shared_lock rlock(tablet->get_header_lock());
-            tablet->save_meta();
+        if (tablet.has_value()) {
+            std::shared_lock rlock(tablet.value()->get_header_lock());
+            tablet.value()->save_meta();
         }
     }
     LOG(INFO) << "removed all collected unused rowsets";
@@ -1376,10 +1378,9 @@ Status StorageEngine::create_tablet(const TCreateTabletReq& request, RuntimeProf
 
 Result<BaseTabletSPtr> StorageEngine::get_tablet(int64_t tablet_id, SyncRowsetStats* sync_stats,
                                                  bool force_use_only_cached, bool cache_on_miss) {
-    BaseTabletSPtr tablet;
     std::string err;
-    tablet = _tablet_manager->get_tablet(tablet_id, true, &err);
-    if (tablet == nullptr) {
+    Result<BaseTabletSPtr> tablet = _tablet_manager->get_tablet(tablet_id, true, &err);
+    if (!tablet.has_value()) {
         return unexpected(
                 Status::InternalError("failed to get tablet: {}, reason: {}", tablet_id, err));
     }
@@ -1543,14 +1544,14 @@ PendingRowsetGuard StorageEngine::add_pending_rowset(const RowsetWriterContext& 
 
 bool StorageEngine::get_peer_replica_info(int64_t tablet_id, TReplicaInfo* replica,
                                           std::string* token) {
-    TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
-    if (tablet == nullptr) {
+    auto tablet = _tablet_manager->get_tablet(tablet_id);
+    if (!tablet.has_value()) {
         LOG(WARNING) << "tablet is no longer exist: tablet_id=" << tablet_id;
         return false;
     }
     std::unique_lock<std::mutex> lock(_peer_replica_infos_mutex);
     if (_peer_replica_infos.contains(tablet_id) &&
-        _peer_replica_infos[tablet_id].replica_id != tablet->replica_id()) {
+        _peer_replica_infos[tablet_id].replica_id != tablet.value()->replica_id()) {
         *replica = _peer_replica_infos[tablet_id];
         *token = _token;
         return true;
@@ -1559,8 +1560,8 @@ bool StorageEngine::get_peer_replica_info(int64_t tablet_id, TReplicaInfo* repli
 }
 
 bool StorageEngine::get_peers_replica_backends(int64_t tablet_id, std::vector<TBackend>* backends) {
-    TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
-    if (tablet == nullptr) {
+    auto tablet = _tablet_manager->get_tablet(tablet_id);
+    if (!tablet.has_value()) {
         LOG(WARNING) << "tablet is no longer exist: tablet_id=" << tablet_id;
         return false;
     }
@@ -1607,7 +1608,7 @@ bool StorageEngine::get_peers_replica_backends(int64_t tablet_id, std::vector<TB
                        << tablet_id;
         }
         for (const auto& rep : reps) {
-            if (rep.replica_id != tablet->replica_id()) {
+            if (rep.replica_id != tablet.value()->replica_id()) {
                 TBackend backend;
                 backend.__set_host(rep.host);
                 backend.__set_be_port(rep.be_port);
@@ -1643,14 +1644,14 @@ bool StorageEngine::should_fetch_from_peer(int64_t tablet_id) {
     }
     return false;
 #endif
-    TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
-    if (tablet == nullptr) {
+    auto tablet = _tablet_manager->get_tablet(tablet_id);
+    if (!tablet.has_value()) {
         LOG(WARNING) << "tablet is no longer exist: tablet_id=" << tablet_id;
         return false;
     }
     std::unique_lock<std::mutex> lock(_peer_replica_infos_mutex);
     if (_peer_replica_infos.contains(tablet_id)) {
-        return _peer_replica_infos[tablet_id].replica_id != tablet->replica_id();
+        return _peer_replica_infos[tablet_id].replica_id != tablet.value()->replica_id();
     }
     return false;
 }

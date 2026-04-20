@@ -69,10 +69,7 @@ Status EngineChecksumTask::_compute_checksum() {
         return Status::InvalidArgument("invalid checksum which is nullptr");
     }
 
-    TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(_tablet_id);
-    if (nullptr == tablet) {
-        return Status::InternalError("could not find tablet {}", _tablet_id);
-    }
+    TabletSharedPtr tablet = DORIS_TRY(_engine.tablet_manager()->get_tablet(_tablet_id));
 
     std::vector<RowsetSharedPtr> input_rowsets;
     Version version(0, _version);

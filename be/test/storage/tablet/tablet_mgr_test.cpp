@@ -120,11 +120,12 @@ TEST_F(TabletMgrTest, CreateTablet) {
     RuntimeProfile profile("CreateTablet");
     Status create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs, &profile);
     EXPECT_TRUE(create_st == Status::OK());
-    TabletSharedPtr tablet = _tablet_mgr->get_tablet(111);
-    EXPECT_TRUE(tablet != nullptr);
+    auto tablet = _tablet_mgr->get_tablet(111);
+    EXPECT_TRUE(tablet.has_value());
     // check dir exist
     bool dir_exist = false;
-    EXPECT_TRUE(io::global_local_filesystem()->exists(tablet->tablet_path(), &dir_exist).ok());
+    EXPECT_TRUE(
+            io::global_local_filesystem()->exists(tablet.value()->tablet_path(), &dir_exist).ok());
     EXPECT_TRUE(dir_exist);
     // check meta has this tablet
     TabletMetaSharedPtr new_tablet_meta(new TabletMeta());
@@ -137,7 +138,7 @@ TEST_F(TabletMgrTest, CreateTablet) {
 
     Status drop_st = _tablet_mgr->drop_tablet(111, create_tablet_req.replica_id, false);
     EXPECT_TRUE(drop_st == Status::OK());
-    tablet.reset();
+    tablet->reset();
     Status trash_st = _tablet_mgr->start_trash_sweep();
     EXPECT_TRUE(trash_st == Status::OK());
 }
@@ -181,11 +182,12 @@ TEST_F(TabletMgrTest, CreateTabletWithSequence) {
     Status create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs, &profile);
     EXPECT_TRUE(create_st == Status::OK());
 
-    TabletSharedPtr tablet = _tablet_mgr->get_tablet(111);
-    EXPECT_TRUE(tablet != nullptr);
+    auto tablet = _tablet_mgr->get_tablet(111);
+    EXPECT_TRUE(tablet.has_value());
     // check dir exist
     bool dir_exist = false;
-    EXPECT_TRUE(io::global_local_filesystem()->exists(tablet->tablet_path(), &dir_exist).ok());
+    EXPECT_TRUE(
+            io::global_local_filesystem()->exists(tablet.value()->tablet_path(), &dir_exist).ok());
     EXPECT_TRUE(dir_exist);
     // check meta has this tablet
     TabletMetaSharedPtr new_tablet_meta(new TabletMeta());
@@ -194,7 +196,7 @@ TEST_F(TabletMgrTest, CreateTabletWithSequence) {
 
     Status drop_st = _tablet_mgr->drop_tablet(111, create_tablet_req.replica_id, false);
     EXPECT_TRUE(drop_st == Status::OK());
-    tablet.reset();
+    tablet->reset();
     Status trash_st = _tablet_mgr->start_trash_sweep();
     EXPECT_TRUE(trash_st == Status::OK());
 }
@@ -223,25 +225,25 @@ TEST_F(TabletMgrTest, DropTablet) {
     data_dirs.push_back(_data_dir);
     Status create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs, &profile);
     EXPECT_TRUE(create_st == Status::OK());
-    TabletSharedPtr tablet = _tablet_mgr->get_tablet(111);
-    EXPECT_TRUE(tablet != nullptr);
+    auto tablet = _tablet_mgr->get_tablet(111);
+    EXPECT_TRUE(tablet.has_value());
 
     // drop unexist tablet will be success
     Status drop_st = _tablet_mgr->drop_tablet(1121, create_tablet_req.replica_id, false);
     EXPECT_TRUE(drop_st == Status::OK());
     tablet = _tablet_mgr->get_tablet(111);
-    EXPECT_TRUE(tablet != nullptr);
+    EXPECT_TRUE(tablet.has_value());
 
     // drop exist tablet will be success
     drop_st = _tablet_mgr->drop_tablet(111, create_tablet_req.replica_id, false);
     EXPECT_TRUE(drop_st == Status::OK());
     tablet = _tablet_mgr->get_tablet(111);
-    EXPECT_TRUE(tablet == nullptr);
+    EXPECT_FALSE(tablet.has_value());
     tablet = _tablet_mgr->get_tablet(111, true);
-    EXPECT_TRUE(tablet != nullptr);
+    EXPECT_TRUE(tablet.has_value());
 
     // check dir exist
-    std::string tablet_path = tablet->tablet_path();
+    std::string tablet_path = tablet.value()->tablet_path();
     bool dir_exist = false;
     EXPECT_TRUE(io::global_local_filesystem()->exists(tablet_path, &dir_exist).ok());
     EXPECT_TRUE(dir_exist);
@@ -251,16 +253,16 @@ TEST_F(TabletMgrTest, DropTablet) {
     Status trash_st = _tablet_mgr->start_trash_sweep();
     EXPECT_TRUE(trash_st == Status::OK());
     tablet = _tablet_mgr->get_tablet(111, true);
-    EXPECT_TRUE(tablet != nullptr);
+    EXPECT_TRUE(tablet.has_value());
     EXPECT_TRUE(io::global_local_filesystem()->exists(tablet_path, &dir_exist).ok());
     EXPECT_TRUE(dir_exist);
 
     // reset tablet ptr
-    tablet.reset();
+    tablet->reset();
     trash_st = _tablet_mgr->start_trash_sweep();
     EXPECT_TRUE(trash_st == Status::OK());
     tablet = _tablet_mgr->get_tablet(111, true);
-    EXPECT_TRUE(tablet == nullptr);
+    EXPECT_FALSE(tablet.has_value());
     EXPECT_TRUE(io::global_local_filesystem()->exists(tablet_path, &dir_exist).ok());
     EXPECT_FALSE(dir_exist);
 }
@@ -386,11 +388,12 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
         Status create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs, &profile);
         ASSERT_TRUE(create_st.ok()) << create_st;
 
-        TabletSharedPtr tablet = _tablet_mgr->get_tablet(tablet_id);
-        ASSERT_TRUE(tablet);
+        auto tablet = _tablet_mgr->get_tablet(tablet_id);
+        ASSERT_TRUE(tablet.has_value());
         // check dir exist
         bool dir_exist = false;
-        Status exist_st = io::global_local_filesystem()->exists(tablet->tablet_path(), &dir_exist);
+        Status exist_st =
+                io::global_local_filesystem()->exists(tablet.value()->tablet_path(), &dir_exist);
         ASSERT_TRUE(exist_st.ok()) << exist_st;
         ASSERT_TRUE(dir_exist);
         // check meta has this tablet
@@ -403,17 +406,18 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
             auto rowset_meta = std::make_shared<RowsetMeta>();
             Version version(start, end);
             rowset_meta->set_version(version);
-            rowset_meta->set_tablet_id(tablet->tablet_id());
-            rowset_meta->set_tablet_uid(tablet->tablet_uid());
+            rowset_meta->set_tablet_id(tablet.value()->tablet_id());
+            rowset_meta->set_tablet_uid(tablet.value()->tablet_uid());
             rowset_meta->set_rowset_id(k_engine->next_rowset_id());
-            return std::make_shared<BetaRowset>(tablet->tablet_schema(), std::move(rowset_meta),
-                                                tablet->tablet_path());
+            return std::make_shared<BetaRowset>(tablet.value()->tablet_schema(),
+                                                std::move(rowset_meta),
+                                                tablet.value()->tablet_path());
         };
-        auto st = tablet->init();
+        auto st = tablet.value()->init();
         ASSERT_TRUE(st.ok()) << st;
         for (int i = 2; i <= rowset_size; ++i) {
             auto rs = create_rowset(i, i);
-            auto st = tablet->add_inc_rowset(rs);
+            auto st = tablet.value()->add_inc_rowset(rs);
             ASSERT_TRUE(st.ok()) << st;
         }
     };
@@ -579,11 +583,11 @@ TEST_F(TabletMgrTest, LoadTabletFromMeta) {
     Status create_st =
             k_engine->tablet_manager()->create_tablet(create_tablet_req, data_dirs, &profile);
     EXPECT_TRUE(create_st == Status::OK());
-    TabletSharedPtr tablet = k_engine->tablet_manager()->get_tablet(111);
-    EXPECT_TRUE(tablet != nullptr);
+    auto tablet = k_engine->tablet_manager()->get_tablet(111);
+    EXPECT_TRUE(tablet.has_value());
 
     std::string serialized_tablet_meta;
-    tablet->tablet_meta()->serialize(&serialized_tablet_meta);
+    tablet.value()->tablet_meta()->serialize(&serialized_tablet_meta);
     bool update_meta = true;
     bool force = true;
     bool restore = false;
@@ -594,7 +598,7 @@ TEST_F(TabletMgrTest, LoadTabletFromMeta) {
     ASSERT_TRUE(st.ok()) << st.to_string();
 
     // After reload, the original tablet should not be allowed to save meta.
-    ASSERT_FALSE(tablet->do_tablet_meta_checkpoint());
+    ASSERT_FALSE(tablet.value()->do_tablet_meta_checkpoint());
 }
 
 } // namespace doris
