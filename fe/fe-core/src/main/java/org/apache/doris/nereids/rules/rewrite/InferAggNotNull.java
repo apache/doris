@@ -20,7 +20,6 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
@@ -30,8 +29,8 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.collect.ImmutableSet;
 
@@ -46,7 +45,7 @@ public class InferAggNotNull extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalAggregate()
-                .when(agg -> agg.getGroupByExpressions().size() == 0)
+                .when(agg -> agg.getGroupByExpressions().isEmpty())
                 .when(agg -> agg.getAggregateFunctions().size() == 1)
                 .when(agg -> {
                     Set<AggregateFunction> funcs = agg.getAggregateFunctions();
@@ -64,20 +63,16 @@ public class InferAggNotNull extends OneRewriteRuleFactory {
                     if ((agg.child() instanceof Filter)) {
                         predicates = ((Filter) agg.child()).getConjuncts();
                     }
-                    ImmutableSet.Builder<Expression> needGenerateNotNullsBuilder = ImmutableSet.builder();
-                    for (Expression isNotNull : isNotNulls) {
-                        if (!predicates.contains(isNotNull)) {
-                            isNotNull = ((Not) isNotNull).withGeneratedIsNotNull(true);
-                            if (!predicates.contains(isNotNull)) {
-                                needGenerateNotNullsBuilder.add(isNotNull);
-                            }
-                        }
-                    }
-                    Set<Expression> needGenerateNotNulls = needGenerateNotNullsBuilder.build();
-                    if (needGenerateNotNulls.isEmpty()) {
+                    if (predicates.containsAll(isNotNulls)) {
                         return null;
                     }
-                    return agg.withChildren(PlanUtils.filter(needGenerateNotNulls, agg.child()).get());
+                    ImmutableSet.Builder<Expression> newPredicateBuilder
+                            = ImmutableSet.builderWithExpectedSize(predicates.size() + isNotNulls.size());
+                    newPredicateBuilder.addAll(predicates);
+                    newPredicateBuilder.addAll(isNotNulls);
+                    Plan newFilterChild = agg.child() instanceof Filter ? agg.child().child(0) : agg.child();
+                    LogicalFilter<Plan> newFilter = new LogicalFilter<>(newPredicateBuilder.build(), newFilterChild);
+                    return agg.withChildren(newFilter);
                 }).toRule(RuleType.INFER_AGG_NOT_NULL);
     }
 }
