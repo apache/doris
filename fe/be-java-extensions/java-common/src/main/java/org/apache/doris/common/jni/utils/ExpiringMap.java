@@ -81,14 +81,10 @@ public class ExpiringMap<K, V> {
 
         LOG.info("ExpiringMap remove key=" + key + ", hasValue=" + (value != null)
                 + ", thread=" + Thread.currentThread().getName());
-        // Uniformly release resources for any AutoCloseable value,
-        if (value instanceof AutoCloseable) {
-            try {
-                ((AutoCloseable) value).close();
-            } catch (Exception e) {
-                LOG.warn("Failed to close cached resource: " + key, e);
-            }
-        }
+        // Do NOT call close() on eviction. The value (e.g., UdfClassCache holding a URLClassLoader)
+        // may still be in use by concurrent threads. Closing the URLClassLoader while another thread
+        // is still loading classes from it causes NoClassDefFoundError.
+        // Instead, let the value be garbage collected naturally when no references remain.
     }
 
     public int size() {
