@@ -386,8 +386,8 @@ EncodingInfoResolver::EncodingInfoResolver() {
     _set_v3_default<FieldType::OLAP_FIELD_TYPE_LARGEINT, PLAIN_ENCODING>();
     _set_v3_default<FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT, BIT_SHUFFLE>();
     _set_v3_default<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT, BIT_SHUFFLE>();
-    _set_v3_default<FieldType::OLAP_FIELD_TYPE_FLOAT, BIT_SHUFFLE>();
-    _set_v3_default<FieldType::OLAP_FIELD_TYPE_DOUBLE, BIT_SHUFFLE>();
+    _set_v3_default<FieldType::OLAP_FIELD_TYPE_FLOAT, PLAIN_ENCODING>();
+    _set_v3_default<FieldType::OLAP_FIELD_TYPE_DOUBLE, PLAIN_ENCODING>();
     _set_v3_default<FieldType::OLAP_FIELD_TYPE_CHAR, DICT_ENCODING>();
     _set_v3_default<FieldType::OLAP_FIELD_TYPE_VARCHAR, DICT_ENCODING>();
     _set_v3_default<FieldType::OLAP_FIELD_TYPE_STRING, DICT_ENCODING>();

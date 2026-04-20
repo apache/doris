@@ -23,7 +23,7 @@ suite('test_storage_format_controls_encoding') {
 
     sql """
         CREATE TABLE ${tableName}
-        (k int, v1 int, v2 varchar(100))
+        (k int, v1 int, v2 varchar(100), v3 float, v4 double)
         duplicate KEY(k)
         DISTRIBUTED BY HASH (k) 
         BUCKETS 1  PROPERTIES(
@@ -31,7 +31,7 @@ suite('test_storage_format_controls_encoding') {
         "storage_format" = "V3");
         """
     
-    sql "insert into ${tableName} values(1, 1, 'aaa');"
+    sql "insert into ${tableName} values(1, 1, 'aaa', 1.25, 2.5);"
     sql "select * from ${tableName};"
 
     def metaUrl = sql_return_maparray("show tablets from ${tableName};").get(0).MetaUrl
@@ -49,7 +49,7 @@ suite('test_storage_format_controls_encoding') {
 
     sql """
         CREATE TABLE ${tableName}
-        (k int, v1 int, v2 varchar(100))
+        (k int, v1 int, v2 varchar(100), v3 float, v4 double)
         duplicate KEY(k)
         DISTRIBUTED BY HASH (k)
         BUCKETS 1  PROPERTIES(
@@ -57,7 +57,7 @@ suite('test_storage_format_controls_encoding') {
         "storage_format" = "V2");
         """
 
-    sql "insert into ${tableName} values(1, 1, 'aaa');"
+    sql "insert into ${tableName} values(1, 1, 'aaa', 1.25, 2.5);"
     sql "select * from ${tableName};"
 
     metaUrl = sql_return_maparray("show tablets from ${tableName};").get(0).MetaUrl
