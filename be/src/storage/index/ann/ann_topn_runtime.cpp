@@ -27,11 +27,10 @@
 #include "common/status.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
+#include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/data_type/primitive_type.h"
 #include "exprs/function/array/function_array_distance.h"
-#include "exprs/varray_literal.h"
-#include "exprs/vcast_expr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vexpr_fwd.h"
 #include "exprs/virtual_slot_ref.h"
@@ -49,19 +48,6 @@ Result<IColumn::Ptr> extract_query_vector(std::shared_ptr<VExpr> arg_expr) {
                                                    arg_expr->debug_string()));
     }
 
-    // Accept either ArrayLiteral([..]) or CAST('..' AS Nullable(Array(Nullable(Float32))))
-    // First, check the expr node type for clarity.
-
-    bool is_array_literal = std::dynamic_pointer_cast<VArrayLiteral>(arg_expr) != nullptr;
-    bool is_cast_expr = std::dynamic_pointer_cast<VCastExpr>(arg_expr) != nullptr;
-    if (!is_array_literal && !is_cast_expr) {
-        return ResultError(
-                Status::InvalidArgument("Constant must be ArrayLiteral or CAST to array, got\n{}",
-                                        arg_expr->debug_string()));
-    }
-
-    // We'll validate shape by inspecting the materialized constant column below.
-
     std::shared_ptr<ColumnPtrWrapper> column_wrapper;
     auto st = arg_expr->get_const_col(nullptr, &column_wrapper);
     if (!st.ok()) {
@@ -69,8 +55,11 @@ Result<IColumn::Ptr> extract_query_vector(std::shared_ptr<VExpr> arg_expr) {
                                                    st.to_string()));
     }
 
-    // Execute the constant array literal and extract its float elements into _query_array
-    IColumn::Ptr col_ptr = column_wrapper->column_ptr->convert_to_full_column_if_const();
+    // Unwrap ColumnConst without copy to get the underlying single-row column
+    IColumn::Ptr col_ptr = column_wrapper->column_ptr;
+    if (const auto* const_col = check_and_get_column<ColumnConst>(*col_ptr)) {
+        col_ptr = const_col->get_data_column_ptr();
+    }
 
     // The expected runtime column layout for the literal is:
     // Nullable(ColumnArray(Nullable(ColumnFloat32))) with exactly 1 row (one array literal)
@@ -126,7 +115,7 @@ Status AnnTopNRuntime::prepare(RuntimeState* state, const RowDescriptor& row_des
         |----------------
         |               |
         |               |
-        SlotRef         CAST(String as Nullable<ArrayFloat>) OR ArrayLiteral
+        SlotRef         Constant Array Expression
     */
     std::shared_ptr<VirtualSlotRef> vir_slot_ref =
             std::dynamic_pointer_cast<VirtualSlotRef>(_order_by_expr_ctx->root());
