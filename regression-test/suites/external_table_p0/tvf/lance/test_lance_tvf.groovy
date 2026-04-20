@@ -33,9 +33,6 @@ suite("test_lance_tvf", "p0,external,lance") {
     def single_path = "single.lance/data/*.lance"
     def multi_path = "multi.lance/data/*.lance"
 
-    // Enable lance reader (gated by session variable)
-    sql """ SET enable_rust_lance_reader = true """
-
     // --- Test 1: SELECT * (single fragment, 5 rows) ---
     order_qt_select_all """
         select * from local(

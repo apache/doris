@@ -53,8 +53,7 @@ else()
     find_program(CARGO_EXECUTABLE cargo)
     if (NOT CARGO_EXECUTABLE)
         message(WARNING "BUILD_RUST_READERS=ON but no pre-built libdoris_ffi.a and no cargo in PATH. Disabling.")
-        # include() shares caller's scope, so no PARENT_SCOPE needed
-        set(BUILD_RUST_READERS OFF)
+        set(BUILD_RUST_READERS OFF PARENT_SCOPE)
         return()
     endif()
 

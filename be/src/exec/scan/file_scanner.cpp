@@ -1181,11 +1181,6 @@ Status FileScanner::_get_next_reader() {
         }
 #ifdef BUILD_RUST_READERS
         case TFileFormatType::FORMAT_LANCE: {
-            if (!_state->query_options().__isset.enable_rust_lance_reader ||
-                !_state->query_options().enable_rust_lance_reader) {
-                return Status::NotSupported(
-                        "Lance reader requires: SET enable_rust_lance_reader = true");
-            }
             auto lance_reader = LanceRustReader::create_unique(_file_slot_descs, _state, _profile,
                                                                range, _params);
             init_status = lance_reader->init_reader();

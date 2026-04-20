@@ -39,7 +39,6 @@
 #include "format/lance/lance_ffi.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
-#include "util/string_util.h"
 #include "util/timezone_utils.h"
 
 namespace doris {
@@ -234,9 +233,7 @@ Status LanceRustReader::get_next_block(Block* block, size_t* read_rows, bool* eo
     for (int c = 0; c < num_columns; ++c) {
         const auto& field = record_batch->schema()->field(c);
 
-        // FE lowercases column names; Lance field names preserve original case.
-        // Use case-insensitive matching (same approach as Parquet/ORC readers).
-        auto it = _col_name_to_block_idx.find(to_lower(field->name()));
+        auto it = _col_name_to_block_idx.find(field->name());
         if (it == _col_name_to_block_idx.end()) {
             continue;
         }
@@ -371,26 +368,8 @@ DataTypePtr LanceRustReader::_arrow_type_to_doris_type(
     case arrow::Type::DATE32:
     case arrow::Type::DATE64:
         return std::make_shared<DataTypeDateV2>();
-    case arrow::Type::TIMESTAMP: {
-        // Derive DateTimeV2 scale from Arrow timestamp unit to preserve precision
-        auto ts_type = std::static_pointer_cast<arrow::TimestampType>(arrow_type);
-        UInt32 scale = 0;
-        switch (ts_type->unit()) {
-        case arrow::TimeUnit::SECOND:
-            scale = 0;
-            break;
-        case arrow::TimeUnit::MILLI:
-            scale = 3;
-            break;
-        case arrow::TimeUnit::MICRO:
-            scale = 6;
-            break;
-        case arrow::TimeUnit::NANO:
-            scale = 6;
-            break; // Doris max precision is 6 (microseconds)
-        }
-        return std::make_shared<DataTypeDateTimeV2>(scale);
-    }
+    case arrow::Type::TIMESTAMP:
+        return std::make_shared<DataTypeDateTimeV2>();
     case arrow::Type::DECIMAL128: {
         auto decimal_type = std::static_pointer_cast<arrow::Decimal128Type>(arrow_type);
         return create_decimal(decimal_type->precision(), decimal_type->scale(), false);
