@@ -15,27 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
-
-#include <memory>
-#include <set>
-#include <string>
-#include <unordered_map>
-#include <vector>
-
-#include "format/table/table_schema_change_helper.h"
-
-namespace orc {
-class Type;
-} // namespace orc
+#include "format/generic_reader.h"
 
 namespace doris {
-
-class HiveOrcNestedColumnUtils {
-public:
-    static void extract_nested_column_ids(const orc::Type& type,
-                                          const std::vector<std::vector<std::string>>& paths,
-                                          std::set<uint64_t>& column_ids);
-};
-
+// GenericReader has no out-of-line method implementations.
+// Column-filling logic lives in TableFormatReader (table_format_reader.cpp).
 } // namespace doris

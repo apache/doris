@@ -86,8 +86,7 @@ public:
      */
     Status open(RuntimeState* state, RuntimeProfile* profile);
 
-    Status get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
-                       std::unordered_set<std::string>* missing_cols) override {
+    Status _get_columns_impl(std::unordered_map<std::string, DataTypePtr>* name_to_type) override {
         for (const auto& desc : _file_slot_descs) {
             name_to_type->emplace(desc->col_name(), desc->type());
         }
@@ -97,7 +96,7 @@ public:
     /**
      * Read next batch from Java scanner and fill the block.
      */
-    virtual Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
+    Status _do_get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 
     /**
      * Get table schema from Java scanner (used by Avro schema discovery).

@@ -757,10 +757,9 @@ TEST_F(NativeReaderWriterTest, get_columns_and_parsed_schema) {
     NativeReader reader_impl(nullptr, scan_params, scan_range, nullptr, &state);
 
     std::unordered_map<std::string, DataTypePtr> name_to_type;
-    std::unordered_set<std::string> missing_cols;
-    st = reader_impl.get_columns(&name_to_type, &missing_cols);
+    st = reader_impl.get_columns(&name_to_type);
     ASSERT_TRUE(st.ok()) << st;
-    ASSERT_TRUE(missing_cols.empty());
+    ASSERT_TRUE(reader_impl.missing_cols().empty());
 
     // All columns from src_block should appear in name_to_type.
     for (size_t i = 0; i < src_block.columns(); ++i) {
