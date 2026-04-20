@@ -700,7 +700,8 @@ public class Config extends ConfigBase {
     public static long catalog_trash_expire_second = 86400L; // 1day
 
     /**
-     * Whether to allow normal users to use the FORCE drop table/partition command.
+     * Whether to allow normal users to use the FORCE keyword for destructive operations
+     * (including drop/truncate/replace table and partition).
      * If set to false, normal users will get a privilege denied error when using FORCE drop,
      * while ADMIN users can always use it.
      */

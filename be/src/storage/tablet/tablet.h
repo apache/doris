@@ -223,7 +223,10 @@ public:
 
     void set_bad(bool is_bad) { _is_bad = is_bad; }
 
-    void set_force_deleted(bool is_force) { _is_force_deleted = is_force; }
+    void set_force_deleted(bool is_force) {
+        _is_force_deleted = is_force;
+        _tablet_meta->set_is_force_deleted(is_force);
+    }
     bool is_force_deleted() const { return _is_force_deleted; }
 
     int64_t last_cumu_compaction_failure_time() { return _last_cumu_compaction_failure_millis; }

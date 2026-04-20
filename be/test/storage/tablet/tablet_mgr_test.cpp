@@ -824,4 +824,51 @@ TEST_F(TabletMgrTest, LoadTabletFromMeta) {
     ASSERT_FALSE(tablet->do_tablet_meta_checkpoint());
 }
 
+TEST_F(TabletMgrTest, DropTabletForce_Restart) {
+    RuntimeProfile profile("CreateTablet");
+    TColumnType col_type;
+    col_type.__set_type(TPrimitiveType::SMALLINT);
+    TColumn col1;
+    col1.__set_column_name("col1");
+    col1.__set_column_type(col_type);
+    col1.__set_is_key(true);
+    std::vector<TColumn> cols;
+    cols.push_back(col1);
+    TTabletSchema tablet_schema;
+    tablet_schema.__set_short_key_column_count(1);
+    tablet_schema.__set_schema_hash(4444);
+    tablet_schema.__set_keys_type(TKeysType::AGG_KEYS);
+    tablet_schema.__set_storage_type(TStorageType::COLUMN);
+    tablet_schema.__set_columns(cols);
+    TCreateTabletReq create_tablet_req;
+    create_tablet_req.__set_tablet_schema(tablet_schema);
+    create_tablet_req.__set_tablet_id(222);
+    create_tablet_req.__set_version(2);
+    std::vector<DataDir*> data_dirs;
+    data_dirs.push_back(_data_dir);
+    Status create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs, &profile);
+    EXPECT_TRUE(create_st == Status::OK());
+    TabletSharedPtr tablet = _tablet_mgr->get_tablet(222);
+    EXPECT_TRUE(tablet != nullptr);
+
+    // drop exist tablet with force=true
+    Status drop_st = _tablet_mgr->drop_tablet(222, create_tablet_req.replica_id, false, true);
+    EXPECT_TRUE(drop_st == Status::OK());
+    tablet = _tablet_mgr->get_tablet(222);
+    EXPECT_TRUE(tablet == nullptr);
+    tablet = _tablet_mgr->get_tablet(222, true);
+    EXPECT_TRUE(tablet != nullptr);
+
+    // verify it is force deleted in memory
+    EXPECT_TRUE(tablet->is_force_deleted());
+
+    // verify it's persisted in meta
+    TabletMetaSharedPtr loaded_meta(new TabletMeta());
+    EXPECT_TRUE(TabletMetaManager::get_meta(_data_dir, 222, 4444, loaded_meta).ok());
+    EXPECT_TRUE(loaded_meta->is_force_deleted());
+
+    TabletSharedPtr reloaded_tablet = std::make_shared<Tablet>(*k_engine, loaded_meta, _data_dir);
+    EXPECT_TRUE(reloaded_tablet->is_force_deleted());
+}
+
 } // namespace doris

@@ -20,6 +20,8 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.qe.ConnectContext;
@@ -114,6 +116,13 @@ public class ReplacePartitionOp extends AlterTableOp {
 
         if (partitionNames.isTemp() || !tempPartitionNames.isTemp()) {
             throw new AnalysisException("Only support replace partitions with temp partitions");
+        }
+
+        if (forceDropOldPartition && !org.apache.doris.common.Config.enable_normal_user_force_drop) {
+            if (!org.apache.doris.catalog.Env.getCurrentEnv().getAccessManager()
+                    .checkGlobalPriv(ctx, org.apache.doris.mysql.privilege.PrivPredicate.ADMIN)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN for FORCE DROP");
+            }
         }
 
         this.isStrictRange = PropertyAnalyzer.analyzeBooleanProp(

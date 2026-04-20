@@ -79,6 +79,12 @@ public class TruncateTableCommand extends Command implements ForwardWithSync {
                 throw new AnalysisException("Not support truncate temp partitions");
             }
         }
+
+        if (forceDrop && !org.apache.doris.common.Config.enable_normal_user_force_drop) {
+            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN for FORCE DROP");
+            }
+        }
     }
 
     @Override

@@ -89,13 +89,13 @@ suite("test_recycle_bin_retention", "p0") {
         def tableAfterDropPhase3 = sql """ SHOW TABLES LIKE "test_retention_phase1" """
         assertTrue(tableAfterDropPhase3.size() == 0, "Dropped table should not be visible before Phase 3 checks")
 
-        int max_try_secs_1 = 60
+        int max_try_secs_1 = 30
         while (max_try_secs_1--) {
             def recycleBinPhase3 = sql """ SHOW CATALOG RECYCLE BIN WHERE NAME = 'test_retention_phase1' """
             if (recycleBinPhase3.size() == 0) {
                 break
             }
-            sleep(1000)
+            sleep(3000)
         }
 
         def recycleBinPhase3 = sql """ SHOW CATALOG RECYCLE BIN WHERE NAME = 'test_retention_phase1' """
@@ -152,13 +152,13 @@ suite("test_recycle_bin_retention", "p0") {
         def partitionsAfterDropP2Phase3 = sql_return_maparray """ SHOW PARTITIONS FROM test_retention_partition """
         assertTrue(partitionsAfterDropP2Phase3.find { it.PartitionName == "test_recycle_p2" } == null, "Dropped partition test_recycle_p2 should not be visible before Phase 3 checks")
         
-        int max_try_secs_2 = 60
+        int max_try_secs_2 = 30
         while (max_try_secs_2--) {
             def partRecyclePhase3 = sql """ SHOW CATALOG RECYCLE BIN WHERE NAME = 'test_recycle_p2' """
             if (partRecyclePhase3.size() == 0) {
                 break
             }
-            sleep(1000)
+            sleep(3000)
         }
 
         def partRecyclePhase3 = sql """ SHOW CATALOG RECYCLE BIN WHERE NAME = 'test_recycle_p2' """

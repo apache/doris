@@ -317,6 +317,9 @@ public:
 
     EncryptionAlgorithmPB encryption_algorithm() const { return _encryption_algorithm; }
 
+    bool is_force_deleted() const { return _is_force_deleted; }
+    void set_is_force_deleted(bool is_force_deleted) { _is_force_deleted = is_force_deleted; }
+
 private:
     Status _save_meta(DataDir* data_dir);
     void _check_mow_rowset_cache_version_size(size_t rowset_cache_version_size);
@@ -350,6 +353,7 @@ private:
     // this policy is judged and computed by TimestampedVersionTracker.
     RowsetMetaMapContainer _stale_rs_metas;
     bool _in_restore_mode = false;
+    bool _is_force_deleted = false;
     RowsetTypePB _preferred_rowset_type = BETA_ROWSET;
 
     // meta for cooldown
