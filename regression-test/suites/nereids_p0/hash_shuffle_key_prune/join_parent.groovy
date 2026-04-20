@@ -1,3 +1,20 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
 // ===========================================================================================
 // Category 06: Join Paths and Parent Requests — J01-J12, P01-P02
 // ===========================================================================================
@@ -67,41 +84,144 @@ suite("join_parent", "agg_shuffle_prune_func") {
     }
     def exprId = { String e,String c -> def m=(e=~("\\b"+java.util.regex.Pattern.quote(c)+"#(\\d+)\\b")); m.find()?Integer.parseInt(m.group(1)):null }
     def norm = { rows -> rows.collect{r->r.collect{v->v==null?"NULL":v.toString()}.join("||")}.sort() }
-    def containsCols = { String e, List<String> cols ->
-        def eids = cols.collect { c -> def eid = exprId(e, c); assertTrue(eid != null, "missing ${c}"); eid }
-        def eset = eids as Set
-        def m = (e =~ /orderedShuffledColumns=\[([0-9,\s-]*)\]/)
-        while (m.find()) {
-            def r = m.group(1).trim()
-            def a = (r.length() == 0) ? Collections.emptyList() : r.split(",").collect { it.trim() }.findAll { it.length() > 0 }.collect { Integer.parseInt(it) }
-            if (a.size() == eids.size() && (a as Set) == eset) return true
+    def parseOrderedIds = { String line ->
+        def m = (line =~ /orderedShuffledColumns=\[([0-9,\s-]*)\]/)
+        if (!m.find()) {
+            return null
         }
-        return false
+        def r = m.group(1).trim()
+        return (r.length() == 0) ? Collections.emptyList()
+                : r.split(",").collect { it.trim() }.findAll { it.length() > 0 }.collect { Integer.parseInt(it) }
     }
-    def run = { String id,String q,int ap,boolean single,boolean reqSh,Boolean expChg,String sel,def exc ->
+    def subtreeText = { List<String> lines, int rootIndex ->
+        int rootIndent = lines[rootIndex].indexOf("Physical")
+        def collected = []
+        for (int i = rootIndex; i < lines.size(); i++) {
+            def line = lines[i]
+            int indent = line.indexOf("Physical")
+            if (i > rootIndex && indent >= 0 && indent <= rootIndent) {
+                break
+            }
+            collected << line
+        }
+        collected.join("\n")
+    }
+    def findScopedExprId = { String e, String c ->
+        def m = (e =~ ("\\b" + java.util.regex.Pattern.quote(c) + "#(\\d+)\\b"))
+        m.find() ? Integer.parseInt(m.group(1)) : null
+    }
+    def findGlobalAggChildShuffleCtx = { String e ->
+        def lines = e.readLines()
+        for (int i = 0; i < lines.size(); i++) {
+            def line = lines[i]
+            if (!(line.contains("PhysicalHashAggregate") && line.contains("aggPhase=GLOBAL"))) {
+                continue
+            }
+            int aggIndent = line.indexOf("PhysicalHashAggregate")
+            for (int j = i + 1; j < lines.size(); j++) {
+                def childLine = lines[j]
+                int childIndent = childLine.indexOf("Physical")
+                if (childIndent < 0) {
+                    continue
+                }
+                if (childIndent <= aggIndent) {
+                    break
+                }
+                if (childLine.contains("PhysicalDistribute") && childLine.contains("orderedShuffledColumns=")) {
+                    return [ids: parseOrderedIds(childLine), subtree: subtreeText(lines, j)]
+                }
+            }
+        }
+        return null
+    }
+    def assertGlobalAggChildCols = { String id, String e, List<String> cols ->
+        def ctx = findGlobalAggChildShuffleCtx(e)
+        assertTrue(ctx != null, "${id}: missing agg-side PhysicalDistribute")
+        def expectedIds = cols.collect { c ->
+            def eid = findScopedExprId(ctx.subtree, c)
+            assertTrue(eid != null, "${id}: missing exprId for ${c}")
+            eid
+        }
+        def actualIds = ctx.ids
+        assertTrue(actualIds == expectedIds,
+            "${id}: expected agg-side shuffle cols ${cols}/${expectedIds}, got ${actualIds}")
+    }
+    def findAllGlobalAggChildShuffleCtxs = { String e ->
+        def lines = e.readLines()
+        def allCtxs = []
+        for (int i = 0; i < lines.size(); i++) {
+            def line = lines[i]
+            if (!(line.contains("PhysicalHashAggregate") && line.contains("aggPhase=GLOBAL"))) {
+                continue
+            }
+            int aggIndent = line.indexOf("PhysicalHashAggregate")
+            for (int j = i + 1; j < lines.size(); j++) {
+                def childLine = lines[j]
+                int childIndent = childLine.indexOf("Physical")
+                if (childIndent < 0) {
+                    continue
+                }
+                if (childIndent <= aggIndent) {
+                    break
+                }
+                if (childLine.contains("PhysicalDistribute") && childLine.contains("orderedShuffledColumns=")) {
+                    allCtxs << [ids: parseOrderedIds(childLine), subtree: subtreeText(lines, j)]
+                    break
+                }
+            }
+        }
+        allCtxs
+    }
+    def assertGlobalAggShapes = { String id, List<Map> ctxs, List<List<String>> expectedColsByAgg ->
+        assertTrue(ctxs.size() == expectedColsByAgg.size(),
+            "${id}: expected ${expectedColsByAgg.size()} agg-side shuffles, got ${ctxs.size()} -> ${ctxs.collect { it.ids }}")
+        for (int i = 0; i < expectedColsByAgg.size(); i++) {
+            def expectedIds = expectedColsByAgg[i].collect { c ->
+                def eid = findScopedExprId(ctxs[i].subtree, c)
+                assertTrue(eid != null, "${id}: missing exprId for agg${i}.${c}")
+                eid
+            }
+            assertTrue(ctxs[i].ids == expectedIds,
+                "${id}: expected agg${i} shuffle cols ${expectedColsByAgg[i]}/${expectedIds}, got ${ctxs[i].ids}")
+        }
+    }
+    def explainText = { String q -> (sql "explain physical plan " + q).collect { it[0].toString() }.join("\n") }
+    def run = { String id,String q,int ap,boolean single,boolean reqSh,Boolean expChg,List<List<String>> onExpectedAggCols ->
         sql "set agg_phase=${ap};"; sql "set disable_nereids_rules='';"
         sql "set enable_shuffle_key_prune=false;"
-        def eOff=(sql "explain physical plan "+q).toString(); def oS=extractSigns(eOff)
+        def eOff=explainText(q); def oS=extractSigns(eOff); def offAggCtxs=findAllGlobalAggChildShuffleCtxs(eOff)
         sql "set enable_shuffle_key_prune=true;"
-        def eOn=(sql "explain physical plan "+q).toString(); def nS=extractSigns(eOn); def si=extractSingle(eOn)
+        def eOn=explainText(q); def nS=extractSigns(eOn); def onAggCtxs=findAllGlobalAggChildShuffleCtxs(eOn)
         def chg=(expChg==null?single:expChg)
-        if(chg){assertTrue(oS.toString()!=nS.toString(),"${id}: signs should change"); if(single)assertTrue(si.size()>0,"${id}: expect single")}
-        else{assertTrue(oS.toString()==nS.toString(),"${id}: should stay unchanged"); if(reqSh)assertTrue(nS.size()>0,"${id}: need shuffle")}
+        if(chg){
+            assertTrue(oS.toString()!=nS.toString(),"${id}: signs should change")
+            if(single && onExpectedAggCols==null){
+                assertTrue(onAggCtxs.any{it.ids.size()==1}, "${id}: expect at least one single-key agg-side shuffle, got ${onAggCtxs.collect { it.ids }}")
+            }
+        } else {
+            assertTrue(oS.toString()==nS.toString(),"${id}: should stay unchanged")
+        }
+        if(onExpectedAggCols!=null){
+            assertGlobalAggShapes(id + "-ON", onAggCtxs, onExpectedAggCols)
+        }
+        if(reqSh){
+            assertTrue(!onAggCtxs.isEmpty() || nS.size()>0,"${id}: need shuffle")
+        }
         sql "set enable_shuffle_key_prune=false;"; def rOff=sql q
         sql "set enable_shuffle_key_prune=true;"; def rOn=sql q
         assertTrue(norm(rOff)==norm(rOn),"${id}: results differ")
-        logger.info("${id}: oS=${oS}, nS=${nS}")
+        logger.info("${id}: oS=${oS}, nS=${nS}, offAggIds=${offAggCtxs.collect { it.ids }}, onAggIds=${onAggCtxs.collect { it.ids }}")
     }
     def runParent = { String id,String q,boolean chg,List<String> offCols,List<String> onCols ->
         sql "set agg_phase=0;"; sql "set disable_nereids_rules='';"
         sql "set enable_shuffle_key_prune=false;"; sql "set disable_join_reorder=true;"; sql "set runtime_filter_mode=OFF;"
         sql "set agg_shuffle_use_parent_key=false;"
-        def eOff=(sql "explain physical plan "+q).toString(); def oS=extractSigns(eOff)
+        def eOff=explainText(q); def oS=extractSigns(eOff)
         sql "set agg_shuffle_use_parent_key=true;"
-        def eOn=(sql "explain physical plan "+q).toString(); def nS=extractSigns(eOn)
+        def eOn=explainText(q); def nS=extractSigns(eOn)
         assertTrue(nS.size()>0,"${id}: need shuffle")
-        if(offCols!=null) assertTrue(containsCols(eOff,offCols),"${id}: OFF should contain ${offCols}")
-        if(onCols!=null) assertTrue(containsCols(eOn,onCols),"${id}: ON should contain ${onCols}")
+        if(offCols!=null) assertGlobalAggChildCols(id + "-OFF", eOff, offCols)
+        if(onCols!=null) assertGlobalAggChildCols(id + "-ON", eOn, onCols)
         if(chg){assertTrue(oS.toString()!=nS.toString(),"${id}: signs should change")}
         else{assertTrue(oS.toString()==nS.toString(),"${id}: should stay unchanged")}
         sql "set agg_shuffle_use_parent_key=false;"; def rOff=sql q
@@ -170,19 +290,19 @@ suite("join_parent", "agg_shuffle_prune_func") {
     scanStats(tScanLow,ln,ln,ln,qn,qn)
 
     // J01-J09
-    run("J01","select s.b,s.c,s.rv,a.sum_v from ${tScan} s join (select b,c,d,e,f,g,sum(v) as sum_v from ${tByB} group by b,c,d,e,f,g) a on s.b=a.b and s.c=a.c and s.d=a.d and s.e=a.e and s.f=a.f and s.g=a.g",0,false,false,false,null,[])
-    run("J02","select s.b,s.c,s.rv,a.sum_v from ${tScan} s join (select b,c,d,e,f,g,sum(v) as sum_v from ${tByX} group by b,c,d,e,f,g) a on s.b=a.b and s.c=a.c and s.d=a.d and s.e=a.e and s.f=a.f and s.g=a.g",0,true,true,true,null,[])
-    run("J03","select l.b,l.c,l.d,l.e,l.f,l.g,l.sv,r.cv from (select b,c,d,e,f,g,sum(v) as sv from ${tByB} group by b,c,d,e,f,g) l join (select b,c,d,e,f,g,count(*) as cv from ${tByB} group by b,c,d,e,f,g) r on l.b=r.b and l.c=r.c and l.d=r.d and l.e=r.e and l.f=r.f and l.g=r.g",0,false,false,false,null,[])
-    run("J04","select l.b,l.c,l.d,l.e,l.f,l.g,l.sv,r.cv from (select b,c,d,e,f,g,sum(v) as sv from ${tByX} group by b,c,d,e,f,g) l join (select b,c,d,e,f,g,count(*) as cv from ${tByX} group by b,c,d,e,f,g) r on l.b=r.b and l.c=r.c and l.d=r.d and l.e=r.e and l.f=r.f and l.g=r.g",0,true,true,true,null,[])
-    run("J05","select s.b,s.c,s.rv,a.sum_v from ${tScan} s left join (select b,c,d,e,f,g,sum(v) as sum_v from ${tByX} group by b,c,d,e,f,g) a on s.b=a.b and s.c=a.c and s.d=a.d and s.e=a.e and s.f=a.f and s.g=a.g",0,true,true,true,null,[])
-    run("J06","select s.b,s.c,s.rv from ${tScan} s left semi join (select b,c,d,e,f,g,sum(v) as sum_v from ${tByX} group by b,c,d,e,f,g) a on s.b=a.b and s.c=a.c and s.d=a.d and s.e=a.e and s.f=a.f and s.g=a.g",0,true,true,true,null,[])
-    run("J07","select s.b,s.c,s.rv from ${tScan} s left anti join (select b,c,d,e,f,g,sum(v) as sum_v from ${tByX} group by b,c,d,e,f,g) a on s.b=a.b and s.c=a.c and s.d=a.d and s.e=a.e and s.f=a.f and s.g=a.g",0,true,true,true,null,[])
-    run("J08","select a.sum_v,s.rv from (select b,c,d,e,f,g,sum(v) as sum_v from ${tByB} group by b,c,d,e,f,g) a join ${tScan} s on a.sum_v=s.rv",0,false,false,false,null,[])
-    run("J09","select j.b,j.c,j.d,j.e,j.f,j.g,count(*) as cv from (select l.b,l.c,l.d,l.e,l.f,l.g from ${tScan} l join ${tScan} r on l.b=r.b and l.c=r.c and l.d=r.d and l.e=r.e and l.f=r.f and l.g=r.g) j group by j.b,j.c,j.d,j.e,j.f,j.g",0,false,false,false,null,[])
+    run("J01","select s.b,s.c,s.rv,a.sum_v from ${tScan} s join (select b,c,d,e,f,g,sum(v) as sum_v from ${tByB} group by b,c,d,e,f,g) a on s.b=a.b and s.c=a.c and s.d=a.d and s.e=a.e and s.f=a.f and s.g=a.g",0,false,false,false,null)
+    run("J02","select s.b,s.c,s.rv,a.sum_v from ${tScan} s join (select b,c,d,e,f,g,sum(v) as sum_v from ${tByX} group by b,c,d,e,f,g) a on s.b=a.b and s.c=a.c and s.d=a.d and s.e=a.e and s.f=a.f and s.g=a.g",0,true,true,true,[["c"]])
+    run("J03","select l.b,l.c,l.d,l.e,l.f,l.g,l.sv,r.cv from (select b,c,d,e,f,g,sum(v) as sv from ${tByB} group by b,c,d,e,f,g) l join (select b,c,d,e,f,g,count(*) as cv from ${tByB} group by b,c,d,e,f,g) r on l.b=r.b and l.c=r.c and l.d=r.d and l.e=r.e and l.f=r.f and l.g=r.g",0,false,false,false,null)
+    run("J04","select l.b,l.c,l.d,l.e,l.f,l.g,l.sv,r.cv from (select b,c,d,e,f,g,sum(v) as sv from ${tByX} group by b,c,d,e,f,g) l join (select b,c,d,e,f,g,count(*) as cv from ${tByX} group by b,c,d,e,f,g) r on l.b=r.b and l.c=r.c and l.d=r.d and l.e=r.e and l.f=r.f and l.g=r.g",0,true,true,true,[["c"],["c"]])
+    run("J05","select s.b,s.c,s.rv,a.sum_v from ${tScan} s left join (select b,c,d,e,f,g,sum(v) as sum_v from ${tByX} group by b,c,d,e,f,g) a on s.b=a.b and s.c=a.c and s.d=a.d and s.e=a.e and s.f=a.f and s.g=a.g",0,true,true,true,[["c"]])
+    run("J06","select s.b,s.c,s.rv from ${tScan} s left semi join (select b,c,d,e,f,g,sum(v) as sum_v from ${tByX} group by b,c,d,e,f,g) a on s.b=a.b and s.c=a.c and s.d=a.d and s.e=a.e and s.f=a.f and s.g=a.g",0,true,true,true,[["c"]])
+    run("J07","select s.b,s.c,s.rv from ${tScan} s left anti join (select b,c,d,e,f,g,sum(v) as sum_v from ${tByX} group by b,c,d,e,f,g) a on s.b=a.b and s.c=a.c and s.d=a.d and s.e=a.e and s.f=a.f and s.g=a.g",0,true,true,true,[["c"]])
+    run("J08","select a.sum_v,s.rv from (select b,c,d,e,f,g,sum(v) as sum_v from ${tByB} group by b,c,d,e,f,g) a join ${tScan} s on a.sum_v=s.rv",0,false,false,false,null)
+    run("J09","select j.b,j.c,j.d,j.e,j.f,j.g,count(*) as cv from (select l.b,l.c,l.d,l.e,l.f,l.g from ${tScan} l join ${tScan} r on l.b=r.b and l.c=r.c and l.d=r.d and l.e=r.e and l.f=r.f and l.g=r.g) j group by j.b,j.c,j.d,j.e,j.f,j.g",0,false,false,false,null)
 
     // J10: root agg on join output, temporarily inject hot_values into all columns -> block agg self-pruning -> negative
     ["c","d","e","f","g"].each{c-> ss(tScan,c,qn,"0","1600000","3","389900003","1 :0.30") }
-    run("J10","select j.c,j.d,j.e,j.f,j.g,count(*) as cv from (select l.b,l.c,l.d,l.e,l.f,l.g from ${tScan} l join ${tScan} r on l.b=r.b and l.c=r.c and l.d=r.d and l.e=r.e and l.f=r.f and l.g=r.g) j group by j.c,j.d,j.e,j.f,j.g",0,false,true,false,null,[])
+    run("J10","select j.c,j.d,j.e,j.f,j.g,count(*) as cv from (select l.b,l.c,l.d,l.e,l.f,l.g from ${tScan} l join ${tScan} r on l.b=r.b and l.c=r.c and l.d=r.d and l.e=r.e and l.f=r.f and l.g=r.g) j group by j.c,j.d,j.e,j.f,j.g",0,false,true,false,null)
     scanStats(tScan,qn,qn,qn,qn,qn) // restore
 
     // J11: parent-key-subset positive case
@@ -191,6 +311,6 @@ suite("join_parent", "agg_shuffle_prune_func") {
     runParent("J12","select t.c,t.d,t.e,t.cv,s.rv from (select b,c,d,e,f,g,count(*) as cv from ${tScanLow} group by b,c,d,e,f,g) t join [shuffle] ${tScanLow} s on t.c=s.c and t.d=s.d and t.e=s.e",false,["b","c","d","e","f","g"],["b","c","d","e","f","g"])
 
     // P01/P02
-    run("P01","select t.sv,max(t.cv) from (select b,c,d,e,f,g,sum(v) as sv,count(*) as cv from ${tByB} group by b,c,d,e,f,g) t group by t.sv",0,false,false,false,null,[])
-    run("P02","select t.b,t.sv,row_number() over (partition by t.sv order by t.b desc,t.c) as rn from (select b,c,d,e,f,g,sum(v) as sv from ${tByB} group by b,c,d,e,f,g) t",0,false,false,false,null,[])
+    run("P01","select t.sv,max(t.cv) from (select b,c,d,e,f,g,sum(v) as sv,count(*) as cv from ${tByB} group by b,c,d,e,f,g) t group by t.sv",0,false,false,false,null)
+    run("P02","select t.b,t.sv,row_number() over (partition by t.sv order by t.b desc,t.c) as rn from (select b,c,d,e,f,g,sum(v) as sv from ${tByB} group by b,c,d,e,f,g) t",0,false,false,false,null)
 }

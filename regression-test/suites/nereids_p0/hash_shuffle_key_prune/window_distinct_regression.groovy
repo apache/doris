@@ -1,3 +1,20 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
 // ===========================================================================================
 // Category 09: Window / Distinct Regression — WD01-WD04
 // ===========================================================================================
@@ -20,6 +37,7 @@ suite("window_distinct_regression", "agg_shuffle_prune_func") {
     sql """set enable_query_cache=false;"""
     sql """set agg_phase=0;"""
     sql """set agg_shuffle_use_parent_key=false;"""
+    sql """set detail_shape_nodes='PhysicalHashAggregate,PhysicalDistribute,PhysicalWindow';"""
 
     def dbName = context.config.getDbNameByFile(context.file)
     sql "create database if not exists ${dbName};"
@@ -57,33 +75,101 @@ suite("window_distinct_regression", "agg_shuffle_prune_func") {
         }
         ids
     }
+    def extractIdLists = { String e ->
+        def ids = []
+        def m = (e =~ /orderedShuffledColumns=\[([0-9,\s-]*)\]/)
+        while (m.find()) {
+            def r = m.group(1).trim()
+            ids << (r.length() == 0 ? [] : r.split(",").collect { it.trim() }.findAll { it.length() > 0 }.collect { Integer.parseInt(it) })
+        }
+        ids
+    }
     def exprId = { String e, String c ->
         def m = (e =~ ("\\b" + java.util.regex.Pattern.quote(c) + "#(\\d+)\\b"))
         m.find() ? Integer.parseInt(m.group(1)) : null
     }
-    def assertSelected = { String id, String e, String c ->
-        def ids = extractSingle(e)
-        def target = exprId(e, c)
+    def subtreeText = { List<String> lines, int rootIndex ->
+        int rootIndent = lines[rootIndex].indexOf("Physical")
+        def collected = []
+        for (int i = rootIndex; i < lines.size(); i++) {
+            def line = lines[i]
+            int indent = line.indexOf("Physical")
+            if (i > rootIndex && indent >= 0 && indent <= rootIndent) {
+                break
+            }
+            collected << line
+        }
+        collected.join("\n")
+    }
+    def parseOrderedIds = { String line ->
+        def m = (line =~ /orderedShuffledColumns=\[([0-9,\s-]*)\]/)
+        if (!m.find()) {
+            return null
+        }
+        def r = m.group(1).trim()
+        return (r.length() == 0 ? [] : r.split(",").collect { it.trim() }.findAll { it.length() > 0 }.collect { Integer.parseInt(it) })
+    }
+    def findDistinctAggChildDistributes = { String e ->
+        def lines = e.readLines()
+        def ctxs = []
+        for (int i = 0; i < lines.size(); i++) {
+            def line = lines[i]
+            if (!(line.contains("PhysicalHashAggregate")
+                    && (line.contains("aggPhase=DISTINCT_GLOBAL") || line.contains("aggPhase=GLOBAL")))) {
+                continue
+            }
+            int aggIndent = line.indexOf("PhysicalHashAggregate")
+            for (int j = i + 1; j < lines.size(); j++) {
+                def childLine = lines[j]
+                int childIndent = childLine.indexOf("Physical")
+                if (childIndent < 0) {
+                    continue
+                }
+                if (childIndent <= aggIndent) {
+                    break
+                }
+                if (childLine.contains("PhysicalDistribute") && childLine.contains("orderedShuffledColumns=")) {
+                    ctxs << [ids: parseOrderedIds(childLine), subtree: subtreeText(lines, j)]
+                    break
+                }
+            }
+        }
+        ctxs
+    }
+    def findScopedExprId = { String e, String c ->
+        def m = (e =~ ("\\b" + java.util.regex.Pattern.quote(c) + "#(\\d+)\\b"))
+        m.find() ? Integer.parseInt(m.group(1)) : null
+    }
+    def assertDistinctShufflePrunedToSingle = { String id, String eOff, String eOn, String c ->
+        def offCtxs = findDistinctAggChildDistributes(eOff)
+        def onCtxs = findDistinctAggChildDistributes(eOn)
+        assertTrue(!offCtxs.isEmpty() && !onCtxs.isEmpty(), "${id}: missing DISTINCT/global agg-child distribute ids, off=${offCtxs}, on=${onCtxs}")
+        assertTrue(offCtxs.size() == onCtxs.size(), "${id}: expected matching DISTINCT/global agg-child distribute counts, off=${offCtxs}, on=${onCtxs}")
+        def target = findScopedExprId(onCtxs[0].subtree, c)
         assertTrue(target != null, "${id}: missing exprId for ${c}")
-        assertTrue(ids.contains(target), "${id}: expected ${c} as single shuffle key, but ids=${ids}")
+        assertTrue(offCtxs.any { it.ids.size() > 1 && it.ids.contains(target) },
+            "${id}: expected at least one multi-key DISTINCT/global agg-child shuffle containing ${c}/${target} before pruning, got off=${offCtxs}")
+        assertTrue(onCtxs.every { it.ids.size() == 1 && it.ids[0] == target },
+            "${id}: expected all DISTINCT/global agg-child shuffles to prune to [${c}]/${target}, got on=${onCtxs}")
     }
     def norm = { rows ->
         rows.collect { r -> r.collect { v -> v == null ? "NULL" : v.toString() }.join("||") }.sort()
     }
+    def explainText = { String q -> (sql "explain physical plan " + q).collect { it[0].toString() }.join("\n") }
     def runCase = { String id, String q, boolean expectChange, int ap, String selectedCol ->
         sql "set agg_phase=${ap};"
         sql "set enable_shuffle_key_prune=false;"
-        def eOff = (sql "explain physical plan " + q).toString()
+        def eOff = explainText(q)
         def oS = extractSigns(eOff)
         sql "set enable_shuffle_key_prune=true;"
-        def eOn = (sql "explain physical plan " + q).toString()
+        def eOn = explainText(q)
         def nS = extractSigns(eOn)
         def changed = (eOff != eOn)
         logger.info("${id}: oS=${oS}, nS=${nS}, changed=${changed}")
         if (expectChange) {
             assertTrue(changed, "${id}: plan should change")
             if (selectedCol != null) {
-                assertSelected(id, eOn, selectedCol)
+                assertDistinctShufflePrunedToSingle(id, eOff, eOn, selectedCol)
             }
         } else {
             assertTrue(!changed, "${id}: plan should stay unchanged")
@@ -194,4 +280,5 @@ suite("window_distinct_regression", "agg_shuffle_prune_func") {
     sql """set agg_phase=0;"""
     sql """set enable_shuffle_key_prune=true;"""
     sql """set agg_shuffle_use_parent_key=true;"""
+    sql """set detail_shape_nodes='';"""
 }

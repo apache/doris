@@ -1,3 +1,20 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
 // ===========================================================================================
 // Category 05: Expression Keys and Bucket Variations — EX01-EX04, BK01-BK02
 // ===========================================================================================
@@ -12,7 +29,7 @@
 //   EX02: substr(s_key,1,8) -> string slicing creates an expression slot -> can be selected (positive)
 //         Columns b, c, d, and e are injected with 80% skew to ensure they are excluded
 //   EX03: coalesce(null_k,-1) -> unknown stats -> uncertainty -> no pruning (negative)
-//   EX04: date_trunc(dt_key,'day') -> unstable distribution -> no pruning (negative)
+//   EX04: date_trunc(dt_key,'day') stays as a non-slot grouping expression under the current implementation -> no pruning (negative)
 //
 // BK Group Case List
 //   BK01: 1-bucket table -> pruning still works (positive)
@@ -113,7 +130,7 @@ suite("expr_bucket", "agg_shuffle_prune_func") {
     applyExpr(guard)
     runEx("EX03","select coalesce(null_k,-1) as nk,b,c,d,e,sum(v) from t_05_expr group by coalesce(null_k,-1),b,c,d,e",0,false,true,false,null,[])
 
-    // EX04: date_trunc -> unstable -> no pruning
+    // EX04: date_trunc remains a non-slot grouping expression in the current implementation -> no pruning
     applyExpr(guard)
     runEx("EX04","select date_trunc(dt_key,'day') as day_k,b,c,d,e,sum(v) from t_05_expr group by date_trunc(dt_key,'day'),b,c,d,e",0,false,true,false,null,[])
 

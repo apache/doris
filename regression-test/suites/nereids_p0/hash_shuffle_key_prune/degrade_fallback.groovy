@@ -1,3 +1,20 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
 // ===========================================================================================
 // Category 04: Fallback and Conservative Logic — R01-R02, SK01, N01-N02, E01-E02
 // ===========================================================================================
@@ -79,11 +96,52 @@ suite("degrade_fallback", "agg_shuffle_prune_func") {
         def eOn=(sql "explain physical plan "+q).toString(); def nS=extractSigns(eOn); def idLists=extractIdLists(eOn)
         if(chg){assertTrue(oS.toString()!=nS.toString(),"${id}: signs should change")}
         else{assertTrue(oS.toString()==nS.toString(),"${id}: should stay unchanged")}
-        if(keyCount!=null){def counts=idLists.collect{it.size()}; assertTrue(counts.any{it==keyCount},"${id}: expect keyCount ${keyCount}")}
+        def matchedIds = null
+        if(selCols!=null && !selCols.isEmpty()){
+            def selectedIds = selCols.collect { c ->
+                def eid = exprId(eOn, c)
+                assertTrue(eid!=null, "${id}: missing exprId for ${c}")
+                eid
+            }
+            matchedIds = idLists.find { it.size()==selectedIds.size() && (it as Set)==(selectedIds as Set) }
+            assertTrue(matchedIds!=null, "${id}: expected selected cols ${selCols}, got ${idLists}")
+        }
+        if(keyCount!=null){
+            def counts=idLists.collect{it.size()}
+            assertTrue(counts.any{it==keyCount},"${id}: expect keyCount ${keyCount}")
+            if(matchedIds!=null){assertTrue(matchedIds.size()==keyCount,"${id}: selected cols size should be ${keyCount}, got ${matchedIds}")}
+        }
+        if(exc!=null && !exc.isEmpty()){
+            def excludedPairs = exc.collect { c ->
+                def eid = exprId(eOn, c)
+                assertTrue(eid!=null, "${id}: missing exprId for ${c}")
+                [c, eid]
+            }
+            if(matchedIds!=null){
+                excludedPairs.each { p ->
+                    assertTrue(!matchedIds.contains(p[1]), "${id}: excluded ${p[0]} was selected in ${matchedIds}")
+                }
+            } else if(keyCount!=null){
+                def candidateLists = idLists.findAll { it.size()==keyCount }
+                assertTrue(candidateLists.any { ids -> excludedPairs.every { p -> !ids.contains(p[1]) } },
+                    "${id}: expected a ${keyCount}-key shuffle without excluded cols ${exc}, got ${candidateLists}")
+            }
+        }
         sql "set enable_shuffle_key_prune=false;"; def rOff=sql q
         sql "set enable_shuffle_key_prune=true;"; def rOn=sql q
         assertTrue(norm(rOff)==norm(rOn),"${id}: results differ")
         logger.info("${id}: oS=${oS}, nS=${nS}")
+    }
+    def promoteKnownStats = { String t, Map<String, String> ndvMap ->
+        ss(t, "x", ndvMap.getOrDefault("x", "12000"), "0", "1600000", "1", "199900001", "")
+        ndvMap.each { c, ndv ->
+            if (c != "x") {
+                ss(t, c, ndv, "0", "1600000", "1", ndv, "")
+            }
+        }
+        if (ndvMap.containsKey("v")) {
+            ss(t, "v", ndvMap.get("v"), "0", "1600000", "0", "1999", "")
+        }
     }
 
     // ===== R group: repeat -> no optimization =====
@@ -100,11 +158,8 @@ suite("degrade_fallback", "agg_shuffle_prune_func") {
         (bitand(murmur_hash3_32(concat(cast(number as string),'_g')),2147483647)%120)*100000+7,
         number from numbers("number"="2000");"""
     sql "analyze table t_04_repeat with sync;"
-    def matHV = { String t,Map<String,String> m -> m.each{col,hv->
-        def r=sql("show column stats ${t}(${col})")[0]
-        sql "alter table ${t} modify column ${col} set stats ('row_count'='${r[2]}','ndv'='${r[3]}','num_nulls'='${r[4]}','data_size'='${r[5]}','min_value'='${r[7]}'.replace(\"'\",\"\"),'max_value'='${r[8]}'.replace(\"'\",\"\"),'hot_values'='${hv}');"
-    }}
-    // R-group cases are negative examples; the low row_count from analyze does not affect the assertions
+    // Promote stats above the prune threshold so Repeat is the only blocker.
+    promoteKnownStats("t_04_repeat", ["b":"5200","c":"5600","d":"6000","e":"6400","f":"6800","g":"7200","v":"60000"])
     runEx("R01","select b,c,d,e,f,sum(v) from t_04_repeat group by rollup(b,c,d,e,f)",0,false,true,false,null,[])
     runEx("R02","select b,c,d,e,f,sum(v) from t_04_repeat group by grouping sets ((b,c,d,e,f),(b,c,d,e),(b,c,d),(b,c),(b))",0,false,true,false,null,[])
 
@@ -122,30 +177,51 @@ suite("degrade_fallback", "agg_shuffle_prune_func") {
     runEx("SK01","select k1,k2,k3,k4,k5,sum(v) from t_04_allskew group by k1,k2,k3,k4,k5",0,false,true,false,null,[])
 
     // ===== N group: stale/partial stats -> conservative =====
-    sql "drop table if exists t_04_stale;"
-    sql """create table t_04_stale (part_key int, x bigint, b bigint, c bigint, d bigint, e bigint, f bigint, v bigint)
-        duplicate key(part_key, x, b, c) partition by range(part_key) (
-            partition p1 values [("0"),("100")), partition p2 values [("100"),("200")), partition p3 values [("200"),("300"))
-        ) distributed by hash(x) buckets 4 properties ("replication_num"="1");"""
-    sql """insert into t_04_stale select 10, number*100000+1,
-        (bitand(murmur_hash3_32(concat(cast(number as string),'_b')),2147483647)%180)*100000+2,
-        (bitand(murmur_hash3_32(concat(cast(number as string),'_c')),2147483647)%2600)*100000+3,
-        (bitand(murmur_hash3_32(concat(cast(number as string),'_d')),2147483647)%2400)*100000+4,
-        (bitand(murmur_hash3_32(concat(cast(number as string),'_e')),2147483647)%2200)*100000+5,
-        (bitand(murmur_hash3_32(concat(cast(number as string),'_f')),2147483647)%2000)*100000+6,
-        number from numbers("number"="1500");"""
-    sql "analyze table t_04_stale with sync;"
-    sql """insert into t_04_stale select 110,
-        (bitand(murmur_hash3_32(concat(cast(number as string),'_qx')),2147483647)%3500)*100000+1,
-        if(number%10<8,1,(bitand(murmur_hash3_32(concat(cast(number as string),'_qb')),2147483647)%900)+2)*100000+2,
-        (bitand(murmur_hash3_32(concat(cast(number as string),'_qc')),2147483647)%2800)*100000+3,
-        (bitand(murmur_hash3_32(concat(cast(number as string),'_qd')),2147483647)%2600)*100000+4,
-        (bitand(murmur_hash3_32(concat(cast(number as string),'_qe')),2147483647)%2400)*100000+5,
-        (bitand(murmur_hash3_32(concat(cast(number as string),'_qf')),2147483647)%2200)*100000+6,
-        number from numbers("number"="1000");"""
-    runEx("N01","select b,c,d,e,f,sum(v) from t_04_stale where part_key in (10,110) group by b,c,d,e,f",0,false,true,false,null,[])
-    sql "analyze table t_04_stale(b) with sync;"
-    runEx("N02","select b,c,d,e,f,sum(v) from t_04_stale where part_key in (10,110) group by b,c,d,e,f",0,false,true,false,null,[])
+    def oldAutoAnalyze = sql("""show global variables like 'enable_auto_analyze'""")[0][1].toString()
+    try {
+        sql """set global enable_auto_analyze=false;"""
+        sql "drop table if exists t_04_stale;"
+        sql "drop table if exists t_04_partial;"
+        sql """create table t_04_stale (part_key int, x bigint, b bigint, c bigint, d bigint, e bigint, f bigint, v bigint)
+            duplicate key(part_key, x, b, c) partition by range(part_key) (
+                partition p1 values [("0"),("100")), partition p2 values [("100"),("200")), partition p3 values [("200"),("300"))
+            ) distributed by hash(x) buckets 4 properties ("replication_num"="1");"""
+        sql """create table t_04_partial (x bigint, b bigint, c bigint, d bigint, e bigint, f bigint, v bigint)
+            duplicate key(x) distributed by hash(x) buckets 4 properties ("replication_num"="1");"""
+        sql """insert into t_04_stale select 10, number*100000+1,
+            (bitand(murmur_hash3_32(concat(cast(number as string),'_b')),2147483647)%180)*100000+2,
+            (bitand(murmur_hash3_32(concat(cast(number as string),'_c')),2147483647)%2600)*100000+3,
+            (bitand(murmur_hash3_32(concat(cast(number as string),'_d')),2147483647)%2400)*100000+4,
+            (bitand(murmur_hash3_32(concat(cast(number as string),'_e')),2147483647)%2200)*100000+5,
+            (bitand(murmur_hash3_32(concat(cast(number as string),'_f')),2147483647)%2000)*100000+6,
+            number from numbers("number"="6000");"""
+        sql """insert into t_04_partial select number*100000+1,
+            (bitand(murmur_hash3_32(concat(cast(number as string),'_b')),2147483647)%180)*100000+2,
+            (bitand(murmur_hash3_32(concat(cast(number as string),'_c')),2147483647)%2600)*100000+3,
+            (bitand(murmur_hash3_32(concat(cast(number as string),'_d')),2147483647)%2400)*100000+4,
+            (bitand(murmur_hash3_32(concat(cast(number as string),'_e')),2147483647)%2200)*100000+5,
+            (bitand(murmur_hash3_32(concat(cast(number as string),'_f')),2147483647)%2000)*100000+6,
+            number from numbers("number"="6000");"""
+        // Analyze only p1 so p2 remains without partition stats; this isolates the "partial partition stats" guard.
+        sql "analyze table t_04_stale partition(p1) with sync;"
+        sql """insert into t_04_stale select 110,
+            (bitand(murmur_hash3_32(concat(cast(number as string),'_qx')),2147483647)%3500)*100000+1,
+            if(number%10<8,1,(bitand(murmur_hash3_32(concat(cast(number as string),'_qb')),2147483647)%900)+2)*100000+2,
+            (bitand(murmur_hash3_32(concat(cast(number as string),'_qc')),2147483647)%2800)*100000+3,
+            (bitand(murmur_hash3_32(concat(cast(number as string),'_qd')),2147483647)%2600)*100000+4,
+            (bitand(murmur_hash3_32(concat(cast(number as string),'_qe')),2147483647)%2400)*100000+5,
+            (bitand(murmur_hash3_32(concat(cast(number as string),'_qf')),2147483647)%2200)*100000+6,
+            number from numbers("number"="2000");"""
+        runEx("N01","select b,c,d,e,f,sum(v) from t_04_stale where part_key in (10,110) group by b,c,d,e,f",0,false,true,false,null,[])
+        sql "analyze table t_04_partial(b) with sync;"
+        // Keep b itself prunable and leave c/d/e/f without stats, so the failure is really "partial stats".
+        ss("t_04_partial","x","12000","0","1600000","1","199900001","")
+        ss("t_04_partial","b","5200","0","1600000","1","5200","")
+        ss("t_04_partial","v","60000","0","1600000","0","1999","")
+        runEx("N02","select b,c,d,e,f,sum(v) from t_04_partial group by b,c,d,e,f",0,false,true,false,null,[])
+    } finally {
+        sql """set global enable_auto_analyze=${oldAutoAnalyze};"""
+    }
 
     // ===== E group: string fallback =====
     sql "drop table if exists t_04_fallback;"

@@ -1,3 +1,20 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
 // ===========================================================================================
 // Category 01: Hot-Value Thresholds and Boundary Cases — A01, S01, S02, FC1, B01-B04
 // ===========================================================================================
@@ -170,17 +187,22 @@ suite("hotvalue_boundary", "agg_shuffle_prune_func") {
         false,null,[],false)
 
     // ===== FC1: full analyze produces hot_values=null -> no pruning =====
-    // Full analyze does not generate hot_values, so the hot_values field in show column stats is null
-    // This is the real reproduction of the "S02 scenario": a table after full analyze cannot be pruned
+    // Full analyze does not generate hot_values, so the hot_values field in show column stats is null.
+    // The analyzed dataset is intentionally kept above the NDV threshold, so "hot_values=null" is the blocker,
+    // rather than "NDV is too small to prune".
     sql "drop table if exists t_01_full;"
     sql """create table t_01_full (x bigint, skew_key int, good_key int, v bigint)
         duplicate key(x) distributed by hash(x) buckets 4 properties ("replication_num"="1");"""
-    sql """insert into t_01_full select number*100000+1, if(number<200,1,cast(number%2000 as int)+2),
-        cast(number%9000 as int)+1, number from numbers("number"="2000");"""
+    sql """insert into t_01_full select number*100000+1, if(number<600,1,cast(number%5000 as int)+2),
+        cast(number as int)+1, number from numbers("number"="6000");"""
     sql "analyze table t_01_full with sync;"
-    // Verify: hot_values is indeed null after full analyze
+    // Verify: hot_values is indeed null after full analyze, and good_key NDV is high enough to be prunable
     def fStats = showRow("t_01_full","skew_key")
     assertEquals("null", fStats[17].toString())
+    def goodStats = showRow("t_01_full","good_key")
+    assertEquals("null", goodStats[17].toString())
+    assertTrue(goodStats[3].toString().toDouble() > tptn * 512,
+        "FC1: good_key NDV should exceed the balance threshold, got ${goodStats[3]}")
     run("FC1","""select count(skew_key),count(good_key),count(sum_v) from (
         select skew_key,good_key,sum(v) as sum_v from t_01_full group by skew_key,good_key) t""",
         false,null,[],false)

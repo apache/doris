@@ -1,39 +1,57 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
 // ===========================================================================================
-// Category 03: Type Priority Selection — D01-D09, H01-H07
+// Category 03: Type-Bucket Ordering and String-Size Tie-Breaking — D01-D09, H01-H07
 // ===========================================================================================
 //
 // Purpose
-//   Validate the type-priority ordering logic of Shuffle Key Pruning. When multiple columns all satisfy
-//   the NDV and balanced conditions, the optimizer chooses the best column based on the hash-computation
-//   efficiency of the data type.
-//
-// Type Priority (highest to lowest)
-//   bigint/largeint > decimal > datev2/datetimev2 > char > varchar > string
-//   If the highest-priority candidate is skewed, skip it and choose the next one.
+//   Validate the current step-1 comparator used by Shuffle Key Pruning.
+//   The implementation does not maintain a strict per-type order such as
+//   bigint > decimal > date > char > varchar > string.
+//   Instead, it applies the following rules:
+//   1. Numeric/date candidates are considered before string candidates.
+//   2. Within the numeric/date bucket, the current comparator ties, so selection follows GROUP BY order.
+//   3. Within the string bucket, candidates are ordered by avgSizeByte ascending.
+//   4. Skewed / low-NDV candidates are skipped, and the next eligible candidate wins.
 //
 // D Group Case List
-//   D01: largeint is available vs skewed columns -> choose li_good (positive)
-//   D02: decimal is available vs skewed columns -> choose de_good (positive)
-//   D03: datev2 is available vs skewed columns -> choose d_good (positive)
-//   D04: datetimev2 is available vs skewed columns -> choose dt_good (positive)
-//   D05: char(8) is available vs skewed columns -> choose ch8_good (positive)
-//   D06: ch8_low is skewed -> skip char and choose vc16_good (positive)
-//   D07: ch8_low + vc16_hot are both skewed -> choose s_good (string fallback)
-//   D08: s_hot is skewed -> skip string and choose bi_good (positive)
+//   D01: li_good is the first balanced numeric/date candidate in GROUP BY order -> choose li_good (positive)
+//   D02: de_good is the first balanced numeric/date candidate in GROUP BY order -> choose de_good (positive)
+//   D03: d_good is the first balanced numeric/date candidate in GROUP BY order -> choose d_good (positive)
+//   D04: dt_good is the first balanced numeric/date candidate in GROUP BY order -> choose dt_good (positive)
+//   D05: only string candidates remain, and ch8_good has the smallest string avgSizeByte -> choose ch8_good (positive)
+//   D06: ch8_low is skewed, so the next smallest balanced string candidate vc16_good wins (positive)
+//   D07: ch8_low + vc16_hot are both skewed, so s_good is the remaining balanced string fallback
+//   D08: s_hot is skewed, while bi_good is the first balanced numeric/date candidate -> choose bi_good (positive)
 //   D09: Distribution is already satisfied (distributed by hash(li_good)) -> no change (negative)
 //
 // H Group Case List (basic-type smoke tests)
-//   H01: int/bigint/decimal/string -> choose bi_key (bigint has priority)
+//   H01: int/bigint/decimal/string -> choose bi_key because earlier numeric/date candidates are not balanced
 //   H02: bigint + hot_num (skewed) -> skip hot_num and choose bi_key
 //   H03: bigint + null_num (high null ratio) -> skip null_num and choose bi_key
-//   H04: 8 mixed-type columns -> still choose bi_key (bigint has priority)
-//   H05: Artificially lower bigint NDV and raise string NDV -> choose s_key (string wins on NDV)
+//   H04: mixed numeric/date + string keys -> still choose bi_key as the first balanced numeric/date candidate
+//   H05: lower earlier numeric/date/string candidates below the threshold so s_key becomes the first remaining balanced key
 //   H06: hot_str is skewed -> skip it and choose bi_key
 //   H07: hash(bi_key) table -> distribution already satisfied -> no change (negative)
 //
 // Validation
 //   Control optimizer choices by injecting NDV and hot_values for different columns,
-//   then verify plan changes and the selected column.
+//   then verify that selection follows the current bucket/order/size behavior.
 // ===========================================================================================
 suite("type_priority", "agg_shuffle_prune_func") {
     sql """set enable_nereids_planner=true;"""
@@ -84,7 +102,7 @@ suite("type_priority", "agg_shuffle_prune_func") {
         logger.info("${id}: oS=${oS}, nS=${nS}, si=${si}")
     }
 
-    // ===== D group table setup (type priority) =====
+    // ===== D group table setup (bucket ordering / string-size tie-break) =====
     sql "drop table if exists t_03_dtype;"
     sql """create table t_03_dtype (
         x bigint, ratio8_key int, ndv_below_key int, ndv_eq_key int,
@@ -204,7 +222,7 @@ suite("type_priority", "agg_shuffle_prune_func") {
     run("H03","select bi_key,de_key,null_num,vc_key,l1,sum(v) from t_03_type group by bi_key,de_key,null_num,vc_key,l1",true,"bi_key",["null_num"],true)
     run("H04","select i_key,bi_key,de_key,fl_key,db_key,vc_key,s_key,l1,sum(v) from t_03_type group by i_key,bi_key,de_key,fl_key,db_key,vc_key,s_key,l1",true,"bi_key",["s_key"],true)
 
-    // H05: string dominant
+    // H05: earlier numeric/date and small-string candidates are pushed below the threshold, so s_key becomes the first remaining balanced key
     ss("t_03_type","bi_key","260","0","160000","2","25900002","")
     ss("t_03_type","de_key","240","0","160000","0.0000","23.9000","")
     ss("t_03_type","vc_key","320","0","640000","svc_0","svc_319","")
