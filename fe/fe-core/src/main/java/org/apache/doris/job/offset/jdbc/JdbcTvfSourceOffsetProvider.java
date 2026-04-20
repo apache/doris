@@ -149,10 +149,6 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
                 props.put(CdcStreamTableValuedFunction.META_KEY, new Gson().toJson(offset.generateMeta()));
                 props.put(CdcStreamTableValuedFunction.JOB_ID_KEY, String.valueOf(jobId));
                 props.put(CdcStreamTableValuedFunction.TASK_ID_KEY, String.valueOf(taskId));
-                // Inject default slot/publication names so cdc client ownership logic on BE
-                // sees the resolved names. Users who specified their own values are preserved
-                // via putIfAbsent.
-                StreamingJobUtils.populateDefaultSourceProperties(sourceType, props, String.valueOf(jobId));
                 return new UnboundTVFRelation(
                         originTvfRel.getRelationId(), originTvfRel.getFunctionName(), new Properties(props));
             }

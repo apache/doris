@@ -62,11 +62,14 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
         Map<String, String> copyProps = new HashMap<>(properties);
         copyProps.put("format", "json");
 
-        // Materialize jobId so generateParams has a stable value across TVF invocations.
-        // Standalone TVF path: not tied to any job, so we generate a random id here.
-        // TVF-inside-job path: job.id is already injected by rewriteTvfParams.
-        copyProps.computeIfAbsent(JOB_ID_KEY,
+        // Standalone TVF: random jobId. TVF-in-job: job.id injected by rewriteTvfParams.
+        String jobId = copyProps.computeIfAbsent(JOB_ID_KEY,
                 k -> UUID.randomUUID().toString().replace("-", ""));
+
+        // Default PG slot/pub so cdcclient auto-creates per-job resources
+        StreamingJobUtils.populateDefaultSourceProperties(
+                DataSourceType.valueOf(copyProps.get(DataSourceConfigKeys.TYPE).toUpperCase()),
+                copyProps, jobId);
 
         super.parseCommonProperties(copyProps);
         this.processedParams.put(ENABLE_CDC_CLIENT_KEY, "true");
