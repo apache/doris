@@ -19,8 +19,6 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.qe.ConnectContext;
@@ -69,13 +67,6 @@ public class ReplaceTableOp extends AlterTableOp {
 
         if (properties != null && !properties.isEmpty()) {
             throw new AnalysisException("Unknown properties: " + properties.keySet());
-        }
-
-        if (isForce && !org.apache.doris.common.Config.enable_normal_user_force_drop) {
-            if (!org.apache.doris.catalog.Env.getCurrentEnv().getAccessManager()
-                    .checkGlobalPriv(ctx, org.apache.doris.mysql.privilege.PrivPredicate.ADMIN)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN for FORCE DROP");
-            }
         }
     }
 

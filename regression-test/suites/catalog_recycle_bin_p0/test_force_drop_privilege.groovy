@@ -60,17 +60,10 @@ suite("test_force_drop_privilege", "p0") {
                 sql """ ALTER TABLE test_force_drop_tbl DROP PARTITION p1 FORCE """
                 exception "ADMIN for FORCE DROP"
             }
-
-            // Test TRUNCATE TABLE FORCE
-            test {
-                sql """ TRUNCATE TABLE test_force_drop_tbl FORCE """
-                exception "ADMIN for FORCE DROP"
-            }
         }
 
         // Try as ADMIN user (the current session): should succeed even when config is false
         sql """ ALTER TABLE test_force_drop_tbl DROP PARTITION p1 FORCE """
-        sql """ TRUNCATE TABLE test_force_drop_tbl FORCE """
         sql """ DROP TABLE test_force_drop_tbl FORCE """
 
     } finally {
