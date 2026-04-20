@@ -95,7 +95,7 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
      * all cdc_stream-specific init logic inside the provider.
      */
     @Override
-    public void ensureInitialized(Long jobId, Map<String, String> originTvfProps) throws JobException {
+    public void ensureInitialized(Long jobId, Map<String, String> originTvfProps) {
         // Always refresh fields that may be updated via ALTER JOB (e.g. credentials, parallelism).
         this.sourceProperties = originTvfProps;
         this.snapshotParallelism = Integer.parseInt(

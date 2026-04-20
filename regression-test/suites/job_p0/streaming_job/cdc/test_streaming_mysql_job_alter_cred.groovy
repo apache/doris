@@ -101,21 +101,19 @@ suite("test_streaming_mysql_job_alter_cred",
 
         sql """RESUME JOB where jobname = '${jobName}'"""
 
+        // Auto-resume cycles PAUSED→PENDING→RUNNING→PAUSED, so the PAUSED state is transient.
+        // FailureReason is only cleared by onStreamTaskSuccess, so ErrorMsg is sticky across cycles.
         try {
             Awaitility.await().atMost(120, SECONDS).pollInterval(2, SECONDS).until({
-                def s = sql """select status from jobs("type"="insert") where Name='${jobName}'"""
-                log.info("status after wrong cred resume: " + s)
-                s.size() == 1 && s.get(0).get(0) == "PAUSED"
+                def r = sql """select ErrorMsg from jobs("type"="insert") where Name='${jobName}'"""
+                String msg = r.get(0).get(0)
+                log.info("ErrorMsg after wrong cred resume: " + msg)
+                return msg != null && !msg.isEmpty()
             })
         } catch (Exception ex) {
             log.info("job: " + (sql """select * from jobs("type"="insert") where Name='${jobName}'"""))
             throw ex
         }
-
-        def errorMsg = sql """select ErrorMsg from jobs("type"="insert") where Name='${jobName}'"""
-        log.info("error msg after wrong cred: " + errorMsg)
-        assert errorMsg.get(0).get(0) != null && !errorMsg.get(0).get(0).isEmpty() :
-                "ErrorMsg should be non-empty when wrong credentials reach the provider"
 
         // ALTER back to the correct password and verify recovery.
         sql """ALTER JOB ${jobName}

@@ -51,7 +51,6 @@ import org.apache.doris.job.offset.Offset;
 import org.apache.doris.job.offset.SourceOffsetProvider;
 import org.apache.doris.job.offset.SourceOffsetProviderFactory;
 import org.apache.doris.job.offset.jdbc.JdbcSourceOffsetProvider;
-import org.apache.doris.job.offset.jdbc.JdbcTvfSourceOffsetProvider;
 import org.apache.doris.job.util.StreamingJobUtils;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadStatistic;
@@ -399,8 +398,14 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
         // update source properties
         if (!alterJobCommand.getSourceProperties().isEmpty()) {
-            this.sourceProperties.putAll(alterJobCommand.getSourceProperties());
-            this.convertedSourceProperties = StreamingJobUtils.convertCertFile(getDbId(), sourceProperties);
+            // Convert on a merged copy first; validateSource() only checks ssl_rootcert is
+            // non-empty, so cert-file lookup can still fail here. Commit to fields only on success.
+            Map<String, String> mergedSourceProperties = new HashMap<>(this.sourceProperties);
+            mergedSourceProperties.putAll(alterJobCommand.getSourceProperties());
+            Map<String, String> newConvertedSourceProperties =
+                    StreamingJobUtils.convertCertFile(getDbId(), mergedSourceProperties);
+            this.sourceProperties = mergedSourceProperties;
+            this.convertedSourceProperties = newConvertedSourceProperties;
             logParts.add("source properties: " + alterJobCommand.getSourceProperties());
         }
 

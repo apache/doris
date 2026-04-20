@@ -212,6 +212,31 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
                     sourceProperties.get(DataSourceConfigKeys.EXCLUDE_TABLES)),
                     "The exclude_tables property cannot be modified in ALTER JOB");
         }
+
+        // snapshot_parallelism sizes the BE poll executor on first initialize() and
+        // per-table exclude_columns / target_table are cached in DebeziumJsonDeserializer
+        // on first initialize(); BE reuses the cached reader per job id, so later ALTERs
+        // would silently keep the old values at runtime. Reject them at the FE layer.
+        if (sourceProperties.containsKey(DataSourceConfigKeys.SNAPSHOT_PARALLELISM)) {
+            Preconditions.checkArgument(Objects.equals(
+                    originSourceProperties.get(DataSourceConfigKeys.SNAPSHOT_PARALLELISM),
+                    sourceProperties.get(DataSourceConfigKeys.SNAPSHOT_PARALLELISM)),
+                    "The " + DataSourceConfigKeys.SNAPSHOT_PARALLELISM
+                            + " property cannot be modified in ALTER JOB");
+        }
+        String tablePrefix = DataSourceConfigKeys.TABLE + ".";
+        for (String key : sourceProperties.keySet()) {
+            if (!key.startsWith(tablePrefix)) {
+                continue;
+            }
+            if (key.endsWith("." + DataSourceConfigKeys.TABLE_EXCLUDE_COLUMNS_SUFFIX)
+                    || key.endsWith("." + DataSourceConfigKeys.TABLE_TARGET_TABLE_SUFFIX)) {
+                Preconditions.checkArgument(Objects.equals(
+                        originSourceProperties.get(key),
+                        sourceProperties.get(key)),
+                        "The " + key + " property cannot be modified in ALTER JOB");
+            }
+        }
     }
 
     private void validateProps(StreamingInsertJob streamingJob) throws AnalysisException {
