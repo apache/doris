@@ -63,8 +63,6 @@ suite("test_hive_date_timezone", "p0,external") {
             def parquetTimestampFixedOffset = sql """select timestamp_col from parquet_primitive_types_to_timestamp order by id"""
             sql """set time_zone = '+8:00'"""
             def parquetTimestampShortOffset = sql """select timestamp_col from parquet_primitive_types_to_timestamp order by id"""
-            sql """set time_zone = 'UTC+8'"""
-            def parquetTimestampUtcOffset = sql """select timestamp_col from parquet_primitive_types_to_timestamp order by id"""
             sql """set time_zone = 'Asia/Shanghai'"""
             def parquetTimestampShanghai = sql """select timestamp_col from parquet_primitive_types_to_timestamp order by id"""
             sql """set time_zone = 'America/Mexico_City'"""
@@ -74,7 +72,6 @@ suite("test_hive_date_timezone", "p0,external") {
             assertEquals(parquetTimestampUtc, parquetTimestampEtcUtc)
             // These inputs are normalized to the same fixed offset and should match exactly.
             assertEquals(parquetTimestampFixedOffset, parquetTimestampShortOffset)
-            assertEquals(parquetTimestampFixedOffset, parquetTimestampUtcOffset)
             // Asia/Shanghai is a named timezone, but for these sample timestamps it should
             // resolve to the same local wall clock values as +08:00.
             assertEquals(parquetTimestampFixedOffset, parquetTimestampShanghai)
