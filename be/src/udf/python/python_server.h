@@ -20,7 +20,10 @@
 #include <atomic>
 #include <condition_variable>
 #include <memory>
+#include <mutex>
 #include <thread>
+#include <unordered_map>
+#include <vector>
 
 #include "common/status.h"
 #include "runtime/memory/mem_tracker.h"
@@ -59,12 +62,19 @@ public:
     // For unit testing only.
     void check_and_recreate_processes_for_test() { _check_and_recreate_processes(); }
 
-    std::unordered_map<PythonVersion, std::vector<ProcessPtr>>& process_pools_for_test() {
-        return _process_pools;
-    }
+    void set_process_pool_for_test(const PythonVersion& version, std::vector<ProcessPtr> processes,
+                                   bool initialized = true);
+
+    std::vector<ProcessPtr>& process_pool_for_test(const PythonVersion& version);
 #endif
 
 private:
+    struct VersionedProcessPool {
+        std::mutex mutex;
+        std::vector<ProcessPtr> processes;
+        bool initialized = false;
+    };
+
     /**
      * Start health check background thread (called once by ensure_pool_initialized)
      * Thread periodically checks process health and refreshes memory stats
@@ -86,11 +96,15 @@ private:
      */
     void _refresh_memory_stats();
 
-    std::unordered_map<PythonVersion, std::vector<ProcessPtr>> _process_pools;
-    // Protects _process_pools access
+    std::shared_ptr<VersionedProcessPool> _get_or_create_process_pool(const PythonVersion& version);
+    std::shared_ptr<VersionedProcessPool> _get_process_pool(const PythonVersion& version);
+    std::vector<std::pair<PythonVersion, std::shared_ptr<VersionedProcessPool>>>
+    _snapshot_process_pools();
+
+    std::unordered_map<PythonVersion, std::shared_ptr<VersionedProcessPool>> _process_pools;
+    // Protects the version -> pool handle map only. Per-version process operations are guarded
+    // by VersionedProcessPool::mutex.
     std::mutex _pools_mutex;
-    // Track which versions have been initialized
-    std::unordered_set<PythonVersion> _initialized_versions;
     // Health check background thread
     std::unique_ptr<std::thread> _health_check_thread;
     std::atomic<bool> _shutdown_flag {false};
