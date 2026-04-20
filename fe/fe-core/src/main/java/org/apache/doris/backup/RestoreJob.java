@@ -2522,7 +2522,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     }
                     if (Config.isNotCloudMode()) {
                         env.getInternalCatalog().erasePartitionDropBackendReplicas(
-                                Lists.newArrayList(entry.second), false);
+                                Lists.newArrayList(entry.second), true);
                     }
                 } finally {
                     restoreTbl.writeUnlock();

@@ -1116,8 +1116,7 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     public void erasePartitionDropBackendReplicas(List<Partition> partitions, boolean isForce) {
-        if (!isForce) {
-            // no need send be delete task, when be report its tablets, fe will send delete task then.
+        if (!Env.getCurrentEnv().isMaster() || Env.isCheckpointThread()) {
             return;
         }
         AgentBatchTask batchTask = new AgentBatchTask();
@@ -1130,7 +1129,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                         long backendId = replica.getBackendIdWithoutException();
                         long replicaId = replica.getId();
                         DropReplicaTask dropTask = new DropReplicaTask(backendId, tabletId,
-                                replicaId, -1, true, true);
+                                replicaId, -1, true, isForce);
                         batchTask.addTask(dropTask);
                     }
                 }
