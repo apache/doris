@@ -339,6 +339,12 @@ public:
         return Status::NotSupported("read_by_rowids not implement");
     }
 
+    // Validates that dst column's type matches what this iterator expects.
+    // Called once per block before reading to catch FE/storage type mismatches early,
+    // avoiding undefined behavior from incorrect assert_cast in hot paths.
+    // Composite iterators (Map/Struct/Array) recursively check sub-columns.
+    virtual Status check_column_type(const IColumn& dst) const { return Status::OK(); }
+
     virtual ordinal_t get_current_ordinal() const = 0;
 
     virtual Status get_row_ranges_by_zone_map(
@@ -456,6 +462,8 @@ public:
 
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
                           MutableColumnPtr& dst) override;
+
+    Status check_column_type(const IColumn& dst) const override;
 
     ordinal_t get_current_ordinal() const override { return _current_ordinal; }
 
@@ -607,6 +615,8 @@ public:
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
                           MutableColumnPtr& dst) override;
 
+    Status check_column_type(const IColumn& dst) const override;
+
     Status seek_to_ordinal(ordinal_t ord) override;
 
     ordinal_t get_current_ordinal() const override {
@@ -655,6 +665,8 @@ public:
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
                           MutableColumnPtr& dst) override;
 
+    Status check_column_type(const IColumn& dst) const override;
+
     Status seek_to_ordinal(ordinal_t ord) override;
 
     ordinal_t get_current_ordinal() const override {
@@ -702,6 +714,8 @@ public:
 
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
                           MutableColumnPtr& dst) override;
+
+    Status check_column_type(const IColumn& dst) const override;
 
     Status seek_to_ordinal(ordinal_t ord) override;
 
@@ -797,6 +811,8 @@ public:
 
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
                           MutableColumnPtr& dst) override;
+
+    Status check_column_type(const IColumn& dst) const override;
 
     ordinal_t get_current_ordinal() const override { return _current_rowid; }
 
