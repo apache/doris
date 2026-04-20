@@ -289,9 +289,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
     private boolean isExpire(long id, long currentTimeMs) {
         long latency = currentTimeMs - idToRecycleTime.get(id);
-        long totalExpireMs = Config.catalog_trash_expire_second * 1000L;
         return (Config.catalog_trash_ignore_min_erase_latency || latency > minEraseLatency)
-                && latency > totalExpireMs;
+                && latency > Config.catalog_trash_expire_second * 1000L;
     }
 
     private void eraseDatabase(long currentTimeMs, int keepNum) {
@@ -880,6 +879,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                     + db.getFullName());
             }
             ConnectContext connectContext = ConnectContext.get();
+            // As long as the metadata expires on the FE side, it is treated as a forced deletion.
+            // Recovery is strictly prohibited here to avoid inconsistencies with the asynchronous physical deletion.
             if (connectContext != null && isExpire(table.getId(), System.currentTimeMillis())) {
                 throw new DdlException("Data has been expired, cannot be recovered.");
             }
@@ -1017,6 +1018,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                         + "' in table " + table.getName());
             }
             ConnectContext connectContext = ConnectContext.get();
+            // As long as the metadata expires on the FE side, it is treated as a forced deletion.
+            // Recovery is strictly prohibited here to avoid inconsistencies with the asynchronous physical deletion.
             if (connectContext != null
                     && isExpire(recoverPartitionInfo.getPartition().getId(), System.currentTimeMillis())) {
                 throw new DdlException("Data has been expired, cannot be recovered.");

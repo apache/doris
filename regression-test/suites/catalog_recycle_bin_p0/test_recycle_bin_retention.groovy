@@ -30,15 +30,14 @@ suite("test_recycle_bin_retention", "p0") {
     String currentDbName = context.config.getDbNameByFile(context.file)
     def recoverNormalUser = "recover_normal_user"
 
-    setBeConfigTemporary(["trash_file_expire_time_sec": "0"]) {
-        // Set short expire time for testing: 30 seconds
-        sql """ ADMIN SET FRONTEND CONFIG ('catalog_trash_expire_second' = '30') """
-        sql """ ADMIN SET FRONTEND CONFIG ('catalog_trash_ignore_min_erase_latency' = 'false') """
-        sql """ DROP USER IF EXISTS '${recoverNormalUser}'@'%' """
-        sql """ CREATE USER '${recoverNormalUser}'@'%' IDENTIFIED BY '123456' """
-        sql """ GRANT SELECT_PRIV, ALTER_PRIV, CREATE_PRIV ON *.*.* TO '${recoverNormalUser}'@'%' """
+    // Set short expire time for testing: 30 seconds
+    sql """ ADMIN SET FRONTEND CONFIG ('catalog_trash_expire_second' = '30') """
+    sql """ ADMIN SET FRONTEND CONFIG ('catalog_trash_ignore_min_erase_latency' = 'false') """
+    sql """ DROP USER IF EXISTS '${recoverNormalUser}'@'%' """
+    sql """ CREATE USER '${recoverNormalUser}'@'%' IDENTIFIED BY '123456' """
+    sql """ GRANT SELECT_PRIV, ALTER_PRIV, CREATE_PRIV ON *.*.* TO '${recoverNormalUser}'@'%' """
 
-        try {
+    try {
         // ===== Phase 1: Visible period =====
         // Drop table and verify it's visible in recycle bin and can be recovered
 
@@ -90,7 +89,14 @@ suite("test_recycle_bin_retention", "p0") {
         def tableAfterDropPhase3 = sql """ SHOW TABLES LIKE "test_retention_phase1" """
         assertTrue(tableAfterDropPhase3.size() == 0, "Dropped table should not be visible before Phase 3 checks")
 
-        sleep(35000)
+        int max_try_secs_1 = 60
+        while (max_try_secs_1--) {
+            def recycleBinPhase3 = sql """ SHOW CATALOG RECYCLE BIN WHERE NAME = 'test_retention_phase1' """
+            if (recycleBinPhase3.size() == 0) {
+                break
+            }
+            sleep(1000)
+        }
 
         def recycleBinPhase3 = sql """ SHOW CATALOG RECYCLE BIN WHERE NAME = 'test_retention_phase1' """
         assertTrue(recycleBinPhase3.size() == 0, "Phase 3: Table should not be visible after physical deletion")
@@ -145,7 +151,15 @@ suite("test_recycle_bin_retention", "p0") {
         sql """ ALTER TABLE test_retention_partition DROP PARTITION test_recycle_p2 """
         def partitionsAfterDropP2Phase3 = sql_return_maparray """ SHOW PARTITIONS FROM test_retention_partition """
         assertTrue(partitionsAfterDropP2Phase3.find { it.PartitionName == "test_recycle_p2" } == null, "Dropped partition test_recycle_p2 should not be visible before Phase 3 checks")
-        sleep(35000)
+        
+        int max_try_secs_2 = 60
+        while (max_try_secs_2--) {
+            def partRecyclePhase3 = sql """ SHOW CATALOG RECYCLE BIN WHERE NAME = 'test_recycle_p2' """
+            if (partRecyclePhase3.size() == 0) {
+                break
+            }
+            sleep(1000)
+        }
 
         def partRecyclePhase3 = sql """ SHOW CATALOG RECYCLE BIN WHERE NAME = 'test_recycle_p2' """
         assertTrue(partRecyclePhase3.size() == 0, "Partition Phase 3: test_recycle_p2 should not be visible after physical deletion")
@@ -159,15 +173,14 @@ suite("test_recycle_bin_retention", "p0") {
         // Verify table still has test_recycle_p1 and test_recycle_p3 data, but test_recycle_p2 is gone
         order_qt_partition_phase3 """ SELECT * FROM test_retention_partition """
 
-        } finally {
-            // Restore original FE config
-            sql """ ADMIN SET FRONTEND CONFIG ('catalog_trash_expire_second' = '${origExpireValue}') """
-            sql """ ADMIN SET FRONTEND CONFIG ('catalog_trash_ignore_min_erase_latency' = '${origIgnoreLatencyValue}') """
+    } finally {
+        // Restore original FE config
+        sql """ ADMIN SET FRONTEND CONFIG ('catalog_trash_expire_second' = '${origExpireValue}') """
+        sql """ ADMIN SET FRONTEND CONFIG ('catalog_trash_ignore_min_erase_latency' = '${origIgnoreLatencyValue}') """
 
-            // Cleanup test tables
-            sql """ DROP TABLE IF EXISTS test_retention_phase1 """
-            sql """ DROP TABLE IF EXISTS test_retention_partition """
-            sql """ DROP USER IF EXISTS '${recoverNormalUser}'@'%' """
-        }
+        // Cleanup test tables
+        sql """ DROP TABLE IF EXISTS test_retention_phase1 """
+        sql """ DROP TABLE IF EXISTS test_retention_partition """
+        sql """ DROP USER IF EXISTS '${recoverNormalUser}'@'%' """
     }
 }
