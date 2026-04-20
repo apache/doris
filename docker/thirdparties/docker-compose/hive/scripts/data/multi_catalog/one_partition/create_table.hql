@@ -2,7 +2,10 @@ create database if not exists multi_catalog;
 use multi_catalog;
 
 
-CREATE TABLE IF NOT EXISTS `one_partition`(
+drop table if exists `one_partition`;
+
+
+create table `one_partition`(
   `id` int)
 PARTITIONED BY (
   `part1` int)

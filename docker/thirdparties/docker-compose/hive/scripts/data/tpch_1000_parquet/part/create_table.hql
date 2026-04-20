@@ -2,7 +2,10 @@ create database if not exists tpch_1000_parquet;
 use tpch_1000_parquet;
 
 
-CREATE TABLE IF NOT EXISTS `part`(
+drop table if exists `part`;
+
+
+create table `part`(
   `p_partkey` int,
   `p_name` varchar(55),
   `p_mfgr` char(25),
@@ -20,5 +23,3 @@ OUTPUTFORMAT
   'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
 LOCATION
   '/user/doris/suites/tpch_1000_parquet/part';
-
-msck repair table part;
