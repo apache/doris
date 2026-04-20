@@ -7197,7 +7197,7 @@ public class Env {
         getInternalCatalog().eraseTableDropBackendReplicas(dbId, olapTable, isReplay, isForce);
     }
 
-    public void onErasePartition(Partition partition) {
+    public void onErasePartition(Partition partition, boolean isForce) {
         // remove tablet in inverted index
         TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
         for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
@@ -7206,7 +7206,7 @@ public class Env {
             }
         }
 
-        getInternalCatalog().erasePartitionDropBackendReplicas(Lists.newArrayList(partition));
+        getInternalCatalog().erasePartitionDropBackendReplicas(Lists.newArrayList(partition), isForce);
     }
 
     public void replaySetPartitionVersion(SetPartitionVersionOperationLog log) throws DdlException {

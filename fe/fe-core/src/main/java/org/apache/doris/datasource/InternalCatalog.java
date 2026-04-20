@@ -1115,8 +1115,28 @@ public class InternalCatalog implements CatalogIf<Database> {
         AgentTaskExecutor.submit(batchTask);
     }
 
-    public void erasePartitionDropBackendReplicas(List<Partition> partitions) {
-        // no need send be delete task, when be report its tablets, fe will send delete task then.
+    public void erasePartitionDropBackendReplicas(List<Partition> partitions, boolean isForce) {
+        if (!isForce) {
+            // no need send be delete task, when be report its tablets, fe will send delete task then.
+            return;
+        }
+        AgentBatchTask batchTask = new AgentBatchTask();
+        for (Partition partition : partitions) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
+                for (Tablet tablet : index.getTablets()) {
+                    long tabletId = tablet.getId();
+                    List<Replica> replicas = tablet.getReplicas();
+                    for (Replica replica : replicas) {
+                        long backendId = replica.getBackendIdWithoutException();
+                        long replicaId = replica.getId();
+                        DropReplicaTask dropTask = new DropReplicaTask(backendId, tabletId,
+                                replicaId, -1, true, true);
+                        batchTask.addTask(dropTask);
+                    }
+                }
+            }
+        }
+        AgentTaskExecutor.submit(batchTask);
     }
 
     public void eraseDroppedIndex(long dbId, long tableId, List<Long> indexIdList) {
@@ -3728,19 +3748,18 @@ public class InternalCatalog implements CatalogIf<Database> {
 
     public void replayTruncateTable(TruncateTableInfo info) throws MetaNotFoundException {
         boolean isForceDrop = info.getForce();
-        List<Partition> oldPartitions = Lists.newArrayList();
+        List<Partition> oldPartitions = null;
         Database db = (Database) getDbOrMetaException(info.getDbId());
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(info.getTblId(), TableType.OLAP);
         olapTable.writeLock();
         try {
             Map<Long, RecyclePartitionParam> recyclePartitionParamMap =  new HashMap<>();
-            truncateTableInternal(olapTable, info.getPartitions(), info.isEntireTable(),
+            oldPartitions = truncateTableInternal(olapTable, info.getPartitions(), info.isEntireTable(),
                                     recyclePartitionParamMap, isForceDrop);
 
             // add tablet to inverted index
             TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
             for (Partition partition : info.getPartitions()) {
-                oldPartitions.add(partition);
                 long partitionId = partition.getId();
                 TStorageMedium medium = olapTable.getPartitionInfo().getDataProperty(partitionId)
                         .getStorageMedium();
@@ -3763,7 +3782,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
 
         if (!Env.isCheckpointThread()) {
-            erasePartitionDropBackendReplicas(oldPartitions);
+            erasePartitionDropBackendReplicas(oldPartitions, isForceDrop);
         }
     }
 

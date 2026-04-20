@@ -878,7 +878,7 @@ public class CloudInternalCatalog extends InternalCatalog {
     }
 
     @Override
-    public void erasePartitionDropBackendReplicas(List<Partition> partitions) {
+    public void erasePartitionDropBackendReplicas(List<Partition> partitions, boolean isForce) {
         if (!Env.getCurrentEnv().isMaster() || partitions.isEmpty()) {
             return;
         }

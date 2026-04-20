@@ -602,7 +602,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                         continue;
                     }
                     Partition partition = partitionInfo.getPartition();
-                    Env.getCurrentEnv().onErasePartition(partition);
+                    Env.getCurrentEnv().onErasePartition(partition, false);
                     idToRecycleTime.remove(partitionId);
 
                     dbTblIdPartitionNameToIds.computeIfPresent(
@@ -666,7 +666,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 }
                 Partition partition = partitionInfo.getPartition();
 
-                Env.getCurrentEnv().onErasePartition(partition);
+                Env.getCurrentEnv().onErasePartition(partition, false);
                 idToPartition.remove(partitionId);
                 idToRecycleTime.remove(partitionId);
 
@@ -708,7 +708,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                     });
 
             Partition partition = partitionInfo.getPartition();
-            Env.getCurrentEnv().onErasePartition(partition);
+            Env.getCurrentEnv().onErasePartition(partition, false);
 
             LOG.info("replay erase partition[{}]", partitionId);
         } finally {
@@ -1296,7 +1296,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             }
 
             Partition partition = partitionInfo.getPartition();
-            Env.getCurrentEnv().onErasePartition(partition);
+            Env.getCurrentEnv().onErasePartition(partition, false);
 
             idToPartition.remove(partitionId);
             idToRecycleTime.remove(partitionId);

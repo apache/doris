@@ -873,7 +873,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                         LOG.warn("dynamic partition has been added, skip it. "
                                 + "db: {}, table: {}, partition: {}, tableId: {}",
                                 db.getFullName(), tableName, partitionName, olapTable.getId());
-                        Env.getCurrentEnv().onErasePartition(toAddPartition);
+                        Env.getCurrentEnv().onErasePartition(toAddPartition, false);
                         continue;
                     }
                     if (isTempPartition) {
