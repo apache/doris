@@ -61,6 +61,7 @@ import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
 import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
+import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.commands.insert.AbstractInsertExecutor.InsertExecutorListener;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
@@ -443,13 +444,22 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                     if (getLogicalQuery().containsType(InlineTable.class)) {
                         jobId = -1;
                     }
+                    // Do not register internal group commit loads to LoadManager.
+                    // Internal group commit is identified by DMLCommandType.GROUP_COMMIT, which is set
+                    // by the parser when the target table is specified via tableId (doris_internal_table_id).
+                    // The actual commit is managed by BE group commit mechanism, so these jobs will
+                    // never transition to a completed state through FE, causing a memory leak if registered.
+                    if (((PhysicalOlapTableSink<?>) physicalSink).getDmlCommandType() == DMLCommandType.GROUP_COMMIT) {
+                        jobId = -1;
+                    }
                     if (targetTableIf instanceof RemoteDorisExternalTable) {
                         executorFactory = ExecutorFactory.from(
                                 planner,
                                 dataSink,
                                 physicalSink,
                                 () -> new RemoteOlapInsertExecutor(
-                                        ctx, (RemoteOlapTable) olapTable, label, planner, insertCtx, emptyInsert, jobId)
+                                        ctx, (RemoteOlapTable) olapTable, label, planner, insertCtx, emptyInsert,
+                                        jobId)
                         );
                     } else {
                         executorFactory = ExecutorFactory.from(
@@ -457,7 +467,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                                 dataSink,
                                 physicalSink,
                                 () -> new OlapInsertExecutor(
-                                        ctx, olapTable, label, planner, insertCtx, emptyInsert, jobId)
+                                        ctx, olapTable, label, planner, insertCtx, emptyInsert, jobId, jobId != -1)
                         );
                     }
                 }

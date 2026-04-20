@@ -27,6 +27,7 @@ set(COMMON_FILES
     logging.cpp
     bvars.cpp
     encryption_util.cpp
+    http_helper.cpp
     metric.cpp
     kms.cpp
     network_util.cpp

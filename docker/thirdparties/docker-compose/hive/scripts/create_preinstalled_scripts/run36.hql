@@ -1,4 +1,5 @@
-CREATE external TABLE `csv_partition_table`(
+drop table if exists `csv_partition_table`;
+create external table `csv_partition_table`(
   `k1` string COMMENT 'k1',
   `k2` string COMMENT 'k2',
   `k3` string COMMENT 'k3',

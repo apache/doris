@@ -17,7 +17,9 @@
 
 package org.apache.doris.datasource.tvf.source;
 
+import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionGenTable;
 import org.apache.doris.catalog.TableIf;
@@ -39,6 +41,7 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
 import org.apache.doris.tablefunction.LocalTableValuedFunction;
 import org.apache.doris.thrift.TBrokerFileStatus;
+import org.apache.doris.thrift.TColumnCategory;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
@@ -167,6 +170,14 @@ public class TVFScanNode extends FileQueryScanNode {
             }
         }
         return splits;
+    }
+
+    @Override
+    protected TColumnCategory classifyColumn(SlotDescriptor slot, List<String> partitionKeys) {
+        if (slot.getColumn().getName().startsWith(Column.GLOBAL_ROWID_COL)) {
+            return TColumnCategory.SYNTHESIZED;
+        }
+        return super.classifyColumn(slot, partitionKeys);
     }
 
     private long determineTargetFileSplitSize(List<TBrokerFileStatus> fileStatuses) {
