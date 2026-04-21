@@ -109,7 +109,7 @@ Status FromBlockToRecordBatchConverter::convert(std::shared_ptr<arrow::RecordBat
         }
     }
     auto schema = schema_changed ? arrow::schema(std::move(fields)) : _schema;
-    *out = arrow::RecordBatch::Make(std::move(schema), _block.rows(), std::move(_arrays));
+    *out = arrow::RecordBatch::Make(std::move(schema), actual_rows, std::move(_arrays));
     return Status::OK();
 }
 
