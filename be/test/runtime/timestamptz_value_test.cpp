@@ -108,6 +108,24 @@ TEST(TimeStampTzValueTest, from_string) {
         EXPECT_TRUE(tz.from_string(str, &time_zone, params, 0)) << params.status.to_string();
         EXPECT_EQ(tz, make_timestamptz(2020, 1, 1, 12, 0, 0, 0)) << tz._utc_dt.to_string();
     }
+
+    {
+        TimestampTzValue tz {};
+        StringRef str {"2024-01-01 12:00:00.123456 +08:00"};
+        CastParameters params;
+        params.is_strict = true;
+        EXPECT_TRUE(tz.from_string(str, &time_zone, params, 6)) << params.status.to_string();
+        EXPECT_EQ(tz, make_timestamptz(2024, 1, 1, 4, 0, 0, 123456)) << tz._utc_dt.to_string();
+    }
+
+    {
+        TimestampTzValue tz {};
+        StringRef str {"2024-1-1 12:00:00 +08:00"};
+        CastParameters params;
+        params.is_strict = true;
+        EXPECT_TRUE(tz.from_string(str, &time_zone, params, 0)) << params.status.to_string();
+        EXPECT_EQ(tz, make_timestamptz(2024, 1, 1, 4, 0, 0, 0)) << tz._utc_dt.to_string();
+    }
 }
 
 TEST(TimeStampTzValueTest, from_datetime) {

@@ -703,8 +703,44 @@ TEST(TEST_VEXPR, LITERALTEST) {
         {
             CastParameters p;
             EXPECT_EQ(CastToDatetimeV2::from_string_non_strict_mode(
-                              {date, strlen(date)}, data_time_value, nullptr, -1, p),
+                               {date, strlen(date)}, data_time_value, nullptr, -1, p),
                       true);
+        }
+    }
+    {
+        TimezoneUtils::load_offsets_to_cache();
+        cctz::time_zone utc_tz = cctz::utc_time_zone();
+
+        VecDateTimeValue data_time_value;
+        data_time_value.set_type(TIME_DATETIME);
+        const char* date = "2024-01-02 03:04:05.123456 +08:00";
+        {
+            CastParameters p;
+            EXPECT_TRUE((CastToDateOrDatetime::from_string_strict_mode<DatelikeParseMode::STRICT,
+                                                                       DatelikeTargetType::DATE_TIME>(
+                    {date, strlen(date)}, data_time_value, &utc_tz, p)));
+        }
+        char buf[64];
+        data_time_value.to_string(buf);
+        EXPECT_EQ(std::string(buf), "2024-01-01 19:04:05");
+    }
+    {
+        DateV2Value<DateV2ValueType> data_time_value;
+        const char* date = "2024-01-02 03:04:05 +08:00";
+        {
+            CastParameters p;
+            EXPECT_TRUE(CastToDateV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                    {date, strlen(date)}, data_time_value, nullptr, p));
+        }
+        EXPECT_EQ(data_time_value.to_string(), "2024-01-02");
+    }
+    {
+        DateV2Value<DateV2ValueType> data_time_value;
+        const char* date = "2024-01-02 03:04:60";
+        {
+            CastParameters p;
+            EXPECT_FALSE(CastToDateV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                    {date, strlen(date)}, data_time_value, nullptr, p));
         }
     }
     // jsonb

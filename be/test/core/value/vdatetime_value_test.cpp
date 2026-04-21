@@ -163,6 +163,39 @@ TEST(VDateTimeValueTest, datetime_v2_from_uint64_test) {
     }
 }
 
+TEST(VDateTimeValueTest, datetime_v2_parse_fixed_canonical_prefix_fast_path) {
+    {
+        DateV2Value<DateTimeV2ValueType> dt;
+        CastParameters p;
+        ASSERT_TRUE(CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                {"2024-01-02 03:04:05", 19}, dt, nullptr, 0, p));
+        EXPECT_EQ(dt.to_string(), "2024-01-02 03:04:05");
+    }
+
+    {
+        DateV2Value<DateTimeV2ValueType> dt;
+        CastParameters p;
+        ASSERT_TRUE(CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                {"2024-01-02 03:04:05.123456", 26}, dt, nullptr, 6, p));
+        EXPECT_EQ(dt.to_string(6), "2024-01-02 03:04:05.123456");
+    }
+
+    {
+        DateV2Value<DateTimeV2ValueType> dt;
+        CastParameters p;
+        ASSERT_TRUE(CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                {"2024-1-2 03:04:05", 17}, dt, nullptr, 0, p));
+        EXPECT_EQ(dt.to_string(), "2024-01-02 03:04:05");
+    }
+
+    {
+        DateV2Value<DateTimeV2ValueType> dt;
+        CastParameters p;
+        EXPECT_FALSE(CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                {"2024-01-02 03:04:60", 19}, dt, nullptr, 0, p));
+    }
+}
+
 TEST(VDateTimeValueTest, date_v2_from_date_format_str_test) {
     uint16_t year = 2022;
     uint8_t month = 5;
