@@ -49,6 +49,11 @@ public class DataSourceConfigValidator {
             DataSourceConfigKeys.TABLE_EXCLUDE_COLUMNS_SUFFIX
     );
 
+    private static final Set<String> ALLOW_LOAD_KEYS = Sets.newHashSet(
+            DataSourceConfigKeys.LOAD_PROPERTIES + LoadCommand.MAX_FILTER_RATIO_PROPERTY,
+            DataSourceConfigKeys.LOAD_PROPERTIES + LoadCommand.STRICT_MODE
+    );
+
     private static final String TABLE_LEVEL_PREFIX = DataSourceConfigKeys.TABLE + ".";
 
     public static void validateSource(Map<String, String> input) throws IllegalArgumentException {
@@ -88,18 +93,24 @@ public class DataSourceConfigValidator {
     public static void validateTarget(Map<String, String> input) throws IllegalArgumentException {
         for (Map.Entry<String, String> entry : input.entrySet()) {
             String key = entry.getKey();
-            if (!key.startsWith(DataSourceConfigKeys.TABLE_PROPS_PREFIX)
-                    && !key.startsWith(DataSourceConfigKeys.LOAD_PROPERTIES)) {
-                throw new IllegalArgumentException("Not support target properties key " + key);
+            if (key.startsWith(DataSourceConfigKeys.TABLE_PROPS_PREFIX)) {
+                continue;
             }
-
-            if (key.equals(DataSourceConfigKeys.LOAD_PROPERTIES + LoadCommand.MAX_FILTER_RATIO_PROPERTY)) {
-                try {
-                    Double.parseDouble(entry.getValue());
-                } catch (NumberFormatException e) {
-                    throw new IllegalArgumentException("Invalid value for key '" + key + "': " + entry.getValue());
+            if (key.startsWith(DataSourceConfigKeys.LOAD_PROPERTIES)) {
+                if (!ALLOW_LOAD_KEYS.contains(key)) {
+                    throw new IllegalArgumentException("Unsupported load property: '" + key
+                            + "'. Supported keys: " + ALLOW_LOAD_KEYS);
                 }
+                if (key.equals(DataSourceConfigKeys.LOAD_PROPERTIES + LoadCommand.MAX_FILTER_RATIO_PROPERTY)) {
+                    try {
+                        Double.parseDouble(entry.getValue());
+                    } catch (NumberFormatException e) {
+                        throw new IllegalArgumentException("Invalid value for key '" + key + "': " + entry.getValue());
+                    }
+                }
+                continue;
             }
+            throw new IllegalArgumentException("Not support target properties key " + key);
         }
     }
 
