@@ -659,13 +659,13 @@ Status VectorizedCoalesceExpr::execute_column(VExprContext* context, const Block
         result_column = remove_nullable(result_type)->create_column();
     }
 
-    // because now follow below types does not support random position writing,
-    // so insert into result data have two methods, one is for these types, one is for others type remaining
-    bool cannot_random_write = result_column->is_column_string() ||
-                               result_type->get_primitive_type() == PrimitiveType::TYPE_MAP ||
-                               result_type->get_primitive_type() == PrimitiveType::TYPE_STRUCT ||
-                               result_type->get_primitive_type() == PrimitiveType::TYPE_ARRAY ||
-                               result_type->get_primitive_type() == PrimitiveType::TYPE_JSONB;
+    // Types handled by filled_result_column: TYPE_BITMAP and all dispatch_switch_scalar types
+    // (INT / FLOAT / DECIMAL / DATETIME / IP).  Everything else – STRING, MAP, STRUCT, ARRAY,
+    // JSONB, HLL, QUANTILE_STATE, VARIANT, VARBINARY, etc. – goes through the gather-write path
+    // (insert_from row-by-row), which supports arbitrary column types.
+    bool cannot_random_write =
+            result_type->get_primitive_type() != PrimitiveType::TYPE_BITMAP &&
+            !dispatch_switch_scalar(result_type->get_primitive_type(), [](auto&&) { return true; });
     if (cannot_random_write) {
         result_column->reserve(input_rows_count);
     }
