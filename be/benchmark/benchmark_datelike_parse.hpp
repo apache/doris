@@ -48,7 +48,7 @@ inline const cctz::time_zone& benchmark_local_tz() {
 
 inline const std::array<std::string_view, 4>& date_fast_hit_inputs() {
     static const std::array<std::string_view, 4> values = {
-            "2024-01-02", "2023-12-31", "1997-11-18", "0000-00-00"};
+            "2024-01-02", "2023-12-31", "1997-11-18", "2000-02-29"};
     return values;
 }
 
@@ -63,7 +63,7 @@ inline const std::array<std::string_view, 4>& datetime_fast_hit_inputs() {
             "2024-01-02 03:04:05",
             "2023-12-31 23:59:59",
             "1997-11-18 09:12:46",
-            "0000-00-00 00:00:00"};
+            "2000-02-29 12:34:56"};
     return values;
 }
 
@@ -95,6 +95,8 @@ void run_parse_benchmark(benchmark::State& state, const Inputs& inputs, ParseFn&
         const auto& input = inputs[index++ % inputs.size()];
         StringRef ref {input.data(), input.size()};
         bool ok = parse_fn(ref, value, params);
+        benchmark::DoNotOptimize(input);
+        DCHECK(ok) << "benchmark input should parse successfully: " << input;
         benchmark::DoNotOptimize(ok);
         benchmark::DoNotOptimize(value);
     }
