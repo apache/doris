@@ -526,7 +526,9 @@ public class GsonUtils {
         } else {
             // compatible with old cloud code.
             tabletTypeAdapterFactory.registerDefaultSubtype(CloudTablet.class);
+            tabletTypeAdapterFactory.registerCompatibleSubtype(CloudTablet.class, Tablet.class.getSimpleName());
             replicaTypeAdapterFactory.registerDefaultSubtype(CloudReplica.class);
+            replicaTypeAdapterFactory.registerCompatibleSubtype(CloudReplica.class, Replica.class.getSimpleName());
         }
     }
 
