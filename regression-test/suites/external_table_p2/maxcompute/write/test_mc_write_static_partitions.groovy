@@ -176,6 +176,27 @@ suite("test_mc_write_static_partitions", "p2,external") {
             contains "SORT"
         }
 
+        // Test 5b: Dynamic partition INSERT should fail without strict consistency
+        String tb5_strict = "dynamic_strict_${uuid}"
+        sql """DROP TABLE IF EXISTS ${tb5_strict}"""
+        sql """
+        CREATE TABLE ${tb5_strict} (
+            id INT,
+            name STRING,
+            ds STRING
+        ) PARTITION BY (ds)()
+        """
+        sql """set enable_strict_consistency_dml=false"""
+        explain {
+            sql("INSERT INTO ${tb5_strict} VALUES (1, 'a', '20250101'), (2, 'b', '20250102'), (3, 'c', '20250101')")
+            notContains "SORT"
+        }
+        test {
+            sql """INSERT INTO ${tb5_strict} VALUES (1, 'a', '20250101'), (2, 'b', '20250102'), (3, 'c', '20250101')"""
+            exception "writer has been closed"
+        }
+        sql """set enable_strict_consistency_dml=true"""
+
         // Test 6: INSERT OVERWRITE non-partitioned table
         String tb6 = "overwrite_nopart_${uuid}"
         sql """DROP TABLE IF EXISTS ${tb6}"""
