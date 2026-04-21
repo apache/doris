@@ -62,7 +62,8 @@ enum TPlanNodeType {
   GROUP_COMMIT_SCAN_NODE = 33,
   MATERIALIZATION_NODE = 34,
   REC_CTE_NODE = 35,
-  REC_CTE_SCAN_NODE = 36
+  REC_CTE_SCAN_NODE = 36,
+  BUCKETED_AGGREGATION_NODE = 37
 }
 
 struct TKeyRange {
@@ -253,9 +254,21 @@ struct TFileTextScanRangeParams {
     8: optional bool empty_field_as_null
 }
 
+enum TColumnCategory {
+    REGULAR = 0,
+    PARTITION_KEY = 1,
+    SYNTHESIZED = 2,
+    GENERATED = 3,
+}
+
 struct TFileScanSlotInfo {
     1: optional Types.TSlotId slot_id;
     2: optional bool is_file_slot;
+    3: optional TColumnCategory category;
+    // Default value expression for this column when it is missing from the data file.
+    // Populated by FE from Column.getDefaultValue() or NULL literal.
+    // This replaces the separate default_value_of_src_slot map in TFileScanRangeParams.
+    4: optional Exprs.TExpr default_value_expr;
 }
 
 // descirbe how to read file
@@ -294,8 +307,9 @@ struct TIcebergDeleteFileDesc {
     5: optional i32 content;
     // 6 & 7 : iceberg v3 deletion vector.
     // The content_offset and content_size_in_bytes fields are used to reference a specific blob for direct access to a deletion vector. 
-    6: optional i32 content_offset;
-    7: optional i32 content_size_in_bytes;
+    6: optional i64 content_offset;
+    7: optional i64 content_size_in_bytes;
+    8: optional TFileFormatType file_format;
 }
 
 struct TIcebergFileDesc {
@@ -312,6 +326,13 @@ struct TIcebergFileDesc {
     6: optional string original_file_path;
     // Deprecated
     7: optional i64 row_count;
+    8: optional i32 partition_spec_id;
+    9: optional string partition_data_json;
+    // Only for format_version >= 3, the starting _row_id to assign to rows added by ADDED data files. 
+    10: optional i64 first_row_id;
+    // Only for format_version >= 3, the sequence number which last updated this file.
+    11: optional i64 last_updated_sequence_number;
+    12: optional string serialized_split;
 }
 
 struct TPaimonDeletionFileDesc {
@@ -491,6 +512,9 @@ struct TFileScanRangeParams {
     // enable mapping varbinary type for Doris external table and TVF
     28: optional bool enable_mapping_varbinary = false;
     29: optional bool enable_mapping_timestamp_tz = false;
+    // Paimon options from FE, used for jni/native scanner
+    // Set at ScanNode level to avoid redundant serialization in each split
+    30: optional map<string, string> paimon_options
 }
 
 struct TFileRangeDesc {
@@ -522,6 +546,7 @@ struct TFileRangeDesc {
     14: optional i64 self_split_weight
     // whether the value of columns_from_path is null
     15: optional list<bool> columns_from_path_is_null;
+    16: optional bool file_cache_admission;
 }
 
 struct TSplitSource {
@@ -598,6 +623,7 @@ struct TBackendsMetadataParams {
 
 struct TFrontendsMetadataParams {
   1: optional string cluster_name
+  2: optional string current_connected_fe_host
 }
 
 struct TMaterializedViewsMetadataParams {
@@ -861,8 +887,7 @@ enum TPushAggOp {
 	MINMAX = 1,
 	COUNT = 2,
 	MIX = 3,
-	COUNT_ON_INDEX = 4,
-	COUNT_NULL = 5
+	COUNT_ON_INDEX = 4
 }
 
 struct TScoreRangeInfo {
@@ -1072,6 +1097,15 @@ struct TAggregationNode {
   8: optional bool is_first_phase
   9: optional bool is_colocate
   10: optional TSortInfo agg_sort_info_by_group_key
+}
+
+struct TBucketedAggregationNode {
+  1: optional list<Exprs.TExpr> grouping_exprs
+  2: optional list<Exprs.TExpr> aggregate_functions
+  // Single tuple ID — bucketed agg is one-phase (raw input → final result),
+  // so intermediate and output tuples are always identical.
+  3: optional Types.TTupleId tuple_id
+  5: optional bool need_finalize
 }
 
 struct TRepeatNode {
@@ -1522,6 +1556,7 @@ struct TPlanNode {
   50: optional list<list<Exprs.TExpr>> distribute_expr_lists
   51: optional bool is_serial_operator
   52: optional TRecCTEScanNode rec_cte_scan_node
+  53: optional TBucketedAggregationNode bucketed_agg_node
 
   // projections is final projections, which means projecting into results and materializing them into the output block.
   101: optional list<Exprs.TExpr> projections

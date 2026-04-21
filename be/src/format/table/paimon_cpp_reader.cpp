@@ -36,7 +36,6 @@
 #include "util/url_coding.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 namespace {
 constexpr const char* VALUE_KIND_FIELD = "_VALUE_KIND";
@@ -70,7 +69,7 @@ Status PaimonCppReader::init_reader() {
     return _init_paimon_reader();
 }
 
-Status PaimonCppReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
+Status PaimonCppReader::_do_get_next_block(Block* block, size_t* read_rows, bool* eof) {
     if (_push_down_agg_type == TPushAggOp::type::COUNT && _remaining_table_level_row_count >= 0) {
         auto rows = std::min(_remaining_table_level_row_count,
                              (int64_t)_state->query_options().batch_size);
@@ -144,8 +143,8 @@ Status PaimonCppReader::get_next_block(Block* block, size_t* read_rows, bool* eo
     return Status::OK();
 }
 
-Status PaimonCppReader::get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
-                                    std::unordered_set<std::string>* missing_cols) {
+Status PaimonCppReader::_get_columns_impl(
+        std::unordered_map<std::string, DataTypePtr>* name_to_type) {
     for (const auto& slot : _file_slot_descs) {
         name_to_type->emplace(slot->col_name(), slot->type());
     }
@@ -269,8 +268,12 @@ std::vector<std::string> PaimonCppReader::_build_read_columns() const {
 
 std::map<std::string, std::string> PaimonCppReader::_build_options() const {
     std::map<std::string, std::string> options;
-    if (_range.__isset.table_format_params && _range.table_format_params.__isset.paimon_params &&
-        _range.table_format_params.paimon_params.__isset.paimon_options) {
+    if (_range_params && _range_params->__isset.paimon_options &&
+        !_range_params->paimon_options.empty()) {
+        options.insert(_range_params->paimon_options.begin(), _range_params->paimon_options.end());
+    } else if (_range.__isset.table_format_params &&
+               _range.table_format_params.__isset.paimon_params &&
+               _range.table_format_params.paimon_params.__isset.paimon_options) {
         options.insert(_range.table_format_params.paimon_params.paimon_options.begin(),
                        _range.table_format_params.paimon_params.paimon_options.end());
     }
@@ -310,7 +313,6 @@ std::map<std::string, std::string> PaimonCppReader::_build_options() const {
     copy_if_missing("fs.s3a.region", "AWS_REGION");
     copy_if_missing("fs.s3a.path.style.access", "use_path_style");
 
-    // FE currently does not pass paimon_options in scan ranges.
     // Backfill file.format/manifest.format from split file_format to avoid
     // paimon-cpp falling back to default manifest.format=avro.
     if (_range.__isset.table_format_params && _range.table_format_params.__isset.paimon_params &&
@@ -331,5 +333,4 @@ std::map<std::string, std::string> PaimonCppReader::_build_options() const {
     return options;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

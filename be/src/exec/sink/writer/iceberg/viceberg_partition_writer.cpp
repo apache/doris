@@ -145,6 +145,7 @@ Status VIcebergPartitionWriter::_build_iceberg_commit_data(TIcebergCommitData* c
     commit_data->__set_file_path(
             fmt::format("{}/{}", _write_info.original_write_path, _get_target_file_name()));
     commit_data->__set_row_count(_row_count);
+    commit_data->__set_affected_rows(_row_count);
     commit_data->__set_file_size(_file_format_transformer->written_len());
     commit_data->__set_file_content(TFileContent::DATA);
     commit_data->__set_partition_values(_partition_values);

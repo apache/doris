@@ -70,7 +70,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiFunction;
 
@@ -643,14 +642,6 @@ public class OneRangePartitionEvaluator<K>
             literals.add(Literal.fromLegacyLiteral(literalExpr, type));
         }
         return literals;
-    }
-
-    private boolean isPartitionSlot(Slot slot) {
-        return slotToType.containsKey(slot);
-    }
-
-    private Optional<PartitionSlotType> getPartitionSlotType(Slot slot) {
-        return Optional.ofNullable(slotToType.get(slot));
     }
 
     private Map<Slot, PartitionSlotInput> fillSlotRangesToInputs(

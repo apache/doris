@@ -54,7 +54,6 @@
 #include "util/uid_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 constexpr std::string_view RANDOM_CACHE_BASE_PATH = "random";
 
@@ -67,7 +66,7 @@ io::FileReaderOptions FileFactory::get_reader_options(RuntimeState* state,
     };
     if (config::enable_file_cache && state != nullptr &&
         state->query_options().__isset.enable_file_cache &&
-        state->query_options().enable_file_cache) {
+        state->query_options().enable_file_cache && fd.file_cache_admission) {
         opts.cache_type = io::FileCachePolicy::FILE_BLOCK_CACHE;
     }
     if (state != nullptr && state->query_options().__isset.file_cache_base_path &&
@@ -306,6 +305,5 @@ Status FileFactory::create_pipe_reader(const TUniqueId& load_id, io::FileReaderS
 
     return Status::OK();
 }
-#include "common/compile_check_end.h"
 
 } // namespace doris

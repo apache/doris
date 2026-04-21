@@ -33,7 +33,6 @@
 #include "runtime/user_function_cache.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 const char* EXECUTOR_CLASS = "org/apache/doris/udf/UdfExecutor";
 const char* EXECUTOR_CTOR_SIGNATURE = "([B)V";
@@ -195,5 +194,4 @@ int UDFTableFunction::get_value(MutableColumnPtr& column, int max_step) {
     return max_step;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

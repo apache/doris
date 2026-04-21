@@ -172,7 +172,7 @@ Status convert_to_arrow_type(const DataTypePtr& origin_type,
 }
 
 // Helper function to create an Arrow Field with type metadata if applicable, such as IP types
-static std::shared_ptr<arrow::Field> create_arrow_field_with_metadata(
+std::shared_ptr<arrow::Field> create_arrow_field_with_metadata(
         const std::string& field_name, const std::shared_ptr<arrow::DataType>& arrow_type,
         bool is_nullable, PrimitiveType primitive_type) {
     if (primitive_type == PrimitiveType::TYPE_IPV4) {
@@ -180,6 +180,9 @@ static std::shared_ptr<arrow::Field> create_arrow_field_with_metadata(
         return std::make_shared<arrow::Field>(field_name, arrow_type, is_nullable, metadata);
     } else if (primitive_type == PrimitiveType::TYPE_IPV6) {
         auto metadata = arrow::KeyValueMetadata::Make({"doris_type"}, {"IPV6"});
+        return std::make_shared<arrow::Field>(field_name, arrow_type, is_nullable, metadata);
+    } else if (primitive_type == PrimitiveType::TYPE_LARGEINT) {
+        auto metadata = arrow::KeyValueMetadata::Make({"doris_type"}, {"LARGEINT"});
         return std::make_shared<arrow::Field>(field_name, arrow_type, is_nullable, metadata);
     } else {
         return std::make_shared<arrow::Field>(field_name, arrow_type, is_nullable);

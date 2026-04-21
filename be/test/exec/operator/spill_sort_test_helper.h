@@ -35,7 +35,7 @@
 #include "exec/operator/spill_sort_source_operator.h"
 #include "exec/operator/spillable_operator_test_helper.h"
 #include "exec/pipeline/pipeline_task.h"
-#include "exec/spill/spill_stream_manager.h"
+#include "exec/spill/spill_file_manager.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/runtime_profile.h"

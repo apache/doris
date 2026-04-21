@@ -1,0 +1,217 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.catalog.stream;
+
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.io.Text;
+import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
+import org.apache.doris.persist.gson.GsonPostProcessable;
+import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.thrift.TCell;
+import org.apache.doris.thrift.TRow;
+
+import com.google.common.base.Preconditions;
+import com.google.gson.annotations.SerializedName;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+
+public class TableStreamManager implements Writable, GsonPostProcessable {
+    private static final Logger LOG = LogManager.getLogger(TableStreamManager.class);
+    @SerializedName(value = "dbStreamMap")
+    private Map<Long, Set<Long>> dbStreamMap;
+    protected MonitoredReentrantReadWriteLock rwLock;
+
+    public TableStreamManager() {
+        this.rwLock = new MonitoredReentrantReadWriteLock(true);
+        this.dbStreamMap = new HashMap<>();
+    }
+
+    public void addTableStream(BaseTableStream stream) {
+        rwLock.writeLock().lock();
+        try {
+            dbStreamMap.computeIfAbsent(stream.getDatabase().getId(), k -> new HashSet<>()).add(stream.getId());
+        } finally {
+            rwLock.writeLock().unlock();
+        }
+    }
+
+    public void removeTableStream(BaseTableStream stream) {
+        rwLock.writeLock().lock();
+        try {
+            Optional.ofNullable(dbStreamMap.get(stream.getDatabase().getId()))
+                    .ifPresent(set -> set.remove(stream.getId()));
+        } finally {
+            rwLock.writeLock().unlock();
+        }
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
+    }
+
+    public static TableStreamManager read(DataInput in) throws IOException {
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, TableStreamManager.class);
+    }
+
+    public Set<Long> getTableStreamIds(DatabaseIf db) {
+        Set<Long> result = new HashSet<>();
+        rwLock.readLock().lock();
+        try {
+            result.addAll(dbStreamMap.getOrDefault(db.getId(), new HashSet<>()));
+        } finally {
+            rwLock.readLock().unlock();
+        }
+        return result;
+    }
+
+    public void fillTableStreamValuesMetadataResult(List<TRow> dataBatch) {
+        Map<Long, Set<Long>> copiedMap = new HashMap<>();
+        rwLock.readLock().lock();
+        try {
+            for (Map.Entry<Long, Set<Long>> e : dbStreamMap.entrySet()) {
+                copiedMap.put(e.getKey(), new HashSet<>(e.getValue()));
+            }
+        } finally {
+            rwLock.readLock().unlock();
+        }
+        for (Map.Entry<Long, Set<Long>> entry : copiedMap.entrySet()) {
+            Optional<Database> db = Env.getCurrentInternalCatalog().getDb(entry.getKey());
+            if (db.isPresent()) {
+                for (Long tableId : entry.getValue()) {
+                    Optional<Table> table = db.get().getTable(tableId);
+                    if (!table.isPresent()) {
+                        if (LOG.isDebugEnabled()) {
+                            LOG.warn("invalid stream id: {}, db: {}", tableId, db.get().getFullName());
+                        }
+                        continue;
+                    }
+                    if (!(table.get() instanceof BaseTableStream)) {
+                        LOG.warn("invalid not table stream type table: {}", table.get().getName());
+                        continue;
+                    }
+                    BaseTableStream stream = (BaseTableStream) table.get();
+                    if (stream.readLockIfExist()) {
+                        try {
+                            TRow trow = new TRow();
+                            // DB_NAME
+                            trow.addToColumnValue(new TCell().setStringVal(stream.getDatabase().getFullName()));
+                            // STREAM_NAME
+                            trow.addToColumnValue(new TCell().setStringVal(stream.getName()));
+                            // STREAM_ID
+                            trow.addToColumnValue(new TCell().setLongVal(stream.getId()));
+                            // STREAM_TYPE
+                            trow.addToColumnValue(new TCell().setStringVal(stream.getTableStreamType()));
+                            // CONSUME_TYPE
+                            trow.addToColumnValue(new TCell().setStringVal(stream.getConsumeType()));
+                            // STREAM_COMMENT
+                            trow.addToColumnValue(new TCell().setStringVal(stream.getComment()));
+                            TableIf baseTable = stream.getBaseTableNullable();
+                            if (baseTable == null) {
+                                // BASE_TABLE_NAME
+                                trow.addToColumnValue(new TCell().setStringVal("N/A"));
+                                // BASE_TABLE_DB
+                                trow.addToColumnValue(new TCell().setStringVal("N/A"));
+                                // BASE_TABLE_CTL
+                                trow.addToColumnValue(new TCell().setStringVal("N/A"));
+                                // BASE_TABLE_TYPE
+                                trow.addToColumnValue(new TCell().setStringVal("N/A"));
+                            } else {
+                                List<String> baseTableQualifiers = baseTable.getFullQualifiers();
+                                // BASE_TABLE_NAME
+                                trow.addToColumnValue(new TCell().setStringVal(baseTableQualifiers.get(2)));
+                                // BASE_TABLE_DB
+                                trow.addToColumnValue(new TCell().setStringVal(baseTableQualifiers.get(1)));
+                                // BASE_TABLE_CTL
+                                trow.addToColumnValue(new TCell().setStringVal(baseTableQualifiers.get(0)));
+                                // BASE_TABLE_TYPE
+                                trow.addToColumnValue(new TCell().setStringVal(baseTable.getType().name()));
+                            }
+                            // ENABLED
+                            trow.addToColumnValue(new TCell().setBoolVal(!stream.isDisabled()));
+                            // IS_STALE
+                            trow.addToColumnValue(new TCell().setBoolVal(stream.isStale()));
+                            // STALE_REASON
+                            trow.addToColumnValue(new TCell().setStringVal(stream.getStaleReason()));
+                            dataBatch.add(trow);
+                        } finally {
+                            stream.readUnlock();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    public void fillStreamConsumptionValuesMetadataResult(List<TRow> dataBatch) {
+        Map<Long, Set<Long>> copiedMap = new HashMap<>();
+        rwLock.readLock().lock();
+        try {
+            for (Map.Entry<Long, Set<Long>> e : dbStreamMap.entrySet()) {
+                copiedMap.put(e.getKey(), new HashSet<>(e.getValue()));
+            }
+        } finally {
+            rwLock.readLock().unlock();
+        }
+        for (Map.Entry<Long, Set<Long>> entry : copiedMap.entrySet()) {
+            Optional<Database> db = Env.getCurrentInternalCatalog().getDb(entry.getKey());
+            if (db.isPresent()) {
+                for (Long tableId : entry.getValue()) {
+                    Optional<Table> table = db.get().getTable(tableId);
+                    if (!table.isPresent()) {
+                        if (LOG.isDebugEnabled()) {
+                            LOG.warn("invalid stream id: {}, db: {}", tableId, db.get().getFullName());
+                        }
+                        continue;
+                    }
+                    Preconditions.checkArgument(table.get() instanceof BaseTableStream);
+                    BaseTableStream stream = (BaseTableStream) table.get();
+                    if (stream.readLockIfExist()) {
+                        try {
+                            stream.fillTableStreamConsumptionInfo(dataBatch);
+                        } finally {
+                            stream.readUnlock();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        this.rwLock = new MonitoredReentrantReadWriteLock(true);
+    }
+}

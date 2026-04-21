@@ -17,9 +17,21 @@
 
 #pragma once
 
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Woverloaded-virtual"
+#elif defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Woverloaded-virtual"
+#endif
 #include <CLucene/config/repl_wchar.h>
 #include <CLucene/index/IndexReader.h>
 #include <CLucene/index/Term.h>
+#ifdef __clang__
+#pragma clang diagnostic pop
+#elif defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 
 #include "storage/index/index_query_context.h"
 #include "storage/index/inverted/query_v2/bit_set_query/bit_set_scorer.h"
@@ -135,7 +147,8 @@ private:
             auto term_wstr = StringHelper::to_wstring(term);
             auto t = make_term_ptr(_field.c_str(), term_wstr.c_str());
             auto iter = make_term_doc_ptr(reader.get(), t.get(), _enable_scoring, _context->io_ctx);
-            auto segment_postings = make_segment_postings(std::move(iter), _enable_scoring);
+            auto segment_postings =
+                    make_segment_postings(std::move(iter), _enable_scoring, nullptr);
 
             uint32_t doc = segment_postings->doc();
             while (doc != TERMINATED) {

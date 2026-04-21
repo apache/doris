@@ -25,11 +25,10 @@
 #include "core/block/block.h"
 #include "exec/exchange/vdata_stream_sender.h"
 #include "exec/pipeline/dependency.h"
-#include "exec/spill/spill_stream.h"
+#include "exec/spill/spill_file.h"
 #include "runtime/runtime_profile.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class Dependency;
 struct MultiCastSharedState;
@@ -45,8 +44,9 @@ struct MultiCastBlock {
 };
 
 struct SpillingReader {
-    SpillReaderUPtr reader;
-    SpillStreamSPtr stream;
+    SpillFileReaderSPtr reader;
+    SpillFileSPtr spill_file;
+
     int64_t block_offset {0};
     bool all_data_read {false};
 };
@@ -99,7 +99,7 @@ private:
     Status _copy_block(RuntimeState* state, int32_t sender_idx, Block* block,
                        MultiCastBlock& multi_cast_block);
 
-    Status _start_spill_task(RuntimeState* state, SpillStreamSPtr spill_stream);
+    Status _start_spill_task(RuntimeState* state, SpillFileSPtr spill_file);
 
     Status _trigger_spill_if_need(RuntimeState* state, bool* triggered);
 
@@ -127,5 +127,4 @@ private:
     // operator_profile of each source operator
     std::vector<RuntimeProfile*> _source_operator_profiles;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

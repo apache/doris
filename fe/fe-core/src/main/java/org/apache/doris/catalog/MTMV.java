@@ -19,11 +19,11 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.catalog.OlapTableFactory.MTMVParams;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.CatalogMgr;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.mtmv.BaseTableInfo;
@@ -609,6 +609,9 @@ public class MTMV extends OlapTable {
     @Override
     public void gsonPostProcess() throws IOException {
         super.gsonPostProcess();
+        if (sessionVariables == null) {
+            sessionVariables = Maps.newHashMap();
+        }
         Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots = refreshSnapshot.getPartitionSnapshots();
         compatiblePctSnapshot(partitionSnapshots);
     }

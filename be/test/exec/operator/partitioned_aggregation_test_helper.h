@@ -35,7 +35,7 @@
 #include "exec/operator/partitioned_aggregation_source_operator.h"
 #include "exec/operator/spillable_operator_test_helper.h"
 #include "exec/pipeline/pipeline_task.h"
-#include "exec/spill/spill_stream_manager.h"
+#include "exec/spill/spill_file_manager.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/runtime_profile.h"
 
@@ -48,7 +48,7 @@ class MockPartitionedAggSharedState : public PartitionedAggSharedState {
     ENABLE_FACTORY_CREATOR(MockPartitionedAggSharedState);
 
 public:
-    MockPartitionedAggSharedState() { is_spilled = false; }
+    MockPartitionedAggSharedState() { _is_spilled = false; }
 };
 
 class MockPartitionedAggSinkLocalState : public PartitionedAggSinkLocalState {

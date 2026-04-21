@@ -226,7 +226,7 @@ public:
         outfile = std::move(result_file).ValueUnsafe();
 
         ::parquet::WriterProperties::Builder builder;
-        builder.version(::parquet::ParquetVersion::PARQUET_2_0);
+        builder.version(::parquet::ParquetVersion::PARQUET_2_6);
         builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
         builder.enable_write_page_index();
         builder.compression(::parquet::Compression::SNAPPY);
@@ -279,10 +279,14 @@ public:
                                                 &ctz, nullptr, nullptr);
         p_reader->set_file_reader(local_file_reader);
         colname_to_slot_id.emplace("int64_col", 2);
-        phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
-        static_cast<void>(p_reader->init_reader(column_names, &col_name_to_block_idx, {}, tmp,
-                                                tuple_desc, nullptr, &colname_to_slot_id, nullptr,
-                                                nullptr));
+        ParquetInitContext pq_ctx;
+        pq_ctx.column_names = column_names;
+        pq_ctx.col_name_to_block_idx = &col_name_to_block_idx;
+        pq_ctx.tuple_descriptor = tuple_desc;
+        pq_ctx.colname_to_slot_id = &colname_to_slot_id;
+        pq_ctx.params = &scan_params;
+        pq_ctx.range = &scan_range;
+        static_cast<void>(p_reader->init_reader(&pq_ctx));
 
         size_t meta_size;
         static_cast<void>(parse_thrift_footer(p_reader->_file_reader, &doris_file_metadata,
@@ -290,6 +294,70 @@ public:
         doris_metadata = doris_file_metadata->to_thrift();
 
         p_reader->_ctz = &ctz;
+    }
+
+    std::string read_date_column_dump(const std::string& timezone_name) {
+        TDescriptorTable local_desc_table;
+        TTableDescriptor local_table_desc;
+        create_table_desc(local_desc_table, local_table_desc, {"date_col"},
+                          {TPrimitiveType::DATEV2});
+        DescriptorTbl* local_desc_tbl = nullptr;
+        ObjectPool local_obj_pool;
+        static_cast<void>(
+                DescriptorTbl::create(&local_obj_pool, local_desc_table, &local_desc_tbl));
+
+        auto tuple_desc = local_desc_tbl->get_tuple_descriptor(0);
+        auto slot_descs = tuple_desc->slots();
+        auto local_fs = io::global_local_filesystem();
+        io::FileReaderSPtr local_file_reader;
+        static_cast<void>(local_fs->open_file(file_path, &local_file_reader));
+
+        cctz::time_zone local_ctz;
+        TimezoneUtils::find_cctz_time_zone(timezone_name, local_ctz);
+
+        std::vector<std::string> column_names;
+        std::unordered_map<std::string, uint32_t> col_name_to_block_idx;
+        for (int i = 0; i < slot_descs.size(); i++) {
+            column_names.push_back(slot_descs[i]->col_name());
+            col_name_to_block_idx[slot_descs[i]->col_name()] = i;
+        }
+
+        TFileScanRangeParams scan_params;
+        TFileRangeDesc scan_range;
+        scan_range.start_offset = 0;
+        scan_range.size = local_file_reader->size();
+
+        auto local_reader = ParquetReader::create_unique(
+                nullptr, scan_params, scan_range, scan_range.size, &local_ctz, nullptr, nullptr);
+        local_reader->set_file_reader(local_file_reader);
+        ParquetInitContext pq_ctx2;
+        pq_ctx2.column_names = column_names;
+        pq_ctx2.col_name_to_block_idx = &col_name_to_block_idx;
+        pq_ctx2.tuple_descriptor = tuple_desc;
+        pq_ctx2.params = &scan_params;
+        pq_ctx2.range = &scan_range;
+        static_cast<void>(local_reader->init_reader(&pq_ctx2));
+
+        // set_fill_columns logic is now inlined in _do_init_reader,
+        // so no separate call is needed.
+
+        bool eof = false;
+        std::string dump;
+        while (!eof) {
+            BlockUPtr block = Block::create_unique();
+            for (const auto& slot_desc : tuple_desc->slots()) {
+                auto data_type = make_nullable(slot_desc->type());
+                MutableColumnPtr data_column = data_type->create_column();
+                block->insert(ColumnWithTypeAndName(std::move(data_column), data_type,
+                                                    slot_desc->col_name()));
+            }
+
+            size_t read_row = 0;
+            Status st = local_reader->get_next_block(block.get(), &read_row, &eof);
+            EXPECT_TRUE(st.ok()) << st;
+            dump += block->dump_data();
+        }
+        return dump;
     }
 
     static void create_table_desc(TDescriptorTable& t_desc_table, TTableDescriptor& t_table_desc,
@@ -398,6 +466,13 @@ TEST_F(ParquetExprTest, test_min_max) {
                               arrow_reader->RowGroup(row_group_idx)->metadata()->num_rows());
         }
     }
+}
+
+TEST_F(ParquetExprTest, date_should_not_shift_in_west_timezone) {
+    std::string dump = read_date_column_dump("-06:00");
+    EXPECT_NE(dump.find("2020-01-01"), std::string::npos);
+    EXPECT_NE(dump.find("2020-01-06"), std::string::npos);
+    EXPECT_EQ(dump.find("2019-12-31"), std::string::npos);
 }
 
 TEST_F(ParquetExprTest, test_ge_2) { // int64_col = 10000000001   [10000000000 , 10000000000+3)

@@ -129,7 +129,7 @@ message InstanceInfoPB {
     // For snapshot
     optional MultiVersionStatus multi_version_status = 110;
     optional SnapshotSwitchStatus snapshot_switch_status = 111;
-    optional string source_instance_id = 112;   // The instance cloned from.
+    optional string source_instance_id = 112;   // The instance cloned from (the snapshot instance id).
     optional string source_snapshot_id = 113;   // The snapshot cloned from.
 
     // Inherited from which instance (only used during rollback, the earliest instance id).
@@ -147,6 +147,11 @@ message InstanceInfoPB {
     optional int64 snapshot_retained_data_size = 121;
     optional int64 snapshot_billable_data_size = 122;
     optional SnapshotCompactStatus snapshot_compact_status = 123;
+
+    // The instance that is being rolled back, only used during rollback.
+    // It is not always same as source_instance_id, because the source instance may inherit from another
+    // instance during rollback, and the predecessor instance is the real instance which to execute the rollback.
+    optional string predecessor_instance_id = 124;
 }
 
 message StagePB {
@@ -1799,6 +1804,10 @@ enum MetaServiceCode {
     KV_TXN_STORE_COMMIT_RETRYABLE = 1009;
     KV_TXN_STORE_CREATE_RETRYABLE = 1010;
     KV_TXN_TOO_OLD = 1011;
+    // WARNING: KV_TXN_MAYBE_COMMITTED is NOT returned to clients. It is kept as an
+    // internal retry signal inside MetaServiceProxy::call_impl(), then downgraded to
+    // KV_TXN_COMMIT_ERR before the response is sent back. Older BE/FE versions do not
+    // recognize this enum value, and proto2 would otherwise fall back to OK (= 0).
     KV_TXN_MAYBE_COMMITTED = 1012;
 
     //Doris error
@@ -1839,7 +1848,10 @@ enum MetaServiceCode {
     STREAMING_JOB_PROGRESS_NOT_FOUND = 5006;
 
     // Rate limit
+    // Request is rejected by the RPC-specific QPS limiter.
     MAX_QPS_LIMIT = 6001;
+    // Request is rejected by the MetaService-wide rate limiter instead of a single RPC limiter.
+    MS_TOO_BUSY = 6002;
 
     ERR_ENCRYPT = 7001;
     ERR_DECPYPT = 7002;
@@ -1859,6 +1871,11 @@ enum MetaServiceCode {
 
     SCHEMA_DICT_NOT_FOUND = 11001;
 
+    // WARNING: Before adding a new MetaServiceCode, consider backward compatibility.
+    // This is a proto2 optional enum field. If an older client receives an unrecognized
+    // enum value, the field is treated as unset and defaults to OK (= 0), silently
+    // turning errors into success. Any new error code that may be sent to older clients
+    // MUST be downgraded to a legacy code before the response is sent to the client.
     UNDEFINED_ERR = 1000000;
 }
 

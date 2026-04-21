@@ -360,28 +360,6 @@ public class Profile {
         return builder.toString();
     }
 
-    // If the query is already finished, and user wants to get the profile, we should check
-    // if BE has reported all profiles, if not, sleep 2s.
-    private void waitProfileCompleteIfNeeded() {
-        if (!this.isQueryFinished) {
-            return;
-        }
-        boolean allCompleted = true;
-        for (ExecutionProfile executionProfile : executionProfiles) {
-            if (!executionProfile.isCompleted()) {
-                allCompleted = false;
-                break;
-            }
-        }
-        if (!allCompleted) {
-            try {
-                Thread.currentThread().sleep(2000);
-            } catch (InterruptedException e) {
-                // Do nothing
-            }
-        }
-    }
-
     private RuntimeProfile composeRootProfile() {
         RuntimeProfile rootProfile = new RuntimeProfile(getId());
         rootProfile.addChild(summaryProfile.getSummary(), true);
@@ -732,22 +710,6 @@ public class Profile {
 
     public long getProfileSize() {
         return this.profileSize;
-    }
-
-    public boolean shouldBeRemoveFromMemory() {
-        if (!this.isQueryFinished) {
-            return false;
-        }
-
-        if (this.profileHasBeenStored()) {
-            return false;
-        }
-
-        if (this.queryFinishTimestamp - this.summaryProfile.getQueryBeginTime() >= autoProfileDurationMs) {
-            return false;
-        }
-
-        return true;
     }
 
     public PhysicalPlan getPhysicalPlan() {

@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -96,13 +97,15 @@ public class LogicalOneRowRelation extends LogicalRelation implements OneRowRela
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalOneRowRelation(relationId, projects, groupExpression, Optional.of(getLogicalProperties()));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalOneRowRelation(relationId, projects, groupExpression, Optional.of(getLogicalProperties())));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalOneRowRelation(relationId, projects, groupExpression, logicalProperties);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalOneRowRelation(relationId, projects, groupExpression, logicalProperties));
     }
 
     @Override
@@ -111,7 +114,8 @@ public class LogicalOneRowRelation extends LogicalRelation implements OneRowRela
     }
 
     public LogicalOneRowRelation withRelationIdAndProjects(RelationId relationId, List<NamedExpression> projects) {
-        return new LogicalOneRowRelation(relationId, projects);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalOneRowRelation(relationId, projects));
     }
 
     @Override
@@ -149,7 +153,8 @@ public class LogicalOneRowRelation extends LogicalRelation implements OneRowRela
     }
 
     public LogicalOneRowRelation withProjects(List<NamedExpression> namedExpressions) {
-        return new LogicalOneRowRelation(relationId, namedExpressions, Optional.empty(), Optional.empty());
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalOneRowRelation(relationId, namedExpressions, Optional.empty(), Optional.empty()));
     }
 
     @Override

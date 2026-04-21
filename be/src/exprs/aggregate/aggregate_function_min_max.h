@@ -35,8 +35,10 @@
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
+#include "core/column/column_decimal.h"
 #include "core/column/column_fixed_length_object.h"
 #include "core/column/column_string.h"
+#include "core/custom_allocator.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_fixed_length_object.h"
 #include "core/data_type/data_type_string.h"
@@ -46,10 +48,8 @@
 #include "core/type_limit.h"
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"
-#include "util/io_helper.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class Arena;
 template <PrimitiveType T>
 class ColumnDecimal;
@@ -355,7 +355,7 @@ private:
     // However, considering compatibility with future upgrades, no changes will be made here.
     Int32 size = -1;    /// -1 indicates that there is no value.
     Int32 capacity = 0; /// power of two or zero
-    std::unique_ptr<char[]> large_data;
+    DorisUniqueBufferPtr<char> large_data;
 
 public:
     static constexpr Int32 AUTOMATIC_STORAGE_SIZE = 64;
@@ -388,7 +388,7 @@ public:
         if (size != -1) {
             size = -1;
             capacity = 0;
-            large_data = nullptr;
+            large_data.reset();
         }
     }
 
@@ -415,7 +415,7 @@ public:
             } else {
                 if (capacity < rhs_size) {
                     capacity = (Int32)round_up_to_power_of_two_or_zero(rhs_size);
-                    large_data.reset(new char[capacity]);
+                    large_data = DorisUniqueBufferPtr<char>(capacity);
                 }
 
                 size = rhs_size;
@@ -443,7 +443,7 @@ public:
             if (capacity < value_size) {
                 /// Don't free large_data here.
                 capacity = (Int32)round_up_to_power_of_two_or_zero(value_size);
-                large_data.reset(new char[capacity]);
+                large_data = DorisUniqueBufferPtr<char>(capacity);
             }
 
             size = value_size;
@@ -520,6 +520,8 @@ public:
         }
     }
 };
+
+static_assert(sizeof(SingleValueDataString) == SingleValueDataString::AUTOMATIC_STORAGE_SIZE);
 
 struct SingleValueDataComplexType {
 private:
@@ -768,7 +770,10 @@ public:
 
     DataTypePtr get_return_type() const override { return type; }
 
-    bool is_trivial() const override { return Data::IsFixedLength; }
+    // min/max require sentinel-initialized state (MAX_VALUE for min, MIN_VALUE for max) via
+    // create(), so they cannot use zero-init and must return false. any_value is safe with
+    // zero-init because it checks has_value before comparing (change_first_time).
+    bool is_trivial() const override { return Data::IsFixedLength && Data::IS_ANY; }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena& arena) const override {
@@ -987,5 +992,3 @@ AggregateFunctionPtr create_aggregate_function_single_value_any_value_function(
         const String& name, const DataTypes& argument_types, const DataTypePtr& result_type,
         const bool result_is_nullable, const AggregateFunctionAttr& attr = {});
 } // namespace doris
-
-#include "common/compile_check_end.h"

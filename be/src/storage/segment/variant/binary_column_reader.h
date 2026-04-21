@@ -30,8 +30,6 @@
 
 namespace doris::segment_v2 {
 
-#include "common/compile_check_begin.h"
-
 enum class BinaryColumnType {
     SINGLE_SPARSE = 0,
     MULTIPLE_SPARSE = 1,
@@ -149,5 +147,4 @@ private:
     std::vector<MutableColumnPtr> _binary_column_data;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

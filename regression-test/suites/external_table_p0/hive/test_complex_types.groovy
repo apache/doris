@@ -22,7 +22,7 @@ suite("test_complex_types", "p0,external") {
         return;
     }
 
-    for (String hivePrefix : ["hive2", "hive3"]) {
+    for (String hivePrefix : ["hive3"]) {
         String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
         String catalog_name = "${hivePrefix}_test_complex_types"
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")

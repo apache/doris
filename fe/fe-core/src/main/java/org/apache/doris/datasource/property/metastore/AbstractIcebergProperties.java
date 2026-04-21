@@ -172,13 +172,14 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
 
         // default enable io manifest cache if the meta.cache.manifest is enabled
         if (!hasIoManifestCacheEnabled) {
-            CacheSpec manifestCacheSpec = CacheSpec.fromProperties(catalogProps,
-                    IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_ENABLE,
-                    IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_ENABLE,
-                    IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_TTL_SECOND,
-                    IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_TTL_SECOND,
-                    IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_CAPACITY,
-                    IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_CAPACITY);
+            CacheSpec manifestCacheSpec = CacheSpec.fromProperties(catalogProps, CacheSpec.propertySpecBuilder()
+                    .enable(IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_ENABLE,
+                            IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_ENABLE)
+                    .ttl(IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_TTL_SECOND,
+                            IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_TTL_SECOND)
+                    .capacity(IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_CAPACITY,
+                            IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_CAPACITY)
+                    .build());
             if (CacheSpec.isCacheEnabled(manifestCacheSpec.isEnable(),
                     manifestCacheSpec.getTtlSecond(),
                     manifestCacheSpec.getCapacity())) {

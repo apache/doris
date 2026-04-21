@@ -20,15 +20,21 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.common.IdGenerator;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.TableSample;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -40,6 +46,7 @@ import org.apache.doris.thrift.TFileFormatType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableMap;
 
 import java.util.Collection;
@@ -136,39 +143,44 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
 
     @Override
     public LogicalFileScan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
                 scanParams, groupExpression, Optional.of(getLogicalProperties()), tableAlias,
-                cachedOutputs);
+                cachedOutputs));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
-                scanParams, groupExpression, logicalProperties, tableAlias, cachedOutputs);
+                scanParams, groupExpression, logicalProperties, tableAlias, cachedOutputs));
     }
 
     public LogicalFileScan withSelectedPartitions(SelectedPartitions selectedPartitions) {
-        return new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
                 scanParams, Optional.empty(), Optional.of(getLogicalProperties()), tableAlias,
-                cachedOutputs);
+                cachedOutputs));
     }
 
     @Override
     public LogicalFileScan withRelationId(RelationId relationId) {
-        return new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
-                scanParams, Optional.empty(), Optional.empty(), tableAlias, cachedOutputs);
+                scanParams, Optional.empty(), Optional.empty(), tableAlias, cachedOutputs));
     }
 
     public LogicalFileScan withTableAlias(String tableAlias) {
-        return new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
                 scanParams, Optional.empty(), Optional.of(getLogicalProperties()), tableAlias,
-                cachedOutputs);
+                cachedOutputs));
     }
 
     @Override
@@ -186,7 +198,27 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         if (cachedOutputs.isPresent()) {
             return cachedOutputs.get();
         }
-        return super.computeOutput();
+
+        if (table instanceof IcebergExternalTable) {
+            // iceberg v3 need append row lineage columns
+            return computeIcebergOutput((IcebergExternalTable) table);
+        } else {
+            return super.computeOutput();
+        }
+    }
+
+    private List<Slot> computeIcebergOutput(IcebergExternalTable iceTable) {
+        IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
+        Builder<Slot> slots = ImmutableList.builder();
+        table.getFullSchema()
+                .stream()
+                .map(col -> SlotReference.fromColumn(exprIdGenerator.getNextId(), table, col, qualified()))
+                .forEach(slots::add);
+        // add virtual slots
+        for (NamedExpression virtualColumn : virtualColumns) {
+            slots.add(virtualColumn.toSlot());
+        }
+        return slots.build();
     }
 
     @Override
@@ -197,7 +229,7 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
     @Override
     public boolean supportPruneNestedColumn() {
         ExternalTable table = getTable();
-        if (table instanceof IcebergExternalTable) {
+        if (table instanceof IcebergExternalTable || table instanceof IcebergSysExternalTable) {
             return true;
         } else if (table instanceof HMSExternalTable) {
             HMSExternalTable hmsTable = (HMSExternalTable) table;
@@ -279,15 +311,17 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
 
     @Override
     public LogicalFileScan withOperativeSlots(Collection<Slot> operativeSlots) {
-        return new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
-                scanParams, groupExpression, Optional.of(getLogicalProperties()), tableAlias, cachedOutputs);
+                scanParams, groupExpression, Optional.of(getLogicalProperties()), tableAlias, cachedOutputs));
     }
 
     public LogicalFileScan withCachedOutput(List<Slot> cachedOutputs) {
-        return new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
-                scanParams, groupExpression, Optional.empty(), tableAlias, Optional.of(cachedOutputs));
+                scanParams, groupExpression, Optional.empty(), tableAlias, Optional.of(cachedOutputs)));
     }
 
     @Override

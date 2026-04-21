@@ -62,7 +62,7 @@ private:
             size_t offset = term_info.position;
             auto posting =
                     create_position_posting(reader.get(), _field, term_info.get_single_term(),
-                                            _enable_scoring, _context->io_ctx);
+                                            _enable_scoring, _similarity, _context->io_ctx);
             if (posting) {
                 term_postings_list.emplace_back(offset, std::move(posting));
             } else {

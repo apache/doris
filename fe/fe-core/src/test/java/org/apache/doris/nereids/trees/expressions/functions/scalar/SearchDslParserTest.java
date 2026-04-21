@@ -1095,6 +1095,81 @@ public class SearchDslParserTest {
     }
 
     @Test
+    public void testSlashInTerm() {
+        // DORIS-24624: slash within a term should be treated as a regular character
+        // e.g., AC/DC should parse as a single term, not trigger regex parsing
+        String dsl = "title:AC/DC";
+        QsPlan plan = SearchDslParser.parseDsl(dsl);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.TERM, plan.getRoot().getType());
+        Assertions.assertEquals("title", plan.getRoot().getField());
+        Assertions.assertEquals("AC/DC", plan.getRoot().getValue());
+    }
+
+    @Test
+    public void testSlashInTermBareQuery() {
+        // DORIS-24624: slash within a bare term (using default_field)
+        String dsl = "AC/DC";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, "{\"default_field\":\"title\",\"default_operator\":\"OR\"}");
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.TERM, plan.getRoot().getType());
+        Assertions.assertEquals("title", plan.getRoot().getField());
+        Assertions.assertEquals("AC/DC", plan.getRoot().getValue());
+    }
+
+    @Test
+    public void testSlashInTermLuceneMode() {
+        // DORIS-24624: slash within a bare term in Lucene mode
+        String dsl = "AC/DC";
+        QsPlan plan = SearchDslParser.parseDsl(dsl,
+                "{\"default_field\":\"title\",\"default_operator\":\"OR\",\"minimum_should_match\":0}");
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.TERM, plan.getRoot().getType());
+        Assertions.assertEquals("title", plan.getRoot().getField());
+        Assertions.assertEquals("AC/DC", plan.getRoot().getValue());
+    }
+
+    @Test
+    public void testEscapedSlashInTerm() {
+        // Escaped slash should also work and produce same result as unescaped
+        String dsl = "title:AC\\/DC";
+        QsPlan plan = SearchDslParser.parseDsl(dsl);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.TERM, plan.getRoot().getType());
+        Assertions.assertEquals("title", plan.getRoot().getField());
+        // After unescape: AC\/DC -> AC/DC
+        Assertions.assertEquals("AC/DC", plan.getRoot().getValue());
+    }
+
+    @Test
+    public void testMultipleSlashesInTerm() {
+        // Multiple slashes within a term
+        String dsl = "path:foo/bar/baz";
+        QsPlan plan = SearchDslParser.parseDsl(dsl);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.TERM, plan.getRoot().getType());
+        Assertions.assertEquals("path", plan.getRoot().getField());
+        Assertions.assertEquals("foo/bar/baz", plan.getRoot().getValue());
+    }
+
+    @Test
+    public void testSlashDoesNotBreakRegexp() {
+        // Regex pattern /pattern/ should still work correctly
+        String dsl = "title:/[a-z]+/";
+        QsPlan plan = SearchDslParser.parseDsl(dsl);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.REGEXP, plan.getRoot().getType());
+        Assertions.assertEquals("title", plan.getRoot().getField());
+        Assertions.assertEquals("[a-z]+", plan.getRoot().getValue());
+    }
+
+    @Test
     public void testUppercaseAndOperator() {
         // Test: uppercase AND should be treated as operator
         String dsl = "field:a AND field:b";
@@ -2531,7 +2606,7 @@ public class SearchDslParserTest {
 
     @Test
     public void testNestedQuerySimple() {
-        String dsl = "NESTED(data, data.msg:hello)";
+        String dsl = "NESTED(data, msg:hello)";
         QsPlan plan = SearchDslParser.parseDsl(dsl, "{\"mode\":\"standard\"}");
 
         Assertions.assertNotNull(plan);
@@ -2545,7 +2620,7 @@ public class SearchDslParserTest {
 
     @Test
     public void testNestedQueryAnd() {
-        String dsl = "NESTED(data, data.msg:hello AND data.title:news)";
+        String dsl = "NESTED(data, msg:hello AND title:news)";
         QsPlan plan = SearchDslParser.parseDsl(dsl, "{\"mode\":\"standard\"}");
 
         Assertions.assertNotNull(plan);
@@ -2558,29 +2633,109 @@ public class SearchDslParserTest {
     }
 
     @Test
-    public void testNestedQueryFieldValidation() {
-        String dsl = "NESTED(data, other.msg:hello)";
+    public void testNestedQueryAbsolutePathRejected() {
+        String dsl = "NESTED(data, data.msg:hello)";
         RuntimeException exception = Assertions.assertThrows(RuntimeException.class, () -> {
             SearchDslParser.parseDsl(dsl, "{\"mode\":\"standard\"}");
         });
-        Assertions.assertTrue(exception.getMessage().contains("Fields in NESTED query must start with nested path"));
+        Assertions.assertTrue(exception.getMessage().contains("Fields in NESTED predicates must be relative"));
     }
 
     @Test
     public void testNestedQueryPathWithDot() {
-        String dsl = "NESTED(data.items, data.items.msg:hello)";
+        String dsl = "NESTED(data.items, meta.channel:action)";
         QsPlan plan = SearchDslParser.parseDsl(dsl, "{\"mode\":\"standard\"}");
 
         Assertions.assertNotNull(plan);
         Assertions.assertEquals(QsClauseType.NESTED, plan.getRoot().getType());
         Assertions.assertEquals("data.items", plan.getRoot().getNestedPath());
         Assertions.assertTrue(plan.getFieldBindings().stream()
-                .anyMatch(b -> "data.items.msg".equals(b.getFieldName())));
+                .anyMatch(b -> "data.items.meta.channel".equals(b.getFieldName())));
+    }
+
+    @Test
+    public void testNestedQuerySimpleLuceneMode() {
+        String dsl = "NESTED(data, msg:hello)";
+        QsPlan plan = SearchDslParser.parseDsl(dsl,
+                "{\"mode\":\"lucene\",\"default_operator\":\"AND\",\"minimum_should_match\":0}");
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.NESTED, plan.getRoot().getType());
+        Assertions.assertEquals("data", plan.getRoot().getNestedPath());
+        Assertions.assertEquals(1, plan.getRoot().getChildren().size());
+        Assertions.assertEquals(QsClauseType.TERM, plan.getRoot().getChildren().get(0).getType());
+        Assertions.assertEquals("data.msg", plan.getRoot().getChildren().get(0).getField());
+        Assertions.assertTrue(plan.getFieldBindings().stream().anyMatch(b -> "data.msg".equals(b.getFieldName())));
+    }
+
+    @Test
+    public void testNestedQueryAndLuceneMode() {
+        String dsl = "NESTED(data, msg:hello AND title:news)";
+        QsPlan plan = SearchDslParser.parseDsl(dsl,
+                "{\"mode\":\"lucene\",\"default_operator\":\"AND\",\"minimum_should_match\":0}");
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.NESTED, plan.getRoot().getType());
+        Assertions.assertEquals("data", plan.getRoot().getNestedPath());
+        Assertions.assertEquals(1, plan.getRoot().getChildren().size());
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.getRoot().getChildren().get(0).getType());
+        Assertions.assertTrue(plan.getFieldBindings().stream().anyMatch(b -> "data.msg".equals(b.getFieldName())));
+        Assertions.assertTrue(plan.getFieldBindings().stream().anyMatch(b -> "data.title".equals(b.getFieldName())));
+    }
+
+    @Test
+    public void testNestedQueryDescendantFieldLuceneMode() {
+        String dsl = "NESTED(data.items, input.display_text:selforigin)";
+        QsPlan plan = SearchDslParser.parseDsl(dsl,
+                "{\"mode\":\"lucene\",\"default_operator\":\"AND\",\"minimum_should_match\":0}");
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.NESTED, plan.getRoot().getType());
+        Assertions.assertEquals("data.items", plan.getRoot().getNestedPath());
+        Assertions.assertTrue(plan.getFieldBindings().stream()
+                .anyMatch(b -> "data.items.input.display_text".equals(b.getFieldName())));
+    }
+
+    @Test
+    public void testNestedQueryMustBeTopLevelInAndLuceneMode() {
+        String dsl = "title:hello AND NESTED(data, msg:hello)";
+        RuntimeException exception = Assertions.assertThrows(RuntimeException.class, () -> {
+            SearchDslParser.parseDsl(dsl,
+                    "{\"mode\":\"lucene\",\"default_operator\":\"AND\",\"minimum_should_match\":0}");
+        });
+        Assertions.assertTrue(exception.getMessage().contains("NESTED clause must be evaluated at top level"));
+    }
+
+    @Test
+    public void testNestedQueryMixedRelativeAndAbsoluteRejected() {
+        String dsl = "NESTED(data.items, msg:hello AND data.items.title:news)";
+        RuntimeException exception = Assertions.assertThrows(RuntimeException.class, () -> {
+            SearchDslParser.parseDsl(dsl, "{\"mode\":\"standard\"}");
+        });
+        Assertions.assertTrue(exception.getMessage().contains("Fields in NESTED predicates must be relative"));
+    }
+
+    @Test
+    public void testNestedQueryBareQueryRejected() {
+        String dsl = "NESTED(data.items, hello)";
+        RuntimeException exception = Assertions.assertThrows(RuntimeException.class, () -> {
+            SearchDslParser.parseDsl(dsl, "{\"mode\":\"standard\"}");
+        });
+        Assertions.assertTrue(exception.getMessage().contains("Bare queries are not supported inside NESTED predicates"));
+    }
+
+    @Test
+    public void testNestedQueryNestedNestedRejected() {
+        String dsl = "NESTED(data, NESTED(data.items, msg:hello))";
+        RuntimeException exception = Assertions.assertThrows(RuntimeException.class, () -> {
+            SearchDslParser.parseDsl(dsl, "{\"mode\":\"standard\"}");
+        });
+        Assertions.assertTrue(exception.getMessage().contains("Nested NESTED() is not supported"));
     }
 
     @Test
     public void testNestedQueryMustBeTopLevelInAnd() {
-        String dsl = "title:hello AND NESTED(data, data.msg:hello)";
+        String dsl = "title:hello AND NESTED(data, msg:hello)";
         RuntimeException exception = Assertions.assertThrows(RuntimeException.class, () -> {
             SearchDslParser.parseDsl(dsl, "{\"mode\":\"standard\"}");
         });
@@ -2589,7 +2744,7 @@ public class SearchDslParserTest {
 
     @Test
     public void testNestedQueryMustBeTopLevelInOr() {
-        String dsl = "NESTED(data, data.msg:hello) OR title:hello";
+        String dsl = "NESTED(data, msg:hello) OR title:hello";
         RuntimeException exception = Assertions.assertThrows(RuntimeException.class, () -> {
             SearchDslParser.parseDsl(dsl, "{\"mode\":\"standard\"}");
         });
@@ -2598,7 +2753,7 @@ public class SearchDslParserTest {
 
     @Test
     public void testNestedQueryMustBeTopLevelInNot() {
-        String dsl = "NOT NESTED(data, data.msg:hello)";
+        String dsl = "NOT NESTED(data, msg:hello)";
         RuntimeException exception = Assertions.assertThrows(RuntimeException.class, () -> {
             SearchDslParser.parseDsl(dsl, "{\"mode\":\"standard\"}");
         });

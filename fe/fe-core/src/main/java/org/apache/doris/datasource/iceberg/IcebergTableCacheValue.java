@@ -17,33 +17,25 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import com.google.common.base.Suppliers;
 import org.apache.iceberg.Table;
 
 import java.util.function.Supplier;
 
 public class IcebergTableCacheValue {
     private final Table icebergTable;
+    private final Supplier<IcebergSnapshotCacheValue> latestSnapshotCacheValue;
 
-    private volatile boolean snapshotCacheLoaded;
-    private volatile IcebergSnapshotCacheValue snapshotCacheValue;
-
-    public IcebergTableCacheValue(Table icebergTable) {
+    public IcebergTableCacheValue(Table icebergTable, Supplier<IcebergSnapshotCacheValue> latestSnapshotCacheValue) {
         this.icebergTable = icebergTable;
+        this.latestSnapshotCacheValue = Suppliers.memoize(latestSnapshotCacheValue::get);
     }
 
     public Table getIcebergTable() {
         return icebergTable;
     }
 
-    public IcebergSnapshotCacheValue getSnapshotCacheValue(Supplier<IcebergSnapshotCacheValue> loader) {
-        if (!snapshotCacheLoaded) {
-            synchronized (this) {
-                if (!snapshotCacheLoaded) {
-                    snapshotCacheValue = loader.get();
-                    snapshotCacheLoaded = true;
-                }
-            }
-        }
-        return snapshotCacheValue;
+    public IcebergSnapshotCacheValue getLatestSnapshotCacheValue() {
+        return latestSnapshotCacheValue.get();
     }
 }

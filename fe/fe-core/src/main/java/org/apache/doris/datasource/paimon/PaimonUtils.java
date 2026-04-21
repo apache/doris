@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.paimon;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 
@@ -29,11 +28,11 @@ import java.util.Optional;
 public class PaimonUtils {
 
     public static Table getPaimonTable(ExternalTable dorisTable) {
-        return paimonMetadataCache(dorisTable.getCatalog()).getPaimonTable(dorisTable);
+        return paimonExternalMetaCache(dorisTable).getPaimonTable(dorisTable);
     }
 
     public static PaimonSnapshotCacheValue getLatestSnapshotCacheValue(ExternalTable dorisTable) {
-        return paimonMetadataCache(dorisTable.getCatalog()).getSnapshotCache(dorisTable);
+        return paimonExternalMetaCache(dorisTable).getSnapshotCache(dorisTable);
     }
 
     public static PaimonSnapshotCacheValue getSnapshotCacheValue(Optional<MvccSnapshot> snapshot,
@@ -50,15 +49,11 @@ public class PaimonUtils {
     }
 
     public static PaimonSchemaCacheValue getSchemaCacheValue(ExternalTable dorisTable, long schemaId) {
-        return paimonMetadataCache(dorisTable.getCatalog())
+        return paimonExternalMetaCache(dorisTable)
                 .getPaimonSchemaCacheValue(dorisTable.getOrBuildNameMapping(), schemaId);
     }
 
-    public static PaimonMetadataCache getPaimonMetadataCache(ExternalCatalog catalog) {
-        return paimonMetadataCache(catalog);
-    }
-
-    private static PaimonMetadataCache paimonMetadataCache(ExternalCatalog catalog) {
-        return Env.getCurrentEnv().getExtMetaCacheMgr().getPaimonMetadataCache(catalog);
+    private static PaimonExternalMetaCache paimonExternalMetaCache(ExternalTable table) {
+        return Env.getCurrentEnv().getExtMetaCacheMgr().paimon(table.getCatalog().getId());
     }
 }

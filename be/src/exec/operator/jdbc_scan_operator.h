@@ -26,7 +26,6 @@
 #include "exec/operator/scan_operator.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class JdbcScanner;
 } // namespace doris
@@ -62,5 +61,4 @@ private:
     bool _is_tvf;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

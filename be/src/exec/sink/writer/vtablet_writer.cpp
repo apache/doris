@@ -92,8 +92,6 @@
 namespace doris {
 class TExpr;
 
-#include "common/compile_check_begin.h"
-
 bvar::Adder<int64_t> g_sink_write_bytes;
 bvar::PerSecond<bvar::Adder<int64_t>> g_sink_write_bytes_per_second("sink_throughput_byte",
                                                                     &g_sink_write_bytes, 60);
@@ -1225,6 +1223,7 @@ void VNodeChannel::cancel(const std::string& cancel_msg) {
     request->set_sender_id(_parent->_sender_id);
     request->set_cancel_reason(cancel_msg);
 
+    // cancel is already in post-processing, so error status could be ignored. so not keeping cancel_callback is acceptable.
     auto cancel_callback = DummyBrpcCallback<PTabletWriterCancelResult>::create_shared();
     auto closure = AutoReleaseClosure<
             PTabletWriterCancelRequest,
@@ -1395,7 +1394,7 @@ void VTabletWriter::_send_batch_process() {
         // we must RECHECK opened_nodes below, after got closed signal, because it may changed. Think of this:
         //      checked opened_nodes = 0 ---> new block arrived ---> task finished, close() was called ---> we got _try_close here
         // if we don't check again, we may lose the last package.
-        if (_try_close) {
+        if (_try_close.load(std::memory_order_acquire)) {
             opened_nodes = 0;
             std::ranges::for_each(_channels,
                                   [&opened_nodes](const std::shared_ptr<IndexChannel>& ich) {
@@ -1785,7 +1784,7 @@ void VTabletWriter::_do_try_close(RuntimeState* state, const Status& exec_status
         status = _send_new_partition_batch();
     }
 
-    _try_close = true; // will stop periodic thread
+    _try_close.store(true, std::memory_order_release); // will stop periodic thread
     if (status.ok()) {
         // BE id -> add_batch method counter
         std::unordered_map<int64_t, AddBatchCounter> node_add_batch_counter_map;
@@ -1866,7 +1865,6 @@ void VTabletWriter::_do_try_close(RuntimeState* state, const Status& exec_status
     if (!status.ok()) {
         _cancel_all_channel(status);
         _close_status = status;
-        _close_wait = true;
     }
 }
 

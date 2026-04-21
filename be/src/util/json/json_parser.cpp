@@ -34,7 +34,6 @@
 #include "util/json/simd_json_parser.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 template <typename ParserImpl>
 std::optional<ParseResult> JSONDataParser<ParserImpl>::parse(const char* begin, size_t length,
@@ -44,9 +43,9 @@ std::optional<ParseResult> JSONDataParser<ParserImpl>::parse(const char* begin, 
         return {};
     }
     ParseContext context;
-    // enable_flatten_nested controls nested path traversal
+    // deprecated_enable_flatten_nested controls nested path traversal
     // NestedGroup expansion is now handled at storage layer
-    context.enable_flatten_nested = config.enable_flatten_nested;
+    context.deprecated_enable_flatten_nested = config.deprecated_enable_flatten_nested;
     context.is_top_array = document.isArray();
     traverse(document, context);
     ParseResult result;
@@ -68,8 +67,8 @@ void JSONDataParser<ParserImpl>::traverse(const Element& element, ParseContext& 
         // handled by VariantNestedBuilder with a max-depth guard.
         has_nested = false;
         check_has_nested_object(element);
-        ctx.has_nested_in_flatten = has_nested && ctx.enable_flatten_nested;
-        if (has_nested && !ctx.enable_flatten_nested) {
+        ctx.has_nested_in_flatten = has_nested && ctx.deprecated_enable_flatten_nested;
+        if (has_nested && !ctx.deprecated_enable_flatten_nested) {
             // Parse nested arrays to JsonbField
             JsonbWriter writer;
             traverseArrayAsJsonb(element.getArray(), writer);
@@ -206,7 +205,7 @@ void JSONDataParser<ParserImpl>::traverseArrayElement(const Element& element,
     element_ctx.has_nested_in_flatten = ctx.has_nested_in_flatten;
     element_ctx.is_top_array = ctx.is_top_array;
     traverse(element, element_ctx);
-    auto& [_, paths, values, flatten_nested, __, is_top_array] = element_ctx;
+    auto& [_, paths, values, deprecated_flatten_nested, __, is_top_array] = element_ctx;
 
     if (element_ctx.has_nested_in_flatten && is_top_array) {
         checkAmbiguousStructure(ctx, paths);
@@ -382,8 +381,6 @@ StringRef JSONDataParser<ParserImpl>::getNameOfNested(const PathInData::Parts& p
     }
     return {};
 }
-
-#include "common/compile_check_end.h"
 
 template class JSONDataParser<SimdJSONParser>;
 } // namespace doris

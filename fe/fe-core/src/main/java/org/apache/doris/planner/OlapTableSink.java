@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.analysis.DescriptorToThriftConverter;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.ExprToThriftVisitor;
@@ -26,11 +27,13 @@ import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ColumnToThrift;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.IndexToThriftConvertor;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
@@ -399,9 +402,9 @@ public class OlapTableSink extends DataSink {
         schemaParam.setVersion(table.getIndexMetaByIndexId(table.getBaseIndexId()).getSchemaVersion());
         schemaParam.setIsStrictMode(isStrictMode);
 
-        schemaParam.tuple_desc = tupleDescriptor.toThrift();
+        schemaParam.tuple_desc = DescriptorToThriftConverter.toThrift(tupleDescriptor);
         for (SlotDescriptor slotDesc : tupleDescriptor.getSlots()) {
-            schemaParam.addToSlotDescs(slotDesc.toThrift());
+            schemaParam.addToSlotDescs(DescriptorToThriftConverter.toThrift(slotDesc));
         }
 
         for (Map.Entry<Long, MaterializedIndexMeta> pair : table.getIndexIdToMeta().entrySet()) {
@@ -411,14 +414,14 @@ public class OlapTableSink extends DataSink {
             List<TOlapTableIndex> indexDesc = Lists.newArrayList();
             columns.addAll(indexMeta.getSchema().stream().map(Column::getNonShadowName).collect(Collectors.toList()));
             for (Column column : indexMeta.getSchema()) {
-                TColumn tColumn = column.toThrift();
+                TColumn tColumn = ColumnToThrift.toThrift(column);
                 // When schema change is doing, some modified column has prefix in name. Columns here
                 // is for the schema in rowset meta, which should be no column with shadow prefix.
                 // So we should remove the shadow prefix here.
                 if (column.getName().startsWith(Column.SHADOW_NAME_PREFIX)) {
                     tColumn.setColumnName(column.getNonShadowName());
                 }
-                column.setIndexFlag(tColumn, table);
+                ColumnToThrift.setIndexFlag(tColumn, table);
                 columnsDesc.add(tColumn);
             }
             List<Index> indexes = indexMeta.getIndexes();
@@ -428,7 +431,7 @@ public class OlapTableSink extends DataSink {
                 indexes = table.getIndexes();
             }
             for (Index index : indexes) {
-                TOlapTableIndex tIndex = index.toThrift(index.getColumnUniqueIds(table.getBaseSchema()));
+                TOlapTableIndex tIndex = IndexToThriftConvertor.toThrift(index, table.getBaseSchema());
                 indexDesc.add(tIndex);
             }
             TOlapTableIndexSchema indexSchema = new TOlapTableIndexSchema(pair.getKey(), columns,

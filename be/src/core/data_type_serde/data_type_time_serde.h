@@ -26,7 +26,6 @@
 
 namespace doris {
 class JsonbOutStream;
-#include "common/compile_check_begin.h"
 class DataTypeTimeV2SerDe : public DataTypeNumberSerDe<PrimitiveType::TYPE_TIMEV2> {
 public:
     DataTypeTimeV2SerDe(int scale = 0, int nesting_level = 1)
@@ -37,9 +36,6 @@ public:
 
     Status from_string(StringRef& str, IColumn& column,
                        const FormatOptions& options) const override;
-
-    Status from_olap_string(const std::string& str, Field& field,
-                            const FormatOptions& options) const override;
 
     Status from_string_strict_mode(StringRef& str, IColumn& column,
                                    const FormatOptions& options) const override;
@@ -73,8 +69,11 @@ public:
                                           IColumn& target_col) const;
     int get_scale() const override { return _scale; }
 
+protected:
+    Status from_olap_string(const std::string& str, Field& field,
+                            const FormatOptions& options) const override;
+
 private:
     int _scale;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

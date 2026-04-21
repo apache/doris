@@ -42,7 +42,6 @@
 #include "util/unaligned.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 struct uint24_t;
 
 namespace segment_v2 {
@@ -70,10 +69,8 @@ Status ZoneMap::from_proto(const ZoneMapPB& zone_map, const DataTypePtr& data_ty
             }
         } else {
             if (!zone_map_info.pass_all) {
-                DataTypeSerDe::FormatOptions opt;
-                opt.ignore_scale = true;
-                RETURN_IF_ERROR(data_type->get_serde()->from_olap_string(
-                        zone_map.min(), zone_map_info.min_value, opt));
+                RETURN_IF_ERROR(data_type->get_serde()->from_zonemap_string(
+                        zone_map.min(), zone_map_info.min_value));
             }
         }
 
@@ -99,10 +96,8 @@ Status ZoneMap::from_proto(const ZoneMapPB& zone_map, const DataTypePtr& data_ty
             }
         } else {
             if (!zone_map_info.pass_all) {
-                DataTypeSerDe::FormatOptions opt;
-                opt.ignore_scale = true;
-                RETURN_IF_ERROR(data_type->get_serde()->from_olap_string(
-                        zone_map.max(), zone_map_info.max_value, opt));
+                RETURN_IF_ERROR(data_type->get_serde()->from_zonemap_string(
+                        zone_map.max(), zone_map_info.max_value));
             }
         }
     }
@@ -360,5 +355,4 @@ Status ZoneMapIndexWriter::create(DataTypePtr data_type, StorageField* field,
     }
 }
 } // namespace segment_v2
-#include "common/compile_check_end.h"
 } // namespace doris

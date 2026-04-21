@@ -29,32 +29,22 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
-import mockit.Expectations;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.List;
-import java.util.Set;
 
 public class HMSAnalysisTaskTest {
 
     @Test
-    public void testNeedLimit(@Mocked HMSExternalTable tableIf)
-            throws Exception {
+    public void testNeedLimit() throws Exception {
+        HMSExternalTable tableIf = Mockito.mock(HMSExternalTable.class);
+        ArrayList<Column> columns = Lists.newArrayList();
+        columns.add(new Column("int_column", PrimitiveType.INT));
+        Mockito.when(tableIf.getFullSchema()).thenReturn(columns);
 
-        new MockUp<HMSExternalTable>() {
-            @Mock
-            public List<Column> getFullSchema() {
-                ArrayList<Column> objects = Lists.newArrayList();
-                objects.add(new Column("int_column", PrimitiveType.INT));
-                return objects;
-            }
-        };
         HMSAnalysisTask task = new HMSAnalysisTask();
         task.setTable(tableIf);
         task.tableSample = new TableSample(true, 10L);
@@ -68,14 +58,11 @@ public class HMSAnalysisTaskTest {
     }
 
     @Test
-    public void testAutoSampleSmallTable(@Mocked HMSExternalTable tableIf)
-            throws Exception {
-        new MockUp<HMSExternalTable>() {
-            @Mock
-            public long getDataSize(boolean singleReplica) {
-                return StatisticsUtil.getHugeTableLowerBoundSizeInBytes() - 1;
-            }
-        };
+    public void testAutoSampleSmallTable() throws Exception {
+        HMSExternalTable tableIf = Mockito.mock(HMSExternalTable.class);
+        Mockito.when(tableIf.getDataSize(Mockito.anyBoolean()))
+                .thenReturn(StatisticsUtil.getHugeTableLowerBoundSizeInBytes() - 1);
+
         HMSAnalysisTask task = new HMSAnalysisTask();
         task.tbl = tableIf;
         AnalysisInfoBuilder analysisInfoBuilder = new AnalysisInfoBuilder();
@@ -87,14 +74,10 @@ public class HMSAnalysisTaskTest {
     }
 
     @Test
-    public void testManualFull(@Mocked HMSExternalTable tableIf)
-            throws Exception {
-        new MockUp<HMSExternalTable>() {
-            @Mock
-            public long getDataSize(boolean singleReplica) {
-                return 1000;
-            }
-        };
+    public void testManualFull() throws Exception {
+        HMSExternalTable tableIf = Mockito.mock(HMSExternalTable.class);
+        Mockito.when(tableIf.getDataSize(Mockito.anyBoolean())).thenReturn(1000L);
+
         HMSAnalysisTask task = new HMSAnalysisTask();
         task.tbl = tableIf;
         AnalysisInfoBuilder analysisInfoBuilder = new AnalysisInfoBuilder();
@@ -106,14 +89,10 @@ public class HMSAnalysisTaskTest {
     }
 
     @Test
-    public void testManualSample(@Mocked HMSExternalTable tableIf)
-            throws Exception {
-        new MockUp<HMSExternalTable>() {
-            @Mock
-            public long getDataSize(boolean singleReplica) {
-                return 1000;
-            }
-        };
+    public void testManualSample() throws Exception {
+        HMSExternalTable tableIf = Mockito.mock(HMSExternalTable.class);
+        Mockito.when(tableIf.getDataSize(Mockito.anyBoolean())).thenReturn(1000L);
+
         HMSAnalysisTask task = new HMSAnalysisTask();
         task.tbl = tableIf;
         AnalysisInfoBuilder analysisInfoBuilder = new AnalysisInfoBuilder();
@@ -127,14 +106,10 @@ public class HMSAnalysisTaskTest {
     }
 
     @Test
-    public void testGetSampleInfo(@Mocked HMSExternalTable tableIf)
-            throws Exception {
-        new MockUp<HMSExternalTable>() {
-            @Mock
-            public List<Long> getChunkSizes() {
-                return Lists.newArrayList();
-            }
-        };
+    public void testGetSampleInfo() throws Exception {
+        HMSExternalTable tableIf = Mockito.mock(HMSExternalTable.class);
+        Mockito.when(tableIf.getChunkSizes()).thenReturn(Lists.newArrayList());
+
         HMSAnalysisTask task = new HMSAnalysisTask();
         task.setTable(tableIf);
         task.tableSample = null;
@@ -148,14 +123,10 @@ public class HMSAnalysisTaskTest {
     }
 
     @Test
-    public void testGetSampleInfoPercent(@Mocked HMSExternalTable tableIf)
-            throws Exception {
-        new MockUp<HMSExternalTable>() {
-            @Mock
-            public List<Long> getChunkSizes() {
-                return Arrays.asList(1024L, 2048L);
-            }
-        };
+    public void testGetSampleInfoPercent() throws Exception {
+        HMSExternalTable tableIf = Mockito.mock(HMSExternalTable.class);
+        Mockito.when(tableIf.getChunkSizes()).thenReturn(Arrays.asList(1024L, 2048L));
+
         HMSAnalysisTask task = new HMSAnalysisTask();
         task.setTable(tableIf);
         AnalysisInfoBuilder analysisInfoBuilder = new AnalysisInfoBuilder();
@@ -170,50 +141,36 @@ public class HMSAnalysisTaskTest {
         Assertions.assertEquals(2048, info.second);
     }
 
+    @SuppressWarnings("unchecked")
     @Test
-    public void testOrdinaryStats(@Mocked CatalogIf catalogIf, @Mocked DatabaseIf databaseIf, @Mocked HMSExternalTable tableIf)
-            throws Exception {
+    public void testOrdinaryStats() throws Exception {
+        CatalogIf catalogIf = Mockito.mock(CatalogIf.class);
+        DatabaseIf databaseIf = Mockito.mock(DatabaseIf.class);
+        HMSExternalTable tableIf = Mockito.mock(HMSExternalTable.class);
 
-        new Expectations() {
-            {
-                tableIf.getId();
-                result = 30001;
-                tableIf.getName();
-                result = "test";
-                catalogIf.getId();
-                result = 10001;
-                catalogIf.getName();
-                result = "hms";
-                databaseIf.getId();
-                result = 20001;
-                databaseIf.getFullName();
-                result = "default";
-            }
-        };
+        Mockito.when(tableIf.getId()).thenReturn(30001L);
+        Mockito.when(tableIf.getName()).thenReturn("test");
+        Mockito.when(catalogIf.getId()).thenReturn(10001L);
+        Mockito.when(catalogIf.getName()).thenReturn("hms");
+        Mockito.when(databaseIf.getId()).thenReturn(20001L);
+        Mockito.when(databaseIf.getFullName()).thenReturn("default");
+        Mockito.when(tableIf.getPartitionNames()).thenReturn(ImmutableSet.of("date=20230101/hour=12"));
 
-        new MockUp<HMSExternalTable>() {
-            @Mock
-            public Set<String> getPartitionNames() {
-                return ImmutableSet.of("date=20230101/hour=12");
-            }
-        };
+        HMSAnalysisTask task = Mockito.spy(new HMSAnalysisTask());
+        Mockito.doAnswer(invocation -> {
+            String sql = invocation.getArgument(0);
+            Assertions.assertEquals("SELECT CONCAT(30001, '-', -1, '-', 'hour') AS `id`, "
+                    + "10001 AS `catalog_id`, 20001 AS `db_id`, 30001 AS `tbl_id`, "
+                    + "-1 AS `idx_id`, 'hour' AS `col_id`, NULL AS `part_id`, "
+                    + "COUNT(1) AS `row_count`, NDV(`hour`) AS `ndv`, "
+                    + "COUNT(1) - COUNT(`hour`) AS `null_count`, "
+                    + "SUBSTRING(CAST(MIN(`hour`) AS STRING), 1, 1024) AS `min`, "
+                    + "SUBSTRING(CAST(MAX(`hour`) AS STRING), 1, 1024) AS `max`, "
+                    + "COUNT(1) * 4 AS `data_size`, NOW() AS `update_time`, "
+                    + "null as `hot_value` FROM `hms`.`default`.`test` ", sql);
+            return null;
+        }).when(task).runQuery(Mockito.anyString());
 
-        new MockUp<HMSAnalysisTask>() {
-            @Mock
-            public void runQuery(String sql) {
-                Assertions.assertEquals("SELECT CONCAT(30001, '-', -1, '-', 'hour') AS `id`, "
-                        + "10001 AS `catalog_id`, 20001 AS `db_id`, 30001 AS `tbl_id`, "
-                        + "-1 AS `idx_id`, 'hour' AS `col_id`, NULL AS `part_id`, "
-                        + "COUNT(1) AS `row_count`, NDV(`hour`) AS `ndv`, "
-                        + "COUNT(1) - COUNT(`hour`) AS `null_count`, "
-                        + "SUBSTRING(CAST(MIN(`hour`) AS STRING), 1, 1024) AS `min`, "
-                        + "SUBSTRING(CAST(MAX(`hour`) AS STRING), 1, 1024) AS `max`, "
-                        + "COUNT(1) * 4 AS `data_size`, NOW() AS `update_time`, "
-                        + "null as `hot_value` FROM `hms`.`default`.`test` ", sql);
-            }
-        };
-
-        HMSAnalysisTask task = new HMSAnalysisTask();
         task.col = new Column("hour", PrimitiveType.INT);
         task.tbl = tableIf;
         task.catalog = catalogIf;
@@ -229,48 +186,32 @@ public class HMSAnalysisTaskTest {
         task.doExecute();
     }
 
-
+    @SuppressWarnings("unchecked")
     @Test
-    public void testPartitionHMSStats(@Mocked CatalogIf catalogIf, @Mocked DatabaseIf databaseIf, @Mocked HMSExternalTable tableIf)
-            throws Exception {
+    public void testPartitionHMSStats() throws Exception {
+        CatalogIf catalogIf = Mockito.mock(CatalogIf.class);
+        DatabaseIf databaseIf = Mockito.mock(DatabaseIf.class);
+        HMSExternalTable tableIf = Mockito.mock(HMSExternalTable.class);
 
-        new Expectations() {
-            {
-                tableIf.getId();
-                result = 30001;
-                catalogIf.getId();
-                result = 10001;
-                catalogIf.getName();
-                result = "hms";
-                databaseIf.getId();
-                result = 20001;
-            }
-        };
+        Mockito.when(tableIf.getId()).thenReturn(30001L);
+        Mockito.when(catalogIf.getId()).thenReturn(10001L);
+        Mockito.when(catalogIf.getName()).thenReturn("hms");
+        Mockito.when(databaseIf.getId()).thenReturn(20001L);
+        Mockito.when(tableIf.getPartitionNames()).thenReturn(ImmutableSet.of("date=20230101/hour=12"));
+        Mockito.when(tableIf.getPartitionColumns())
+                .thenReturn(ImmutableList.of(new Column("hour", PrimitiveType.INT)));
 
-        new MockUp<HMSExternalTable>() {
-            @Mock
-            public Set<String> getPartitionNames() {
-                return ImmutableSet.of("date=20230101/hour=12");
-            }
+        HMSAnalysisTask task = Mockito.spy(new HMSAnalysisTask());
+        Mockito.doAnswer(invocation -> {
+            String sql = invocation.getArgument(0);
+            Assertions.assertEquals(" SELECT CONCAT(30001, '-', -1, '-', 'hour') AS `id`, "
+                    + "10001 AS `catalog_id`, 20001 AS `db_id`, 30001 AS `tbl_id`, -1 AS `idx_id`, "
+                    + "'hour' AS `col_id`, NULL AS `part_id`, 0 AS `row_count`, 1 AS `ndv`, "
+                    + "0 AS `null_count`, SUBSTRING(CAST('12' AS STRING), 1, 1024) AS `min`, "
+                    + "SUBSTRING(CAST('12' AS STRING), 1, 1024) AS `max`, 0 AS `data_size`, NOW() ", sql);
+            return null;
+        }).when(task).runQuery(Mockito.anyString());
 
-            @Mock
-            public List<Column> getPartitionColumns() {
-                return ImmutableList.of(new Column("hour", PrimitiveType.INT));
-            }
-        };
-
-        new MockUp<HMSAnalysisTask>() {
-            @Mock
-            public void runQuery(String sql) {
-                Assertions.assertEquals(" SELECT CONCAT(30001, '-', -1, '-', 'hour') AS `id`, "
-                        + "10001 AS `catalog_id`, 20001 AS `db_id`, 30001 AS `tbl_id`, -1 AS `idx_id`, "
-                        + "'hour' AS `col_id`, NULL AS `part_id`, 0 AS `row_count`, 1 AS `ndv`, "
-                        + "0 AS `null_count`, SUBSTRING(CAST('12' AS STRING), 1, 1024) AS `min`, "
-                        + "SUBSTRING(CAST('12' AS STRING), 1, 1024) AS `max`, 0 AS `data_size`, NOW() ", sql);
-            }
-        };
-
-        HMSAnalysisTask task = new HMSAnalysisTask();
         task.col = new Column("hour", PrimitiveType.INT);
         task.tbl = tableIf;
         task.catalog = catalogIf;

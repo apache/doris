@@ -29,7 +29,6 @@ class PValues;
 
 class IColumn;
 class Arena;
-#include "common/compile_check_begin.h"
 class DataTypeNullableSerDe : public DataTypeSerDe {
 public:
     DataTypeNullableSerDe(const DataTypeSerDeSPtr& _nested_serde, int nesting_level = 1)
@@ -39,8 +38,8 @@ public:
 
     Status from_string(StringRef& str, IColumn& column,
                        const FormatOptions& options) const override;
-    Status from_olap_string(const std::string& str, Field& field,
-                            const FormatOptions& options) const override;
+    Status from_zonemap_string(const std::string& str, Field& field) const override;
+    Status from_fe_string(const std::string& str, Field& field) const override;
 
     Status from_string_strict_mode(StringRef& str, IColumn& column,
                                    const FormatOptions& options) const override;
@@ -130,5 +129,4 @@ public:
 private:
     DataTypeSerDeSPtr nested_serde;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

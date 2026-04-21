@@ -19,6 +19,8 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -28,45 +30,54 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableMap;
-import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 public class CreateResourceCommandTest extends TestWithFeService {
     @Test
-    public void testValidate(@Mocked Env env, @Mocked AccessControllerManager accessManager) {
-        new Expectations() {
-            {
-                env.getAccessManager();
-                result = accessManager;
-                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
-                result = true;
-            }
-        };
+    public void testValidate() {
+        Env env = Env.getCurrentEnv();
+        AccessControllerManager accessControllerManager = env.getAccessManager();
+        AccessControllerManager spyAcm = Mockito.spy(accessControllerManager);
+        Mockito.doReturn(true).when(spyAcm).checkGlobalPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN));
+        Deencapsulation.setField(env, "accessManager", spyAcm);
 
-        // test validate normal
-        ImmutableMap<String, String> properties = ImmutableMap.of("type", "es", "host", "http://127.0.0.1:29200");
-        CreateResourceInfo info = new CreateResourceInfo(true, false, "test", properties);
-        CreateResourceCommand createResourceCommand = new CreateResourceCommand(info);
-        Assertions.assertDoesNotThrow(() -> createResourceCommand.getInfo().validate());
+        // ES resource is no longer supported, validation should throw
+        final ImmutableMap<String, String> esProperties =
+                ImmutableMap.of("type", "es", "host", "http://127.0.0.1:29200");
+        final CreateResourceInfo esInfo = new CreateResourceInfo(true, false, "test", esProperties);
+        final CreateResourceCommand esCommand = new CreateResourceCommand(esInfo);
+        // validate() itself doesn't reject ES type, but resource creation does.
+        // The validate step just checks type parsing, which still succeeds for ES.
+        Assertions.assertDoesNotThrow(() -> esCommand.getInfo().validate());
+
+        // jfs/juicefs should be treated as HDFS-compatible resource type
+        final ImmutableMap<String, String> jfsProperties =
+                ImmutableMap.of("type", "jfs", "fs.defaultFS", "jfs://cluster");
+        final CreateResourceInfo jfsInfo = new CreateResourceInfo(true, false, "test_jfs", jfsProperties);
+        final CreateResourceCommand jfsCommand = new CreateResourceCommand(jfsInfo);
+        Assertions.assertDoesNotThrow(() -> jfsCommand.getInfo().validate());
 
         // test validate abnormal
         // test properties
-        info = new CreateResourceInfo(false, false, "test", null);
-        CreateResourceCommand createResourceCommand1 = new CreateResourceCommand(info);
+        final CreateResourceInfo nullPropertiesInfo = new CreateResourceInfo(false, false, "test", null);
+        final CreateResourceCommand createResourceCommand1 = new CreateResourceCommand(nullPropertiesInfo);
         Assertions.assertThrows(AnalysisException.class, () -> createResourceCommand1.getInfo().validate());
 
         // test resource type
-        properties = ImmutableMap.of("host", "http://127.0.0.1:29200");
-        info = new CreateResourceInfo(false, false, "test", properties);
-        CreateResourceCommand createResourceCommand2 = new CreateResourceCommand(info);
+        final ImmutableMap<String, String> noTypeProperties = ImmutableMap.of("host", "http://127.0.0.1:29200");
+        final CreateResourceInfo noTypeInfo = new CreateResourceInfo(false, false, "test", noTypeProperties);
+        final CreateResourceCommand createResourceCommand2 = new CreateResourceCommand(noTypeInfo);
         Assertions.assertThrows(AnalysisException.class, () -> createResourceCommand2.getInfo().validate());
 
         // test unsupported resource type
-        properties = ImmutableMap.of("type", "flink", "host", "http://127.0.0.1:29200");
-        info = new CreateResourceInfo(false, false, "test", properties);
-        CreateResourceCommand createResourceCommand3 = new CreateResourceCommand(info);
+        final ImmutableMap<String, String> unsupportedTypeProperties =
+                ImmutableMap.of("type", "flink", "host", "http://127.0.0.1:29200");
+        final CreateResourceInfo unsupportedTypeInfo =
+                new CreateResourceInfo(false, false, "test", unsupportedTypeProperties);
+        final CreateResourceCommand createResourceCommand3 = new CreateResourceCommand(unsupportedTypeInfo);
         Assertions.assertThrows(AnalysisException.class, () -> createResourceCommand3.getInfo().validate());
     }
 
@@ -92,7 +103,8 @@ public class CreateResourceCommandTest extends TestWithFeService {
                 + " \"driver_class\" = \"com.mysql.cj.jdbc.Driver\"\n"
                 + ");";
 
-        Assertions.assertDoesNotThrow(() -> createResource(es));
+        // ES resource creation should fail since ES resources are no longer supported
+        Assertions.assertThrows(DdlException.class, () -> createResource(es));
         Assertions.assertDoesNotThrow(() -> createResource(jdbc));
     }
 

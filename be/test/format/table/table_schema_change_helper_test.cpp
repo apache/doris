@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "format/table/table_schema_change_helper.h"
+
 #include <gtest/gtest.h>
 
 #include <string>
@@ -24,7 +26,6 @@
 #include "core/column/column_string.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "format/table/iceberg_reader.h"
-#include "format/table/table_format_reader.h"
 #include "testutil/desc_tbl_builder.h"
 
 namespace doris {
@@ -337,7 +338,7 @@ TEST(MockTableSchemaChangeHelper, IcebergParquetSchemaChange) {
     bool exist_field_id = true;
     std::shared_ptr<TableSchemaChangeHelper::Node> ans_node = nullptr;
     ASSERT_TRUE(TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id(
-                        test_field, parquet_field, exist_field_id, ans_node)
+                        test_field, parquet_field, ans_node, exist_field_id)
                         .ok());
     ASSERT_TRUE(exist_field_id);
     std::cout << TableSchemaChangeHelper::debug(ans_node) << "\n";
@@ -420,7 +421,7 @@ TEST(MockTableSchemaChangeHelper, IcebergOrcSchemaChange) {
     bool exist_field_id = true;
     std::shared_ptr<TableSchemaChangeHelper::Node> ans_node = nullptr;
     ASSERT_TRUE(TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id(
-                        test_field, orc_type.get(), attribute, exist_field_id, ans_node)
+                        test_field, orc_type.get(), attribute, ans_node, exist_field_id)
                         .ok());
     ASSERT_TRUE(exist_field_id);
 
@@ -806,7 +807,7 @@ TEST(MockTableSchemaChangeHelper, OrcFieldIdNestedStructMap) {
     bool exist_field_id = true;
     std::shared_ptr<TableSchemaChangeHelper::Node> ans_node = nullptr;
     ASSERT_TRUE(TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id(
-                        test_field, orc_type.get(), attribute, exist_field_id, ans_node)
+                        test_field, orc_type.get(), attribute, ans_node, exist_field_id)
                         .ok());
 
     ASSERT_TRUE(exist_field_id);

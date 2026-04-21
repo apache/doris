@@ -43,6 +43,7 @@ import lombok.Getter;
 import lombok.extern.log4j.Log4j2;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -98,7 +99,7 @@ public class StreamingInsertTask extends AbstractStreamingTask {
         if (!baseCommand.getParsedPlan().isPresent()) {
             throw new JobException("Can not get Parsed plan");
         }
-        this.taskCommand = offsetProvider.rewriteTvfParams(baseCommand, runningOffset);
+        this.taskCommand = offsetProvider.rewriteTvfParams(baseCommand, runningOffset, getTaskId());
         this.taskCommand.setLabelName(Optional.of(labelName));
         this.stmtExecutor = new StmtExecutor(ctx, new LogicalPlanAdapter(taskCommand, ctx.getStatementContext()));
     }
@@ -124,6 +125,14 @@ public class StreamingInsertTask extends AbstractStreamingTask {
                     runningOffset.toString(), e);
             throw new JobException(Util.getRootCauseMessage(e));
         }
+    }
+
+    @Override
+    public List<Long> getScanBackendIds() {
+        if (stmtExecutor != null && stmtExecutor.getCoord() != null) {
+            return stmtExecutor.getCoord().getScanBackendIds();
+        }
+        return Collections.emptyList();
     }
 
     @Override

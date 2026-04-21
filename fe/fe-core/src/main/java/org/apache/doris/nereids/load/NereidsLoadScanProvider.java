@@ -19,7 +19,6 @@ package org.apache.doris.nereids.load;
 
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
@@ -72,6 +71,8 @@ import java.util.TreeSet;
  */
 public class NereidsLoadScanProvider {
     private static final Logger LOG = LogManager.getLogger(NereidsLoadScanProvider.class);
+    private static final String HLL_HASH = "hll_hash";
+    private static final String HLL_FROM_BASE64 = "hll_from_base64";
     private NereidsFileGroupInfo fileGroupInfo;
     private Set<String> partialUpdateInputColumns;
 
@@ -314,17 +315,17 @@ public class NereidsLoadScanProvider {
                 // check hll_hash
                 if (column.getDataType() == PrimitiveType.HLL) {
                     if (!(expression instanceof UnboundFunction)) {
-                        throw new AnalysisException("HLL column must use " + FunctionSet.HLL_HASH + " function, like "
-                                + columnName + "=" + FunctionSet.HLL_HASH + "(xxx)");
+                        throw new AnalysisException("HLL column must use " + HLL_HASH + " function, like "
+                                + columnName + "=" + HLL_HASH + "(xxx)");
                     }
                     UnboundFunction function = (UnboundFunction) expression;
                     String functionName = function.getName();
-                    if (!functionName.equalsIgnoreCase(FunctionSet.HLL_HASH)
+                    if (!functionName.equalsIgnoreCase(HLL_HASH)
                             && !functionName.equalsIgnoreCase("hll_empty")
-                            && !functionName.equalsIgnoreCase(FunctionSet.HLL_FROM_BASE64)) {
-                        throw new AnalysisException("HLL column must use " + FunctionSet.HLL_HASH + " function, like "
-                                + columnName + "=" + FunctionSet.HLL_HASH + "(xxx) or "
-                                + columnName + "=" + FunctionSet.HLL_FROM_BASE64 + "(xxx) or "
+                            && !functionName.equalsIgnoreCase(HLL_FROM_BASE64)) {
+                        throw new AnalysisException("HLL column must use " + HLL_HASH + " function, like "
+                                + columnName + "=" + HLL_HASH + "(xxx) or "
+                                + columnName + "=" + HLL_FROM_BASE64 + "(xxx) or "
                                 + columnName + "=hll_empty()");
                     }
                 }
@@ -438,63 +439,6 @@ public class NereidsLoadScanProvider {
             throw new UserException("Not supported file format: " + fileFormat);
         }
         return formatType;
-    }
-
-    /**
-     * When doing schema change, there may have some 'shadow' columns, with prefix '__doris_shadow_' in
-     * their names. These columns are invisible to user, but we need to generate data for these columns.
-     * So we add column mappings for these column.
-     * eg1:
-     * base schema is (A, B, C), and B is under schema change, so there will be a shadow column: '__doris_shadow_B'
-     * So the final column mapping should looks like: (A, B, C, __doris_shadow_B = substitute(B));
-     */
-    private List<NereidsImportColumnDesc> getSchemaChangeShadowColumnDesc(Table tbl,
-            Map<String, Expression> columnExprMap) {
-        List<NereidsImportColumnDesc> shadowColumnDescs = Lists.newArrayList();
-        for (Column column : tbl.getFullSchema()) {
-            if (!column.isNameWithPrefix(Column.SHADOW_NAME_PREFIX)) {
-                continue;
-            }
-
-            String originCol = column.getNameWithoutPrefix(Column.SHADOW_NAME_PREFIX);
-            if (columnExprMap.containsKey(originCol)) {
-                Expression mappingExpr = columnExprMap.get(originCol);
-                if (mappingExpr != null) {
-                    /*
-                     * eg:
-                     * (A, C) SET (B = func(xx))
-                     * ->
-                     * (A, C) SET (B = func(xx), __doris_shadow_B = func(xx))
-                     */
-                    NereidsImportColumnDesc importColumnDesc = new NereidsImportColumnDesc(column.getName(),
-                            mappingExpr);
-                    shadowColumnDescs.add(importColumnDesc);
-                } else {
-                    /*
-                     * eg:
-                     * (A, B, C)
-                     * ->
-                     * (A, B, C) SET (__doris_shadow_B = B)
-                     */
-                    UnboundSlot slot = new UnboundSlot(originCol);
-                    //                    TODO: check if it's OK to remove setType
-                    //                    slot.setType(column.getType());
-                    NereidsImportColumnDesc importColumnDesc = new NereidsImportColumnDesc(column.getName(), slot);
-                    shadowColumnDescs.add(importColumnDesc);
-                }
-            } else {
-                /*
-                 * There is a case that if user does not specify the related origin column, eg:
-                 * COLUMNS (A, C), and B is not specified, but B is being modified
-                 * so there is a shadow column '__doris_shadow_B'.
-                 * We can not just add a mapping function "__doris_shadow_B = substitute(B)",
-                 * because Doris can not find column B.
-                 * In this case, __doris_shadow_B can use its default value, so no need to add it to column mapping
-                 */
-                // do nothing
-            }
-        }
-        return shadowColumnDescs;
     }
 
     /**

@@ -23,6 +23,9 @@
 #include "common/config.h"
 #include "exec/runtime_filter/utils.h"
 #include "exprs/create_predicate_function.h"
+#include "exprs/function/cast/cast_to_date_or_datetime_impl.hpp"
+#include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
+#include "exprs/function/cast/cast_to_datev2_impl.hpp"
 #include "gtest/internal/gtest-internal.h"
 #include "testutil/column_helper.h"
 
@@ -44,11 +47,18 @@ void test_numeric() {
     NumericType max = type_limit<NumericType>::max();
     NumericType def {};
     if constexpr (std::is_same_v<NumericType, VecDateTimeValue>) {
-        def.from_date_str("2010-01-01", strlen("2010-01-01"));
+        CastParameters p;
+        CastToDateOrDatetime::from_string_strict_mode<DatelikeParseMode::STRICT,
+                                                      DatelikeTargetType::DATE_TIME>(
+                {"2010-01-01", strlen("2010-01-01")}, def, nullptr, p);
     } else if constexpr (std::is_same_v<NumericType, DateV2Value<DateV2ValueType>>) {
-        def.from_date_str("2010-01-01", strlen("2010-01-01"));
+        CastParameters p;
+        CastToDateV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                {"2010-01-01", strlen("2010-01-01")}, def, nullptr, p);
     } else if constexpr (std::is_same_v<NumericType, DateV2Value<DateTimeV2ValueType>>) {
-        def.from_date_str("2010-01-01", strlen("2010-01-01"));
+        CastParameters p;
+        CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                {"2010-01-01", strlen("2010-01-01")}, def, nullptr, -1, p);
     }
 
     MutableColumnPtr column;

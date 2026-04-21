@@ -37,7 +37,6 @@ class IOBufAsZeroCopyInputStream;
 }
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 // https://github.com/apache/kudu/blob/master/src/kudu/util/block_bloom_filter.h
 // BlockBloomFilter is modified based on Impala's BlockBloomFilter.
@@ -276,4 +275,3 @@ private:
 };
 
 } // namespace doris
-#include "common/compile_check_end.h"

@@ -61,6 +61,15 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
 
     private static final ObjectId zeroId = new ObjectId(0);
 
+    /**
+     * When a {@code withXxx} method wants the newly created plan node to reuse the
+     * same {@link ObjectId} as the original node, it calls
+     * {@link #copyWithSameId(AbstractPlan, Supplier)}.  That helper stores the id
+     * here before invoking the constructor, and the constructor reads and clears it.
+     * Using a ThreadLocal makes this thread-safe without any locking.
+     */
+    private static final ThreadLocal<ObjectId> INHERIT_ID = new ThreadLocal<>();
+
     public final int depth;
 
     protected final ObjectId id;
@@ -84,7 +93,14 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
                     ? optLogicalProperties::get
                     : LazyCompute.of(this::computeLogicalProperties);
         this.statistics = statistics;
-        this.id = StatementScopeIdGenerator.newObjectId();
+        // Inherit id from the original node when called via copyWithSameId(), otherwise allocate a fresh id.
+        ObjectId inherited = INHERIT_ID.get();
+        if (inherited != null) {
+            this.id = inherited;
+            INHERIT_ID.remove();
+        } else {
+            this.id = StatementScopeIdGenerator.newObjectId();
+        }
         this.hasUnboundChild = buildHasUnboundChildCache();
 
         switch (children.size()) {
@@ -134,6 +150,33 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
             default: {
                 this.depth = computeDepth();
             }
+        }
+    }
+
+    /**
+     * Create a new plan node using {@code factory} and assign it the same {@link ObjectId}
+     * as {@code source}.
+     *
+     * <p>Usage in {@code withXxx} methods:
+     * <pre>{@code
+     *   public LogicalProject<Plan> withChildren(List<Plan> children) {
+     *       return AbstractPlan.copyWithSameId(this, () ->
+     *               new LogicalProject<>(projects, isDistinct, children));
+     *   }
+     * }</pre>
+     *
+     * @param source  the original plan whose id should be inherited
+     * @param factory supplier that creates the new plan node (usually a constructor call)
+     * @param <T>     the concrete plan type
+     * @return the new plan node with the same id as {@code source}
+     */
+    public static <T extends AbstractPlan> T copyWithSameId(AbstractPlan source, Supplier<T> factory) {
+        INHERIT_ID.set(source.id);
+        try {
+            return factory.get();
+        } finally {
+            // Guard against constructor throwing before it could clear the ThreadLocal.
+            INHERIT_ID.remove();
         }
     }
 

@@ -17,18 +17,25 @@
 
 #include "exec/operator/table_function_operator.h"
 
+#include <algorithm>
+#include <cstring>
 #include <limits>
 #include <memory>
+#include <numeric>
 
+#include "common/cast_set.h"
+#include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/block/column_numbers.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_struct.h"
+#include "core/column/column_vector.h"
 #include "core/custom_allocator.h"
 #include "exec/operator/operator.h"
 #include "exprs/table_function/table_function_factory.h"
 #include "util/simd/bits.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeState;
 } // namespace doris
 
@@ -76,6 +83,7 @@ Status TableFunctionLocalState::open(RuntimeState* state) {
         RETURN_IF_ERROR(fn->open());
     }
     _cur_child_offset = -1;
+    _reset_block_fast_path_state();
     return Status::OK();
 }
 
@@ -160,6 +168,315 @@ bool TableFunctionLocalState::_is_inner_and_empty() {
     return false;
 }
 
+bool TableFunctionLocalState::_can_use_block_fast_path() const {
+    auto& p = _parent->cast<TableFunctionOperatorX>();
+    // Fast path is only valid when:
+    // - only one table function exists
+    // - there is an active child row to expand
+    // - the child block is non-empty
+    // - the table function can expose nested/offsets via prepare_block_fast_path()
+    return p._fn_num == 1 && _cur_child_offset != -1 && _child_block->rows() > 0 &&
+           _fns[0]->support_block_fast_path();
+}
+
+void TableFunctionLocalState::_reset_block_fast_path_state() {
+    _block_fast_path_prepared = false;
+    _block_fast_path_enabled = false;
+    _block_fast_path_ctx = {};
+    _block_fast_path_row = 0;
+    _block_fast_path_in_row_offset = 0;
+}
+
+Status TableFunctionLocalState::_prepare_block_fast_path(RuntimeState* state) {
+    if (_block_fast_path_prepared) {
+        return Status::OK();
+    }
+
+    RETURN_IF_ERROR(
+            _fns[0]->prepare_block_fast_path(_child_block.get(), state, &_block_fast_path_ctx));
+    if (_block_fast_path_ctx.offsets_ptr == nullptr ||
+        _block_fast_path_ctx.nested_col.get() == nullptr) {
+        return Status::InternalError("block fast path context is invalid");
+    }
+
+    const auto child_rows = cast_set<int64_t>(_block_fast_path_ctx.offsets_ptr->size());
+    if (child_rows != cast_set<int64_t>(_child_block->rows())) {
+        return Status::InternalError("block fast path offsets size mismatch");
+    }
+
+    _block_fast_path_row = _cur_child_offset;
+    _block_fast_path_in_row_offset = 0;
+    _block_fast_path_enabled = _has_contiguous_block_fast_path_suffix();
+    _block_fast_path_prepared = true;
+    return Status::OK();
+}
+
+bool TableFunctionLocalState::_has_contiguous_block_fast_path_suffix() const {
+    const auto& offsets = *_block_fast_path_ctx.offsets_ptr;
+    const auto child_rows = cast_set<int64_t>(offsets.size());
+    int64_t child_row = _block_fast_path_row;
+    uint64_t in_row_offset = _block_fast_path_in_row_offset;
+    uint64_t expected_next_nested_idx = 0;
+    bool found_nested_range = false;
+
+    while (child_row < child_rows) {
+        if (_block_fast_path_ctx.array_nullmap_data &&
+            _block_fast_path_ctx.array_nullmap_data[child_row]) {
+            child_row++;
+            in_row_offset = 0;
+            continue;
+        }
+
+        const uint64_t prev_off = child_row == 0 ? 0 : offsets[child_row - 1];
+        const uint64_t cur_off = offsets[child_row];
+        const uint64_t nested_len = cur_off - prev_off;
+        if (in_row_offset >= nested_len) {
+            child_row++;
+            in_row_offset = 0;
+            continue;
+        }
+
+        const uint64_t nested_start = prev_off + in_row_offset;
+        if (!found_nested_range) {
+            found_nested_range = true;
+        } else if (nested_start != expected_next_nested_idx) {
+            return false;
+        }
+        expected_next_nested_idx = cur_off;
+        child_row++;
+        in_row_offset = 0;
+    }
+
+    return true;
+}
+
+Status TableFunctionLocalState::_get_expanded_block_block_fast_path(
+        RuntimeState* state, std::vector<MutableColumnPtr>& columns) {
+    auto& p = _parent->cast<TableFunctionOperatorX>();
+    DCHECK(_block_fast_path_prepared);
+    DCHECK(_block_fast_path_enabled);
+
+    const auto remaining_capacity =
+            state->batch_size() - cast_set<int>(columns[p._child_slots.size()]->size());
+    if (remaining_capacity <= 0) {
+        return Status::OK();
+    }
+
+    const auto& offsets = *_block_fast_path_ctx.offsets_ptr;
+    const auto child_rows = cast_set<int64_t>(offsets.size());
+
+    int64_t child_row = _block_fast_path_row;
+    uint64_t in_row_offset = _block_fast_path_in_row_offset;
+    int produced_rows = 0;
+
+    const bool is_outer = _fns[0]->is_outer();
+    const bool is_posexplode = _block_fast_path_ctx.generate_row_index;
+    auto& out_col = columns[p._child_slots.size()];
+
+    // Decompose posexplode struct output column if needed
+    ColumnStruct* struct_col_ptr = nullptr;
+    ColumnUInt8* outer_struct_nullmap_ptr = nullptr;
+    IColumn* value_col_ptr = nullptr;
+    ColumnInt32* pos_col_ptr = nullptr;
+    if (is_posexplode) {
+        if (out_col->is_nullable()) {
+            auto* nullable = assert_cast<ColumnNullable*>(out_col.get());
+            struct_col_ptr = assert_cast<ColumnStruct*>(nullable->get_nested_column_ptr().get());
+            outer_struct_nullmap_ptr =
+                    assert_cast<ColumnUInt8*>(nullable->get_null_map_column_ptr().get());
+        } else {
+            struct_col_ptr = assert_cast<ColumnStruct*>(out_col.get());
+        }
+        pos_col_ptr = assert_cast<ColumnInt32*>(&struct_col_ptr->get_column(0));
+        value_col_ptr = &struct_col_ptr->get_column(1);
+    }
+    // Segment tracking: accumulate contiguous nested ranges, flush on boundaries.
+    // Array column offsets are monotonically non-decreasing, so nested data across child rows
+    // is always contiguous (even with NULL/empty rows that contribute zero elements).
+    struct ExpandSegmentContext {
+        std::vector<uint32_t>
+                seg_row_ids; // row ids of non table-function columns to replicate for this segment
+        std::vector<int32_t>
+                seg_positions; // for posexplode, the position values to write for this segment
+        int64_t seg_nested_start = -1; // start offset in the nested column of this segment
+        int seg_nested_count =
+                0; // number of nested rows in this segment (can be > child row count due to multiple elements per row)
+    };
+    ExpandSegmentContext segment_ctx;
+    segment_ctx.seg_row_ids.reserve(remaining_capacity);
+    if (is_posexplode) {
+        segment_ctx.seg_positions.reserve(remaining_capacity);
+    }
+
+    auto reset_expand_segment_ctx = [&segment_ctx, is_posexplode]() {
+        segment_ctx.seg_nested_start = -1;
+        segment_ctx.seg_nested_count = 0;
+        segment_ctx.seg_row_ids.clear();
+        if (is_posexplode) {
+            segment_ctx.seg_positions.clear();
+        }
+    };
+
+    // Flush accumulated contiguous segment to output columns
+    auto flush_segment = [&]() {
+        if (segment_ctx.seg_nested_count == 0) {
+            return;
+        }
+
+        // Non-TF columns: replicate each child row for every output element
+        for (auto index : p._output_slot_indexs) {
+            auto src_column = _child_block->get_by_position(index).column;
+            columns[index]->insert_indices_from(
+                    *src_column, segment_ctx.seg_row_ids.data(),
+                    segment_ctx.seg_row_ids.data() + segment_ctx.seg_row_ids.size());
+        }
+
+        if (is_posexplode) {
+            // Write positions
+            pos_col_ptr->insert_many_raw_data(
+                    reinterpret_cast<const char*>(segment_ctx.seg_positions.data()),
+                    segment_ctx.seg_positions.size());
+            // Write nested values to the struct's value sub-column
+            DCHECK(value_col_ptr->is_nullable())
+                    << "posexplode fast path requires nullable value column";
+            auto* val_nullable = assert_cast<ColumnNullable*>(value_col_ptr);
+            val_nullable->get_nested_column_ptr()->insert_range_from(
+                    *_block_fast_path_ctx.nested_col, segment_ctx.seg_nested_start,
+                    segment_ctx.seg_nested_count);
+            auto* val_nullmap =
+                    assert_cast<ColumnUInt8*>(val_nullable->get_null_map_column_ptr().get());
+            auto& val_nullmap_data = val_nullmap->get_data();
+            const size_t old_size = val_nullmap_data.size();
+            val_nullmap_data.resize(old_size + segment_ctx.seg_nested_count);
+            if (_block_fast_path_ctx.nested_nullmap_data != nullptr) {
+                memcpy(val_nullmap_data.data() + old_size,
+                       _block_fast_path_ctx.nested_nullmap_data + segment_ctx.seg_nested_start,
+                       segment_ctx.seg_nested_count * sizeof(UInt8));
+            } else {
+                memset(val_nullmap_data.data() + old_size, 0,
+                       segment_ctx.seg_nested_count * sizeof(UInt8));
+            }
+            // Struct-level null map: these rows are not null
+            if (outer_struct_nullmap_ptr) {
+                outer_struct_nullmap_ptr->insert_many_defaults(segment_ctx.seg_nested_count);
+            }
+        } else if (out_col->is_nullable()) {
+            auto* out_nullable = assert_cast<ColumnNullable*>(out_col.get());
+            out_nullable->get_nested_column_ptr()->insert_range_from(
+                    *_block_fast_path_ctx.nested_col, segment_ctx.seg_nested_start,
+                    segment_ctx.seg_nested_count);
+            auto* nullmap_column =
+                    assert_cast<ColumnUInt8*>(out_nullable->get_null_map_column_ptr().get());
+            auto& nullmap_data = nullmap_column->get_data();
+            const size_t old_size = nullmap_data.size();
+            nullmap_data.resize(old_size + segment_ctx.seg_nested_count);
+            if (_block_fast_path_ctx.nested_nullmap_data != nullptr) {
+                memcpy(nullmap_data.data() + old_size,
+                       _block_fast_path_ctx.nested_nullmap_data + segment_ctx.seg_nested_start,
+                       segment_ctx.seg_nested_count * sizeof(UInt8));
+            } else {
+                memset(nullmap_data.data() + old_size, 0,
+                       segment_ctx.seg_nested_count * sizeof(UInt8));
+            }
+        } else {
+            out_col->insert_range_from(*_block_fast_path_ctx.nested_col,
+                                       segment_ctx.seg_nested_start, segment_ctx.seg_nested_count);
+        }
+        reset_expand_segment_ctx();
+    };
+
+    // Emit one NULL output row for an outer-null/empty child row
+    auto emit_outer_null = [&](int64_t cr) {
+        for (auto index : p._output_slot_indexs) {
+            auto src_column = _child_block->get_by_position(index).column;
+            columns[index]->insert_from(*src_column, cr);
+        }
+        out_col->insert_default();
+    };
+    // Walk through child rows, accumulating contiguous segments into the output,
+    // then when hitting a null/empty row or reaching the end,
+    // flush the segment using bulk operations.
+    // For outer-null rows, insert a NULL and copy the non-table-function columns directly.
+    // This naturally handles both outer and non-outer modes since non-outer mode
+    // just won't produce any null outputs.
+    // For posexplode, generate position indices alongside this.
+    while (produced_rows < remaining_capacity && child_row < child_rows) {
+        const bool is_null_row = _block_fast_path_ctx.array_nullmap_data &&
+                                 _block_fast_path_ctx.array_nullmap_data[child_row];
+
+        const uint64_t prev_off = child_row == 0 ? 0 : offsets[child_row - 1];
+        const uint64_t cur_off = is_null_row ? prev_off : offsets[child_row];
+        const uint64_t nested_len = cur_off - prev_off;
+
+        if (is_null_row || in_row_offset >= nested_len) {
+            // for outer functions, emit null row for NULL or empty array rows
+            if (is_outer && in_row_offset == 0 && (is_null_row || nested_len == 0)) {
+                flush_segment();
+                emit_outer_null(child_row);
+                produced_rows++;
+            }
+            child_row++;
+            in_row_offset = 0;
+            continue;
+        }
+
+        const uint64_t remaining_in_row = nested_len - in_row_offset;
+        const int take_count =
+                std::min<int>(remaining_capacity - produced_rows, cast_set<int>(remaining_in_row));
+        const uint64_t nested_start = prev_off + in_row_offset;
+
+        DCHECK_LE(nested_start + take_count, cur_off);
+        DCHECK_LE(nested_start + take_count, _block_fast_path_ctx.nested_col->size());
+
+        if (segment_ctx.seg_nested_count == 0) {
+            segment_ctx.seg_nested_start = nested_start;
+        } else {
+            // Nested data from an array column is always contiguous: offsets are monotonically
+            // non-decreasing, so skipping NULL/empty rows doesn't create gaps.
+            DCHECK_EQ(static_cast<uint64_t>(segment_ctx.seg_nested_start +
+                                            segment_ctx.seg_nested_count),
+                      nested_start)
+                    << "nested data must be contiguous across child rows";
+        }
+
+        // Map each produced output row back to its source child row for copying non-table-function
+        // columns via insert_indices_from().
+        for (int j = 0; j < take_count; ++j) {
+            segment_ctx.seg_row_ids.push_back(cast_set<uint32_t>(child_row));
+            if (is_posexplode) {
+                segment_ctx.seg_positions.push_back(cast_set<int32_t>(in_row_offset + j));
+            }
+        }
+
+        segment_ctx.seg_nested_count += take_count;
+        produced_rows += take_count;
+        in_row_offset += take_count;
+        if (in_row_offset >= nested_len) {
+            child_row++;
+            in_row_offset = 0;
+        }
+    }
+
+    // Flush any remaining segment
+    flush_segment();
+
+    _block_fast_path_row = child_row;
+    _block_fast_path_in_row_offset = in_row_offset;
+    _cur_child_offset = child_row >= child_rows ? -1 : child_row;
+
+    if (child_row >= child_rows) {
+        for (TableFunction* fn : _fns) {
+            fn->process_close();
+        }
+        _child_block->clear_column_data(_parent->cast<TableFunctionOperatorX>()
+                                                ._child->row_desc()
+                                                .num_materialized_slots());
+        _reset_block_fast_path_state();
+    }
+
+    return Status::OK();
+}
+
 Status TableFunctionLocalState::get_expanded_block(RuntimeState* state, Block* output_block,
                                                    bool* eos) {
     SCOPED_TIMER(_process_rows_timer);
@@ -177,15 +494,29 @@ Status TableFunctionLocalState::get_expanded_block(RuntimeState* state, Block* o
             _fns[i]->set_nullable();
         }
     }
-    while (columns[p._child_slots.size()]->size() < state->batch_size()) {
+
+    bool use_slow_path = true;
+    if (_can_use_block_fast_path()) {
         RETURN_IF_CANCELLED(state);
-
-        if (_child_block->rows() == 0) {
-            break;
+        RETURN_IF_ERROR(_prepare_block_fast_path(state));
+        if (_block_fast_path_enabled) {
+            // Only use fast path when the remaining nested suffix stays contiguous for the rest of
+            // the child block. This keeps fast-path progress entirely inside local state and avoids
+            // re-synchronizing the table function cursor when a later batch would otherwise fall
+            // back to the row-wise path.
+            RETURN_IF_ERROR(_get_expanded_block_block_fast_path(state, columns));
+            use_slow_path = false;
         }
+    }
 
+    if (use_slow_path) {
         bool skip_child_row = false;
         while (columns[p._child_slots.size()]->size() < state->batch_size()) {
+            RETURN_IF_CANCELLED(state);
+
+            if (_child_block->rows() == 0) {
+                break;
+            }
             int idx = _find_last_fn_eos_idx();
             if (idx == 0 || skip_child_row) {
                 _copy_output_slots(columns, p);
@@ -463,6 +794,7 @@ void TableFunctionLocalState::process_next_child_row() {
                                                     .num_materialized_slots());
         }
         _cur_child_offset = -1;
+        _reset_block_fast_path_state();
         return;
     }
 
@@ -557,5 +889,4 @@ Status TableFunctionOperatorX::prepare(doris::RuntimeState* state) {
     return VExpr::open(_vfn_ctxs, state);
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

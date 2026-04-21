@@ -56,6 +56,7 @@
 #include "cpp/sync_point.h"
 #include "io/fs/file_writer.h" // IWYU pragma: keep
 #include "io/fs/path.h"
+#include "load/memtable/memtable_flush_executor.h"
 #include "runtime/memory/cache_manager.h"
 #include "runtime/memory/global_memory_arbitrator.h"
 #include "storage/compaction/cold_data_compaction.h"
@@ -64,6 +65,7 @@
 #include "storage/compaction/cumulative_compaction_policy.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
 #include "storage/compaction/single_replica_compaction.h"
+#include "storage/compaction_task_tracker.h"
 #include "storage/data_dir.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
@@ -93,7 +95,6 @@
 using std::string;
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using io::Path;
 
 // number of running SCHEMA-CHANGE threads
@@ -356,6 +357,8 @@ Status StorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr) {
             [this]() { this->_check_tablet_delete_bitmap_score_callback(); },
             &_check_delete_bitmap_score_thread));
     LOG(INFO) << "check tablet delete bitmap score thread started";
+
+    _start_adaptive_thread_controller();
 
     LOG(INFO) << "all storage engine's background threads are started.";
     return Status::OK();
@@ -1053,7 +1056,8 @@ void StorageEngine::_pop_tablet_from_submitted_compaction(TabletSharedPtr tablet
 }
 
 Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
-                                              CompactionType compaction_type, bool force) {
+                                              CompactionType compaction_type, bool force,
+                                              int trigger_method) {
     if (tablet->tablet_meta()->tablet_schema()->enable_single_replica_compaction() &&
         should_fetch_from_peer(tablet->tablet_id())) {
         VLOG_CRITICAL << "start to submit single replica compaction task for tablet: "
@@ -1081,6 +1085,38 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
         if (!force) {
             _permit_limiter.request(permits);
         }
+        // Register task with CompactionTaskTracker as PENDING
+        auto* tracker = CompactionTaskTracker::instance();
+        int64_t compaction_id = compaction->compaction_id();
+        {
+            CompactionTaskInfo info;
+            info.compaction_id = compaction_id;
+            info.tablet_id = tablet->tablet_id();
+            info.table_id = tablet->get_table_id();
+            info.partition_id = tablet->partition_id();
+            info.compaction_type = (compaction_type == CompactionType::BASE_COMPACTION)
+                                           ? CompactionProfileType::BASE
+                                   : (compaction_type == CompactionType::CUMULATIVE_COMPACTION)
+                                           ? CompactionProfileType::CUMULATIVE
+                                           : CompactionProfileType::FULL;
+            info.status = CompactionTaskStatus::PENDING;
+            info.trigger_method = static_cast<TriggerMethod>(trigger_method);
+            info.scheduled_time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                             std::chrono::system_clock::now().time_since_epoch())
+                                             .count();
+            info.permits = permits;
+            info.backend_id = BackendOptions::get_backend_id();
+            info.compaction_score = tablet->get_real_compaction_score();
+            info.input_rowsets_count = compaction->input_rowsets_count();
+            info.input_row_num = compaction->input_row_num_value();
+            info.input_data_size = compaction->input_rowsets_data_size();
+            info.input_index_size = compaction->input_rowsets_index_size();
+            info.input_total_size = compaction->input_rowsets_total_size();
+            info.input_segments_num = compaction->input_segments_num_value();
+            info.input_version_range = compaction->input_version_range_str();
+            info.is_vertical = compaction->is_vertical();
+            tracker->register_task(std::move(info));
+        }
         std::unique_ptr<ThreadPool>& thread_pool =
                 (compaction_type == CompactionType::CUMULATIVE_COMPACTION)
                         ? _cumu_compaction_thread_pool
@@ -1096,7 +1132,7 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                       << ", num_total_queued_tasks: " << thread_pool->get_queue_size();
         auto status = thread_pool->submit_func([=, compaction = std::move(compaction), this]() {
             _handle_compaction(std::move(tablet), std::move(compaction), compaction_type, permits,
-                               force);
+                               force, compaction_id);
         });
         if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) [[likely]] {
             DorisMetrics::instance()->cumulative_compaction_task_pending_total->set_value(
@@ -1106,6 +1142,8 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                     _base_compaction_thread_pool->get_queue_size());
         }
         if (!st.ok()) {
+            // Cleanup tracker on submit failure
+            tracker->remove_task(compaction_id);
             if (!force) {
                 _permit_limiter.release(permits);
             }
@@ -1134,8 +1172,8 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
 
 void StorageEngine::_handle_compaction(TabletSharedPtr tablet,
                                        std::shared_ptr<CompactionMixin> compaction,
-                                       CompactionType compaction_type, int64_t permits,
-                                       bool force) {
+                                       CompactionType compaction_type, int64_t permits, bool force,
+                                       int64_t compaction_id) {
     if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) [[likely]] {
         DorisMetrics::instance()->cumulative_compaction_task_running_total->increment(1);
         DorisMetrics::instance()->cumulative_compaction_task_pending_total->set_value(
@@ -1148,6 +1186,8 @@ void StorageEngine::_handle_compaction(TabletSharedPtr tablet,
     bool is_large_task = true;
     Defer defer {[&]() {
         DBUG_EXECUTE_IF("StorageEngine._submit_compaction_task.sleep", { sleep(5); })
+        // Idempotent cleanup: remove task from tracker
+        CompactionTaskTracker::instance()->remove_task(compaction_id);
         if (!force) {
             _permit_limiter.release(permits);
         }
@@ -1219,12 +1259,21 @@ void StorageEngine::_handle_compaction(TabletSharedPtr tablet,
         return;
     }
     tablet->compaction_stage = CompactionStage::EXECUTING;
+    // Update tracker to RUNNING
+    {
+        RunningStats rs;
+        rs.start_time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                   std::chrono::system_clock::now().time_since_epoch())
+                                   .count();
+        rs.permits = permits;
+        CompactionTaskTracker::instance()->update_to_running(compaction_id, rs);
+    }
     TEST_SYNC_POINT_RETURN_WITH_VOID("olap_server::execute_compaction");
     tablet->execute_compaction(*compaction);
 }
 
 Status StorageEngine::submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
-                                             bool force, bool eager) {
+                                             bool force, bool eager, int trigger_method) {
     if (!eager) {
         DCHECK(compaction_type == CompactionType::BASE_COMPACTION ||
                compaction_type == CompactionType::CUMULATIVE_COMPACTION);
@@ -1254,7 +1303,7 @@ Status StorageEngine::submit_compaction_task(TabletSharedPtr tablet, CompactionT
                 _cumulative_compaction_policies.at(tablet->tablet_meta()->compaction_policy()));
     }
     tablet->set_skip_compaction(false);
-    return _submit_compaction_task(tablet, compaction_type, force);
+    return _submit_compaction_task(tablet, compaction_type, force, trigger_method);
 }
 
 Status StorageEngine::_handle_seg_compaction(std::shared_ptr<SegcompactionWorker> worker,
@@ -1660,7 +1709,7 @@ void StorageEngine::_follow_cooldown_meta(TabletSharedPtr t) {
 
 void StorageEngine::add_async_publish_task(int64_t partition_id, int64_t tablet_id,
                                            int64_t publish_version, int64_t transaction_id,
-                                           bool is_recovery) {
+                                           bool is_recovery, int64_t commit_tso) {
     if (!is_recovery) {
         bool exists = false;
         {
@@ -1685,6 +1734,7 @@ void StorageEngine::add_async_publish_task(int64_t partition_id, int64_t tablet_
         PendingPublishInfoPB pending_publish_info_pb;
         pending_publish_info_pb.set_partition_id(partition_id);
         pending_publish_info_pb.set_transaction_id(transaction_id);
+        pending_publish_info_pb.set_commit_tso(commit_tso);
         static_cast<void>(TabletMetaManager::save_pending_publish_info(
                 tablet->data_dir(), tablet->tablet_id(), publish_version,
                 pending_publish_info_pb.SerializeAsString()));
@@ -1693,7 +1743,7 @@ void StorageEngine::add_async_publish_task(int64_t partition_id, int64_t tablet_
               << " version: " << publish_version << " txn_id:" << transaction_id
               << " is_recovery: " << is_recovery;
     std::unique_lock<std::shared_mutex> wlock(_async_publish_lock);
-    _async_publish_tasks[tablet_id][publish_version] = {transaction_id, partition_id};
+    _async_publish_tasks[tablet_id][publish_version] = {transaction_id, partition_id, commit_tso};
 }
 
 int64_t StorageEngine::get_pending_publish_min_version(int64_t tablet_id) {
@@ -1730,8 +1780,9 @@ void StorageEngine::_process_async_publish() {
 
             auto task_iter = tablet_iter->second.begin();
             int64_t version = task_iter->first;
-            int64_t transaction_id = task_iter->second.first;
-            int64_t partition_id = task_iter->second.second;
+            int64_t transaction_id = std::get<0>(task_iter->second);
+            int64_t partition_id = std::get<1>(task_iter->second);
+            int64_t commit_tso = std::get<2>(task_iter->second);
             int64_t max_version = tablet->max_version().second;
 
             if (version <= max_version) {
@@ -1753,7 +1804,7 @@ void StorageEngine::_process_async_publish() {
             }
 
             auto async_publish_task = std::make_shared<AsyncTabletPublishTask>(
-                    *this, tablet, partition_id, transaction_id, version);
+                    *this, tablet, partition_id, transaction_id, version, commit_tso);
             static_cast<void>(_tablet_publish_txn_thread_pool->submit_func(
                     [=]() { async_publish_task->handle(); }));
             tablet_iter->second.erase(task_iter);
@@ -1793,5 +1844,4 @@ void StorageEngine::_check_tablet_delete_bitmap_score_callback() {
         }
     }
 }
-#include "common/compile_check_end.h"
 } // namespace doris

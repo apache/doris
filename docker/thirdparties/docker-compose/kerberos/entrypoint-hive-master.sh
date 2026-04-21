@@ -46,8 +46,9 @@ curl -O https://s3BucketName.s3Endpoint/regression/docker/hive3/aliyun-java-sdk-
 curl -O https://s3BucketName.s3Endpoint/regression/docker/hive3/aliyun-java-sdk-ecs-4.2.0.jar
 curl -O https://s3BucketName.s3Endpoint/regression/docker/hive3/aliyun-java-sdk-ram-3.0.0.jar
 curl -O https://s3BucketName.s3Endpoint/regression/docker/hive3/aliyun-java-sdk-sts-3.0.0.jar
-curl -O https://s3BucketName.s3Endpoint/regression/docker/hive3/aliyun-sdk-oss-3.4.1.jar
-curl -O https://s3BucketName.s3Endpoint/regression/docker/hive3/hadoop-aliyun-3.2.1.jar
+curl -O https://s3BucketName.s3Endpoint/regression/docker/hive3/jindo-core-6.3.4.jar
+curl -O https://s3BucketName.s3Endpoint/regression/docker/hive3/jindo-core-linux-el7-aarch64-6.3.4.jar
+curl -O https://s3BucketName.s3Endpoint/regression/docker/hive3/jindo-sdk-6.3.4.jar
 curl -O https://s3BucketName.s3Endpoint/regression/docker/hive3/aws-java-sdk-bundle-1.11.375.jar
 curl -O https://s3BucketName.s3Endpoint/regression/docker/hive3/hadoop-huaweicloud-3.1.1-hw-54.5.jar
 curl -O https://s3BucketName.s3Endpoint/regression/docker/hive3/hadoop-cos-3.1.0-8.3.22.jar

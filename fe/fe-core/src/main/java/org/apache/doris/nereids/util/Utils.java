@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.util;
 
-import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -635,7 +635,7 @@ public class Utils {
         for (AliasInfo aliasInfo : selectList) {
             columnJoiner.add(aliasInfo.toString());
         }
-        String sql = "SELECT " + columnJoiner.toString() + " FROM " + tableName.toFullyQualified() + " " + whereClause;
+        String sql = "SELECT " + columnJoiner + " FROM " + tableName.toSql() + " " + whereClause;
         return new NereidsParser().parseSingle(sql);
     }
 

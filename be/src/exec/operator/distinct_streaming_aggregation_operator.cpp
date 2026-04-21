@@ -32,7 +32,6 @@ class RuntimeState;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 DistinctStreamingAggLocalState::DistinctStreamingAggLocalState(RuntimeState* state,
                                                                OperatorXBase* parent)

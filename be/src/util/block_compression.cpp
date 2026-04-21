@@ -71,7 +71,6 @@ uint64_t lzoDecompress(const char* inputAddress, const char* inputLimit, char* o
 } // namespace orc
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 // exception safe
 Status BlockCompressionCodec::compress(const std::vector<Slice>& inputs, size_t uncompressed_size,
@@ -1677,5 +1676,4 @@ Status get_block_compression_codec(tparquet::CompressionCodec::type parquet_code
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

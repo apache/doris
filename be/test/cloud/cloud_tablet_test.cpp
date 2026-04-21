@@ -940,4 +940,673 @@ TEST_F(CloudTabletSyncMetaTest, TestSyncMetaMultipleProperties) {
     sp->disable_processing();
     sp->clear_all_call_backs();
 }
+class CloudTabletApplyVisiblePendingTest : public testing::Test {
+public:
+    CloudTabletApplyVisiblePendingTest() : _engine(CloudStorageEngine(EngineOptions {})) {}
+
+    void SetUp() override {
+        _tablet_meta.reset(new TabletMeta(1, 2, 15673, 15674, 4, 5, TTabletSchema(), 6, {{7, 8}},
+                                          UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK,
+                                          TCompressionType::LZ4F));
+        _tablet =
+                std::make_shared<CloudTablet>(_engine, std::make_shared<TabletMeta>(*_tablet_meta));
+    }
+
+    void TearDown() override {}
+
+    RowsetSharedPtr create_rowset(Version version, int num_segments = 1) {
+        auto rs_meta = std::make_shared<RowsetMeta>();
+        rs_meta->set_rowset_type(BETA_ROWSET);
+        rs_meta->set_version(version);
+        rs_meta->set_rowset_id(_engine.next_rowset_id());
+        rs_meta->set_num_segments(num_segments);
+        RowsetSharedPtr rowset;
+        Status st = RowsetFactory::create_rowset(nullptr, "", rs_meta, &rowset);
+        if (!st.ok()) {
+            return nullptr;
+        }
+        return rowset;
+    }
+
+    RowsetMetaSharedPtr create_pending_rowset_meta(int64_t version) {
+        auto rs_meta = std::make_shared<RowsetMeta>();
+        rs_meta->set_rowset_type(BETA_ROWSET);
+        rs_meta->set_version(Version(version, version));
+        rs_meta->set_rowset_id(_engine.next_rowset_id());
+        rs_meta->set_num_segments(1);
+        return rs_meta;
+    }
+
+    // Create a rowset whose RowsetMeta carries a valid TabletSchema,
+    // required as template for create_empty_rowset_for_hole.
+    RowsetSharedPtr create_rowset_with_schema(Version version, int num_segments = 1) {
+        auto rs_meta = std::make_shared<RowsetMeta>();
+        rs_meta->set_rowset_type(BETA_ROWSET);
+        rs_meta->set_version(version);
+        rs_meta->set_rowset_id(_engine.next_rowset_id());
+        rs_meta->set_num_segments(num_segments);
+
+        TabletSchemaPB schema_pb;
+        schema_pb.set_keys_type(KeysType::DUP_KEYS);
+        auto* col = schema_pb.add_column();
+        col->set_unique_id(0);
+        col->set_name("k1");
+        col->set_type("INT");
+        col->set_is_key(true);
+        col->set_is_nullable(false);
+        rs_meta->set_tablet_schema(schema_pb);
+
+        RowsetSharedPtr rowset;
+        Status st = RowsetFactory::create_rowset(nullptr, "", rs_meta, &rowset);
+        if (!st.ok()) {
+            return nullptr;
+        }
+        return rowset;
+    }
+
+    void add_initial_rowsets(const std::vector<RowsetSharedPtr>& rowsets) {
+        std::unique_lock<std::shared_mutex> meta_wlock(_tablet->get_header_lock());
+        _tablet->add_rowsets(std::vector<RowsetSharedPtr>(rowsets), false, meta_wlock, false);
+    }
+
+    void add_pending_rowset(int64_t version, RowsetMetaSharedPtr rowset_meta,
+                            int64_t expiration_time = INT64_MAX, bool is_empty = false) {
+        std::lock_guard<std::mutex> lock(_tablet->_visible_pending_rs_lock);
+        _tablet->_visible_pending_rs_map.emplace(
+                version, CloudTablet::VisiblePendingRowset {std::move(rowset_meta), expiration_time,
+                                                            is_empty});
+    }
+
+    size_t pending_rs_count() const {
+        std::lock_guard<std::mutex> lock(_tablet->_visible_pending_rs_lock);
+        return _tablet->_visible_pending_rs_map.size();
+    }
+
+protected:
+    TabletMetaSharedPtr _tablet_meta;
+    std::shared_ptr<CloudTablet> _tablet;
+    CloudStorageEngine _engine;
+};
+
+// Test apply with no pending rowsets does nothing
+TEST_F(CloudTabletApplyVisiblePendingTest, TestApplyNoPendingRowsets) {
+    auto rs = create_rowset(Version(0, 1));
+    ASSERT_NE(rs, nullptr);
+    add_initial_rowsets({rs});
+    EXPECT_EQ(_tablet->max_version_unlocked(), 1);
+
+    _tablet->apply_visible_pending_rowsets();
+
+    EXPECT_EQ(_tablet->max_version_unlocked(), 1);
+    auto& rowset_map = _tablet->rowset_map();
+    EXPECT_EQ(rowset_map.size(), 1);
+    EXPECT_TRUE(rowset_map.contains(Version(0, 1)));
+}
+
+// Test apply single consecutive non-empty rowset
+TEST_F(CloudTabletApplyVisiblePendingTest, TestApplySingleConsecutiveRowset) {
+    auto rs = create_rowset(Version(0, 1));
+    ASSERT_NE(rs, nullptr);
+    add_initial_rowsets({rs});
+    EXPECT_EQ(_tablet->max_version_unlocked(), 1);
+
+    add_pending_rowset(2, create_pending_rowset_meta(2));
+
+    _tablet->apply_visible_pending_rowsets();
+
+    EXPECT_EQ(_tablet->max_version_unlocked(), 2);
+    auto& rowset_map = _tablet->rowset_map();
+    EXPECT_EQ(rowset_map.size(), 2);
+    EXPECT_TRUE(rowset_map.contains(Version(0, 1)));
+    EXPECT_TRUE(rowset_map.contains(Version(2, 2)));
+}
+
+// Test apply multiple consecutive non-empty rowsets
+TEST_F(CloudTabletApplyVisiblePendingTest, TestApplyMultipleConsecutiveRowsets) {
+    auto rs = create_rowset(Version(0, 1));
+    ASSERT_NE(rs, nullptr);
+    add_initial_rowsets({rs});
+    EXPECT_EQ(_tablet->max_version_unlocked(), 1);
+
+    for (int64_t v = 2; v <= 4; ++v) {
+        add_pending_rowset(v, create_pending_rowset_meta(v));
+    }
+
+    _tablet->apply_visible_pending_rowsets();
+
+    EXPECT_EQ(_tablet->max_version_unlocked(), 4);
+    auto& rowset_map = _tablet->rowset_map();
+    EXPECT_EQ(rowset_map.size(), 4);
+    EXPECT_TRUE(rowset_map.contains(Version(0, 1)));
+    EXPECT_TRUE(rowset_map.contains(Version(2, 2)));
+    EXPECT_TRUE(rowset_map.contains(Version(3, 3)));
+    EXPECT_TRUE(rowset_map.contains(Version(4, 4)));
+}
+
+// Test apply with version gap - nothing should be applied
+TEST_F(CloudTabletApplyVisiblePendingTest, TestApplyWithVersionGap) {
+    auto rs = create_rowset(Version(0, 1));
+    ASSERT_NE(rs, nullptr);
+    add_initial_rowsets({rs});
+    EXPECT_EQ(_tablet->max_version_unlocked(), 1);
+
+    // Add version 3 only, skip version 2
+    add_pending_rowset(3, create_pending_rowset_meta(3));
+
+    _tablet->apply_visible_pending_rowsets();
+
+    EXPECT_EQ(_tablet->max_version_unlocked(), 1);
+    auto& rowset_map = _tablet->rowset_map();
+    EXPECT_EQ(rowset_map.size(), 1);
+    EXPECT_TRUE(rowset_map.contains(Version(0, 1)));
+    EXPECT_FALSE(rowset_map.contains(Version(3, 3)));
+}
+
+// Test apply with partial consecutive versions - only consecutive prefix applied
+TEST_F(CloudTabletApplyVisiblePendingTest, TestApplyPartialConsecutive) {
+    auto rs = create_rowset(Version(0, 1));
+    ASSERT_NE(rs, nullptr);
+    add_initial_rowsets({rs});
+    EXPECT_EQ(_tablet->max_version_unlocked(), 1);
+
+    // Add versions 2, 3, 5 (version 4 missing)
+    add_pending_rowset(2, create_pending_rowset_meta(2));
+    add_pending_rowset(3, create_pending_rowset_meta(3));
+    add_pending_rowset(5, create_pending_rowset_meta(5));
+
+    _tablet->apply_visible_pending_rowsets();
+
+    // Only versions 2 and 3 should be applied
+    EXPECT_EQ(_tablet->max_version_unlocked(), 3);
+    auto& rowset_map = _tablet->rowset_map();
+    EXPECT_EQ(rowset_map.size(), 3);
+    EXPECT_TRUE(rowset_map.contains(Version(0, 1)));
+    EXPECT_TRUE(rowset_map.contains(Version(2, 2)));
+    EXPECT_TRUE(rowset_map.contains(Version(3, 3)));
+    EXPECT_FALSE(rowset_map.contains(Version(5, 5)));
+}
+
+// Test apply with pending versions below max_version - nothing applied
+TEST_F(CloudTabletApplyVisiblePendingTest, TestApplyPendingBelowMaxVersion) {
+    auto rs1 = create_rowset(Version(0, 1));
+    auto rs2 = create_rowset(Version(2, 5));
+    ASSERT_NE(rs1, nullptr);
+    ASSERT_NE(rs2, nullptr);
+    add_initial_rowsets({rs1, rs2});
+    EXPECT_EQ(_tablet->max_version_unlocked(), 5);
+
+    // Add pending versions 3 and 4, both below max_version
+    add_pending_rowset(3, create_pending_rowset_meta(3));
+    add_pending_rowset(4, create_pending_rowset_meta(4));
+
+    _tablet->apply_visible_pending_rowsets();
+
+    EXPECT_EQ(_tablet->max_version_unlocked(), 5);
+    auto& rowset_map = _tablet->rowset_map();
+    EXPECT_EQ(rowset_map.size(), 2);
+    EXPECT_TRUE(rowset_map.contains(Version(0, 1)));
+    EXPECT_TRUE(rowset_map.contains(Version(2, 5)));
+    EXPECT_FALSE(rowset_map.contains(Version(3, 3)));
+    EXPECT_FALSE(rowset_map.contains(Version(4, 4)));
+}
+
+// Test apply with initial max_version = -1 (no initial rowsets)
+TEST_F(CloudTabletApplyVisiblePendingTest, TestApplyWithNoInitialRowsets) {
+    EXPECT_EQ(_tablet->max_version_unlocked(), -1);
+
+    add_pending_rowset(0, create_pending_rowset_meta(0));
+
+    _tablet->apply_visible_pending_rowsets();
+
+    EXPECT_EQ(_tablet->max_version_unlocked(), 0);
+    auto& rowset_map = _tablet->rowset_map();
+    EXPECT_EQ(rowset_map.size(), 1);
+    EXPECT_TRUE(rowset_map.contains(Version(0, 0)));
+}
+
+// Test apply called multiple times incrementally
+TEST_F(CloudTabletApplyVisiblePendingTest, TestApplyMultipleCalls) {
+    auto rs = create_rowset(Version(0, 1));
+    ASSERT_NE(rs, nullptr);
+    add_initial_rowsets({rs});
+    EXPECT_EQ(_tablet->max_version_unlocked(), 1);
+
+    // First apply: version 2
+    add_pending_rowset(2, create_pending_rowset_meta(2));
+    _tablet->apply_visible_pending_rowsets();
+    EXPECT_EQ(_tablet->max_version_unlocked(), 2);
+    EXPECT_TRUE(_tablet->rowset_map().contains(Version(2, 2)));
+
+    // Second apply: version 3
+    add_pending_rowset(3, create_pending_rowset_meta(3));
+    _tablet->apply_visible_pending_rowsets();
+    EXPECT_EQ(_tablet->max_version_unlocked(), 3);
+    auto& rowset_map = _tablet->rowset_map();
+    EXPECT_EQ(rowset_map.size(), 3);
+    EXPECT_TRUE(rowset_map.contains(Version(0, 1)));
+    EXPECT_TRUE(rowset_map.contains(Version(2, 2)));
+    EXPECT_TRUE(rowset_map.contains(Version(3, 3)));
+}
+
+// Test gap resolved by later apply call
+TEST_F(CloudTabletApplyVisiblePendingTest, TestApplyGapResolvedLater) {
+    auto rs = create_rowset(Version(0, 1));
+    ASSERT_NE(rs, nullptr);
+    add_initial_rowsets({rs});
+    EXPECT_EQ(_tablet->max_version_unlocked(), 1);
+
+    // Add version 3 first (gap at version 2)
+    add_pending_rowset(3, create_pending_rowset_meta(3));
+    _tablet->apply_visible_pending_rowsets();
+    EXPECT_EQ(_tablet->max_version_unlocked(), 1); // Nothing applied
+    EXPECT_FALSE(_tablet->rowset_map().contains(Version(3, 3)));
+
+    // Now add version 2 to fill the gap
+    add_pending_rowset(2, create_pending_rowset_meta(2));
+    _tablet->apply_visible_pending_rowsets();
+
+    // Both versions 2 and 3 should now be applied
+    EXPECT_EQ(_tablet->max_version_unlocked(), 3);
+    auto& rowset_map = _tablet->rowset_map();
+    EXPECT_EQ(rowset_map.size(), 3);
+    EXPECT_TRUE(rowset_map.contains(Version(0, 1)));
+    EXPECT_TRUE(rowset_map.contains(Version(2, 2)));
+    EXPECT_TRUE(rowset_map.contains(Version(3, 3)));
+}
+
+// Test clear_unused_visible_pending_rowsets removes applied entries
+TEST_F(CloudTabletApplyVisiblePendingTest, TestClearAfterApply) {
+    auto rs = create_rowset(Version(0, 1));
+    ASSERT_NE(rs, nullptr);
+    add_initial_rowsets({rs});
+
+    add_pending_rowset(2, create_pending_rowset_meta(2));
+    add_pending_rowset(3, create_pending_rowset_meta(3));
+    // Version 5 has a gap, won't be applied
+    add_pending_rowset(5, create_pending_rowset_meta(5));
+    EXPECT_EQ(pending_rs_count(), 3);
+
+    _tablet->apply_visible_pending_rowsets();
+
+    EXPECT_EQ(_tablet->max_version_unlocked(), 3);
+    auto& rowset_map = _tablet->rowset_map();
+    EXPECT_EQ(rowset_map.size(), 3);
+    EXPECT_TRUE(rowset_map.contains(Version(0, 1)));
+    EXPECT_TRUE(rowset_map.contains(Version(2, 2)));
+    EXPECT_TRUE(rowset_map.contains(Version(3, 3)));
+    EXPECT_FALSE(rowset_map.contains(Version(5, 5)));
+    // Versions 2 and 3 are cleared (applied, version <= max_version)
+    // Version 5 remains (not applied, not expired)
+    EXPECT_EQ(pending_rs_count(), 1);
+}
+
+// Test empty rowset with no existing versions breaks early
+TEST_F(CloudTabletApplyVisiblePendingTest, TestApplyEmptyRowsetNoExistingVersions) {
+    EXPECT_EQ(_tablet->max_version_unlocked(), -1);
+
+    // Add empty pending rowset at version 0
+    add_pending_rowset(0, nullptr, INT64_MAX, true);
+
+    _tablet->apply_visible_pending_rowsets();
+
+    // Cannot create empty rowset without a previous rowset as template
+    EXPECT_EQ(_tablet->max_version_unlocked(), -1);
+    EXPECT_EQ(_tablet->rowset_map().size(), 0);
+}
+
+// Test empty rowset with existing version uses create_empty_rowset_for_hole
+TEST_F(CloudTabletApplyVisiblePendingTest, TestApplyEmptyRowsetWithExistingVersion) {
+    auto rs = create_rowset_with_schema(Version(0, 1));
+    ASSERT_NE(rs, nullptr);
+    add_initial_rowsets({rs});
+    EXPECT_EQ(_tablet->max_version_unlocked(), 1);
+
+    // Add empty pending rowset at version 2
+    add_pending_rowset(2, nullptr, INT64_MAX, true);
+
+    _tablet->apply_visible_pending_rowsets();
+
+    EXPECT_EQ(_tablet->max_version_unlocked(), 2);
+    auto& rowset_map = _tablet->rowset_map();
+    EXPECT_EQ(rowset_map.size(), 2);
+    EXPECT_TRUE(rowset_map.contains(Version(0, 1)));
+    EXPECT_TRUE(rowset_map.contains(Version(2, 2)));
+}
+
+// Test mixed non-empty followed by empty rowset
+TEST_F(CloudTabletApplyVisiblePendingTest, TestApplyNonEmptyThenEmptyRowset) {
+    auto rs = create_rowset_with_schema(Version(0, 1));
+    ASSERT_NE(rs, nullptr);
+    add_initial_rowsets({rs});
+    EXPECT_EQ(_tablet->max_version_unlocked(), 1);
+
+    // Version 2: non-empty (with schema for empty rowset template), Version 3: empty
+    auto pending_meta = create_pending_rowset_meta(2);
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    auto* col = schema_pb.add_column();
+    col->set_unique_id(0);
+    col->set_name("k1");
+    col->set_type("INT");
+    col->set_is_key(true);
+    col->set_is_nullable(false);
+    pending_meta->set_tablet_schema(schema_pb);
+    add_pending_rowset(2, std::move(pending_meta));
+    add_pending_rowset(3, nullptr, INT64_MAX, true);
+
+    _tablet->apply_visible_pending_rowsets();
+
+    // Both should be applied; empty rowset uses to_add.back() as prev_rowset
+    EXPECT_EQ(_tablet->max_version_unlocked(), 3);
+    auto& rowset_map = _tablet->rowset_map();
+    EXPECT_EQ(rowset_map.size(), 3);
+    EXPECT_TRUE(rowset_map.contains(Version(0, 1)));
+    EXPECT_TRUE(rowset_map.contains(Version(2, 2)));
+    EXPECT_TRUE(rowset_map.contains(Version(3, 3)));
+}
+
+// Test is_rowset_warmed_up returns true for rowset NOT in the warmup state map
+// This is the behavior change: missing warmup state → optimistically warmed up
+TEST_F(CloudTabletWarmUpStateTest, TestIsRowsetWarmedUpMissingFromMap) {
+    auto rowset = create_rowset(Version(22, 22));
+    ASSERT_NE(rowset, nullptr);
+
+    // Rowset is not in the warmup state map at all
+    // Before the fix, this would return false. Now it returns true.
+    EXPECT_TRUE(_tablet->is_rowset_warmed_up(rowset->rowset_id()));
+}
+
+// Test is_rowset_warmed_up returns true for rowset with DONE state
+TEST_F(CloudTabletWarmUpStateTest, TestIsRowsetWarmedUpWithDoneState) {
+    auto rowset = create_rowset(Version(23, 23));
+    ASSERT_NE(rowset, nullptr);
+
+    _tablet->add_warmed_up_rowset(rowset->rowset_id());
+    EXPECT_TRUE(_tablet->is_rowset_warmed_up(rowset->rowset_id()));
+}
+
+// Test is_rowset_warmed_up returns false for rowset with DOING state (in map but not done)
+TEST_F(CloudTabletWarmUpStateTest, TestIsRowsetWarmedUpWithDoingState) {
+    auto rowset = create_rowset(Version(24, 24));
+    ASSERT_NE(rowset, nullptr);
+
+    _tablet->add_not_warmed_up_rowset(rowset->rowset_id());
+    EXPECT_FALSE(_tablet->is_rowset_warmed_up(rowset->rowset_id()));
+}
+
+// Test add_not_warmed_up_rowset sets DOING state correctly
+TEST_F(CloudTabletWarmUpStateTest, TestAddNotWarmedUpRowset) {
+    auto rowset = create_rowset(Version(25, 25));
+    ASSERT_NE(rowset, nullptr);
+
+    _tablet->add_not_warmed_up_rowset(rowset->rowset_id());
+
+    WarmUpState state = _tablet->get_rowset_warmup_state(rowset->rowset_id());
+    WarmUpState expected_state =
+            WarmUpState {WarmUpTriggerSource::SYNC_ROWSET, WarmUpProgress::DOING};
+    EXPECT_EQ(state, expected_state);
+}
+
+// Test that add_warmed_up_rowset can override add_not_warmed_up_rowset
+TEST_F(CloudTabletWarmUpStateTest, TestWarmedUpOverridesNotWarmedUp) {
+    auto rowset = create_rowset(Version(26, 26));
+    ASSERT_NE(rowset, nullptr);
+
+    // First mark as not warmed up
+    _tablet->add_not_warmed_up_rowset(rowset->rowset_id());
+    EXPECT_FALSE(_tablet->is_rowset_warmed_up(rowset->rowset_id()));
+
+    // Then mark as warmed up
+    _tablet->add_warmed_up_rowset(rowset->rowset_id());
+    EXPECT_TRUE(_tablet->is_rowset_warmed_up(rowset->rowset_id()));
+}
+
+class CloudTabletDeleteRowsetsForSchemaChangeTest : public testing::Test {
+public:
+    CloudTabletDeleteRowsetsForSchemaChangeTest() : _engine(CloudStorageEngine(EngineOptions {})) {}
+
+    void SetUp() override {
+        _tablet_meta.reset(new TabletMeta(1, 2, 15673, 15674, 4, 5, TTabletSchema(), 6, {{7, 8}},
+                                          UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK,
+                                          TCompressionType::LZ4F));
+        _tablet =
+                std::make_shared<CloudTablet>(_engine, std::make_shared<TabletMeta>(*_tablet_meta));
+    }
+    void TearDown() override {}
+
+    RowsetSharedPtr create_rowset(Version version) {
+        auto rs_meta = std::make_shared<RowsetMeta>();
+        rs_meta->set_rowset_type(BETA_ROWSET);
+        rs_meta->set_version(version);
+        rs_meta->set_rowset_id(_engine.next_rowset_id());
+        RowsetSharedPtr rowset;
+        Status st = RowsetFactory::create_rowset(nullptr, "", rs_meta, &rowset);
+        if (!st.ok()) {
+            return nullptr;
+        }
+        return rowset;
+    }
+
+protected:
+    TabletMetaSharedPtr _tablet_meta;
+    std::shared_ptr<CloudTablet> _tablet;
+    CloudStorageEngine _engine;
+};
+
+// Simulate the DORIS-25014 scenario:
+// - New tablet has compacted rowset [2-6] from compaction during SC
+// - SC produces individual output rowsets [2],[3],[4],[5],[6]
+// - Without the fix, add_rowsets fails to remove [2-6] because
+//   [2].contains([2-6]) = false
+// - With delete_rowsets_for_schema_change, the stale compaction rowset is
+//   removed from both _rs_version_map and version graph before add_rowsets
+TEST_F(CloudTabletDeleteRowsetsForSchemaChangeTest, TestSchemaChangeDeletesCompactionRowset) {
+    // Setup: add placeholder [0-1] and compacted rowset [2-6]
+    auto rs_placeholder = create_rowset(Version(0, 1));
+    auto rs_compacted = create_rowset(Version(2, 6));
+    ASSERT_NE(rs_placeholder, nullptr);
+    ASSERT_NE(rs_compacted, nullptr);
+
+    {
+        std::unique_lock wlock(_tablet->get_header_lock());
+        _tablet->add_rowsets({rs_placeholder, rs_compacted}, false, wlock, false);
+    }
+    // Verify initial state
+    ASSERT_EQ(_tablet->rowset_map().size(), 2);
+    ASSERT_TRUE(_tablet->rowset_map().count(Version(2, 6)));
+
+    // SC produces individual rowsets
+    std::vector<RowsetSharedPtr> sc_output;
+    for (int v = 2; v <= 6; v++) {
+        auto rs = create_rowset(Version(v, v));
+        ASSERT_NE(rs, nullptr);
+        sc_output.push_back(rs);
+    }
+
+    // Simulate delete_rowsets_for_schema_change + add_rowsets
+    int64_t alter_version = 6;
+    {
+        std::unique_lock wlock(_tablet->get_header_lock());
+        // Collect rowsets in [2, alter_version]
+        std::vector<RowsetSharedPtr> to_delete;
+        for (auto& [v, rs] : _tablet->rowset_map()) {
+            if (v.first >= 2 && v.second <= alter_version) {
+                to_delete.push_back(rs);
+            }
+        }
+        ASSERT_EQ(to_delete.size(), 1); // only [2-6]
+        ASSERT_EQ(to_delete[0]->version(), Version(2, 6));
+
+        _tablet->delete_rowsets_for_schema_change(to_delete, wlock);
+
+        // [2-6] should be removed from rs_version_map
+        ASSERT_FALSE(_tablet->rowset_map().count(Version(2, 6)));
+        // Should NOT go to stale (to avoid stale path conflicts), but to unused
+        ASSERT_FALSE(_tablet->has_stale_rowsets());
+        ASSERT_TRUE(_tablet->need_remove_unused_rowsets());
+
+        _tablet->add_rowsets(std::move(sc_output), false, wlock, false);
+    }
+
+    // Verify: individual SC rowsets are now in rs_version_map
+    ASSERT_EQ(_tablet->rowset_map().size(), 6); // [0-1] + 5 individual
+    for (int v = 2; v <= 6; v++) {
+        ASSERT_TRUE(_tablet->rowset_map().count(Version(v, v)))
+                << "Missing version " << v << "-" << v;
+    }
+    ASSERT_FALSE(_tablet->rowset_map().count(Version(2, 6)));
+
+    // Verify: capture_consistent_versions works correctly (no stale edges)
+    auto versions_result = _tablet->capture_consistent_versions_unlocked(Version(0, 6), {});
+    ASSERT_TRUE(versions_result.has_value()) << versions_result.error();
+    auto& versions = versions_result.value();
+    ASSERT_EQ(versions.size(), 6); // [0-1] + [2],[3],[4],[5],[6]
+    ASSERT_EQ(versions[0], Version(0, 1));
+    for (int i = 0; i < 5; i++) {
+        ASSERT_EQ(versions[i + 1], Version(2 + i, 2 + i));
+    }
+}
+
+// Test that delete_rowsets_for_schema_change with empty input is a no-op
+TEST_F(CloudTabletDeleteRowsetsForSchemaChangeTest, TestEmptyDeleteIsNoop) {
+    auto rs = create_rowset(Version(0, 1));
+    ASSERT_NE(rs, nullptr);
+    {
+        std::unique_lock wlock(_tablet->get_header_lock());
+        _tablet->add_rowsets({rs}, false, wlock, false);
+    }
+    ASSERT_EQ(_tablet->rowset_map().size(), 1);
+
+    {
+        std::unique_lock wlock(_tablet->get_header_lock());
+        _tablet->delete_rowsets_for_schema_change({}, wlock);
+    }
+    ASSERT_EQ(_tablet->rowset_map().size(), 1);
+    ASSERT_FALSE(_tablet->has_stale_rowsets());
+}
+
+// Test with multiple compaction rowsets spanning different version ranges
+TEST_F(CloudTabletDeleteRowsetsForSchemaChangeTest, TestMultipleCompactionRowsets) {
+    auto rs_placeholder = create_rowset(Version(0, 1));
+    auto rs_comp1 = create_rowset(Version(2, 5));
+    auto rs_comp2 = create_rowset(Version(6, 10));
+    auto rs_post = create_rowset(Version(11, 11)); // after alter_version, should NOT be deleted
+    ASSERT_NE(rs_placeholder, nullptr);
+    ASSERT_NE(rs_comp1, nullptr);
+    ASSERT_NE(rs_comp2, nullptr);
+    ASSERT_NE(rs_post, nullptr);
+
+    {
+        std::unique_lock wlock(_tablet->get_header_lock());
+        _tablet->add_rowsets({rs_placeholder, rs_comp1, rs_comp2, rs_post}, false, wlock, false);
+    }
+    ASSERT_EQ(_tablet->rowset_map().size(), 4);
+
+    // SC output: individual rowsets for versions 2-10
+    std::vector<RowsetSharedPtr> sc_output;
+    for (int v = 2; v <= 10; v++) {
+        auto rs = create_rowset(Version(v, v));
+        ASSERT_NE(rs, nullptr);
+        sc_output.push_back(rs);
+    }
+
+    int64_t alter_version = 10;
+    {
+        std::unique_lock wlock(_tablet->get_header_lock());
+        std::vector<RowsetSharedPtr> to_delete;
+        for (auto& [v, rs] : _tablet->rowset_map()) {
+            if (v.first >= 2 && v.second <= alter_version) {
+                to_delete.push_back(rs);
+            }
+        }
+        ASSERT_EQ(to_delete.size(), 2); // [2-5] and [6-10]
+
+        _tablet->delete_rowsets_for_schema_change(to_delete, wlock);
+
+        // Post-alter rowset should survive
+        ASSERT_TRUE(_tablet->rowset_map().count(Version(11, 11)));
+        ASSERT_FALSE(_tablet->rowset_map().count(Version(2, 5)));
+        ASSERT_FALSE(_tablet->rowset_map().count(Version(6, 10)));
+
+        _tablet->add_rowsets(std::move(sc_output), false, wlock, false);
+    }
+
+    // Verify: [0-1], [2],[3],...,[10], [11-11]
+    ASSERT_EQ(_tablet->rowset_map().size(), 11);
+
+    // Verify capture
+    auto versions_result = _tablet->capture_consistent_versions_unlocked(Version(0, 11), {});
+    ASSERT_TRUE(versions_result.has_value()) << versions_result.error();
+    auto& versions = versions_result.value();
+    ASSERT_EQ(versions.size(), 11);
+    ASSERT_EQ(versions[0], Version(0, 1));
+    for (int i = 0; i < 9; i++) {
+        ASSERT_EQ(versions[i + 1], Version(2 + i, 2 + i));
+    }
+    ASSERT_EQ(versions[10], Version(11, 11));
+}
+
+// Reproduce the CI crash scenario: SC delete puts rowsets to stale, then
+// compaction creates a new stale path with overlapping version keys. When
+// one stale path is cleaned, the other hits DCHECK(false) because the
+// version is already removed from _stale_rs_version_map.
+// With the fix (bypassing stale tracking), this should not happen.
+TEST_F(CloudTabletDeleteRowsetsForSchemaChangeTest, TestNoStalePathConflictWithCompaction) {
+    // Setup: [0-1] placeholder, [2-6] compaction product during SC
+    auto rs_placeholder = create_rowset(Version(0, 1));
+    auto rs_compacted = create_rowset(Version(2, 6));
+    ASSERT_NE(rs_placeholder, nullptr);
+    ASSERT_NE(rs_compacted, nullptr);
+
+    {
+        std::unique_lock wlock(_tablet->get_header_lock());
+        _tablet->add_rowsets({rs_placeholder, rs_compacted}, false, wlock, false);
+    }
+
+    // SC output: individual rowsets [2],[3],[4],[5],[6]
+    std::vector<RowsetSharedPtr> sc_output;
+    for (int v = 2; v <= 6; v++) {
+        sc_output.push_back(create_rowset(Version(v, v)));
+    }
+
+    // Step 1: delete_rowsets_for_schema_change + add SC output
+    {
+        std::unique_lock wlock(_tablet->get_header_lock());
+        _tablet->delete_rowsets_for_schema_change({rs_compacted}, wlock);
+        _tablet->add_rowsets(std::move(sc_output), false, wlock, false);
+    }
+    // Stale should be empty — SC delete bypasses stale tracking
+    ASSERT_FALSE(_tablet->has_stale_rowsets());
+
+    // Step 2: compaction merges SC output [2],[3],[4],[5],[6] -> [2-6]
+    auto rs_new_compacted = create_rowset(Version(2, 6));
+    std::vector<RowsetSharedPtr> compaction_input;
+    {
+        std::unique_lock wlock(_tablet->get_header_lock());
+        for (auto& [v, rs] : _tablet->rowset_map()) {
+            if (v.first >= 2 && v.second <= 6) {
+                compaction_input.push_back(rs);
+            }
+        }
+        ASSERT_EQ(compaction_input.size(), 5);
+        // Normal compaction delete_rowsets — this WILL use stale tracking
+        _tablet->delete_rowsets(compaction_input, wlock);
+        _tablet->add_rowsets({rs_new_compacted}, false, wlock, false);
+    }
+    // Now stale has the compaction inputs
+    ASSERT_TRUE(_tablet->has_stale_rowsets());
+
+    // Step 3: delete_expired_stale_rowsets — this is where CI crashed
+    // With old code: stale path from SC and compaction both reference [2-6] key,
+    // causing DCHECK(false). With fix: only compaction stale path exists, no conflict.
+    config::tablet_rowset_stale_sweep_time_sec = 0; // expire immediately
+    ASSERT_NO_FATAL_FAILURE(_tablet->delete_expired_stale_rowsets());
+
+    // Verify final state: [0-1] and [2-6] active, no stale left
+    ASSERT_EQ(_tablet->rowset_map().size(), 2);
+    ASSERT_TRUE(_tablet->rowset_map().count(Version(0, 1)));
+    ASSERT_TRUE(_tablet->rowset_map().count(Version(2, 6)));
+    ASSERT_FALSE(_tablet->has_stale_rowsets());
+}
+
 } // namespace doris

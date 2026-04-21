@@ -96,7 +96,9 @@ Status VFileResultWriter::open(RuntimeState* state, RuntimeProfile* profile) {
         _file_opts->orc_writer_version < 1) {
         return Status::InternalError("orc writer version is less than 1.");
     }
-    // Delete existing files
+    // Deprecated compatibility path. New FE already deletes the target directory in FE
+    // and clears delete_existing_files before BE execution. Keep this branch only for
+    // requests from older FE versions during rolling upgrade.
     if (_file_opts->delete_existing_files) {
         RETURN_IF_ERROR(_delete_dir());
     }

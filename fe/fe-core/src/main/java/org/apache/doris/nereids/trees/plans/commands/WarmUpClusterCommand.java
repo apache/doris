@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.catalog.ComputeGroup;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
@@ -31,7 +32,6 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Triple;
 import org.apache.doris.common.UserException;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.WarmUpItem;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -184,7 +184,7 @@ public class WarmUpClusterCommand extends Command implements ForwardWithSync {
             for (WarmUpItem warmUpItem : warmUpItems) {
                 TableNameInfo tableNameInfo = warmUpItem.getTableNameInfo();
                 String partitionName = warmUpItem.getPartitionName();
-                tableNameInfo.analyze(connectContext);
+                tableNameInfo.analyze(connectContext.getNameSpaceContext());
                 String dbName = tableNameInfo.getDb();
                 if (Strings.isNullOrEmpty(dbName)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR, dbName);

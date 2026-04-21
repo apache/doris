@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.visitor;
 
 import org.apache.doris.nereids.trees.expressions.functions.table.Backends;
 import org.apache.doris.nereids.trees.expressions.functions.table.Catalogs;
+import org.apache.doris.nereids.trees.expressions.functions.table.CdcStream;
 import org.apache.doris.nereids.trees.expressions.functions.table.File;
 import org.apache.doris.nereids.trees.expressions.functions.table.Frontends;
 import org.apache.doris.nereids.trees.expressions.functions.table.FrontendsDisks;
@@ -27,7 +28,6 @@ import org.apache.doris.nereids.trees.expressions.functions.table.Hdfs;
 import org.apache.doris.nereids.trees.expressions.functions.table.Http;
 import org.apache.doris.nereids.trees.expressions.functions.table.HttpStream;
 import org.apache.doris.nereids.trees.expressions.functions.table.HudiMeta;
-import org.apache.doris.nereids.trees.expressions.functions.table.IcebergMeta;
 import org.apache.doris.nereids.trees.expressions.functions.table.Jobs;
 import org.apache.doris.nereids.trees.expressions.functions.table.Local;
 import org.apache.doris.nereids.trees.expressions.functions.table.MvInfos;
@@ -80,6 +80,10 @@ public interface TableValuedFunctionVisitor<R, C> {
         return visitTableValuedFunction(http, context);
     }
 
+    default R visitCdcStream(CdcStream cdcStream, C context) {
+        return visitTableValuedFunction(cdcStream, context);
+    }
+
     default R visitFrontendsDisks(FrontendsDisks frontendsDisks, C context) {
         return visitTableValuedFunction(frontendsDisks, context);
     }
@@ -102,10 +106,6 @@ public interface TableValuedFunctionVisitor<R, C> {
 
     default R visitHudiMeta(HudiMeta hudiMeta, C context) {
         return visitTableValuedFunction(hudiMeta, context);
-    }
-
-    default R visitIcebergMeta(IcebergMeta icebergMeta, C context) {
-        return visitTableValuedFunction(icebergMeta, context);
     }
 
     default R visitLocal(Local local, C context) {

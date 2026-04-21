@@ -57,7 +57,8 @@ public:
     OrcReadLinesTest() {}
 };
 
-static void read_orc_line(int64_t line, std::string block_dump) {
+static void read_orc_line(int64_t line, std::string block_dump,
+                          const std::string& time_zone = "CST") {
     auto runtime_state = RuntimeState::create_unique();
 
     std::vector<std::string> column_names = {"col1", "col2", "col3", "col4", "col5",
@@ -119,7 +120,6 @@ static void read_orc_line(int64_t line, std::string block_dump) {
     io::IOContext io_ctx;
     io::FileReaderStats file_reader_stats;
     io_ctx.file_reader_stats = &file_reader_stats;
-    std::string time_zone = "CST";
     auto reader = OrcReader::create_unique(nullptr, runtime_state.get(), params, range, 100,
                                            time_zone, &io_ctx, nullptr, true);
     auto local_fs = io::global_local_filesystem();
@@ -128,22 +128,26 @@ static void read_orc_line(int64_t line, std::string block_dump) {
 
     static_cast<void>(local_fs->open_file(range.path, &file_reader));
 
-    std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> iterator_pair;
-    iterator_pair =
-            std::make_pair(std::make_shared<RowIdColumnIteratorV2>(
-                                   IdManager::ID_VERSION, BackendOptions::get_backend_id(), 10),
-                           tuple_desc->slots().size());
-    reader->set_row_id_column_iterator(iterator_pair);
+    auto iter = std::make_shared<RowIdColumnIteratorV2>(IdManager::ID_VERSION,
+                                                        BackendOptions::get_backend_id(), 10);
+    reader->register_synthesized_column_handler("row_id", [&](Block* block, size_t rows) -> Status {
+        return reader->fill_topn_row_id(iter, "row_id", block, rows);
+    });
 
-    auto status = reader->init_reader(&column_names, &col_name_to_block_idx, {}, false, tuple_desc,
-                                      &row_desc, nullptr, nullptr);
+    // Construct OrcInitContext for standalone reader (no column_descs).
+    OrcInitContext orc_ctx;
+    orc_ctx.column_names = column_names;
+    orc_ctx.col_name_to_block_idx = &col_name_to_block_idx;
+    orc_ctx.tuple_descriptor = tuple_desc;
+    orc_ctx.row_descriptor = &row_desc;
+    orc_ctx.params = &params;
+    orc_ctx.range = &range;
+    auto status = reader->init_reader(&orc_ctx);
 
     EXPECT_TRUE(status.ok());
 
-    std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
-            partition_columns;
-    std::unordered_map<std::string, VExprContextSPtr> missing_columns;
-    static_cast<void>(reader->set_fill_columns(partition_columns, missing_columns));
+    // set_fill_columns logic is now inlined in _do_init_reader,
+    // so no separate call is needed.
     BlockUPtr block = Block::create_unique();
     for (const auto& slot_desc : tuple_desc->slots()) {
         auto data_type = slot_desc->type();
@@ -158,7 +162,8 @@ static void read_orc_line(int64_t line, std::string block_dump) {
 
     bool eof = false;
     size_t read_row = 0;
-    static_cast<void>(reader->get_next_block(block.get(), &read_row, &eof));
+    Status st = reader->get_next_block(block.get(), &read_row, &eof);
+    EXPECT_TRUE(st.ok()) << st;
     auto row_id_string_column = static_cast<const ColumnString&>(
             *block->get_by_position(block->get_position_by_name("row_id")).column.get());
     for (auto i = 0; i < row_id_string_column.size(); i++) {
@@ -185,7 +190,7 @@ static void read_orc_line(int64_t line, std::string block_dump) {
         slot_info.is_file_slot = true;
         params.required_slots.emplace_back(slot_info);
     }
-    runtime_state->_timezone = "CST";
+    runtime_state->_timezone = time_zone;
 
     std::unique_ptr<RuntimeProfile> runtime_profile;
     runtime_profile = std::make_unique<RuntimeProfile>("ExternalRowIDFetcher");
@@ -196,9 +201,9 @@ static void read_orc_line(int64_t line, std::string block_dump) {
     ExternalFileMappingInfo external_info(0, range, false);
     int64_t init_reader_ms = 0;
     int64_t get_block_ms = 0;
-    auto st = vf->read_lines_from_range(range, {line}, block.get(), external_info, &init_reader_ms,
-                                        &get_block_ms);
-    EXPECT_TRUE(st.ok());
+    st = vf->read_lines_from_range(range, {line}, block.get(), external_info, &init_reader_ms,
+                                   &get_block_ms);
+    EXPECT_TRUE(st.ok()) << st;
     EXPECT_EQ(block->dump_data(1), block_dump);
 }
 
@@ -373,6 +378,24 @@ TEST_F(OrcReadLinesTest, test9) {
             "------------+----------------------+---------------------+-------------------+--------"
             "----------------+----------------------+\n";
     read_orc_line(9, block_dump);
+}
+
+TEST_F(OrcReadLinesTest, date_should_not_shift_in_west_timezone) {
+    std::string block_dump =
+            "+----------------------+--------------------+----------------------+------------------"
+            "----+----------------------+---------------------+-------------------+----------------"
+            "--------+----------------------+\n|col1(Nullable(BIGINT))|col2(Nullable(BOOL))|col3("
+            "Nullable(String))|col4(Nullable(DateV2))|col5(Nullable(DOUBLE))|col6(Nullable(FLOAT))|"
+            "col7(Nullable(INT))|col8(Nullable(SMALLINT))|col9(Nullable(String))|\n+---------------"
+            "-------+--------------------+----------------------+----------------------+-----------"
+            "-----------+---------------------+-------------------+------------------------+-------"
+            "---------------+\n|                     1|                   1|                 "
+            "doris|            1900-01-01|                 1.567|                1.567|            "
+            "  12345|                       1|                 "
+            "doris|\n+----------------------+--------------------+----------------------+----------"
+            "------------+----------------------+---------------------+-------------------+--------"
+            "----------------+----------------------+\n";
+    read_orc_line(1, block_dump, "America/Mexico_City");
 }
 
 } // namespace doris

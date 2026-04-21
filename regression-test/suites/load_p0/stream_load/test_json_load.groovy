@@ -680,7 +680,6 @@ suite("test_json_load", "p0,nonConcurrent") {
             try_sql("DROP TABLE IF EXISTS ${testTable}")
         }
 
-        // case25: import json with enable_simdjson_reader=false
         try {
             sql "DROP TABLE IF EXISTS ${testTable}"
 
@@ -696,7 +695,6 @@ suite("test_json_load", "p0,nonConcurrent") {
         } 
     }
 
-    // case26: import json with enable_simdjson_reader=false
     try {
         sql "DROP TABLE IF EXISTS ${testTable}"
 

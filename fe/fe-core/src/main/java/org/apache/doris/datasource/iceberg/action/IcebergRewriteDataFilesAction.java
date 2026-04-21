@@ -161,6 +161,9 @@ public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
         if (this.maxFileSizeBytes == 0) {
             this.maxFileSizeBytes = (long) (targetFileSizeBytes * 1.8);
         }
+        if (this.minFileSizeBytes > this.maxFileSizeBytes) {
+            throw new UserException("min-file-size-bytes must be less than or equal to max-file-size-bytes");
+        }
         validateNoPartitions();
     }
 

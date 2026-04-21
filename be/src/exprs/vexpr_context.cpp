@@ -42,7 +42,6 @@ class RowDescriptor;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 VExprContext::~VExprContext() {
     // In runtime filter, only create expr context to get expr root, will not call
@@ -491,5 +490,4 @@ double VExprContext::execute_cost() const {
     return _root->execute_cost();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

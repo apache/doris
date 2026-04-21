@@ -17,11 +17,12 @@
 
 suite("test_external_catalog_hive", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
+    String enableRangerTest = context.config.otherConfigs.get("enableRangerTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("diable Hive test.")
         return;
     }
-    for (String hivePrefix : ["hive2", "hive3"]) {
+    for (String hivePrefix : ["hive3"]) {
         String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
         String catalog_name = "${hivePrefix}_test_external_catalog_hive"
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
@@ -184,8 +185,8 @@ suite("test_external_catalog_hive", "p0,external") {
 
         sql """alter catalog hms rename ${catalog_name};"""
 
-        // test wrong access controller
-        test {
+        // test wrong ranger service only when ranger regression environment is configured
+        if (enableRangerTest != null && enableRangerTest.equalsIgnoreCase("true")) {
             def tmp_name = "${catalog_name}" + "_wrong"
             sql "drop catalog if exists ${tmp_name}"
             sql """
@@ -196,11 +197,28 @@ suite("test_external_catalog_hive", "p0,external") {
                     'access_controller.class' = 'org.apache.doris.catalog.authorizer.ranger.hive.RangerHiveAccessControllerFactory'
                 );
             """
-            exception "Failed to init access controller: bound must be positive"
+            sql """switch ${tmp_name};"""
+            test {
+                sql """use test;"""
+                exception "Access denied for user"
+            }
+            sql """switch internal"""
+            sql "drop catalog if exists ${tmp_name}"
+        } else {
+            logger.info("skip wrong ranger service case because enableRangerTest is not true")
         }
 
         // test catalog_meta_cache_statistics
-        sql """select * from internal.information_schema.catalog_meta_cache_statistics;"""
-        sql """select * from ${catalog_name}.information_schema.catalog_meta_cache_statistics where catalog_name="${catalog_name}";"""
+        sql """
+            select catalog_name, engine_name, entry_name, request_count, hit_count, miss_count, load_failure_count
+            from internal.information_schema.catalog_meta_cache_statistics
+            order by catalog_name, engine_name, entry_name;
+        """
+        sql """
+            select catalog_name, engine_name, entry_name, request_count, hit_count, miss_count, load_failure_count
+            from ${catalog_name}.information_schema.catalog_meta_cache_statistics
+            where catalog_name="${catalog_name}"
+            order by catalog_name, engine_name, entry_name;
+        """
     }
 }

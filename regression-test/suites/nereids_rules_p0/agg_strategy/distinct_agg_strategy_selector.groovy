@@ -21,13 +21,18 @@ suite("distinct_agg_strategy_selector") {
     set runtime_filter_mode=OFF;
     set enable_parallel_result_sink=false;
     set be_number_for_test=1;
+    set enable_bucketed_hash_agg = false;
     """
     multi_sql """
     analyze table t1000 with sync;
     """
-    qt_should_use_cte """
-    explain shape plan
-    select count(distinct a_1) , count(distinct b_5),count(distinct c_10), count(distinct d_20) from t1000;"""
+    explain {
+        sql """
+            shape plan
+            select count(distinct a_1) , count(distinct b_5),count(distinct c_10), count(distinct d_20) from t1000;"""
+        contains "PhysicalCteAnchor ( cteId=CTEId#0 )"
+    }
+
     qt_should_use_multi_distinct """explain shape plan
     select count(distinct a_1) , count(distinct b_5) from t1000;"""
     qt_should_use_cte_with_group_by """

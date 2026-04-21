@@ -21,10 +21,8 @@
 
 #include "common/exception.h"
 #include "common/status.h"
-#include "util/io_helper.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class BufferReadable;
 class BufferWritable;
@@ -113,4 +111,3 @@ struct VarMoments {
 };
 
 } // namespace doris
-#include "common/compile_check_end.h"

@@ -24,7 +24,7 @@ suite("test_pythonudf_mixed_params") {
     //   - pd.Series parameters (process entire column)
     //   - scalar parameters (single value like int, float, str)
     
-    def runtime_version = "3.8.10"
+    def runtime_version = getPythonUdfRuntimeVersion()
     
     try {
         // Create test table

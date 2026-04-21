@@ -57,8 +57,6 @@ public class ModifyPartitionOp extends AlterTableOp {
         // 2. modify data property
         // 3. modify in memory
         // And these 3 operations does not require table to be stable.
-        // If other kinds of operations be added later, "needTableStable" may be changed.
-        this.needTableStable = false;
         this.isTempPartition = isTempPartition;
     }
 
@@ -70,7 +68,6 @@ public class ModifyPartitionOp extends AlterTableOp {
             this.properties.putAll(properties);
         }
         this.needExpand = true;
-        this.needTableStable = false;
         this.isTempPartition = isTempPartition;
     }
 

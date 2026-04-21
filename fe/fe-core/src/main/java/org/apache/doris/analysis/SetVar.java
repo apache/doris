@@ -102,10 +102,6 @@ public class SetVar {
         return varType;
     }
 
-    public void setVarType(SetVarType varType) {
-        this.varType = varType;
-    }
-
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append(type.toSql());

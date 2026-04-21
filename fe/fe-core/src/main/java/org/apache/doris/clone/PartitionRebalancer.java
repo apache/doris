@@ -305,7 +305,7 @@ public class PartitionRebalancer extends Rebalancer {
 
             List<RootPathLoadStatistic> paths = beStat.getPathStatistics();
             List<Long> availPath = paths.stream().filter(path -> path.getStorageMedium() == tabletCtx.getStorageMedium()
-                            && path.isFit(tabletCtx.getTabletSize(), false) == BalanceStatus.OK)
+                            && path.isFit(tabletCtx.getTabletSize(), false).ok())
                     .map(RootPathLoadStatistic::getPathHash).collect(Collectors.toList());
             long pathHash = slot.takeAnAvailBalanceSlotFrom(availPath, tabletCtx.getTag(),
                     tabletCtx.getStorageMedium());

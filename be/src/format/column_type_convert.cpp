@@ -21,7 +21,6 @@
 #include "core/data_type/define_primitive_type.h"
 
 namespace doris::converter {
-#include "common/compile_check_begin.h"
 
 #define FOR_LOGICAL_INTEGER_TYPES(M) \
     M(TYPE_TINYINT)                  \
@@ -441,5 +440,4 @@ std::unique_ptr<ColumnTypeConverter> ColumnTypeConverter::get_converter(const Da
     return std::make_unique<UnsupportedConverter>(src_type, dst_type);
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris::converter

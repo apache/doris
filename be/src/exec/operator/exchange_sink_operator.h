@@ -31,7 +31,6 @@
 #include "exec/operator/operator.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeState;
 class TDataSink;
 
@@ -244,6 +243,8 @@ private:
     RuntimeState* _state = nullptr;
 
     const std::vector<TExpr> _texprs;
+    TMergePartitionInfo _merge_partition_info;
+    bool _has_merge_partition_info = false;
 
     const RowDescriptor& _row_desc;
     TTupleId _output_tuple_id = -1;
@@ -285,5 +286,4 @@ private:
     const std::vector<TUniqueId>& _fragment_instance_ids;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

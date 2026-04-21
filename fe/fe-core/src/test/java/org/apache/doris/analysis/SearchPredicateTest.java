@@ -154,6 +154,35 @@ public class SearchPredicateTest {
     }
 
     @Test
+    public void testNestedRelativeFieldsAreNormalizedBeforeThrift() {
+        String dsl = "NESTED(data.items, msg:hello AND meta.channel:action)";
+        SearchDslParser.QsPlan plan = SearchDslParser.parseDsl(dsl, "{\"mode\":\"standard\"}");
+        List<Expr> children = Arrays.asList(createTestSlotRef("data"), createTestSlotRef("data"));
+
+        SearchPredicate predicate = new SearchPredicate(dsl, plan, children, true);
+
+        TExprNode thriftNode = new TExprNode();
+        predicate.accept(ExprToThriftVisitor.INSTANCE, thriftNode);
+
+        TSearchParam param = thriftNode.search_param;
+        Assertions.assertNotNull(param);
+        Assertions.assertEquals("NESTED", param.root.clause_type);
+        Assertions.assertEquals("data.items", param.root.nested_path);
+        Assertions.assertEquals(1, param.root.children.size());
+        Assertions.assertEquals("AND", param.root.children.get(0).clause_type);
+        Assertions.assertEquals("data.items.msg", param.root.children.get(0).children.get(0).field_name);
+        Assertions.assertEquals("data.items.meta.channel", param.root.children.get(0).children.get(1).field_name);
+
+        Assertions.assertEquals(2, param.field_bindings.size());
+        Assertions.assertEquals("data.items.msg", param.field_bindings.get(0).field_name);
+        Assertions.assertEquals("data", param.field_bindings.get(0).parent_field_name);
+        Assertions.assertEquals("items.msg", param.field_bindings.get(0).subcolumn_path);
+        Assertions.assertEquals("data.items.meta.channel", param.field_bindings.get(1).field_name);
+        Assertions.assertEquals("data", param.field_bindings.get(1).parent_field_name);
+        Assertions.assertEquals("items.meta.channel", param.field_bindings.get(1).subcolumn_path);
+    }
+
+    @Test
     public void testClone() {
         String dsl = "title:hello";
         SearchDslParser.QsPlan plan = createTestPlan();

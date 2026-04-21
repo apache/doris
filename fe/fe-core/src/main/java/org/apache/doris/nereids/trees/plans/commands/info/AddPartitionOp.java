@@ -59,7 +59,6 @@ public class AddPartitionOp extends AlterTableOp {
         this.properties = properties;
         this.isTempPartition = isTempPartition;
 
-        this.needTableStable = false;
     }
 
     /**
@@ -75,7 +74,6 @@ public class AddPartitionOp extends AlterTableOp {
         this.properties = properties;
         this.isTempPartition = isTempPartition;
 
-        this.needTableStable = false;
     }
 
     /**

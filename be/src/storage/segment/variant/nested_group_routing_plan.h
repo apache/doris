@@ -67,6 +67,11 @@ struct NestedGroupRoutingPlan {
 // array<object> paths, detects conflicts, and populates the plan.
 Status build_nested_group_routing_plan(const ColumnVariant& variant, NestedGroupRoutingPlan* plan);
 
+// Build NG routing plan from pre-collected NG and conflict paths.
+Status build_nested_group_routing_plan_from_candidates(
+        const ColumnVariant& variant, const std::vector<std::string>& ng_candidate_paths,
+        const std::vector<std::string>& conflict_candidate_paths, NestedGroupRoutingPlan* plan);
+
 // Collect NG routing metadata from variant content:
 // - out_ng_paths: all NG candidate paths
 // - out_conflict_paths: NG paths that have ARRAY<OBJECT> vs non-array structural conflicts
@@ -77,5 +82,10 @@ Status collect_nested_group_routing_paths_from_variant_jsonb(
 
 // Get the current global conflict policy (driven by config).
 NestedGroupConflictPolicy get_nested_group_conflict_policy();
+
+// Shared helpers for conflict reporting / validation across write and compaction planners.
+std::string format_nested_group_conflict_paths(const std::vector<std::string>& conflict_paths);
+Status validate_nested_group_conflicts(const std::vector<std::string>& conflict_paths,
+                                       NestedGroupConflictPolicy policy);
 
 } // namespace doris::segment_v2

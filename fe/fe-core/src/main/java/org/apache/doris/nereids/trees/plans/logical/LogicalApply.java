@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -286,25 +287,28 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
     @Override
     public LogicalApply<Plan, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new LogicalApply<>(correlationSlot, subqueryType, isNot, compareExpr, typeCoercionExpr,
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalApply<>(correlationSlot, subqueryType, isNot, compareExpr, typeCoercionExpr,
                 correlationFilter, markJoinSlotReference, needAddSubOutputToProjects, isMarkJoinSlotNotNull,
-                children.get(0), children.get(1));
+                children.get(0), children.get(1)));
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalApply<>(groupExpression, Optional.of(getLogicalProperties()),
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalApply<>(groupExpression, Optional.of(getLogicalProperties()),
                 correlationSlot, subqueryType, isNot, compareExpr, typeCoercionExpr, correlationFilter,
-                markJoinSlotReference, needAddSubOutputToProjects, isMarkJoinSlotNotNull, left(), right());
+                markJoinSlotReference, needAddSubOutputToProjects, isMarkJoinSlotNotNull, left(), right()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new LogicalApply<>(groupExpression, logicalProperties, correlationSlot, subqueryType, isNot,
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalApply<>(groupExpression, logicalProperties, correlationSlot, subqueryType, isNot,
                 compareExpr, typeCoercionExpr, correlationFilter, markJoinSlotReference,
-                needAddSubOutputToProjects, isMarkJoinSlotNotNull, children.get(0), children.get(1));
+                needAddSubOutputToProjects, isMarkJoinSlotNotNull, children.get(0), children.get(1)));
     }
 
     @Override

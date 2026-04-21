@@ -34,13 +34,11 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
 
-import java.io.BufferedReader;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.net.URL;
@@ -50,7 +48,6 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -62,8 +59,6 @@ import java.util.function.Predicate;
 public class Util {
     private static final Logger LOG = LogManager.getLogger(Util.class);
     private static final Map<PrimitiveType, String> TYPE_STRING_MAP = new HashMap<PrimitiveType, String>();
-
-    private static final long DEFAULT_EXEC_CMD_TIMEOUT_MS = 600000L;
 
     private static final String[] ORDINAL_SUFFIX
             = new String[] { "th", "st", "nd", "rd", "th", "th", "th", "th", "th", "th" };
@@ -118,143 +113,6 @@ public class Util {
         };
     }
 
-    private static class CmdWorker extends Thread {
-        private final Process process;
-        private Integer exitValue;
-
-        private StringBuffer outBuffer;
-        private StringBuffer errBuffer;
-
-        public CmdWorker(final Process process) {
-            this.process = process;
-            this.outBuffer = new StringBuffer();
-            this.errBuffer = new StringBuffer();
-        }
-
-        public Integer getExitValue() {
-            return exitValue;
-        }
-
-        public String getStdOut() {
-            return this.outBuffer.toString();
-        }
-
-        public String getErrOut() {
-            return this.errBuffer.toString();
-        }
-
-        @Override
-        public void run() {
-            BufferedReader outReader = null;
-            BufferedReader errReader = null;
-            String line = null;
-            try {
-                outReader = new BufferedReader(new InputStreamReader(process.getInputStream()));
-                while ((line = outReader.readLine()) != null) {
-                    outBuffer.append(line + '\n');
-                }
-
-                errReader = new BufferedReader(new InputStreamReader(process.getErrorStream()));
-                while ((line = errReader.readLine()) != null) {
-                    errBuffer.append(line + '\n');
-                }
-
-                exitValue = process.waitFor();
-            } catch (InterruptedException e) {
-                LOG.warn("get exception", e);
-            } catch (IOException e) {
-                LOG.warn("get exception", e);
-            } finally {
-                try {
-                    if (outReader != null) {
-                        outReader.close();
-                    }
-                    if (errReader != null) {
-                        errReader.close();
-                    }
-                } catch (IOException e) {
-                    LOG.warn("close buffered reader error", e);
-                }
-            }
-        }
-    }
-
-    public static CommandResult executeCommand(String cmd, String[] envp) {
-        return executeCommand(cmd, envp, DEFAULT_EXEC_CMD_TIMEOUT_MS);
-    }
-
-    public static CommandResult executeCommand(String cmd, String[] envp, long timeoutMs) {
-        CommandResult result = new CommandResult();
-        List<String> cmdList = shellSplit(cmd);
-        String[] cmds = cmdList.toArray(new String[0]);
-
-        try {
-            Process p = Runtime.getRuntime().exec(cmds, envp);
-            CmdWorker cmdWorker = new CmdWorker(p);
-            cmdWorker.start();
-
-            Integer exitValue = -1;
-            try {
-                cmdWorker.join(timeoutMs);
-                exitValue = cmdWorker.getExitValue();
-                if (exitValue == null) {
-                    // if we get this far then we never got an exit value from the worker thread
-                    // as a result of a timeout
-                    LOG.warn("exec command [{}] timed out.", cmd);
-                    exitValue = -1;
-                }
-            } catch (InterruptedException ex) {
-                cmdWorker.interrupt();
-                Thread.currentThread().interrupt();
-                throw ex;
-            } finally {
-                p.destroy();
-            }
-
-            result.setReturnCode(exitValue);
-            result.setStdout(cmdWorker.getStdOut());
-            result.setStderr(cmdWorker.getErrOut());
-        } catch (IOException e) {
-            LOG.warn("execute command error", e);
-        } catch (InterruptedException e) {
-            LOG.warn("execute command error", e);
-        }
-
-        return result;
-    }
-
-    public static List<String> shellSplit(CharSequence string) {
-        List<String> tokens = new ArrayList<String>();
-        boolean escaping = false;
-        char quoteChar = ' ';
-        boolean quoting = false;
-        StringBuilder current = new StringBuilder();
-        for (int i = 0; i < string.length(); i++) {
-            char c = string.charAt(i);
-            if (escaping) {
-                current.append(c);
-                escaping = false;
-            } else if (c == '\\' && !(quoting && quoteChar == '\'')) {
-                escaping = true;
-            } else if (quoting && c == quoteChar) {
-                quoting = false;
-            } else if (!quoting && (c == '\'' || c == '"')) {
-                quoting = true;
-                quoteChar = c;
-            } else if (!quoting && Character.isWhitespace(c)) {
-                if (current.length() > 0) {
-                    tokens.add(current.toString());
-                    current = new StringBuilder();
-                }
-            } else {
-                current.append(c);
-            }
-        }
-        if (current.length() > 0) {
-            tokens.add(current.toString());
-        }
-        return tokens;
-    }
 
     // Get a string represent the schema signature, contains:
     // list of columns and bloom filter column info.
@@ -316,51 +174,6 @@ public class Util {
             }
             sb.append("    ").append(element.toString()).append("\n");
             --count;
-        }
-        return sb.toString();
-    }
-
-    // get response body as a string from the given url.
-    // "encodedAuthInfo", the base64 encoded auth info. like:
-    //      Base64.encodeBase64String("user:passwd".getBytes());
-    // If no auth info, pass a null.
-    public static String getResultForUrl(String urlStr, String encodedAuthInfo, int connectTimeoutMs,
-            int readTimeoutMs) {
-        StringBuilder sb = new StringBuilder();
-        InputStream stream = null;
-        try {
-            SecurityChecker.getInstance().startSSRFChecking(urlStr);
-            URL url = new URL(urlStr);
-            URLConnection conn = url.openConnection();
-            if (encodedAuthInfo != null) {
-                conn.setRequestProperty("Authorization", "Basic " + encodedAuthInfo);
-            }
-            conn.setConnectTimeout(connectTimeoutMs);
-            conn.setReadTimeout(readTimeoutMs);
-
-            stream = (InputStream) conn.getContent();
-            BufferedReader br = new BufferedReader(new InputStreamReader(stream));
-
-            String line;
-            while ((line = br.readLine()) != null) {
-                sb.append(line);
-            }
-        } catch (Exception e) {
-            LOG.warn("failed to get result from url: {}. {}", urlStr, e.getMessage());
-            return null;
-        } finally {
-            if (stream != null) {
-                try {
-                    stream.close();
-                } catch (IOException e) {
-                    LOG.warn("failed to close stream when get result from url: {}", urlStr, e);
-                    return null;
-                }
-            }
-            SecurityChecker.getInstance().stopSSRFChecking();
-        }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("get result from url {}: {}", urlStr, sb.toString());
         }
         return sb.toString();
     }

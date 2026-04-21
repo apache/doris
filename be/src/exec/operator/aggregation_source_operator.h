@@ -25,7 +25,6 @@
 namespace doris {
 class RuntimeState;
 
-#include "common/compile_check_begin.h"
 class AggSourceOperatorX;
 
 class AggLocalState MOCK_REMOVE(final) : public PipelineXLocalState<AggSharedState> {
@@ -113,6 +112,13 @@ public:
 
     Status reset_hash_table(RuntimeState* state);
 
+    /// Get a block of serialized intermediate aggregate states from the hash table.
+    /// Unlike get_block() which may finalize, this always outputs the serialized
+    /// intermediate format (key columns + serialized agg state columns), which is
+    /// the same format as the spill block. This is needed for repartitioning during
+    /// multi-level spill recovery: the data must be re-mergeable after repartitioning.
+    Status get_serialized_block(RuntimeState* state, Block* block, bool* eos);
+
 private:
     friend class AggLocalState;
 
@@ -125,4 +131,3 @@ private:
 };
 
 } // namespace doris
-#include "common/compile_check_end.h"

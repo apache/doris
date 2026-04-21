@@ -44,3 +44,13 @@
 8	name_8	0.08	20250101	r3
 9	name_9	0.09	20250102	r1
 
+-- !props_count --
+2000
+
+-- !props_top5 --
+0	name_0
+1	name_1
+2	name_2
+3	name_3
+4	name_4
+

@@ -202,8 +202,6 @@ suite("test_join_with_cast_array", "query,p0") {
     stream_load_by_name("tb_reconciliation_detail", 200)
     stream_load_by_name("tb_reconciliation_media_order", 200)
 
-    sql """ set enable_nereids_planner=true; """
-    sql """ set enable_fallback_to_original_planner=false;"""
     order_qt_sql """
     SELECT temp_l.media_id
     FROM   (SELECT `business_line`,

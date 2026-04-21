@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
@@ -37,31 +36,67 @@ import java.util.function.Supplier;
  * The internal representation of
  * CASE [expr] WHEN expr THEN expr [WHEN expr THEN expr ...] [ELSE expr] END
  * Each When/Then is stored as two consecutive children (whenExpr, thenExpr).
- * If a case expr is given, convert it to equalTo(caseExpr, whenExpr) and set it to whenExpr.
+ * If a case expr is given (simple case), the value is stored as the first child.
+ * During analysis, the value is consumed: EqualTo(value, whenCondition) is constructed
+ * for each WhenClause, producing a standard searched case form.
  * If an else expr is given then it is the last child.
+ *
+ * Children layout: [value?, WhenClause+, defaultValue?]
  */
 public class CaseWhen extends Expression implements NeedSessionVarGuard {
 
+    private final Optional<Expression> value;
     private final List<WhenClause> whenClauses;
     private final Optional<Expression> defaultValue;
-    private Supplier<List<DataType>> dataTypesForCoercion;
+    private final Supplier<List<DataType>> dataTypesForCoercion;
 
     public CaseWhen(List<WhenClause> whenClauses) {
         super((List) whenClauses);
+        this.value = Optional.empty();
         this.whenClauses = ImmutableList.copyOf(Objects.requireNonNull(whenClauses));
-        defaultValue = Optional.empty();
+        this.defaultValue = Optional.empty();
         this.dataTypesForCoercion = computeDataTypesForCoercion();
     }
 
-    /** CaseWhen */
+    /** CaseWhen with default value (searched case) */
     public CaseWhen(List<WhenClause> whenClauses, Expression defaultValue) {
         super(ImmutableList.<Expression>builderWithExpectedSize(whenClauses.size() + 1)
                 .addAll(whenClauses)
                 .add(defaultValue)
                 .build());
+        this.value = Optional.empty();
         this.whenClauses = ImmutableList.copyOf(Objects.requireNonNull(whenClauses));
         this.defaultValue = Optional.of(Objects.requireNonNull(defaultValue));
         this.dataTypesForCoercion = computeDataTypesForCoercion();
+    }
+
+    /** Simple case: CASE value WHEN ... */
+    public CaseWhen(Expression value, List<WhenClause> whenClauses) {
+        super(ImmutableList.<Expression>builderWithExpectedSize(whenClauses.size() + 1)
+                .add(Objects.requireNonNull(value))
+                .addAll(whenClauses)
+                .build());
+        this.value = Optional.of(value);
+        this.whenClauses = ImmutableList.copyOf(Objects.requireNonNull(whenClauses));
+        this.defaultValue = Optional.empty();
+        this.dataTypesForCoercion = computeDataTypesForCoercion();
+    }
+
+    /** Simple case with default value: CASE value WHEN ... ELSE ... END */
+    public CaseWhen(Expression value, List<WhenClause> whenClauses, Expression defaultValue) {
+        super(ImmutableList.<Expression>builderWithExpectedSize(whenClauses.size() + 2)
+                .add(Objects.requireNonNull(value))
+                .addAll(whenClauses)
+                .add(defaultValue)
+                .build());
+        this.value = Optional.of(value);
+        this.whenClauses = ImmutableList.copyOf(Objects.requireNonNull(whenClauses));
+        this.defaultValue = Optional.of(Objects.requireNonNull(defaultValue));
+        this.dataTypesForCoercion = computeDataTypesForCoercion();
+    }
+
+    public Optional<Expression> getValue() {
+        return value;
     }
 
     public List<WhenClause> getWhenClauses() {
@@ -83,7 +118,7 @@ public class CaseWhen extends Expression implements NeedSessionVarGuard {
 
     @Override
     public DataType getDataType() {
-        return child(0).getDataType();
+        return whenClauses.get(0).getDataType();
     }
 
     @Override
@@ -99,13 +134,11 @@ public class CaseWhen extends Expression implements NeedSessionVarGuard {
     @Override
     public String toString() {
         StringBuilder output = new StringBuilder("CASE");
-        for (Expression child : children()) {
-            if (child instanceof WhenClause) {
-                output.append(child.toString());
-            } else {
-                output.append(" ELSE ").append(child.toString());
-            }
+        value.ifPresent(v -> output.append(" ").append(v.toString()));
+        for (WhenClause whenClause : whenClauses) {
+            output.append(whenClause.toString());
         }
+        defaultValue.ifPresent(dv -> output.append(" ELSE ").append(dv.toString()));
         output.append(" END");
         return output.toString();
     }
@@ -113,13 +146,11 @@ public class CaseWhen extends Expression implements NeedSessionVarGuard {
     @Override
     public String toDigest() {
         StringBuilder sb = new StringBuilder("CASE");
-        for (Expression child : children()) {
-            if (child instanceof WhenClause) {
-                sb.append(child.toDigest());
-            } else {
-                sb.append(" ELSE ").append(child.toDigest());
-            }
+        value.ifPresent(v -> sb.append(" ").append(v.toDigest()));
+        for (WhenClause whenClause : whenClauses) {
+            sb.append(whenClause.toDigest());
         }
+        defaultValue.ifPresent(dv -> sb.append(" ELSE ").append(dv.toDigest()));
         sb.append(" END");
         return sb.toString();
     }
@@ -127,13 +158,11 @@ public class CaseWhen extends Expression implements NeedSessionVarGuard {
     @Override
     public String computeToSql() throws UnboundException {
         StringBuilder output = new StringBuilder("CASE");
-        for (Expression child : children()) {
-            if (child instanceof WhenClause) {
-                output.append(child.toSql());
-            } else {
-                output.append(" ELSE ").append(child.toSql());
-            }
+        value.ifPresent(v -> output.append(" ").append(v.toSql()));
+        for (WhenClause whenClause : whenClauses) {
+            output.append(whenClause.toSql());
         }
+        defaultValue.ifPresent(dv -> output.append(" ELSE ").append(dv.toSql()));
         output.append(" END");
         return output.toString();
     }
@@ -141,21 +170,36 @@ public class CaseWhen extends Expression implements NeedSessionVarGuard {
     @Override
     public CaseWhen withChildren(List<Expression> children) {
         Preconditions.checkArgument(!children.isEmpty(), "case when should has at least 1 child");
+        int i = 0;
+        Expression value = null;
+        // First non-WhenClause child before any WhenClause is the simple case value.
+        // Note: value is always consumed during analysis phase; post-analysis,
+        // the first child is always a WhenClause, so this branch is only taken pre-analysis.
+        if (i < children.size() && !(children.get(i) instanceof WhenClause)) {
+            value = children.get(i);
+            i++;
+        }
         List<WhenClause> whenClauseList = new ArrayList<>();
+        while (i < children.size() && children.get(i) instanceof WhenClause) {
+            whenClauseList.add((WhenClause) children.get(i));
+            i++;
+        }
+        Preconditions.checkArgument(!whenClauseList.isEmpty(), "case when should has at least 1 when clause");
         Expression defaultValue = null;
-        for (int i = 0; i < children.size(); i++) {
-            if (children.get(i) instanceof WhenClause) {
-                whenClauseList.add((WhenClause) children.get(i));
-            } else if (children.size() - 1 == i) {
-                defaultValue = children.get(i);
-            } else {
-                throw new AnalysisException("The children format needs to be [WhenClause+, DefaultValue?]");
-            }
+        if (i < children.size()) {
+            defaultValue = children.get(i);
+            i++;
         }
-        if (defaultValue == null) {
-            return new CaseWhen(whenClauseList);
+        Preconditions.checkArgument(i == children.size(),
+                "The children format needs to be [Value?, WhenClause+, DefaultValue?]");
+        if (value != null) {
+            return defaultValue != null
+                    ? new CaseWhen(value, whenClauseList, defaultValue)
+                    : new CaseWhen(value, whenClauseList);
         }
-        return new CaseWhen(whenClauseList, defaultValue);
+        return defaultValue != null
+                ? new CaseWhen(whenClauseList, defaultValue)
+                : new CaseWhen(whenClauseList);
     }
 
     private Supplier<List<DataType>> computeDataTypesForCoercion() {

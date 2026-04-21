@@ -26,7 +26,6 @@ import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.metacache.CacheSpec;
-import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.metastore.AbstractIcebergProperties;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
@@ -39,7 +38,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 
 public abstract class IcebergExternalCatalog extends ExternalCatalog {
 
@@ -106,16 +104,10 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     @Override
     public void notifyPropertiesUpdated(Map<String, String> updatedProps) {
         super.notifyPropertiesUpdated(updatedProps);
-        String tableCacheEnable = updatedProps.getOrDefault(ICEBERG_TABLE_CACHE_ENABLE, null);
-        String tableCacheTtl = updatedProps.getOrDefault(ICEBERG_TABLE_CACHE_TTL_SECOND, null);
-        String tableCacheCapacity = updatedProps.getOrDefault(ICEBERG_TABLE_CACHE_CAPACITY, null);
-        String manifestCacheEnable = updatedProps.getOrDefault(ICEBERG_MANIFEST_CACHE_ENABLE, null);
-        String manifestCacheCapacity = updatedProps.getOrDefault(ICEBERG_MANIFEST_CACHE_CAPACITY, null);
-        String manifestCacheTtl = updatedProps.getOrDefault(ICEBERG_MANIFEST_CACHE_TTL_SECOND, null);
-        if (Objects.nonNull(tableCacheEnable) || Objects.nonNull(tableCacheTtl) || Objects.nonNull(tableCacheCapacity)
-                || Objects.nonNull(manifestCacheEnable) || Objects.nonNull(manifestCacheCapacity)
-                || Objects.nonNull(manifestCacheTtl)) {
-            Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache(this).init();
+        if (updatedProps.keySet().stream()
+                .anyMatch(key -> CacheSpec.isMetaCacheKeyForEngine(key, IcebergExternalMetaCache.ENGINE))) {
+            Env.getCurrentEnv().getExtMetaCacheMgr()
+                    .removeCatalogByEngine(getId(), IcebergExternalMetaCache.ENGINE);
         }
     }
 
@@ -130,7 +122,7 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     protected void initLocalObjectsImpl() {
         initCatalog();
         initPreExecutionAuthenticator();
-        IcebergMetadataOps ops = ExternalMetadataOperations.newIcebergMetadataOps(this, catalog);
+        IcebergMetadataOps ops = new IcebergMetadataOps(this, catalog);
         transactionManager = TransactionManagerFactory.createIcebergTransactionManager(ops);
         threadPoolWithPreAuth = ThreadPoolManager.newDaemonFixedThreadPoolWithPreAuth(
                 ICEBERG_CATALOG_EXECUTOR_THREAD_NUM,

@@ -136,7 +136,7 @@ public class RuntimeFilterTranslator {
                     targetExpr = new CastExpr(src.getType(), targetExpr, Cast.castNullable(src.isNullable(),
                             DataType.fromCatalogType(src.getType()), DataType.fromCatalogType(targetExpr.getType())));
                 }
-                TupleId targetTupleId = targetSlotRef.getDesc().getParent().getId();
+                TupleId targetTupleId = targetSlotRef.getDesc().getParentId();
                 SlotId targetSlotId = targetSlotRef.getSlotId();
                 scanNodeList.add(scanNode);
                 targetExprList.add(targetExpr);

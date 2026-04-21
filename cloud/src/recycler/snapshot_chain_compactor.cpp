@@ -123,11 +123,6 @@ void SnapshotChainCompactor::scan_instance_loop() {
     while (!stopped()) {
         std::vector<InstanceInfoPB> instances;
         get_all_instances(txn_kv_.get(), instances);
-        LOG(INFO) << "Snapshot chain compactor get instances: " << [&instances] {
-            std::stringstream ss;
-            for (auto& i : instances) ss << ' ' << i.instance_id();
-            return ss.str();
-        }();
         if (!instances.empty()) {
             // enqueue instances
             std::lock_guard lock(mtx_);
@@ -144,7 +139,7 @@ void SnapshotChainCompactor::scan_instance_loop() {
         }
         {
             std::unique_lock lock(mtx_);
-            notifier_.wait_for(lock, std::chrono::seconds(config::recycle_interval_seconds),
+            notifier_.wait_for(lock, std::chrono::seconds(config::scan_instances_interval_seconds),
                                [&]() { return stopped(); });
         }
     }

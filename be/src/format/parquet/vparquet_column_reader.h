@@ -29,12 +29,15 @@
 
 #include "common/status.h"
 #include "core/data_type/data_type.h"
+#include "format/generic_reader.h"
 #include "format/parquet/parquet_column_convert.h"
 #include "format/parquet/parquet_common.h"
 #include "format/parquet/vparquet_column_chunk_reader.h"
-#include "format/table/table_format_reader.h"
+#include "format/table/table_schema_change_helper.h"
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
+#include "parquet_column_convert.h"
+#include "vparquet_column_chunk_reader.h"
 
 namespace cctz {
 class time_zone;
@@ -45,7 +48,6 @@ struct IOContext;
 } // namespace doris::io
 
 namespace doris {
-#include "common/compile_check_begin.h"
 struct FieldSchema;
 template <typename T>
 class ColumnStr;
@@ -533,7 +535,5 @@ public:
 
     void reset_filter_map_index() override { _filter_map_index = 0; }
 };
-
-#include "common/compile_check_end.h"
 
 }; // namespace doris

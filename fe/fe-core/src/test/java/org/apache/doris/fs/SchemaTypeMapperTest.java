@@ -18,6 +18,7 @@
 package org.apache.doris.fs;
 
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.thrift.TFileType;
 
 import org.junit.jupiter.api.Assertions;

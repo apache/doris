@@ -52,9 +52,9 @@ import org.apache.doris.utframe.TestWithFeService;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
-import mockit.Injectable;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
 import java.util.ArrayList;
@@ -74,7 +74,8 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
     }
 
     @Test
-    public void testOlapPrune(@Injectable LogicalProperties placeHolder) throws Exception {
+    public void testOlapPrune() throws Exception {
+        LogicalProperties placeHolder = Mockito.mock(LogicalProperties.class);
         OlapTable t1 = PlanConstructor.newOlapTable(0, "t1", 0, KeysType.AGG_KEYS);
         List<String> qualifier = new ArrayList<>();
         qualifier.add("test");

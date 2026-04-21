@@ -86,7 +86,6 @@ import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TNodeInfo;
 import org.apache.doris.thrift.TOlapTable;
 import org.apache.doris.thrift.TPaloNodesInfo;
-import org.apache.doris.thrift.TPatternType;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TSortType;
 import org.apache.doris.thrift.TStorageFormat;
@@ -2618,6 +2617,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return false;
     }
 
+    @Deprecated
     public void setVariantEnableFlattenNested(boolean flattenNested) throws AnalysisException {
         TableProperty tableProperty = getOrCreatTableProperty();
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED,
@@ -2625,6 +2625,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         tableProperty.buildVariantEnableFlattenNested();
     }
 
+    @Deprecated
     public Boolean variantEnableFlattenNested() {
         if (tableProperty != null) {
             return tableProperty.variantEnableFlattenNested();
@@ -2649,6 +2650,22 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     public Boolean enableSingleReplicaCompaction() {
         if (tableProperty != null) {
             return tableProperty.enableSingleReplicaCompaction();
+        }
+        return false;
+    }
+
+    public void setEnableTso(boolean enableTso) {
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(new HashMap<>());
+        }
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_ENABLE_TSO,
+                Boolean.valueOf(enableTso).toString());
+        tableProperty.buildEnableTso();
+    }
+
+    public Boolean enableTso() {
+        if (tableProperty != null) {
+            return tableProperty.enableTso();
         }
         return false;
     }
@@ -3208,8 +3225,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                 // if (!materializedColumnNames.contains(col.getName())) {
                 //     continue;
                 // }
-                TColumn tColumn = col.toThrift();
-                col.setIndexFlag(tColumn, this);
+                TColumn tColumn = ColumnToThrift.toThrift(col);
+                ColumnToThrift.setIndexFlag(tColumn, this);
                 if (columnsDesc != null) {
                     columnsDesc.add(tColumn);
                 }
@@ -3229,8 +3246,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             List<TPrimitiveType> keyColumnTypes) {
         if (selectedIndexId != -1) {
             for (Column col : this.getSchemaByIndexId(selectedIndexId, true)) {
-                TColumn tColumn = col.toThrift();
-                col.setIndexFlag(tColumn, this);
+                TColumn tColumn = ColumnToThrift.toThrift(col);
+                ColumnToThrift.setIndexFlag(tColumn, this);
                 if (columnsDesc != null) {
                     columnsDesc.add(tColumn);
                 }
@@ -3856,7 +3873,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         if (column.getChildren() != null) {
             for (Column child : column.getChildren()) {
                 String childName = child.getName();
-                if (child.getFieldPatternType() == TPatternType.MATCH_NAME_GLOB) {
+                if (child.getFieldPatternType() == PatternType.MATCH_NAME_GLOB) {
                     try {
                         com.google.re2j.Pattern compiled = GlobRegexUtil.getOrCompilePattern(childName);
                         if (compiled.matcher(subPathString).matches()) {
@@ -3865,7 +3882,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                     } catch (com.google.re2j.PatternSyntaxException | IllegalArgumentException e) {
                         continue;
                     }
-                } else if (child.getFieldPatternType() == TPatternType.MATCH_NAME) {
+                } else if (child.getFieldPatternType() == PatternType.MATCH_NAME) {
                     if (childName.equals(subPathString)) {
                         fieldPattern = childName;
                     }

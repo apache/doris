@@ -221,6 +221,26 @@ func (c *DorisLoadClient) Load(reader io.Reader) (*loader.LoadResponse, error) {
 		}
 	}
 
+	// If gzip is enabled, compress the buffered data once before the retry loop.
+	// This avoids re-compressing on every retry attempt.
+	// The result is a *bytes.Reader so Go's HTTP client can replay it on 307 redirects.
+	if c.config.EnableGzip {
+		r, err := getBodyFunc()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get reader for gzip: %w", err)
+		}
+		compressed, err := loader.GzipCompress(r)
+		if err != nil {
+			return nil, fmt.Errorf("failed to gzip compress: %w", err)
+		}
+		getBodyFunc = func() (io.Reader, error) {
+			if _, err := compressed.Seek(0, io.SeekStart); err != nil {
+				return nil, fmt.Errorf("failed to seek compressed data: %w", err)
+			}
+			return compressed, nil
+		}
+	}
+
 	var lastErr error
 	var response *loader.LoadResponse
 	startTime := time.Now()

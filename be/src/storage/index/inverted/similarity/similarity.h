@@ -23,7 +23,6 @@
 #include "storage/index/index_query_context.h"
 
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 
 class Similarity {
 public:
@@ -36,8 +35,8 @@ public:
                            const std::vector<std::wstring>& terms) = 0;
 
     virtual float score(float freq, int64_t encoded_norm) = 0;
+    virtual float max_score() = 0;
 };
 using SimilarityPtr = std::shared_ptr<Similarity>;
 
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

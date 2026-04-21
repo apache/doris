@@ -199,15 +199,6 @@ if ! test -f ${RUN_JAR:+${RUN_JAR}}; then
         return 1
     }
 
-    # Build generated code
-    cd "${DORIS_HOME}/gensrc/thrift" || { echo "Failed to change directory"; exit 1; }
-    if ! make; then
-        echo "Make command failed in ${DORIS_HOME}/gensrc/thrift"
-        exit 1
-    fi
-
-    cp -rf "${DORIS_HOME}/gensrc/build/gen_java/org/apache/doris/thrift" "${FRAMEWORK_APACHE_DIR}/doris/"
-
     # Navigate to framework directory and build with retry
     cd "${DORIS_HOME}/regression-test/framework" || { echo "Failed to change directory"; exit 1; }
     
@@ -258,6 +249,19 @@ fi
 
 # check java version
 export JAVA="${JAVA_HOME}/bin/java"
+JAVA_SPEC_VERSION="$("${JAVA}" -XshowSettings:properties -version 2>&1 \
+    | awk -F'= ' '/java.specification.version =/ {print $2; exit}')"
+JAVA_MAJOR_VERSION="${JAVA_SPEC_VERSION%%.*}"
+if [[ "${JAVA_SPEC_VERSION}" == 1.* ]]; then
+    JAVA_MAJOR_VERSION="${JAVA_SPEC_VERSION#1.}"
+    JAVA_MAJOR_VERSION="${JAVA_MAJOR_VERSION%%.*}"
+fi
+
+# Arrow Flight SQL JDBC needs java.nio opened when the regression framework runs on JDK 17+.
+if [[ -n "${JAVA_MAJOR_VERSION}" ]] && [[ "${JAVA_MAJOR_VERSION}" -ge 17 ]] \
+    && [[ " ${JAVA_OPTS:-} " != *"--add-opens=java.base/java.nio="* ]]; then
+    JAVA_OPTS="${JAVA_OPTS:+${JAVA_OPTS} }--add-opens=java.base/java.nio=ALL-UNNAMED"
+fi
 
 REGRESSION_OPTIONS_PREFIX=''
 
@@ -313,7 +317,6 @@ fi
 
 echo "===== Run Regression Test ====="
 
-# if use jdk17, add java option "--add-opens=java.base/java.nio=ALL-UNNAMED"
 if [[ "${TEAMCITY}" -eq 1 ]]; then
     JAVA_OPTS="${JAVA_OPTS} -DstdoutAppenderType=teamcity -Xmx2048m"
 fi

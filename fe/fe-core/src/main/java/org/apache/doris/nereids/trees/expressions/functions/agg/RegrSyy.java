@@ -18,14 +18,11 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
-import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DoubleType;
 
 import com.google.common.base.Preconditions;
@@ -50,21 +47,6 @@ public class RegrSyy extends AggregateFunction
 
     public RegrSyy(AggregateFunctionParams functionParams) {
         super(functionParams);
-    }
-
-    @Override
-    public void checkLegalityBeforeTypeCoercion() {
-        DataType yType = left().getDataType();
-        DataType xType = right().getDataType();
-        if (yType.isOnlyMetricType() || xType.isOnlyMetricType()) {
-            throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
-        }
-        if (!yType.isNumericType() && !yType.isNullType()) {
-            throw new AnalysisException("regr_syy requires numeric for first parameter: " + toSql());
-        }
-        if (!xType.isNumericType() && !xType.isNullType()) {
-            throw new AnalysisException("regr_syy requires numeric for second parameter: " + toSql());
-        }
     }
 
     @Override

@@ -139,7 +139,7 @@ suite("test_bm25_score", "p0") {
 
         test {
             sql """ select score() as score from test_bm25_score where request = 'button.03.gif' order by score() limit 10; """
-            exception "WHERE clause must contain at least one MATCH function for score() push down optimization"
+            exception "WHERE clause must contain at least one MATCH or SEARCH function for score() push down optimization"
         }
 
         test {

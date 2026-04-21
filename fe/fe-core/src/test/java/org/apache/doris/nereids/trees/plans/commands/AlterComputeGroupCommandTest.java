@@ -17,69 +17,44 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.backup.CatalogMocker;
-import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.catalog.ComputeGroup;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Maps;
-import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
-public class AlterComputeGroupCommandTest {
+public class AlterComputeGroupCommandTest extends TestWithFeService {
     private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
-    @Mocked
-    private Env env;
-    @Mocked
-    private AccessControllerManager accessControllerManager;
-    @Mocked
-    private InternalCatalog catalog;
-    @Mocked
     private ConnectContext connectContext;
-    @Mocked
-    private CloudSystemInfoService cloudSystemInfoService;
-    @Mocked
-    private ComputeGroup computeGroup;
-    private Database db;
+    private Env env;
+    private AccessControllerManager accessControllerManager;
 
-    private void runBefore() throws Exception {
-        db = CatalogMocker.mockDb();
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessControllerManager;
-
-                ConnectContext.get();
-                minTimes = 0;
-                result = connectContext;
-
-                connectContext.isSkipAuth();
-                minTimes = 0;
-                result = true;
-
-                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN);
-                minTimes = 0;
-                result = true;
-            }
-        };
+    private void runBefore() throws IOException {
+        connectContext = createDefaultCtx();
+        env = Env.getCurrentEnv();
+        accessControllerManager = env.getAccessManager();
+        connectContext.setSkipAuth(true);
+        AccessControllerManager spyAcm = Mockito.spy(accessControllerManager);
+        Mockito.doReturn(true).when(spyAcm).checkGlobalPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN));
+        Deencapsulation.setField(env, "accessManager", spyAcm);
+        accessControllerManager = spyAcm;
     }
 
     @Test
@@ -96,13 +71,8 @@ public class AlterComputeGroupCommandTest {
     public void testValidateAuthFailed() throws Exception {
         runBefore();
         Config.deploy_mode = "cloud";
-        new Expectations() {
-            {
-                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN);
-                minTimes = 0;
-                result = false;
-            }
-        };
+        Mockito.doReturn(false).when(accessControllerManager).checkGlobalPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN));
 
         Map<String, String> properties = Maps.newHashMap();
         properties.put("balance_type", "async_warmup");
@@ -127,17 +97,9 @@ public class AlterComputeGroupCommandTest {
         runBefore();
         Config.deploy_mode = "cloud";
 
-        new Expectations() {
-            {
-                env.getCurrentSystemInfo();
-                minTimes = 0;
-                result = cloudSystemInfoService;
-
-                cloudSystemInfoService.getComputeGroupByName("non_exist_group");
-                minTimes = 0;
-                result = null;
-            }
-        };
+        CloudSystemInfoService mockCloudSIS = Mockito.mock(CloudSystemInfoService.class);
+        Mockito.doReturn(null).when(mockCloudSIS).getComputeGroupByName("non_exist_group");
+        Deencapsulation.setField(env, "systemInfo", mockCloudSIS);
 
         Map<String, String> properties = Maps.newHashMap();
         properties.put("balance_type", "async_warmup");
@@ -150,21 +112,11 @@ public class AlterComputeGroupCommandTest {
         runBefore();
         Config.deploy_mode = "cloud";
 
-        new Expectations() {
-            {
-                env.getCurrentSystemInfo();
-                minTimes = 0;
-                result = cloudSystemInfoService;
-
-                cloudSystemInfoService.getComputeGroupByName("virtual_group");
-                minTimes = 0;
-                result = computeGroup;
-
-                computeGroup.isVirtual();
-                minTimes = 0;
-                result = true;
-            }
-        };
+        CloudSystemInfoService mockCloudSIS = Mockito.mock(CloudSystemInfoService.class);
+        ComputeGroup mockComputeGroup = Mockito.mock(ComputeGroup.class);
+        Mockito.doReturn(mockComputeGroup).when(mockCloudSIS).getComputeGroupByName("virtual_group");
+        Mockito.doReturn(true).when(mockComputeGroup).isVirtual();
+        Deencapsulation.setField(env, "systemInfo", mockCloudSIS);
 
         Map<String, String> properties = Maps.newHashMap();
         properties.put("balance_type", "async_warmup");
@@ -177,25 +129,13 @@ public class AlterComputeGroupCommandTest {
         runBefore();
         Config.deploy_mode = "cloud";
 
-        new Expectations() {
-            {
-                env.getCurrentSystemInfo();
-                minTimes = 0;
-                result = cloudSystemInfoService;
-
-                cloudSystemInfoService.getComputeGroupByName("test_group");
-                minTimes = 0;
-                result = computeGroup;
-
-                computeGroup.isVirtual();
-                minTimes = 0;
-                result = false;
-
-                computeGroup.checkProperties((Map<String, String>) any);
-                minTimes = 0;
-                result = new DdlException("Invalid property");
-            }
-        };
+        CloudSystemInfoService mockCloudSIS = Mockito.mock(CloudSystemInfoService.class);
+        ComputeGroup mockComputeGroup = Mockito.mock(ComputeGroup.class);
+        Mockito.doReturn(mockComputeGroup).when(mockCloudSIS).getComputeGroupByName("test_group");
+        Mockito.doReturn(false).when(mockComputeGroup).isVirtual();
+        Mockito.doThrow(new DdlException("Invalid property")).when(mockComputeGroup)
+                .checkProperties(Mockito.anyMap());
+        Deencapsulation.setField(env, "systemInfo", mockCloudSIS);
 
         Map<String, String> properties = Maps.newHashMap();
         properties.put("invalid_property", "invalid_value");
@@ -208,31 +148,13 @@ public class AlterComputeGroupCommandTest {
         runBefore();
         Config.deploy_mode = "cloud";
 
-        new Expectations() {
-            {
-                env.getCurrentSystemInfo();
-                minTimes = 0;
-                result = cloudSystemInfoService;
-
-                cloudSystemInfoService.getComputeGroupByName("test_group");
-                minTimes = 0;
-                result = computeGroup;
-
-                computeGroup.isVirtual();
-                minTimes = 0;
-                result = false;
-            }
-        };
-
-        new Expectations() {
-            {
-                computeGroup.checkProperties((Map<String, String>) any);
-                minTimes = 0;
-
-                computeGroup.modifyProperties((Map<String, String>) any);
-                minTimes = 0;
-            }
-        };
+        CloudSystemInfoService mockCloudSIS = Mockito.mock(CloudSystemInfoService.class);
+        ComputeGroup mockComputeGroup = Mockito.mock(ComputeGroup.class);
+        Mockito.doReturn(mockComputeGroup).when(mockCloudSIS).getComputeGroupByName("test_group");
+        Mockito.doReturn(false).when(mockComputeGroup).isVirtual();
+        Mockito.doNothing().when(mockComputeGroup).checkProperties(Mockito.anyMap());
+        Mockito.doNothing().when(mockComputeGroup).modifyProperties(Mockito.anyMap());
+        Deencapsulation.setField(env, "systemInfo", mockCloudSIS);
 
         Map<String, String> properties = Maps.newHashMap();
         properties.put("balance_type", "async_warmup");

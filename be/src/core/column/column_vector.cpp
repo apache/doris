@@ -44,7 +44,6 @@
 #include "util/unaligned.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 template <PrimitiveType T>
 size_t ColumnVector<T>::serialize_impl(char* pos, const size_t row) const {
@@ -543,7 +542,6 @@ template class ColumnVector<TYPE_DATE>;
 template class ColumnVector<TYPE_DATEV2>;
 template class ColumnVector<TYPE_DATETIME>;
 template class ColumnVector<TYPE_DATETIMEV2>;
-template class ColumnVector<TYPE_TIME>;
 template class ColumnVector<TYPE_TIMEV2>;
 template class ColumnVector<TYPE_TIMESTAMPTZ>;
 template class ColumnVector<TYPE_UINT32>;

@@ -21,7 +21,6 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.DataTrait.Builder;
-import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.BinaryOperator;
@@ -39,6 +38,7 @@ import org.apache.doris.nereids.trees.expressions.functions.window.DenseRank;
 import org.apache.doris.nereids.trees.expressions.functions.window.Rank;
 import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Window;
@@ -107,18 +107,21 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     }
 
     public LogicalWindow<Plan> withExpressionsAndChild(List<NamedExpression> windowExpressions, Plan child) {
-        return new LogicalWindow<>(windowExpressions, isChecked, child);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalWindow<>(windowExpressions, isChecked, child));
     }
 
     public LogicalWindow<Plan> withChecked(List<NamedExpression> windowExpressions, Plan child) {
-        return new LogicalWindow<>(windowExpressions, true, Optional.empty(),
-                Optional.of(getLogicalProperties()), child);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalWindow<>(windowExpressions, true, Optional.empty(),
+                Optional.of(getLogicalProperties()), child));
     }
 
     @Override
     public LogicalUnary<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalWindow<>(windowExpressions, isChecked, children.get(0));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalWindow<>(windowExpressions, isChecked, children.get(0)));
     }
 
     @Override
@@ -128,15 +131,17 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalWindow<>(windowExpressions, isChecked,
-                groupExpression, Optional.of(getLogicalProperties()), child());
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalWindow<>(windowExpressions, isChecked,
+                groupExpression, Optional.of(getLogicalProperties()), child()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalWindow<>(windowExpressions, isChecked, groupExpression, logicalProperties, children.get(0));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalWindow<>(windowExpressions, isChecked, groupExpression, logicalProperties, children.get(0)));
     }
 
     /**
@@ -419,24 +424,6 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
             }
         }
         return false;
-    }
-
-    private void updateFuncDepsByWindowExpr(NamedExpression namedExpression, ImmutableSet.Builder<FdItem> builder) {
-        if (namedExpression.children().size() != 1 || !(namedExpression.child(0) instanceof WindowExpression)) {
-            return;
-        }
-        WindowExpression windowExpr = (WindowExpression) namedExpression.child(0);
-        List<Expression> partitionKeys = windowExpr.getPartitionKeys();
-
-        // Now we only support slot type keys
-        if (!partitionKeys.stream().allMatch(Slot.class::isInstance)) {
-            return;
-        }
-        //ImmutableSet<Slot> slotSet = partitionKeys.stream()
-        //        .map(s -> (Slot) s)
-        //        .collect(ImmutableSet.toImmutableSet());
-        // TODO: if partition by keys are unique, output is uniform
-        // TODO: if partition by keys are uniform, output is unique
     }
 
     @Override

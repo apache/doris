@@ -21,7 +21,19 @@
 #include <utility>
 #include <vector>
 
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Woverloaded-virtual"
+#elif defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Woverloaded-virtual"
+#endif
 #include "CLucene.h" // IWYU pragma: keep
+#ifdef __clang__
+#pragma clang diagnostic pop
+#elif defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 #include "storage/index/inverted/query_v2/scorer.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {

@@ -20,7 +20,6 @@
 #include "common/status.h"
 
 namespace doris::config {
-#include "common/compile_check_begin.h"
 
 DEFINE_String(deploy_mode, "");
 DEFINE_mString(cloud_unique_id, "");
@@ -128,7 +127,7 @@ DEFINE_mInt64(warm_up_rowset_slow_log_ms, "1000");
 
 DEFINE_mBool(enable_compaction_delay_commit_for_warm_up, "false");
 
-DEFINE_mInt64(warm_up_rowset_sync_wait_min_timeout_ms, "10000");
+DEFINE_mInt64(warm_up_rowset_sync_wait_min_timeout_ms, "500");
 
 DEFINE_mInt64(warm_up_rowset_sync_wait_max_timeout_ms, "120000");
 
@@ -173,5 +172,4 @@ DEFINE_mInt64(cache_read_from_peer_expired_seconds, "-1");
 DEFINE_mBool(enable_file_cache_write_base_compaction_index_only, "false");
 DEFINE_mBool(enable_file_cache_write_cumu_compaction_index_only, "false");
 
-#include "common/compile_check_end.h"
 } // namespace doris::config

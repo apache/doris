@@ -656,21 +656,11 @@ public class BackupJobInfo implements GsonPostProcessable {
                 backupViewInfo.name = view.getName();
                 jobInfo.newBackupObjects.views.add(backupViewInfo);
             } else if (tbl instanceof OdbcTable) {
-                OdbcTable odbcTable = (OdbcTable) tbl;
+                // ODBC tables are deprecated. We still record their name/id for backup metadata
+                // compatibility, but no longer read properties from the table.
                 BackupOdbcTableInfo backupOdbcTableInfo = new BackupOdbcTableInfo();
-                backupOdbcTableInfo.id = odbcTable.getId();
-                backupOdbcTableInfo.dorisTableName = odbcTable.getName();
-                backupOdbcTableInfo.linkedOdbcDatabaseName = odbcTable.getOdbcDatabaseName();
-                backupOdbcTableInfo.linkedOdbcTableName = odbcTable.getOdbcTableName();
-                if (odbcTable.getOdbcCatalogResourceName() != null) {
-                    backupOdbcTableInfo.resourceName = odbcTable.getOdbcCatalogResourceName();
-                } else {
-                    backupOdbcTableInfo.host = odbcTable.getHost();
-                    backupOdbcTableInfo.port = odbcTable.getPort();
-                    backupOdbcTableInfo.user = odbcTable.getUserName();
-                    backupOdbcTableInfo.driver = odbcTable.getOdbcDriver();
-                    backupOdbcTableInfo.odbcType = odbcTable.getOdbcTableTypeName();
-                }
+                backupOdbcTableInfo.id = tbl.getId();
+                backupOdbcTableInfo.dorisTableName = tbl.getName();
                 jobInfo.newBackupObjects.odbcTables.add(backupOdbcTableInfo);
             }
         }

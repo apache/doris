@@ -37,8 +37,6 @@ public:
 
     Status from_string(StringRef& str, IColumn& column,
                        const FormatOptions& options) const override;
-    Status from_olap_string(const std::string& str, Field& field,
-                            const FormatOptions& options) const override;
 
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override;
@@ -87,5 +85,9 @@ public:
 
     void to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
                    const FormatOptions& options) const override;
+
+protected:
+    Status from_olap_string(const std::string& str, Field& field,
+                            const FormatOptions& options) const override;
 };
 } // namespace doris

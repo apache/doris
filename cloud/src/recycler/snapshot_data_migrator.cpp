@@ -124,11 +124,6 @@ void SnapshotDataMigrator::scan_instance_loop() {
     while (!stopped()) {
         std::vector<InstanceInfoPB> instances;
         get_all_instances(txn_kv_.get(), instances);
-        LOG(INFO) << "Snapshot data migrator get instances: " << [&instances] {
-            std::stringstream ss;
-            for (auto& i : instances) ss << ' ' << i.instance_id();
-            return ss.str();
-        }();
         if (!instances.empty()) {
             // enqueue instances
             std::lock_guard lock(mtx_);

@@ -37,7 +37,6 @@ uint64_t lzoDecompress(const char* inputAddress, const char* inputLimit, char* o
 } // namespace orc
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 // Lzop
 const uint8_t LzopDecompressor::LZOP_MAGIC[9] = {0x89, 0x4c, 0x5a, 0x4f, 0x00,
@@ -401,5 +400,4 @@ std::string LzopDecompressor::debug_info() {
     return ss.str();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

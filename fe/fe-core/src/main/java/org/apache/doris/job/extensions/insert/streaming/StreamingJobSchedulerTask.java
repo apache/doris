@@ -66,6 +66,12 @@ public class StreamingJobSchedulerTask extends AbstractTask {
             }
         }
         streamingInsertJob.replayOffsetProviderIfNeed();
+        if (streamingInsertJob.hasReachedEnd()) {
+            // Source already fully consumed (e.g. snapshot-only mode recovered after FE restart).
+            // Transition directly to FINISHED without creating a new task.
+            streamingInsertJob.updateJobStatus(JobStatus.FINISHED);
+            return;
+        }
         streamingInsertJob.createStreamingTask();
         streamingInsertJob.setSampleStartTime(System.currentTimeMillis());
         streamingInsertJob.updateJobStatus(JobStatus.RUNNING);

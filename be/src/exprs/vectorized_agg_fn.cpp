@@ -56,7 +56,6 @@ class IColumn;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 template <class FunctionType>
 AggregateFunctionPtr get_agg_state_function(const DataTypes& argument_types,
@@ -422,5 +421,4 @@ bool AggFnEvaluator::is_blockable() const {
                        [](VExprContextSPtr ctx) { return ctx->root()->is_blockable(); });
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

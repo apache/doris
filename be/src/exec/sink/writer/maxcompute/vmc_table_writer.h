@@ -54,6 +54,12 @@ public:
 private:
     std::shared_ptr<VMCPartitionWriter> _create_partition_writer(const std::string& partition_spec);
 
+    // Split large blocks into sub-blocks before JNI to limit Arrow and SDK
+    // native memory. Needed when data source is not MC scanner and blocks
+    // may exceed 256MB (e.g. batch_size=4096 with 585KB/row = 2.4GB).
+    Status _write_block_in_chunks(const std::shared_ptr<VMCPartitionWriter>& writer,
+                                  Block& output_block);
+
     std::map<std::string, std::string> _build_base_writer_params();
 
     TDataSink _t_sink;

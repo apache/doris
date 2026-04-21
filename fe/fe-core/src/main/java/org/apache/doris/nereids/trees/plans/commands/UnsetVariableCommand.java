@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.qe.VarAttrDef;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.qe.VariableMgr.VarContext;
 
@@ -129,7 +130,7 @@ public class UnsetVariableCommand extends Command implements Forward {
             VarContext varCtx = VariableMgr.getVarContext(var.getVariable());
             // only unset for session variable.
             // If this is a global variable, no need to do this because it has been synced from editlog already.
-            if (varCtx != null && (varCtx.getFlag() & VariableMgr.SESSION) != 0) {
+            if (varCtx != null && (varCtx.getFlag() & VarAttrDef.SESSION) != 0) {
                 VariableMgr.setVar(context.getSessionVariable(), var);
             }
         }

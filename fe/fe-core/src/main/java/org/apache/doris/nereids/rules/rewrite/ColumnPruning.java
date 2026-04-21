@@ -17,14 +17,8 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.UserException;
-import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.JobContext;
-import org.apache.doris.nereids.rules.analysis.UserAuthentication;
 import org.apache.doris.nereids.rules.rewrite.ColumnPruning.PruneContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -63,7 +57,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.roaringbitmap.RoaringBitmap;
 
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -550,37 +543,6 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
             this.childRequiredSlots = childRequiredSlots;
             this.requiredSlotsIds = requiredSlotsIds;
             this.needPrune = needPrune;
-        }
-    }
-
-    private Set<String> computeUsedColumns(Plan plan, RoaringBitmap requiredSlotsIds) {
-        Set<String> usedColumnNames = new LinkedHashSet<>();
-        for (Slot outputSlot : plan.getOutput()) {
-            if (!requiredSlotsIds.contains(outputSlot.getExprId().asInt())) {
-                continue;
-            }
-            // don't check privilege for hidden column, e.g. __DORIS_DELETE_SIGN__
-            if (outputSlot instanceof SlotReference && ((SlotReference) outputSlot).getOriginalColumn().isPresent()
-                    && !((SlotReference) outputSlot).getOriginalColumn().get().isVisible()) {
-                continue;
-            }
-            usedColumnNames.add(outputSlot.getName());
-        }
-        return usedColumnNames;
-    }
-
-    private void checkColumnPrivileges(TableIf table, Set<String> usedColumns) {
-        CascadesContext cascadesContext = jobContext.getCascadesContext();
-        ConnectContext connectContext = cascadesContext.getConnectContext();
-        try {
-            UserAuthentication.checkPermission(table, connectContext, usedColumns);
-        } catch (UserException e) {
-            throw new AnalysisException(e.getMessage(), e);
-        }
-        StatementContext statementContext = cascadesContext.getStatementContext();
-        Optional<SqlCacheContext> sqlCacheContext = statementContext.getSqlCacheContext();
-        if (sqlCacheContext.isPresent()) {
-            sqlCacheContext.get().addCheckPrivilegeTablesOrViews(table, usedColumns);
         }
     }
 }

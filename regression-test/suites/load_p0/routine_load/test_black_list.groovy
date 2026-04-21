@@ -94,7 +94,7 @@ suite("test_black_list","nonConcurrent,p0") {
             PROPERTIES ("replication_allocation" = "tag.location.default: 1");
         """
 
-        def inject = "KafkaDataConsumer.get_latest_offsets_for_partitions.timeout"
+        def inject = "KafkaDataConsumer.get_offsets_for_partitions.timeout"
         try {
             GetDebugPoint().enableDebugPointForAllBEs(inject)
             sql """
@@ -116,7 +116,7 @@ suite("test_black_list","nonConcurrent,p0") {
                 log.info("routine load state: ${state[0][8].toString()}".toString())
                 log.info("reason of state changed: ${state[0][17].toString()}".toString())
                 log.info("other msg: ${state[0][19].toString()}".toString())
-                if (state[0][17].toString().contains("failed to get latest partition offset") || state[0][19].toString().contains("failed to get latest partition offset")) {
+                if (state[0][17].toString().contains("Failed to get real offsets of kafka topic") || state[0][19].toString().contains("Failed to get real offsets of kafka topic")) {
                     break
                 }
                 if (count >= 90) {

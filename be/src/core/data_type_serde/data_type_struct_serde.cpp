@@ -31,7 +31,6 @@
 namespace doris {
 
 class Arena;
-#include "common/compile_check_begin.h"
 
 std::string DataTypeStructSerDe::get_name() const {
     size_t size = elem_names.size();

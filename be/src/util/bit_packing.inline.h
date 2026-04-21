@@ -22,7 +22,6 @@
 #include "util/bit_packing.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 inline int64_t BitPacking::NumValuesToUnpack(int bit_width, int64_t in_bytes, int64_t num_values) {
     // Check if we have enough input bytes to decode 'num_values'.
     if (bit_width == 0 ||
@@ -384,5 +383,4 @@ const uint8_t* BitPacking::UnpackAndDecodeUpTo31Values(const uint8_t* __restrict
     return in + BYTES_TO_READ;
 #pragma pop_macro("DECODE_VALUES_CASE")
 }
-#include "common/compile_check_end.h"
 } // namespace doris

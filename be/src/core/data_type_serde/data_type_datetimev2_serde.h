@@ -41,9 +41,6 @@ public:
     Status from_string_batch(const ColumnString& str, ColumnNullable& column,
                              const FormatOptions& options) const final;
 
-    Status from_olap_string(const std::string& str, Field& field,
-                            const FormatOptions& options) const override;
-
     Status from_string_strict_mode_batch(const ColumnString& str, IColumn& column,
                                          const FormatOptions& options,
                                          const NullMap::value_type* null_map = nullptr) const final;
@@ -111,6 +108,10 @@ public:
     int get_scale() const override { return _scale; }
 
     std::string to_olap_string(const Field& field) const override;
+
+protected:
+    Status from_olap_string(const std::string& str, Field& field,
+                            const FormatOptions& options) const override;
 
 private:
     int _scale;

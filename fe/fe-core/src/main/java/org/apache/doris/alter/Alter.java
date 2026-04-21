@@ -24,8 +24,6 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.MaterializedIndex;
-import org.apache.doris.catalog.MysqlTable;
-import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
@@ -36,6 +34,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.View;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.cloud.alter.CloudSchemaChangeHandler;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -50,7 +49,7 @@ import org.apache.doris.common.util.PropertyAnalyzer.RewriteProperty;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
-import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
@@ -100,7 +99,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.thrift.TOdbcTableType;
 import org.apache.doris.thrift.TSortType;
 import org.apache.doris.thrift.TTabletType;
 
@@ -561,67 +559,20 @@ public class Alter {
     }
 
     public void processModifyEngine(Database db, Table externalTable, ModifyEngineOp op) throws DdlException {
-        externalTable.writeLockOrDdlException();
-        try {
-            if (externalTable.getType() != TableType.MYSQL) {
-                throw new DdlException("Only support modify table engine from MySQL to ODBC");
-            }
-            processModifyEngineInternal(db, externalTable, op.getProperties(), false);
-        } finally {
-            externalTable.writeUnlock();
-        }
-        LOG.info("modify table {}'s engine from MySQL to ODBC", externalTable.getName());
+        throw new DdlException("Modify engine from MySQL to ODBC is no longer supported. "
+                + "ODBC tables have been deprecated. Please use JDBC Catalog instead.");
     }
 
     public void replayProcessModifyEngine(ModifyTableEngineOperationLog log) {
-        Database db = Env.getCurrentInternalCatalog().getDbNullable(log.getDbId());
-        if (db == null) {
-            return;
-        }
-        MysqlTable mysqlTable = (MysqlTable) db.getTableNullable(log.getTableId());
-        if (mysqlTable == null) {
-            return;
-        }
-        mysqlTable.writeLock();
-        try {
-            processModifyEngineInternal(db, mysqlTable, log.getProperties(), true);
-        } finally {
-            mysqlTable.writeUnlock();
-        }
+        // ODBC tables have been deprecated, skip replay.
+        LOG.warn("Skip replaying ModifyEngine for table {} — ODBC tables are deprecated.", log.getTableId());
     }
 
     private void processModifyEngineInternal(Database db, Table externalTable,
                                              Map<String, String> prop, boolean isReplay) {
-        MysqlTable mysqlTable = (MysqlTable) externalTable;
-        Map<String, String> newProp = Maps.newHashMap(prop);
-        newProp.put(OdbcTable.ODBC_HOST, mysqlTable.getHost());
-        newProp.put(OdbcTable.ODBC_PORT, mysqlTable.getPort());
-        newProp.put(OdbcTable.ODBC_USER, mysqlTable.getUserName());
-        newProp.put(OdbcTable.ODBC_PASSWORD, mysqlTable.getPasswd());
-        newProp.put(OdbcTable.ODBC_DATABASE, mysqlTable.getMysqlDatabaseName());
-        newProp.put(OdbcTable.ODBC_TABLE, mysqlTable.getMysqlTableName());
-        newProp.put(OdbcTable.ODBC_TYPE, TOdbcTableType.MYSQL.name());
-
-        // create a new odbc table with same id and name
-        OdbcTable odbcTable = null;
-        try {
-            odbcTable = new OdbcTable(mysqlTable.getId(), mysqlTable.getName(), mysqlTable.getBaseSchema(), newProp);
-        } catch (DdlException e) {
-            LOG.warn("Should not happen", e);
-            return;
-        }
-        odbcTable.writeLock();
-        try {
-            db.unregisterTable(mysqlTable.getName());
-            db.registerTable(odbcTable);
-            if (!isReplay) {
-                ModifyTableEngineOperationLog log = new ModifyTableEngineOperationLog(db.getId(),
-                        externalTable.getId(), prop);
-                Env.getCurrentEnv().getEditLog().logModifyTableEngine(log);
-            }
-        } finally {
-            odbcTable.writeUnlock();
-        }
+        // ODBC tables have been deprecated. This method is preserved only for
+        // deserialization compatibility of the edit log. No-op.
+        LOG.warn("processModifyEngineInternal called for deprecated ODBC engine conversion. Ignoring.");
     }
 
     /*
@@ -661,6 +612,7 @@ public class Alter {
             case MAX_COMPUTE_EXTERNAL_TABLE:
             case HUDI_EXTERNAL_TABLE:
             case TRINO_CONNECTOR_EXTERNAL_TABLE:
+            case PLUGIN_EXTERNAL_TABLE:
                 alterOps.addAll(command.getOps());
                 processAlterTableForExternalTable((ExternalTable) tableIf, alterOps);
                 return;
@@ -806,8 +758,8 @@ public class Alter {
         String newTblName = newTbl.getName();
 
         // Handle constraints for table replacement
-        TableNameInfo origTableInfo = new TableNameInfo(origTable);
-        TableNameInfo newTableInfo = new TableNameInfo(newTbl);
+        TableNameInfo origTableInfo = TableNameInfoUtils.fromDb(db, origTable.getName());
+        TableNameInfo newTableInfo = TableNameInfoUtils.fromDb(db, newTbl.getName());
         if (swapTable) {
             Env.getCurrentEnv().getConstraintManager().swapTableConstraints(origTableInfo, newTableInfo);
         } else {
@@ -902,7 +854,8 @@ public class Alter {
             String viewName = view.getName();
             if (comment != null) {
                 view.setComment(comment);
-            } else {
+            }
+            if (!Strings.isNullOrEmpty(inlineViewDef)) {
                 view.setInlineViewDefWithSessionVariables(inlineViewDef, alterViewInfo.getSessionVariables());
                 view.setNewFullSchema(newFullSchema);
             }

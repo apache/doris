@@ -61,10 +61,6 @@ public class RuntimeFiltersThriftBuilder {
         this.ridToBuilderNum = ridToBuilderNum;
     }
 
-    public boolean isMergeRuntimeFilterInstance(AssignedJob instance) {
-        return mergeInstance == instance;
-    }
-
     public void populateRuntimeFilterParams(TRuntimeFilterParams runtimeFilterParams) {
         for (RuntimeFilter rf : runtimeFilters) {
             List<RuntimeFilterTarget> targets = ridToTargets.get(rf.getFilterId());

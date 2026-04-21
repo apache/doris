@@ -31,7 +31,6 @@ public class ModifyDistributionOp extends AlterTableOp {
     public ModifyDistributionOp(DistributionDescriptor distributionDesc) {
         super(AlterOpType.MODIFY_DISTRIBUTION);
         this.distributionDesc = distributionDesc;
-        this.needTableStable = false;
     }
 
     public DistributionDescriptor getDistributionDesc() {

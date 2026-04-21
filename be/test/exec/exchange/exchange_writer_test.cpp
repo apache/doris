@@ -60,6 +60,49 @@ static std::vector<std::shared_ptr<Channel>> make_disabled_channels(
     return channels;
 }
 
+class RowExpandingPartitioner final : public PartitionerBase {
+public:
+    RowExpandingPartitioner() : PartitionerBase(2) {}
+
+    Status init(const std::vector<TExpr>& /*texprs*/) override { return Status::OK(); }
+
+    Status prepare(RuntimeState* /*state*/, const RowDescriptor& /*row_desc*/) override {
+        return Status::OK();
+    }
+
+    Status open(RuntimeState* /*state*/) override { return Status::OK(); }
+
+    Status close(RuntimeState* /*state*/) override { return Status::OK(); }
+
+    Status do_partitioning(RuntimeState* /*state*/, Block* block) const override {
+        if (block->rows() == 0) {
+            _channel_ids.clear();
+            return Status::OK();
+        }
+
+        _channel_ids.assign(block->rows(), 0);
+
+        auto mutable_columns = block->mutate_columns();
+        for (size_t col_idx = 0; col_idx < mutable_columns.size(); ++col_idx) {
+            mutable_columns[col_idx]->insert_from(*mutable_columns[col_idx], 0);
+        }
+        block->set_columns(std::move(mutable_columns));
+
+        _channel_ids.push_back(1);
+        return Status::OK();
+    }
+
+    const std::vector<HashValType>& get_channel_ids() const override { return _channel_ids; }
+
+    Status clone(RuntimeState* /*state*/, std::unique_ptr<PartitionerBase>& partitioner) override {
+        partitioner = std::make_unique<RowExpandingPartitioner>();
+        return Status::OK();
+    }
+
+private:
+    mutable std::vector<HashValType> _channel_ids;
+};
+
 TEST(TrivialExchangeWriterTest, BasicDistribution) {
     MockRuntimeState state;
     ExchangeSinkLocalState local_state(&state);
@@ -143,6 +186,29 @@ TEST(TrivialExchangeWriterTest, EmptyInput) {
         EXPECT_EQ(writer._channel_rows_histogram[i], 0U);
     }
     EXPECT_EQ(writer._origin_row_idx.size(), 0U);
+}
+
+TEST(TrivialExchangeWriterTest, WriteUsesRowsAfterPartitioning) {
+    MockRuntimeState state;
+    ExchangeSinkLocalState local_state(&state);
+    local_state._partitioner = std::make_unique<RowExpandingPartitioner>();
+    ExchangeTrivialWriter writer {local_state};
+
+    const size_t channel_count = 2;
+    local_state.channels = make_disabled_channels(&local_state, channel_count);
+
+    Block block = ColumnHelper::create_block<DataTypeInt32>({7});
+    Status st = writer.write(&state, &block, /*eos=*/false);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    ASSERT_EQ(block.rows(), 2U);
+    ASSERT_EQ(writer._origin_row_idx.size(), 2U);
+    EXPECT_EQ(writer._origin_row_idx[0], 0U);
+    EXPECT_EQ(writer._origin_row_idx[1], 1U);
+
+    ASSERT_EQ(writer._channel_rows_histogram.size(), channel_count);
+    EXPECT_EQ(writer._channel_rows_histogram[0], 1U);
+    EXPECT_EQ(writer._channel_rows_histogram[1], 1U);
 }
 
 TEST(OlapExchangeWriterTest, NeedCheckSkipsInvalidChannelIds) {

@@ -96,10 +96,10 @@ TEST(HierarchicalDataIteratorTest, ProcessSparseExtractSubpaths) {
     offs.push_back(keys.size());
 
     const size_t nrows = 2;
-    MutableColumnPtr dst = ColumnVariant::create(/*max_subcolumns_count*/ 2, nrows);
+    MutableColumnPtr dst = ColumnVariant::create(/*max_subcolumns_count*/ 2, false, nrows);
 
     auto& variant = assert_cast<ColumnVariant&>(*dst);
-    ASSERT_TRUE(hiter->_process_sparse_column(variant, nrows).ok());
+    ASSERT_TRUE(hiter->_process_binary_column(variant, nrows).ok());
 
     // root column + 2 subcolumns
     EXPECT_EQ(variant.get_subcolumns().size(), 3);

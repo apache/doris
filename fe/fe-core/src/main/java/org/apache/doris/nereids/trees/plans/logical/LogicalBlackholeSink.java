@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.PropagateFuncDeps;
@@ -55,7 +56,8 @@ public class LogicalBlackholeSink<CHILD_TYPE extends Plan> extends LogicalSink<C
     public LogicalBlackholeSink<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1,
                 "LogicalBlackholeSink's children size must be 1, but real is %s", children.size());
-        return new LogicalBlackholeSink<>(outputExprs, children.get(0));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalBlackholeSink<>(outputExprs, children.get(0)));
     }
 
     @Override
@@ -65,19 +67,22 @@ public class LogicalBlackholeSink<CHILD_TYPE extends Plan> extends LogicalSink<C
 
     @Override
     public LogicalBlackholeSink<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalBlackholeSink<>(outputExprs, groupExpression, Optional.of(getLogicalProperties()), child());
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalBlackholeSink<>(outputExprs, groupExpression, Optional.of(getLogicalProperties()), child()));
     }
 
     @Override
     public LogicalBlackholeSink<Plan> withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "LogicalBlackholeSink only accepts one child");
-        return new LogicalBlackholeSink<>(outputExprs, groupExpression, logicalProperties, children.get(0));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalBlackholeSink<>(outputExprs, groupExpression, logicalProperties, children.get(0)));
     }
 
     @Override
     public LogicalBlackholeSink<CHILD_TYPE> withOutputExprs(List<NamedExpression> outputExprs) {
-        return new LogicalBlackholeSink<>(outputExprs, child());
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalBlackholeSink<>(outputExprs, child()));
     }
 
     @Override

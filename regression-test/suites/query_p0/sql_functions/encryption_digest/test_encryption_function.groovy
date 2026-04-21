@@ -74,6 +74,58 @@ suite("test_encryption_function") {
     qt_sql "SELECT SM3(\"abc\");"
     qt_sql "select sm3(\"abcd\");"
     qt_sql "select sm3sum(\"ab\",\"cd\");"
+
+    qt_sql_gcm_1 "SELECT TO_BASE64(AES_ENCRYPT('Spark SQL', '1234567890abcdef', '123456789012', 'aes_128_gcm', 'Some AAD'))"
+    qt_sql_gcm_2 "SELECT AES_DECRYPT(FROM_BASE64('MTIzNDU2Nzg5MDEyMdXvR41sJqwZ6hnTU8FRTTtXbL8yeChIZA=='), '1234567890abcdef', '', 'aes_128_gcm', 'Some AAD')"
+
+    qt_sql_gcm_3 "select to_base64(aes_encrypt('Spark','abcdefghijklmnop12345678ABCDEFGH',unhex('000000000000000000000000'),'aes_256_gcm', 'This is an AAD mixed into the input'));"
+    qt_sql_gcm_4 "SELECT AES_DECRYPT(FROM_BASE64('AAAAAAAAAAAAAAAAQiYi+sTLm7KD9UcZ2nlRdYDe/PX4'), 'abcdefghijklmnop12345678ABCDEFGH', '', 'aes_256_gcm', 'This is an AAD mixed into the input');"
+
+    sql "DROP TABLE IF EXISTS aes_encrypt_decrypt_tbl"
+    sql """
+        CREATE TABLE IF NOT EXISTS aes_encrypt_decrypt_tbl (
+          id int,
+          plain_txt varchar(255),
+          enc_txt varchar(255),
+          k varchar(255),
+          iv varchar(255),
+          mode varchar(255),
+          aad varchar(255)
+        ) DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES (
+          "replication_num" = "1"
+        )
+    """
+    sql """ insert into aes_encrypt_decrypt_tbl values(1,'Spark SQL','MTIzNDU2Nzg5MDEyMdXvR41sJqwZ6hnTU8FRTTtXbL8yeChIZA==','1234567890abcdef','123456789012','aes_128_gcm','Some AAD');"""
+    sql """ insert into aes_encrypt_decrypt_tbl values(2,'Spark','AAAAAAAAAAAAAAAAQiYi+sTLm7KD9UcZ2nlRdYDe/PX4','abcdefghijklmnop12345678ABCDEFGH',unhex('000000000000000000000000'),'aes_256_gcm','This is an AAD mixed into the input');"""
+    sql """ sync """
+
+    qt_sql_gcm_5 "SELECT id,TO_BASE64(AES_ENCRYPT(plain_txt,k,iv,mode,aad)) from aes_encrypt_decrypt_tbl order by id;"
+    qt_sql_gcm_6 "SELECT id,AES_DECRYPT(FROM_BASE64(enc_txt),k,'',mode,aad) from aes_encrypt_decrypt_tbl order by id;"
+
+    // test for const opt branch, only first column is not const
+    qt_sql_gcm_7 "SELECT id,TO_BASE64(AES_ENCRYPT(plain_txt, '1234567890abcdef', '123456789012', 'aes_128_gcm', 'Some AAD')) from aes_encrypt_decrypt_tbl where id=1"
+    qt_sql_gcm_8 "SELECT AES_DECRYPT(FROM_BASE64(enc_txt), '1234567890abcdef', '', 'aes_128_gcm', 'Some AAD') from aes_encrypt_decrypt_tbl where id=1"
+
+    sql "unset variable block_encryption_mode;"
+    qt_sql_empty1 "select hex(aes_encrypt('', 'securekey456'));"
+    qt_sql_empty2 "select hex(aes_encrypt(rpad('', 16, ''), 'securekey456'));"
+    qt_sql_empty3 "select hex(aes_encrypt(rpad('', 17, ''), 'securekey456'));"
+    qt_sql_empty4 "select hex(sm4_encrypt('', 'securekey456'));"
+    qt_sql_empty5 "select sm4_decrypt(unhex('0D56319E329CDA9ABDF5870B9D5ACA57'), 'securekey456');"
+
+    test {
+      sql """set enable_fold_constant_by_be=true """
+      sql """select aes_encrypt('Constant', '0123456789abcdef0123456789abcdef', 'AES_128_ECB', '1234567890abcdef');"""
+      exception """mode 1234567890ABCDEF is not supported"""
+    }
+
+    test {
+      sql """set enable_fold_constant_by_be=true """
+      sql """select aes_decrypt('Constant', '0123456789abcdef0123456789abcdef', 'AES_128_ECB', '1234567890abcdef');"""
+      exception """mode 1234567890ABCDEF is not supported"""
+    }
+
     sql "DROP TABLE IF EXISTS quantile_table"
     sql"""
         CREATE TABLE quantile_table

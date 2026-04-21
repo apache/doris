@@ -20,7 +20,6 @@
 #include "storage/index/inverted/tokenizer/tokenizer_factory.h"
 
 namespace doris::segment_v2::inverted_index {
-#include "common/compile_check_begin.h"
 
 class CharGroupTokenizerFactory : public TokenizerFactory {
 public:
@@ -47,5 +46,4 @@ private:
 };
 using CharGroupTokenizerFactoryPtr = std::shared_ptr<CharGroupTokenizerFactory>;
 
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

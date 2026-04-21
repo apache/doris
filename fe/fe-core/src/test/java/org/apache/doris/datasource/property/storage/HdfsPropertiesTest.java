@@ -41,6 +41,8 @@ public class HdfsPropertiesTest {
         Map<String, String> simpleHdfsProperties = new HashMap<>();
         simpleHdfsProperties.put("uri", "hdfs://test/1.orc");
         Assertions.assertEquals(HdfsProperties.class, StorageProperties.createPrimary(simpleHdfsProperties).getClass());
+        simpleHdfsProperties.put("uri", "jfs://test/1.orc");
+        Assertions.assertEquals(HdfsProperties.class, StorageProperties.createPrimary(simpleHdfsProperties).getClass());
         Map<String, String> origProps = createBaseHdfsProperties();
         List<StorageProperties> storageProperties = StorageProperties.createAll(origProps);
         HdfsProperties hdfsProperties = (HdfsProperties) storageProperties.get(0);
@@ -149,6 +151,21 @@ public class HdfsPropertiesTest {
         Assertions.assertEquals("10", beProperties.get("hadoop.async.threads.max"));
 
 
+    }
+
+    @Test
+    public void testPassThroughJuicefsProperties() throws UserException {
+        Map<String, String> origProps = new HashMap<>();
+        origProps.put("hdfs.authentication.type", "simple");
+        origProps.put("fs.defaultFS", "jfs://cluster");
+        origProps.put("fs.jfs.impl", "io.juicefs.JuiceFileSystem");
+        origProps.put("juicefs.cluster.meta", "redis://127.0.0.1:6379/1");
+
+        StorageProperties properties = StorageProperties.createAll(origProps).get(0);
+        Assertions.assertEquals(HdfsProperties.class, properties.getClass());
+        Map<String, String> beProperties = properties.getBackendConfigProperties();
+        Assertions.assertEquals("redis://127.0.0.1:6379/1", beProperties.get("juicefs.cluster.meta"));
+        Assertions.assertEquals("jfs://cluster", beProperties.get("fs.defaultFS"));
     }
 
     // Helper methods to reduce code duplication

@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateResourceInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
@@ -61,6 +62,9 @@ public abstract class Resource implements Writable, GsonPostProcessable {
         AI;
 
         public static ResourceType fromString(String resourceType) {
+            if ("jfs".equalsIgnoreCase(resourceType) || "juicefs".equalsIgnoreCase(resourceType)) {
+                return HDFS;
+            }
             for (ResourceType type : ResourceType.values()) {
                 if (type.name().equalsIgnoreCase(resourceType)) {
                     return type;
@@ -187,8 +191,7 @@ public abstract class Resource implements Writable, GsonPostProcessable {
                 resource = new HMSResource(name);
                 break;
             case ES:
-                resource = new EsResource(name);
-                break;
+                throw new DdlException("ES resource is no longer supported. Please use ES Catalog instead.");
             case AI:
                 resource = new AIResource(name);
                 break;
@@ -293,4 +296,11 @@ public abstract class Resource implements Writable, GsonPostProcessable {
     }
 
     public void applyDefaultProperties() {}
+
+    public static void registerUsedAIResourceName(String resourceName) {
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx != null && ctx.getStatementContext() != null) {
+            ctx.getStatementContext().registerUsedAIResourceName(resourceName);
+        }
+    }
 }

@@ -52,7 +52,6 @@
 #include "util/stopwatch.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class MemTracker;
 class PBlock;
 class MemTrackerLimiter;
@@ -291,5 +290,3 @@ protected:
 };
 
 } // namespace doris
-
-#include "common/compile_check_end.h"

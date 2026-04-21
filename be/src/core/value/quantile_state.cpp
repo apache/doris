@@ -29,7 +29,6 @@
 #include "util/unaligned.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 QuantileState::QuantileState() : _type(EMPTY), _compression(QUANTILE_STATE_COMPRESSION_MIN) {}
 
 QuantileState::QuantileState(float compression) : _type(EMPTY), _compression(compression) {}

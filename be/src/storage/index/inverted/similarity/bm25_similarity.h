@@ -20,7 +20,6 @@
 #include "storage/index/inverted/similarity/similarity.h"
 
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 
 /**
  * BM25 similarity scoring implementation for inverted index queries.
@@ -42,6 +41,7 @@ public:
                    const std::vector<std::wstring>& terms) override;
 
     float score(float freq, int64_t encoded_norm) override;
+    float max_score() override;
 
     static uint8_t int_to_byte4(int32_t i);
     static int32_t byte4_to_int(uint8_t b);
@@ -69,5 +69,4 @@ private:
     std::vector<float> _cache;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

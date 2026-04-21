@@ -36,9 +36,6 @@ public:
     Status from_string(StringRef& str, IColumn& column,
                        const FormatOptions& options) const override;
 
-    Status from_olap_string(const std::string& str, Field& field,
-                            const FormatOptions& options) const override;
-
     Status from_string_batch(const ColumnString& str, ColumnNullable& column,
                              const FormatOptions& options) const override;
 
@@ -76,6 +73,10 @@ public:
                                const FormatOptions& options) const override;
 
     std::string to_olap_string(const Field& field) const override;
+
+protected:
+    Status from_olap_string(const std::string& str, Field& field,
+                            const FormatOptions& options) const override;
 
 private:
     const UInt32 _scale = 6;

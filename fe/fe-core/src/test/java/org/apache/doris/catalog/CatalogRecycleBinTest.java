@@ -35,11 +35,19 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.io.File;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 public class CatalogRecycleBinTest {
@@ -377,9 +385,7 @@ public class CatalogRecycleBinTest {
         Assert.assertFalse(recycleBin.isRecycleTable(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1));
         Assert.assertTrue(recoveredDb.getTable(CatalogTestUtil.testTableId2).isPresent());
         Assert.assertFalse(recycleBin.isRecycleTable(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId2));
-        // non olap table should not be recovered
-        Assert.assertFalse(recoveredDb.getTable(CatalogTestUtil.testEsTableId1).isPresent());
-        Assert.assertFalse(recycleBin.isRecycleTable(CatalogTestUtil.testDbId1, CatalogTestUtil.testEsTableId1));
+
     }
 
     @Test
@@ -644,14 +650,14 @@ public class CatalogRecycleBinTest {
         recycleBin.replayEraseDatabase(CatalogTestUtil.testDbId1);
         recycleBin.replayEraseTable(CatalogTestUtil.testTableId1);
         recycleBin.replayEraseTable(CatalogTestUtil.testTableId2);
-        recycleBin.replayEraseTable(CatalogTestUtil.testEsTableId1);
+
         recycleBin.replayErasePartition(CatalogTestUtil.testPartitionId1);
 
         // verify objects are no longer in recycle bin
         Assert.assertFalse(recycleBin.isRecycleDatabase(CatalogTestUtil.testDbId1));
         Assert.assertFalse(recycleBin.isRecycleTable(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1));
         Assert.assertFalse(recycleBin.isRecycleTable(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId2));
-        Assert.assertFalse(recycleBin.isRecycleTable(CatalogTestUtil.testDbId1, CatalogTestUtil.testEsTableId1));
+
         Assert.assertFalse(recycleBin.isRecyclePartition(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1, CatalogTestUtil.testPartitionId1));
     }
 
@@ -821,19 +827,188 @@ public class CatalogRecycleBinTest {
         Assert.assertTrue(table2.get() instanceof OlapTable);
         OlapTable olapTable2 = (OlapTable) table2.get();
 
-        Optional<Table> table3 = db.getTable(CatalogTestUtil.testEsTableId1);
-        Assert.assertTrue(table3.isPresent());
-        Assert.assertTrue(table3.get() instanceof EsTable);
-        EsTable esTable = (EsTable) table3.get();
-
         db.unregisterTable(CatalogTestUtil.testTableId1);
         recycleBin.recycleTable(CatalogTestUtil.testDbId1, olapTable1, false, false, 0);
 
         db.unregisterTable(CatalogTestUtil.testTableId2);
         recycleBin.recycleTable(CatalogTestUtil.testDbId1, olapTable2, false, false, 0);
+    }
 
-        db.unregisterTable(CatalogTestUtil.testEsTableId1);
-        recycleBin.recycleTable(CatalogTestUtil.testDbId1, esTable, false, false, 0);
+    @Test
+    public void testConcurrentReadsDoNotBlock() throws Exception {
+        CatalogRecycleBin recycleBin = Env.getCurrentRecycleBin();
+
+        // Recycle several partitions
+        for (int i = 1; i <= 50; i++) {
+            MaterializedIndex index = new MaterializedIndex(2000 + i, IndexState.NORMAL);
+            RandomDistributionInfo dist = new RandomDistributionInfo(1);
+            Partition partition = new Partition(3000 + i, "part_" + i, index, dist);
+            recycleBin.recyclePartition(
+                    CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1,
+                    CatalogTestUtil.testTable1, partition, null, null,
+                    new DataProperty(TStorageMedium.HDD), new ReplicaAllocation((short) 3),
+                    false, false);
+        }
+
+        // Multiple reader threads should run concurrently without blocking each other
+        int numReaders = 10;
+        CyclicBarrier barrier = new CyclicBarrier(numReaders);
+        ExecutorService executor = Executors.newFixedThreadPool(numReaders);
+        List<Future<Boolean>> futures = new ArrayList<>();
+
+        for (int i = 0; i < numReaders; i++) {
+            futures.add(executor.submit(() -> {
+                barrier.await(5, TimeUnit.SECONDS);
+                // Perform various read operations concurrently
+                for (int j = 1; j <= 50; j++) {
+                    recycleBin.isRecyclePartition(CatalogTestUtil.testDbId1,
+                            CatalogTestUtil.testTableId1, 3000 + j);
+                    recycleBin.getRecycleTimeById(3000 + j);
+                }
+                Set<Long> dbIds = Sets.newHashSet();
+                Set<Long> tableIds = Sets.newHashSet();
+                Set<Long> partIds = Sets.newHashSet();
+                recycleBin.getRecycleIds(dbIds, tableIds, partIds);
+                return true;
+            }));
+        }
+
+        executor.shutdown();
+        Assert.assertTrue(executor.awaitTermination(30, TimeUnit.SECONDS));
+        for (Future<Boolean> f : futures) {
+            Assert.assertTrue(f.get());
+        }
+    }
+
+    @Test
+    public void testConcurrentRecycleAndRead() throws Exception {
+        CatalogRecycleBin recycleBin = Env.getCurrentRecycleBin();
+
+        AtomicBoolean readerError = new AtomicBoolean(false);
+        AtomicBoolean writerDone = new AtomicBoolean(false);
+        CountDownLatch startLatch = new CountDownLatch(1);
+
+        // Writer thread: continuously recycles partitions
+        Thread writer = new Thread(() -> {
+            try {
+                startLatch.await();
+                for (int i = 1; i <= 100; i++) {
+                    MaterializedIndex index = new MaterializedIndex(4000 + i, IndexState.NORMAL);
+                    RandomDistributionInfo dist = new RandomDistributionInfo(1);
+                    Partition partition = new Partition(5000 + i, "cpart_" + i, index, dist);
+                    recycleBin.recyclePartition(
+                            CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1,
+                            CatalogTestUtil.testTable1, partition, null, null,
+                            new DataProperty(TStorageMedium.HDD), new ReplicaAllocation((short) 3),
+                            false, false);
+                }
+            } catch (Exception e) {
+                readerError.set(true);
+            } finally {
+                writerDone.set(true);
+            }
+        });
+
+        // Reader threads: continuously read while writer is active
+        List<Thread> readers = new ArrayList<>();
+        for (int r = 0; r < 5; r++) {
+            Thread reader = new Thread(() -> {
+                try {
+                    startLatch.await();
+                    while (!writerDone.get()) {
+                        // These should never throw ConcurrentModificationException
+                        Set<Long> dbIds = Sets.newHashSet();
+                        Set<Long> tableIds = Sets.newHashSet();
+                        Set<Long> partIds = Sets.newHashSet();
+                        recycleBin.getRecycleIds(dbIds, tableIds, partIds);
+                        recycleBin.isRecyclePartition(CatalogTestUtil.testDbId1,
+                                CatalogTestUtil.testTableId1, 5001);
+                    }
+                } catch (Exception e) {
+                    readerError.set(true);
+                }
+            });
+            readers.add(reader);
+        }
+
+        writer.start();
+        readers.forEach(Thread::start);
+        startLatch.countDown();
+
+        writer.join(30_000);
+        for (Thread reader : readers) {
+            reader.join(30_000);
+        }
+
+        Assert.assertFalse("Reader or writer thread encountered an error", readerError.get());
+        // Verify all 100 partitions were recycled
+        for (int i = 1; i <= 100; i++) {
+            Assert.assertTrue(recycleBin.isRecyclePartition(CatalogTestUtil.testDbId1,
+                    CatalogTestUtil.testTableId1, 5000 + i));
+        }
+    }
+
+    @Test
+    public void testMicrobatchEraseReleasesLockBetweenItems() throws Exception {
+        CatalogRecycleBin recycleBin = Env.getCurrentRecycleBin();
+
+        // Recycle many partitions
+        int numPartitions = 50;
+        for (int i = 1; i <= numPartitions; i++) {
+            MaterializedIndex index = new MaterializedIndex(6000 + i, IndexState.NORMAL);
+            RandomDistributionInfo dist = new RandomDistributionInfo(1);
+            Partition partition = new Partition(7000 + i, "epart_" + i, index, dist);
+            recycleBin.recyclePartition(
+                    CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1,
+                    CatalogTestUtil.testTable1, partition, null, null,
+                    new DataProperty(TStorageMedium.HDD), new ReplicaAllocation((short) 3),
+                    false, false);
+        }
+
+        // Verify all were recycled
+        Set<Long> dbIds = Sets.newHashSet();
+        Set<Long> tableIds = Sets.newHashSet();
+        Set<Long> partitionIds = Sets.newHashSet();
+        recycleBin.getRecycleIds(dbIds, tableIds, partitionIds);
+        Assert.assertEquals(numPartitions, partitionIds.size());
+
+        // Now run erase daemon which should process items one at a time
+        // While erase is running, a concurrent recyclePartition should be able to
+        // proceed between items (not blocked for the entire erase duration)
+        AtomicBoolean recycleCompleted = new AtomicBoolean(false);
+        AtomicBoolean eraseStarted = new AtomicBoolean(false);
+
+        Thread eraseThread = new Thread(() -> {
+            eraseStarted.set(true);
+            recycleBin.runAfterCatalogReady();
+        });
+
+        eraseThread.start();
+
+        // Wait briefly for erase to start, then try to recycle a new partition
+        Thread.sleep(50);
+        if (eraseStarted.get()) {
+            MaterializedIndex newIndex = new MaterializedIndex(8000, IndexState.NORMAL);
+            RandomDistributionInfo newDist = new RandomDistributionInfo(1);
+            Partition newPartition = new Partition(9000, "new_part", newIndex, newDist);
+            recycleBin.recyclePartition(
+                    CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1,
+                    CatalogTestUtil.testTable1, newPartition, null, null,
+                    new DataProperty(TStorageMedium.HDD), new ReplicaAllocation((short) 3),
+                    false, false);
+            recycleCompleted.set(true);
+        }
+
+        eraseThread.join(60_000);
+        Assert.assertFalse("Erase thread should have finished", eraseThread.isAlive());
+
+        // The new partition should have been recycled successfully
+        if (eraseStarted.get()) {
+            Assert.assertTrue("recyclePartition should succeed during erase",
+                    recycleCompleted.get());
+            Assert.assertTrue(recycleBin.isRecyclePartition(CatalogTestUtil.testDbId1,
+                    CatalogTestUtil.testTableId1, 9000));
+        }
     }
 }
 

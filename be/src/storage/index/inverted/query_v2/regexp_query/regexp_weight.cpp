@@ -17,8 +17,20 @@
 
 #include "storage/index/inverted/query_v2/regexp_query/regexp_weight.h"
 
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Woverloaded-virtual"
+#elif defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Woverloaded-virtual"
+#endif
 #include <CLucene/index/IndexReader.h>
 #include <CLucene/index/Term.h>
+#ifdef __clang__
+#pragma clang diagnostic pop
+#elif defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 #include <gen_cpp/PaloBrokerService_types.h>
 
 #include <algorithm>
@@ -41,7 +53,9 @@ RegexpWeight::RegexpWeight(IndexQueryContextPtr context, std::wstring field, std
           _pattern(std::move(pattern)),
           _enable_scoring(enable_scoring),
           _nullable(nullable) {
-    // _max_expansions = _context->runtime_state->query_options().inverted_index_max_expansions;
+    if (_context->runtime_state) {
+        _max_expansions = _context->runtime_state->query_options().inverted_index_max_expansions;
+    }
 }
 
 ScorerPtr RegexpWeight::scorer(const QueryExecutionContext& context,
@@ -91,13 +105,11 @@ ScorerPtr RegexpWeight::regexp_scorer(const QueryExecutionContext& context,
         return std::make_shared<EmptyScorer>();
     }
 
+    auto reader = lookup_reader(_field, context, binding_key);
     auto doc_bitset = std::make_shared<roaring::Roaring>();
     for (const auto& term : matching_terms) {
-        auto t = make_term_ptr(_field.c_str(), term.c_str());
-        auto reader = lookup_reader(_field, context, binding_key);
-        auto iter = make_term_doc_ptr(reader.get(), t.get(), _enable_scoring, _context->io_ctx);
-        auto segment_postings = make_segment_postings(std::move(iter), _enable_scoring);
-
+        auto segment_postings =
+                create_term_posting(reader.get(), _field, term, false, nullptr, _context->io_ctx);
         uint32_t doc = segment_postings->doc();
         while (doc != TERMINATED) {
             doc_bitset->add(doc);

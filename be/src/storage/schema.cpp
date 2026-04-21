@@ -53,10 +53,7 @@ Schema& Schema::operator=(const Schema& other) {
 
 void Schema::_copy_from(const Schema& other) {
     _col_ids = other._col_ids;
-    _col_offsets = other._col_offsets;
-
     _num_key_columns = other._num_key_columns;
-    _schema_size = other._schema_size;
 
     // Deep copy _cols
     // TODO(lingbin): really need clone?
@@ -72,48 +69,14 @@ void Schema::_init(const std::vector<TabletColumnPtr>& cols, const std::vector<C
     _num_key_columns = num_key_columns;
 
     _cols.resize(cols.size(), nullptr);
-    _col_offsets.resize(_cols.size(), -1);
 
-    size_t offset = 0;
     std::unordered_set<uint32_t> col_id_set(col_ids.begin(), col_ids.end());
     for (int cid = 0; cid < cols.size(); ++cid) {
         if (col_id_set.find(cid) == col_id_set.end()) {
             continue;
         }
         _cols[cid] = StorageFieldFactory::create(*cols[cid]);
-
-        _col_offsets[cid] = offset;
-        // Plus 1 byte for null byte
-        offset += _cols[cid]->size() + 1;
     }
-
-    _schema_size = offset;
-}
-
-void Schema::_init(const std::vector<const StorageField*>& cols,
-                   const std::vector<ColumnId>& col_ids, size_t num_key_columns) {
-    _col_ids = col_ids;
-    _num_key_columns = num_key_columns;
-
-    _cols.resize(cols.size(), nullptr);
-    _col_offsets.resize(_cols.size(), -1);
-
-    size_t offset = 0;
-    std::unordered_set<uint32_t> col_id_set(col_ids.begin(), col_ids.end());
-    for (int cid = 0; cid < cols.size(); ++cid) {
-        if (col_id_set.find(cid) == col_id_set.end()) {
-            continue;
-        }
-        // TODO(lingbin): is it necessary to clone StorageField? each SegmentIterator will
-        // use this func, can we avoid clone?
-        _cols[cid] = cols[cid]->clone();
-
-        _col_offsets[cid] = offset;
-        // Plus 1 byte for null byte
-        offset += _cols[cid]->size() + 1;
-    }
-
-    _schema_size = offset;
 }
 
 Schema::~Schema() {

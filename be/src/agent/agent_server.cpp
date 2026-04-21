@@ -211,7 +211,8 @@ void AgentServer::cloud_start_workers(CloudStorageEngine& engine, ExecEnv* exec_
 
     _workers[TTaskType::ALTER] = std::make_unique<TaskWorkerPool>(
             "ALTER_TABLE", config::alter_tablet_worker_count,
-            [&engine](auto&& task) { return alter_cloud_tablet_callback(engine, task); });
+            [&engine](auto&& task) { return alter_cloud_tablet_callback(engine, task); },
+            [&engine](auto&& task) { set_alter_version_before_enqueue(engine, task); });
 
     _workers[TTaskType::CALCULATE_DELETE_BITMAP] = std::make_unique<TaskWorkerPool>(
             "CALC_DBM_TASK", config::calc_delete_bitmap_worker_count,
@@ -239,6 +240,12 @@ void AgentServer::cloud_start_workers(CloudStorageEngine& engine, ExecEnv* exec_
     _workers[TTaskType::ALTER_INVERTED_INDEX] = std::make_unique<TaskWorkerPool>(
             "ALTER_INVERTED_INDEX", config::alter_index_worker_count,
             [&engine](auto&& task) { return alter_cloud_index_callback(engine, task); });
+
+    _workers[TTaskType::MAKE_CLOUD_COMMITTED_RS_VISIBLE] = std::make_unique<TaskWorkerPool>(
+            "MAKE_CLOUD_COMMITTED_RS_VISIBLE", config::cloud_make_committed_rs_visible_worker_count,
+            [&engine](auto&& task) {
+                return make_cloud_committed_rs_visible_callback(engine, task);
+            });
 
     _report_workers.push_back(std::make_unique<ReportWorker>(
             "REPORT_TASK", _cluster_info, config::report_task_interval_seconds,

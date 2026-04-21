@@ -32,7 +32,6 @@
 #include "util/uid_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 HashJoinBuildSinkLocalState::HashJoinBuildSinkLocalState(DataSinkOperatorXBase* parent,
                                                          RuntimeState* state)
         : JoinBuildSinkLocalState(parent, state) {
@@ -237,7 +236,18 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
 
         if (p._use_shared_hash_table) {
             std::unique_lock lock(p._mutex);
-            p._signaled = true;
+            // Only signal non-builder tasks when the builder actually built the hash table.
+            // When the builder is terminated (woken up early because the probe side finished
+            // first), it never called process_build_block() so the hash table variant is still
+            // monostate. Setting _signaled=true in that case would cause non-builder tasks to
+            // enter std::visit on monostate and crash with "Hash table type mismatch".
+            //
+            // _terminated is reliably true here when the task was woken up early, because
+            // operator terminate() is called from the execute() Defer in PipelineTask
+            // before close() is invoked.
+            if (!_terminated) {
+                p._signaled = true;
+            }
             for (auto& dep : _shared_state->sink_deps) {
                 dep->set_ready();
             }
@@ -359,14 +369,12 @@ Status HashJoinBuildSinkLocalState::build_asof_index(Block& block) {
     // Compute build ASOF column by executing build-side expression directly on build block.
     // Expression is prepared against build child's row_desc, matching the build block layout.
     DORIS_CHECK(p._asof_build_side_expr);
-    int result_col_idx = -1;
+    ColumnPtr asof_build_col;
     {
         SCOPED_TIMER(_asof_index_expr_timer);
-        RETURN_IF_ERROR(p._asof_build_side_expr->execute(&block, &result_col_idx));
+        RETURN_IF_ERROR(p._asof_build_side_expr->execute(&block, asof_build_col));
     }
-    DORIS_CHECK(result_col_idx >= 0 && result_col_idx < static_cast<int>(block.columns()));
-    auto asof_build_col =
-            block.get_by_position(result_col_idx).column->convert_to_full_column_if_const();
+    asof_build_col = asof_build_col->convert_to_full_column_if_const();
 
     // Handle nullable: extract nested column for value access, keep nullable for null checks
     const ColumnNullable* nullable_col = nullptr;
@@ -590,22 +598,19 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state, Blo
     RETURN_IF_ERROR(_hash_table_init(state, raw_ptrs));
 
     Status st = std::visit(
-            Overload {[&](std::monostate& arg, auto join_op,
-                          auto short_circuit_for_null_in_build_side,
-                          auto with_other_conjuncts) -> Status {
+            Overload {[&](std::monostate& arg, auto join_op) -> Status {
                           throw Exception(Status::FatalError("FATAL: uninited hash table"));
                       },
-                      [&](auto&& arg, auto&& join_op, auto short_circuit_for_null_in_build_side,
-                          auto with_other_conjuncts) -> Status {
+                      [&](auto&& arg, auto&& join_op) -> Status {
                           using HashTableCtxType = std::decay_t<decltype(arg)>;
                           using JoinOpType = std::decay_t<decltype(join_op)>;
                           ProcessHashTableBuild<HashTableCtxType> hash_table_build_process(
                                   rows, raw_ptrs, this, state->batch_size(), state);
-                          auto st = hash_table_build_process.template run<
-                                  JoinOpType::value, short_circuit_for_null_in_build_side,
-                                  with_other_conjuncts>(
+                          auto st = hash_table_build_process.template run<JoinOpType::value>(
                                   arg, null_map_val ? &null_map_val->get_data() : nullptr,
-                                  &_shared_state->_has_null_in_build_side);
+                                  &_shared_state->_has_null_in_build_side,
+                                  p._short_circuit_for_null_in_build_side,
+                                  p._have_other_join_conjunct);
                           COUNTER_SET(_memory_used_counter,
                                       _build_blocks_memory_usage->value() +
                                               (int64_t)(arg.hash_table->get_byte_size() +
@@ -613,9 +618,7 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state, Blo
                           return st;
                       }},
             _shared_state->hash_table_variant_vector.front()->method_variant,
-            _shared_state->join_op_variants,
-            make_bool_variant(p._short_circuit_for_null_in_build_side),
-            make_bool_variant((p._have_other_join_conjunct)));
+            _shared_state->join_op_variants);
     return st;
 }
 
@@ -847,12 +850,20 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, Block* in_block, bo
         RETURN_IF_ERROR(local_state.build_asof_index(*local_state._shared_state->build_block));
         local_state.init_short_circuit_for_probe();
     } else if (!local_state._should_build_hash_table) {
-        // the instance which is not build hash table, it's should wait the signal of hash table build finished.
-        // but if it's running and signaled == false, maybe the source operator have closed caused by some short circuit
-        // return eof will make task marked as wake_up_early
-        // todo: remove signaled after we can guarantee that wake up eraly is always set accurately
-        if (!_signaled || local_state._terminated) {
-            return Status::Error<ErrorCode::END_OF_FILE>("source have closed");
+        // The non-builder instance waits for the builder (task 0) to finish building the hash table.
+        // If _signaled is false, either the builder hasn't finished yet, or the builder was
+        // terminated (woken up early) without building the hash table — in both cases, return EOF.
+        //
+        // The close() Defer in the builder conditionally sets _signaled=true ONLY when the builder
+        // was NOT terminated (i.e., the hash table was actually built). When the builder is
+        // terminated, _signaled stays false, so non-builders always hit this guard and return EOF
+        // safely — never reaching the std::visit on an uninitialized (monostate) hash table.
+        //
+        // At this point, termination is reflected solely through the value of _signaled: a
+        // terminated builder never sets _signaled to true. Checking !_signaled is therefore
+        // sufficient and serves as the real guard against racing with an uninitialized hash table.
+        if (!_signaled) {
+            return Status::Error<ErrorCode::END_OF_FILE>("source has closed");
         }
 
         DCHECK_LE(local_state._task_idx,

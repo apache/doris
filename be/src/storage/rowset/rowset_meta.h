@@ -43,8 +43,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
-
 class RowsetMeta : public MetadataAdder<RowsetMeta> {
 public:
     RowsetMeta() = default;
@@ -395,11 +393,9 @@ public:
         }
         return system_clock::from_time_t(newest_write_timestamp());
     }
-#ifdef BE_TEST
     void set_visible_ts_ms(int64_t visible_ts_ms) {
         _rowset_meta_pb.set_visible_ts_ms(visible_ts_ms);
     }
-#endif
 
     void set_tablet_schema(const TabletSchemaSPtr& tablet_schema);
     void set_tablet_schema(const TabletSchemaPB& tablet_schema);
@@ -462,6 +458,20 @@ public:
                 [algorithm]() -> Result<EncryptionAlgorithmPB> { return algorithm; });
     }
 
+    int64_t commit_tso() const { return _rowset_meta_pb.commit_tso(); }
+
+    void set_commit_tso(int64_t commit_tso) { _rowset_meta_pb.set_commit_tso(commit_tso); }
+
+    void set_cloud_fields_after_visible(int64_t visible_version, int64_t version_update_time_ms) {
+        // Update rowset meta with correct version and visible_ts
+        // !!ATTENTION!!: this code should be updated if there are more fields
+        // in rowset meta which will be modified in meta-service when commit_txn in the future
+        set_version({visible_version, visible_version});
+        if (version_update_time_ms > 0) {
+            set_visible_ts_ms(version_update_time_ms);
+        }
+    }
+
 private:
     bool _deserialize_from_pb(std::string_view value);
 
@@ -486,7 +496,6 @@ private:
 
 using RowsetMetaMapContainer = std::unordered_map<Version, RowsetMetaSharedPtr, HashOfVersion>;
 
-#include "common/compile_check_end.h"
 } // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_ROWSET_ROWSET_META_H

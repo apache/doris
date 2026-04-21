@@ -36,6 +36,7 @@ import org.apache.doris.nereids.rules.expression.rules.SimplifyInPredicate;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyRange;
 import org.apache.doris.nereids.rules.expression.rules.SimplifySelfComparison;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyTimeFieldFromUnixtime;
+import org.apache.doris.nereids.rules.expression.rules.StringEmptyToLengthRule;
 import org.apache.doris.nereids.rules.expression.rules.TopnToMax;
 
 import com.google.common.collect.ImmutableList;
@@ -71,7 +72,8 @@ public class ExpressionOptimization extends ExpressionRewrite {
                     TopnToMax.INSTANCE,
                     NullSafeEqualToEqual.INSTANCE,
                     LikeToEqualRewrite.INSTANCE,
-                    BetweenToEqual.INSTANCE
+                    BetweenToEqual.INSTANCE,
+                    StringEmptyToLengthRule.INSTANCE
             )
     );
 

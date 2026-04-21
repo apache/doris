@@ -19,6 +19,7 @@ package org.apache.doris.system;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
+import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.GenericPool;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.system.HeartbeatMgr.BrokerHeartbeatHandler;
@@ -35,150 +36,118 @@ import org.apache.doris.thrift.TFrontendPingFrontendStatusCode;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloBrokerService;
 
-import mockit.Expectations;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
-import org.apache.thrift.TException;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 public class HeartbeatMgrTest {
 
-    @Mocked
-    private Env env;
+    private Env env = Mockito.mock(Env.class);
+    private MockedStatic<Env> mockedEnvStatic;
 
     @Before
     public void setUp() {
-        new Expectations() {
-            {
-                env.getSelfNode();
-                minTimes = 0;
-                result = new HostInfo("192.168.1.3", 9010); // not self
-
-                env.isReady();
-                minTimes = 0;
-                result = true;
-
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-            }
-        };
-
+        mockedEnvStatic = Mockito.mockStatic(Env.class);
+        mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
+        Mockito.when(env.getSelfNode()).thenReturn(new HostInfo("192.168.1.3", 9010)); // not self
+        Mockito.when(env.isReady()).thenReturn(true);
     }
 
-    @Test
-    public void testFrontendHbHandler(@Mocked FrontendService.Client client) throws TException {
-        new MockUp<GenericPool<FrontendService.Client>>() {
-            @Mock
-            public FrontendService.Client borrowObject(TNetworkAddress address) throws Exception {
-                return client;
-            }
-
-            @Mock
-            public void returnObject(TNetworkAddress address, FrontendService.Client object) {
-                return;
-            }
-
-            @Mock
-            public void invalidateObject(TNetworkAddress address, FrontendService.Client object) {
-                return;
-            }
-        };
-
-        TFrontendPingFrontendRequest normalRequest = new TFrontendPingFrontendRequest(12345, "abcd");
-        TFrontendPingFrontendResult normalResult = new TFrontendPingFrontendResult();
-        normalResult.setStatus(TFrontendPingFrontendStatusCode.OK);
-        normalResult.setMsg("success");
-        normalResult.setReplayedJournalId(191224);
-        normalResult.setQueryPort(9131);
-        normalResult.setRpcPort(9121);
-        normalResult.setArrowFlightSqlPort(9141);
-        normalResult.setVersion("test");
-
-        TFrontendPingFrontendRequest badRequest = new TFrontendPingFrontendRequest(12345, "abcde");
-        TFrontendPingFrontendResult badResult = new TFrontendPingFrontendResult();
-        badResult.setStatus(TFrontendPingFrontendStatusCode.FAILED);
-        badResult.setMsg("not ready");
-
-        new Expectations() {
-            {
-                client.ping(normalRequest);
-                minTimes = 0;
-                result = normalResult;
-
-                client.ping(badRequest);
-                minTimes = 0;
-                result = badResult;
-            }
-        };
-
-        Frontend fe = new Frontend(FrontendNodeType.FOLLOWER, "test", "192.168.1.1", 9010);
-        FrontendHeartbeatHandler handler = new FrontendHeartbeatHandler(fe, 12345, "abcd");
-        HeartbeatResponse response = handler.call();
-
-        Assert.assertTrue(response instanceof FrontendHbResponse);
-        FrontendHbResponse hbResponse = (FrontendHbResponse) response;
-        Assert.assertEquals(191224, hbResponse.getReplayedJournalId());
-        Assert.assertEquals(9131, hbResponse.getQueryPort());
-        Assert.assertEquals(9121, hbResponse.getRpcPort());
-        Assert.assertEquals(9141, hbResponse.getArrowFlightSqlPort());
-        Assert.assertEquals(HbStatus.OK, hbResponse.getStatus());
-        Assert.assertEquals("test", hbResponse.getVersion());
-
-        Frontend fe2 = new Frontend(FrontendNodeType.FOLLOWER, "test2", "192.168.1.2", 9010);
-        handler = new FrontendHeartbeatHandler(fe2, 12345, "abcde");
-        response = handler.call();
-
-        Assert.assertTrue(response instanceof FrontendHbResponse);
-        hbResponse = (FrontendHbResponse) response;
-        Assert.assertEquals(0, hbResponse.getReplayedJournalId());
-        Assert.assertEquals(0, hbResponse.getQueryPort());
-        Assert.assertEquals(0, hbResponse.getRpcPort());
-        Assert.assertEquals(0, hbResponse.getArrowFlightSqlPort());
-        Assert.assertEquals(HbStatus.BAD, hbResponse.getStatus());
-        Assert.assertEquals("not ready", hbResponse.getMsg());
+    @After
+    public void tearDown() {
+        if (mockedEnvStatic != null) {
+            mockedEnvStatic.close();
+        }
     }
 
+    @SuppressWarnings("unchecked")
     @Test
-    public void testBrokerHbHandler(@Mocked TPaloBrokerService.Client client) throws Exception {
+    public void testFrontendHbHandler() throws Exception {
+        FrontendService.Client client = Mockito.mock(FrontendService.Client.class);
+
+        GenericPool<FrontendService.Client> mockPool = Mockito.mock(GenericPool.class);
+        Mockito.when(mockPool.borrowObject(Mockito.any(TNetworkAddress.class))).thenReturn(client);
+
+        GenericPool<FrontendService.Client> originalPool = ClientPool.frontendHeartbeatPool;
+        ClientPool.frontendHeartbeatPool = mockPool;
+        try {
+            TFrontendPingFrontendRequest normalRequest = new TFrontendPingFrontendRequest(12345, "abcd");
+            TFrontendPingFrontendResult normalResult = new TFrontendPingFrontendResult();
+            normalResult.setStatus(TFrontendPingFrontendStatusCode.OK);
+            normalResult.setMsg("success");
+            normalResult.setReplayedJournalId(191224);
+            normalResult.setQueryPort(9131);
+            normalResult.setRpcPort(9121);
+            normalResult.setArrowFlightSqlPort(9141);
+            normalResult.setVersion("test");
+
+            TFrontendPingFrontendRequest badRequest = new TFrontendPingFrontendRequest(12345, "abcde");
+            TFrontendPingFrontendResult badResult = new TFrontendPingFrontendResult();
+            badResult.setStatus(TFrontendPingFrontendStatusCode.FAILED);
+            badResult.setMsg("not ready");
+
+            Mockito.when(client.ping(normalRequest)).thenReturn(normalResult);
+            Mockito.when(client.ping(badRequest)).thenReturn(badResult);
+
+            Frontend fe = new Frontend(FrontendNodeType.FOLLOWER, "test", "192.168.1.1", 9010);
+            FrontendHeartbeatHandler handler = new FrontendHeartbeatHandler(fe, 12345, "abcd");
+            HeartbeatResponse response = handler.call();
+
+            Assert.assertTrue(response instanceof FrontendHbResponse);
+            FrontendHbResponse hbResponse = (FrontendHbResponse) response;
+            Assert.assertEquals(191224, hbResponse.getReplayedJournalId());
+            Assert.assertEquals(9131, hbResponse.getQueryPort());
+            Assert.assertEquals(9121, hbResponse.getRpcPort());
+            Assert.assertEquals(9141, hbResponse.getArrowFlightSqlPort());
+            Assert.assertEquals(HbStatus.OK, hbResponse.getStatus());
+            Assert.assertEquals("test", hbResponse.getVersion());
+
+            Frontend fe2 = new Frontend(FrontendNodeType.FOLLOWER, "test2", "192.168.1.2", 9010);
+            handler = new FrontendHeartbeatHandler(fe2, 12345, "abcde");
+            response = handler.call();
+
+            Assert.assertTrue(response instanceof FrontendHbResponse);
+            hbResponse = (FrontendHbResponse) response;
+            Assert.assertEquals(0, hbResponse.getReplayedJournalId());
+            Assert.assertEquals(0, hbResponse.getQueryPort());
+            Assert.assertEquals(0, hbResponse.getRpcPort());
+            Assert.assertEquals(0, hbResponse.getArrowFlightSqlPort());
+            Assert.assertEquals(HbStatus.BAD, hbResponse.getStatus());
+            Assert.assertEquals("not ready", hbResponse.getMsg());
+        } finally {
+            ClientPool.frontendHeartbeatPool = originalPool;
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    public void testBrokerHbHandler() throws Exception {
+        TPaloBrokerService.Client client = Mockito.mock(TPaloBrokerService.Client.class);
+
         TBrokerOperationStatus status = new TBrokerOperationStatus();
         status.setStatusCode(TBrokerOperationStatusCode.OK);
 
-        new MockUp<GenericPool<TPaloBrokerService.Client>>() {
-            @Mock
-            public TPaloBrokerService.Client borrowObject(TNetworkAddress address) throws Exception {
-                return client;
-            }
+        GenericPool<TPaloBrokerService.Client> mockPool = Mockito.mock(GenericPool.class);
+        Mockito.when(mockPool.borrowObject(Mockito.any(TNetworkAddress.class))).thenReturn(client);
 
-            @Mock
-            public void returnObject(TNetworkAddress address, TPaloBrokerService.Client object) {
-                return;
-            }
+        GenericPool<TPaloBrokerService.Client> originalPool = ClientPool.brokerPool;
+        ClientPool.brokerPool = mockPool;
+        try {
+            Mockito.when(client.ping(Mockito.any(TBrokerPingBrokerRequest.class))).thenReturn(status);
 
-            @Mock
-            public void invalidateObject(TNetworkAddress address, TPaloBrokerService.Client object) {
-                return;
-            }
-        };
+            FsBroker broker = new FsBroker("192.168.1.1", 8111);
+            BrokerHeartbeatHandler handler = new BrokerHeartbeatHandler("hdfs", broker, "abc");
+            HeartbeatResponse response = handler.call();
 
-        new Expectations() {
-            {
-                client.ping((TBrokerPingBrokerRequest) any);
-                minTimes = 0;
-                result = status;
-            }
-        };
-
-        FsBroker broker = new FsBroker("192.168.1.1", 8111);
-        BrokerHeartbeatHandler handler = new BrokerHeartbeatHandler("hdfs", broker, "abc");
-        HeartbeatResponse response = handler.call();
-
-        Assert.assertTrue(response instanceof BrokerHbResponse);
-        BrokerHbResponse hbResponse = (BrokerHbResponse) response;
-        Assert.assertEquals(HbStatus.OK, hbResponse.getStatus());
+            Assert.assertTrue(response instanceof BrokerHbResponse);
+            BrokerHbResponse hbResponse = (BrokerHbResponse) response;
+            Assert.assertEquals(HbStatus.OK, hbResponse.getStatus());
+        } finally {
+            ClientPool.brokerPool = originalPool;
+        }
     }
 
 }

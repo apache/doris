@@ -30,7 +30,6 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
@@ -60,6 +59,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * External table represent tables that are not self-managed by Doris.
@@ -174,19 +174,33 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
 
     @Override
     public List<Column> getFullSchema() {
-        ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(catalog);
-        Optional<SchemaCacheValue> schemaCacheValue = cache.getSchemaValue(new SchemaCacheKey(getOrBuildNameMapping()));
+        Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
         return schemaCacheValue.map(SchemaCacheValue::getSchema).orElse(null);
+    }
+
+    protected boolean needInternalHiddenColumns() {
+        return false;
     }
 
     @Override
     public List<Column> getBaseSchema() {
-        return getFullSchema();
+        boolean showHidden = Util.showHiddenColumns();
+        if (!showHidden && needInternalHiddenColumns()) {
+            showHidden = true;
+        }
+        return getBaseSchema(showHidden);
     }
 
     @Override
     public List<Column> getBaseSchema(boolean full) {
-        return getFullSchema();
+        List<Column> schema = getFullSchema();
+        if (schema == null) {
+            return null;
+        }
+        if (full) {
+            return schema;
+        }
+        return schema.stream().filter(Column::isVisible).collect(Collectors.toList());
     }
 
     @Override
@@ -207,6 +221,13 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     @Override
     public String getEngine() {
         return getType().toEngineName();
+    }
+
+    /**
+     * Returns the effective meta cache engine for this table.
+     */
+    public String getMetaCacheEngine() {
+        return "default";
     }
 
     @Override
@@ -391,8 +412,8 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     }
 
     public Optional<SchemaCacheValue> getSchemaCacheValue() {
-        ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(catalog);
-        return cache.getSchemaValue(new SchemaCacheKey(getOrBuildNameMapping()));
+        return Env.getCurrentEnv().getExtMetaCacheMgr()
+                .getSchemaCacheValue(this, new SchemaCacheKey(getOrBuildNameMapping()));
     }
 
     @Override

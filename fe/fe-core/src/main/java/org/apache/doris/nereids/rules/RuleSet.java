@@ -63,12 +63,12 @@ import org.apache.doris.nereids.rules.implementation.LogicalBlackholeSinkToPhysi
 import org.apache.doris.nereids.rules.implementation.LogicalCTEAnchorToPhysicalCTEAnchor;
 import org.apache.doris.nereids.rules.implementation.LogicalCTEConsumerToPhysicalCTEConsumer;
 import org.apache.doris.nereids.rules.implementation.LogicalCTEProducerToPhysicalCTEProducer;
+import org.apache.doris.nereids.rules.implementation.LogicalConnectorTableSinkToPhysicalConnectorTableSink;
 import org.apache.doris.nereids.rules.implementation.LogicalDeferMaterializeOlapScanToPhysicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.rules.implementation.LogicalDeferMaterializeResultSinkToPhysicalDeferMaterializeResultSink;
 import org.apache.doris.nereids.rules.implementation.LogicalDeferMaterializeTopNToPhysicalDeferMaterializeTopN;
 import org.apache.doris.nereids.rules.implementation.LogicalDictionarySinkToPhysicalDictionarySink;
 import org.apache.doris.nereids.rules.implementation.LogicalEmptyRelationToPhysicalEmptyRelation;
-import org.apache.doris.nereids.rules.implementation.LogicalEsScanToPhysicalEsScan;
 import org.apache.doris.nereids.rules.implementation.LogicalExceptToPhysicalExcept;
 import org.apache.doris.nereids.rules.implementation.LogicalFileScanToPhysicalFileScan;
 import org.apache.doris.nereids.rules.implementation.LogicalFileSinkToPhysicalFileSink;
@@ -76,10 +76,10 @@ import org.apache.doris.nereids.rules.implementation.LogicalFilterToPhysicalFilt
 import org.apache.doris.nereids.rules.implementation.LogicalGenerateToPhysicalGenerate;
 import org.apache.doris.nereids.rules.implementation.LogicalHiveTableSinkToPhysicalHiveTableSink;
 import org.apache.doris.nereids.rules.implementation.LogicalHudiScanToPhysicalHudiScan;
+import org.apache.doris.nereids.rules.implementation.LogicalIcebergDeleteSinkToPhysicalIcebergDeleteSink;
+import org.apache.doris.nereids.rules.implementation.LogicalIcebergMergeSinkToPhysicalIcebergMergeSink;
 import org.apache.doris.nereids.rules.implementation.LogicalIcebergTableSinkToPhysicalIcebergTableSink;
 import org.apache.doris.nereids.rules.implementation.LogicalIntersectToPhysicalIntersect;
-import org.apache.doris.nereids.rules.implementation.LogicalJdbcScanToPhysicalJdbcScan;
-import org.apache.doris.nereids.rules.implementation.LogicalJdbcTableSinkToPhysicalJdbcTableSink;
 import org.apache.doris.nereids.rules.implementation.LogicalJoinToHashJoin;
 import org.apache.doris.nereids.rules.implementation.LogicalJoinToNestedLoopJoin;
 import org.apache.doris.nereids.rules.implementation.LogicalLimitToPhysicalLimit;
@@ -208,9 +208,7 @@ public class RuleSet {
             .add(new LogicalSchemaScanToPhysicalSchemaScan())
             .add(new LogicalHudiScanToPhysicalHudiScan())
             .add(new LogicalFileScanToPhysicalFileScan())
-            .add(new LogicalJdbcScanToPhysicalJdbcScan())
             .add(new LogicalOdbcScanToPhysicalOdbcScan())
-            .add(new LogicalEsScanToPhysicalEsScan())
             .add(new LogicalWorkTableReferenceToPhysicalWorkTableReference())
             .add(new LogicalProjectToPhysicalProject())
             .add(new LogicalLimitToPhysicalLimit())
@@ -238,7 +236,9 @@ public class RuleSet {
             .add(new LogicalHiveTableSinkToPhysicalHiveTableSink())
             .add(new LogicalIcebergTableSinkToPhysicalIcebergTableSink())
             .add(new LogicalMaxComputeTableSinkToPhysicalMaxComputeTableSink())
-            .add(new LogicalJdbcTableSinkToPhysicalJdbcTableSink())
+            .add(new LogicalIcebergDeleteSinkToPhysicalIcebergDeleteSink())
+            .add(new LogicalIcebergMergeSinkToPhysicalIcebergMergeSink())
+            .add(new LogicalConnectorTableSinkToPhysicalConnectorTableSink())
             .add(new LogicalFileSinkToPhysicalFileSink())
             .add(new LogicalResultSinkToPhysicalResultSink())
             .add(new LogicalDeferMaterializeResultSinkToPhysicalDeferMaterializeResultSink())

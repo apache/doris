@@ -19,14 +19,15 @@ package org.apache.doris.httpv2.rest;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.http.DorisHttpTestCase;
 import org.apache.doris.httpv2.util.ExecutionResultSet;
+import org.apache.doris.httpv2.util.StatementSubmitter;
 import org.apache.doris.httpv2.util.StatementSubmitter.StmtContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.utframe.MockedMetaServerFactory;
 import org.apache.doris.utframe.UtFrameUtils;
 
-import mockit.Expectations;
 import okhttp3.Credentials;
 import okhttp3.Request;
 import okhttp3.RequestBody;
@@ -37,13 +38,14 @@ import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Ignore;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.FutureTask;
+import java.util.concurrent.Future;
 
 public class CopyIntoTest extends DorisHttpTestCase {
     protected static final String runningDir = "fe/mocked/" + CopyIntoTest.class.getSimpleName() + "/" + UUID.randomUUID() + "/";
@@ -140,8 +142,6 @@ public class CopyIntoTest extends DorisHttpTestCase {
         String exception = (String) jsonObject.get("data");
         Assert.assertTrue(exception.contains("POST body must contain [sql] root object"));
 
-        java.util.concurrent.FutureTask<ExecutionResultSet> ret = new FutureTask<>(() -> new ExecutionResultSet(new HashMap<>()));
-
         HashMap<String, Object> om = new HashMap<>();
         HashMap<String, Object> im = new HashMap<>();
         im.put("copyId", "copy_1296997def6d4887_9e7ff31a7f3842cc");
@@ -155,17 +155,13 @@ public class CopyIntoTest extends DorisHttpTestCase {
         om.put("result", im);
         ExecutionResultSet e = new ExecutionResultSet(om);
 
-        new Expectations(CopyIntoAction.getStmtSubmitter(), ret) {
-            {
-                CopyIntoAction.getStmtSubmitter().submitBlock((StmtContext) any);
-                minTimes = 0;
-                result = ret;
-
-                ret.get();
-                minTimes = 0;
-                result = e;
-            }
-        };
+        CopyIntoAction.getStmtSubmitter();
+        StatementSubmitter mockSubmitter = Mockito.mock(StatementSubmitter.class);
+        @SuppressWarnings("unchecked")
+        Future<ExecutionResultSet> mockRet = Mockito.mock(Future.class);
+        Mockito.when(mockSubmitter.submitBlock(Mockito.any(StmtContext.class))).thenReturn(mockRet);
+        Mockito.when(mockRet.get()).thenReturn(e);
+        Deencapsulation.setField(CopyIntoAction.class, "stmtSubmitter", mockSubmitter);
 
         Map<String, String> m = new HashMap<>();
         m.put("sql", "copy into db1.t2 from @~(\"{t3.dat}\")");

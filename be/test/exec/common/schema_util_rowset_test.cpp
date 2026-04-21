@@ -143,7 +143,7 @@ static void fill_varaint_column(auto& variant_column, int size, int uid) {
     auto column_string = assert_cast<ColumnString*>(column.get());
     fill_string_column_with_test_data(column_string, size, uid);
     ParseConfig config;
-    config.enable_flatten_nested = false;
+    config.deprecated_enable_flatten_nested = false;
     variant_util::parse_json_to_variant(*variant_column, *column_string, config);
 }
 
@@ -706,7 +706,7 @@ TEST_F(SchemaUtilRowsetTest, some_test_for_subcolumn_writer) {
     auto size = variant_subcolumn_writer->estimate_buffer_size();
     std::cout << "size: " << size << std::endl;
     // append data
-    auto insert_object = ColumnVariant::create(true);
+    auto insert_object = ColumnVariant::create(0, false);
     fill_varaint_column(insert_object, 1, 1);
     std::cout << insert_object->debug_string() << std::endl;
     std::unique_ptr<VariantColumnData> _variant_column_data = std::make_unique<VariantColumnData>();

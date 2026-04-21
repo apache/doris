@@ -55,6 +55,7 @@
 #include "exprs/vslot_ref.h"
 #include "format/parquet/schema_desc.h"
 #include "format/parquet/vparquet_column_reader.h"
+#include "format/table/iceberg_reader.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
@@ -72,7 +73,7 @@ struct IOContext;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
+
 const std::vector<int64_t> RowGroupReader::NO_DELETE = {};
 static constexpr uint32_t MAX_DICT_CODE_PREDICATE_TO_REWRITE = std::numeric_limits<uint32_t>::max();
 
@@ -115,7 +116,8 @@ Status RowGroupReader::init(
     _col_name_to_slot_id = colname_to_slot_id;
     _slot_id_to_filter_conjuncts = slot_id_to_filter_conjuncts;
     _read_ranges = row_ranges;
-    _remaining_rows = row_ranges.count();
+    _filter_read_ranges_by_condition_cache();
+    _remaining_rows = _read_ranges.count();
 
     if (_read_table_columns.empty()) {
         // Query task that only select columns in path.
@@ -154,6 +156,20 @@ Status RowGroupReader::init(
         for (size_t i = 0; i < predicate_col_names.size(); ++i) {
             const std::string& predicate_col_name = predicate_col_names[i];
             int slot_id = predicate_col_slot_ids[i];
+
+            if (!_table_format_reader->has_column_optimization(
+                        predicate_col_name,
+                        TableFormatReader::ColumnOptimizationTypes::DICT_FILTER)) {
+                // Row-lineage style generated columns cannot participate in dict filtering.
+                if (_slot_id_to_filter_conjuncts->find(slot_id) !=
+                    _slot_id_to_filter_conjuncts->end()) {
+                    for (auto& ctx : _slot_id_to_filter_conjuncts->at(slot_id)) {
+                        _filter_conjuncts.push_back(ctx);
+                    }
+                }
+                continue;
+            }
+
             auto predicate_file_col_name =
                     _table_info_node_ptr->children_file_column_name(predicate_col_name);
             auto field = schema.get_column(predicate_file_col_name);
@@ -310,12 +326,16 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
         bool modify_row_ids = false;
         RETURN_IF_ERROR(_read_empty_batch(batch_size, read_rows, batch_eof, &modify_row_ids));
 
-        RETURN_IF_ERROR(
-                _fill_partition_columns(block, *read_rows, _lazy_read_ctx.partition_columns));
-        RETURN_IF_ERROR(_fill_missing_columns(block, *read_rows, _lazy_read_ctx.missing_columns));
-
-        RETURN_IF_ERROR(_fill_row_id_columns(block, *read_rows, modify_row_ids));
-
+        DCHECK(_table_format_reader);
+        RETURN_IF_ERROR(_table_format_reader->on_fill_partition_columns(
+                block, *read_rows, _lazy_read_ctx.partition_col_names));
+        RETURN_IF_ERROR(_table_format_reader->on_fill_missing_columns(
+                block, *read_rows, _lazy_read_ctx.missing_col_names));
+        if (_table_format_reader->has_synthesized_column_handlers()) {
+            RETURN_IF_ERROR(_get_current_batch_row_id(*read_rows));
+        }
+        RETURN_IF_ERROR(_table_format_reader->fill_synthesized_columns(block, *read_rows));
+        RETURN_IF_ERROR(_table_format_reader->fill_generated_columns(block, *read_rows));
         Status st = VExprContext::filter_block(_lazy_read_ctx.conjuncts, block, block->columns());
         *read_rows = block->rows();
         return st;
@@ -325,12 +345,21 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
         return _do_lazy_read(block, batch_size, read_rows, batch_eof);
     } else {
         FilterMap filter_map;
+        int64_t batch_base_row = _total_read_rows;
         RETURN_IF_ERROR((_read_column_data(block, _lazy_read_ctx.all_read_columns, batch_size,
                                            read_rows, batch_eof, filter_map)));
-        RETURN_IF_ERROR(
-                _fill_partition_columns(block, *read_rows, _lazy_read_ctx.partition_columns));
-        RETURN_IF_ERROR(_fill_missing_columns(block, *read_rows, _lazy_read_ctx.missing_columns));
-        RETURN_IF_ERROR(_fill_row_id_columns(block, *read_rows, false));
+        DCHECK(_table_format_reader);
+        RETURN_IF_ERROR(_table_format_reader->on_fill_partition_columns(
+                block, *read_rows, _lazy_read_ctx.partition_col_names));
+        RETURN_IF_ERROR(_table_format_reader->on_fill_missing_columns(
+                block, *read_rows, _lazy_read_ctx.missing_col_names));
+
+        if (_table_format_reader->has_synthesized_column_handlers() ||
+            _table_format_reader->has_generated_column_handlers()) {
+            RETURN_IF_ERROR(_get_current_batch_row_id(*read_rows));
+        }
+        RETURN_IF_ERROR(_table_format_reader->fill_synthesized_columns(block, *read_rows));
+        RETURN_IF_ERROR(_table_format_reader->fill_generated_columns(block, *read_rows));
 
 #ifndef NDEBUG
         for (auto col : *block) {
@@ -377,6 +406,12 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
                             _filter_conjuncts, &filters, block, &result_filter, &can_filter_all));
                 }
 
+                // Condition cache MISS: mark granules with surviving rows (non-lazy path)
+                if (!can_filter_all) {
+                    _mark_condition_cache_granules(result_filter.data(), block->rows(),
+                                                   batch_base_row);
+                }
+
                 if (can_filter_all) {
                     for (auto& col : columns_to_filter) {
                         std::move(*block->get_by_position(col).column).assume_mutable()->clear();
@@ -406,6 +441,91 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
         *read_rows = block->rows();
         return Status::OK();
     }
+}
+
+// Maps each batch row to its global parquet file position via _read_ranges, then marks
+// the corresponding condition cache granule as true if the filter indicates the row survived.
+// batch_seq_start is the number of rows already read sequentially before this batch
+// (i.e., _total_read_rows before the batch started).
+void RowGroupReader::_mark_condition_cache_granules(const uint8_t* filter_data, size_t num_rows,
+                                                    int64_t batch_seq_start) {
+    if (!_condition_cache_ctx || _condition_cache_ctx->is_hit) {
+        return;
+    }
+    auto& cache = *_condition_cache_ctx->filter_result;
+    for (size_t i = 0; i < num_rows; i++) {
+        if (filter_data[i]) {
+            // row-group-relative position of this row
+            int64_t rg_pos = _read_ranges.get_row_index_by_pos(batch_seq_start + i);
+            // global row number in the parquet file
+            size_t granule = (_current_row_group_idx.first_row + rg_pos) /
+                             ConditionCacheContext::GRANULE_SIZE;
+            size_t cache_idx = granule - _condition_cache_ctx->base_granule;
+            if (cache_idx < cache.size()) {
+                cache[cache_idx] = true;
+            }
+        }
+    }
+}
+
+// On condition cache HIT, removes row ranges whose granules have no surviving rows from
+// _read_ranges BEFORE column readers are created. This makes ParquetColumnReader skip I/O
+// entirely for false-granule rows — both predicate and lazy columns — via its existing
+// page/row-skipping infrastructure.
+void RowGroupReader::_filter_read_ranges_by_condition_cache() {
+    if (!_condition_cache_ctx || !_condition_cache_ctx->is_hit) {
+        return;
+    }
+    auto& filter_result = *_condition_cache_ctx->filter_result;
+    if (filter_result.empty()) {
+        return;
+    }
+
+    auto old_row_count = _read_ranges.count();
+    _read_ranges =
+            filter_ranges_by_cache(_read_ranges, filter_result, _current_row_group_idx.first_row,
+                                   _condition_cache_ctx->base_granule);
+    _is_row_group_filtered = _read_ranges.is_empty();
+    _condition_cache_filtered_rows += old_row_count - _read_ranges.count();
+}
+
+// Filters read_ranges by removing rows whose cache granule is false.
+//
+// Cache index i maps to global granule (base_granule + i), which covers global file
+// rows [(base_granule+i)*GS, (base_granule+i+1)*GS). Since read_ranges uses
+// row-group-relative indices and first_row is the global position of the row group's
+// first row, global granule g maps to row-group-relative range:
+//   [max(0, g*GS - first_row), max(0, (g+1)*GS - first_row))
+//
+// We build a RowRanges of all false-granule regions (in row-group-relative coordinates),
+// then subtract from read_ranges via ranges_exception.
+//
+// Granules beyond cache.size() are kept conservatively (assumed true).
+//
+// When base_granule > 0, the cache only covers granules starting from base_granule.
+// This happens when a Parquet file is split across multiple scan ranges and this reader
+// only processes row groups starting at a non-zero offset in the file.
+RowRanges RowGroupReader::filter_ranges_by_cache(const RowRanges& read_ranges,
+                                                 const std::vector<bool>& cache, int64_t first_row,
+                                                 int64_t base_granule) {
+    constexpr int64_t GS = ConditionCacheContext::GRANULE_SIZE;
+    RowRanges filtered_ranges;
+
+    for (size_t i = 0; i < cache.size(); i++) {
+        if (!cache[i]) {
+            int64_t global_granule = base_granule + static_cast<int64_t>(i);
+            int64_t rg_from = std::max(static_cast<int64_t>(0), global_granule * GS - first_row);
+            int64_t rg_to =
+                    std::max(static_cast<int64_t>(0), (global_granule + 1) * GS - first_row);
+            if (rg_from < rg_to) {
+                filtered_ranges.add(RowRange(rg_from, rg_to));
+            }
+        }
+    }
+
+    RowRanges result;
+    RowRanges::ranges_exception(read_ranges, filtered_ranges, &result);
+    return result;
 }
 
 Status RowGroupReader::_read_column_data(Block* block,
@@ -504,6 +624,7 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
         pre_read_rows = 0;
         pre_eof = false;
         FilterMap filter_map;
+        int64_t batch_base_row = _total_read_rows;
         RETURN_IF_ERROR(_read_column_data(block, _lazy_read_ctx.predicate_columns.first, batch_size,
                                           &pre_read_rows, &pre_eof, filter_map));
         if (pre_read_rows == 0) {
@@ -511,12 +632,18 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
             break;
         }
         pre_raw_read_rows += pre_read_rows;
-        RETURN_IF_ERROR(_fill_partition_columns(block, pre_read_rows,
-                                                _lazy_read_ctx.predicate_partition_columns));
-        RETURN_IF_ERROR(_fill_missing_columns(block, pre_read_rows,
-                                              _lazy_read_ctx.predicate_missing_columns));
-        RETURN_IF_ERROR(_fill_row_id_columns(block, pre_read_rows, false));
 
+        DCHECK(_table_format_reader);
+        RETURN_IF_ERROR(_table_format_reader->on_fill_partition_columns(
+                block, pre_read_rows, _lazy_read_ctx.predicate_partition_col_names));
+        RETURN_IF_ERROR(_table_format_reader->on_fill_missing_columns(
+                block, pre_read_rows, _lazy_read_ctx.predicate_missing_col_names));
+        if (_table_format_reader->has_synthesized_column_handlers() ||
+            _table_format_reader->has_generated_column_handlers()) {
+            RETURN_IF_ERROR(_get_current_batch_row_id(pre_read_rows));
+        }
+        RETURN_IF_ERROR(_table_format_reader->fill_synthesized_columns(block, pre_read_rows));
+        RETURN_IF_ERROR(_table_format_reader->fill_generated_columns(block, pre_read_rows));
         RETURN_IF_ERROR(_build_pos_delete_filter(pre_read_rows));
 
 #ifndef NDEBUG
@@ -557,6 +684,11 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
                                                                 &result_filter, &can_filter_all));
             }
 
+            // Condition cache MISS: mark granules with surviving rows
+            if (!can_filter_all) {
+                _mark_condition_cache_granules(result_filter.data(), pre_read_rows, batch_base_row);
+            }
+
             if (_lazy_read_ctx.resize_first_column) {
                 // We have to clean the first column to insert right data.
                 block->get_by_position(0).column->assume_mutable()->clear();
@@ -585,11 +717,8 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
                             .column->assume_mutable()
                             ->clear();
                 }
-                if (_row_id_column_iterator_pair.first != nullptr) {
-                    block->get_by_position(_row_id_column_iterator_pair.second)
-                            .column->assume_mutable()
-                            ->clear();
-                }
+                RETURN_IF_ERROR(_table_format_reader->clear_synthesized_columns(block));
+                RETURN_IF_ERROR(_table_format_reader->clear_generated_columns(block));
                 Block::erase_useless_column(block, origin_column_num);
             }
 
@@ -674,8 +803,11 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
     *read_rows = column_size;
 
     *batch_eof = pre_eof;
-    RETURN_IF_ERROR(_fill_partition_columns(block, column_size, _lazy_read_ctx.partition_columns));
-    RETURN_IF_ERROR(_fill_missing_columns(block, column_size, _lazy_read_ctx.missing_columns));
+    DCHECK(_table_format_reader);
+    RETURN_IF_ERROR(_table_format_reader->on_fill_partition_columns(
+            block, column_size, _lazy_read_ctx.partition_col_names));
+    RETURN_IF_ERROR(_table_format_reader->on_fill_missing_columns(
+            block, column_size, _lazy_read_ctx.missing_col_names));
 #ifndef NDEBUG
     for (auto col : *block) {
         col.column->sanity_check();
@@ -717,77 +849,6 @@ Status RowGroupReader::_rebuild_filter_map(FilterMap& filter_map,
     return Status::OK();
 }
 
-Status RowGroupReader::_fill_partition_columns(
-        Block* block, size_t rows,
-        const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
-                partition_columns) {
-    DataTypeSerDe::FormatOptions _text_formatOptions;
-    for (const auto& kv : partition_columns) {
-        auto doris_column = block->get_by_position((*_col_name_to_block_idx)[kv.first]).column;
-        // obtained from block*, it is a mutable object.
-        auto* col_ptr = const_cast<IColumn*>(doris_column.get());
-        const auto& [value, slot_desc] = kv.second;
-        auto _text_serde = slot_desc->get_data_type_ptr()->get_serde();
-        Slice slice(value.data(), value.size());
-        uint64_t num_deserialized = 0;
-        // Be careful when reading empty rows from parquet row groups.
-        if (_text_serde->deserialize_column_from_fixed_json(*col_ptr, slice, rows,
-                                                            &num_deserialized,
-                                                            _text_formatOptions) != Status::OK()) {
-            return Status::InternalError("Failed to fill partition column: {}={}",
-                                         slot_desc->col_name(), value);
-        }
-        if (num_deserialized != rows) {
-            return Status::InternalError(
-                    "Failed to fill partition column: {}={} ."
-                    "Number of rows expected to be written : {}, number of rows actually written : "
-                    "{}",
-                    slot_desc->col_name(), value, num_deserialized, rows);
-        }
-    }
-    return Status::OK();
-}
-
-Status RowGroupReader::_fill_missing_columns(
-        Block* block, size_t rows,
-        const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) {
-    for (const auto& kv : missing_columns) {
-        if (!_col_name_to_block_idx->contains(kv.first)) {
-            return Status::InternalError("Missing column: {} not found in block {}", kv.first,
-                                         block->dump_structure());
-        }
-        if (kv.second == nullptr) {
-            // no default column, fill with null
-            auto mutable_column = block->get_by_position((*_col_name_to_block_idx)[kv.first])
-                                          .column->assume_mutable();
-            auto* nullable_column = assert_cast<ColumnNullable*>(mutable_column.get());
-            nullable_column->insert_many_defaults(rows);
-        } else {
-            // fill with default value
-            const auto& ctx = kv.second;
-            ColumnPtr result_column_ptr;
-            // PT1 => dest primitive type
-            RETURN_IF_ERROR(ctx->execute(block, result_column_ptr));
-            if (result_column_ptr->use_count() == 1) {
-                // call resize because the first column of _src_block_ptr may not be filled by reader,
-                // so _src_block_ptr->rows() may return wrong result, cause the column created by `ctx->execute()`
-                // has only one row.
-                auto mutable_column = result_column_ptr->assume_mutable();
-                mutable_column->resize(rows);
-                // result_column_ptr maybe a ColumnConst, convert it to a normal column
-                result_column_ptr = result_column_ptr->convert_to_full_column_if_const();
-                auto origin_column_type =
-                        block->get_by_position((*_col_name_to_block_idx)[kv.first]).type;
-                bool is_nullable = origin_column_type->is_nullable();
-                block->replace_by_position(
-                        (*_col_name_to_block_idx)[kv.first],
-                        is_nullable ? make_nullable(result_column_ptr) : result_column_ptr);
-            }
-        }
-    }
-    return Status::OK();
-}
-
 Status RowGroupReader::_read_empty_batch(size_t batch_size, size_t* read_rows, bool* batch_eof,
                                          bool* modify_row_ids) {
     *modify_row_ids = false;
@@ -814,7 +875,8 @@ Status RowGroupReader::_read_empty_batch(size_t batch_size, size_t* read_rows, b
         _position_delete_ctx.current_row_id = end_row_id;
         *batch_eof = _position_delete_ctx.current_row_id == _position_delete_ctx.last_row_id;
 
-        if (_row_id_column_iterator_pair.first != nullptr) {
+        if (_table_format_reader->has_synthesized_column_handlers() ||
+            _table_format_reader->has_generated_column_handlers()) {
             *modify_row_ids = true;
             _current_batch_row_ids.clear();
             _current_batch_row_ids.resize(*read_rows);
@@ -837,6 +899,11 @@ Status RowGroupReader::_read_empty_batch(size_t batch_size, size_t* read_rows, b
             *read_rows = _remaining_rows;
             _remaining_rows = 0;
             *batch_eof = true;
+        }
+        if (_table_format_reader->has_synthesized_column_handlers() ||
+            _table_format_reader->has_generated_column_handlers()) {
+            *modify_row_ids = true;
+            RETURN_IF_ERROR(_get_current_batch_row_id(*read_rows));
         }
     }
     _total_read_rows += *read_rows;
@@ -868,21 +935,6 @@ Status RowGroupReader::_get_current_batch_row_id(size_t read_rows) {
         }
         read_range_rows += range.to() - range.from();
     }
-    return Status::OK();
-}
-
-Status RowGroupReader::_fill_row_id_columns(Block* block, size_t read_rows,
-                                            bool is_current_row_ids) {
-    if (_row_id_column_iterator_pair.first != nullptr) {
-        if (!is_current_row_ids) {
-            RETURN_IF_ERROR(_get_current_batch_row_id(read_rows));
-        }
-        auto col = block->get_by_position(_row_id_column_iterator_pair.second)
-                           .column->assume_mutable();
-        RETURN_IF_ERROR(_row_id_column_iterator_pair.first->read_by_rowids(
-                _current_batch_row_ids.data(), _current_batch_row_ids.size(), col));
-    }
-
     return Status::OK();
 }
 
@@ -1183,6 +1235,5 @@ ParquetColumnReader::ColumnStatistics RowGroupReader::merged_column_statistics()
     }
     return st;
 }
-#include "common/compile_check_end.h"
 
 } // namespace doris

@@ -42,6 +42,7 @@ import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanNode;
 import org.apache.doris.thrift.TFileScanRangeParams;
+import org.apache.doris.thrift.TFileScanSlotInfo;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TPushAggOp;
@@ -54,6 +55,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -72,10 +74,13 @@ public abstract class FileScanNode extends ExternalScanNode {
     // For display pushdown agg result
     protected long tableLevelRowCount = -1;
 
+    protected List<String> fileCacheAdmissionLogs;
+
     public FileScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
             ScanContext scanContext, boolean needCheckColumnPriv) {
         super(id, desc, planNodeName, scanContext, needCheckColumnPriv);
         this.needCheckColumnPriv = needCheckColumnPriv;
+        this.fileCacheAdmissionLogs = new ArrayList<>();
     }
 
     @Override
@@ -226,6 +231,11 @@ public abstract class FileScanNode extends ExternalScanNode {
                             .map(node -> node.getId().asInt() + "").collect(Collectors.toList()));
             output.append(prefix).append("TOPN OPT:").append(topnFilterSources).append("\n");
         }
+
+        for (String admissionLog : fileCacheAdmissionLogs) {
+            output.append(prefix).append(admissionLog).append("\n");
+        }
+
         return output.toString();
     }
 
@@ -243,7 +253,16 @@ public abstract class FileScanNode extends ExternalScanNode {
             nameToSlotDesc.put(slot.getColumn().getName(), slot);
         }
 
-        for (Column column : getColumns()) {
+        // Build slot_id -> index map for required_slots to set default_value_expr inline.
+        Map<Integer, Integer> slotIdToRequiredIdx = Maps.newHashMap();
+        if (params.getRequiredSlots() != null) {
+            for (int i = 0; i < params.getRequiredSlots().size(); i++) {
+                TFileScanSlotInfo slotInfo = params.getRequiredSlots().get(i);
+                slotIdToRequiredIdx.put(slotInfo.getSlotId(), i);
+            }
+        }
+
+        for (Column column : desc.getTable().getFullSchema()) {
             Expr expr;
             Expression expression;
             if (column.getDefaultValue() != null) {
@@ -284,16 +303,32 @@ public abstract class FileScanNode extends ExternalScanNode {
             // default value.
             // and if z is not nullable, the load will fail.
             if (slotDesc != null) {
+                TExpr defaultExpr;
                 if (expression != null) {
                     expression = TypeCoercionUtils.castIfNotSameType(expression,
                             DataType.fromCatalogType(slotDesc.getType()));
                     expr = ExpressionTranslator.translate(expression,
                             new PlanTranslatorContext(CascadesContext.initTempContext()));
-                    params.putToDefaultValueOfSrcSlot(slotDesc.getId().asInt(), ExprToThriftVisitor.treeToThrift(expr));
+                    defaultExpr = ExprToThriftVisitor.treeToThrift(expr);
                 } else {
-                    params.putToDefaultValueOfSrcSlot(slotDesc.getId().asInt(), tExpr);
+                    defaultExpr = tExpr;
+                }
+                // Populate legacy map (for backward compatibility with old BE)
+                params.putToDefaultValueOfSrcSlot(slotDesc.getId().asInt(), defaultExpr);
+                // Also embed default expr directly in the TFileScanSlotInfo
+                Integer idx = slotIdToRequiredIdx.get(slotDesc.getId().asInt());
+                if (idx != null) {
+                    params.getRequiredSlots().get(idx).setDefaultValueExpr(defaultExpr);
                 }
             }
         }
+    }
+
+
+    protected void addFileCacheAdmissionLog(String userIdentity, Boolean admitted, String reason, double durationMs) {
+        String admissionStatus = admitted ? "ADMITTED" : "DENIED";
+        String admissionLog = String.format("file cache request %s: user_identity:%s, reason:%s, cost:%.6f ms",
+                admissionStatus, userIdentity, reason, durationMs);
+        fileCacheAdmissionLogs.add(admissionLog);
     }
 }

@@ -25,6 +25,7 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/types.pb.h>
 
+#include <mutex>
 #include <ostream>
 #include <string>
 #include <utility>
@@ -39,13 +40,14 @@
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/query_context.h"
+#include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "util/brpc_client_cache.h"
 #include "util/brpc_closure.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
+
 RuntimeFilterMgr::RuntimeFilterMgr(const bool is_global)
         : _is_global(is_global),
           _tracker(std::make_unique<MemTracker>(
@@ -103,11 +105,21 @@ Status LocalMergeContext::register_producer(const QueryContext* query_ctx,
                                             const TRuntimeFilterDesc* desc,
                                             std::shared_ptr<RuntimeFilterProducer> producer) {
     std::lock_guard<std::mutex> l(mtx);
+    if (producer->stage() > stage) {
+        // New recursive CTE round: discard stale merger and producers from
+        // the previous round and recreate the merger for the new round.
+        merger.reset();
+        producers.clear();
+        stage = producer->stage();
+    }
     if (!merger) {
         RETURN_IF_ERROR(RuntimeFilterMerger::create(query_ctx, desc, &merger));
     }
     producers.emplace_back(producer);
     merger->set_expected_producer_num(cast_set<int>(producers.size()));
+    // Sync the local merger's stage from the producer so that outgoing merge RPCs
+    // (via _push_to_remote) carry the correct recursive CTE round number.
+    merger->set_stage(producer->stage());
     return Status::OK();
 }
 
@@ -120,10 +132,10 @@ Status RuntimeFilterMgr::get_local_merge_producer_filters(int filter_id,
     std::lock_guard<std::mutex> l(_lock);
     auto iter = _local_merge_map.find(filter_id);
     if (iter == _local_merge_map.end()) {
-        return Status::InternalError(
-                "get_local_merge_producer_filters meet unknown filter: {}, role: "
-                "LOCAL_MERGE_PRODUCER.",
-                filter_id);
+        // Filter may have been removed during a recursive CTE stage reset.
+        // Return OK with nullptr to let the caller skip gracefully.
+        *local_merge_filters = nullptr;
+        return Status::OK();
     }
     *local_merge_filters = &iter->second;
     if (!iter->second.merger) {
@@ -236,14 +248,21 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(std::shared_ptr<Quer
     }
     auto& cnt_val = iter->second;
     std::unique_lock<std::mutex> l(iter->second.mtx);
+    // Discard stale-stage runtime filter size requests from old recursive CTE rounds.
+    // Each round increments the stage counter; only messages matching the current stage
+    // should be processed. This prevents old PFC's runtime filters from corrupting
+    // the merge state of the new round's filters.
+    if (request->stage() != iter->second.stage) {
+        return Status::OK();
+    }
     cnt_val.source_addrs.push_back(request->source_addr());
 
     Status st = Status::OK();
     // After all runtime filters' size are collected, we should send response to all producers.
     if (cnt_val.merger->add_rf_size(request->filter_size())) {
-        auto ctx = query_ctx->ignore_runtime_filter_error() ? std::weak_ptr<QueryContext> {}
-                                                            : query_ctx;
-        for (auto addr : cnt_val.source_addrs) {
+        cnt_val.sync_size_callbacks.resize(cnt_val.source_addrs.size());
+        for (size_t i = 0; i < cnt_val.source_addrs.size(); ++i) {
+            auto& addr = cnt_val.source_addrs[i];
             std::shared_ptr<PBackendService_Stub> stub(
                     ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(addr));
             if (stub == nullptr) {
@@ -253,10 +272,17 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(std::shared_ptr<Quer
                 continue;
             }
 
-            auto closure = AutoReleaseClosure<PSyncFilterSizeRequest,
-                                              DummyBrpcCallback<PSyncFilterSizeResponse>>::
-                    create_unique(std::make_shared<PSyncFilterSizeRequest>(),
-                                  DummyBrpcCallback<PSyncFilterSizeResponse>::create_shared(), ctx);
+            auto sync_request = std::make_shared<PSyncFilterSizeRequest>();
+            sync_request->set_stage(iter->second.stage);
+
+            auto callback = HandleErrorBrpcCallback<PSyncFilterSizeResponse>::create_shared(
+                    query_ctx->ignore_runtime_filter_error() ? std::weak_ptr<QueryContext> {}
+                                                             : query_ctx->weak_from_this());
+            cnt_val.sync_size_callbacks[i] = callback;
+            auto closure = AutoReleaseClosure<
+                    PSyncFilterSizeRequest,
+                    HandleErrorBrpcCallback<PSyncFilterSizeResponse>>::create_unique(sync_request,
+                                                                                     callback);
 
             auto* pquery_id = closure->request_->mutable_query_id();
             pquery_id->set_hi(query_ctx->query_id().hi);
@@ -269,7 +295,6 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(std::shared_ptr<Quer
 
             closure->request_->set_filter_id(filter_id);
             closure->request_->set_filter_size(cnt_val.merger->get_received_sum_size());
-
             stub->sync_filter_size(closure->cntl_.get(), closure->request_.get(),
                                    closure->response_.get(), closure.get());
             closure.release();
@@ -281,6 +306,10 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(std::shared_ptr<Quer
 Status RuntimeFilterMgr::sync_filter_size(const PSyncFilterSizeRequest* request) {
     LocalMergeContext* local_merge_filters = nullptr;
     RETURN_IF_ERROR(get_local_merge_producer_filters(request->filter_id(), &local_merge_filters));
+    if (local_merge_filters == nullptr) {
+        // Filter was removed during a recursive CTE stage reset; discard stale request.
+        return Status::OK();
+    }
     for (auto producer : local_merge_filters->producers) {
         producer->set_synced_size(request->filter_size());
     }
@@ -326,6 +355,14 @@ Status RuntimeFilterMergeControllerEntity::merge(std::shared_ptr<QueryContext> q
     bool is_ready = false;
     {
         std::lock_guard<std::mutex> l(iter->second.mtx);
+        // Discard stale-stage merge requests from old recursive CTE rounds.
+        if (request->stage() != iter->second.stage) {
+            return Status::OK();
+        }
+        if (cnt_val.merger == nullptr) {
+            return Status::InternalError("Merger is null for filter id {}",
+                                         std::to_string(request->filter_id()));
+        }
         // Skip the other broadcast join runtime filter
         if (cnt_val.arrive_id.size() == 1 && cnt_val.runtime_filter_desc.is_broadcast_join) {
             return Status::OK();
@@ -372,6 +409,8 @@ Status RuntimeFilterMergeControllerEntity::_send_rf_to_target(GlobalMergeContext
     butil::IOBuf request_attachment;
 
     PPublishFilterRequestV2 apply_request;
+    apply_request.set_stage(cnt_val.stage);
+
     // serialize filter
     void* data = nullptr;
     int len = 0;
@@ -390,11 +429,14 @@ Status RuntimeFilterMergeControllerEntity::_send_rf_to_target(GlobalMergeContext
 
     std::vector<TRuntimeFilterTargetParamsV2>& targets = cnt_val.targetv2_info;
     auto st = Status::OK();
-    for (auto& target : targets) {
+    cnt_val.publish_callbacks.resize(targets.size());
+    for (size_t i = 0; i < targets.size(); ++i) {
+        auto& target = targets[i];
+        auto callback = HandleErrorBrpcCallback<PPublishFilterResponse>::create_shared(ctx);
+        cnt_val.publish_callbacks[i] = callback;
         auto closure = AutoReleaseClosure<PPublishFilterRequestV2,
-                                          DummyBrpcCallback<PPublishFilterResponse>>::
-                create_unique(std::make_shared<PPublishFilterRequestV2>(apply_request),
-                              DummyBrpcCallback<PPublishFilterResponse>::create_shared(), ctx);
+                                          HandleErrorBrpcCallback<PPublishFilterResponse>>::
+                create_unique(std::make_shared<PPublishFilterRequestV2>(apply_request), callback);
 
         closure->request_->set_merge_time(merge_time);
         *closure->request_->mutable_query_id() = query_id;
@@ -440,13 +482,24 @@ Status RuntimeFilterMergeControllerEntity::_send_rf_to_target(GlobalMergeContext
     return st;
 }
 
+// Reset merge context for the next recursive CTE round.
+// Recreates the merger to clear accumulated state, preserving expected producer count.
+// Increments the stage counter so stale merge/size RPCs from old rounds are discarded.
 Status GlobalMergeContext::reset(QueryContext* query_ctx) {
+    std::unique_lock<std::mutex> lock(mtx);
+    // Merger must exist: reset() is only called on fully initialized merge contexts.
+    DORIS_CHECK(merger);
     int producer_size = merger->get_expected_producer_num();
     RETURN_IF_ERROR(RuntimeFilterMerger::create(query_ctx, &runtime_filter_desc, &merger));
     merger->set_expected_producer_num(producer_size);
     arrive_id.clear();
     source_addrs.clear();
+    sync_size_callbacks.clear();
+    publish_callbacks.clear();
     done = false;
+    stage++;
+    // Keep the Merger's own stage in sync for consistent debug output.
+    merger->set_stage(stage);
     return Status::OK();
 }
 
@@ -467,7 +520,8 @@ std::string RuntimeFilterMergeControllerEntity::debug_string() {
     std::string result = "RuntimeFilterMergeControllerEntity Info:\n";
     std::shared_lock<std::shared_mutex> guard(_filter_map_mutex);
     for (const auto& [filter_id, ctx] : _filter_map) {
-        result += fmt::format("{}\n", ctx.merger->debug_string());
+        result += fmt::format("filter_id: {}, stage: {}, {}\n", filter_id, ctx.stage,
+                              ctx.merger->debug_string());
     }
     return result;
 }

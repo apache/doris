@@ -23,10 +23,8 @@
 #include "core/types.h"
 #include "exprs/function/cast/cast_to_ip.h"
 #include "exprs/function/cast/cast_to_string.h"
-#include "util/io_helper.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 Status DataTypeIPv4SerDe::write_column_to_mysql_binary(const IColumn& column,
                                                        MysqlRowBinaryBuffer& result,
@@ -68,7 +66,8 @@ Status DataTypeIPv4SerDe::deserialize_one_cell_from_json(IColumn& column, Slice&
     auto& column_data = reinterpret_cast<ColumnIPv4&>(column);
     StringRef str(slice.data, slice.size);
     IPv4 val = 0;
-    if (!read_ipv4_text_impl(val, str)) {
+    CastParameters params;
+    if (!CastToIPv4::from_string(str, val, params)) {
         return Status::InvalidArgument("parse ipv4 fail, string: '{}'", str.to_string());
     }
     column_data.insert_value(val);
@@ -178,6 +177,11 @@ Status DataTypeIPv4SerDe::from_string(StringRef& str, IColumn& column,
     return Status::OK();
 }
 
+// Deserializes an IPv4 value from its OLAP string representation (e.g. from ZoneMap protobuf).
+// This is the inverse of to_olap_string().
+//
+// Uses CastToIPv4::from_string to parse standard dotted-decimal notation.
+// Expected input format: "A.B.C.D", e.g. "192.168.1.1"
 Status DataTypeIPv4SerDe::from_olap_string(const std::string& str, Field& field,
                                            const FormatOptions& options) const {
     CastParameters params;
@@ -222,6 +226,10 @@ void DataTypeIPv4SerDe::write_one_cell_to_binary(const IColumn& src_column,
     memcpy(chars.data() + old_size + sizeof(uint8_t), data_ref.data, data_ref.size);
 }
 
+// Serializes an IPv4 value to its OLAP string representation for ZoneMap storage.
+// This is the inverse of from_olap_string().
+// Uses CastToString::from_ip() to produce standard dotted-decimal notation.
+// Output format: "A.B.C.D", e.g. "192.168.1.1"
 std::string DataTypeIPv4SerDe::to_olap_string(const Field& field) const {
     return CastToString::from_ip(field.get<TYPE_IPV4>());
 }

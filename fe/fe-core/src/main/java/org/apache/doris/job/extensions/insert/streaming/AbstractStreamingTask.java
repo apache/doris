@@ -33,6 +33,8 @@ import lombok.Setter;
 import lombok.extern.log4j.Log4j2;
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @Log4j2
@@ -67,6 +69,15 @@ public abstract class AbstractStreamingTask {
     public abstract void before() throws Exception;
 
     public abstract void run() throws JobException;
+
+    /**
+     * Returns the IDs of backends that ran the scan node for this task.
+     * Subclasses backed by a TVF query (e.g. StreamingInsertTask) override this
+     * to return the actual scan backend IDs from the coordinator.
+     */
+    public List<Long> getScanBackendIds() {
+        return Collections.emptyList();
+    }
 
     public abstract boolean onSuccess() throws JobException;
 

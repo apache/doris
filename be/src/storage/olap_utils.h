@@ -17,10 +17,11 @@
 
 #pragma once
 
-#include <fmt/core.h>
 #include <gen_cpp/Opcodes_types.h>
 #include <glog/logging.h>
 #include <math.h>
+
+#include <sstream>
 
 #include "common/logging.h"
 #include "core/data_type/primitive_type.h"
@@ -30,34 +31,56 @@ namespace doris {
 
 using CompareLargeFunc = bool (*)(const void*, const void*);
 
-static const char* NEGATIVE_INFINITY = "-oo";
-static const char* POSITIVE_INFINITY = "+oo";
-
+/// OlapScanRange represents a single key-range interval used to scan an OLAP tablet.
+///
+/// It is the final product of the scan-key generation pipeline:
+///
+///   SQL WHERE conjuncts
+///     -> ColumnValueRange  (per-column value constraints, see olap_scan_common.h)
+///     -> OlapScanKeys::extend_scan_key()  (combine columns into multi-column prefix keys)
+///     -> OlapScanKeys::get_key_range()    (emit one OlapScanRange per key pair)
+///     -> OlapScanner / tablet reader      (use ranges for short-key index lookup)
+///
+/// Example – table t(k1 INT, k2 INT, v INT) with key columns (k1, k2):
+///
+///   WHERE k1 IN (1, 2) AND k2 = 10
+///     => two OlapScanRange objects:
+///        range0: begin=(1, 10)  end=(1, 10)  include=[true, true]  -- point lookup
+///        range1: begin=(2, 10)  end=(2, 10)  include=[true, true]  -- point lookup
+///
+///   WHERE k1 >= 5 AND k1 < 10
+///     => one OlapScanRange:
+///        begin=(5)  end=(10)  begin_include=true  end_include=false
+///
+///   No key predicates at all (full table scan):
+///     => one default-constructed OlapScanRange with has_lower_bound=false, has_upper_bound=false.
+///        Consumers detect this and skip pushing key range to the reader (fall back to full scan).
+///
 struct OlapScanRange {
 public:
-    OlapScanRange() : begin_include(true), end_include(true) {
-        begin_scan_range.add_value(NEGATIVE_INFINITY);
-        end_scan_range.add_value(POSITIVE_INFINITY);
-    }
-    OlapScanRange(bool begin, bool end, std::vector<std::string>& begin_range,
-                  std::vector<std::string>& end_range)
-            : begin_include(begin),
-              end_include(end),
-              begin_scan_range(begin_range),
-              end_scan_range(end_range) {}
+    OlapScanRange()
+            : begin_include(true),
+              end_include(true),
+              has_lower_bound(false),
+              has_upper_bound(false) {}
 
     bool begin_include;
     bool end_include;
+
+    /// Whether this range carries real begin/end bounds.
+    /// false only for the default-constructed "full scan" placeholder
+    /// (created when no key predicates exist at all).
+    bool has_lower_bound;
+    bool has_upper_bound;
+
     OlapTuple begin_scan_range;
     OlapTuple end_scan_range;
 
     std::string debug_string() const {
-        fmt::memory_buffer buf;
-        DCHECK_EQ(begin_scan_range.size(), end_scan_range.size());
-        for (int i = 0; i < begin_scan_range.size(); i++) {
-            fmt::format_to(buf, "({}, {})\n", begin_scan_range[i], end_scan_range[i]);
-        }
-        return fmt::to_string(buf);
+        std::ostringstream buf;
+        buf << "begin=(" << begin_scan_range.debug_string() << "), end=("
+            << end_scan_range.debug_string() << ")";
+        return buf.str();
     }
 };
 

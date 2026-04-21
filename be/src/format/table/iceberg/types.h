@@ -25,7 +25,6 @@
 #include "common/exception.h"
 
 namespace doris::iceberg {
-#include "common/compile_check_begin.h"
 
 class PrimitiveType;
 class StructType;
@@ -400,5 +399,4 @@ public:
     static std::unique_ptr<PrimitiveType> from_primitive_string(const std::string& type_string);
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris::iceberg

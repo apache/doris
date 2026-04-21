@@ -33,7 +33,6 @@ struct Slice;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class BoolRLEDecoder final : public Decoder {
 public:
     BoolRLEDecoder() = default;
@@ -55,6 +54,5 @@ private:
     std::vector<uint8_t> _values;
     size_t _num_bytes;
 };
-#include "common/compile_check_end.h"
 
 } // namespace doris

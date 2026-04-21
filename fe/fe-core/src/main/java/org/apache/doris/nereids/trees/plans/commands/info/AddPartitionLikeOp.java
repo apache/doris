@@ -36,7 +36,6 @@ public class AddPartitionLikeOp extends AlterTableOp {
         this.partitionName = partitionName;
         this.existedPartitionName = existedPartitionName;
         this.isTempPartition = isTempPartition;
-        this.needTableStable = false;
     }
 
     @Override
