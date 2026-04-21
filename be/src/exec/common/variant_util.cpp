@@ -556,7 +556,7 @@ Status update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
     for (const TabletSchemaSPtr& schema : schemas) {
         for (const TabletColumnPtr& col : schema->columns()) {
             // Get subcolumns of this variant
-            if (col->has_path_info() && col->parent_unique_id() > 0 &&
+            if (col->has_path_info() && col->parent_unique_id() >= 0 &&
                 col->parent_unique_id() == variant_col_unique_id) {
                 subcolumns_types[*col->path_info_ptr()].emplace_back(
                         DataTypeFactory::instance().create_data_type(*col, col->is_nullable()));

@@ -65,6 +65,7 @@ import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedPutObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
 import software.amazon.awssdk.services.sts.StsClient;
+import software.amazon.awssdk.services.sts.auth.StsAssumeRoleCredentialsProvider;
 import software.amazon.awssdk.services.sts.model.AssumeRoleRequest;
 import software.amazon.awssdk.services.sts.model.AssumeRoleResponse;
 import software.amazon.awssdk.services.sts.model.Credentials;
@@ -217,7 +218,15 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         }
     }
 
-    private AwsCredentialsProvider buildCredentialsProvider() {
+    protected AwsCredentialsProvider buildCredentialsProvider() {
+        String roleArn = properties.get(PROP_ROLE_ARN);
+        if (roleArn != null && !roleArn.isEmpty()) {
+            return buildAssumeRoleCredentialsProvider(roleArn, properties.get(PROP_EXTERNAL_ID));
+        }
+        return buildClientBaseCredentialsProvider();
+    }
+
+    private AwsCredentialsProvider buildClientBaseCredentialsProvider() {
         String accessKey = properties.get(PROP_ACCESS_KEY);
         String secretKey = properties.get(PROP_SECRET_KEY);
         String token = properties.get(PROP_TOKEN);
@@ -236,6 +245,42 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                         DefaultCredentialsProvider.create(),
                         AnonymousCredentialsProvider.create())
                 .build();
+    }
+
+    private AwsCredentialsProvider buildStsSourceCredentialsProvider() {
+        String accessKey = properties.get(PROP_ACCESS_KEY);
+        String secretKey = properties.get(PROP_SECRET_KEY);
+        String token = properties.get(PROP_TOKEN);
+
+        if (accessKey != null && !accessKey.isEmpty() && secretKey != null && !secretKey.isEmpty()) {
+            if (token != null && !token.isEmpty()) {
+                return StaticCredentialsProvider.create(
+                        AwsSessionCredentials.create(accessKey, secretKey, token));
+            }
+            return StaticCredentialsProvider.create(AwsBasicCredentials.create(accessKey, secretKey));
+        }
+        return DefaultCredentialsProvider.create();
+    }
+
+    protected StsClient buildStsClient(AwsCredentialsProvider credentialsProvider, String region) {
+        return StsClient.builder()
+                .credentialsProvider(credentialsProvider)
+                .region(Region.of(region))
+                .build();
+    }
+
+    private AwsCredentialsProvider buildAssumeRoleCredentialsProvider(String roleArn, String externalId) {
+        String region = properties.getOrDefault(PROP_REGION, "us-east-1");
+        StsClient stsClient = buildStsClient(buildStsSourceCredentialsProvider(), region);
+        return StsAssumeRoleCredentialsProvider.builder()
+                .stsClient(stsClient)
+                .refreshRequest(builder -> {
+                    builder.roleArn(roleArn)
+                            .roleSessionName("doris_" + UUID.randomUUID().toString().replace("-", ""));
+                    if (externalId != null && !externalId.isEmpty()) {
+                        builder.externalId(externalId);
+                    }
+                }).build();
     }
 
     @Override
@@ -458,15 +503,9 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         if (roleArn == null || roleArn.isEmpty()) {
             throw new IOException("STS role ARN (AWS_ROLE_ARN) is not configured");
         }
-        String accessKey = properties.get(PROP_ACCESS_KEY);
-        String secretKey = properties.get(PROP_SECRET_KEY);
         String region = properties.getOrDefault(PROP_REGION, "us-east-1");
         try {
-            AwsBasicCredentials basicCred = AwsBasicCredentials.create(accessKey, secretKey);
-            try (StsClient stsClient = StsClient.builder()
-                    .credentialsProvider(StaticCredentialsProvider.create(basicCred))
-                    .region(Region.of(region))
-                    .build()) {
+            try (StsClient stsClient = buildStsClient(buildStsSourceCredentialsProvider(), region)) {
                 AssumeRoleRequest.Builder reqBuilder = AssumeRoleRequest.builder()
                         .roleArn(roleArn)
                         .durationSeconds(SESSION_EXPIRE_SECONDS)

@@ -41,6 +41,8 @@ Usage: $0 <options>
      --reserve-ports    reserve host ports by setting 'net.ipv4.ip_local_reserved_ports' to avoid port already bind error
      --no-load-data     do not load data into the components
      --load-parallel <num>  set the parallel number to load data, default is the 50% of CPU cores
+     --hive-mode <mode>     hive startup mode: fast, refresh, rebuild
+     --hive-modules <list>  comma separated hive modules to refresh
 
   All valid components:
     mysql,pg,oracle,sqlserver,clickhouse,es,hive2,hive3,iceberg,iceberg-rest,hudi,kafka,mariadb,db2,oceanbase,lakesoul,kerberos,ranger,polaris
@@ -55,7 +57,19 @@ STOP=0
 NEED_RESERVE_PORTS=0
 export NEED_LOAD_DATA=1
 export LOAD_PARALLEL=$(( $(getconf _NPROCESSORS_ONLN) / 2 ))
-export IP_HOST=$(ip -4 addr show scope global | awk '/inet / {print $2}' | cut -d/ -f1 | head -n 1)
+export HIVE_MODE="${HIVE_MODE:-refresh}"
+export HIVE_MODULES="${HIVE_MODULES:-all}"
+HIVE_SHARED_ID="doris-shared"
+: "${HIVE_BASELINE_VERSION:?HIVE_BASELINE_VERSION must be set in custom_settings.env}"
+: "${HIVE_BASELINE_TARBALL_CACHE:?HIVE_BASELINE_TARBALL_CACHE must be set in custom_settings.env}"
+
+if [[ -z "${IP_HOST:-}" ]]; then
+    if command -v ip >/dev/null 2>&1; then
+        export IP_HOST=$(ip -4 addr show scope global | awk '/inet / {print $2}' | cut -d/ -f1 | head -n 1)
+    elif command -v hostname >/dev/null 2>&1; then
+        export IP_HOST=$(hostname -I 2>/dev/null | awk '{print $1}')
+    fi
+fi
 
 if ! OPTS="$(getopt \
     -n "$0" \
@@ -65,6 +79,8 @@ if ! OPTS="$(getopt \
     -l 'reserve-ports' \
     -l 'no-load-data' \
     -l 'load-parallel:' \
+    -l 'hive-mode:' \
+    -l 'hive-modules:' \
     -o 'hc:' \
     -- "$@")"; then
     usage
@@ -106,6 +122,14 @@ else
             export LOAD_PARALLEL=$2
             shift 2
             ;;
+        --hive-mode)
+            export HIVE_MODE=$2
+            shift 2
+            ;;
+        --hive-modules)
+            export HIVE_MODULES=$2
+            shift 2
+            ;;
         --)
             shift
             break
@@ -141,9 +165,25 @@ if [[ "${CONTAINER_UID}"x == "doris--"x ]]; then
     exit 1
 fi
 
+if [[ -z "${HIVE_HOST_ALIAS:-}" ]]; then
+    export HIVE_HOST_ALIAS="hadoop-master-${HIVE_SHARED_ID}"
+fi
+
 echo "Components are: ${COMPONENTS}"
 echo "Container UID: ${CONTAINER_UID}"
 echo "Stop: ${STOP}"
+echo "Hive mode: ${HIVE_MODE}"
+echo "Hive modules: ${HIVE_MODULES}"
+echo "Hive host alias: ${HIVE_HOST_ALIAS}"
+
+case "${HIVE_MODE}" in
+fast|refresh|rebuild)
+    ;;
+*)
+    echo "Invalid hive mode: ${HIVE_MODE}"
+    usage
+    ;;
+esac
 
 OLD_IFS="${IFS}"
 IFS=','
@@ -164,7 +204,7 @@ RUN_HUDI=0
 RUN_KAFKA=0
 RUN_MARIADB=0
 RUN_DB2=0
-RUN_OCENABASE=0
+RUN_OCEANBASE=0
 RUN_LAKESOUL=0
 RUN_KERBEROS=0
 RUN_MINIO=0
@@ -222,11 +262,39 @@ for element in "${COMPONENTS_ARR[@]}"; do
     fi
 done
 
-if [[ "${RUN_HIVE2}" -eq 1 ]] && [[ -z "${HIVE2_BOOTSTRAP_GROUPS+x}" ]]; then
-    export HIVE2_BOOTSTRAP_GROUPS="common,hive2_only"
+hive_bootstrap_groups_for() {
+    local hive_version="$1"
+    case "${hive_version}" in
+    hive2)
+        echo "common,hive2_only"
+        ;;
+    hive3)
+        echo "common,hive3_only"
+        ;;
+    *)
+        echo "Unsupported hive version: ${hive_version}" >&2
+        return 1
+        ;;
+    esac
+}
+
+hive_requires_mysql_component() {
+    local hive_version="$1"
+    local jfs_meta=""
+    local settings_env="${ROOT}/docker-compose/hive/hive-${hive_version#hive}x_settings.env"
+
+    # shellcheck disable=SC1090
+    . "${settings_env}"
+    jfs_meta="${JFS_CLUSTER_META:-}"
+    [[ "${jfs_meta}" == mysql://* ]] || return 1
+    [[ "${jfs_meta}" == *"@(127.0.0.1:3316)/"* || "${jfs_meta}" == *"@(localhost:3316)/"* ]]
+}
+
+if [[ "${RUN_HIVE2}" -eq 1 ]] && hive_requires_mysql_component "hive2"; then
+    RUN_MYSQL=1
 fi
-if [[ "${RUN_HIVE3}" -eq 1 ]] && [[ -z "${HIVE3_BOOTSTRAP_GROUPS+x}" ]]; then
-    export HIVE3_BOOTSTRAP_GROUPS="common,hive3_only"
+if [[ "${RUN_HIVE3}" -eq 1 ]] && hive_requires_mysql_component "hive3"; then
+    RUN_MYSQL=1
 fi
 
 reserve_ports() {
@@ -243,6 +311,9 @@ reserve_ports() {
 JFS_META_FORMATTED=0
 DORIS_ROOT="${DORIS_ROOT:-$(cd "${ROOT}/../.." &>/dev/null && pwd)}"
 JUICEFS_RUNTIME_ROOT="${ROOT}/juicefs"
+LOG_ROOT="${ROOT}/logs"
+
+mkdir -p "${LOG_ROOT}"
 
 JUICEFS_LOCAL_BIN="${JUICEFS_RUNTIME_ROOT}/bin/juicefs"
 
@@ -324,29 +395,79 @@ ensure_juicefs_meta_database() {
     local jfs_meta="$1"
     local meta_db
     local mysql_container
-
-    if [[ "${jfs_meta}" != *"@(127.0.0.1:3316)/"* && "${jfs_meta}" != *"@(localhost:3316)/"* ]]; then
-        return 0
-    fi
+    local pg_container
+    local -a pg_candidates
 
     meta_db="${jfs_meta##*/}"
     meta_db="${meta_db%%\?*}"
-
-    if command -v mysql >/dev/null 2>&1; then
-        mysql -h127.0.0.1 -P3316 -uroot -p123456 -e "CREATE DATABASE IF NOT EXISTS \`${meta_db}\`;"
+    if [[ ! "${meta_db}" =~ ^[A-Za-z0-9_]+$ ]]; then
+        echo "WARN: skip JuiceFS metadata database creation for unsafe database name '${meta_db}'." >&2
         return 0
     fi
 
-    mysql_container=$(sudo docker ps --format '{{.Names}}' | grep -E "(^|-)${CONTAINER_UID}mysql_57(-[0-9]+)?$" | head -n 1 || true)
-    if [[ -n "${mysql_container}" ]]; then
-        sudo docker exec "${mysql_container}" \
-            mysql -uroot -p123456 -e "CREATE DATABASE IF NOT EXISTS \`${meta_db}\`;"
+    if [[ "${jfs_meta}" == mysql://* ]]; then
+        if [[ "${jfs_meta}" != *"@(127.0.0.1:3316)/"* && "${jfs_meta}" != *"@(localhost:3316)/"* ]]; then
+            return 0
+        fi
+
+        mysql_container=$(sudo docker ps --format '{{.Names}}' | grep -E "(^|-)${CONTAINER_UID}mysql_57(-[0-9]+)?$" | head -n 1 || true)
+        if [[ -n "${mysql_container}" ]]; then
+            if sudo docker exec "${mysql_container}" \
+                mysql -uroot -p123456 -e "CREATE DATABASE IF NOT EXISTS \`${meta_db}\`;" >/dev/null 2>&1; then
+                return 0
+            fi
+            echo "WARN: docker mysql ${mysql_container} is unavailable for JuiceFS metadata init." >&2
+            return 0
+        fi
+
+        echo "WARN: docker mysql_57 is not running; skip eager JuiceFS metadata database creation for ${meta_db}." >&2
+        return 0
     fi
+
+    if [[ "${jfs_meta}" == postgres://* || "${jfs_meta}" == postgresql://* ]]; then
+        if [[ "${jfs_meta}" != *"@127.0.0.1:"* && "${jfs_meta}" != *"@localhost:"* ]]; then
+            return 0
+        fi
+
+        pg_candidates=(
+            "hive3-metastore-postgresql"
+            "hive2-metastore-postgresql"
+            "${CONTAINER_UID}postgres"
+            "postgres"
+        )
+
+        for pg_container in "${pg_candidates[@]}"; do
+            if ! sudo docker ps --format '{{.Names}}' | grep -Fxq "${pg_container}"; then
+                continue
+            fi
+
+            if sudo docker exec "${pg_container}" \
+                psql -U postgres -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='${meta_db}'" | grep -q '^1$'; then
+                return 0
+            fi
+
+            if sudo docker exec "${pg_container}" \
+                psql -U postgres -d postgres -c "CREATE DATABASE \"${meta_db}\";" >/dev/null 2>&1; then
+                return 0
+            fi
+
+            echo "WARN: docker postgres ${pg_container} is unavailable for JuiceFS metadata init." >&2
+            return 0
+        done
+
+        echo "WARN: no local postgres container for JuiceFS metadata init; skip eager database creation for ${meta_db}." >&2
+        return 0
+    fi
+
+    return 0
 }
 
 run_juicefs_cli() {
     local juicefs_cli
-    juicefs_cli=$(resolve_juicefs_cli)
+    if ! juicefs_cli=$(resolve_juicefs_cli); then
+        echo "ERROR: JuiceFS CLI is not available (download failed or binary not found)" >&2
+        return 1
+    fi
     "${juicefs_cli}" "$@"
 }
 
@@ -378,10 +499,20 @@ ensure_juicefs_hadoop_jar_for_hive() {
 prepare_juicefs_meta_for_hive() {
     local jfs_meta="$1"
     local jfs_cluster_name="${2:-cluster}"
-    if [[ -z "${jfs_meta}" || "${jfs_meta}" != mysql://* ]]; then
+    if [[ -z "${jfs_meta}" ]]; then
+        return 0
+    fi
+    if [[ "${jfs_meta}" != mysql://* && "${jfs_meta}" != postgres://* && "${jfs_meta}" != postgresql://* ]]; then
         return 0
     fi
     if [[ "${JFS_META_FORMATTED}" -eq 1 ]]; then
+        return 0
+    fi
+
+    # JuiceFS CLI is required; if unavailable (e.g. no network), skip gracefully.
+    if ! resolve_juicefs_cli >/dev/null 2>&1; then
+        echo "WARN: JuiceFS CLI not available; skipping JuiceFS metadata init for ${jfs_meta}." >&2
+        echo "WARN: JuiceFS-dependent tests will fail. Ensure juicefs binary is on PATH or network access to github.com is available." >&2
         return 0
     fi
 
@@ -389,7 +520,7 @@ prepare_juicefs_meta_for_hive() {
     sudo mkdir -p "${bucket_dir}"
     sudo chmod 777 "${bucket_dir}"
 
-    # For local mysql_57 metadata DSN, ensure metadata database exists.
+    # For local docker metadata DSNs (mysql/postgresql), ensure metadata database exists.
     ensure_juicefs_meta_database "${jfs_meta}"
 
     if run_juicefs_cli status "${jfs_meta}" >/dev/null 2>&1; then
@@ -409,17 +540,244 @@ prepare_juicefs_meta_for_hive() {
     if ! run_juicefs_cli \
         format --storage file --bucket "${bucket_dir}" "${jfs_meta}" "${jfs_cluster_name}"; then
         # If format reports conflict on rerun, verify by status and continue.
-        run_juicefs_cli status "${jfs_meta}" >/dev/null
+        run_juicefs_cli status "${jfs_meta}" >/dev/null 2>&1 || true
     fi
 
     JFS_META_FORMATTED=1
 }
 
+render_uid_template() {
+    local template_file="$1"
+    local output_file="$2"
+    local replacement="${CONTAINER_UID//\\/\\\\}"
+
+    replacement="${replacement//&/\\&}"
+    replacement="${replacement//|/\\|}"
+
+    sed "s|doris--|${replacement}|g" "${template_file}" >"${output_file}"
+}
+
+compose_cmd() {
+    local compose_file="$1"
+    local env_file="$2"
+    shift 2
+
+    if [[ -n "${env_file}" ]]; then
+        sudo docker compose -f "${compose_file}" --env-file "${env_file}" "$@"
+    else
+        sudo docker compose -f "${compose_file}" "$@"
+    fi
+}
+
+compose_down_stack() {
+    local compose_file="$1"
+    local env_file="$2"
+    shift 2
+
+    compose_cmd "${compose_file}" "${env_file}" down "$@"
+}
+
+compose_up_stack() {
+    local compose_file="$1"
+    local env_file="$2"
+    shift 2
+
+    compose_cmd "${compose_file}" "${env_file}" up "$@"
+}
+
+reset_data_dirs() {
+    local data_dir
+
+    for data_dir in "$@"; do
+        sudo mkdir -p "${data_dir}"
+        sudo rm -rf "${data_dir:?}"/*
+    done
+}
+
+declare -A START_PIDS=()
+declare -A START_LOGS=()
+declare -A START_COMPOSE_FILES=()
+declare -A START_ENV_FILES=()
+START_ORDER=()
+
+register_stack_metadata() {
+    local component="$1"
+    local compose_file="$2"
+    local env_file="${3:-}"
+
+    START_COMPOSE_FILES["${component}"]="${compose_file}"
+    START_ENV_FILES["${component}"]="${env_file}"
+}
+
+start_rendered_compose_stack() {
+    local component="$1"
+    local template_file="$2"
+    local compose_file="$3"
+    local env_file="$4"
+    shift 4
+
+    local stage="up"
+    local -a up_args=()
+    local -a reset_dirs=()
+
+    while (($#)); do
+        if [[ "$1" == "--" ]]; then
+            stage="reset"
+            shift
+            continue
+        fi
+
+        if [[ "${stage}" == "up" ]]; then
+            up_args+=("$1")
+        else
+            reset_dirs+=("$1")
+        fi
+        shift
+    done
+
+    render_uid_template "${template_file}" "${compose_file}"
+    register_stack_metadata "${component}" "${compose_file}" "${env_file}"
+    compose_down_stack "${compose_file}" "${env_file}" --remove-orphans
+
+    if [[ "${STOP}" -eq 1 ]]; then
+        return 0
+    fi
+
+    if (( ${#reset_dirs[@]} > 0 )); then
+        reset_data_dirs "${reset_dirs[@]}"
+    fi
+
+    if (( ${#up_args[@]} == 0 )); then
+        up_args=(-d --wait)
+    fi
+
+    compose_up_stack "${compose_file}" "${env_file}" "${up_args[@]}"
+}
+
+register_job() {
+    local component="$1"
+    local pid="$2"
+    local log_file="$3"
+
+    START_PIDS["${component}"]="${pid}"
+    START_LOGS["${component}"]="${log_file}"
+    START_ORDER+=("${component}")
+}
+
+launch_component() {
+    local component="$1"
+    local log_file="$2"
+    shift 2
+
+    echo "Launching ${component}, log => ${log_file}"
+    "$@" >"${log_file}" 2>&1 &
+    register_job "${component}" "$!" "${log_file}"
+}
+
+kill_running_jobs() {
+    local component
+    local pid
+
+    for component in "${START_ORDER[@]}"; do
+        pid="${START_PIDS["${component}"]:-}"
+        [[ -n "${pid}" ]] || continue
+        kill "${pid}" >/dev/null 2>&1 || true
+    done
+}
+
+dump_start_failure() {
+    local component="$1"
+    local status="$2"
+    local log_file="${START_LOGS["${component}"]}"
+    local compose_file="${START_COMPOSE_FILES["${component}"]:-}"
+    local env_file="${START_ENV_FILES["${component}"]:-}"
+
+    echo "ERROR: docker component '${component}' failed with exit code ${status}" >&2
+    echo "ERROR: start log file: ${log_file}" >&2
+    echo "===== ${component} start log (tail -200) =====" >&2
+    tail -n 200 "${log_file}" >&2 || true
+
+    if [[ -n "${compose_file}" ]]; then
+        echo "===== ${component} docker compose ps =====" >&2
+        compose_cmd "${compose_file}" "${env_file}" ps >&2 || true
+        echo "===== ${component} docker compose logs (tail -200) =====" >&2
+        compose_cmd "${compose_file}" "${env_file}" logs --no-color --tail 200 >&2 || true
+    fi
+
+    echo "===== unhealthy containers =====" >&2
+    sudo docker ps -a --filter 'health=unhealthy' --format '{{.Names}} | {{.Image}} | {{.Status}}' >&2 || true
+}
+
+print_started_summary() {
+    local component
+    local compose_file
+    local env_file
+    local compose_ids
+    local container_id
+
+    echo "===== started components summary ====="
+    for component in "${START_ORDER[@]}"; do
+        compose_file="${START_COMPOSE_FILES["${component}"]:-}"
+        env_file="${START_ENV_FILES["${component}"]:-}"
+
+        echo "component: ${component}"
+        echo "  log: ${START_LOGS["${component}"]}"
+        echo "  compose: ${compose_file}"
+        if [[ -n "${env_file}" ]]; then
+            echo "  env: ${env_file}"
+        fi
+        echo "  compose ps:"
+        compose_cmd "${compose_file}" "${env_file}" ps 2>/dev/null || true
+
+        compose_ids="$(compose_cmd "${compose_file}" "${env_file}" ps -q 2>/dev/null || true)"
+        if [[ -n "${compose_ids}" ]]; then
+            echo "  containers:"
+            while read -r container_id; do
+                [[ -n "${container_id}" ]] || continue
+                sudo docker inspect --format '{{.Name}} | {{.Config.Image}} | {{.State.Status}} | health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "${container_id}" \
+                    2>/dev/null || true
+            done <<<"${compose_ids}"
+        fi
+    done
+}
+
+wait_for_started_jobs() {
+    local remaining=("${START_ORDER[@]}")
+    local next_remaining=()
+    local component
+    local pid
+    local status
+
+    while (( ${#remaining[@]} > 0 )); do
+        next_remaining=()
+        for component in "${remaining[@]}"; do
+            pid="${START_PIDS["${component}"]}"
+            if kill -0 "${pid}" >/dev/null 2>&1; then
+                next_remaining+=("${component}")
+                continue
+            fi
+
+            status=0
+            wait "${pid}" || status=$?
+            if [[ "${status}" -ne 0 ]]; then
+                kill_running_jobs
+                dump_start_failure "${component}" "${status}"
+                return 1
+            fi
+        done
+
+        remaining=("${next_remaining[@]}")
+        if (( ${#remaining[@]} > 0 )); then
+            sleep 1
+        fi
+    done
+}
+
 start_es() {
     # elasticsearch
-    cp "${ROOT}"/docker-compose/elasticsearch/es.yaml.tpl "${ROOT}"/docker-compose/elasticsearch/es.yaml
-    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/elasticsearch/es.yaml
-    sudo docker compose -f "${ROOT}"/docker-compose/elasticsearch/es.yaml --env-file "${ROOT}"/docker-compose/elasticsearch/es.env down
+    render_uid_template "${ROOT}/docker-compose/elasticsearch/es.yaml.tpl" "${ROOT}/docker-compose/elasticsearch/es.yaml"
+    register_stack_metadata "es" "${ROOT}/docker-compose/elasticsearch/es.yaml" "${ROOT}/docker-compose/elasticsearch/es.env"
+    compose_down_stack "${ROOT}/docker-compose/elasticsearch/es.yaml" "${ROOT}/docker-compose/elasticsearch/es.env" --remove-orphans
     if [[ "${STOP}" -ne 1 ]]; then
         sudo mkdir -p "${ROOT}"/docker-compose/elasticsearch/data/es6/
         sudo rm -rf "${ROOT}"/docker-compose/elasticsearch/data/es6/*
@@ -436,188 +794,489 @@ start_es() {
         sudo rm -rf "${ROOT}"/docker-compose/elasticsearch/logs/es8/*
         sudo chmod -R 777 "${ROOT}"/docker-compose/elasticsearch/logs
         sudo chmod -R 777 "${ROOT}"/docker-compose/elasticsearch/config
-        sudo docker compose -f "${ROOT}"/docker-compose/elasticsearch/es.yaml --env-file "${ROOT}"/docker-compose/elasticsearch/es.env up -d --remove-orphans
+        compose_cmd "${ROOT}/docker-compose/elasticsearch/es.yaml" "${ROOT}/docker-compose/elasticsearch/es.env" up -d --remove-orphans
     fi
 }
 
 start_mysql() {
     # mysql 5.7
-    cp "${ROOT}"/docker-compose/mysql/mysql-5.7.yaml.tpl "${ROOT}"/docker-compose/mysql/mysql-5.7.yaml
-    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/mysql/mysql-5.7.yaml
-    sudo docker compose -f "${ROOT}"/docker-compose/mysql/mysql-5.7.yaml --env-file "${ROOT}"/docker-compose/mysql/mysql-5.7.env down
-    if [[ "${STOP}" -ne 1 ]]; then
-        sudo rm "${ROOT}"/docker-compose/mysql/data/* -rf
-        sudo mkdir -p "${ROOT}"/docker-compose/mysql/data/
-        sudo docker compose -f "${ROOT}"/docker-compose/mysql/mysql-5.7.yaml --env-file "${ROOT}"/docker-compose/mysql/mysql-5.7.env up -d --wait
-    fi
+    start_rendered_compose_stack "mysql" \
+        "${ROOT}/docker-compose/mysql/mysql-5.7.yaml.tpl" \
+        "${ROOT}/docker-compose/mysql/mysql-5.7.yaml" \
+        "${ROOT}/docker-compose/mysql/mysql-5.7.env" \
+        -d --wait -- \
+        "${ROOT}/docker-compose/mysql/data"
 }
 
 start_pg() {
     # pg 14
-    cp "${ROOT}"/docker-compose/postgresql/postgresql-14.yaml.tpl "${ROOT}"/docker-compose/postgresql/postgresql-14.yaml
-    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/postgresql/postgresql-14.yaml
-    sudo docker compose -f "${ROOT}"/docker-compose/postgresql/postgresql-14.yaml --env-file "${ROOT}"/docker-compose/postgresql/postgresql-14.env down
-    if [[ "${STOP}" -ne 1 ]]; then
-        sudo rm "${ROOT}"/docker-compose/postgresql/data/* -rf
-        sudo mkdir -p "${ROOT}"/docker-compose/postgresql/data/data
-        sudo docker compose -f "${ROOT}"/docker-compose/postgresql/postgresql-14.yaml --env-file "${ROOT}"/docker-compose/postgresql/postgresql-14.env up -d --wait
-    fi
+    start_rendered_compose_stack "pg" \
+        "${ROOT}/docker-compose/postgresql/postgresql-14.yaml.tpl" \
+        "${ROOT}/docker-compose/postgresql/postgresql-14.yaml" \
+        "${ROOT}/docker-compose/postgresql/postgresql-14.env" \
+        -d --wait -- \
+        "${ROOT}/docker-compose/postgresql/data/data"
 }
 
 start_oracle() {
     # oracle
-    cp "${ROOT}"/docker-compose/oracle/oracle-11.yaml.tpl "${ROOT}"/docker-compose/oracle/oracle-11.yaml
-    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/oracle/oracle-11.yaml
-    sudo docker compose -f "${ROOT}"/docker-compose/oracle/oracle-11.yaml --env-file "${ROOT}"/docker-compose/oracle/oracle-11.env down
-    if [[ "${STOP}" -ne 1 ]]; then
-        sudo rm "${ROOT}"/docker-compose/oracle/data/* -rf
-        sudo mkdir -p "${ROOT}"/docker-compose/oracle/data/
-        sudo docker compose -f "${ROOT}"/docker-compose/oracle/oracle-11.yaml --env-file "${ROOT}"/docker-compose/oracle/oracle-11.env up -d --wait
-    fi
+    start_rendered_compose_stack "oracle" \
+        "${ROOT}/docker-compose/oracle/oracle-11.yaml.tpl" \
+        "${ROOT}/docker-compose/oracle/oracle-11.yaml" \
+        "${ROOT}/docker-compose/oracle/oracle-11.env" \
+        -d --wait -- \
+        "${ROOT}/docker-compose/oracle/data"
 }
 
 start_db2() {
     # db2
-    cp "${ROOT}"/docker-compose/db2/db2.yaml.tpl "${ROOT}"/docker-compose/db2/db2.yaml
-    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/db2/db2.yaml
-    sudo docker compose -f "${ROOT}"/docker-compose/db2/db2.yaml --env-file "${ROOT}"/docker-compose/db2/db2.env down
-    if [[ "${STOP}" -ne 1 ]]; then
-        sudo rm "${ROOT}"/docker-compose/db2/data/* -rf
-        sudo mkdir -p "${ROOT}"/docker-compose/db2/data/
-        sudo docker compose -f "${ROOT}"/docker-compose/db2/db2.yaml --env-file "${ROOT}"/docker-compose/db2/db2.env up -d --wait
-    fi
+    start_rendered_compose_stack "db2" \
+        "${ROOT}/docker-compose/db2/db2.yaml.tpl" \
+        "${ROOT}/docker-compose/db2/db2.yaml" \
+        "${ROOT}/docker-compose/db2/db2.env" \
+        -d --wait -- \
+        "${ROOT}/docker-compose/db2/data"
 }
 
 start_oceanbase() {
     # oceanbase
-    cp "${ROOT}"/docker-compose/oceanbase/oceanbase.yaml.tpl "${ROOT}"/docker-compose/oceanbase/oceanbase.yaml
-    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/oceanbase/oceanbase.yaml
-    sudo docker compose -f "${ROOT}"/docker-compose/oceanbase/oceanbase.yaml --env-file "${ROOT}"/docker-compose/oceanbase/oceanbase.env down
-    if [[ "${STOP}" -ne 1 ]]; then
-        sudo rm "${ROOT}"/docker-compose/oceanbase/data/* -rf
-        sudo mkdir -p "${ROOT}"/docker-compose/oceanbase/data/
-        sudo docker compose -f "${ROOT}"/docker-compose/oceanbase/oceanbase.yaml --env-file "${ROOT}"/docker-compose/oceanbase/oceanbase.env up -d --wait
-    fi
+    start_rendered_compose_stack "oceanbase" \
+        "${ROOT}/docker-compose/oceanbase/oceanbase.yaml.tpl" \
+        "${ROOT}/docker-compose/oceanbase/oceanbase.yaml" \
+        "${ROOT}/docker-compose/oceanbase/oceanbase.env" \
+        -d --wait -- \
+        "${ROOT}/docker-compose/oceanbase/data"
 }
 
 start_sqlserver() {
     # sqlserver
-    cp "${ROOT}"/docker-compose/sqlserver/sqlserver.yaml.tpl "${ROOT}"/docker-compose/sqlserver/sqlserver.yaml
-    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/sqlserver/sqlserver.yaml
-    sudo docker compose -f "${ROOT}"/docker-compose/sqlserver/sqlserver.yaml --env-file "${ROOT}"/docker-compose/sqlserver/sqlserver.env down
-    if [[ "${STOP}" -ne 1 ]]; then
-        sudo rm "${ROOT}"/docker-compose/sqlserver/data/* -rf
-        sudo mkdir -p "${ROOT}"/docker-compose/sqlserver/data/
-        sudo docker compose -f "${ROOT}"/docker-compose/sqlserver/sqlserver.yaml --env-file "${ROOT}"/docker-compose/sqlserver/sqlserver.env up -d --wait
-    fi
+    start_rendered_compose_stack "sqlserver" \
+        "${ROOT}/docker-compose/sqlserver/sqlserver.yaml.tpl" \
+        "${ROOT}/docker-compose/sqlserver/sqlserver.yaml" \
+        "${ROOT}/docker-compose/sqlserver/sqlserver.env" \
+        -d --wait -- \
+        "${ROOT}/docker-compose/sqlserver/data"
 }
 
 start_clickhouse() {
     # clickhouse
-    cp "${ROOT}"/docker-compose/clickhouse/clickhouse.yaml.tpl "${ROOT}"/docker-compose/clickhouse/clickhouse.yaml
-    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/clickhouse/clickhouse.yaml
-    sudo docker compose -f "${ROOT}"/docker-compose/clickhouse/clickhouse.yaml --env-file "${ROOT}"/docker-compose/clickhouse/clickhouse.env down
-    if [[ "${STOP}" -ne 1 ]]; then
-        sudo rm "${ROOT}"/docker-compose/clickhouse/data/* -rf
-        sudo mkdir -p "${ROOT}"/docker-compose/clickhouse/data/
-        sudo docker compose -f "${ROOT}"/docker-compose/clickhouse/clickhouse.yaml --env-file "${ROOT}"/docker-compose/clickhouse/clickhouse.env up -d --wait
-    fi
+    start_rendered_compose_stack "clickhouse" \
+        "${ROOT}/docker-compose/clickhouse/clickhouse.yaml.tpl" \
+        "${ROOT}/docker-compose/clickhouse/clickhouse.yaml" \
+        "${ROOT}/docker-compose/clickhouse/clickhouse.env" \
+        -d --wait -- \
+        "${ROOT}/docker-compose/clickhouse/data"
 }
 
 start_kafka() {
     # kafka
     KAFKA_CONTAINER_ID="${CONTAINER_UID}kafka"
-    cp "${ROOT}"/docker-compose/kafka/kafka.yaml.tpl "${ROOT}"/docker-compose/kafka/kafka.yaml
-    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/kafka/kafka.yaml
-    sed -i "s/localhost/${IP_HOST}/g" "${ROOT}"/docker-compose/kafka/kafka.yaml
-    sudo docker compose -f "${ROOT}"/docker-compose/kafka/kafka.yaml --env-file "${ROOT}"/docker-compose/kafka/kafka.env down
+    render_uid_template "${ROOT}/docker-compose/kafka/kafka.yaml.tpl" "${ROOT}/docker-compose/kafka/kafka.yaml"
+    sed -i "s/localhost/${IP_HOST}/g" "${ROOT}/docker-compose/kafka/kafka.yaml"
+    register_stack_metadata "kafka" "${ROOT}/docker-compose/kafka/kafka.yaml" "${ROOT}/docker-compose/kafka/kafka.env"
+    compose_down_stack "${ROOT}/docker-compose/kafka/kafka.yaml" "${ROOT}/docker-compose/kafka/kafka.env" --remove-orphans
 
     create_kafka_topics() {
         local container_id="$1"
         local ip_host="$2"
-        local backup_dir=/home/work/pipline/backup_center
-
-        declare -a topics=("basic_data" "basic_array_data" "basic_data_with_errors" "basic_array_data_with_errors" "basic_data_timezone" "basic_array_data_timezone" "trino_kafka_basic_data")
+        local -a topics=("basic_data" "basic_array_data" "basic_data_with_errors" "basic_array_data_with_errors" "basic_data_timezone" "basic_array_data_timezone" "trino_kafka_basic_data")
+        local topic
 
         for topic in "${topics[@]}"; do
-            echo "docker exec "${container_id}" bash -c echo '/opt/bitnami/kafka/bin/kafka-topics.sh --create --bootstrap-server '${ip_host}:19193' --topic '${topic}'"
-            docker exec "${container_id}" bash -c "/opt/bitnami/kafka/bin/kafka-topics.sh --create --bootstrap-server '${ip_host}:19193' --topic '${topic}'"
+            echo "Creating kafka topic '${topic}' for ${container_id}"
+            sudo docker exec "${container_id}" bash -c "/opt/bitnami/kafka/bin/kafka-topics.sh --create --bootstrap-server '${ip_host}:19193' --topic '${topic}'"
         done
 
     }
 
+    wait_for_kafka_ready() {
+        local container_id="$1"
+        local ip_host="$2"
+        local attempt
+
+        for attempt in {1..30}; do
+            if sudo docker exec "${container_id}" bash -c "/opt/bitnami/kafka/bin/kafka-topics.sh --list --bootstrap-server '${ip_host}:19193'" >/dev/null 2>&1; then
+                return 0
+            fi
+            sleep 2
+        done
+
+        echo "ERROR: kafka container '${container_id}' did not become ready on ${ip_host}:19193" >&2
+        return 1
+    }
+
     if [[ "${STOP}" -ne 1 ]]; then
-        sudo docker compose -f "${ROOT}"/docker-compose/kafka/kafka.yaml --env-file "${ROOT}"/docker-compose/kafka/kafka.env up --build --remove-orphans -d
-        sleep 10s
+        compose_up_stack "${ROOT}/docker-compose/kafka/kafka.yaml" "${ROOT}/docker-compose/kafka/kafka.env" --build --remove-orphans -d
+        wait_for_kafka_ready "${KAFKA_CONTAINER_ID}" "${IP_HOST}"
         create_kafka_topics "${KAFKA_CONTAINER_ID}" "${IP_HOST}"
     fi
 }
 
 start_hive2() {
-    # hive2
-    # If the doris cluster you need to test is single-node, you can use the default values; If the doris cluster you need to test is composed of multiple nodes, then you need to set the IP_HOST according to the actual situation of your machine
-    #default value
-    export CONTAINER_UID=${CONTAINER_UID}
-    export HIVE_BOOTSTRAP_GROUPS="${HIVE2_BOOTSTRAP_GROUPS:-}"
-    echo "Hive2 bootstrap groups: ${HIVE_BOOTSTRAP_GROUPS:-all}"
-    if [[ "${HIVE_FORCE_RESTART:-0}" -eq 0 ]] && docker_hive_stack_reusable "${CONTAINER_UID}" "hive2" "${HIVE_BOOTSTRAP_GROUPS:-all}"; then
-        echo "Hive2 stack is already healthy with matching bootstrap groups, skip restart"
-        return
-    fi
-    . "${ROOT}"/docker-compose/hive/hive-2x_settings.env
-    envsubst <"${ROOT}"/docker-compose/hive/hive-2x.yaml.tpl >"${ROOT}"/docker-compose/hive/hive-2x.yaml
-    envsubst <"${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl >"${ROOT}"/docker-compose/hive/hadoop-hive-2x.env
-    envsubst <"${ROOT}"/docker-compose/hive/hadoop-hive-2x.env.tpl >> "${ROOT}"/docker-compose/hive/hadoop-hive-2x.env
-    sudo docker compose -p ${CONTAINER_UID}hive2 -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive-2x.env down
-    if [[ "${STOP}" -ne 1 ]]; then
-        sudo docker compose -p ${CONTAINER_UID}hive2 -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive-2x.env up --build --remove-orphans -d --wait
-    fi
+    start_hive_stack "hive2"
 }
 
 start_hive3() {
-    # hive3
-    # If the doris cluster you need to test is single-node, you can use the default values; If the doris cluster you need to test is composed of multiple nodes, then you need to set the IP_HOST according to the actual situation of your machine
-    export CONTAINER_UID=${CONTAINER_UID}
-    export HIVE_BOOTSTRAP_GROUPS="${HIVE3_BOOTSTRAP_GROUPS:-}"
-    echo "Hive3 bootstrap groups: ${HIVE_BOOTSTRAP_GROUPS:-all}"
-    if [[ "${HIVE_FORCE_RESTART:-0}" -eq 0 ]] && docker_hive_stack_reusable "${CONTAINER_UID}" "hive3" "${HIVE_BOOTSTRAP_GROUPS:-all}"; then
-        echo "Hive3 stack is already healthy with matching bootstrap groups, skip restart"
-        return
+    start_hive_stack "hive3"
+}
+
+hive_volume_prefix_for() {
+    local hive_version="$1"
+    echo "${HIVE_SHARED_ID}-${hive_version}"
+}
+
+HIVE_VOLUME_SUFFIXES=(namenode datanode pgdata state)
+
+log_hive_volumes() {
+    local hive_version="$1"
+    local prefix="$2"
+    echo "[${hive_version}] volume_prefix=${prefix} volumes=$(IFS=,; echo "${HIVE_VOLUME_SUFFIXES[*]}")"
+}
+
+ensure_hive_volumes() {
+    local prefix="$1"
+    local suffix
+    for suffix in "${HIVE_VOLUME_SUFFIXES[@]}"; do
+        if ! sudo docker volume inspect "${prefix}-${suffix}" >/dev/null 2>&1; then
+            sudo docker volume create "${prefix}-${suffix}" >/dev/null
+        fi
+    done
+}
+
+reset_hive_volumes() {
+    local prefix="$1"
+    local suffix
+    for suffix in "${HIVE_VOLUME_SUFFIXES[@]}"; do
+        sudo docker volume rm -f "${prefix}-${suffix}" >/dev/null 2>&1 || true
+    done
+}
+
+hive_volume_is_populated() {
+    local prefix="$1"
+    sudo docker run --rm \
+        -v "${prefix}-namenode:/vol:ro" \
+        alpine test -f /vol/current/VERSION 2>/dev/null
+}
+
+maybe_restore_baseline_to_volumes() {
+    local prefix="$1"
+    local hive_version="${2:-hive3}"
+    local baseline_cache="${HIVE_BASELINE_TARBALL_CACHE}"
+    local cache_file="${baseline_cache}/${hive_version}-baseline-${HIVE_BASELINE_VERSION}.tar.gz"
+    local extracted_dir="${baseline_cache}/${hive_version}-baseline-${HIVE_BASELINE_VERSION}"
+    local extracted_ready_file="${extracted_dir}/.extract.ready"
+    local remote_path="hive_baseline/${hive_version}-baseline-${HIVE_BASELINE_VERSION}.tar.gz"
+    local download_url=""
+    local tmp_cache_file=""
+    local tmp_extract_dir=""
+
+    HIVE_BASELINE_RESTORE_RESULT="missing"
+
+    if [[ -n "${s3BucketName:-}" && -n "${s3Endpoint:-}" ]]; then
+        download_url="https://${s3BucketName}.${s3Endpoint}/regression/datalake/pipeline_data/${remote_path}"
     fi
-    . "${ROOT}"/docker-compose/hive/hive-3x_settings.env
-    envsubst <"${ROOT}"/docker-compose/hive/hive-3x.yaml.tpl >"${ROOT}"/docker-compose/hive/hive-3x.yaml
-    envsubst <"${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl >"${ROOT}"/docker-compose/hive/hadoop-hive-3x.env
-    envsubst <"${ROOT}"/docker-compose/hive/hadoop-hive-3x.env.tpl >> "${ROOT}"/docker-compose/hive/hadoop-hive-3x.env
-    sudo docker compose -p ${CONTAINER_UID}hive3 -f "${ROOT}"/docker-compose/hive/hive-3x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive-3x.env down
-    if [[ "${STOP}" -ne 1 ]]; then
-        sudo docker compose -p ${CONTAINER_UID}hive3 -f "${ROOT}"/docker-compose/hive/hive-3x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive-3x.env up --build --remove-orphans -d --wait
+
+    # Nothing to do if the named volumes already hold a populated baseline.
+    if hive_volume_is_populated "${prefix}"; then
+        echo "[baseline] volumes already populated, skip restore"
+        HIVE_BASELINE_RESTORE_RESULT="existing"
+        return 0
     fi
+
+    # Ensure a local tarball is available: prefer an intact cache, otherwise
+    # download to a temporary file and atomically replace the cache. This avoids
+    # persisting truncated tarballs when curl is interrupted on CI hosts.
+    if [[ -f "${cache_file}" ]]; then
+        if tar -tzf "${cache_file}" >/dev/null 2>&1; then
+            echo "[baseline] using cached tarball: ${cache_file}"
+        else
+            echo "[baseline] cached tarball is corrupt, removing: ${cache_file}"
+            rm -f "${cache_file}"
+        fi
+    fi
+
+    if [[ ! -f "${cache_file}" ]]; then
+        if [[ -z "${download_url}" ]]; then
+            echo "[baseline] no baseline tarball available, will do full init"
+            return 0
+        fi
+        mkdir -p "${baseline_cache}"
+        tmp_cache_file="$(mktemp "${cache_file}.tmp.XXXXXX")"
+        echo "[baseline] downloading baseline from ${download_url}"
+        if ! curl -fSL -o "${tmp_cache_file}" "${download_url}"; then
+            rm -f "${tmp_cache_file}"
+            return 1
+        fi
+        if ! tar -tzf "${tmp_cache_file}" >/dev/null 2>&1; then
+            echo "[baseline] downloaded tarball is corrupt: ${download_url}" >&2
+            rm -f "${tmp_cache_file}"
+            return 1
+        fi
+        mv -f "${tmp_cache_file}" "${cache_file}"
+    fi
+
+    # Cache the extracted baseline tree on disk so repeated refresh runs can
+    # restore directly from files instead of paying the tar.gz decompression
+    # cost every time.
+    if [[ -f "${extracted_ready_file}" ]] \
+        && [[ -d "${extracted_dir}/namenode" ]] \
+        && [[ -d "${extracted_dir}/datanode" ]] \
+        && [[ -d "${extracted_dir}/pgdata" ]] \
+        && [[ -d "${extracted_dir}/state" ]]; then
+        echo "[baseline] using cached extracted baseline: ${extracted_dir}"
+    else
+        if [[ -d "${extracted_dir}" ]]; then
+            echo "[baseline] extracted baseline cache is incomplete, removing: ${extracted_dir}"
+            rm -rf "${extracted_dir}"
+        fi
+        mkdir -p "${baseline_cache}"
+        tmp_extract_dir="$(mktemp -d "${extracted_dir}.tmp.XXXXXX")"
+        echo "[baseline] extracting baseline tarball to cache dir: ${extracted_dir}"
+        if ! tar -xzf "${cache_file}" -C "${tmp_extract_dir}"; then
+            rm -rf "${tmp_extract_dir}"
+            return 1
+        fi
+        if [[ ! -d "${tmp_extract_dir}/namenode" ]] \
+            || [[ ! -d "${tmp_extract_dir}/datanode" ]] \
+            || [[ ! -d "${tmp_extract_dir}/pgdata" ]] \
+            || [[ ! -d "${tmp_extract_dir}/state" ]]; then
+            echo "[baseline] extracted baseline cache is incomplete: ${cache_file}" >&2
+            rm -rf "${tmp_extract_dir}"
+            return 1
+        fi
+        touch "${tmp_extract_dir}/.extract.ready"
+        mv "${tmp_extract_dir}" "${extracted_dir}"
+    fi
+
+    # Restore into all 4 volumes in a single alpine container so data streams
+    # directly from the extracted cache tree into the volume mounts.
+    echo "[baseline] restoring volumes from extracted baseline cache..."
+    local _t0
+    _t0=$(date +%s)
+    sudo docker run --rm \
+        -v "${extracted_dir}:/baseline:ro" \
+        -v "${prefix}-namenode:/restore/namenode" \
+        -v "${prefix}-datanode:/restore/datanode" \
+        -v "${prefix}-pgdata:/restore/pgdata" \
+        -v "${prefix}-state:/restore/state" \
+        alpine sh -c 'cd /baseline && tar cf - namenode datanode pgdata state | tar xf - -C /restore'
+    HIVE_BASELINE_RESTORE_RESULT="restored"
+    echo "[baseline] restore done took=$(( $(date +%s) - _t0 ))s"
+}
+
+hive_compose_file_for() {
+    local hive_version="$1"
+    echo "${ROOT}/docker-compose/hive/hive-${hive_version#hive}x.yaml"
+}
+
+hive_compose_template_for() {
+    local hive_version="$1"
+    echo "${ROOT}/docker-compose/hive/hive-${hive_version#hive}x.yaml.tpl"
+}
+
+hive_env_file_for() {
+    local hive_version="$1"
+    echo "${ROOT}/docker-compose/hive/hadoop-hive-${hive_version#hive}x.env"
+}
+
+hive_env_template_for() {
+    local hive_version="$1"
+    echo "${ROOT}/docker-compose/hive/hadoop-hive-${hive_version#hive}x.env.tpl"
+}
+
+hive_settings_env_for() {
+    local hive_version="$1"
+    echo "${ROOT}/docker-compose/hive/hive-${hive_version#hive}x_settings.env"
+}
+
+hive_metastore_container_for() {
+    local hive_version="$1"
+    echo "${hive_version}-metastore"
+}
+
+ensure_hosts_alias() {
+    local alias_name="$1"
+    local alias_ip="$2"
+    local tmp_hosts
+    local sudo_cmd=()
+
+    if [[ "$(id -u)" -ne 0 ]]; then
+        sudo_cmd=(sudo)
+    fi
+
+    tmp_hosts="$(mktemp)"
+    "${sudo_cmd[@]}" chmod a+w /etc/hosts
+    awk -v alias_name="${alias_name}" '
+        {
+            keep = 1
+            for (i = 2; i <= NF; ++i) {
+                if ($i == alias_name) {
+                    keep = 0
+                    break
+                }
+            }
+            if (keep) {
+                print
+            }
+        }
+    ' /etc/hosts >"${tmp_hosts}"
+    printf "%s %s\n" "${alias_ip}" "${alias_name}" >>"${tmp_hosts}"
+    "${sudo_cmd[@]}" cp "${tmp_hosts}" /etc/hosts
+    rm -f "${tmp_hosts}"
+}
+
+render_hive_compose() {
+    local hive_version="$1"
+    local compose_tpl
+    local compose_file
+    local env_file
+    local env_tpl
+
+    compose_tpl="$(hive_compose_template_for "${hive_version}")"
+    compose_file="$(hive_compose_file_for "${hive_version}")"
+    env_file="$(hive_env_file_for "${hive_version}")"
+    env_tpl="$(hive_env_template_for "${hive_version}")"
+
+    envsubst <"${compose_tpl}" >"${compose_file}"
+    envsubst <"${ROOT}/docker-compose/hive/hadoop-hive.env.tpl" >"${env_file}"
+    envsubst <"${env_tpl}" >>"${env_file}"
+}
+
+hive_compose_cmd() {
+    local hive_version="$1"
+    sudo docker compose -p "${CONTAINER_UID}${hive_version}" -f "$(hive_compose_file_for "${hive_version}")" --env-file "$(hive_env_file_for "${hive_version}")" "${@:2}"
+}
+
+exec_hive_script() {
+    local hive_version="$1"
+    local script_name="$2"
+    local metastore_container
+
+    metastore_container="$(hive_metastore_container_for "${hive_version}")"
+    # -i: forward SIGINT/SIGTERM into container so Ctrl+C kills the in-container script
+    #     instead of leaving an orphan that keeps mutating state.
+    # stdbuf -oL -eL: line-buffer output so progress reaches the host log in real time.
+    sudo docker exec -i \
+        -e HIVE_BOOTSTRAP_GROUPS="${HIVE_BOOTSTRAP_GROUPS}" \
+        -e LOAD_PARALLEL="${LOAD_PARALLEL}" \
+        -e HIVE_MODULES="${HIVE_MODULES}" \
+        -e HIVE_BASELINE_VERSION="${HIVE_BASELINE_VERSION}" \
+        -e HIVE_STATE_DIR="/mnt/state" \
+        -e HS_PORT="${HS_PORT}" \
+        -e DORIS_HS2_URL="jdbc:hive2://localhost:${HS_PORT}/default" \
+        -e HIVE_DEBUG="${HIVE_DEBUG:-0}" \
+        "${metastore_container}" \
+        stdbuf -oL -eL bash --noprofile --norc "/mnt/scripts/${script_name}"
+}
+
+maybe_refresh_hive_data() {
+    local hive_version="$1"
+    local baseline_restore_result="${2:-missing}"
+
+    if [[ "${NEED_LOAD_DATA}" -eq 0 ]]; then
+        echo "Skip Hive data refresh because --no-load-data is set"
+        return 0
+    fi
+
+    if [[ "${HIVE_MODE}" == "rebuild" || "${baseline_restore_result}" == "missing" ]]; then
+        local _t_baseline
+        _t_baseline=$(date +%s)
+        echo "[$(date '+%H:%M:%S')] [${hive_version}] init-hive-baseline begin"
+        exec_hive_script "${hive_version}" init-hive-baseline.sh
+        echo "[$(date '+%H:%M:%S')] [${hive_version}] init-hive-baseline done took=$(( $(date +%s) - _t_baseline ))s"
+    fi
+
+    if [[ "${HIVE_MODE}" == "refresh" || "${HIVE_MODE}" == "rebuild" ]]; then
+        local _t_modules
+        _t_modules=$(date +%s)
+        echo "[$(date '+%H:%M:%S')] [${hive_version}] refresh-hive-modules begin (mode=${HIVE_MODE} modules=${HIVE_MODULES})"
+        exec_hive_script "${hive_version}" refresh-hive-modules.sh
+        echo "[$(date '+%H:%M:%S')] [${hive_version}] refresh-hive-modules done took=$(( $(date +%s) - _t_modules ))s"
+    fi
+}
+
+start_hive_stack() {
+    local hive_version="$1"
+    local volume_prefix
+    local baseline_restore_result="missing"
+
+    export HIVE_BOOTSTRAP_GROUPS="$(hive_bootstrap_groups_for "${hive_version}")"
+    echo "${hive_version} selected bootstrap files: ${HIVE_BOOTSTRAP_GROUPS}"
+
+    . "$(hive_settings_env_for "${hive_version}")"
+    volume_prefix="$(hive_volume_prefix_for "${hive_version}")"
+    export HIVE_VOLUME_PREFIX="${volume_prefix}"
+    log_hive_volumes "${hive_version}" "${volume_prefix}"
+
+    # Keep a stable hostname in metastore/HDFS metadata while allowing the
+    # backing host IP to change across restarts.
+    ensure_hosts_alias "${HIVE_HOST_ALIAS}" "${IP_HOST}"
+
+    if [[ "${STOP}" -eq 1 ]]; then
+        render_hive_compose "${hive_version}"
+        hive_compose_cmd "${hive_version}" down
+        return 0
+    fi
+
+    # refresh/rebuild: tear down the stack and clear volumes first.
+    # fast: keep existing volumes and only restore the baseline when they are empty.
+    if [[ "${HIVE_MODE}" == "rebuild" || "${HIVE_MODE}" == "refresh" ]]; then
+        render_hive_compose "${hive_version}"
+        hive_compose_cmd "${hive_version}" down || true
+        reset_hive_volumes "${volume_prefix}"
+    fi
+
+    ensure_hive_volumes "${volume_prefix}"
+    if [[ "${HIVE_MODE}" != "rebuild" ]]; then
+        maybe_restore_baseline_to_volumes "${volume_prefix}" "${hive_version}"
+        baseline_restore_result="${HIVE_BASELINE_RESTORE_RESULT}"
+    fi
+    if [[ "${HIVE_MODE}" == "fast" && "${baseline_restore_result}" == "missing" ]]; then
+        echo "[baseline] ERROR: fast mode requires existing populated volumes or an available baseline tarball" >&2
+        return 1
+    fi
+    render_hive_compose "${hive_version}"
+
+    # fast mode is the only mode that reuses the current stack in place.
+    if [[ "${HIVE_MODE}" == "fast" ]] && docker_hive_stack_healthy "${CONTAINER_UID}" "${hive_version}"; then
+        echo "${hive_version} stack is already healthy, fast mode skips compose up"
+    else
+        local _t_up
+        _t_up=$(date +%s)
+        hive_compose_cmd "${hive_version}" up --build --remove-orphans -d --wait
+        echo "[$(date '+%H:%M:%S')] [${hive_version}] compose up done took=$(( $(date +%s) - _t_up ))s"
+    fi
+
+    local _t_data
+    _t_data=$(date +%s)
+    maybe_refresh_hive_data "${hive_version}" "${baseline_restore_result}"
+    echo "[$(date '+%H:%M:%S')] [${hive_version}] data refresh done took=$(( $(date +%s) - _t_data ))s"
 }
 
 start_iceberg() {
     # iceberg
     ICEBERG_DIR=${ROOT}/docker-compose/iceberg
-    cp "${ROOT}"/docker-compose/iceberg/iceberg.yaml.tpl "${ROOT}"/docker-compose/iceberg/iceberg.yaml
-    cp "${ROOT}"/docker-compose/iceberg/entrypoint.sh.tpl "${ROOT}"/docker-compose/iceberg/entrypoint.sh
-    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/iceberg/iceberg.yaml
-    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/iceberg/entrypoint.sh
-    cp "${ROOT}"/docker-compose/iceberg/entrypoint.sh "${ROOT}"/docker-compose/iceberg/scripts/entrypoint.sh
-    sudo docker compose -f "${ROOT}"/docker-compose/iceberg/iceberg.yaml --env-file "${ROOT}"/docker-compose/iceberg/iceberg.env down
+    render_uid_template "${ROOT}/docker-compose/iceberg/iceberg.yaml.tpl" "${ROOT}/docker-compose/iceberg/iceberg.yaml"
+    render_uid_template "${ROOT}/docker-compose/iceberg/entrypoint.sh.tpl" "${ROOT}/docker-compose/iceberg/entrypoint.sh"
+    cp "${ROOT}/docker-compose/iceberg/entrypoint.sh" "${ROOT}/docker-compose/iceberg/scripts/entrypoint.sh"
+    register_stack_metadata "iceberg" "${ROOT}/docker-compose/iceberg/iceberg.yaml" "${ROOT}/docker-compose/iceberg/iceberg.env"
+    compose_down_stack "${ROOT}/docker-compose/iceberg/iceberg.yaml" "${ROOT}/docker-compose/iceberg/iceberg.env" --remove-orphans
     if [[ "${STOP}" -ne 1 ]]; then
         if [[ ! -d "${ICEBERG_DIR}/data" ]]; then
             echo "${ICEBERG_DIR}/data does not exist"
-            cd "${ICEBERG_DIR}" \
-            && rm -f iceberg_data*.zip \
-            && wget -P "${ROOT}"/docker-compose/iceberg https://"${s3BucketName}.${s3Endpoint}"/regression/datalake/pipeline_data/iceberg_data_spark40.zip \
-            && sudo unzip iceberg_data_spark40.zip \
-            && sudo mv iceberg_data data \
-            && sudo rm -rf iceberg_data_spark40.zip
-            cd -
+            (
+                cd "${ICEBERG_DIR}" || exit 1
+                rm -f iceberg_data*.zip
+                wget -P "${ROOT}/docker-compose/iceberg" "https://${s3BucketName}.${s3Endpoint}/regression/datalake/pipeline_data/iceberg_data_spark40.zip"
+                sudo unzip iceberg_data_spark40.zip
+                sudo mv iceberg_data data
+                sudo rm -rf iceberg_data_spark40.zip
+            )
         else
             echo "${ICEBERG_DIR}/data exist, continue !"
         fi
 
-        sudo docker compose -f "${ROOT}"/docker-compose/iceberg/iceberg.yaml --env-file "${ROOT}"/docker-compose/iceberg/iceberg.env up -d --wait
+        compose_up_stack "${ROOT}/docker-compose/iceberg/iceberg.yaml" "${ROOT}/docker-compose/iceberg/iceberg.env" -d --wait
     fi
 }
 
@@ -634,33 +1293,33 @@ start_hudi() {
     set +a
     envsubst <"${HUDI_DIR}"/hudi.yaml.tpl >"${HUDI_DIR}"/hudi.yaml
     sudo chmod +x "${HUDI_DIR}"/scripts/init.sh
-    sudo docker compose -f "${HUDI_DIR}"/hudi.yaml --env-file "${HUDI_DIR}"/hudi.env down --remove-orphans
+    register_stack_metadata "hudi" "${HUDI_DIR}/hudi.yaml" "${HUDI_DIR}/hudi.env"
+    compose_down_stack "${HUDI_DIR}/hudi.yaml" "${HUDI_DIR}/hudi.env" --remove-orphans
     if [[ "${STOP}" -ne 1 ]]; then
-        sudo docker compose -f "${HUDI_DIR}"/hudi.yaml --env-file "${HUDI_DIR}"/hudi.env up -d --wait
+        compose_up_stack "${HUDI_DIR}/hudi.yaml" "${HUDI_DIR}/hudi.env" -d --wait
     fi
 }
 
 start_mariadb() {
     # mariadb
-    cp "${ROOT}"/docker-compose/mariadb/mariadb-10.yaml.tpl "${ROOT}"/docker-compose/mariadb/mariadb-10.yaml
-    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/mariadb/mariadb-10.yaml
-    sudo docker compose -f "${ROOT}"/docker-compose/mariadb/mariadb-10.yaml --env-file "${ROOT}"/docker-compose/mariadb/mariadb-10.env down
-    if [[ "${STOP}" -ne 1 ]]; then
-        sudo mkdir -p "${ROOT}"/docker-compose/mariadb/data/
-        sudo rm "${ROOT}"/docker-compose/mariadb/data/* -rf
-        sudo docker compose -f "${ROOT}"/docker-compose/mariadb/mariadb-10.yaml --env-file "${ROOT}"/docker-compose/mariadb/mariadb-10.env up -d --wait
-    fi
+    start_rendered_compose_stack "mariadb" \
+        "${ROOT}/docker-compose/mariadb/mariadb-10.yaml.tpl" \
+        "${ROOT}/docker-compose/mariadb/mariadb-10.yaml" \
+        "${ROOT}/docker-compose/mariadb/mariadb-10.env" \
+        -d --wait -- \
+        "${ROOT}/docker-compose/mariadb/data"
 }
 
 start_lakesoul() {
     echo "RUN_LAKESOUL"
     cp "${ROOT}"/docker-compose/lakesoul/lakesoul.yaml.tpl "${ROOT}"/docker-compose/lakesoul/lakesoul.yaml
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/lakesoul/lakesoul.yaml
-    sudo docker compose -f "${ROOT}"/docker-compose/lakesoul/lakesoul.yaml down
+    register_stack_metadata "lakesoul" "${ROOT}/docker-compose/lakesoul/lakesoul.yaml" ""
+    compose_cmd "${ROOT}/docker-compose/lakesoul/lakesoul.yaml" "" down --remove-orphans
     sudo rm -rf "${ROOT}"/docker-compose/lakesoul/data
     if [[ "${STOP}" -ne 1 ]]; then
         echo "PREPARE_LAKESOUL_DATA"
-        sudo docker compose -f "${ROOT}"/docker-compose/lakesoul/lakesoul.yaml up -d
+        compose_cmd "${ROOT}/docker-compose/lakesoul/lakesoul.yaml" "" up -d
         ## import tpch data into lakesoul
         ## install rustup
         curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --default-toolchain none -y
@@ -671,17 +1330,20 @@ start_lakesoul() {
         ## download&generate tpch data
         mkdir -p lakesoul/test_files/tpch/data
         git clone https://github.com/databricks/tpch-dbgen.git
-        cd tpch-dbgen
-        make
-        ./dbgen -f -s 0.1
-        mv *.tbl ../lakesoul/test_files/tpch/data
-        cd ..
+        (
+            cd tpch-dbgen
+            make
+            ./dbgen -f -s 0.1
+            mv *.tbl ../lakesoul/test_files/tpch/data
+        )
         export TPCH_DATA=$(realpath lakesoul/test_files/tpch/data)
         ## import tpch data
         git clone https://github.com/lakesoul-io/LakeSoul.git
         #    git checkout doris_dev
-        cd LakeSoul/rust
-        cargo test load_tpch_data --package lakesoul-datafusion --features=ci -- --nocapture
+        (
+            cd LakeSoul/rust
+            cargo test load_tpch_data --package lakesoul-datafusion --features=ci -- --nocapture
+        )
     fi
 }
 
@@ -699,18 +1361,22 @@ start_kerberos() {
         envsubst <"${ROOT}"/docker-compose/kerberos/conf/kerberos${i}/krb5.conf.tpl > "${ROOT}"/docker-compose/kerberos/conf/kerberos${i}/krb5.conf
     done
     sudo chmod a+w /etc/hosts
-    sudo sed -i "1i${IP_HOST} hadoop-master" /etc/hosts
-    sudo sed -i "1i${IP_HOST} hadoop-master-2" /etc/hosts
-    sudo docker compose -f "${ROOT}"/docker-compose/kerberos/kerberos.yaml down
+    if ! awk -v ip="${IP_HOST}" '$1 == ip && $2 == "hadoop-master" { found = 1 } END { exit !found }' /etc/hosts; then
+        sudo sed -i "1i${IP_HOST} hadoop-master" /etc/hosts
+    fi
+    if ! awk -v ip="${IP_HOST}" '$1 == ip && $2 == "hadoop-master-2" { found = 1 } END { exit !found }' /etc/hosts; then
+        sudo sed -i "1i${IP_HOST} hadoop-master-2" /etc/hosts
+    fi
+    register_stack_metadata "kerberos" "${ROOT}/docker-compose/kerberos/kerberos.yaml" ""
+    compose_cmd "${ROOT}/docker-compose/kerberos/kerberos.yaml" "" down --remove-orphans
     sudo rm -rf "${ROOT}"/docker-compose/kerberos/data
     if [[ "${STOP}" -ne 1 ]]; then
         echo "PREPARE KERBEROS DATA"
         rm -rf "${ROOT}"/docker-compose/kerberos/two-kerberos-hives/*.keytab
         rm -rf "${ROOT}"/docker-compose/kerberos/two-kerberos-hives/*.jks
         rm -rf "${ROOT}"/docker-compose/kerberos/two-kerberos-hives/*.conf
-        sudo docker compose -f "${ROOT}"/docker-compose/kerberos/kerberos.yaml up --remove-orphans --wait -d
-        sudo rm -df /keytabs
-        sudo ln -s "${ROOT}"/docker-compose/kerberos/two-kerberos-hives /keytabs
+        compose_cmd "${ROOT}/docker-compose/kerberos/kerberos.yaml" "" up --remove-orphans --wait -d
+        sudo ln -sfn "${ROOT}/docker-compose/kerberos/two-kerberos-hives" /keytabs
         sudo cp "${ROOT}"/docker-compose/kerberos/common/conf/doris-krb5.conf /keytabs/krb5.conf
         sudo cp "${ROOT}"/docker-compose/kerberos/common/conf/doris-krb5.conf /etc/krb5.conf
         sleep 2
@@ -719,12 +1385,11 @@ start_kerberos() {
 
 start_minio() {
     echo "RUN_MINIO"
-    cp "${ROOT}"/docker-compose/minio/minio-RELEASE.2024-11-07.yaml.tpl "${ROOT}"/docker-compose/minio/minio-RELEASE.2024-11-07.yaml
-    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/minio/minio-RELEASE.2024-11-07.yaml
-    sudo docker compose -f "${ROOT}"/docker-compose/minio/minio-RELEASE.2024-11-07.yaml --env-file "${ROOT}"/docker-compose/minio/minio-RELEASE.2024-11-07.env down
-    if [[ "${STOP}" -ne 1 ]]; then
-        sudo docker compose -f "${ROOT}"/docker-compose/minio/minio-RELEASE.2024-11-07.yaml --env-file "${ROOT}"/docker-compose/minio/minio-RELEASE.2024-11-07.env up -d
-    fi
+    start_rendered_compose_stack "minio" \
+        "${ROOT}/docker-compose/minio/minio-RELEASE.2024-11-07.yaml.tpl" \
+        "${ROOT}/docker-compose/minio/minio-RELEASE.2024-11-07.yaml" \
+        "${ROOT}/docker-compose/minio/minio-RELEASE.2024-11-07.env" \
+        -d --wait
 }
 
 start_polaris() {
@@ -739,9 +1404,10 @@ start_polaris() {
         # Fallback: let docker compose handle variable substitution from current shell env
         cp "${POLARIS_DIR}/docker-compose.yaml.tpl" "${POLARIS_DIR}/docker-compose.yaml"
     fi
-    sudo docker compose -f "${POLARIS_DIR}/docker-compose.yaml" down
+    register_stack_metadata "polaris" "${POLARIS_DIR}/docker-compose.yaml" ""
+    compose_cmd "${POLARIS_DIR}/docker-compose.yaml" "" down --remove-orphans
     if [[ "${STOP}" -ne 1 ]]; then
-        sudo docker compose -f "${POLARIS_DIR}/docker-compose.yaml" up -d --wait --remove-orphans
+        compose_cmd "${POLARIS_DIR}/docker-compose.yaml" "" up -d --wait --remove-orphans
     fi
 }
 
@@ -752,9 +1418,10 @@ start_ranger() {
     find "${ROOT}/docker-compose/ranger/script" -type f -exec sed -i "s/s3BucketName/${s3BucketName}/g" {} \;
     . "${ROOT}/docker-compose/ranger/ranger_settings.env"
     envsubst <"${ROOT}"/docker-compose/ranger/ranger.yaml.tpl >"${ROOT}"/docker-compose/ranger/ranger.yaml
-    sudo docker compose -f "${ROOT}"/docker-compose/ranger/ranger.yaml --env-file "${ROOT}"/docker-compose/ranger/ranger_settings.env down
+    register_stack_metadata "ranger" "${ROOT}/docker-compose/ranger/ranger.yaml" "${ROOT}/docker-compose/ranger/ranger_settings.env"
+    compose_down_stack "${ROOT}/docker-compose/ranger/ranger.yaml" "${ROOT}/docker-compose/ranger/ranger_settings.env" --remove-orphans
     if [[ "${STOP}" -ne 1 ]]; then
-        sudo docker compose -f "${ROOT}"/docker-compose/ranger/ranger.yaml --env-file "${ROOT}"/docker-compose/ranger/ranger_settings.env up -d --wait --remove-orphans
+        compose_up_stack "${ROOT}/docker-compose/ranger/ranger.yaml" "${ROOT}/docker-compose/ranger/ranger_settings.env" -d --wait --remove-orphans
     fi
 }
 
@@ -767,11 +1434,11 @@ start_iceberg_rest() {
     export CONTAINER_UID=${CONTAINER_UID}
     . "${ROOT}"/docker-compose/iceberg-rest/iceberg-rest_settings.env
     envsubst <"${ICEBERG_REST_DIR}/docker-compose.yaml.tpl" >"${ICEBERG_REST_DIR}/docker-compose.yaml"
-    
-    sudo docker compose -f "${ICEBERG_REST_DIR}/docker-compose.yaml" down
+    register_stack_metadata "iceberg-rest" "${ICEBERG_REST_DIR}/docker-compose.yaml" ""
+    compose_cmd "${ICEBERG_REST_DIR}/docker-compose.yaml" "" down --remove-orphans
     if [[ "${STOP}" -ne 1 ]]; then
         # Start all three REST catalogs (S3, OSS, COS)
-        sudo docker compose -f "${ICEBERG_REST_DIR}/docker-compose.yaml" up -d --remove-orphans --wait
+        compose_cmd "${ICEBERG_REST_DIR}/docker-compose.yaml" "" up -d --remove-orphans --wait
     fi
 }
 
@@ -783,21 +1450,23 @@ reserve_ports
 need_prepare_hive_data=0
 if [[ "$NEED_LOAD_DATA" -eq 1 ]]; then
     if [[ "${RUN_HIVE2}" -eq 1 ]] || [[ "${RUN_HIVE3}" -eq 1 ]]; then
-        need_prepare_hive_data=1
+        if [[ "${HIVE_MODE}" == "refresh" || "${HIVE_MODE}" == "rebuild" ]]; then
+            need_prepare_hive_data=1
+        fi
     fi
 fi
 
 if [[ $need_prepare_hive_data -eq 1 ]]; then
     prepare_hive_bootstrap_groups=()
     if [[ "${RUN_HIVE2}" -eq 1 ]]; then
-        prepare_hive_bootstrap_groups+=("${HIVE2_BOOTSTRAP_GROUPS:-}")
+        prepare_hive_bootstrap_groups+=("$(hive_bootstrap_groups_for "hive2")")
     fi
     if [[ "${RUN_HIVE3}" -eq 1 ]]; then
-        prepare_hive_bootstrap_groups+=("${HIVE3_BOOTSTRAP_GROUPS:-}")
+        prepare_hive_bootstrap_groups+=("$(hive_bootstrap_groups_for "hive3")")
     fi
     export HIVE_BOOTSTRAP_GROUPS="$(bootstrap_merge_groups "${prepare_hive_bootstrap_groups[@]}")"
     echo "prepare hive2/hive3 data"
-    echo "Prepare hive bootstrap groups: ${HIVE_BOOTSTRAP_GROUPS}"
+    echo "Prepare hive selected bootstrap files: ${HIVE_BOOTSTRAP_GROUPS}"
     bash "${ROOT}/docker-compose/hive/scripts/prepare-hive-data.sh"
 fi
 
@@ -807,125 +1476,90 @@ if [[ "${STOP}" -ne 1 ]]; then
     fi
 fi
 
-declare -A pids
-
 if [[ "${RUN_ES}" -eq 1 ]]; then
-    start_es > start_es.log  2>&1 &
-    pids["es"]=$!
+    launch_component "es" "${LOG_ROOT}/start_es.log" start_es
 fi
 
 if [[ "${RUN_MYSQL}" -eq 1 ]]; then
-    start_mysql > start_mysql.log 2>&1 &
-    pids["mysql"]=$!
+    launch_component "mysql" "${LOG_ROOT}/start_mysql.log" start_mysql
 fi
 
 if [[ "${RUN_PG}" -eq 1 ]]; then
-    start_pg > start_pg.log 2>&1 &
-    pids["pg"]=$!
+    launch_component "pg" "${LOG_ROOT}/start_pg.log" start_pg
 fi
 
 if [[ "${RUN_ORACLE}" -eq 1 ]]; then
-    start_oracle > start_oracle.log 2>&1 &
-    pids["oracle"]=$!
+    launch_component "oracle" "${LOG_ROOT}/start_oracle.log" start_oracle
 fi
 
 if [[ "${RUN_DB2}" -eq 1 ]]; then
-    start_db2 > start_db2.log 2>&1 &
-    pids["db2"]=$!
+    launch_component "db2" "${LOG_ROOT}/start_db2.log" start_db2
 fi
 
 if [[ "${RUN_OCEANBASE}" -eq 1 ]]; then
-    start_oceanbase > start_oceanbase.log 2>&1 &
-    pids["oceanbase"]=$!
+    launch_component "oceanbase" "${LOG_ROOT}/start_oceanbase.log" start_oceanbase
 fi
 
 if [[ "${RUN_SQLSERVER}" -eq 1 ]]; then
-    start_sqlserver > start_sqlserver.log 2>&1 &
-    pids["sqlserver"]=$!
+    launch_component "sqlserver" "${LOG_ROOT}/start_sqlserver.log" start_sqlserver
 fi
 
 if [[ "${RUN_CLICKHOUSE}" -eq 1 ]]; then
-    start_clickhouse > start_clickhouse.log 2>&1 &
-    pids["clickhouse"]=$!
+    launch_component "clickhouse" "${LOG_ROOT}/start_clickhouse.log" start_clickhouse
 fi
 
 if [[ "${RUN_KAFKA}" -eq 1 ]]; then
-    start_kafka > start_kafka.log 2>&1 &
-    pids["kafka"]=$!
+    launch_component "kafka" "${LOG_ROOT}/start_kafka.log" start_kafka
 fi
 
 if [[ "${RUN_HIVE2}" -eq 1 ]]; then
-    start_hive2 > start_hive2.log 2>&1 &
-    pids["hive2"]=$!
+    launch_component "hive2" "${LOG_ROOT}/start_hive2.log" start_hive2
 fi
 
 if [[ "${RUN_HIVE3}" -eq 1 ]]; then
-    start_hive3 > start_hive3.log 2>&1 &
-    pids["hive3"]=$!
+    launch_component "hive3" "${LOG_ROOT}/start_hive3.log" start_hive3
 fi
 
 if [[ "${RUN_ICEBERG}" -eq 1 ]]; then
-    start_iceberg > start_iceberg.log 2>&1 &
-    pids["iceberg"]=$!
+    launch_component "iceberg" "${LOG_ROOT}/start_iceberg.log" start_iceberg
 fi
 
 if [[ "${RUN_ICEBERG_REST}" -eq 1 ]]; then
-    start_iceberg_rest > start_iceberg_rest.log 2>&1 &
-    pids["iceberg-rest"]=$!
+    launch_component "iceberg-rest" "${LOG_ROOT}/start_iceberg_rest.log" start_iceberg_rest
 fi
 
 if [[ "${RUN_HUDI}" -eq 1 ]]; then
-    start_hudi > start_hudi.log 2>&1 &
-    pids["hudi"]=$!
+    launch_component "hudi" "${LOG_ROOT}/start_hudi.log" start_hudi
 fi
 
 if [[ "${RUN_MARIADB}" -eq 1 ]]; then
-    start_mariadb > start_mariadb.log 2>&1 &
-    pids["mariadb"]=$!
+    launch_component "mariadb" "${LOG_ROOT}/start_mariadb.log" start_mariadb
 fi
 
 if [[ "${RUN_LAKESOUL}" -eq 1 ]]; then
-    start_lakesoul > start_lakesoule.log 2>&1 &
-    pids["lakesoul"]=$!
+    launch_component "lakesoul" "${LOG_ROOT}/start_lakesoul.log" start_lakesoul
 fi
 
 if [[ "${RUN_MINIO}" -eq 1 ]]; then
-    start_minio > start_minio.log 2>&1 &
-    pids["minio"]=$!
+    launch_component "minio" "${LOG_ROOT}/start_minio.log" start_minio
 fi
 
 if [[ "${RUN_POLARIS}" -eq 1 ]]; then
-    start_polaris > start_polaris.log 2>&1 &
-    pids["polaris"]=$!
+    launch_component "polaris" "${LOG_ROOT}/start_polaris.log" start_polaris
 fi
 
 if [[ "${RUN_KERBEROS}" -eq 1 ]]; then
-    start_kerberos > start_kerberos.log 2>&1 &
-    pids["kerberos"]=$!
+    launch_component "kerberos" "${LOG_ROOT}/start_kerberos.log" start_kerberos
 fi
 
 if [[ "${RUN_RANGER}" -eq 1 ]]; then
-    start_ranger > start_ranger.log 2>&1 &
-    pids["ranger"]=$!
+    launch_component "ranger" "${LOG_ROOT}/start_ranger.log" start_ranger
 fi
 echo "waiting all dockers starting done"
 
-for compose in "${!pids[@]}"; do
-    # prevent wait return 1 make the script exit
-    status=0
-    wait "${pids[$compose]}" || status=$?
-    if [ $status -ne 0 ] && [ $compose != "db2" ]; then
-        echo "docker $compose started failed with status $status"
-        echo "print start_${compose}.log"
-        cat start_${compose}.log || true
-
-        echo ""
-        echo "print last 100 logs of the latest unhealthy container"
-        sudo docker ps -a --latest --filter 'health=unhealthy' --format '{{.ID}}' | xargs -I '{}' sh -c 'echo "=== Logs of {} ===" && docker logs -t --tail 100 "{}"'
-
-        exit 1
-    fi
-done
+if ! wait_for_started_jobs; then
+    exit 1
+fi
 
 if [[ "${STOP}" -ne 1 ]]; then
     if [[ "${RUN_HIVE2}" -eq 1 ]]; then
@@ -938,6 +1572,8 @@ if [[ "${STOP}" -ne 1 ]]; then
     fi
 fi
 
-echo "docker started"
-sudo docker ps -a --format "{{.ID}} | {{.Image}} | {{.Status}}"
-echo "all dockers started successfully"
+if [[ "${STOP}" -ne 1 ]]; then
+    echo "docker started"
+    print_started_summary
+    echo "all requested dockers started successfully"
+fi

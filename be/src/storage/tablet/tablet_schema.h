@@ -191,7 +191,7 @@ public:
     const PathInDataPtr& path_info_ptr() const { return _column_path; }
     // If it is an extracted column from variant column
     bool is_extracted_column() const {
-        return _column_path != nullptr && !_column_path->empty() && _parent_col_unique_id > 0;
+        return _column_path != nullptr && !_column_path->empty() && _parent_col_unique_id >= 0;
     };
     std::string suffix_path() const {
         return is_extracted_column() ? _column_path->get_path() : "";

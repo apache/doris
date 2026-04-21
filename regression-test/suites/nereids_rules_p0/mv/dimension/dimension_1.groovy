@@ -385,7 +385,7 @@ suite("partition_mv_rewrite_dimension_1") {
         }
         for (int j = 0; j < join_type_stmt_list.size(); j++) {
             logger.info("j:" + j)
-            if (i == j) {
+            if (i == j || (j == 1 && i in [0, 2, 3])) {
                 mv_rewrite_success(join_type_stmt_list[j], join_type_mv)
                 compare_res(join_type_stmt_list[j] + " order by 1,2,3,4")
             } else {

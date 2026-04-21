@@ -1,7 +1,9 @@
 CREATE DATABASE IF NOT EXISTS partition_type;
 USE partition_type;
 
-CREATE TABLE `partition_type.char_partition`(
+drop table if exists `partition_type.char_partition`;
+
+create table `partition_type.char_partition`(
   `id` int)
 PARTITIONED BY ( 
   `char_part` char(20))

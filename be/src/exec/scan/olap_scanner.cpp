@@ -573,7 +573,8 @@ Status OlapScanner::_init_return_columns() {
         }
 
         const auto& column = tablet_schema->column(index);
-        int32_t unique_id = column.unique_id() > 0 ? column.unique_id() : column.parent_unique_id();
+        int32_t unique_id =
+                column.unique_id() >= 0 ? column.unique_id() : column.parent_unique_id();
         if (!slot->all_access_paths().empty()) {
             _tablet_reader_params.all_access_paths.insert({unique_id, slot->all_access_paths()});
         }
